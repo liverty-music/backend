@@ -51,15 +51,15 @@ func (p *NoopOrganizerProvisioner) ProvisionTenant(ctx context.Context, organize
 }
 
 // DeactivateOperators performs no real teardown.
-func (p *NoopOrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelOrgID string) error {
+func (p *NoopOrganizerProvisioner) DeactivateOperators(ctx context.Context, providerOrganizerID string) error {
 	p.logger.Warn(ctx, "organizer operator deactivation skipped: no organizer-provisioner credential configured",
-		slog.String("zitadel_org_id", zitadelOrgID))
+		slog.String("zitadel_org_id", providerOrganizerID))
 	return nil
 }
 
 // DeleteTenant performs no real teardown.
-func (p *NoopOrganizerProvisioner) DeleteTenant(ctx context.Context, zitadelOrgID string) error {
+func (p *NoopOrganizerProvisioner) DeleteTenant(ctx context.Context, providerOrganizerID string) error {
 	p.logger.Warn(ctx, "organizer tenant removal skipped: no organizer-provisioner credential configured",
-		slog.String("zitadel_org_id", zitadelOrgID))
+		slog.String("zitadel_org_id", providerOrganizerID))
 	return nil
 }

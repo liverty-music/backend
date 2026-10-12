@@ -187,12 +187,12 @@ func (_c *MockUserUseCase_Get_Call) RunAndReturn(run func(context.Context, strin
 	return _c
 }
 
-// GetByExternalID provides a mock function with given fields: ctx, externalID
-func (_m *MockUserUseCase) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+// GetByProviderUserID provides a mock function with given fields: ctx, externalID
+func (_m *MockUserUseCase) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
 	ret := _m.Called(ctx, externalID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByExternalID")
+		panic("no return value specified for GetByProviderUserID")
 	}
 
 	var r0 *entity.User
@@ -217,31 +217,31 @@ func (_m *MockUserUseCase) GetByExternalID(ctx context.Context, externalID strin
 	return r0, r1
 }
 
-// MockUserUseCase_GetByExternalID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByExternalID'
-type MockUserUseCase_GetByExternalID_Call struct {
+// MockUserUseCase_GetByProviderUserID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByProviderUserID'
+type MockUserUseCase_GetByProviderUserID_Call struct {
 	*mock.Call
 }
 
-// GetByExternalID is a helper method to define mock.On call
+// GetByProviderUserID is a helper method to define mock.On call
 //   - ctx context.Context
 //   - externalID string
-func (_e *MockUserUseCase_Expecter) GetByExternalID(ctx interface{}, externalID interface{}) *MockUserUseCase_GetByExternalID_Call {
-	return &MockUserUseCase_GetByExternalID_Call{Call: _e.mock.On("GetByExternalID", ctx, externalID)}
+func (_e *MockUserUseCase_Expecter) GetByProviderUserID(ctx interface{}, externalID interface{}) *MockUserUseCase_GetByProviderUserID_Call {
+	return &MockUserUseCase_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, externalID)}
 }
 
-func (_c *MockUserUseCase_GetByExternalID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserUseCase_GetByExternalID_Call {
+func (_c *MockUserUseCase_GetByProviderUserID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserUseCase_GetByProviderUserID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockUserUseCase_GetByExternalID_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_GetByExternalID_Call {
+func (_c *MockUserUseCase_GetByProviderUserID_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_GetByProviderUserID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockUserUseCase_GetByExternalID_Call) RunAndReturn(run func(context.Context, string) (*entity.User, error)) *MockUserUseCase_GetByExternalID_Call {
+func (_c *MockUserUseCase_GetByProviderUserID_Call) RunAndReturn(run func(context.Context, string) (*entity.User, error)) *MockUserUseCase_GetByProviderUserID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -352,6 +352,126 @@ func (_c *MockUserUseCase_ResolveCaller_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// SetHome provides a mock function with given fields: ctx, id, home
+func (_m *MockUserUseCase) SetHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
+	ret := _m.Called(ctx, id, home)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetHome")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) (*entity.User, error)); ok {
+		return rf(ctx, id, home)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) *entity.User); ok {
+		r0 = rf(ctx, id, home)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home) error); ok {
+		r1 = rf(ctx, id, home)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserUseCase_SetHome_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetHome'
+type MockUserUseCase_SetHome_Call struct {
+	*mock.Call
+}
+
+// SetHome is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - home *entity.Home
+func (_e *MockUserUseCase_Expecter) SetHome(ctx interface{}, id interface{}, home interface{}) *MockUserUseCase_SetHome_Call {
+	return &MockUserUseCase_SetHome_Call{Call: _e.mock.On("SetHome", ctx, id, home)}
+}
+
+func (_c *MockUserUseCase_SetHome_Call) Run(run func(ctx context.Context, id string, home *entity.Home)) *MockUserUseCase_SetHome_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home))
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_SetHome_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_SetHome_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserUseCase_SetHome_Call) RunAndReturn(run func(context.Context, string, *entity.Home) (*entity.User, error)) *MockUserUseCase_SetHome_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetPreferredLanguage provides a mock function with given fields: ctx, id, lang
+func (_m *MockUserUseCase) SetPreferredLanguage(ctx context.Context, id string, lang string) (*entity.User, error) {
+	ret := _m.Called(ctx, id, lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPreferredLanguage")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.User, error)); ok {
+		return rf(ctx, id, lang)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.User); ok {
+		r0 = rf(ctx, id, lang)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, id, lang)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserUseCase_SetPreferredLanguage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPreferredLanguage'
+type MockUserUseCase_SetPreferredLanguage_Call struct {
+	*mock.Call
+}
+
+// SetPreferredLanguage is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - lang string
+func (_e *MockUserUseCase_Expecter) SetPreferredLanguage(ctx interface{}, id interface{}, lang interface{}) *MockUserUseCase_SetPreferredLanguage_Call {
+	return &MockUserUseCase_SetPreferredLanguage_Call{Call: _e.mock.On("SetPreferredLanguage", ctx, id, lang)}
+}
+
+func (_c *MockUserUseCase_SetPreferredLanguage_Call) Run(run func(ctx context.Context, id string, lang string)) *MockUserUseCase_SetPreferredLanguage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_SetPreferredLanguage_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_SetPreferredLanguage_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserUseCase_SetPreferredLanguage_Call) RunAndReturn(run func(context.Context, string, string) (*entity.User, error)) *MockUserUseCase_SetPreferredLanguage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Update provides a mock function with given fields: ctx, externalID, fullName, phoneNumber
 func (_m *MockUserUseCase) Update(ctx context.Context, externalID string, fullName *string, phoneNumber *string) (*entity.User, error) {
 	ret := _m.Called(ctx, externalID, fullName, phoneNumber)
@@ -409,126 +529,6 @@ func (_c *MockUserUseCase_Update_Call) Return(_a0 *entity.User, _a1 error) *Mock
 }
 
 func (_c *MockUserUseCase_Update_Call) RunAndReturn(run func(context.Context, string, *string, *string) (*entity.User, error)) *MockUserUseCase_Update_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateHome provides a mock function with given fields: ctx, id, home
-func (_m *MockUserUseCase) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
-	ret := _m.Called(ctx, id, home)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateHome")
-	}
-
-	var r0 *entity.User
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) (*entity.User, error)); ok {
-		return rf(ctx, id, home)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) *entity.User); ok {
-		r0 = rf(ctx, id, home)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.User)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home) error); ok {
-		r1 = rf(ctx, id, home)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockUserUseCase_UpdateHome_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateHome'
-type MockUserUseCase_UpdateHome_Call struct {
-	*mock.Call
-}
-
-// UpdateHome is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - home *entity.Home
-func (_e *MockUserUseCase_Expecter) UpdateHome(ctx interface{}, id interface{}, home interface{}) *MockUserUseCase_UpdateHome_Call {
-	return &MockUserUseCase_UpdateHome_Call{Call: _e.mock.On("UpdateHome", ctx, id, home)}
-}
-
-func (_c *MockUserUseCase_UpdateHome_Call) Run(run func(ctx context.Context, id string, home *entity.Home)) *MockUserUseCase_UpdateHome_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home))
-	})
-	return _c
-}
-
-func (_c *MockUserUseCase_UpdateHome_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_UpdateHome_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockUserUseCase_UpdateHome_Call) RunAndReturn(run func(context.Context, string, *entity.Home) (*entity.User, error)) *MockUserUseCase_UpdateHome_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdatePreferredLanguage provides a mock function with given fields: ctx, id, lang
-func (_m *MockUserUseCase) UpdatePreferredLanguage(ctx context.Context, id string, lang string) (*entity.User, error) {
-	ret := _m.Called(ctx, id, lang)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdatePreferredLanguage")
-	}
-
-	var r0 *entity.User
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.User, error)); ok {
-		return rf(ctx, id, lang)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.User); ok {
-		r0 = rf(ctx, id, lang)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.User)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, id, lang)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockUserUseCase_UpdatePreferredLanguage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePreferredLanguage'
-type MockUserUseCase_UpdatePreferredLanguage_Call struct {
-	*mock.Call
-}
-
-// UpdatePreferredLanguage is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - lang string
-func (_e *MockUserUseCase_Expecter) UpdatePreferredLanguage(ctx interface{}, id interface{}, lang interface{}) *MockUserUseCase_UpdatePreferredLanguage_Call {
-	return &MockUserUseCase_UpdatePreferredLanguage_Call{Call: _e.mock.On("UpdatePreferredLanguage", ctx, id, lang)}
-}
-
-func (_c *MockUserUseCase_UpdatePreferredLanguage_Call) Run(run func(ctx context.Context, id string, lang string)) *MockUserUseCase_UpdatePreferredLanguage_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockUserUseCase_UpdatePreferredLanguage_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_UpdatePreferredLanguage_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockUserUseCase_UpdatePreferredLanguage_Call) RunAndReturn(run func(context.Context, string, string) (*entity.User, error)) *MockUserUseCase_UpdatePreferredLanguage_Call {
 	_c.Call.Return(run)
 	return _c
 }

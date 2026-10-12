@@ -15,7 +15,7 @@ import (
 // independent of the performing artist so a co-headliner's per-artist discovery
 // cannot resurrect a slot the operator removed.
 //
-// Suppression is distinct from RejectedConcertLog: the rejection log is
+// Suppression is distinct from RejectedConcert: the rejection log is
 // analysis-only and never suppresses, whereas a SuppressedConcert actively
 // blocks re-creation until it is removed through the deliberate un-suppress path.
 type SuppressedConcert struct {

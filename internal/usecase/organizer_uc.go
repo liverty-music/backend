@@ -48,23 +48,6 @@ type OrganizerUseCase interface {
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*entity.Organizer, error)
 
-	// ListArtists returns the artists an Organizer represents. Used by the
-	// admin-facing handler, which may query any Organizer — it performs no
-	// ownership check. The organizer-facing handler MUST use ListOwnArtists
-	// instead.
-	//
-	// # Possible errors:
-	//   - NotFound: no organizer with the id exists.
-	ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error)
-
-	// ListOwnArtists returns the artists represented by the caller's own
-	// Organizer, as ResolveCaller returned it. The organizer-facing request
-	// names no Organizer, so an operator can only read their own roster.
-	//
-	// # Possible errors:
-	//   - NotFound: the caller's Organizer no longer exists.
-	ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error)
-
 	// ResolveCaller returns the caller's own Organizer, resolved from the
 	// Zitadel organization id extracted from the authenticated request
 	// context by the organizer-facing handler, and enforces that the
@@ -82,7 +65,7 @@ type OrganizerUseCase interface {
 	//   - PermissionDenied: no organizer is linked to zitadelOrgID, or its
 	//     status is neither Active nor Deactivated (e.g. still provisioning).
 	//   - FailedPrecondition: the organizer is deactivated.
-	ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error)
+	ResolveCaller(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error)
 
 	// AssociateArtist links an existing artist to an Organizer.
 	//
@@ -119,7 +102,7 @@ type OrganizerUseCase interface {
 	ReconcileProvisioning(ctx context.Context) error
 
 	// Delete permanently removes a deactivated Organizer: the original and
-	// served files of every Media it owns, then its tenant (when it has one,
+	// served files of every SeriesImage it owns, then its tenant (when it has one,
 	// found by its deterministic name when the link was never recorded), then
 	// its records. Before anything is removed it runs the record deletion
 	// as a dry run, so a purchase or payout account that blocks deletion stops
@@ -169,15 +152,15 @@ type OrganizerMediaBuckets struct {
 }
 
 type organizerUseCase struct {
-	organizerRepo entity.OrganizerRepository
-	artistRepo    entity.ArtistRepository
-	provisioner   OrganizerProvisioner
-	mediaRepo     entity.MediaRepository
-	imageStorer   ImageStorer
-	mediaBuckets  OrganizerMediaBuckets
-	publisher     EventPublisher
-	metrics       OrganizerMetrics
-	logger        *logging.Logger
+	organizerRepo   entity.OrganizerRepository
+	artistRepo      entity.ArtistRepository
+	provisioner     OrganizerProvisioner
+	seriesImageRepo entity.SeriesImageRepository
+	imageStorer     ImageStorer
+	mediaBuckets    OrganizerMediaBuckets
+	publisher       EventPublisher
+	metrics         OrganizerMetrics
+	logger          *logging.Logger
 }
 
 // NewOrganizerUseCase creates a new OrganizerUseCase. imageStorer may be nil
@@ -187,7 +170,7 @@ func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistRepo entity.ArtistRepository,
 	provisioner OrganizerProvisioner,
-	mediaRepo entity.MediaRepository,
+	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
 	mediaBuckets OrganizerMediaBuckets,
 	publisher EventPublisher,
@@ -195,15 +178,15 @@ func NewOrganizerUseCase(
 	logger *logging.Logger,
 ) OrganizerUseCase {
 	return &organizerUseCase{
-		organizerRepo: organizerRepo,
-		artistRepo:    artistRepo,
-		provisioner:   provisioner,
-		mediaRepo:     mediaRepo,
-		imageStorer:   imageStorer,
-		mediaBuckets:  mediaBuckets,
-		publisher:     publisher,
-		metrics:       metrics,
-		logger:        logger,
+		organizerRepo:   organizerRepo,
+		artistRepo:      artistRepo,
+		provisioner:     provisioner,
+		seriesImageRepo: seriesImageRepo,
+		imageStorer:     imageStorer,
+		mediaBuckets:    mediaBuckets,
+		publisher:       publisher,
+		metrics:         metrics,
+		logger:          logger,
 	}
 }
 
@@ -294,18 +277,18 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 		return err
 	}
 
-	if org.ZitadelOrgID == "" {
-		zitadelOrgID, err := uc.provisioner.EnsureTenantOrg(ctx, org.ID)
+	if org.ProviderOrganizerID == "" {
+		providerOrganizerID, err := uc.provisioner.EnsureTenantOrg(ctx, org.ID)
 		if err != nil {
 			return fail(err)
 		}
-		if err := uc.organizerRepo.SetZitadelOrgID(ctx, org.ID, zitadelOrgID); err != nil {
+		if err := uc.organizerRepo.SetProviderOrganizerID(ctx, org.ID, providerOrganizerID); err != nil {
 			return fail(err)
 		}
-		org.ZitadelOrgID = zitadelOrgID
+		org.ProviderOrganizerID = providerOrganizerID
 	}
 
-	if err := uc.provisioner.ProvisionTenant(ctx, org.ID, org.ZitadelOrgID, org.OperatorEmail); err != nil {
+	if err := uc.provisioner.ProvisionTenant(ctx, org.ID, org.ProviderOrganizerID, org.OperatorEmail); err != nil {
 		return fail(err)
 	}
 
@@ -331,7 +314,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	uc.metrics.RecordOrganizerProvisioning(ctx, "success")
 	uc.logger.Info(ctx, "organizer tenant provisioned",
 		slog.String("organizer_id", org.ID),
-		slog.String("zitadel_org_id", org.ZitadelOrgID),
+		slog.String("provider_organizer_id", org.ProviderOrganizerID),
 	)
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{
@@ -396,17 +379,17 @@ func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 // before the link was stored), the org found by its deterministic name. It
 // returns "" when the Organizer has no tenant org.
 func (uc *organizerUseCase) tenantOrgID(ctx context.Context, org *entity.Organizer) (string, error) {
-	if org.ZitadelOrgID != "" {
-		return org.ZitadelOrgID, nil
+	if org.ProviderOrganizerID != "" {
+		return org.ProviderOrganizerID, nil
 	}
-	zitadelOrgID, err := uc.provisioner.FindTenantOrg(ctx, org.ID)
+	providerOrganizerID, err := uc.provisioner.FindTenantOrg(ctx, org.ID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return "", nil
 		}
 		return "", err
 	}
-	return zitadelOrgID, nil
+	return providerOrganizerID, nil
 }
 
 // Get returns the Organizer with the given id. Returns NotFound when no
@@ -420,27 +403,12 @@ func (uc *organizerUseCase) List(ctx context.Context) ([]*entity.Organizer, erro
 	return uc.organizerRepo.List(ctx)
 }
 
-// ListArtists returns the artists represented by an Organizer. Returns
-// NotFound when no organizer with the given id exists.
-func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
-	if _, err := uc.organizerRepo.Get(ctx, organizerID); err != nil {
-		return nil, err
-	}
-	return uc.organizerRepo.ListArtists(ctx, organizerID)
-}
-
-// ListOwnArtists returns the artists represented by the caller's own
-// Organizer, and NotFound when that Organizer no longer exists.
-func (uc *organizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error) {
-	return uc.ListArtists(ctx, callerOrganizerID)
-}
-
 // ResolveCaller returns the Organizer linked to zitadelOrgID, enforcing that
 // it is active. Returns PermissionDenied (non-revealing) when no organizer
 // is linked or its status is neither Active nor Deactivated, and
 // FailedPrecondition when it is deactivated.
-func (uc *organizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
-	organizer, err := uc.organizerRepo.GetByZitadelOrgID(ctx, zitadelOrgID)
+func (uc *organizerUseCase) ResolveCaller(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+	organizer, err := uc.organizerRepo.GetByProviderOrganizerID(ctx, providerOrganizerID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return nil, apperr.New(codes.PermissionDenied, "permission denied")
@@ -522,12 +490,12 @@ func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) 
 	}
 
 	// Deactivate the tenant operators in Zitadel (skip when there is no tenant).
-	zitadelOrgID, err := uc.tenantOrgID(ctx, org)
+	providerOrganizerID, err := uc.tenantOrgID(ctx, org)
 	if err != nil {
 		return err
 	}
-	if zitadelOrgID != "" {
-		if err := uc.provisioner.DeactivateOperators(ctx, zitadelOrgID); err != nil {
+	if providerOrganizerID != "" {
+		if err := uc.provisioner.DeactivateOperators(ctx, providerOrganizerID); err != nil {
 			return err
 		}
 	}
@@ -560,7 +528,7 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		return err
 	}
 
-	media, err := uc.mediaRepo.ListMediaByOrganizer(ctx, organizerID)
+	media, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
 	if err != nil {
 		return err
 	}
@@ -578,12 +546,12 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 
 	// An Organizer whose provisioning failed before the tenant link was recorded
 	// may still own a tenant org; find it by name so it is not orphaned.
-	zitadelOrgID, err := uc.tenantOrgID(ctx, org)
+	providerOrganizerID, err := uc.tenantOrgID(ctx, org)
 	if err != nil {
 		return err
 	}
-	if zitadelOrgID != "" {
-		if err := uc.provisioner.DeleteTenant(ctx, zitadelOrgID); err != nil {
+	if providerOrganizerID != "" {
+		if err := uc.provisioner.DeleteTenant(ctx, providerOrganizerID); err != nil {
 			return err
 		}
 	}
@@ -593,7 +561,7 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	}
 	uc.logger.Info(ctx, "organizer deleted",
 		slog.String("organizer_id", organizerID),
-		slog.String("zitadel_org_id", zitadelOrgID),
+		slog.String("provider_organizer_id", providerOrganizerID),
 		slog.Int("media_count", len(media)),
 	)
 	return nil

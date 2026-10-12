@@ -113,7 +113,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 		assert.Equal(t, entity.TicketSaleMethodLottery, stored.Method)
 		assert.True(t, stored.SaleStartTime.Equal(saleWindowStart))
 		assert.True(t, stored.SaleEndTime.Equal(end))
-		assert.Nil(t, stored.DrawnTime)
+		assert.Nil(t, stored.DrawTime)
 		assert.ElementsMatch(t, ticketTypeIDs(sale.TicketTypes), ticketTypeIDs(stored.TicketTypes))
 	})
 
@@ -299,7 +299,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	closedAtNow := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now, seedPublishedEvent(t)))
 	open := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now.Add(time.Second), seedPublishedEvent(t)))
 	drawn := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t)))
-	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET drawn_at = $2 WHERE id = $1`, string(drawn.ID), now)
+	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`, string(drawn.ID), now)
 	require.NoError(t, err)
 	firstCome := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, saleWindowStart, end, seedPublishedEvent(t)))
 
@@ -380,7 +380,7 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 	})
 }
 
-func TestTicketSaleRepository_UpdateVerificationRequirement(t *testing.T) {
+func TestTicketSaleRepository_SetVerificationRequirement(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -389,11 +389,11 @@ func TestTicketSaleRepository_UpdateVerificationRequirement(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("requirement changed", func(t *testing.T) {
-		// @spec components/entity/ticket-sale/update-verification-requirement "Requirement changed"
+		// @spec components/entity/ticket-sale/set-verification-requirement "Requirement changed"
 		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), seedPublishedEvent(t)))
 		require.Equal(t, entity.VerificationRequirementNone, sale.VerificationRequirement)
 
-		got, err := repo.UpdateVerificationRequirement(ctx, sale.ID, entity.VerificationRequirementJPKIOnly, saleWindowStart)
+		got, err := repo.SetVerificationRequirement(ctx, sale.ID, entity.VerificationRequirementJPKIOnly, saleWindowStart)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.VerificationRequirementJPKIOnly, got.VerificationRequirement)
@@ -406,14 +406,14 @@ func TestTicketSaleRepository_UpdateVerificationRequirement(t *testing.T) {
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/ticket-sale/update-verification-requirement "Unknown id"
-		_, err := repo.UpdateVerificationRequirement(ctx, entity.TicketSaleID(entity.NewID()), entity.VerificationRequirementJPKIOnly, saleWindowStart)
+		// @spec components/entity/ticket-sale/set-verification-requirement "Unknown id"
+		_, err := repo.SetVerificationRequirement(ctx, entity.TicketSaleID(entity.NewID()), entity.VerificationRequirementJPKIOnly, saleWindowStart)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("no id", func(t *testing.T) {
-		_, err := repo.UpdateVerificationRequirement(ctx, "", entity.VerificationRequirementJPKIOnly, saleWindowStart)
+		_, err := repo.SetVerificationRequirement(ctx, "", entity.VerificationRequirementJPKIOnly, saleWindowStart)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})

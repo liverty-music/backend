@@ -62,27 +62,27 @@ const (
 	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
 	// captures it without a deeper wildcard.
 	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
-	// SubjectConcertCancelled is published by ConcertAuthoringUseCase.Cancel after
+	// SubjectConcertCancelled is published by SeriesUseCase.Cancel after
 	// a PUBLISHED first-party series is transitioned to CANCELLED. It drives the
 	// concert.cancelled analytics event and the downstream consumer that notifies
 	// affected fans. Two tokens so the CONCERT.* stream filter captures it without
 	// a deeper wildcard — consistent with SubjectConcertCreated.
 	SubjectConcertCancelled = "CONCERT.cancelled"
-	// SubjectOrganizerConcertPublished is published by ConcertAuthoringUseCase.Publish
+	// SubjectOrganizerConcertPublished is published by SeriesUseCase.Publish
 	// after a first-party series is successfully published. It drives the
 	// organizer.concert.published analytics event (admin-actor / group event keyed
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectMediaUploaded is published by the AttachMedia handler once the media
+	// SubjectMediaUploaded is published by the SetCoverImage handler once the media
 	// row is persisted. The media-processor consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
-	// cut over series_media to the new media id. Two tokens (uploaded, not
+	// cut over series_cover_images to the new media id. Two tokens (uploaded, not
 	// media.uploaded) so the MEDIA.* stream filter captures it with a plain
 	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
 	SubjectMediaUploaded = "MEDIA.uploaded"
 	// SubjectNotificationRequested is published once per eligible recipient by
-	// every producer of a user-facing notification (PushNotificationUseCase.
+	// every producer of a user-facing notification (PushSubscriptionUseCase.
 	// NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase).
 	// The deliver-notification consumer subscribes to this subject and calls
 	// NotificationUseCase.Deliver, which records the durable Notification and
@@ -94,7 +94,7 @@ const (
 	// by the existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
 	// SubjectOrderPaid announces that an Order is paid, for a won lottery
-	// entry or a completed checkout. IssuanceUseCase.FulfillPayment
+	// entry or a completed checkout. OrderUseCase.FulfillPayment
 	// publishes it on the payment provider's completed-charge webhook, with the
 	// Order id as the message id. Two consumers run from
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
@@ -135,17 +135,13 @@ var AllSubjects = []string{
 // OrderPaidData is the payload for ORDER.paid events. It carries ids and
 // amounts only, never personal data; consumers read the rest by id. Exactly
 // one of LotteryEntryID and CheckoutID is set: the Order's source.
-//
-// The JSON names buyer_id, application_id and reservation_id predate the
-// LotteryEntry and Checkout names and are kept so messages published before a
-// deploy still parse after it.
 type OrderPaidData struct {
 	// OrderID is the paid Order; also the event's message id, so a
 	// republished announcement is deduplicated and consumers are idempotent by
 	// it.
 	OrderID string `json:"order_id"`
 	// UserID is the platform-internal id of the Order's user.
-	UserID string `json:"buyer_id"`
+	UserID string `json:"user_id"`
 	// EventID is the event the Order's tickets admit to.
 	EventID string `json:"event_id"`
 	// TicketCount is the number of Tickets the Order issued.
@@ -155,9 +151,9 @@ type OrderPaidData struct {
 	// Currency is the ISO 4217 code of Amount.
 	Currency string `json:"currency"`
 	// LotteryEntryID is the won lottery entry, when that is the source.
-	LotteryEntryID string `json:"application_id,omitempty"`
+	LotteryEntryID string `json:"lottery_entry_id,omitempty"`
 	// CheckoutID is the completed checkout, when that is the source.
-	CheckoutID string `json:"reservation_id,omitempty"`
+	CheckoutID string `json:"checkout_id,omitempty"`
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.
@@ -173,7 +169,7 @@ type ConcertCreatedData struct {
 }
 
 // ConcertCancelledData is the payload for CONCERT.cancelled events.
-// Published by ConcertAuthoringUseCase.Cancel when a PUBLISHED first-party
+// Published by SeriesUseCase.Cancel when a PUBLISHED first-party
 // series is transitioned to CANCELLED. The consumer uses the SeriesID to
 // notify affected fans.
 type ConcertCancelledData struct {
@@ -187,7 +183,7 @@ type ConcertCancelledData struct {
 }
 
 // OrganizerConcertPublishedData is the payload for ORGANIZER.concert_published events.
-// Published by ConcertAuthoringUseCase.Publish after a first-party series is
+// Published by SeriesUseCase.Publish after a first-party series is
 // successfully published. Drives the organizer.concert.published analytics event.
 type OrganizerConcertPublishedData struct {
 	// OrganizerID is the platform-internal UUID of the organizer.
@@ -241,9 +237,9 @@ type UserCreatedData struct {
 	// the PostHog `distinct_id` by the analytics-consumer per the
 	// introduce-analytics-tool OpenSpec change (Decision 3).
 	UserID string `json:"user_id"`
-	// ExternalID is the Zitadel user ID (JWT sub claim). Used by the
+	// ProviderUserID is the Zitadel user ID (JWT sub claim). Used by the
 	// email-verification consumer to address Zitadel APIs.
-	ExternalID string `json:"external_id"`
+	ProviderUserID string `json:"external_id"`
 	// Email is the user's email address.
 	Email string `json:"email"`
 }
@@ -296,7 +292,7 @@ type ArtistUnfollowedData struct {
 
 // NotificationSubscribedData is the payload for NOTIFICATION.subscribed.
 // Mapped to the catalogue event notification.subscribed by the
-// analytics-consumer. Published by PushNotificationUseCase.Create after the
+// analytics-consumer. Published by PushSubscriptionUseCase.Create after the
 // repository persists the Web Push subscription record. Although the
 // underlying transport is the W3C Push API, the analytics surface stays
 // scoped under the notification domain — see specification/docs/analytics/
@@ -315,7 +311,7 @@ type NotificationSubscribedData struct {
 
 // NotificationUnsubscribedData is the payload for NOTIFICATION.unsubscribed.
 // Mapped to the catalogue event notification.unsubscribed by the
-// analytics-consumer. Published by PushNotificationUseCase.Delete after the
+// analytics-consumer. Published by PushSubscriptionUseCase.Delete after the
 // repository removes a user-initiated Web Push subscription record. The
 // endpoint URL itself is sensitive and is NOT included; only the classifier
 // output is forwarded to PostHog.
@@ -350,7 +346,7 @@ type NotificationDeliveredData struct {
 
 // NotificationRequestedData is the payload for NOTIFICATION.requested.
 // Published once per eligible recipient by every notification producer
-// (PushNotificationUseCase.NotifyNewConcerts, SalesPhaseAnnouncementUseCase.
+// (PushSubscriptionUseCase.NotifyNewConcerts, SalesPhaseAnnouncementUseCase.
 // AnnounceDiscoveredPhase); the deliver-notification consumer decodes it and
 // calls NotificationUseCase.Deliver(UserID, Type, Payload) — the producer
 // never depends on NotificationUseCase directly.
@@ -440,10 +436,10 @@ type TicketJourneyStatusChangedData struct {
 }
 
 // MediaUploadedData is the payload for MEDIA.uploaded events.
-// Published by the AttachMedia handler once the media row is persisted in the
+// Published by the SetCoverImage handler once the media row is persisted in the
 // database. The media-processor consumer uses MediaID and SeriesID to locate
 // the original file in the originals bucket, generate WebP variants (thumb and
-// large), and cut over series_media to the new media id.
+// large), and cut over series_cover_images to the new media id.
 type MediaUploadedData struct {
 	// MediaID is the unique identifier of the uploaded media object. The
 	// processor uses it to compose the originals-bucket key
@@ -451,7 +447,7 @@ type MediaUploadedData struct {
 	// (cdn/{org}/{mediaID}/{variant}.webp).
 	MediaID string `json:"media_id"`
 	// SeriesID is the target series. The processor resolves the organizer id
-	// from the media row (stored on insert by AttachMedia) so it can compose
+	// from the media row (stored on insert by SetCoverImage) so it can compose
 	// all bucket paths without an extra DB lookup.
 	SeriesID string `json:"series_id"`
 }

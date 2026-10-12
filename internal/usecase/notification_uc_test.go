@@ -67,6 +67,7 @@ func buildNotificationUC(
 		noopMetrics{},
 		newTestLogger(t),
 		usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{},
 	)
 }
 
@@ -456,7 +457,7 @@ func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger, usecase.OrderConfirmationDeps{})
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
@@ -497,7 +498,7 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger, usecase.OrderConfirmationDeps{})
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
@@ -560,7 +561,7 @@ func TestMarkDismissed_CrossUserRejected(t *testing.T) {
 		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	err := uc.MarkDismissed(context.Background(), "attacker", "n-1")
+	err := uc.Dismiss(context.Background(), "attacker", "n-1")
 
 	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	notifRepo.AssertNotCalled(t, "MarkDismissed")

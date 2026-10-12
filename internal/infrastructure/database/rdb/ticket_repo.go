@@ -22,16 +22,14 @@ var _ entity.TicketRepository = (*TicketRepository)(nil)
 const (
 	ticketSelectColumns = `
 		id, order_id, user_id, event_id,
-		kyc_id, resale_without_consent_prohibited, status, issued_at, admitted_at
+		identity_verification_id, resale_without_consent_prohibited, status, issue_at, admit_at
 	`
-	ticketListByOrderQuery        = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE order_id = $1 ORDER BY issued_at`
-	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issued_at DESC, id`
-	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issued_at, id`
-	ticketVoidByOrderQuery        = `UPDATE tickets SET status = $2 WHERE order_id = $1`
+	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issue_at DESC, id`
+	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issue_at, id`
 
 	// ticketAdmitQuery admits one ticket in a single statement: the
 	// conditional UPDATE on the ticket row is the per-ticket check-and-set (a
-	// concurrent admit blocks on the row lock, then re-checks admitted_at and
+	// concurrent admit blocks on the row lock, then re-checks admit_at and
 	// matches nothing), and the Admission is inserted from its RETURNING rows,
 	// so the admitted time and the Admission are stored together or not at
 	// all. The reception link row is share-locked and must not be Revoked, so
@@ -41,12 +39,12 @@ const (
 		WITH link AS (
 			SELECT id FROM reception_links WHERE id = $2::uuid AND status <> 3 FOR SHARE
 		), admitted AS (
-			UPDATE tickets SET admitted_at = $3
-			WHERE id = $1 AND status = 1 AND admitted_at IS NULL AND EXISTS (SELECT 1 FROM link)
-			RETURNING id, event_id, admitted_at
+			UPDATE tickets SET admit_at = $3
+			WHERE id = $1 AND status = 1 AND admit_at IS NULL AND EXISTS (SELECT 1 FROM link)
+			RETURNING id, event_id, admit_at
 		), recorded AS (
 			INSERT INTO admissions (ticket_id, event_id, reception_link_id, admitted_at)
-			SELECT id, event_id, $2::uuid, admitted_at FROM admitted
+			SELECT id, event_id, $2::uuid, admit_at FROM admitted
 			RETURNING ticket_id
 		)
 		SELECT count(*) FROM recorded
@@ -54,7 +52,7 @@ const (
 
 	// ticketAdmitStateQuery explains why ticketAdmitQuery admitted nothing.
 	ticketAdmitStateQuery = `
-		SELECT t.status, t.admitted_at,
+		SELECT t.status, t.admit_at,
 		       EXISTS (SELECT 1 FROM reception_links WHERE id = $2::uuid AND status <> 3)
 		FROM tickets t WHERE t.id = $1
 	`
@@ -63,16 +61,6 @@ const (
 // NewTicketRepository creates a new ticket repository instance.
 func NewTicketRepository(db *Database) *TicketRepository {
 	return &TicketRepository{db: db}
-}
-
-// ListByOrder returns the tickets issued under the given order.
-func (r *TicketRepository) ListByOrder(ctx context.Context, orderID entity.OrderID) ([]*entity.Ticket, error) {
-	rows, err := r.db.Pool.Query(ctx, ticketListByOrderQuery, string(orderID))
-	if err != nil {
-		return nil, toAppErr(err, "failed to list tickets by order", slog.String("order_id", string(orderID)))
-	}
-	defer rows.Close()
-	return scanTickets(rows)
 }
 
 // ListByUser returns every ticket bound to the given user, Issued and Voided
@@ -108,7 +96,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 		return entity.AdmitResult{}, toAppErr(err, "failed to admit ticket", attrs...)
 	}
 	if admittedCount == 1 {
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: admittedTime}, nil
+		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: admittedTime}, nil
 	}
 
 	var (
@@ -123,7 +111,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 	case !linkUsable:
 		return entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "reception link not usable", attrs...)
 	case admittedAt.Valid:
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: admittedAt.Time}, nil
+		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: admittedAt.Time}, nil
 	case entity.TicketStatus(status) == entity.TicketStatusVoided:
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil
 	default:
@@ -131,15 +119,6 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 		// always admitted by ticketAdmitQuery.
 		return entity.AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted", attrs...)
 	}
-}
-
-// VoidByOrder marks every ticket of the given order as Voided. Idempotent.
-func (r *TicketRepository) VoidByOrder(ctx context.Context, orderID entity.OrderID) error {
-	_, err := r.db.Pool.Exec(ctx, ticketVoidByOrderQuery, string(orderID), int16(entity.TicketStatusVoided))
-	if err != nil {
-		return toAppErr(err, "failed to void tickets by order", slog.String("order_id", string(orderID)))
-	}
-	return nil
 }
 
 // scanTickets maps a multi-row result into a slice of entity.Ticket; the slice
@@ -152,18 +131,18 @@ func scanTickets(rows interface {
 	tickets := []*entity.Ticket{}
 	for rows.Next() {
 		var (
-			t          entity.Ticket
-			id         string
-			orderID    string
-			userID     string
-			eventID    string
-			kycID      sql.NullString
-			status     int16
-			admittedAt sql.NullTime
+			t                      entity.Ticket
+			id                     string
+			orderID                string
+			userID                 string
+			eventID                string
+			identityVerificationID sql.NullString
+			status                 int16
+			admittedAt             sql.NullTime
 		)
 		if err := rows.Scan(
 			&id, &orderID, &userID, &eventID,
-			&kycID, &t.ResaleWithoutConsentProhibited, &status, &t.IssuedTime, &admittedAt,
+			&identityVerificationID, &t.ResaleWithoutConsentProhibited, &status, &t.IssueTime, &admittedAt,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan ticket")
 		}
@@ -171,13 +150,13 @@ func scanTickets(rows interface {
 		t.OrderID = entity.OrderID(orderID)
 		t.UserID = entity.UserID(userID)
 		t.EventID = eventID
-		if kycID.Valid {
-			t.KycID = kycID.String
+		if identityVerificationID.Valid {
+			t.IdentityVerificationID = identityVerificationID.String
 		}
 		t.Status = entity.TicketStatus(status)
 		if admittedAt.Valid {
 			admitted := admittedAt.Time
-			t.AdmittedTime = &admitted
+			t.AdmitTime = &admitted
 		}
 		tickets = append(tickets, &t)
 	}

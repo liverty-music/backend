@@ -15,10 +15,10 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// Compile-time assertion that StubVerifier satisfies usecase.PocketSignVerifier.
-var _ usecase.PocketSignVerifier = (*StubVerifier)(nil)
+// Compile-time assertion that StubVerifier satisfies usecase.IdentityVerifier.
+var _ usecase.IdentityVerifier = (*StubVerifier)(nil)
 
-// StubVerifier is a placeholder implementation of PocketSignVerifier used
+// StubVerifier is a placeholder implementation of IdentityVerifier used
 // when the real Pocket Sign Stamp API is not yet configured (pre-onboarding).
 // It returns a clear "not configured" error on every call so callers get an
 // explicit UNAVAILABLE rather than a panic or silent no-op.
@@ -47,7 +47,7 @@ func (s *StubVerifier) StartVerify(_ context.Context, _ string, _ entity.Verific
 //
 // TODO: integrate real Pocket Sign Stamp API after onboarding
 // (identity-ekyc-jpki Section 0).
-func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.PocketSignResult, error) {
+func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.IdentityVerifierResult, error) {
 	return nil, apperr.New(codes.Unavailable,
 		"Pocket Sign Stamp API is not configured; "+
 			"onboarding required before identity verification is available "+
@@ -58,7 +58,7 @@ func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.
 //
 // TODO: integrate real Pocket Sign Stamp API after onboarding
 // (identity-ekyc-jpki Section 0).
-func (s *StubVerifier) Recheck(_ context.Context, _ string) (*usecase.PocketSignRecheckResult, error) {
+func (s *StubVerifier) Recheck(_ context.Context, _ string) (*usecase.IdentityVerifierRecheckResult, error) {
 	return nil, apperr.New(codes.Unavailable,
 		"Pocket Sign Stamp API is not configured; "+
 			"onboarding required before identity verification is available "+

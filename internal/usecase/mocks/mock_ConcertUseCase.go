@@ -24,6 +24,53 @@ func (_m *MockConcertUseCase) EXPECT() *MockConcertUseCase_Expecter {
 	return &MockConcertUseCase_Expecter{mock: &_m.Mock}
 }
 
+// Delete provides a mock function with given fields: ctx, eventID
+func (_m *MockConcertUseCase) Delete(ctx context.Context, eventID string) error {
+	ret := _m.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, eventID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertUseCase_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockConcertUseCase_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockConcertUseCase_Expecter) Delete(ctx interface{}, eventID interface{}) *MockConcertUseCase_Delete_Call {
+	return &MockConcertUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, eventID)}
+}
+
+func (_c *MockConcertUseCase_Delete_Call) Run(run func(ctx context.Context, eventID string)) *MockConcertUseCase_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_Delete_Call) Return(_a0 error) *MockConcertUseCase_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertUseCase_Delete_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertUseCase_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function with given fields: ctx, eventID
 func (_m *MockConcertUseCase) Get(ctx context.Context, eventID string) (*entity.Concert, error) {
 	ret := _m.Called(ctx, eventID)
@@ -79,6 +126,64 @@ func (_c *MockConcertUseCase_Get_Call) Return(_a0 *entity.Concert, _a1 error) *M
 }
 
 func (_c *MockConcertUseCase_Get_Call) RunAndReturn(run func(context.Context, string) (*entity.Concert, error)) *MockConcertUseCase_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// List provides a mock function with given fields: ctx
+func (_m *MockConcertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for List")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*entity.Concert, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*entity.Concert); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockConcertUseCase_List_Call struct {
+	*mock.Call
+}
+
+// List is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockConcertUseCase_Expecter) List(ctx interface{}) *MockConcertUseCase_List_Call {
+	return &MockConcertUseCase_List_Call{Call: _e.mock.On("List", ctx)}
+}
+
+func (_c *MockConcertUseCase_List_Call) Run(run func(ctx context.Context)) *MockConcertUseCase_List_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_List_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_List_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_List_Call) RunAndReturn(run func(context.Context) ([]*entity.Concert, error)) *MockConcertUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -202,127 +307,6 @@ func (_c *MockConcertUseCase_ListByArtists_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// ListByFollower provides a mock function with given fields: ctx, userID, from
-func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
-	ret := _m.Called(ctx, userID, from)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByFollower")
-	}
-
-	var r0 []*entity.Concert
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) ([]*entity.Concert, error)); ok {
-		return rf(ctx, userID, from)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) []*entity.Concert); ok {
-		r0 = rf(ctx, userID, from)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Concert)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, *time.Time) error); ok {
-		r1 = rf(ctx, userID, from)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockConcertUseCase_ListByFollower_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByFollower'
-type MockConcertUseCase_ListByFollower_Call struct {
-	*mock.Call
-}
-
-// ListByFollower is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - from *time.Time
-func (_e *MockConcertUseCase_Expecter) ListByFollower(ctx interface{}, userID interface{}, from interface{}) *MockConcertUseCase_ListByFollower_Call {
-	return &MockConcertUseCase_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, userID, from)}
-}
-
-func (_c *MockConcertUseCase_ListByFollower_Call) Run(run func(ctx context.Context, userID string, from *time.Time)) *MockConcertUseCase_ListByFollower_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*time.Time))
-	})
-	return _c
-}
-
-func (_c *MockConcertUseCase_ListByFollower_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_ListByFollower_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.Context, string, *time.Time) ([]*entity.Concert, error)) *MockConcertUseCase_ListByFollower_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListByFollowerGrouped provides a mock function with given fields: ctx, userID, home, from
-func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
-	ret := _m.Called(ctx, userID, home, from)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByFollowerGrouped")
-	}
-
-	var r0 []*entity.ProximityGroup
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)); ok {
-		return rf(ctx, userID, home, from)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) []*entity.ProximityGroup); ok {
-		r0 = rf(ctx, userID, home, from)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.ProximityGroup)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home, *time.Time) error); ok {
-		r1 = rf(ctx, userID, home, from)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockConcertUseCase_ListByFollowerGrouped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByFollowerGrouped'
-type MockConcertUseCase_ListByFollowerGrouped_Call struct {
-	*mock.Call
-}
-
-// ListByFollowerGrouped is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - home *entity.Home
-//   - from *time.Time
-func (_e *MockConcertUseCase_Expecter) ListByFollowerGrouped(ctx interface{}, userID interface{}, home interface{}, from interface{}) *MockConcertUseCase_ListByFollowerGrouped_Call {
-	return &MockConcertUseCase_ListByFollowerGrouped_Call{Call: _e.mock.On("ListByFollowerGrouped", ctx, userID, home, from)}
-}
-
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Run(run func(ctx context.Context, userID string, home *entity.Home, from *time.Time)) *MockConcertUseCase_ListByFollowerGrouped_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home), args[3].(*time.Time))
-	})
-	return _c
-}
-
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Return(_a0 []*entity.ProximityGroup, _a1 error) *MockConcertUseCase_ListByFollowerGrouped_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByLocation provides a mock function with given fields: ctx, location, from, to
 func (_m *MockConcertUseCase) ListByLocation(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time) ([]*entity.ProximityGroup, error) {
 	ret := _m.Called(ctx, location, from, to)
@@ -439,6 +423,67 @@ func (_c *MockConcertUseCase_ListBySeries_Call) Return(_a0 []*entity.Concert, _a
 }
 
 func (_c *MockConcertUseCase_ListBySeries_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_ListBySeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListFollowed provides a mock function with given fields: ctx, userID, home, from
+func (_m *MockConcertUseCase) ListFollowed(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
+	ret := _m.Called(ctx, userID, home, from)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListFollowed")
+	}
+
+	var r0 []*entity.ProximityGroup
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)); ok {
+		return rf(ctx, userID, home, from)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) []*entity.ProximityGroup); ok {
+		r0 = rf(ctx, userID, home, from)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.ProximityGroup)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home, *time.Time) error); ok {
+		r1 = rf(ctx, userID, home, from)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_ListFollowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFollowed'
+type MockConcertUseCase_ListFollowed_Call struct {
+	*mock.Call
+}
+
+// ListFollowed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - home *entity.Home
+//   - from *time.Time
+func (_e *MockConcertUseCase_Expecter) ListFollowed(ctx interface{}, userID interface{}, home interface{}, from interface{}) *MockConcertUseCase_ListFollowed_Call {
+	return &MockConcertUseCase_ListFollowed_Call{Call: _e.mock.On("ListFollowed", ctx, userID, home, from)}
+}
+
+func (_c *MockConcertUseCase_ListFollowed_Call) Run(run func(ctx context.Context, userID string, home *entity.Home, from *time.Time)) *MockConcertUseCase_ListFollowed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home), args[3].(*time.Time))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListFollowed_Call) Return(_a0 []*entity.ProximityGroup, _a1 error) *MockConcertUseCase_ListFollowed_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListFollowed_Call) RunAndReturn(run func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListFollowed_Call {
 	_c.Call.Return(run)
 	return _c
 }

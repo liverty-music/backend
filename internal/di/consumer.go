@@ -23,6 +23,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
@@ -140,7 +142,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	notificationRepo := rdb.NewNotificationRepository(db)
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
-	orderRepo := rdb.NewOrderRepository(db)
+	// The consumer never refunds an Order or reads its charge, so the Order's
+	// payment provider part is the no-op.
+	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
 	var confirmationSender entity.OrderConfirmationSender
 	if cfg.Postmark.ServerToken != "" {
 		confirmationSender = mail.NewPostmarkConfirmationSender(orderRepo, cfg.Postmark.ServerToken,
@@ -161,22 +165,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			Organizers:     rdb.NewOrganizerRepository(db),
 			Mailer:         confirmationSender,
 			TimeZone:       japanTime,
-		})
+		},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
-	pushNotificationUC := usecase.NewPushNotificationUseCase(
-		artistRepo,
-		concertRepo,
-		followRepo,
-		pushSubRepo,
-		eventPublisher,
-		logger,
-	)
-	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
+	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
 	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
 	concertCreationUC := usecase.NewConcertCreationUseCase(
-		stagedConcertRepo,
+		concertCandidateRepo,
 		venueRepo,
 		concertRepo,
 		seriesRepo,
@@ -192,8 +189,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// search-first-followed-artist consumer can call
 	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
 	organizerRepo := rdb.NewOrganizerRepository(db)
-	searchLogRepo := rdb.NewSearchLogRepository(db)
-	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	centroidResolver := geo.NewCentroidResolver()
 	var geminiSearcher entity.ConcertSearcher
 	if cfg.GCP.GeminiSearchAPIKey != "" {
@@ -216,8 +213,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		venueRepo,
 		seriesRepo,
 		organizerRepo,
-		searchLogRepo,
-		stagedConcertRepo,
+		concertSearchRepo,
+		concertCandidateRepo,
 		rejectedConcertRepo,
 		geminiSearcher,
 		centroidResolver,
@@ -273,7 +270,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
-	notificationConsumer := event.NewNotificationConsumer(pushNotificationUC, logger)
+	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)

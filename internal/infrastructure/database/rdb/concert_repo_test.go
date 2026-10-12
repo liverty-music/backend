@@ -1123,7 +1123,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		// Setup: user, 2 artists, venue, concerts, follow relationships
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5001"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
 			userID, "Test User", "follower@test.com", "ext-user-001",
 		)
 		require.NoError(t, err)
@@ -1185,7 +1185,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5003"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
 			userID, "Coord User", "coord@test.com", "ext-user-003",
 		)
 		require.NoError(t, err)
@@ -1233,7 +1233,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5002"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
 			userID, "Lonely User", "lonely@test.com", "ext-user-002",
 		)
 		require.NoError(t, err)
@@ -1248,7 +1248,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5004"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
 			userID, "Date User", "date@test.com", "ext-user-004",
 		)
 		require.NoError(t, err)
@@ -1370,9 +1370,9 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.SeriesPublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
 		publishedSeriesID := seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
 		coverID := newTestID(t)
-		_, err = testDB.Pool.Exec(ctx, "INSERT INTO media (id, organizer_id, kind) VALUES ($1, $2, 'IMAGE')", coverID, organizerID)
+		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_images (id, organizer_id) VALUES ($1, $2)", coverID, organizerID)
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)", publishedSeriesID, coverID)
+		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_cover_images (series_id, series_image_id) VALUES ($1, $2)", publishedSeriesID, coverID)
 		require.NoError(t, err)
 
 		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
@@ -1386,10 +1386,9 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
 		assert.Equal(t, entity.SeriesPublishStatePublished, *got[0].Series.PublishState)
-		require.NotNil(t, got[0].Series.CoverMedia, "a list read carries the series' cover, as the event page does")
-		assert.Equal(t, coverID, got[0].Series.CoverMedia.ID)
-		assert.Equal(t, organizerID, got[0].Series.CoverMedia.OrganizerID)
-		assert.Equal(t, entity.MediaKindImage, got[0].Series.CoverMedia.Kind)
+		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the event page does")
+		assert.Equal(t, coverID, got[0].Series.CoverImage.ID)
+		assert.Equal(t, organizerID, got[0].Series.CoverImage.OrganizerID)
 
 		require.NotNil(t, got[0].Series.Organizer, "a first-party series carries its Organizer")
 		assert.Equal(t, "Test Organizer", got[0].Series.Organizer.Name)
@@ -1410,8 +1409,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, organizerID, *byID[0].Series.OrganizerID)
 		require.NotNil(t, byID[0].Series.Organizer)
 		assert.Equal(t, &details, byID[0].Series.Organizer.BusinessDetails)
-		require.NotNil(t, byID[0].Series.CoverMedia)
-		assert.Equal(t, coverID, byID[0].Series.CoverMedia.ID)
+		require.NotNil(t, byID[0].Series.CoverImage)
+		assert.Equal(t, coverID, byID[0].Series.CoverImage.ID)
 	})
 }
 
@@ -1501,7 +1500,7 @@ func TestConcertRepository_Delete(t *testing.T) {
 		// Seed a fan-owned dependent row to prove the cascade reaches it.
 		userID := newTestID(t)
 		_, err = testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
 			userID, "Delete Test Fan", "delete-fan@test.com", "ext-"+userID,
 		)
 		require.NoError(t, err)

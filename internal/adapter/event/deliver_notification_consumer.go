@@ -14,7 +14,7 @@ import (
 // DeliverNotificationConsumer handles NOTIFICATION.requested events by
 // delegating to NotificationUseCase.Deliver. It is a thin adapter: parse the
 // CloudEvent and hand off to the use case — no repository lookups or business
-// logic here. Every notification producer (PushNotificationUseCase.
+// logic here. Every notification producer (PushSubscriptionUseCase.
 // NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase)
 // publishes to this subject instead of depending on NotificationUseCase directly.
 type DeliverNotificationConsumer struct {

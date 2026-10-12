@@ -78,7 +78,7 @@ func TestOrderUseCase_GetWithSettlement(t *testing.T) {
 			settlements := entitymocks.NewMockSettlementRepository(t)
 			tt.setup(orders, settlements)
 
-			gotOrder, gotSettlement, err := usecase.NewOrderUseCase(orders, settlements).GetWithSettlement(context.Background(), orderID)
+			gotOrder, gotSettlement, err := usecase.NewOrderUseCase(usecase.OrderDeps{OrderRepo: orders, SettlementRepo: settlements}).GetWithSettlement(context.Background(), orderID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

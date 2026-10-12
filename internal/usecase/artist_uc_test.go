@@ -40,7 +40,7 @@ func newArtistTestDeps(t *testing.T) *artistTestDeps {
 		searcher:  mocks.NewMockArtistSearcher(t),
 		idManager: mocks.NewMockArtistIdentityManager(t),
 	}
-	d.uc = usecase.NewArtistUseCase(d.repo, d.searcher, d.idManager, messaging.NewEventPublisher(newTestPublisher()), cache.NewMemoryCache(1*time.Hour), newTestLogger(t))
+	d.uc = usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, messaging.NewEventPublisher(newTestPublisher()), cache.NewMemoryCache(1*time.Hour), newTestLogger(t))
 	return d
 }
 
@@ -73,7 +73,7 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 
 }
 
-func TestArtistUseCase_CreateOfficialSite(t *testing.T) {
+func TestOfficialSiteUseCase_Create(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -91,7 +91,7 @@ func TestArtistUseCase_CreateOfficialSite(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com")
+		err := usecase.NewOfficialSiteUseCase(d.repo).Create(ctx, "artist-1", "https://example.com")
 
 		assert.NoError(t, err)
 		require.NotNil(t, captured)
@@ -109,8 +109,8 @@ func TestArtistUseCase_CreateOfficialSite(t *testing.T) {
 			Return(nil).
 			Twice()
 
-		require.NoError(t, d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com"))
-		require.NoError(t, d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com"))
+		require.NoError(t, usecase.NewOfficialSiteUseCase(d.repo).Create(ctx, "artist-1", "https://example.com"))
+		require.NoError(t, usecase.NewOfficialSiteUseCase(d.repo).Create(ctx, "artist-1", "https://example.com"))
 
 		require.Len(t, ids, 2)
 		assert.NotEqual(t, ids[0], ids[1])
@@ -125,7 +125,7 @@ func TestArtistUseCase_CreateOfficialSite(t *testing.T) {
 			Return(apperr.ErrAlreadyExists).
 			Once()
 
-		err := d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com")
+		err := usecase.NewOfficialSiteUseCase(d.repo).Create(ctx, "artist-1", "https://example.com")
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})

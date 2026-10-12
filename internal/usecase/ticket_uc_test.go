@@ -18,7 +18,7 @@ func newOrderReadUC(t *testing.T, orders entity.OrderRepository, tickets entity.
 	return usecase.NewTicketUseCase(orders, tickets, nil, nil, nil, nil, nil, newTestLogger(t))
 }
 
-func TestTicketUseCase_GetOrder(t *testing.T) {
+func TestOrderUseCase_Get(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	own := &entity.Order{ID: "order-1", UserID: "fan-1", Status: entity.OrderStatusPaid}
@@ -35,7 +35,7 @@ func TestTicketUseCase_GetOrder(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/usecase/order/get-order "Own order"
+			// @spec components/usecase/order/get "Own order"
 			name: "own order",
 			args: args{userID: "fan-1", orderID: "order-1"},
 			setup: func(orders *entitymocks.MockOrderRepository) {
@@ -44,7 +44,7 @@ func TestTicketUseCase_GetOrder(t *testing.T) {
 			want: own,
 		},
 		{
-			// @spec components/usecase/order/get-order "Another buyer's order"
+			// @spec components/usecase/order/get "Another user's order"
 			name: "another account's order",
 			args: args{userID: "fan-2", orderID: "order-1"},
 			setup: func(orders *entitymocks.MockOrderRepository) {
@@ -53,7 +53,7 @@ func TestTicketUseCase_GetOrder(t *testing.T) {
 			wantErr: apperr.ErrNotFound,
 		},
 		{
-			// @spec components/usecase/order/get-order "Unknown order"
+			// @spec components/usecase/order/get "Unknown order"
 			name: "unknown order",
 			args: args{userID: "fan-1", orderID: "order-x"},
 			setup: func(orders *entitymocks.MockOrderRepository) {
@@ -68,9 +68,9 @@ func TestTicketUseCase_GetOrder(t *testing.T) {
 			t.Parallel()
 			orders := entitymocks.NewMockOrderRepository(t)
 			tt.setup(orders)
-			uc := newOrderReadUC(t, orders, entitymocks.NewMockTicketRepository(t))
+			uc := usecase.NewOrderUseCase(usecase.OrderDeps{OrderRepo: orders})
 
-			got, err := uc.GetOrder(ctx, tt.args.userID, tt.args.orderID)
+			got, err := uc.Get(ctx, tt.args.userID, tt.args.orderID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -97,13 +97,13 @@ func TestTicketUseCase_GetMyTickets(t *testing.T) {
 		want []*entity.Ticket
 	}{
 		{
-			// @spec components/usecase/ticket/get-my-tickets "Fan with tickets"
+			// @spec components/usecase/ticket/list "Fan with tickets"
 			name: "fan with tickets",
 			list: issued,
 			want: issued,
 		},
 		{
-			// @spec components/usecase/ticket/get-my-tickets "Fan without tickets"
+			// @spec components/usecase/ticket/list "Fan without tickets"
 			name: "fan without tickets",
 			list: []*entity.Ticket{},
 			want: []*entity.Ticket{},
@@ -117,7 +117,7 @@ func TestTicketUseCase_GetMyTickets(t *testing.T) {
 			tickets.EXPECT().ListByUser(ctx, entity.UserID("fan-1")).Return(tt.list, nil)
 			uc := newOrderReadUC(t, entitymocks.NewMockOrderRepository(t), tickets)
 
-			got, err := uc.GetMyTickets(ctx, "fan-1")
+			got, err := uc.List(ctx, "fan-1")
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
@@ -130,7 +130,7 @@ func TestTicketUseCase_GetMyTickets(t *testing.T) {
 		tickets.EXPECT().ListByUser(ctx, entity.UserID("fan-1")).Return(nil, apperr.ErrInternal)
 		uc := newOrderReadUC(t, entitymocks.NewMockOrderRepository(t), tickets)
 
-		_, err := uc.GetMyTickets(ctx, "fan-1")
+		_, err := uc.List(ctx, "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})

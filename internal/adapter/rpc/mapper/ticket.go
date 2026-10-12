@@ -19,15 +19,15 @@ func TicketToProto(ticket *entity.Ticket) *entityv1.Ticket {
 		EventId:                        &entityv1.EventId{Value: ticket.EventID},
 		ResaleWithoutConsentProhibited: ticket.ResaleWithoutConsentProhibited,
 		Status:                         ticketStatusToProto(ticket.Status),
-		IssueTime:                      timestamppb.New(ticket.IssuedTime),
+		IssueTime:                      timestamppb.New(ticket.IssueTime),
 	}
-	// The Kyc binding is present only when the sale required verification.
-	if ticket.KycID != "" {
-		t.KycId = &entityv1.KycId{Value: ticket.KycID}
+	// The IdentityVerification binding is present only when the sale required verification.
+	if ticket.IdentityVerificationID != "" {
+		t.IdentityVerificationId = &entityv1.IdentityVerificationId{Value: ticket.IdentityVerificationID}
 	}
 	// The admitted time is present only once the ticket was admitted.
-	if ticket.AdmittedTime != nil {
-		t.AdmitTime = timestamppb.New(*ticket.AdmittedTime)
+	if ticket.AdmitTime != nil {
+		t.AdmitTime = timestamppb.New(*ticket.AdmitTime)
 	}
 	return t
 }

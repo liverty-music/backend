@@ -81,21 +81,21 @@ func (_c *MockLotteryEntryRepository_Get_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// GetByPaymentIntentRef provides a mock function with given fields: ctx, paymentIntentRef
-func (_m *MockLotteryEntryRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.LotteryEntry, error) {
-	ret := _m.Called(ctx, paymentIntentRef)
+// GetByCardAuthorizationID provides a mock function with given fields: ctx, cardAuthorizationID
+func (_m *MockLotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.LotteryEntry, error) {
+	ret := _m.Called(ctx, cardAuthorizationID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByPaymentIntentRef")
+		panic("no return value specified for GetByCardAuthorizationID")
 	}
 
 	var r0 *entity.LotteryEntry
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.LotteryEntry, error)); ok {
-		return rf(ctx, paymentIntentRef)
+		return rf(ctx, cardAuthorizationID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.LotteryEntry); ok {
-		r0 = rf(ctx, paymentIntentRef)
+		r0 = rf(ctx, cardAuthorizationID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.LotteryEntry)
@@ -103,7 +103,7 @@ func (_m *MockLotteryEntryRepository) GetByPaymentIntentRef(ctx context.Context,
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, paymentIntentRef)
+		r1 = rf(ctx, cardAuthorizationID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -111,31 +111,31 @@ func (_m *MockLotteryEntryRepository) GetByPaymentIntentRef(ctx context.Context,
 	return r0, r1
 }
 
-// MockLotteryEntryRepository_GetByPaymentIntentRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByPaymentIntentRef'
-type MockLotteryEntryRepository_GetByPaymentIntentRef_Call struct {
+// MockLotteryEntryRepository_GetByCardAuthorizationID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByCardAuthorizationID'
+type MockLotteryEntryRepository_GetByCardAuthorizationID_Call struct {
 	*mock.Call
 }
 
-// GetByPaymentIntentRef is a helper method to define mock.On call
+// GetByCardAuthorizationID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - paymentIntentRef string
-func (_e *MockLotteryEntryRepository_Expecter) GetByPaymentIntentRef(ctx interface{}, paymentIntentRef interface{}) *MockLotteryEntryRepository_GetByPaymentIntentRef_Call {
-	return &MockLotteryEntryRepository_GetByPaymentIntentRef_Call{Call: _e.mock.On("GetByPaymentIntentRef", ctx, paymentIntentRef)}
+//   - cardAuthorizationID string
+func (_e *MockLotteryEntryRepository_Expecter) GetByCardAuthorizationID(ctx interface{}, cardAuthorizationID interface{}) *MockLotteryEntryRepository_GetByCardAuthorizationID_Call {
+	return &MockLotteryEntryRepository_GetByCardAuthorizationID_Call{Call: _e.mock.On("GetByCardAuthorizationID", ctx, cardAuthorizationID)}
 }
 
-func (_c *MockLotteryEntryRepository_GetByPaymentIntentRef_Call) Run(run func(ctx context.Context, paymentIntentRef string)) *MockLotteryEntryRepository_GetByPaymentIntentRef_Call {
+func (_c *MockLotteryEntryRepository_GetByCardAuthorizationID_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockLotteryEntryRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_GetByPaymentIntentRef_Call) Return(_a0 *entity.LotteryEntry, _a1 error) *MockLotteryEntryRepository_GetByPaymentIntentRef_Call {
+func (_c *MockLotteryEntryRepository_GetByCardAuthorizationID_Call) Return(_a0 *entity.LotteryEntry, _a1 error) *MockLotteryEntryRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_GetByPaymentIntentRef_Call) RunAndReturn(run func(context.Context, string) (*entity.LotteryEntry, error)) *MockLotteryEntryRepository_GetByPaymentIntentRef_Call {
+func (_c *MockLotteryEntryRepository_GetByCardAuthorizationID_Call) RunAndReturn(run func(context.Context, string) (*entity.LotteryEntry, error)) *MockLotteryEntryRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -201,23 +201,23 @@ func (_c *MockLotteryEntryRepository_GetOrCreateDraft_Call) RunAndReturn(run fun
 	return _c
 }
 
-// GetTicketTypeStats provides a mock function with given fields: ctx, ticketTypeID
-func (_m *MockLotteryEntryRepository) GetTicketTypeStats(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.TicketTypeStats, error) {
+// GetStatsByTicketType provides a mock function with given fields: ctx, ticketTypeID
+func (_m *MockLotteryEntryRepository) GetStatsByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.LotteryEntryStats, error) {
 	ret := _m.Called(ctx, ticketTypeID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetTicketTypeStats")
+		panic("no return value specified for GetStatsByTicketType")
 	}
 
-	var r0 entity.TicketTypeStats
+	var r0 entity.LotteryEntryStats
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID) (entity.TicketTypeStats, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID) (entity.LotteryEntryStats, error)); ok {
 		return rf(ctx, ticketTypeID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID) entity.TicketTypeStats); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID) entity.LotteryEntryStats); ok {
 		r0 = rf(ctx, ticketTypeID)
 	} else {
-		r0 = ret.Get(0).(entity.TicketTypeStats)
+		r0 = ret.Get(0).(entity.LotteryEntryStats)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID) error); ok {
@@ -229,31 +229,31 @@ func (_m *MockLotteryEntryRepository) GetTicketTypeStats(ctx context.Context, ti
 	return r0, r1
 }
 
-// MockLotteryEntryRepository_GetTicketTypeStats_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTicketTypeStats'
-type MockLotteryEntryRepository_GetTicketTypeStats_Call struct {
+// MockLotteryEntryRepository_GetStatsByTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatsByTicketType'
+type MockLotteryEntryRepository_GetStatsByTicketType_Call struct {
 	*mock.Call
 }
 
-// GetTicketTypeStats is a helper method to define mock.On call
+// GetStatsByTicketType is a helper method to define mock.On call
 //   - ctx context.Context
 //   - ticketTypeID entity.TicketTypeID
-func (_e *MockLotteryEntryRepository_Expecter) GetTicketTypeStats(ctx interface{}, ticketTypeID interface{}) *MockLotteryEntryRepository_GetTicketTypeStats_Call {
-	return &MockLotteryEntryRepository_GetTicketTypeStats_Call{Call: _e.mock.On("GetTicketTypeStats", ctx, ticketTypeID)}
+func (_e *MockLotteryEntryRepository_Expecter) GetStatsByTicketType(ctx interface{}, ticketTypeID interface{}) *MockLotteryEntryRepository_GetStatsByTicketType_Call {
+	return &MockLotteryEntryRepository_GetStatsByTicketType_Call{Call: _e.mock.On("GetStatsByTicketType", ctx, ticketTypeID)}
 }
 
-func (_c *MockLotteryEntryRepository_GetTicketTypeStats_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID)) *MockLotteryEntryRepository_GetTicketTypeStats_Call {
+func (_c *MockLotteryEntryRepository_GetStatsByTicketType_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID)) *MockLotteryEntryRepository_GetStatsByTicketType_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.TicketTypeID))
 	})
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_GetTicketTypeStats_Call) Return(_a0 entity.TicketTypeStats, _a1 error) *MockLotteryEntryRepository_GetTicketTypeStats_Call {
+func (_c *MockLotteryEntryRepository_GetStatsByTicketType_Call) Return(_a0 entity.LotteryEntryStats, _a1 error) *MockLotteryEntryRepository_GetStatsByTicketType_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_GetTicketTypeStats_Call) RunAndReturn(run func(context.Context, entity.TicketTypeID) (entity.TicketTypeStats, error)) *MockLotteryEntryRepository_GetTicketTypeStats_Call {
+func (_c *MockLotteryEntryRepository_GetStatsByTicketType_Call) RunAndReturn(run func(context.Context, entity.TicketTypeID) (entity.LotteryEntryStats, error)) *MockLotteryEntryRepository_GetStatsByTicketType_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -427,17 +427,17 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run f
 	return _c
 }
 
-// SetAuthorization provides a mock function with given fields: ctx, id, paymentIntentRef
-func (_m *MockLotteryEntryRepository) SetAuthorization(ctx context.Context, id entity.LotteryEntryID, paymentIntentRef string) error {
-	ret := _m.Called(ctx, id, paymentIntentRef)
+// SetCardAuthorization provides a mock function with given fields: ctx, id, cardAuthorizationID
+func (_m *MockLotteryEntryRepository) SetCardAuthorization(ctx context.Context, id entity.LotteryEntryID, cardAuthorizationID string) error {
+	ret := _m.Called(ctx, id, cardAuthorizationID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetAuthorization")
+		panic("no return value specified for SetCardAuthorization")
 	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, string) error); ok {
-		r0 = rf(ctx, id, paymentIntentRef)
+		r0 = rf(ctx, id, cardAuthorizationID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -445,32 +445,32 @@ func (_m *MockLotteryEntryRepository) SetAuthorization(ctx context.Context, id e
 	return r0
 }
 
-// MockLotteryEntryRepository_SetAuthorization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAuthorization'
-type MockLotteryEntryRepository_SetAuthorization_Call struct {
+// MockLotteryEntryRepository_SetCardAuthorization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetCardAuthorization'
+type MockLotteryEntryRepository_SetCardAuthorization_Call struct {
 	*mock.Call
 }
 
-// SetAuthorization is a helper method to define mock.On call
+// SetCardAuthorization is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.LotteryEntryID
-//   - paymentIntentRef string
-func (_e *MockLotteryEntryRepository_Expecter) SetAuthorization(ctx interface{}, id interface{}, paymentIntentRef interface{}) *MockLotteryEntryRepository_SetAuthorization_Call {
-	return &MockLotteryEntryRepository_SetAuthorization_Call{Call: _e.mock.On("SetAuthorization", ctx, id, paymentIntentRef)}
+//   - cardAuthorizationID string
+func (_e *MockLotteryEntryRepository_Expecter) SetCardAuthorization(ctx interface{}, id interface{}, cardAuthorizationID interface{}) *MockLotteryEntryRepository_SetCardAuthorization_Call {
+	return &MockLotteryEntryRepository_SetCardAuthorization_Call{Call: _e.mock.On("SetCardAuthorization", ctx, id, cardAuthorizationID)}
 }
 
-func (_c *MockLotteryEntryRepository_SetAuthorization_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID, paymentIntentRef string)) *MockLotteryEntryRepository_SetAuthorization_Call {
+func (_c *MockLotteryEntryRepository_SetCardAuthorization_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID, cardAuthorizationID string)) *MockLotteryEntryRepository_SetCardAuthorization_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.LotteryEntryID), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_SetAuthorization_Call) Return(_a0 error) *MockLotteryEntryRepository_SetAuthorization_Call {
+func (_c *MockLotteryEntryRepository_SetCardAuthorization_Call) Return(_a0 error) *MockLotteryEntryRepository_SetCardAuthorization_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_SetAuthorization_Call) RunAndReturn(run func(context.Context, entity.LotteryEntryID, string) error) *MockLotteryEntryRepository_SetAuthorization_Call {
+func (_c *MockLotteryEntryRepository_SetCardAuthorization_Call) RunAndReturn(run func(context.Context, entity.LotteryEntryID, string) error) *MockLotteryEntryRepository_SetCardAuthorization_Call {
 	_c.Call.Return(run)
 	return _c
 }

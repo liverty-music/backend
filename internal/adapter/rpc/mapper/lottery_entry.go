@@ -13,14 +13,14 @@ func LotteryEntryToProto(e *entity.LotteryEntry) *entityv1.LotteryEntry {
 		return nil
 	}
 	pb := &entityv1.LotteryEntry{
-		Id:                   &entityv1.LotteryEntryId{Value: string(e.ID)},
-		TicketTypeId:         &entityv1.TicketTypeId{Value: string(e.TicketTypeID)},
-		UserId:               &entityv1.UserId{Value: string(e.UserID)},
-		RequestedTicketCount: int32(e.RequestedTicketCount),
-		State:                lotteryEntryStateToProto(e.State),
+		Id:           &entityv1.LotteryEntryId{Value: string(e.ID)},
+		TicketTypeId: &entityv1.TicketTypeId{Value: string(e.TicketTypeID)},
+		UserId:       &entityv1.UserId{Value: string(e.UserID)},
+		TicketCount:  int32(e.TicketCount),
+		State:        lotteryEntryStateToProto(e.State),
 	}
-	if e.Authorization.PaymentIntentRef != "" {
-		pb.Authorization = &entityv1.PaymentAuthorization{PaymentIntentRef: e.Authorization.PaymentIntentRef}
+	if e.CardAuthorizationID != "" {
+		pb.CardAuthorizationId = &entityv1.CardAuthorizationId{Value: e.CardAuthorizationID}
 	}
 	if e.DrawPosition != nil {
 		pos := int64(*e.DrawPosition)

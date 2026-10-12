@@ -11,33 +11,30 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// OrderRepository implements entity.OrderRepository for PostgreSQL.
+// OrderRepository is the PostgreSQL part of entity.OrderRepository; package
+// repository adds the payment provider part.
 type OrderRepository struct {
 	db *Database
 }
 
-// Compile-time interface compliance check.
-var _ entity.OrderRepository = (*OrderRepository)(nil)
-
 const (
 	orderSelectColumns = `
-		id, user_id, lottery_entry_id, provider, payment_intent_ref, payment_method_ref,
-		card_brand, card_last4, status, amount, currency, paid_at, refund_ref,
-		checkout_id, confirmation_sent_at
+		id, user_id, lottery_entry_id, provider, provider_payment_id, provider_payment_method_id,
+		card_brand, card_last4, status, amount, currency, pay_at, provider_refund_id,
+		checkout_id, confirmation_send_at
 	`
-	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
-	orderGetByLotteryEntryIDQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
-	orderGetByCheckoutIDQuery       = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
-	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
+	orderGetQuery                    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
+	orderGetByLotteryEntryIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
+	orderGetByCheckoutIDQuery        = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
+	orderGetByProviderPaymentIDQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE provider_payment_id = $1`
 	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
 	// it is unset, so a second call keeps the first time.
 	orderMarkConfirmationSentQuery = `
-		UPDATE orders SET confirmation_sent_at = $2
-		WHERE id = $1 AND confirmation_sent_at IS NULL
+		UPDATE orders SET confirmation_send_at = $2
+		WHERE id = $1 AND confirmation_send_at IS NULL
 	`
-	orderExistsQuery       = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
-	orderUpdateStatusQuery = `UPDATE orders SET status = $2 WHERE id = $1`
-	orderListByUserQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY paid_at, id`
+	orderExistsQuery     = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
+	orderListByUserQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY pay_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -98,30 +95,18 @@ func (r *OrderRepository) MarkConfirmationSent(ctx context.Context, id entity.Or
 	return nil
 }
 
-// GetByPaymentIntentRef retrieves the order whose Payment.PaymentIntentRef
+// GetByProviderPaymentID retrieves the order whose Payment.ProviderPaymentID
 // matches the given pi_ value. Used by the webhook service to resolve a
 // dispute's payment_intent → Order without exposing repo access to the HTTP
 // handler layer.
-func (r *OrderRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.Order, error) {
-	row := r.db.Pool.QueryRow(ctx, orderGetByPaymentIntentRefQuery, paymentIntentRef)
+func (r *OrderRepository) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByProviderPaymentIDQuery, providerPaymentID)
 	order, err := scanOrder(row)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get order by payment intent ref",
-			slog.String("payment_intent_ref", paymentIntentRef))
+			slog.String("provider_payment_id", providerPaymentID))
 	}
 	return order, nil
-}
-
-// UpdateStatus changes the status of the order identified by id.
-func (r *OrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
-	tag, err := r.db.Pool.Exec(ctx, orderUpdateStatusQuery, string(id), int16(status))
-	if err != nil {
-		return toAppErr(err, "failed to update order status", slog.String("order_id", string(id)))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "order not found")
-	}
-	return nil
 }
 
 // ListByUser returns every order the given user bought, in any status, oldest
@@ -167,10 +152,10 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	)
 	if err := s.Scan(
 		&id, &userID, &lotteryEntryID, &provider,
-		&o.Payment.PaymentIntentRef, &o.Payment.PaymentMethodRef,
+		&o.Payment.ProviderPaymentID, &o.Payment.ProviderPaymentMethodID,
 		&o.Payment.CardBrand, &o.Payment.CardLast4,
-		&status, &o.Amount, &o.Currency, &o.PaidTime,
-		&o.RefundRef, &checkoutID, &confirmationSentAt,
+		&status, &o.Amount, &o.Currency, &o.PayTime,
+		&o.ProviderRefundID, &checkoutID, &confirmationSentAt,
 	); err != nil {
 		return nil, err
 	}
@@ -184,7 +169,7 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	}
 	if confirmationSentAt.Valid {
 		sentAt := confirmationSentAt.Time
-		o.ConfirmationSentTime = &sentAt
+		o.ConfirmationSendTime = &sentAt
 	}
 	o.Payment.Provider = entity.PaymentProvider(provider)
 	o.Status = entity.OrderStatus(status)

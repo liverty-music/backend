@@ -25,7 +25,7 @@ type TicketTypeView struct {
 	LowStock bool
 	// Stats is the tally of the TicketType's entries. Set only for a Lottery
 	// sale read by its Organizer ([TicketSaleUseCase.ListOwnByEvent]).
-	Stats *entity.TicketTypeStats
+	Stats *entity.LotteryEntryStats
 }
 
 // TicketSaleView is a TicketSale with its TicketTypes as the reader sees them.
@@ -65,7 +65,7 @@ type CreateTicketSaleInput struct {
 	// FirstCome sale nil means the earliest start time of the events it
 	// covers.
 	SaleEnd *time.Time
-	// VerificationRequirement is whether a fan must hold an Active Kyc; the
+	// VerificationRequirement is whether a fan must hold an Active IdentityVerification; the
 	// zero value is None.
 	VerificationRequirement entity.VerificationRequirement
 	// TicketTypes are what the sale offers, one per event; at least one.
@@ -124,7 +124,7 @@ type TicketSaleUseCase interface {
 	SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*TicketSaleView, error)
 
 	// SetVerificationRequirement changes whether fans taking part in one of
-	// the Organizer's sales must hold an Active Kyc, at any time, and returns
+	// the Organizer's sales must hold an Active IdentityVerification, at any time, and returns
 	// the updated sale. Entries already made are not re-checked.
 	//
 	// # Possible errors
@@ -379,7 +379,7 @@ func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, ev
 		view := saleViewAt(sale, sale.TicketTypes, now)
 		if sale.Method == entity.TicketSaleMethodLottery {
 			for _, ttv := range view.TicketTypes {
-				stats, err := uc.entryRepo.GetTicketTypeStats(ctx, ttv.TicketType.ID)
+				stats, err := uc.entryRepo.GetStatsByTicketType(ctx, ttv.TicketType.ID)
 				if err != nil {
 					return nil, err
 				}
@@ -475,7 +475,7 @@ func (uc *ticketSaleUseCase) SetVerificationRequirement(ctx context.Context, org
 	if _, err := uc.ownSale(ctx, organizerID, saleID, now); err != nil {
 		return nil, err
 	}
-	updated, err := uc.saleRepo.UpdateVerificationRequirement(ctx, saleID, req, now)
+	updated, err := uc.saleRepo.SetVerificationRequirement(ctx, saleID, req, now)
 	if err != nil {
 		return nil, err
 	}

@@ -83,12 +83,12 @@ type Checkout struct {
 	TicketCount int
 	// Amount is the ticket type's price × TicketCount in yen, fixed at creation.
 	Amount int64
-	// AuthorizationRef is the payment provider's reference of the card hold
+	// CardAuthorizationID is the payment provider's reference of the card hold
 	// (a Stripe "pi_..." id); empty until the fan authorizes, then set once.
-	AuthorizationRef string
+	CardAuthorizationID string
 	// AuthorizationReleaseTime is when the card hold was given back without a
 	// charge; nil unless released. Set once.
-	AuthorizationReleaseTime *time.Time
+	CardAuthorizationReleaseTime *time.Time
 	// Status is the checkout's lifecycle status.
 	Status CheckoutStatus
 	// HoldExpireTime is 15 minutes after the checkout started; never extended.
@@ -96,7 +96,7 @@ type Checkout struct {
 	// CommitTime is when the tickets were committed; nil until committed and
 	// kept when a commit is given back.
 	CommitTime *time.Time
-	// CaptureTime is when the card hold (AuthorizationRef) was charged; nil
+	// CaptureTime is when the card hold (CardAuthorizationID) was charged; nil
 	// until charged. Set once.
 	CaptureTime *time.Time
 }
@@ -199,14 +199,14 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id CheckoutID) (*Checkout, error)
 
-	// GetByAuthorizationRef returns the Checkout whose card hold has the
+	// GetByCardAuthorizationID returns the Checkout whose card hold has the
 	// given reference.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no Checkout has the reference.
 	//  - Internal: database failure.
-	GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*Checkout, error)
+	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*Checkout, error)
 
 	// SetAuthorization stores the card hold's reference of a Held Checkout; it
 	// changes no other attribute. With the same reference already set it
@@ -217,7 +217,7 @@ type CheckoutRepository interface {
 	//  - FailedPrecondition: the Checkout has another reference or is not Held.
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
-	SetAuthorization(ctx context.Context, id CheckoutID, authorizationRef string) error
+	SetCardAuthorization(ctx context.Context, id CheckoutID, cardAuthorizationID string) error
 
 	// Commit makes a holding Checkout Committed at now and adds its count to
 	// the ticket type's sold count, in one indivisible step that succeeds only while
@@ -273,7 +273,7 @@ type CheckoutRepository interface {
 	//    authorization reference.
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
-	RecordAuthorizationRelease(ctx context.Context, id CheckoutID, at time.Time) error
+	RecordCardAuthorizationRelease(ctx context.Context, id CheckoutID, at time.Time) error
 
 	// ListDue returns, oldest hold first, the Held Checkouts whose hold expired
 	// at or before now, the Expired and Released Checkouts with an
@@ -295,67 +295,4 @@ type CheckoutRepository interface {
 	//  - Internal: the lock could not be taken.
 	//  - Any error returned by fn, unchanged.
 	Serialize(ctx context.Context, id CheckoutID, fn func(ctx context.Context) error) error
-}
-
-// AuthorizationMetadata is the correlation data recorded on a checkout's card
-// hold. It never carries personal data.
-type AuthorizationMetadata struct {
-	// CheckoutID is the checkout the hold is opened for.
-	CheckoutID CheckoutID
-	// TicketTypeID is the checkout's TicketType.
-	TicketTypeID TicketTypeID
-	// EventID is the TicketType's event.
-	EventID string
-}
-
-// CheckoutAuthorizationPort is the card hold of a first-come checkout: a
-// manual-capture authorization in yen for the Checkout's amount, accepting
-// every card brand (American Express included). One hold per Checkout.
-// The Stripe implementation lives in internal/infrastructure/payment/.
-type CheckoutAuthorizationPort interface {
-	// CreateAuthorization opens a hold for amountJPY that charges nothing until
-	// CaptureAuthorization runs, and returns its reference and the confirmation
-	// secret the browser authenticates with. Repeating it for the same
-	// Checkout returns the same hold.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amountJPY is zero or negative.
-	//  - Unavailable: card payments cannot be reached.
-	CreateAuthorization(ctx context.Context, amountJPY int64, meta AuthorizationMetadata) (authorizationRef string, clientSecret string, err error)
-
-	// VerifyAuthorization succeeds only when the hold completed card
-	// authentication and waits to be captured, for exactly expectedAmountJPY in
-	// yen. Every card brand is accepted.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the hold is not authenticated or not capturable.
-	//  - InvalidArgument: the amount differs or the currency is not yen.
-	//  - NotFound: no hold has the reference.
-	//  - Unavailable: card payments cannot be reached.
-	VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error
-
-	// CaptureAuthorization charges the held amount and returns the charged
-	// payment. Its outcome follows the hold's state: an already charged hold
-	// succeeds without charging again, however long ago it was charged.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the hold was released or expired, or the card can
-	//    no longer be charged. Nothing is charged.
-	//  - Unavailable: the outcome is not known yet (the provider is unreachable
-	//    or another capture of the hold is in progress).
-	//  - NotFound: no hold has the reference.
-	CaptureAuthorization(ctx context.Context, authorizationRef string) (*CapturedPayment, error)
-
-	// CancelAuthorization releases the hold. Repeating it, or calling it for an
-	// expired hold, succeeds without a further effect.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the hold has already been charged.
-	//  - NotFound: no hold has the reference.
-	//  - Unavailable: card payments cannot be reached.
-	CancelAuthorization(ctx context.Context, authorizationRef string) error
 }

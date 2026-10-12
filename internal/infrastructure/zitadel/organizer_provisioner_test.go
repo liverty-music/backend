@@ -262,9 +262,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 
 	ctx := context.Background()
 	const (
-		organizerID  = "01a11dec-968d-762a-a64d-17f4ce185b92"
-		zitadelOrgID = "zitadel-org-xyz"
-		email        = "op@acme.com"
+		organizerID         = "01a11dec-968d-762a-a64d-17f4ce185b92"
+		providerOrganizerID = "zitadel-org-xyz"
+		email               = "op@acme.com"
 	)
 
 	tests := []struct {
@@ -296,7 +296,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				require.Len(t, stub.addProjectGrantReqs, 1)
 				req := stub.addProjectGrantReqs[0]
 				assert.Equal(t, "proj-1", req.GetProjectId())
-				assert.Equal(t, zitadelOrgID, req.GetGrantedOrgId())
+				assert.Equal(t, providerOrganizerID, req.GetGrantedOrgId())
 				assert.Equal(t, []string{"owner"}, req.GetRoleKeys())
 
 				require.Len(t, stub.addUserGrantReqs, 1)
@@ -330,7 +330,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 					stub.updateCustomLoginPolicyReq.GetDefaultRedirectUri())
 				// The existing user is looked up in the tenant org only.
 				require.Len(t, userV2.listUsersReqs, 1)
-				assert.Equal(t, zitadelOrgID, orgIDFilter(userV2.listUsersReqs[0]))
+				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
 				require.Len(t, stub.addUserGrantReqs, 1)
 				assert.Equal(t, "existing-operator-id", stub.addUserGrantReqs[0].GetUserId())
 			},
@@ -349,7 +349,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
 				t.Helper()
 				require.Len(t, userV2.listUsersReqs, 1)
-				assert.Equal(t, zitadelOrgID, orgIDFilter(userV2.listUsersReqs[0]))
+				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
 				assert.Empty(t, stub.addUserGrantReqs, "no owner grant for a foreign user")
 				assert.Nil(t, userV2.createInviteReq, "no invite to a foreign user")
 			},
@@ -371,7 +371,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, 1, userV2.addHumanUserCalls, "no second operator is created")
 				require.Len(t, userV2.listUsersReqs, 1)
-				assert.Equal(t, zitadelOrgID, orgIDFilter(userV2.listUsersReqs[0]))
+				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
 				require.Len(t, stub.addUserGrantReqs, 1)
 				assert.Equal(t, "existing-operator-id", stub.addUserGrantReqs[0].GetUserId())
 				assert.Equal(t, []string{"owner"}, stub.addUserGrantReqs[0].GetRoleKeys())
@@ -434,7 +434,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			}
 			p := newTestProvisioner(t, tt.stub, tt.userV2)
 
-			err := p.ProvisionTenant(ctx, organizerID, zitadelOrgID, email)
+			err := p.ProvisionTenant(ctx, organizerID, providerOrganizerID, email)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -728,16 +728,16 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name            string
-		zitadelOrgID    string
-		stub            *stubMgmt
-		wantErr         bool
-		wantCallCount   int
-		wantRemoveCount int
+		name                string
+		providerOrganizerID string
+		stub                *stubMgmt
+		wantErr             bool
+		wantCallCount       int
+		wantRemoveCount     int
 	}{
 		{
-			name:         "initial-state operator is removed, active operator is deactivated",
-			zitadelOrgID: "zitadel-org-mixed",
+			name:                "initial-state operator is removed, active operator is deactivated",
+			providerOrganizerID: "zitadel-org-mixed",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{
@@ -750,8 +750,8 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			wantRemoveCount: 1, // the initial user is deleted instead
 		},
 		{
-			name:         "RemoveUser NotFound on an initial operator is idempotent",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "RemoveUser NotFound on an initial operator is idempotent",
+			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{
@@ -766,8 +766,8 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			wantRemoveCount: 1,
 		},
 		{
-			name:         "deactivate all users returned by ListUsers",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "deactivate all users returned by ListUsers",
+			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{
@@ -779,8 +779,8 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			wantCallCount: 2,
 		},
 		{
-			name:         "FailedPrecondition on DeactivateUser is treated as already-inactive and is swallowed",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "FailedPrecondition on DeactivateUser is treated as already-inactive and is swallowed",
+			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{
@@ -796,24 +796,24 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			wantCallCount: 2,
 		},
 		{
-			name:         "empty ListUsers result is a no-op",
-			zitadelOrgID: "zitadel-org-empty",
+			name:                "empty ListUsers result is a no-op",
+			providerOrganizerID: "zitadel-org-empty",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{},
 			},
 			wantCallCount: 0,
 		},
 		{
-			name:         "ListUsers error returns error",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "ListUsers error returns error",
+			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersErr: grpcstatus.Error(grpccodes.Internal, "list failed"),
 			},
 			wantErr: true,
 		},
 		{
-			name:         "non-FailedPrecondition DeactivateUser error returns error",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "non-FailedPrecondition DeactivateUser error returns error",
+			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{
@@ -834,7 +834,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			t.Parallel()
 			p := newTestProvisioner(t, tt.stub, nil)
 
-			err := p.DeactivateOperators(ctx, tt.zitadelOrgID)
+			err := p.DeactivateOperators(ctx, tt.providerOrganizerID)
 
 			if tt.wantErr {
 				assert.Error(t, err)

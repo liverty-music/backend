@@ -23,14 +23,14 @@ var _ pushsubscriptionv1connect.PushSubscriptionServiceHandler = (*PushSubscript
 // Connect interface. Every call acts on the signed-in caller's own browsers'
 // push subscriptions; no request names a user.
 type PushSubscriptionHandler struct {
-	pushUseCase usecase.PushNotificationUseCase
+	pushUseCase usecase.PushSubscriptionUseCase
 	userRepo    entity.UserRepository
 	logger      *logging.Logger
 }
 
 // NewPushSubscriptionHandler creates a new PushSubscriptionHandler.
 func NewPushSubscriptionHandler(
-	pushUseCase usecase.PushNotificationUseCase,
+	pushUseCase usecase.PushSubscriptionUseCase,
 	userRepo entity.UserRepository,
 	logger *logging.Logger,
 ) *PushSubscriptionHandler {
@@ -114,7 +114,7 @@ func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(&rpc.DeleteResponse{}), nil
 }
 
-// resolveCallerUser extracts the external_id from JWT claims and resolves the
+// resolveCallerUser extracts the provider_user_id from JWT claims and resolves the
 // internal user record for the caller.
 func (h *PushSubscriptionHandler) resolveCallerUser(ctx context.Context) (*entity.User, error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
@@ -122,9 +122,9 @@ func (h *PushSubscriptionHandler) resolveCallerUser(ctx context.Context) (*entit
 		return nil, err
 	}
 	// push_subscriptions.user_id references users.id (internal UUID),
-	// not the identity-provider-specific external_id, so we must resolve
+	// not the identity-provider-specific provider_user_id, so we must resolve
 	// the internal user record before interacting with the repository.
-	return h.userRepo.GetByExternalID(ctx, externalID)
+	return h.userRepo.GetByProviderUserID(ctx, externalID)
 }
 
 // toPushSubscriptionProto maps the internal entity to the wire type returned

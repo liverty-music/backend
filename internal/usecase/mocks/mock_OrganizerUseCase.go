@@ -389,124 +389,6 @@ func (_c *MockOrganizerUseCase_List_Call) RunAndReturn(run func(context.Context)
 	return _c
 }
 
-// ListArtists provides a mock function with given fields: ctx, organizerID
-func (_m *MockOrganizerUseCase) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx, organizerID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListArtists")
-	}
-
-	var r0 []*entity.Artist
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Artist, error)); ok {
-		return rf(ctx, organizerID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Artist); ok {
-		r0 = rf(ctx, organizerID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Artist)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, organizerID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockOrganizerUseCase_ListArtists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListArtists'
-type MockOrganizerUseCase_ListArtists_Call struct {
-	*mock.Call
-}
-
-// ListArtists is a helper method to define mock.On call
-//   - ctx context.Context
-//   - organizerID string
-func (_e *MockOrganizerUseCase_Expecter) ListArtists(ctx interface{}, organizerID interface{}) *MockOrganizerUseCase_ListArtists_Call {
-	return &MockOrganizerUseCase_ListArtists_Call{Call: _e.mock.On("ListArtists", ctx, organizerID)}
-}
-
-func (_c *MockOrganizerUseCase_ListArtists_Call) Run(run func(ctx context.Context, organizerID string)) *MockOrganizerUseCase_ListArtists_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_ListArtists_Call) Return(_a0 []*entity.Artist, _a1 error) *MockOrganizerUseCase_ListArtists_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_ListArtists_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockOrganizerUseCase_ListArtists_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListOwnArtists provides a mock function with given fields: ctx, callerOrganizerID
-func (_m *MockOrganizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx, callerOrganizerID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListOwnArtists")
-	}
-
-	var r0 []*entity.Artist
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Artist, error)); ok {
-		return rf(ctx, callerOrganizerID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Artist); ok {
-		r0 = rf(ctx, callerOrganizerID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Artist)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, callerOrganizerID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockOrganizerUseCase_ListOwnArtists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListOwnArtists'
-type MockOrganizerUseCase_ListOwnArtists_Call struct {
-	*mock.Call
-}
-
-// ListOwnArtists is a helper method to define mock.On call
-//   - ctx context.Context
-//   - callerOrganizerID string
-func (_e *MockOrganizerUseCase_Expecter) ListOwnArtists(ctx interface{}, callerOrganizerID interface{}) *MockOrganizerUseCase_ListOwnArtists_Call {
-	return &MockOrganizerUseCase_ListOwnArtists_Call{Call: _e.mock.On("ListOwnArtists", ctx, callerOrganizerID)}
-}
-
-func (_c *MockOrganizerUseCase_ListOwnArtists_Call) Run(run func(ctx context.Context, callerOrganizerID string)) *MockOrganizerUseCase_ListOwnArtists_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_ListOwnArtists_Call) Return(_a0 []*entity.Artist, _a1 error) *MockOrganizerUseCase_ListOwnArtists_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_ListOwnArtists_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockOrganizerUseCase_ListOwnArtists_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ReconcileProvisioning provides a mock function with given fields: ctx
 func (_m *MockOrganizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -553,9 +435,9 @@ func (_c *MockOrganizerUseCase_ReconcileProvisioning_Call) RunAndReturn(run func
 	return _c
 }
 
-// ResolveCaller provides a mock function with given fields: ctx, zitadelOrgID
-func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
-	ret := _m.Called(ctx, zitadelOrgID)
+// ResolveCaller provides a mock function with given fields: ctx, providerOrganizerID
+func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, providerOrganizerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveCaller")
@@ -564,10 +446,10 @@ func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID 
 	var r0 *entity.Organizer
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Organizer, error)); ok {
-		return rf(ctx, zitadelOrgID)
+		return rf(ctx, providerOrganizerID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Organizer); ok {
-		r0 = rf(ctx, zitadelOrgID)
+		r0 = rf(ctx, providerOrganizerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Organizer)
@@ -575,7 +457,7 @@ func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID 
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, zitadelOrgID)
+		r1 = rf(ctx, providerOrganizerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -590,12 +472,12 @@ type MockOrganizerUseCase_ResolveCaller_Call struct {
 
 // ResolveCaller is a helper method to define mock.On call
 //   - ctx context.Context
-//   - zitadelOrgID string
-func (_e *MockOrganizerUseCase_Expecter) ResolveCaller(ctx interface{}, zitadelOrgID interface{}) *MockOrganizerUseCase_ResolveCaller_Call {
-	return &MockOrganizerUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, zitadelOrgID)}
+//   - providerOrganizerID string
+func (_e *MockOrganizerUseCase_Expecter) ResolveCaller(ctx interface{}, providerOrganizerID interface{}) *MockOrganizerUseCase_ResolveCaller_Call {
+	return &MockOrganizerUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, providerOrganizerID)}
 }
 
-func (_c *MockOrganizerUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, zitadelOrgID string)) *MockOrganizerUseCase_ResolveCaller_Call {
+func (_c *MockOrganizerUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, providerOrganizerID string)) *MockOrganizerUseCase_ResolveCaller_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

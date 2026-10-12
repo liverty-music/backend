@@ -83,12 +83,12 @@ func (_c *MockTicketUseCase_Admit_Call) RunAndReturn(run func(context.Context, u
 	return _c
 }
 
-// GetMyTickets provides a mock function with given fields: ctx, userID
-func (_m *MockTicketUseCase) GetMyTickets(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+// List provides a mock function with given fields: ctx, userID
+func (_m *MockTicketUseCase) List(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
 	ret := _m.Called(ctx, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetMyTickets")
+		panic("no return value specified for List")
 	}
 
 	var r0 []*entity.Ticket
@@ -113,91 +113,31 @@ func (_m *MockTicketUseCase) GetMyTickets(ctx context.Context, userID entity.Use
 	return r0, r1
 }
 
-// MockTicketUseCase_GetMyTickets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMyTickets'
-type MockTicketUseCase_GetMyTickets_Call struct {
+// MockTicketUseCase_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockTicketUseCase_List_Call struct {
 	*mock.Call
 }
 
-// GetMyTickets is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID entity.UserID
-func (_e *MockTicketUseCase_Expecter) GetMyTickets(ctx interface{}, userID interface{}) *MockTicketUseCase_GetMyTickets_Call {
-	return &MockTicketUseCase_GetMyTickets_Call{Call: _e.mock.On("GetMyTickets", ctx, userID)}
+func (_e *MockTicketUseCase_Expecter) List(ctx interface{}, userID interface{}) *MockTicketUseCase_List_Call {
+	return &MockTicketUseCase_List_Call{Call: _e.mock.On("List", ctx, userID)}
 }
 
-func (_c *MockTicketUseCase_GetMyTickets_Call) Run(run func(ctx context.Context, userID entity.UserID)) *MockTicketUseCase_GetMyTickets_Call {
+func (_c *MockTicketUseCase_List_Call) Run(run func(ctx context.Context, userID entity.UserID)) *MockTicketUseCase_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.UserID))
 	})
 	return _c
 }
 
-func (_c *MockTicketUseCase_GetMyTickets_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketUseCase_GetMyTickets_Call {
+func (_c *MockTicketUseCase_List_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketUseCase_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockTicketUseCase_GetMyTickets_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Ticket, error)) *MockTicketUseCase_GetMyTickets_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetOrder provides a mock function with given fields: ctx, userID, orderID
-func (_m *MockTicketUseCase) GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
-	ret := _m.Called(ctx, userID, orderID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetOrder")
-	}
-
-	var r0 *entity.Order
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.OrderID) (*entity.Order, error)); ok {
-		return rf(ctx, userID, orderID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.OrderID) *entity.Order); ok {
-		r0 = rf(ctx, userID, orderID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Order)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID, entity.OrderID) error); ok {
-		r1 = rf(ctx, userID, orderID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockTicketUseCase_GetOrder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrder'
-type MockTicketUseCase_GetOrder_Call struct {
-	*mock.Call
-}
-
-// GetOrder is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID entity.UserID
-//   - orderID entity.OrderID
-func (_e *MockTicketUseCase_Expecter) GetOrder(ctx interface{}, userID interface{}, orderID interface{}) *MockTicketUseCase_GetOrder_Call {
-	return &MockTicketUseCase_GetOrder_Call{Call: _e.mock.On("GetOrder", ctx, userID, orderID)}
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) Run(run func(ctx context.Context, userID entity.UserID, orderID entity.OrderID)) *MockTicketUseCase_GetOrder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.UserID), args[2].(entity.OrderID))
-	})
-	return _c
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) Return(_a0 *entity.Order, _a1 error) *MockTicketUseCase_GetOrder_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) RunAndReturn(run func(context.Context, entity.UserID, entity.OrderID) (*entity.Order, error)) *MockTicketUseCase_GetOrder_Call {
+func (_c *MockTicketUseCase_List_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Ticket, error)) *MockTicketUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

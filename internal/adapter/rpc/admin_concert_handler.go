@@ -15,30 +15,30 @@ import (
 var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 
 // AdminConcertHandler implements the admin ConcertService Connect interface:
-// List and Delete of published Concerts. The review of StagedConcerts is the
-// admin StagedConcertService ([AdminStagedConcertHandler]).
+// List and Delete of published Concerts. The review of ConcertCandidates is the
+// admin ConcertCandidateService ([AdminConcertCandidateHandler]).
 //
 // Admin authorization is enforced at the admin server boundary by its server-wide
 // RequireRoleInterceptor (admin role), not by per-method checks here; the handler
 // is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type AdminConcertHandler struct {
-	concertUseCase  usecase.AdminConcertUseCase
-	mediaURLBuilder *mapper.MediaURLBuilder
-	logger          *logging.Logger
+	concertUseCase        usecase.ConcertUseCase
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	logger                *logging.Logger
 }
 
 // NewAdminConcertHandler creates a new admin concert handler. mediaURLBuilder
 // composes the cover image URLs of the Series List returns, so they carry the
 // same fields as on the fan concert service.
 func NewAdminConcertHandler(
-	concertUseCase usecase.AdminConcertUseCase,
-	mediaURLBuilder *mapper.MediaURLBuilder,
+	concertUseCase usecase.ConcertUseCase,
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *AdminConcertHandler {
 	return &AdminConcertHandler{
-		concertUseCase:  concertUseCase,
-		mediaURLBuilder: mediaURLBuilder,
-		logger:          logger,
+		concertUseCase:        concertUseCase,
+		seriesImageURLBuilder: seriesImageURLBuilder,
+		logger:                logger,
 	}
 }
 
@@ -56,7 +56,7 @@ func (h *AdminConcertHandler) List(
 
 	return connect.NewResponse(&adminconcertv1.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
-		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }

@@ -3,7 +3,6 @@ package payment
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -13,7 +12,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v86"
 )
 
-// Accounts v2 recipient provisioning constants. See CreateConnectedAccount for
+// Accounts v2 recipient provisioning constants. See StripePayoutAccounts.Create for
 // why each value is what it is.
 const (
 	// recipientDashboardNone gives the recipient no Stripe Dashboard access;
@@ -33,43 +32,60 @@ const (
 )
 
 // Compile-time interface compliance check.
-var _ entity.PaymentSettlementPort = (*StripeSettlementPort)(nil)
-
-// StripeSettlementPort implements [entity.PaymentSettlementPort] via the
-// Stripe API. It handles the money-out operations for the settlement/payout
-// capability: resolving charges, creating Transfers, and managing Accounts v2
-// payout-recipient connected accounts.
-type StripeSettlementPort struct {
+// stripeConnect is the Stripe client of the money-movement adapters: the
+// Order's refund and charge, the Settlement's payouts and the PayoutAccount's
+// connected account.
+type stripeConnect struct {
 	client *stripe.Client
 	logger *logging.Logger
 }
 
-// NewStripeSettlementPort creates a StripeSettlementPort with the given Stripe
-// secret key. The key is never logged. Callers should use
-// [NewNoopSettlementPort] when the key is empty (local development without a
-// Stripe account configured).
-func NewStripeSettlementPort(secretKey string, logger *logging.Logger) *StripeSettlementPort {
-	backends := &stripe.Backends{
-		API: stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
-			HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
-		}),
-	}
-	return &StripeSettlementPort{
-		client: stripe.NewClient(secretKey, stripe.WithBackends(backends)),
-		logger: logger,
-	}
+// newStripeConnect returns a stripeConnect whose API calls are bounded by
+// stripeHTTPTimeout. The key is never logged.
+func newStripeConnect(secretKey string, logger *logging.Logger) stripeConnect {
+	return stripeConnect{client: newStripeClient(secretKey, ""), logger: logger}
 }
 
-// ResolveChargeRef implements [entity.PaymentSettlementPort].
+// StripeOrderPayments is the Stripe side of the Order's operations:
+// GetProviderChargeID and CreateRefund.
+type StripeOrderPayments struct{ stripeConnect }
+
+// NewStripeOrderPayments creates the Stripe side of the Order's operations.
+func NewStripeOrderPayments(secretKey string, logger *logging.Logger) *StripeOrderPayments {
+	return &StripeOrderPayments{newStripeConnect(secretKey, logger)}
+}
+
+// StripeSettlementPayouts is the Stripe side of the Settlement's operations:
+// CreatePayout and ReversePayout.
+type StripeSettlementPayouts struct{ stripeConnect }
+
+// NewStripeSettlementPayouts creates the Stripe side of the Settlement's
+// operations.
+func NewStripeSettlementPayouts(secretKey string, logger *logging.Logger) *StripeSettlementPayouts {
+	return &StripeSettlementPayouts{newStripeConnect(secretKey, logger)}
+}
+
+// StripePayoutAccounts is the Stripe side of the PayoutAccount's operations:
+// Create, GetStatus and CreateOnboardingLink on Accounts v2 payout-recipient
+// connected accounts.
+type StripePayoutAccounts struct{ stripeConnect }
+
+// NewStripePayoutAccounts creates the Stripe side of the PayoutAccount's
+// operations.
+func NewStripePayoutAccounts(secretKey string, logger *logging.Logger) *StripePayoutAccounts {
+	return &StripePayoutAccounts{newStripeConnect(secretKey, logger)}
+}
+
+// GetProviderChargeID implements [entity.OrderRepository].
 //
 // It retrieves the PaymentIntent with latest_charge expanded and returns the
 // charge id ("ch_..."). The charge id is used as source_transaction on the
 // Transfer so Stripe can tie the transfer to the originating platform charge.
-func (p *StripeSettlementPort) ResolveChargeRef(ctx context.Context, paymentIntentRef string) (string, error) {
+func (p *StripeOrderPayments) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
-	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, params)
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, params)
 	if err != nil {
 		return "", toPaymentAppErr(ctx, err, "failed to retrieve PaymentIntent for charge resolution", p.logger)
 	}
@@ -85,13 +101,13 @@ func (p *StripeSettlementPort) ResolveChargeRef(ctx context.Context, paymentInte
 	}
 
 	p.logger.Info(ctx, "resolved charge ref from PaymentIntent",
-		slog.String("payment_intent_ref", paymentIntentRef),
+		slog.String("provider_payment_id", providerPaymentID),
 		slog.String("charge_ref", pi.LatestCharge.ID),
 	)
 	return pi.LatestCharge.ID, nil
 }
 
-// CreateTransfer implements [entity.PaymentSettlementPort].
+// CreatePayout implements [entity.SettlementRepository].
 //
 // It creates a Stripe Transfer from the platform balance to the Organizer's
 // connected account, with source_transaction set to the captured charge.
@@ -107,21 +123,21 @@ func (p *StripeSettlementPort) ResolveChargeRef(ctx context.Context, paymentInte
 //
 // The idempotency key is derived from the SettlementID and the split's payee
 // so a retried sweep never double-transfers the same split.
-func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params entity.TransferParams) (string, error) {
+func (p *StripeSettlementPayouts) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "transfer amount must be positive")
 	}
 
 	// Idempotency key: settlement-id + payee account ensures one transfer per
 	// (settlement, payee) pair even if the sweeper retries after a crash.
-	idempotencyKey := "settlement-transfer:" + string(params.SettlementID) + ":" + params.PayeeAccountRef
+	idempotencyKey := "settlement-transfer:" + string(params.SettlementID) + ":" + params.PayeeProviderAccountID
 
 	// Take local copies so we can safely take their addresses.
 	amount := params.Amount
 	transferParams := &stripe.TransferCreateParams{
 		Amount:            &amount,
 		Currency:          stripe.String(params.Currency),
-		Destination:       stripe.String(params.PayeeAccountRef),
+		Destination:       stripe.String(params.PayeeProviderAccountID),
 		SourceTransaction: stripe.String(params.SourceTransactionRef),
 		// No on_behalf_of — see function-level comment above.
 		// No statement descriptor — platform account config (task 5.1).
@@ -142,7 +158,7 @@ func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params entity
 	return tr.ID, nil
 }
 
-// CreateConnectedAccount implements [entity.PaymentSettlementPort].
+// Create implements [entity.PayoutAccountRepository].
 //
 // It creates an Accounts v2 payout-recipient account (POST /v2/core/accounts)
 // for the Organizer. Fresh sandboxes reject Accounts v1, and v2 is the shape
@@ -175,7 +191,7 @@ func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params entity
 //
 // The idempotency key is derived from the organizer id so a retried
 // provisioning call cannot create a second account for the same Organizer.
-func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string, contactEmail string) (string, error) {
+func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, contactEmail string) (string, error) {
 	if organizerID == "" {
 		return "", apperr.New(codes.InvalidArgument, "organizer id must not be empty")
 	}
@@ -228,7 +244,7 @@ func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organ
 	return acct.ID, nil
 }
 
-// GetAccountStatus implements [entity.PaymentSettlementPort].
+// GetStatus implements [entity.PayoutAccountRepository].
 //
 // It retrieves the connected account via the v1 accounts API and maps its
 // transfers capability state to the platform's own
@@ -243,8 +259,8 @@ func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organ
 // configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
 // ("active" / "pending" / "restricted") directly instead of the deprecated
 // transfers_enabled bool.
-func (p *StripeSettlementPort) GetAccountStatus(ctx context.Context, accountRef string) (entity.PayoutOnboardingStatus, error) {
-	acct, err := p.client.V1Accounts.GetByID(ctx, accountRef, nil)
+func (p *StripePayoutAccounts) GetStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error) {
+	acct, err := p.client.V1Accounts.GetByID(ctx, providerAccountID, nil)
 	if err != nil {
 		return entity.PayoutOnboardingStatusUnspecified, toPaymentAppErr(ctx, err, "failed to retrieve connected account", p.logger)
 	}
@@ -262,7 +278,7 @@ func (p *StripeSettlementPort) GetAccountStatus(ctx context.Context, accountRef 
 //   - Capabilities.Transfers == "inactive" → Restricted (capability disabled)
 //   - nil capabilities / empty             → Pending  (not yet requested)
 //
-// Accounts are now provisioned via Accounts v2 (see CreateConnectedAccount), but
+// Accounts are now provisioned via Accounts v2 (see CreatePayoutAccount), but
 // v2 accounts are still readable through the v1 Accounts endpoint and expose the
 // same transfers capability state, so this mapping stays correct. Reading
 // configuration.recipient.capabilities.stripe_balance.stripe_transfers.status via
@@ -286,7 +302,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	}
 }
 
-// CreateRefund implements [entity.PaymentSettlementPort].
+// CreateRefund implements [entity.OrderRepository].
 //
 // It creates a Stripe Refund against the captured Charge (ch_). The refund
 // amount is the Order's captured amount (face + system/発券 fee; processor fee
@@ -299,7 +315,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 //   - Pre-sweep refunds (no settlement row) do not collide across distinct
 //     orders — previously a constant "no-settlement" placeholder would share
 //     the key across ALL orders that have not yet been swept.
-func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
+func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "refund amount must be positive")
 	}
@@ -310,7 +326,7 @@ func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params entity.R
 
 	amount := params.Amount
 	refundParams := &stripe.RefundCreateParams{
-		Charge: stripe.String(params.ChargeRef),
+		Charge: stripe.String(params.ProviderChargeID),
 		Amount: &amount,
 		Reason: stripe.String("requested_by_customer"),
 	}
@@ -323,34 +339,34 @@ func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params entity.R
 
 	p.logger.Info(ctx, "Stripe Refund created",
 		slog.String("refund_ref", refund.ID),
-		slog.String("charge_ref", params.ChargeRef),
+		slog.String("charge_ref", params.ProviderChargeID),
 		slog.Int64("amount", refund.Amount),
 		slog.String("order_id", string(params.OrderID)),
 	)
 	return refund.ID, nil
 }
 
-// ReverseTransfer implements [entity.PaymentSettlementPort].
+// ReversePayout implements [entity.SettlementRepository].
 //
 // It creates a Stripe TransferReversal for the given Transfer. On a refund or
 // dispute clawback the Organizer's share is clawed back to the platform balance
 // via transfer_reversal. The reversal amount equals the split's original amount
 // (full reversal per split).
 //
-// The idempotency key is derived from SettlementID + TransferRef so a retried
+// The idempotency key is derived from SettlementID + ProviderPayoutID so a retried
 // clawback never double-reverses a split.
-func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (p *StripeSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "reversal amount must be positive")
 	}
 
 	// Idempotency key: settlement-id + transfer-ref ensures one reversal per
 	// (settlement, split) pair even if the sweeper or webhook handler retries.
-	idempotencyKey := "settlement-reversal:" + string(params.SettlementID) + ":" + params.TransferRef
+	idempotencyKey := "settlement-reversal:" + string(params.SettlementID) + ":" + params.ProviderPayoutID
 
 	amount := params.Amount
 	reversalParams := &stripe.TransferReversalCreateParams{
-		ID:     stripe.String(params.TransferRef),
+		ID:     stripe.String(params.ProviderPayoutID),
 		Amount: &amount,
 	}
 	reversalParams.SetIdempotencyKey(idempotencyKey)
@@ -362,21 +378,21 @@ func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params entit
 
 	p.logger.Info(ctx, "Stripe TransferReversal created",
 		slog.String("reversal_ref", reversal.ID),
-		slog.String("transfer_ref", params.TransferRef),
+		slog.String("transfer_ref", params.ProviderPayoutID),
 		slog.Int64("amount", reversal.Amount),
 		slog.String("settlement_id", string(params.SettlementID)),
 	)
 	return reversal.ID, nil
 }
 
-// CreateOnboardingLink implements [entity.PaymentSettlementPort].
+// CreateOnboardingLink implements [entity.PayoutAccountRepository].
 //
 // It creates a Stripe AccountLink for the connected account so the Organizer
 // can complete KYC/KYB via the Stripe-hosted onboarding flow. The link is
 // single-use and expires after a short period; callers must not cache it.
-func (p *StripeSettlementPort) CreateOnboardingLink(ctx context.Context, accountRef string, returnURL string) (string, error) {
+func (p *StripePayoutAccounts) CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (string, error) {
 	params := &stripe.AccountLinkCreateParams{
-		Account:    stripe.String(accountRef),
+		Account:    stripe.String(providerAccountID),
 		RefreshURL: stripe.String(returnURL),
 		ReturnURL:  stripe.String(returnURL),
 		Type:       stripe.String("account_onboarding"),
@@ -388,7 +404,7 @@ func (p *StripeSettlementPort) CreateOnboardingLink(ctx context.Context, account
 	}
 
 	p.logger.Info(ctx, "Stripe account onboarding link created",
-		slog.String("account_ref", accountRef),
+		slog.String("account_ref", providerAccountID),
 		slog.Time("expires_at", time.Unix(link.ExpiresAt, 0)),
 	)
 	return link.URL, nil

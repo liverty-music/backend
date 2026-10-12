@@ -36,7 +36,7 @@ func (r *AdmissionRepository) GetByTicket(ctx context.Context, ticketID entity.T
 		linkID   string
 	)
 	if err := r.db.Pool.QueryRow(ctx, admissionGetByTicketQuery, string(ticketID)).
-		Scan(&ticketDB, &a.EventID, &linkID, &a.ReceptionLinkNumber, &a.AdmittedTime); err != nil {
+		Scan(&ticketDB, &a.EventID, &linkID, &a.ReceptionLinkNumber, &a.AdmitTime); err != nil {
 		return nil, toAppErr(err, "failed to get admission", slog.String("ticket_id", string(ticketID)))
 	}
 	a.TicketID = entity.TicketID(ticketDB)

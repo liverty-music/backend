@@ -38,7 +38,7 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 		wantErr error
 		check   func(t *testing.T, thumb, large []byte)
 	}{
-		// @spec components/usecase/media/process-media "Valid photo"
+		// @spec components/usecase/series-image/process "Valid photo"
 		{
 			name:    "produces an 800px thumb and 1920px large WebP without EXIF from a 4000x3000 JPEG",
 			args:    args{data: jpegOriginal},
@@ -51,7 +51,7 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 				assertNoEXIF(t, large)
 			},
 		},
-		// @spec components/usecase/media/process-media "WebP original"
+		// @spec components/usecase/series-image/process "WebP original"
 		{
 			name:    "produces an 800px thumb and 1920px large WebP from a 4000x3000 WebP, same as JPEG or PNG",
 			args:    args{data: webpOriginal},
@@ -62,7 +62,7 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 				assertValidWebPVariant(t, large, 1920)
 			},
 		},
-		// @spec components/usecase/media/process-media "Decompression bomb"
+		// @spec components/usecase/series-image/process "Decompression bomb"
 		{
 			name:    "rejects a declared 10000x10000 image before full decode",
 			args:    args{data: fakePNGHeader(10000, 10000)},

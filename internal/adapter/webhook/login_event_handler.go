@@ -27,7 +27,7 @@ const sessionUserCheckedEventType = "session.user.checked"
 // ID) to the platform user. Satisfied by usecase.UserUseCase; declared here so
 // the handler depends only on the one method it needs.
 type userResolver interface {
-	GetByExternalID(ctx context.Context, externalID string) (*entity.User, error)
+	GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error)
 }
 
 // eventPublisher publishes a domain event as a CloudEvent to a NATS subject.
@@ -188,7 +188,7 @@ func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string) {
 		return
 	}
 
-	user, err := h.users.GetByExternalID(ctx, sub)
+	user, err := h.users.GetByProviderUserID(ctx, sub)
 	if err != nil {
 		// User not yet provisioned, or a transient lookup error. Bounded
 		// under-count is acceptable; never fail login.

@@ -67,9 +67,9 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
-	searchLogRepo := rdb.NewSearchLogRepository(db)
-	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
-	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
+	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 
 	// Infrastructure - Gemini
 	//
@@ -119,7 +119,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

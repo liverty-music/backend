@@ -16,16 +16,24 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 		Id:     &entityv1.OrderId{Value: string(order.ID)},
 		UserId: &entityv1.UserId{Value: string(order.UserID)},
 		Payment: &entityv1.Payment{
-			Provider:         paymentProviderToProto(order.Payment.Provider),
-			PaymentIntentRef: order.Payment.PaymentIntentRef,
-			PaymentMethodRef: order.Payment.PaymentMethodRef,
-			CardBrand:        order.Payment.CardBrand,
-			CardLast4:        order.Payment.CardLast4,
+			Provider:          paymentProviderToProto(order.Payment.Provider),
+			ProviderPaymentId: &entityv1.Payment_ProviderPaymentId{Value: order.Payment.ProviderPaymentID},
+			CardBrand:         order.Payment.CardBrand,
+			CardLast4:         order.Payment.CardLast4,
 		},
 		Status:   orderStatusToProto(order.Status),
 		Amount:   order.Amount,
 		Currency: order.Currency,
-		PayTime:  timestamppb.New(order.PaidTime),
+		PayTime:  timestamppb.New(order.PayTime),
+	}
+	if order.Payment.ProviderPaymentMethodID != "" {
+		pb.Payment.ProviderPaymentMethodId = &entityv1.Payment_ProviderPaymentMethodId{Value: order.Payment.ProviderPaymentMethodID}
+	}
+	if order.ProviderRefundID != "" {
+		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: order.ProviderRefundID}
+	}
+	if order.ConfirmationSendTime != nil {
+		pb.ConfirmationSendTime = timestamppb.New(*order.ConfirmationSendTime)
 	}
 	// The source is exactly one of the lottery entry and the checkout.
 	if order.CheckoutID != "" {

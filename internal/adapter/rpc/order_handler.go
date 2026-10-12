@@ -20,14 +20,14 @@ var _ orderv1connect.OrderServiceHandler = (*OrderHandler)(nil)
 // their own Orders. The Order's user is always the caller; a request never
 // names a User.
 type OrderHandler struct {
-	ticketUC usecase.TicketUseCase
-	userUC   usecase.UserUseCase
-	logger   *logging.Logger
+	orderUC usecase.OrderUseCase
+	userUC  usecase.UserUseCase
+	logger  *logging.Logger
 }
 
 // NewOrderHandler creates a new OrderHandler.
-func NewOrderHandler(ticketUC usecase.TicketUseCase, userUC usecase.UserUseCase, logger *logging.Logger) *OrderHandler {
-	return &OrderHandler{ticketUC: ticketUC, userUC: userUC, logger: logger}
+func NewOrderHandler(orderUC usecase.OrderUseCase, userUC usecase.UserUseCase, logger *logging.Logger) *OrderHandler {
+	return &OrderHandler{orderUC: orderUC, userUC: userUC, logger: logger}
 }
 
 // Get returns one of the caller's own Orders.
@@ -40,7 +40,7 @@ func (h *OrderHandler) Get(
 		return nil, err
 	}
 
-	order, err := h.ticketUC.GetOrder(ctx, userID, entity.OrderID(req.Msg.GetOrderId().GetValue()))
+	order, err := h.orderUC.Get(ctx, userID, entity.OrderID(req.Msg.GetOrderId().GetValue()))
 	if err != nil {
 		return nil, err
 	}

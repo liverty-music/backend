@@ -27,8 +27,8 @@ type Venue struct {
 
 // VenuePlace represents a resolved canonical venue from an external place search service.
 type VenuePlace struct {
-	// ExternalID is the Google Place ID.
-	ExternalID string
+	// ProviderUserID is the Google Place ID.
+	ProviderUserID string
 	// Name is the canonical name returned by the external service.
 	Name string
 	// Coordinates is the WGS 84 geographic position returned by the external service.

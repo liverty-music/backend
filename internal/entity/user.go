@@ -119,8 +119,8 @@ type Home struct {
 type User struct {
 	// ID is the unique identifier for the user (UUID).
 	ID string
-	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
-	ExternalID string
+	// ProviderUserID is the identity provider's user identifier (Zitadel sub claim).
+	ProviderUserID string
 	// Email is the user's email address.
 	Email string
 	// Name is the user's display name.
@@ -129,12 +129,8 @@ type User struct {
 	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
 	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
-	// Country is the user's country code.
-	Country string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
-	// IsActive indicates if the user account is active.
-	IsActive bool
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home
@@ -162,8 +158,8 @@ func (u *User) HasPersonalDetails() bool {
 
 // NewUser represents data for creating a new user.
 type NewUser struct {
-	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
-	ExternalID string
+	// ProviderUserID is the identity provider's user identifier (Zitadel sub claim).
+	ProviderUserID string
 	// Email is the user's email address.
 	Email string
 	// Name is the user's display name.
@@ -172,8 +168,6 @@ type NewUser struct {
 	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
 	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
-	// Country is the user's country code.
-	Country string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
 	// Home is the user's home area. Nil when not provided during creation.
@@ -184,13 +178,11 @@ type NewUser struct {
 func CreateUser(params *NewUser) *User {
 	return &User{
 		ID:                NewID(),
-		ExternalID:        params.ExternalID,
+		ProviderUserID:    params.ProviderUserID,
 		Email:             params.Email,
 		Name:              params.Name,
 		PreferredLanguage: params.PreferredLanguage,
-		Country:           params.Country,
 		TimeZone:          params.TimeZone,
-		IsActive:          true,
 	}
 }
 
@@ -222,26 +214,12 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	Get(ctx context.Context, id string) (*User, error)
 
-	// GetByExternalID retrieves a user by identity provider ID.
+	// GetByProviderUserID retrieves a user by identity provider ID.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	GetByExternalID(ctx context.Context, externalID string) (*User, error)
-
-	// GetByEmail retrieves a user by email address.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the user does not exist.
-	GetByEmail(ctx context.Context, email string) (*User, error)
-
-	// Update updates user information.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the user does not exist.
-	Update(ctx context.Context, id string, params *NewUser) (*User, error)
+	GetByProviderUserID(ctx context.Context, externalID string) (*User, error)
 
 	// Delete removes a user.
 	//
@@ -277,9 +255,6 @@ type UserRepository interface {
 	//  - InvalidArgument: the values break the personal details rule.
 	//  - NotFound: If the user does not exist.
 	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*User, error)
-
-	// List retrieves users with pagination.
-	List(ctx context.Context, limit, offset int) ([]*User, error)
 }
 
 // EmailVerifier sends and resends email verification codes via the identity

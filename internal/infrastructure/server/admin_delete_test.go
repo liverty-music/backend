@@ -42,7 +42,14 @@ const (
 // validation interceptor) with the admin OrganizerService and UserService
 // mounted on the given usecase mocks, and the admin ArtistService on the
 // OrganizerUseCase mock.
-func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase, userUC *usecasemocks.MockUserUseCase) *httptest.Server {
+// newTestAdminDeleteServer serves the admin Organizer, User and Artist
+// services; the Artist service runs on artistUC when one is given, else on a
+// strict mock that fails the test when it is called.
+func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase, userUC *usecasemocks.MockUserUseCase, artistUC ...*usecasemocks.MockArtistUseCase) *httptest.Server {
+	artistUseCase := usecasemocks.NewMockArtistUseCase(t)
+	if len(artistUC) > 0 {
+		artistUseCase = artistUC[0]
+	}
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -66,7 +73,7 @@ func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrgani
 			return adminuserv1connect.NewUserServiceHandler(rpc.NewAdminUserHandler(userUC, logger), opts...)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminartistv1connect.NewArtistServiceHandler(rpc.NewAdminArtistHandler(organizerUC, logger), opts...)
+			return adminartistv1connect.NewArtistServiceHandler(rpc.NewAdminArtistHandler(artistUseCase, logger), opts...)
 		},
 	}
 	cfg := config.ServerSettings{

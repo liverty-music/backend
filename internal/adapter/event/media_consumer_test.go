@@ -26,9 +26,9 @@ func makeMediaUploadedMsg(t *testing.T, mediaID, seriesID string) *message.Messa
 }
 
 // TestMediaConsumer_Handle verifies that MediaConsumer only decodes the
-// message and delegates orchestration to MediaUseCase.ProcessMedia — the
+// message and delegates orchestration to SeriesImageUseCase.Process — the
 // orchestration itself (read/transcode/cut-over/cleanup) is covered by the
-// MediaUseCase tests in internal/usecase/media_uc_test.go now that the logic
+// SeriesImageUseCase tests in internal/usecase/series_image_uc_test.go now that the logic
 // lives there.
 func TestMediaConsumer_Handle(t *testing.T) {
 	t.Parallel()
@@ -36,10 +36,10 @@ func TestMediaConsumer_Handle(t *testing.T) {
 	t.Run("delegates to ProcessMedia", func(t *testing.T) {
 		t.Parallel()
 
-		mediaUC := ucmocks.NewMockMediaUseCase(t)
-		handler := event.NewMediaConsumer(mediaUC, newTestLogger(t))
+		seriesImageUC := ucmocks.NewMockSeriesImageUseCase(t)
+		handler := event.NewMediaConsumer(seriesImageUC, newTestLogger(t))
 
-		mediaUC.EXPECT().ProcessMedia(anyCtx, "media-1", "series-1").Return(nil).Once()
+		seriesImageUC.EXPECT().Process(anyCtx, "media-1", "series-1").Return(nil).Once()
 
 		err := handler.Handle(makeMediaUploadedMsg(t, "media-1", "series-1"))
 		assert.NoError(t, err)
@@ -48,10 +48,10 @@ func TestMediaConsumer_Handle(t *testing.T) {
 	t.Run("returns error when use case fails", func(t *testing.T) {
 		t.Parallel()
 
-		mediaUC := ucmocks.NewMockMediaUseCase(t)
-		handler := event.NewMediaConsumer(mediaUC, newTestLogger(t))
+		seriesImageUC := ucmocks.NewMockSeriesImageUseCase(t)
+		handler := event.NewMediaConsumer(seriesImageUC, newTestLogger(t))
 
-		mediaUC.EXPECT().ProcessMedia(anyCtx, "media-2", "series-2").Return(fmt.Errorf("gcs unavailable")).Once()
+		seriesImageUC.EXPECT().Process(anyCtx, "media-2", "series-2").Return(fmt.Errorf("gcs unavailable")).Once()
 
 		err := handler.Handle(makeMediaUploadedMsg(t, "media-2", "series-2"))
 		assert.Error(t, err)
@@ -61,8 +61,8 @@ func TestMediaConsumer_Handle(t *testing.T) {
 	t.Run("returns error on invalid payload", func(t *testing.T) {
 		t.Parallel()
 
-		mediaUC := ucmocks.NewMockMediaUseCase(t)
-		handler := event.NewMediaConsumer(mediaUC, newTestLogger(t))
+		seriesImageUC := ucmocks.NewMockSeriesImageUseCase(t)
+		handler := event.NewMediaConsumer(seriesImageUC, newTestLogger(t))
 
 		msg := message.NewMessage("bad-id", []byte("not json"))
 		err := handler.Handle(msg)

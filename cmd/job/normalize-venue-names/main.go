@@ -1,5 +1,5 @@
 // Package main provides a one-time migration job that normalizes listed_venue_name
-// values in venues, staged_concerts, and events tables by applying entity.NormalizeVenueName.
+// values in venues, concert_candidates, and events tables by applying entity.NormalizeVenueName.
 package main
 
 import (
@@ -60,16 +60,16 @@ func run(bootLogger *logging.Logger) error {
 
 	// venues must be normalized first: resolveOrCreateVenue looks up venues by
 	// their listed_venue_name, so an un-normalized venues row would cause a miss
-	// after staged_concerts is normalized (new concerts stage with a normalized
+	// after concert_candidates is normalized (new concerts stage with a normalized
 	// name that no longer matches the old raw-value venues row).
 	venuesUpdated, err := normalizeVenues(ctx, tx, logger)
 	if err != nil {
 		return fmt.Errorf("normalize venues: %w", err)
 	}
 
-	stagedUpdated, stagedDeleted, err := normalizeStagedConcerts(ctx, tx, logger)
+	candidatesUpdated, candidatesDeleted, err := normalizeConcertCandidates(ctx, tx, logger)
 	if err != nil {
-		return fmt.Errorf("normalize staged_concerts: %w", err)
+		return fmt.Errorf("normalize concert_candidates: %w", err)
 	}
 
 	eventsUpdated, err := normalizeEvents(ctx, tx, logger)
@@ -83,8 +83,8 @@ func run(bootLogger *logging.Logger) error {
 
 	logger.Info(ctx, "normalize-venue-names migration complete",
 		slog.Int("venues_updated", venuesUpdated),
-		slog.Int("staged_concerts_updated", stagedUpdated),
-		slog.Int("staged_concerts_deleted_duplicates", stagedDeleted),
+		slog.Int("concert_candidates_updated", candidatesUpdated),
+		slog.Int("concert_candidates_deleted_duplicates", candidatesDeleted),
 		slog.Int("events_updated", eventsUpdated),
 	)
 
@@ -92,8 +92,8 @@ func run(bootLogger *logging.Logger) error {
 }
 
 // normalizeVenues normalizes listed_venue_name in venues. This must run before
-// staged_concerts so that the GetByListedName SQL equality lookup keeps working
-// after the write-path normalization is deployed: a staged concert with a
+// concert_candidates so that the GetByListedName SQL equality lookup keeps working
+// after the write-path normalization is deployed: a concert candidate with a
 // normalized name must find its existing venue row by the same normalized key.
 func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (int, error) {
 	rows, err := tx.Query(ctx, `SELECT id, listed_venue_name FROM venues WHERE listed_venue_name IS NOT NULL`)
@@ -132,23 +132,23 @@ func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (in
 	return len(toUpdate), nil
 }
 
-// normalizeStagedConcerts normalizes listed_venue_name in staged_concerts.
+// normalizeConcertCandidates normalizes listed_venue_name in concert_candidates.
 //
 // Unresolved rows (resolved_place_id IS NULL) are covered by the partial unique
-// index uq_staged_concerts_by_listed_name(artist_id, local_date, listed_venue_name).
+// index uq_concert_candidates_by_listed_name(artist_id, local_date, listed_venue_name).
 // Normalizing a prefixed name can produce a value that already exists for another
 // row with the same (artist_id, local_date). To avoid a constraint violation we
 // first detect such duplicate pairs and delete the un-normalized duplicate (keeping
 // the row that already holds, or will hold after the update, the canonical form).
-func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (updated, deleted int, err error) {
+func normalizeConcertCandidates(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (updated, deleted int, err error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, artist_id, local_date::text, listed_venue_name, resolved_place_id
-		FROM staged_concerts
+		FROM concert_candidates
 		WHERE listed_venue_name IS NOT NULL
 		ORDER BY id
 	`)
 	if err != nil {
-		return 0, 0, fmt.Errorf("query staged_concerts: %w", err)
+		return 0, 0, fmt.Errorf("query concert_candidates: %w", err)
 	}
 
 	type stagingRow struct {
@@ -164,13 +164,13 @@ func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Log
 		var r stagingRow
 		if err := rows.Scan(&r.id, &r.artistID, &r.localDate, &r.name, &r.resolvedPlaceID); err != nil {
 			rows.Close()
-			return 0, 0, fmt.Errorf("scan staged_concerts row: %w", err)
+			return 0, 0, fmt.Errorf("scan concert_candidates row: %w", err)
 		}
 		all = append(all, r)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, 0, fmt.Errorf("iterate staged_concerts rows: %w", err)
+		return 0, 0, fmt.Errorf("iterate concert_candidates rows: %w", err)
 	}
 
 	type withNorm struct {
@@ -231,17 +231,17 @@ func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Log
 
 	// Delete duplicates first so subsequent UPDATEs don't collide.
 	for _, id := range toDelete {
-		if _, err := tx.Exec(ctx, `DELETE FROM staged_concerts WHERE id = $1`, id); err != nil {
-			return 0, 0, fmt.Errorf("delete duplicate staged_concerts row %s: %w", id, err)
+		if _, err := tx.Exec(ctx, `DELETE FROM concert_candidates WHERE id = $1`, id); err != nil {
+			return 0, 0, fmt.Errorf("delete duplicate concert_candidates row %s: %w", id, err)
 		}
 	}
 	for _, r := range toUpdate {
-		if _, err := tx.Exec(ctx, `UPDATE staged_concerts SET listed_venue_name = $1 WHERE id = $2`, r.name, r.id); err != nil {
-			return 0, 0, fmt.Errorf("update staged_concerts row %s: %w", r.id, err)
+		if _, err := tx.Exec(ctx, `UPDATE concert_candidates SET listed_venue_name = $1 WHERE id = $2`, r.name, r.id); err != nil {
+			return 0, 0, fmt.Errorf("update concert_candidates row %s: %w", r.id, err)
 		}
 	}
 
-	logger.Info(ctx, "staged_concerts normalization prepared",
+	logger.Info(ctx, "concert_candidates normalization prepared",
 		slog.Int("to_update", len(toUpdate)),
 		slog.Int("to_delete", len(toDelete)),
 	)

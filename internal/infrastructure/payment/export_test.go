@@ -2,8 +2,8 @@ package payment
 
 import "github.com/pannpers/go-logging/logging"
 
-// NewStripeCheckoutAuthorizationPortForTest points the checkout's
-// card-hold port at a stub Stripe API.
-func NewStripeCheckoutAuthorizationPortForTest(secretKey, apiURL string, logger *logging.Logger) *StripeCheckoutAuthorizationPort {
-	return newStripeCheckoutAuthorizationPort(secretKey, apiURL, logger)
+// NewStripeCardAuthorizationRepositoryForTest points the card authorization
+// repository at a stub Stripe API.
+func NewStripeCardAuthorizationRepositoryForTest(secretKey, apiURL string, policy CardAuthorizationPolicy, logger *logging.Logger) *StripeCardAuthorizationRepository {
+	return newStripeCardAuthorizationRepository(secretKey, apiURL, policy, logger)
 }

@@ -22,25 +22,25 @@ var _ entity.IssuanceRepository = (*IssuanceRepository)(nil)
 const (
 	issuanceInsertOrderQuery = `
 		INSERT INTO orders (
-			id, user_id, lottery_entry_id, checkout_id, provider, payment_intent_ref, payment_method_ref,
-			card_brand, card_last4, status, amount, currency, paid_at
+			id, user_id, lottery_entry_id, checkout_id, provider, provider_payment_id, provider_payment_method_id,
+			card_brand, card_last4, status, amount, currency, pay_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	issuanceInsertTicketQuery = `
 		INSERT INTO tickets (
-			id, order_id, user_id, event_id, kyc_id,
-			resale_without_consent_prohibited, status, issued_at
+			id, order_id, user_id, event_id, identity_verification_id,
+			resale_without_consent_prohibited, status, issue_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	// issuanceInsertSettlementQuery inserts the Held settlement row for the
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
-	// caller (IssuanceUseCase) must resolve the Organizer before calling Issue.
+	// caller (OrderUseCase) must resolve the Organizer before calling Issue.
 	issuanceInsertSettlementQuery = `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at)
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	// issuanceInsertSettlementSplitQuery inserts one payout split for the
-	// settlement just created. transfer_ref/transfer_reversal_ref default to
+	// settlement just created. provider_payout_id/provider_payout_reversal_id default to
 	// NULL until the payout sweeper releases the settlement.
 	issuanceInsertSettlementSplitQuery = `
 		INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount)
@@ -110,9 +110,9 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	if _, err := tx.Exec(ctx, issuanceInsertOrderQuery,
 		string(order.ID), string(order.UserID), nullableUUID(string(order.LotteryEntryID)),
-		nullableUUID(string(order.CheckoutID)), int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
+		nullableUUID(string(order.CheckoutID)), int16(order.Payment.Provider), order.Payment.ProviderPaymentID, order.Payment.ProviderPaymentMethodID,
 		order.Payment.CardBrand, order.Payment.CardLast4,
-		int16(order.Status), order.Amount, order.Currency, order.PaidTime,
+		int16(order.Status), order.Amount, order.Currency, order.PayTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert order",
 			slog.String("lottery_entry_id", string(order.LotteryEntryID)),
@@ -122,8 +122,8 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	for _, t := range tickets {
 		if _, err := tx.Exec(ctx, issuanceInsertTicketQuery,
 			string(t.ID), string(t.OrderID), string(t.UserID), t.EventID,
-			nullableUUID(t.KycID), t.ResaleWithoutConsentProhibited,
-			int16(t.Status), t.IssuedTime,
+			nullableUUID(t.IdentityVerificationID), t.ResaleWithoutConsentProhibited,
+			int16(t.Status), t.IssueTime,
 		); err != nil {
 			return toAppErr(err, "failed to insert ticket", slog.String("ticket_id", string(t.ID)))
 		}
@@ -131,7 +131,7 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	if _, err := tx.Exec(ctx, issuanceInsertSettlementQuery,
 		string(settlement.ID), string(settlement.OrderID), settlement.OrganizerID, settlement.EventID,
-		int16(settlement.Status), settlement.CreatedTime,
+		int16(settlement.Status), settlement.CreateTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert settlement", slog.String("settlement_id", string(settlement.ID)))
 	}

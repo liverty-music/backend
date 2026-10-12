@@ -63,17 +63,6 @@ func (s LotteryEntryState) String() string {
 	}
 }
 
-// PaymentAuthorization is the reference to the card hold (a manual-capture
-// Stripe PaymentIntent) placed for a lottery entry's amount. No money is
-// captured until the draw runs.
-//
-// Mirrors liverty_music.entity.v1.PaymentAuthorization.
-type PaymentAuthorization struct {
-	// PaymentIntentRef is the Stripe PaymentIntent ID (e.g. "pi_3Qx..."),
-	// 1 to 255 characters; empty while no hold is opened.
-	PaymentIntentRef string
-}
-
 // LotteryEntry is one fan account's entry into the lottery for one
 // TicketType: a request for a companion group of tickets allocated
 // all-or-nothing, and the card hold placed for the amount until the draw. The
@@ -91,13 +80,14 @@ type LotteryEntry struct {
 	// UserID is the fan account that entered.
 	UserID UserID
 
-	// RequestedTicketCount is the companion-group size, allocated
+	// TicketCount is the companion-group size, allocated
 	// all-or-nothing: 1 to the ticket type's per-account limit.
-	RequestedTicketCount int
+	TicketCount int
 
-	// Authorization is the card hold; its reference is empty on a Draft until
-	// the hold is opened, and set from Entered on.
-	Authorization PaymentAuthorization
+	// CardAuthorizationID is the payment provider's ID for the entry's
+	// CardAuthorization (e.g. a Stripe "pi_..."); empty on a Draft until the
+	// card authorization is opened, and set from Entered on.
+	CardAuthorizationID string
 
 	// State is the entry's lifecycle state.
 	State LotteryEntryState
@@ -110,25 +100,26 @@ type LotteryEntry struct {
 
 // NewLotteryEntry returns a Draft entry with a generated UUIDv7 id, no
 // authorization and no draw position.
-func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, requestedTicketCount int) *LotteryEntry {
+func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, ticketCount int) *LotteryEntry {
 	return &LotteryEntry{
-		ID:                   LotteryEntryID(NewID()),
-		TicketTypeID:         ticketTypeID,
-		UserID:               userID,
-		RequestedTicketCount: requestedTicketCount,
-		State:                LotteryEntryStateDraft,
+		ID:           LotteryEntryID(NewID()),
+		TicketTypeID: ticketTypeID,
+		UserID:       userID,
+		TicketCount:  ticketCount,
+		State:        LotteryEntryStateDraft,
 	}
 }
 
-// HasAuthorization reports whether a card hold is recorded on the entry.
-func (e *LotteryEntry) HasAuthorization() bool {
-	return e.Authorization.PaymentIntentRef != ""
+// HasCardAuthorization reports whether a CardAuthorization is recorded on the
+// entry.
+func (e *LotteryEntry) HasCardAuthorization() bool {
+	return e.CardAuthorizationID != ""
 }
 
 // IsConfirmable reports whether the entry can become Entered: it is a Draft
 // with an authorization.
 func (e *LotteryEntry) IsConfirmable() bool {
-	return e.State == LotteryEntryStateDraft && e.HasAuthorization()
+	return e.State == LotteryEntryStateDraft && e.HasCardAuthorization()
 }
 
 // IsActive reports whether the entry counts as the account's entry for its
@@ -143,16 +134,16 @@ func (e *LotteryEntry) IsWithdrawable() bool {
 	return e.State == LotteryEntryStateDraft || e.State == LotteryEntryStateEntered
 }
 
-// TicketTypeStats is the tally of one TicketType's Entered, Won and Lost
+// LotteryEntryStats is the tally of one TicketType's Entered, Won and Lost
 // entries for the Organizer's view of its sale. Draft and Withdrawn entries
 // are not counted.
-type TicketTypeStats struct {
+type LotteryEntryStats struct {
 	// EntryCount is the number of Entered, Won and Lost entries.
 	EntryCount int
 
-	// RequestedTicketCount is the sum of those entries' requested ticket
+	// TicketCount is the sum of those entries' requested ticket
 	// counts.
-	RequestedTicketCount int
+	TicketCount int
 
 	// WonEntryCount is the number of Won entries.
 	WonEntryCount int
@@ -171,8 +162,9 @@ type DrawWinnerRow struct {
 	// LotteryEntryID is the winning entry.
 	LotteryEntryID LotteryEntryID
 
-	// PaymentIntentRef is the entry's card hold, which the draw captures.
-	PaymentIntentRef string
+	// CardAuthorizationID is the entry's CardAuthorization, which the draw
+	// captures.
+	CardAuthorizationID string
 
 	// DrawPosition is the entry's zero-based position in the draw order.
 	DrawPosition int
@@ -185,73 +177,13 @@ type DrawLoserRow struct {
 	// LotteryEntryID is the losing entry.
 	LotteryEntryID LotteryEntryID
 
-	// PaymentIntentRef is the entry's card hold, which the draw releases.
-	PaymentIntentRef string
+	// CardAuthorizationID is the entry's CardAuthorization, which the draw
+	// releases.
+	CardAuthorizationID string
 
 	// DrawPosition is the entry's zero-based position in the draw order; it
 	// keeps the loser waitlist order for official resale.
 	DrawPosition int
-}
-
-// PaymentAuthorizationPort is the card hold of a lottery entry: a
-// manual-capture authorization in yen that rejects American Express, whose
-// hold cannot last the up-to-14-day window. Implementations live in
-// internal/infrastructure/payment/.
-//
-// Hold flow:
-//  1. [PaymentAuthorizationPort.CreateAuthorization] at Authorize — opens the
-//     hold and returns the client secret the browser completes 3DS with.
-//  2. [PaymentAuthorizationPort.VerifyAuthorization] at Confirm — checks the
-//     hold is authenticated, for the expected amount, on an accepted brand.
-//  3. [PaymentAuthorizationPort.CancelAuthorization] — releases the hold (a
-//     loss, a withdrawal or a Draft left unconfirmed at the draw).
-//  4. [PaymentAuthorizationPort.CaptureAuthorization] — charges the hold (a
-//     win, by the draw).
-type PaymentAuthorizationPort interface {
-	// CreateAuthorization opens a hold in yen for amountJPY that captures
-	// nothing until CaptureAuthorization runs, and returns the hold's
-	// reference and the confirmation secret the browser authenticates with.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amountJPY is zero or negative.
-	//  - Unavailable: card payments cannot be reached.
-	//  - Internal: unexpected provider error.
-	CreateAuthorization(ctx context.Context, amountJPY int64) (paymentIntentRef string, clientSecret string, err error)
-
-	// VerifyAuthorization succeeds only when the hold completed card
-	// authentication and waits to be captured, for exactly expectedAmountJPY
-	// in yen, on an accepted card brand ([IsAcceptedCardBrand]).
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the hold is not authenticated or not waiting to be
-	//    captured, or the card is American Express.
-	//  - InvalidArgument: the amount differs or the currency is not yen.
-	//  - NotFound: no hold has the reference.
-	//  - Unavailable: card payments cannot be reached.
-	VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error
-
-	// CancelAuthorization releases the hold; repeating it succeeds without a
-	// second effect.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no hold has the reference.
-	//  - FailedPrecondition: the hold has already been captured.
-	//  - Unavailable: card payments cannot be reached.
-	CancelAuthorization(ctx context.Context, paymentIntentRef string) error
-
-	// CaptureAuthorization charges the held amount; repeating it succeeds
-	// without charging again.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no hold has the reference.
-	//  - FailedPrecondition: the hold can no longer be captured (released,
-	//    expired, or the card was closed).
-	//  - Unavailable: card payments cannot be reached.
-	CaptureAuthorization(ctx context.Context, paymentIntentRef string) error
 }
 
 // LotteryEntryRepository persists [LotteryEntry] records. Implementations live
@@ -274,15 +206,16 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	GetOrCreateDraft(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int) (*LotteryEntry, error)
 
-	// SetAuthorization records paymentIntentRef as the Draft's card hold. It
-	// changes no other attribute.
+	// SetCardAuthorization records the Draft's CardAuthorization. Recording the
+	// same one again succeeds without a change. It changes no other attribute.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the entry is not a Draft.
+	//  - FailedPrecondition: the entry is not a Draft, or already has another
+	//    CardAuthorization.
 	//  - NotFound: no entry has the id.
 	//  - Internal: database failure.
-	SetAuthorization(ctx context.Context, id LotteryEntryID, paymentIntentRef string) error
+	SetCardAuthorization(ctx context.Context, id LotteryEntryID, cardAuthorizationID string) error
 
 	// Get returns the entry with the given id, in any state.
 	//
@@ -292,14 +225,14 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id LotteryEntryID) (*LotteryEntry, error)
 
-	// GetByPaymentIntentRef returns the entry whose card hold has the given
+	// GetByCardAuthorizationID returns the entry whose card authorization has the given
 	// reference.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no entry has the reference.
 	//  - Internal: database failure.
-	GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*LotteryEntry, error)
+	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*LotteryEntry, error)
 
 	// ListByTicketTypeAndUser returns every entry of the user for the
 	// TicketType, in every state, newest first. It returns an empty slice when
@@ -320,13 +253,13 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	ListUndrawnForTicketType(ctx context.Context, ticketTypeID TicketTypeID) ([]*LotteryEntry, error)
 
-	// GetTicketTypeStats tallies the TicketType's Entered, Won and Lost
+	// GetStatsByTicketType tallies the TicketType's Entered, Won and Lost
 	// entries. A TicketType without entries yields all counts zero.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	GetTicketTypeStats(ctx context.Context, ticketTypeID TicketTypeID) (TicketTypeStats, error)
+	GetStatsByTicketType(ctx context.Context, ticketTypeID TicketTypeID) (LotteryEntryStats, error)
 
 	// PersistDrawOutcome records one sale's draw in one transaction: every
 	// winner Won and every loser Lost with its draw position, every

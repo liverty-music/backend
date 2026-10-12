@@ -119,16 +119,16 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	// Extract charge ref and payment_intent ref from the event payload for
 	// charge.* events. The pi_ is used by the use case to resolve the Order;
-	// previously only the charge ref was extracted, leaving PaymentIntentRef
+	// previously only the charge ref was extracted, leaving ProviderPaymentID
 	// empty and making the dispute path permanently dead.
-	chargeRef, paymentIntentRef := h.extractChargeContext(ctx, event)
+	providerChargeID, providerPaymentID := h.extractChargeContext(ctx, event)
 
 	parsed := usecase.StripeWebhookEvent{
-		ProviderEventID:  event.ID,
-		Type:             usecase.StripeEventType(event.Type),
-		ChargeRef:        chargeRef,
-		PaymentIntentRef: paymentIntentRef,
-		ReceivedAt:       time.Now().UTC(),
+		ProviderEventID:   event.ID,
+		Type:              usecase.StripeEventType(event.Type),
+		ProviderChargeID:  providerChargeID,
+		ProviderPaymentID: providerPaymentID,
+		ReceivedAt:        time.Now().UTC(),
 	}
 
 	if err := h.webhookSvc.HandleEvent(ctx, parsed); err != nil {
@@ -174,7 +174,7 @@ type chargeObjectData struct {
 // a top-level field on the object.
 //
 // Returns empty strings for non-charge events or on parse failure.
-func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event stripe.Event) (chargeRef, paymentIntentRef string) {
+func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event stripe.Event) (providerChargeID, providerPaymentID string) {
 	// For payment_intent.* events the data.object is the PaymentIntent itself.
 	if string(event.Type) == string(usecase.StripeEventPaymentIntentSucceeded) {
 		var pi struct {
@@ -189,7 +189,7 @@ func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event s
 	}
 
 	switch string(event.Type) {
-	case string(usecase.StripeEventChargeRefunded),
+	case string(usecase.StripeEventProviderChargeIDunded),
 		string(usecase.StripeEventChargeDisputeCreated):
 	default:
 		return "", ""
@@ -207,32 +207,32 @@ func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event s
 	// Resolve the charge ref: for a Charge object use its own id; for a Dispute
 	// object use the `charge` field.
 	switch string(event.Type) {
-	case string(usecase.StripeEventChargeRefunded):
-		chargeRef = obj.ID
+	case string(usecase.StripeEventProviderChargeIDunded):
+		providerChargeID = obj.ID
 	case string(usecase.StripeEventChargeDisputeCreated):
-		chargeRef = obj.Charge
+		providerChargeID = obj.Charge
 	}
 
 	// payment_intent may be encoded as a plain string or as an expanded object
 	// (if the endpoint registered expansions). We only decode the string form.
 	switch v := obj.PaymentIntent.(type) {
 	case string:
-		paymentIntentRef = v
+		providerPaymentID = v
 	case map[string]any:
 		// Expanded object — extract the id field.
 		if id, ok := v["id"].(string); ok {
-			paymentIntentRef = id
+			providerPaymentID = id
 		}
 	}
 
-	if chargeRef == "" || paymentIntentRef == "" {
+	if providerChargeID == "" || providerPaymentID == "" {
 		h.logger.Warn(ctx, "stripe webhook: could not extract charge or payment_intent ref from event",
 			slog.String("event_id", event.ID),
 			slog.String("event_type", string(event.Type)),
-			slog.String("charge_ref", chargeRef),
-			slog.String("payment_intent_ref", fmt.Sprintf("%v", obj.PaymentIntent)),
+			slog.String("provider_charge_id", providerChargeID),
+			slog.String("provider_payment_id", fmt.Sprintf("%v", obj.PaymentIntent)),
 		)
 	}
 
-	return chargeRef, paymentIntentRef
+	return providerChargeID, providerPaymentID
 }

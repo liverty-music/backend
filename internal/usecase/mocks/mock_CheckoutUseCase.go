@@ -22,12 +22,12 @@ func (_m *MockCheckoutUseCase) EXPECT() *MockCheckoutUseCase_Expecter {
 	return &MockCheckoutUseCase_Expecter{mock: &_m.Mock}
 }
 
-// Authorize provides a mock function with given fields: ctx, userID, checkoutID, fullName, phoneNumber
-func (_m *MockCheckoutUseCase) Authorize(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName string, phoneNumber string) (string, error) {
+// AuthorizeCard provides a mock function with given fields: ctx, userID, checkoutID, fullName, phoneNumber
+func (_m *MockCheckoutUseCase) AuthorizeCard(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName string, phoneNumber string) (string, error) {
 	ret := _m.Called(ctx, userID, checkoutID, fullName, phoneNumber)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Authorize")
+		panic("no return value specified for AuthorizeCard")
 	}
 
 	var r0 string
@@ -50,34 +50,34 @@ func (_m *MockCheckoutUseCase) Authorize(ctx context.Context, userID entity.User
 	return r0, r1
 }
 
-// MockCheckoutUseCase_Authorize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Authorize'
-type MockCheckoutUseCase_Authorize_Call struct {
+// MockCheckoutUseCase_AuthorizeCard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AuthorizeCard'
+type MockCheckoutUseCase_AuthorizeCard_Call struct {
 	*mock.Call
 }
 
-// Authorize is a helper method to define mock.On call
+// AuthorizeCard is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID entity.UserID
 //   - checkoutID entity.CheckoutID
 //   - fullName string
 //   - phoneNumber string
-func (_e *MockCheckoutUseCase_Expecter) Authorize(ctx interface{}, userID interface{}, checkoutID interface{}, fullName interface{}, phoneNumber interface{}) *MockCheckoutUseCase_Authorize_Call {
-	return &MockCheckoutUseCase_Authorize_Call{Call: _e.mock.On("Authorize", ctx, userID, checkoutID, fullName, phoneNumber)}
+func (_e *MockCheckoutUseCase_Expecter) AuthorizeCard(ctx interface{}, userID interface{}, checkoutID interface{}, fullName interface{}, phoneNumber interface{}) *MockCheckoutUseCase_AuthorizeCard_Call {
+	return &MockCheckoutUseCase_AuthorizeCard_Call{Call: _e.mock.On("AuthorizeCard", ctx, userID, checkoutID, fullName, phoneNumber)}
 }
 
-func (_c *MockCheckoutUseCase_Authorize_Call) Run(run func(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName string, phoneNumber string)) *MockCheckoutUseCase_Authorize_Call {
+func (_c *MockCheckoutUseCase_AuthorizeCard_Call) Run(run func(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName string, phoneNumber string)) *MockCheckoutUseCase_AuthorizeCard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.UserID), args[2].(entity.CheckoutID), args[3].(string), args[4].(string))
 	})
 	return _c
 }
 
-func (_c *MockCheckoutUseCase_Authorize_Call) Return(_a0 string, _a1 error) *MockCheckoutUseCase_Authorize_Call {
+func (_c *MockCheckoutUseCase_AuthorizeCard_Call) Return(_a0 string, _a1 error) *MockCheckoutUseCase_AuthorizeCard_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCheckoutUseCase_Authorize_Call) RunAndReturn(run func(context.Context, entity.UserID, entity.CheckoutID, string, string) (string, error)) *MockCheckoutUseCase_Authorize_Call {
+func (_c *MockCheckoutUseCase_AuthorizeCard_Call) RunAndReturn(run func(context.Context, entity.UserID, entity.CheckoutID, string, string) (string, error)) *MockCheckoutUseCase_AuthorizeCard_Call {
 	_c.Call.Return(run)
 	return _c
 }

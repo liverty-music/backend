@@ -70,12 +70,12 @@ func (_c *MockFollowUseCase_Follow_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// ListFollowed provides a mock function with given fields: ctx, userID
-func (_m *MockFollowUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
+// List provides a mock function with given fields: ctx, userID
+func (_m *MockFollowUseCase) List(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	ret := _m.Called(ctx, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListFollowed")
+		panic("no return value specified for List")
 	}
 
 	var r0 []*entity.FollowedArtist
@@ -100,31 +100,31 @@ func (_m *MockFollowUseCase) ListFollowed(ctx context.Context, userID string) ([
 	return r0, r1
 }
 
-// MockFollowUseCase_ListFollowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFollowed'
-type MockFollowUseCase_ListFollowed_Call struct {
+// MockFollowUseCase_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockFollowUseCase_List_Call struct {
 	*mock.Call
 }
 
-// ListFollowed is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
-func (_e *MockFollowUseCase_Expecter) ListFollowed(ctx interface{}, userID interface{}) *MockFollowUseCase_ListFollowed_Call {
-	return &MockFollowUseCase_ListFollowed_Call{Call: _e.mock.On("ListFollowed", ctx, userID)}
+func (_e *MockFollowUseCase_Expecter) List(ctx interface{}, userID interface{}) *MockFollowUseCase_List_Call {
+	return &MockFollowUseCase_List_Call{Call: _e.mock.On("List", ctx, userID)}
 }
 
-func (_c *MockFollowUseCase_ListFollowed_Call) Run(run func(ctx context.Context, userID string)) *MockFollowUseCase_ListFollowed_Call {
+func (_c *MockFollowUseCase_List_Call) Run(run func(ctx context.Context, userID string)) *MockFollowUseCase_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockFollowUseCase_ListFollowed_Call) Return(_a0 []*entity.FollowedArtist, _a1 error) *MockFollowUseCase_ListFollowed_Call {
+func (_c *MockFollowUseCase_List_Call) Return(_a0 []*entity.FollowedArtist, _a1 error) *MockFollowUseCase_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFollowUseCase_ListFollowed_Call) RunAndReturn(run func(context.Context, string) ([]*entity.FollowedArtist, error)) *MockFollowUseCase_ListFollowed_Call {
+func (_c *MockFollowUseCase_List_Call) RunAndReturn(run func(context.Context, string) ([]*entity.FollowedArtist, error)) *MockFollowUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

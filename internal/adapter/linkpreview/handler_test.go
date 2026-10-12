@@ -65,7 +65,7 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 		s.Description = &d
 	}
 	if o.cover {
-		s.CoverMedia = &entity.Media{ID: mediaID, OrganizerID: organizerID, Kind: entity.MediaKindImage}
+		s.CoverImage = &entity.SeriesImage{ID: mediaID, OrganizerID: organizerID}
 	}
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,
@@ -92,7 +92,7 @@ func newFixture(t *testing.T) *fixture {
 	logger, err := logging.New()
 	require.NoError(t, err)
 	uc := mocks.NewMockConcertUseCase(t)
-	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, mapper.NewMediaURLBuilder(cdnBaseURL)), logger)
+	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, mapper.NewSeriesImageURLBuilder(cdnBaseURL)), logger)
 	mux := http.NewServeMux()
 	mux.Handle(linkpreview.Pattern, h)
 	srv := httptest.NewServer(mux)

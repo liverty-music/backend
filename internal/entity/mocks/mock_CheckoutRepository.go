@@ -141,21 +141,21 @@ func (_c *MockCheckoutRepository_Get_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// GetByAuthorizationRef provides a mock function with given fields: ctx, authorizationRef
-func (_m *MockCheckoutRepository) GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*entity.Checkout, error) {
-	ret := _m.Called(ctx, authorizationRef)
+// GetByCardAuthorizationID provides a mock function with given fields: ctx, cardAuthorizationID
+func (_m *MockCheckoutRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.Checkout, error) {
+	ret := _m.Called(ctx, cardAuthorizationID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByAuthorizationRef")
+		panic("no return value specified for GetByCardAuthorizationID")
 	}
 
 	var r0 *entity.Checkout
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Checkout, error)); ok {
-		return rf(ctx, authorizationRef)
+		return rf(ctx, cardAuthorizationID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Checkout); ok {
-		r0 = rf(ctx, authorizationRef)
+		r0 = rf(ctx, cardAuthorizationID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Checkout)
@@ -163,7 +163,7 @@ func (_m *MockCheckoutRepository) GetByAuthorizationRef(ctx context.Context, aut
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, authorizationRef)
+		r1 = rf(ctx, cardAuthorizationID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -171,31 +171,31 @@ func (_m *MockCheckoutRepository) GetByAuthorizationRef(ctx context.Context, aut
 	return r0, r1
 }
 
-// MockCheckoutRepository_GetByAuthorizationRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByAuthorizationRef'
-type MockCheckoutRepository_GetByAuthorizationRef_Call struct {
+// MockCheckoutRepository_GetByCardAuthorizationID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByCardAuthorizationID'
+type MockCheckoutRepository_GetByCardAuthorizationID_Call struct {
 	*mock.Call
 }
 
-// GetByAuthorizationRef is a helper method to define mock.On call
+// GetByCardAuthorizationID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - authorizationRef string
-func (_e *MockCheckoutRepository_Expecter) GetByAuthorizationRef(ctx interface{}, authorizationRef interface{}) *MockCheckoutRepository_GetByAuthorizationRef_Call {
-	return &MockCheckoutRepository_GetByAuthorizationRef_Call{Call: _e.mock.On("GetByAuthorizationRef", ctx, authorizationRef)}
+//   - cardAuthorizationID string
+func (_e *MockCheckoutRepository_Expecter) GetByCardAuthorizationID(ctx interface{}, cardAuthorizationID interface{}) *MockCheckoutRepository_GetByCardAuthorizationID_Call {
+	return &MockCheckoutRepository_GetByCardAuthorizationID_Call{Call: _e.mock.On("GetByCardAuthorizationID", ctx, cardAuthorizationID)}
 }
 
-func (_c *MockCheckoutRepository_GetByAuthorizationRef_Call) Run(run func(ctx context.Context, authorizationRef string)) *MockCheckoutRepository_GetByAuthorizationRef_Call {
+func (_c *MockCheckoutRepository_GetByCardAuthorizationID_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockCheckoutRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockCheckoutRepository_GetByAuthorizationRef_Call) Return(_a0 *entity.Checkout, _a1 error) *MockCheckoutRepository_GetByAuthorizationRef_Call {
+func (_c *MockCheckoutRepository_GetByCardAuthorizationID_Call) Return(_a0 *entity.Checkout, _a1 error) *MockCheckoutRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCheckoutRepository_GetByAuthorizationRef_Call) RunAndReturn(run func(context.Context, string) (*entity.Checkout, error)) *MockCheckoutRepository_GetByAuthorizationRef_Call {
+func (_c *MockCheckoutRepository_GetByCardAuthorizationID_Call) RunAndReturn(run func(context.Context, string) (*entity.Checkout, error)) *MockCheckoutRepository_GetByCardAuthorizationID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -321,54 +321,6 @@ func (_c *MockCheckoutRepository_ListDue_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// RecordAuthorizationRelease provides a mock function with given fields: ctx, id, at
-func (_m *MockCheckoutRepository) RecordAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
-	ret := _m.Called(ctx, id, at)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RecordAuthorizationRelease")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, time.Time) error); ok {
-		r0 = rf(ctx, id, at)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockCheckoutRepository_RecordAuthorizationRelease_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordAuthorizationRelease'
-type MockCheckoutRepository_RecordAuthorizationRelease_Call struct {
-	*mock.Call
-}
-
-// RecordAuthorizationRelease is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id entity.CheckoutID
-//   - at time.Time
-func (_e *MockCheckoutRepository_Expecter) RecordAuthorizationRelease(ctx interface{}, id interface{}, at interface{}) *MockCheckoutRepository_RecordAuthorizationRelease_Call {
-	return &MockCheckoutRepository_RecordAuthorizationRelease_Call{Call: _e.mock.On("RecordAuthorizationRelease", ctx, id, at)}
-}
-
-func (_c *MockCheckoutRepository_RecordAuthorizationRelease_Call) Run(run func(ctx context.Context, id entity.CheckoutID, at time.Time)) *MockCheckoutRepository_RecordAuthorizationRelease_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.CheckoutID), args[2].(time.Time))
-	})
-	return _c
-}
-
-func (_c *MockCheckoutRepository_RecordAuthorizationRelease_Call) Return(_a0 error) *MockCheckoutRepository_RecordAuthorizationRelease_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockCheckoutRepository_RecordAuthorizationRelease_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, time.Time) error) *MockCheckoutRepository_RecordAuthorizationRelease_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // RecordCapture provides a mock function with given fields: ctx, id, at
 func (_m *MockCheckoutRepository) RecordCapture(ctx context.Context, id entity.CheckoutID, at time.Time) error {
 	ret := _m.Called(ctx, id, at)
@@ -413,6 +365,54 @@ func (_c *MockCheckoutRepository_RecordCapture_Call) Return(_a0 error) *MockChec
 }
 
 func (_c *MockCheckoutRepository_RecordCapture_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, time.Time) error) *MockCheckoutRepository_RecordCapture_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecordCardAuthorizationRelease provides a mock function with given fields: ctx, id, at
+func (_m *MockCheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
+	ret := _m.Called(ctx, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordCardAuthorizationRelease")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, time.Time) error); ok {
+		r0 = rf(ctx, id, at)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockCheckoutRepository_RecordCardAuthorizationRelease_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordCardAuthorizationRelease'
+type MockCheckoutRepository_RecordCardAuthorizationRelease_Call struct {
+	*mock.Call
+}
+
+// RecordCardAuthorizationRelease is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.CheckoutID
+//   - at time.Time
+func (_e *MockCheckoutRepository_Expecter) RecordCardAuthorizationRelease(ctx interface{}, id interface{}, at interface{}) *MockCheckoutRepository_RecordCardAuthorizationRelease_Call {
+	return &MockCheckoutRepository_RecordCardAuthorizationRelease_Call{Call: _e.mock.On("RecordCardAuthorizationRelease", ctx, id, at)}
+}
+
+func (_c *MockCheckoutRepository_RecordCardAuthorizationRelease_Call) Run(run func(ctx context.Context, id entity.CheckoutID, at time.Time)) *MockCheckoutRepository_RecordCardAuthorizationRelease_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.CheckoutID), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockCheckoutRepository_RecordCardAuthorizationRelease_Call) Return(_a0 error) *MockCheckoutRepository_RecordCardAuthorizationRelease_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockCheckoutRepository_RecordCardAuthorizationRelease_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, time.Time) error) *MockCheckoutRepository_RecordCardAuthorizationRelease_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -570,17 +570,17 @@ func (_c *MockCheckoutRepository_Serialize_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// SetAuthorization provides a mock function with given fields: ctx, id, authorizationRef
-func (_m *MockCheckoutRepository) SetAuthorization(ctx context.Context, id entity.CheckoutID, authorizationRef string) error {
-	ret := _m.Called(ctx, id, authorizationRef)
+// SetCardAuthorization provides a mock function with given fields: ctx, id, cardAuthorizationID
+func (_m *MockCheckoutRepository) SetCardAuthorization(ctx context.Context, id entity.CheckoutID, cardAuthorizationID string) error {
+	ret := _m.Called(ctx, id, cardAuthorizationID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetAuthorization")
+		panic("no return value specified for SetCardAuthorization")
 	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, string) error); ok {
-		r0 = rf(ctx, id, authorizationRef)
+		r0 = rf(ctx, id, cardAuthorizationID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -588,32 +588,32 @@ func (_m *MockCheckoutRepository) SetAuthorization(ctx context.Context, id entit
 	return r0
 }
 
-// MockCheckoutRepository_SetAuthorization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAuthorization'
-type MockCheckoutRepository_SetAuthorization_Call struct {
+// MockCheckoutRepository_SetCardAuthorization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetCardAuthorization'
+type MockCheckoutRepository_SetCardAuthorization_Call struct {
 	*mock.Call
 }
 
-// SetAuthorization is a helper method to define mock.On call
+// SetCardAuthorization is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.CheckoutID
-//   - authorizationRef string
-func (_e *MockCheckoutRepository_Expecter) SetAuthorization(ctx interface{}, id interface{}, authorizationRef interface{}) *MockCheckoutRepository_SetAuthorization_Call {
-	return &MockCheckoutRepository_SetAuthorization_Call{Call: _e.mock.On("SetAuthorization", ctx, id, authorizationRef)}
+//   - cardAuthorizationID string
+func (_e *MockCheckoutRepository_Expecter) SetCardAuthorization(ctx interface{}, id interface{}, cardAuthorizationID interface{}) *MockCheckoutRepository_SetCardAuthorization_Call {
+	return &MockCheckoutRepository_SetCardAuthorization_Call{Call: _e.mock.On("SetCardAuthorization", ctx, id, cardAuthorizationID)}
 }
 
-func (_c *MockCheckoutRepository_SetAuthorization_Call) Run(run func(ctx context.Context, id entity.CheckoutID, authorizationRef string)) *MockCheckoutRepository_SetAuthorization_Call {
+func (_c *MockCheckoutRepository_SetCardAuthorization_Call) Run(run func(ctx context.Context, id entity.CheckoutID, cardAuthorizationID string)) *MockCheckoutRepository_SetCardAuthorization_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.CheckoutID), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockCheckoutRepository_SetAuthorization_Call) Return(_a0 error) *MockCheckoutRepository_SetAuthorization_Call {
+func (_c *MockCheckoutRepository_SetCardAuthorization_Call) Return(_a0 error) *MockCheckoutRepository_SetCardAuthorization_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockCheckoutRepository_SetAuthorization_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, string) error) *MockCheckoutRepository_SetAuthorization_Call {
+func (_c *MockCheckoutRepository_SetCardAuthorization_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, string) error) *MockCheckoutRepository_SetCardAuthorization_Call {
 	_c.Call.Return(run)
 	return _c
 }

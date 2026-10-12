@@ -24,29 +24,27 @@ func (_m *MockSettlementRepository) EXPECT() *MockSettlementRepository_Expecter 
 	return &MockSettlementRepository_Expecter{mock: &_m.Mock}
 }
 
-// Get provides a mock function with given fields: ctx, id
-func (_m *MockSettlementRepository) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
-	ret := _m.Called(ctx, id)
+// CreatePayout provides a mock function with given fields: ctx, params
+func (_m *MockSettlementRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
+	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Get")
+		panic("no return value specified for CreatePayout")
 	}
 
-	var r0 *entity.Settlement
+	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID) (*entity.Settlement, error)); ok {
-		return rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.PayoutParams) (string, error)); ok {
+		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID) *entity.Settlement); ok {
-		r0 = rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.PayoutParams) string); ok {
+		r0 = rf(ctx, params)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Settlement)
-		}
+		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.SettlementID) error); ok {
-		r1 = rf(ctx, id)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.PayoutParams) error); ok {
+		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -54,31 +52,31 @@ func (_m *MockSettlementRepository) Get(ctx context.Context, id entity.Settlemen
 	return r0, r1
 }
 
-// MockSettlementRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
-type MockSettlementRepository_Get_Call struct {
+// MockSettlementRepository_CreatePayout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreatePayout'
+type MockSettlementRepository_CreatePayout_Call struct {
 	*mock.Call
 }
 
-// Get is a helper method to define mock.On call
+// CreatePayout is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id entity.SettlementID
-func (_e *MockSettlementRepository_Expecter) Get(ctx interface{}, id interface{}) *MockSettlementRepository_Get_Call {
-	return &MockSettlementRepository_Get_Call{Call: _e.mock.On("Get", ctx, id)}
+//   - params entity.PayoutParams
+func (_e *MockSettlementRepository_Expecter) CreatePayout(ctx interface{}, params interface{}) *MockSettlementRepository_CreatePayout_Call {
+	return &MockSettlementRepository_CreatePayout_Call{Call: _e.mock.On("CreatePayout", ctx, params)}
 }
 
-func (_c *MockSettlementRepository_Get_Call) Run(run func(ctx context.Context, id entity.SettlementID)) *MockSettlementRepository_Get_Call {
+func (_c *MockSettlementRepository_CreatePayout_Call) Run(run func(ctx context.Context, params entity.PayoutParams)) *MockSettlementRepository_CreatePayout_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.SettlementID))
+		run(args[0].(context.Context), args[1].(entity.PayoutParams))
 	})
 	return _c
 }
 
-func (_c *MockSettlementRepository_Get_Call) Return(_a0 *entity.Settlement, _a1 error) *MockSettlementRepository_Get_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockSettlementRepository_CreatePayout_Call) Return(providerPayoutID string, err error) *MockSettlementRepository_CreatePayout_Call {
+	_c.Call.Return(providerPayoutID, err)
 	return _c
 }
 
-func (_c *MockSettlementRepository_Get_Call) RunAndReturn(run func(context.Context, entity.SettlementID) (*entity.Settlement, error)) *MockSettlementRepository_Get_Call {
+func (_c *MockSettlementRepository_CreatePayout_Call) RunAndReturn(run func(context.Context, entity.PayoutParams) (string, error)) *MockSettlementRepository_CreatePayout_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -200,9 +198,9 @@ func (_c *MockSettlementRepository_ListHeld_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// MarkReleased provides a mock function with given fields: ctx, id, chargeRef, releasedAt, splits
-func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit) error {
-	ret := _m.Called(ctx, id, chargeRef, releasedAt, splits)
+// MarkReleased provides a mock function with given fields: ctx, id, providerChargeID, releasedAt, splits
+func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit) error {
+	ret := _m.Called(ctx, id, providerChargeID, releasedAt, splits)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarkReleased")
@@ -210,7 +208,7 @@ func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID, string, time.Time, []entity.SettlementSplit) error); ok {
-		r0 = rf(ctx, id, chargeRef, releasedAt, splits)
+		r0 = rf(ctx, id, providerChargeID, releasedAt, splits)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -226,14 +224,14 @@ type MockSettlementRepository_MarkReleased_Call struct {
 // MarkReleased is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.SettlementID
-//   - chargeRef string
+//   - providerChargeID string
 //   - releasedAt time.Time
 //   - splits []entity.SettlementSplit
-func (_e *MockSettlementRepository_Expecter) MarkReleased(ctx interface{}, id interface{}, chargeRef interface{}, releasedAt interface{}, splits interface{}) *MockSettlementRepository_MarkReleased_Call {
-	return &MockSettlementRepository_MarkReleased_Call{Call: _e.mock.On("MarkReleased", ctx, id, chargeRef, releasedAt, splits)}
+func (_e *MockSettlementRepository_Expecter) MarkReleased(ctx interface{}, id interface{}, providerChargeID interface{}, releasedAt interface{}, splits interface{}) *MockSettlementRepository_MarkReleased_Call {
+	return &MockSettlementRepository_MarkReleased_Call{Call: _e.mock.On("MarkReleased", ctx, id, providerChargeID, releasedAt, splits)}
 }
 
-func (_c *MockSettlementRepository_MarkReleased_Call) Run(run func(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit)) *MockSettlementRepository_MarkReleased_Call {
+func (_c *MockSettlementRepository_MarkReleased_Call) Run(run func(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit)) *MockSettlementRepository_MarkReleased_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.SettlementID), args[2].(string), args[3].(time.Time), args[4].([]entity.SettlementSplit))
 	})
@@ -246,6 +244,63 @@ func (_c *MockSettlementRepository_MarkReleased_Call) Return(_a0 error) *MockSet
 }
 
 func (_c *MockSettlementRepository_MarkReleased_Call) RunAndReturn(run func(context.Context, entity.SettlementID, string, time.Time, []entity.SettlementSplit) error) *MockSettlementRepository_MarkReleased_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReversePayout provides a mock function with given fields: ctx, params
+func (_m *MockSettlementRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReversePayout")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReversePayoutParams) (string, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReversePayoutParams) string); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.ReversePayoutParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSettlementRepository_ReversePayout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReversePayout'
+type MockSettlementRepository_ReversePayout_Call struct {
+	*mock.Call
+}
+
+// ReversePayout is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params entity.ReversePayoutParams
+func (_e *MockSettlementRepository_Expecter) ReversePayout(ctx interface{}, params interface{}) *MockSettlementRepository_ReversePayout_Call {
+	return &MockSettlementRepository_ReversePayout_Call{Call: _e.mock.On("ReversePayout", ctx, params)}
+}
+
+func (_c *MockSettlementRepository_ReversePayout_Call) Run(run func(ctx context.Context, params entity.ReversePayoutParams)) *MockSettlementRepository_ReversePayout_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.ReversePayoutParams))
+	})
+	return _c
+}
+
+func (_c *MockSettlementRepository_ReversePayout_Call) Return(reversalRef string, err error) *MockSettlementRepository_ReversePayout_Call {
+	_c.Call.Return(reversalRef, err)
+	return _c
+}
+
+func (_c *MockSettlementRepository_ReversePayout_Call) RunAndReturn(run func(context.Context, entity.ReversePayoutParams) (string, error)) *MockSettlementRepository_ReversePayout_Call {
 	_c.Call.Return(run)
 	return _c
 }

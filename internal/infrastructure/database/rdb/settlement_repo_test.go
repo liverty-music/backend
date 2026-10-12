@@ -30,15 +30,15 @@ func seedOrderForSettlement(
 		UserID:         entity.UserID(userID),
 		LotteryEntryID: lotteryEntryID,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "pi_settlement_itest_" + entity.NewID(),
-			CardBrand:        "visa",
-			CardLast4:        "4242",
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "pi_settlement_itest_" + entity.NewID(),
+			CardBrand:         "visa",
+			CardLast4:         "4242",
 		},
 		Status:   entity.OrderStatusPaid,
 		Amount:   10000,
 		Currency: "JPY",
-		PaidTime: settledAt,
+		PayTime:  settledAt,
 	}
 	settlement := &entity.Settlement{
 		ID:          entity.SettlementID(entity.NewID()),
@@ -46,7 +46,7 @@ func seedOrderForSettlement(
 		OrganizerID: organizerID,
 		EventID:     eventID,
 		Status:      entity.SettlementStatusHeld,
-		CreatedTime: settledAt,
+		CreateTime:  settledAt,
 	}
 	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil, settlement))
 	return order, settlement
@@ -58,7 +58,7 @@ func seedWonEntryForSettlement(t *testing.T, ticketTypeID entity.TicketTypeID, u
 	t.Helper()
 	id := entity.NewID()
 	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, 2, $4, 2)`, id, string(ticketTypeID), userID, "pi_entry_"+id)
 	require.NoError(t, err)
 	return entity.LotteryEntryID(id)
@@ -80,7 +80,7 @@ func insertSettlementSplit(t *testing.T, id entity.SettlementID, payeeOrganizerI
 // persistence against a real local Postgres: the Held settlement Order.Issue
 // creates (backend#468), ListHeld, and MarkReleased — both the happy path
 // and, per #477, the atomicity of the status flip together with every
-// split's transfer_ref update.
+// split's provider_payout_id update.
 func TestSettlementRepository_Integration(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -116,22 +116,22 @@ func TestSettlementRepository_Integration(t *testing.T) {
 
 	// @spec components/entity/settlement/mark-released "Held settlement released"
 	// @spec components/entity/settlement/mark-released "Already released or reversed"
-	t.Run("MarkReleased happy path flips status and persists every split's transfer_ref together", func(t *testing.T) {
+	t.Run("MarkReleased happy path flips status and persists every split's provider_payout_id together", func(t *testing.T) {
 		payeeID := entity.NewID()
 		insertSettlementSplit(t, created.ID, payeeID, 8000)
 
 		releasedAt := settledAt.Add(48 * time.Hour)
 		err := settlementRepo.MarkReleased(ctx, created.ID, "ch_settlement_itest", releasedAt, []entity.SettlementSplit{
-			{PayeeOrganizerID: payeeID, Amount: 8000, TransferRef: "tr_settlement_itest"},
+			{PayeeOrganizerID: payeeID, Amount: 8000, ProviderPayoutID: "tr_settlement_itest"},
 		})
 		require.NoError(t, err)
 
-		got, err := settlementRepo.Get(ctx, created.ID)
+		got, err := settlementRepo.GetByOrderID(ctx, created.OrderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusReleased, got.Status)
-		assert.Equal(t, "ch_settlement_itest", got.ChargeRef)
+		assert.Equal(t, "ch_settlement_itest", got.ProviderChargeID)
 		require.Len(t, got.Splits, 1)
-		assert.Equal(t, "tr_settlement_itest", got.Splits[0].TransferRef)
+		assert.Equal(t, "tr_settlement_itest", got.Splits[0].ProviderPayoutID)
 
 		// A second MarkReleased on an already-Released settlement must fail the
 		// status = Held guard and change nothing.
@@ -161,31 +161,31 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		insertSettlementSplit(t, created.ID, payeeBad, 5000)
 
 		releasedAt := settledAt.Add(48 * time.Hour)
-		// The first split's transfer_ref update would succeed; the second's
-		// empty TransferRef violates chk_settlement_splits_transfer_ref_not_empty,
+		// The first split's provider_payout_id update would succeed; the second's
+		// empty ProviderPayoutID violates chk_settlement_splits_provider_payout_id_not_empty,
 		// forcing the whole transaction to roll back.
 		err := settlementRepo.MarkReleased(ctx, created.ID, "ch_should_not_persist", releasedAt, []entity.SettlementSplit{
-			{PayeeOrganizerID: payeeOK, Amount: 3000, TransferRef: "tr_would_succeed"},
-			{PayeeOrganizerID: payeeBad, Amount: 5000, TransferRef: ""},
+			{PayeeOrganizerID: payeeOK, Amount: 3000, ProviderPayoutID: "tr_would_succeed"},
+			{PayeeOrganizerID: payeeBad, Amount: 5000, ProviderPayoutID: ""},
 		})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument, "a split constraint violation must surface as InvalidArgument")
 
-		got, err := settlementRepo.Get(ctx, created.ID)
+		got, err := settlementRepo.GetByOrderID(ctx, created.OrderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusHeld, got.Status, "settlement must stay Held when the split update fails")
-		assert.Empty(t, got.ChargeRef, "charge_ref must not be persisted on rollback")
-		assert.True(t, got.ReleasedTime.IsZero(), "released_at must not be persisted on rollback")
+		assert.Empty(t, got.ProviderChargeID, "provider_charge_id must not be persisted on rollback")
+		assert.True(t, got.ReleaseTime.IsZero(), "released_at must not be persisted on rollback")
 		require.Len(t, got.Splits, 2)
 		for _, split := range got.Splits {
-			assert.Empty(t, split.TransferRef, "no split's transfer_ref may be persisted when the transaction rolls back")
+			assert.Empty(t, split.ProviderPayoutID, "no split's provider_payout_id may be persisted when the transaction rolls back")
 		}
 
 		// The settlement being still Held means a retry can succeed once the
 		// bad split is fixed.
 		err = settlementRepo.MarkReleased(ctx, created.ID, "ch_retry", releasedAt, []entity.SettlementSplit{
-			{PayeeOrganizerID: payeeOK, Amount: 3000, TransferRef: "tr_retry_ok"},
-			{PayeeOrganizerID: payeeBad, Amount: 5000, TransferRef: "tr_retry_bad"},
+			{PayeeOrganizerID: payeeOK, Amount: 3000, ProviderPayoutID: "tr_retry_ok"},
+			{PayeeOrganizerID: payeeBad, Amount: 5000, ProviderPayoutID: "tr_retry_bad"},
 		})
 		require.NoError(t, err, "a retry with valid splits must succeed after the rollback")
 	})

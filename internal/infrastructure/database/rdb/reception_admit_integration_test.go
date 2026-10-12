@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +53,12 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 	}
 	migration, err := os.ReadFile(receptionGrantMigration)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx, string(migration))
+	// 20261012000000_one_name_per_concept.sql later renames
+	// tickets.admitted_at to admit_at. In a migrated database the column
+	// grant follows the rename; replayed here on the current schema, the
+	// grant names the column by its current name.
+	grants := strings.ReplaceAll(string(migration), "(admitted_at) ON tickets", "(admit_at) ON tickets")
+	_, err = testDB.Pool.Exec(ctx, grants)
 	require.NoError(t, err)
 
 	logger, err := logging.New()
@@ -95,7 +101,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 
 	receptionDB := connectAsReceptionRole(t)
 	uc := usecase.NewTicketUseCase(
-		rdb.NewOrderRepository(receptionDB), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
+		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
 		rdb.NewRejectedScanRepository(receptionDB), logger,
 	)
@@ -197,7 +203,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		require.Len(t, got.RejectedTickets, 1)
 		rt := got.RejectedTickets[0]
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, rt.Reason)
-		assert.True(t, rt.EarlierAdmittedTime.Equal(first))
+		assert.True(t, rt.EarlierAdmitTime.Equal(first))
 		assert.Equal(t, 1, rt.EarlierReceptionLinkNumber)
 
 		var reason int16

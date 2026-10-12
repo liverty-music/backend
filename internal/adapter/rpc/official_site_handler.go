@@ -20,18 +20,18 @@ var _ officialsitev1connect.OfficialSiteServiceHandler = (*OfficialSiteHandler)(
 // never deleted. Both calls need a signed-in caller, which the server's authn
 // middleware enforces; neither acts for a particular fan.
 type OfficialSiteHandler struct {
-	artistUseCase usecase.ArtistUseCase
-	logger        *logging.Logger
+	officialSiteUC usecase.OfficialSiteUseCase
+	logger         *logging.Logger
 }
 
 // NewOfficialSiteHandler creates a new OfficialSiteHandler.
-func NewOfficialSiteHandler(artistUseCase usecase.ArtistUseCase, logger *logging.Logger) *OfficialSiteHandler {
-	return &OfficialSiteHandler{artistUseCase: artistUseCase, logger: logger}
+func NewOfficialSiteHandler(officialSiteUC usecase.OfficialSiteUseCase, logger *logging.Logger) *OfficialSiteHandler {
+	return &OfficialSiteHandler{officialSiteUC: officialSiteUC, logger: logger}
 }
 
 // Create stores the official site URL of an artist.
 func (h *OfficialSiteHandler) Create(ctx context.Context, req *connect.Request[officialsitev1.CreateRequest]) (*connect.Response[officialsitev1.CreateResponse], error) {
-	if err := h.artistUseCase.CreateOfficialSite(ctx, req.Msg.GetArtistId().GetValue(), req.Msg.GetUrl().GetValue()); err != nil {
+	if err := h.officialSiteUC.Create(ctx, req.Msg.GetArtistId().GetValue(), req.Msg.GetUrl().GetValue()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&officialsitev1.CreateResponse{}), nil

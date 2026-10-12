@@ -20,7 +20,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, u.is_active, u.full_name, u.phone_number`
+	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -31,43 +31,11 @@ const (
 		WHERE u.id = $1
 	`
 
-	getUserByExternalIDQuery = `
+	getUserByProviderUserIDQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
 		LEFT JOIN homes h ON u.home_id = h.id
-		WHERE u.external_id = $1
-	`
-
-	getUserByEmailQuery = `
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
-		WHERE u.email = $1
-	`
-
-	// updateUserQuery intentionally does NOT include preferred_language.
-	// The column is owned by UpdatePreferredLanguage; a generic Update
-	// would otherwise risk silently NULLing the row whenever a caller
-	// passes a NewUser with an empty PreferredLanguage field (e.g. a
-	// partial update built by a caller that forgot to copy the existing
-	// value first).
-	updateUserQuery = `
-		WITH updated AS (
-			UPDATE users SET external_id = $2, email = $3, name = $4, country = $5, time_zone = $6
-			WHERE id = $1
-			RETURNING *
-		)
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM updated u
-		LEFT JOIN homes h ON u.home_id = h.id
-	`
-
-	listUsersQuery = `
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
-		ORDER BY u.id
-		LIMIT $1 OFFSET $2
+		WHERE u.provider_user_id = $1
 	`
 
 	// Atomic UPDATE + SELECT in a single statement so the read-after-write
@@ -121,8 +89,8 @@ const (
 	`
 
 	insertUserQuery = `
-		INSERT INTO users (id, external_id, email, name, preferred_language, country, time_zone, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, provider_user_id, email, name, preferred_language, time_zone)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	deleteUserQuery = `
@@ -149,26 +117,25 @@ func nullStringFromEmpty(s string) sql.NullString {
 
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 //
-// Every nullable users column (preferred_language, country, time_zone)
+// Every nullable users column (preferred_language, time_zone)
 // is scanned into a sql.NullString intermediate, then assigned
 // to the entity field via .String when .Valid. pgx errors out when scanning
 // SQL NULL into a non-nullable Go destination (a bare string); the three
 // columns above are nullable per schema and at least one
 // (preferred_language) is regularly NULL on legacy rows after the
 // persist-user-language migration, so the intermediate-local pattern
-// protects every read path that shares this scanner (Get, GetByExternalID,
+// protects every read path that shares this scanner (Get, GetByProviderUserID,
 // GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch, List).
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
-	var preferredLanguage, country, timeZone sql.NullString
+	var preferredLanguage, timeZone sql.NullString
 	var fullName, phoneNumber sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name,
-		&preferredLanguage, &country, &timeZone,
-		&user.IsActive,
+		&user.ID, &user.ProviderUserID, &user.Email, &user.Name,
+		&preferredLanguage, &timeZone,
 		&fullName, &phoneNumber,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
@@ -177,9 +144,6 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	}
 	if preferredLanguage.Valid {
 		user.PreferredLanguage = preferredLanguage.String
-	}
-	if country.Valid {
-		user.Country = country.String
 	}
 	if timeZone.Valid {
 		user.TimeZone = timeZone.String
@@ -242,15 +206,13 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	// sql.NullString{Valid:false} keeps the distinction between "absent"
 	// and "explicitly empty" in the database, which the scanUser pattern
 	// preserves on read. preferred_language uses this distinction to feed
-	// the hydration backfill path; country and time_zone use it for
+	// the hydration backfill path; time_zone uses it for
 	// downstream observability (a NULL row is a "never asserted" signal
 	// while an empty string would be a contract violation).
 	_, err = tx.Exec(ctx, insertUserQuery,
-		user.ID, params.ExternalID, params.Email, params.Name,
+		user.ID, params.ProviderUserID, params.Email, params.Name,
 		nullStringFromEmpty(params.PreferredLanguage),
-		nullStringFromEmpty(params.Country),
 		nullStringFromEmpty(params.TimeZone),
-		true,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -318,95 +280,18 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 	return user, nil
 }
 
-// GetByExternalID retrieves a user by identity provider ID from the database.
-func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+// GetByProviderUserID retrieves a user by identity provider ID from the database.
+func (r *UserRepository) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
 	if externalID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
 	}
 
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID))
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByProviderUserIDQuery, externalID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
+		return nil, toAppErr(err, "failed to get user by provider user ID", slog.String("provider_user_id", externalID))
 	}
 
 	return user, nil
-}
-
-// GetByEmail retrieves a user by email address from the database.
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
-	if email == "" {
-		return nil, apperr.New(codes.InvalidArgument, "email cannot be empty")
-	}
-
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email))
-	if err != nil {
-		return nil, toAppErr(err, "failed to get user by email", slog.String("email", email))
-	}
-
-	return user, nil
-}
-
-// Update updates user information in the database.
-func (r *UserRepository) Update(ctx context.Context, id string, params *entity.NewUser) (*entity.User, error) {
-	if id == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-	if params == nil {
-		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
-	}
-
-	// Note: preferred_language is intentionally omitted — see the
-	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
-	// country / time_zone are wrapped via nullStringFromEmpty so an
-	// empty-string field round-trips to SQL NULL, preserving the
-	// "absent vs explicitly empty" distinction on both write and read
-	// (see scanUser).
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
-		id, params.ExternalID, params.Email, params.Name,
-		nullStringFromEmpty(params.Country),
-		nullStringFromEmpty(params.TimeZone),
-	))
-	if err != nil {
-		// CTE RETURNING returns 0 rows when no row matches the WHERE.
-		// QueryRow surfaces that as pgx.ErrNoRows; map to NotFound with
-		// a clear message instead of the generic toAppErr "failed to
-		// update user" (which reads like a query execution failure).
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
-		}
-		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
-	}
-
-	r.db.logger.Info(ctx, "user updated",
-		slog.String("entityType", "user"),
-		slog.String("userID", user.ID),
-	)
-
-	return user, nil
-}
-
-// List retrieves users with pagination from the database.
-func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity.User, error) {
-	rows, err := r.db.Pool.Query(ctx, listUsersQuery, limit, offset)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list users")
-	}
-	defer rows.Close()
-
-	var users []*entity.User
-	for rows.Next() {
-		user, err := scanUser(rows)
-		if err != nil {
-			return nil, toAppErr(err, "failed to scan user row")
-		}
-		users = append(users, user)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to iterate user rows")
-	}
-
-	return users, nil
 }
 
 // UpdatePersonalDetails sets the user's full name and phone number, storing

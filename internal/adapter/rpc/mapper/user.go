@@ -26,8 +26,8 @@ func UserToProto(user *entity.User) *proto.User {
 		Email: &proto.UserEmail{
 			Value: user.Email,
 		},
-		ExternalId: &proto.UserExternalId{
-			Value: user.ExternalID,
+		ProviderUserId: &proto.User_ProviderUserId{
+			Value: user.ProviderUserID,
 		},
 		Name: user.Name,
 	}
@@ -103,7 +103,7 @@ func GetExternalUserID(ctx context.Context) (string, error) {
 
 // NewUserFromCreateRequest converts JWT claims and a CreateRequest to a domain NewUser.
 //
-// Security note: All identity fields (external_id, email, name) are extracted from
+// Security note: All identity fields (provider_user_id, email, name) are extracted from
 // validated JWT claims to prevent client-side identity tampering. The home and
 // preferred_language fields are client-provided data accepted at signup.
 //
@@ -116,7 +116,7 @@ func NewUserFromCreateRequest(claims *auth.Claims, req *userv1.CreateRequest) *e
 	}
 
 	return &entity.NewUser{
-		ExternalID:        claims.Sub,
+		ProviderUserID:    claims.Sub,
 		Email:             claims.Email,
 		Name:              claims.Name,
 		Home:              ProtoHomeToEntity(req.GetHome()),

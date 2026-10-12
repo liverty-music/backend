@@ -40,10 +40,10 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Reque
 
 	status := mapper.TicketJourneyStatusFromProto[req.Msg.Status]
 
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
-	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	// not the identity-provider-specific provider_user_id.
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +62,10 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
-	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	// not the identity-provider-specific provider_user_id.
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,15 +85,15 @@ func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.
 		return nil, err
 	}
 
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
-	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	// not the identity-provider-specific provider_user_id.
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
 
-	journeys, err := h.ticketJourneyUC.ListByUser(ctx, user.ID)
+	journeys, err := h.ticketJourneyUC.List(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}

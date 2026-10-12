@@ -109,7 +109,7 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 }
 
 // SetVerificationRequirement changes whether fans taking part in one of the
-// caller's sales must hold an Active Kyc; a request without one sets None.
+// caller's sales must hold an Active IdentityVerification; a request without one sets None.
 func (h *OrganizerTicketSaleHandler) SetVerificationRequirement(
 	ctx context.Context,
 	req *connect.Request[ticketsalev1.SetVerificationRequirementRequest],

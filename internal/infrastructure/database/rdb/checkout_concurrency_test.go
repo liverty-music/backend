@@ -15,49 +15,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countingCardHold is a CheckoutAuthorizationPort that counts every
+// countingCardHold is a CardAuthorizationRepository that counts every
 // capture call: a charged Checkout must never be captured again, so the
 // count must stay at one. Capture is slow, to widen the window for a racing
-// caller.
+// caller. Get reports the card authorization Authorized for 6000 yen until it
+// is captured, then Captured with its payment.
 type countingCardHold struct {
 	captures atomic.Int32
 }
 
-func (c *countingCardHold) CreateAuthorization(context.Context, int64, entity.AuthorizationMetadata) (string, string, error) {
-	return "pi_conc", "secret", nil
+func (c *countingCardHold) Create(context.Context, entity.CardAuthorizationPurchase, int64) (*entity.CardAuthorization, error) {
+	return &entity.CardAuthorization{ID: "pi_conc", Amount: 6000, Status: entity.CardAuthorizationStatusPending, Secret: "secret"}, nil
 }
 
-func (c *countingCardHold) VerifyAuthorization(context.Context, string, int64) error { return nil }
+func (c *countingCardHold) Get(_ context.Context, id string) (*entity.CardAuthorization, error) {
+	if c.captures.Load() == 0 {
+		return &entity.CardAuthorization{ID: id, Amount: 6000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized}, nil
+	}
+	return &entity.CardAuthorization{ID: id, Amount: 6000, CardBrand: "visa", Status: entity.CardAuthorizationStatusCaptured,
+		CapturedPayment: &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: id, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}}, nil
+}
 
-func (c *countingCardHold) CaptureAuthorization(_ context.Context, ref string) (*entity.CapturedPayment, error) {
+func (c *countingCardHold) Capture(context.Context, string) error {
 	c.captures.Add(1)
 	time.Sleep(100 * time.Millisecond)
-	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
+	return nil
 }
 
-func (c *countingCardHold) CancelAuthorization(context.Context, string) error { return nil }
+func (c *countingCardHold) Release(context.Context, string) error { return nil }
 
-// GetCapturedPayment reads back the charged payment's facets.
-func (c *countingCardHold) GetCapturedPayment(_ context.Context, ref string) (*entity.CapturedPayment, error) {
-	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
-}
-
-// newCheckoutIssuance wires IssuanceUseCase on the real repositories and the
+// newCheckoutIssuance wires OrderUseCase on the real repositories and the
 // counting card hold, at a fixed time.
-func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.IssuanceUseCase {
+func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.OrderUseCase {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+	return usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
-		OrderRepo:          rdb.NewOrderRepository(testDB),
+		OrderRepo:          orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
 		OrganizerRepo:      rdb.NewOrganizerRepository(testDB),
 		CheckoutRepo:       rdb.NewCheckoutRepository(testDB),
 		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),
-		CheckoutAuth:       cardHold,
-		CapturePort:        cardHold,
+		CardAuthorizations: cardHold,
 		Clock:              func() time.Time { return now },
 		Logger:             logger,
 	})
@@ -78,7 +79,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 	authorized := func(t *testing.T) *entity.Checkout {
 		t.Helper()
 		c := heldCheckout(t, checkouts, 2, start)
-		require.NoError(t, checkouts.SetAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+		require.NoError(t, checkouts.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
 		return c
 	}
 

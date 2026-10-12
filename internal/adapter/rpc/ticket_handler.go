@@ -36,7 +36,7 @@ func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[ticketv1.Li
 		return nil, err
 	}
 
-	tickets, err := h.ticketUC.GetMyTickets(ctx, userID)
+	tickets, err := h.ticketUC.List(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

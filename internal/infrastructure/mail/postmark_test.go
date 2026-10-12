@@ -38,8 +38,8 @@ func (f *fakeOrders) Get(_ context.Context, id entity.OrderID) (*entity.Order, e
 func (f *fakeOrders) MarkConfirmationSent(_ context.Context, id entity.OrderID, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if o := f.orders[id]; o.ConfirmationSentTime == nil {
-		o.ConfirmationSentTime = &at
+	if o := f.orders[id]; o.ConfirmationSendTime == nil {
+		o.ConfirmationSendTime = &at
 	}
 	return nil
 }
@@ -99,14 +99,14 @@ func TestPostmarkConfirmationSender_SendConfirmationEmail(t *testing.T) {
 		assert.Equal(t, "outbound", stub.sent[0]["MessageStream"])
 		assert.Equal(t, "server-token", stub.tokens[0])
 		got, _ := orders.Get(context.Background(), "order-1")
-		assert.Equal(t, &sentAt, got.ConfirmationSentTime)
+		assert.Equal(t, &sentAt, got.ConfirmationSendTime)
 	})
 
 	t.Run("redelivered event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-confirmation-email "Redelivered event"
 		earlier := sentAt.Add(-time.Hour)
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1", ConfirmationSentTime: &earlier}}}
+		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1", ConfirmationSendTime: &earlier}}}
 		stub := &stubPostmark{status: http.StatusOK}
 		sender := newSender(t, stub, orders)
 
@@ -126,7 +126,7 @@ func TestPostmarkConfirmationSender_SendConfirmationEmail(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		got, _ := orders.Get(context.Background(), "order-1")
-		assert.Nil(t, got.ConfirmationSentTime)
+		assert.Nil(t, got.ConfirmationSendTime)
 	})
 
 	t.Run("empty address", func(t *testing.T) {
@@ -167,5 +167,5 @@ func TestPostmarkConfirmationSender_TestServerToken(t *testing.T) {
 	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "test@blackhole.postmarkapp.com", msg))
 
 	got, _ := orders.Get(context.Background(), "order-1")
-	assert.NotNil(t, got.ConfirmationSentTime)
+	assert.NotNil(t, got.ConfirmationSendTime)
 }

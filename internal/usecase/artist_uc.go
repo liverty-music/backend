@@ -31,16 +31,6 @@ type ArtistUseCase interface {
 	//   - Internal: database query failure.
 	List(ctx context.Context) ([]*entity.Artist, error)
 
-	// CreateOfficialSite mints a fresh OfficialSite for the artist from the given
-	// URL and persists it. An artist has at most one official site.
-	//
-	// # Possible errors:
-	//
-	//   - AlreadyExists: the artist already has an official site.
-	//   - FailedPrecondition: no artist exists with the given artistID.
-	//   - Internal: database execution failure.
-	CreateOfficialSite(ctx context.Context, artistID, url string) error
-
 	// GetOfficialSite retrieves the primary official website for an artist.
 	//
 	// # Possible errors:
@@ -78,11 +68,21 @@ type ArtistUseCase interface {
 	//
 	//   - Unavailable: external chart service failure.
 	ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error)
+
+	// ListByOrganizer returns the Artists the Organizer currently represents,
+	// whatever its status. It checks no ownership: the admin names any
+	// Organizer, and the organizer console passes the caller's own.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no Organizer has the id.
+	ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error)
 }
 
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
+	organizerRepo  entity.OrganizerRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
 	publisher      EventPublisher
@@ -96,6 +96,7 @@ var _ ArtistUseCase = (*artistUseCase)(nil)
 // NewArtistUseCase creates a new instance of the artist business logic handler.
 func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
+	organizerRepo entity.OrganizerRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
 	publisher EventPublisher,
@@ -104,6 +105,7 @@ func NewArtistUseCase(
 ) ArtistUseCase {
 	return &artistUseCase{
 		artistRepo:     artistRepo,
+		organizerRepo:  organizerRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
 		publisher:      publisher,
@@ -149,17 +151,6 @@ func (uc *artistUseCase) List(ctx context.Context) ([]*entity.Artist, error) {
 	}
 
 	return artists, nil
-}
-
-// CreateOfficialSite mints a new OfficialSite with a fresh ID and persists it.
-func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, artistID, url string) error {
-	site := entity.NewOfficialSite(artistID, url)
-
-	if err := uc.artistRepo.CreateOfficialSite(ctx, site); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // GetOfficialSite retrieves the official site for an artist.
@@ -357,4 +348,12 @@ func hashString(s string) string {
 	h := sha256.New()
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// ListByOrganizer implements [ArtistUseCase].
+func (uc *artistUseCase) ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
+	if _, err := uc.organizerRepo.Get(ctx, organizerID); err != nil {
+		return nil, err
+	}
+	return uc.organizerRepo.ListArtists(ctx, organizerID)
 }

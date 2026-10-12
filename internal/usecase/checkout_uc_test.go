@@ -17,34 +17,34 @@ import (
 
 // checkoutFixture holds the mocks of a CheckoutUseCase under test.
 type checkoutFixture struct {
-	checkouts *entitymocks.MockCheckoutRepository
-	sales     *entitymocks.MockTicketSaleRepository
-	users     *entitymocks.MockUserRepository
-	kycs      *entitymocks.MockKycRepository
-	events    *ucmocks.MockEventPublishStatePort
-	auth      *entitymocks.MockCheckoutAuthorizationPort
-	uc        usecase.CheckoutUseCase
+	checkouts             *entitymocks.MockCheckoutRepository
+	sales                 *entitymocks.MockTicketSaleRepository
+	users                 *entitymocks.MockUserRepository
+	identityVerifications *entitymocks.MockIdentityVerificationRepository
+	events                *ucmocks.MockEventPublishStatePort
+	auth                  *entitymocks.MockCardAuthorizationRepository
+	uc                    usecase.CheckoutUseCase
 }
 
 func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 	t.Helper()
 	f := &checkoutFixture{
-		checkouts: entitymocks.NewMockCheckoutRepository(t),
-		sales:     entitymocks.NewMockTicketSaleRepository(t),
-		users:     entitymocks.NewMockUserRepository(t),
-		kycs:      entitymocks.NewMockKycRepository(t),
-		events:    ucmocks.NewMockEventPublishStatePort(t),
-		auth:      entitymocks.NewMockCheckoutAuthorizationPort(t),
+		checkouts:             entitymocks.NewMockCheckoutRepository(t),
+		sales:                 entitymocks.NewMockTicketSaleRepository(t),
+		users:                 entitymocks.NewMockUserRepository(t),
+		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
+		events:                ucmocks.NewMockEventPublishStatePort(t),
+		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo: f.checkouts,
-		SaleRepo:     f.sales,
-		UserRepo:     f.users,
-		KycRepo:      f.kycs,
-		EventState:   f.events,
-		Auth:         f.auth,
-		Clock:        fixedClock(now),
-		Logger:       newTestLogger(t),
+		CheckoutRepo:             f.checkouts,
+		SaleRepo:                 f.sales,
+		UserRepo:                 f.users,
+		IdentityVerificationRepo: f.identityVerifications,
+		EventState:               f.events,
+		CardAuthorizations:       f.auth,
+		Clock:                    fixedClock(now),
+		Logger:                   newTestLogger(t),
 	})
 	return f
 }
@@ -225,22 +225,22 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		sale.VerificationRequirement = entity.VerificationRequirementJPKIOnly
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
-	t.Run("kyc needs re-verification", func(t *testing.T) {
+	t.Run("identity verification needs re-verification", func(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutFixture(t, now)
 		sale, _ := firstComeTicketType(150, 0, 0)
 		sale.VerificationRequirement = entity.VerificationRequirementVerifiedAny
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").
-			Return(&entity.Kyc{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").
+			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2)
 
@@ -255,8 +255,8 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		sale.VerificationRequirement = entity.VerificationRequirementJPKIOnly
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").
-			Return(&entity.Kyc{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").
+			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		checkout := fanCheckout(now)
 		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now).Return(checkout, nil)
 
@@ -304,7 +304,7 @@ func TestCheckoutUseCase_Get(t *testing.T) {
 		// @spec components/usecase/checkout/get "Card no longer chargeable"
 		f := newCheckoutFixture(t, start.Add(12*time.Minute))
 		checkout := fanCheckout(start)
-		checkout.Status, checkout.CommitTime, checkout.AuthorizationRef = entity.CheckoutStatusReleased, &committed, "pi_1"
+		checkout.Status, checkout.CommitTime, checkout.CardAuthorizationID = entity.CheckoutStatusReleased, &committed, "pi_1"
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkout, nil)
 
 		got, err := f.uc.Get(context.Background(), "fan-1", "checkout-1")
@@ -372,19 +372,19 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("fan authorizes", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Fan authorizes"
+		// @spec components/usecase/checkout/authorize-card "Fan authorizes their card"
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 		sale, _ := firstComeTicketType(150, 0, 2)
 		expectTicketType(f.sales, sale)
 		updateDetails := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).
 			Return(&entity.User{ID: "fan-1", FullName: name, PhoneNumber: phone}, nil).Call
-		createHold := f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), entity.AuthorizationMetadata{
+		createHold := f.auth.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
 			CheckoutID: "checkout-1", TicketTypeID: "tt-1", EventID: "event-1",
-		}).Return("pi_1", "secret_1", nil).NotBefore(updateDetails)
-		f.checkouts.EXPECT().SetAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil).NotBefore(createHold)
+		}, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil).NotBefore(updateDetails)
+		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil).NotBefore(createHold)
 
-		secret, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", name, phone)
+		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
 
 		require.NoError(t, err)
 		assert.Equal(t, "secret_1", secret)
@@ -392,18 +392,18 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("card declined, fan retries", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Card declined, fan retries"
+		// @spec components/usecase/checkout/authorize-card "Card declined, fan retries"
 		f := newCheckoutFixture(t, start.Add(5*time.Minute))
 		checkout := fanCheckout(start)
-		checkout.AuthorizationRef = "pi_1"
+		checkout.CardAuthorizationID = "pi_1"
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkout, nil)
 		sale, _ := firstComeTicketType(150, 0, 2)
 		expectTicketType(f.sales, sale)
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).Return(&entity.User{ID: "fan-1"}, nil)
-		f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), mock.Anything).Return("pi_1", "secret_1", nil)
-		f.checkouts.EXPECT().SetAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
+		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
+		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 
-		secret, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", name, phone)
+		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
 
 		require.NoError(t, err)
 		assert.Equal(t, "secret_1", secret, "the same hold for another attempt")
@@ -411,20 +411,20 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("name corrected on retry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Name corrected on retry"
+		// @spec components/usecase/checkout/authorize-card "Name corrected on retry"
 		f := newCheckoutFixture(t, start.Add(6*time.Minute))
 		checkout := fanCheckout(start)
-		checkout.AuthorizationRef = "pi_1"
+		checkout.CardAuthorizationID = "pi_1"
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkout, nil)
 		sale, _ := firstComeTicketType(150, 0, 2)
 		expectTicketType(f.sales, sale)
 		const corrected = "佐藤 花子"
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", corrected, phone).
 			Return(&entity.User{ID: "fan-1", FullName: corrected, PhoneNumber: phone}, nil).Once()
-		f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), mock.Anything).Return("pi_1", "secret_1", nil)
-		f.checkouts.EXPECT().SetAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
+		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
+		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 
-		secret, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", corrected, phone)
+		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", corrected, phone)
 
 		require.NoError(t, err)
 		assert.Equal(t, "secret_1", secret, "the same hold")
@@ -432,15 +432,15 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("domestic-format phone number", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Domestic-format phone number"
+		// @spec components/usecase/checkout/authorize-card "Domestic-format phone number"
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
-		_, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", name, "090-1234-5678")
+		_, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, "090-1234-5678")
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		f.users.AssertNotCalled(t, "UpdatePersonalDetails", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-		f.auth.AssertNotCalled(t, "CreateAuthorization", mock.Anything, mock.Anything, mock.Anything)
+		f.auth.AssertNotCalled(t, "Create", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("missing full name", func(t *testing.T) {
@@ -448,29 +448,29 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
-		_, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", "", phone)
+		_, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", "", phone)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("someone else's checkout", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Someone else's checkout"
+		// @spec components/usecase/checkout/authorize-card "Someone else's checkout"
 		f := newCheckoutFixture(t, start)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
-		_, err := f.uc.Authorize(context.Background(), "fan-2", "checkout-1", name, phone)
+		_, err := f.uc.AuthorizeCard(context.Background(), "fan-2", "checkout-1", name, phone)
 
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
 	t.Run("hold lapsed", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Hold lapsed"
+		// @spec components/usecase/checkout/authorize-card "Hold lapsed"
 		f := newCheckoutFixture(t, start.Add(16*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
-		_, err := f.uc.Authorize(context.Background(), "fan-1", "checkout-1", name, phone)
+		_, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -486,7 +486,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		// @spec components/usecase/checkout/release-expired "Fan walked away"
 		f := newCheckoutFixture(t, now)
 		lapsed := fanCheckout(start)
-		lapsed.AuthorizationRef = "pi_1"
+		lapsed.CardAuthorizationID = "pi_1"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
 
@@ -496,8 +496,8 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		expired := *lapsed
 		expired.Status = entity.CheckoutStatusExpired
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{&expired}, nil).Once()
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil)
-		f.checkouts.EXPECT().RecordAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_1").Return(nil)
+		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 	})
@@ -507,10 +507,10 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		// @spec components/usecase/checkout/release-expired "Count changed after authorizing"
 		f := newCheckoutFixture(t, now)
 		replaced := fanCheckout(start)
-		replaced.Status, replaced.AuthorizationRef = entity.CheckoutStatusReleased, "pi_2"
+		replaced.Status, replaced.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_2"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{replaced}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_2").Return(nil)
-		f.checkouts.EXPECT().RecordAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_2").Return(nil)
+		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 	})
@@ -520,7 +520,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		// @spec components/usecase/checkout/release-expired "Committed at the last moment"
 		f := newCheckoutFixture(t, now)
 		lapsed := fanCheckout(start)
-		lapsed.AuthorizationRef = "pi_3"
+		lapsed.CardAuthorizationID = "pi_3"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil)
 		// Committed meanwhile: Release changes nothing, and no card hold is cancelled.
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(false, nil)
@@ -530,16 +530,16 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 
 	t.Run("cancellation fails", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Cancellation fails"
+		// @spec components/usecase/checkout/release-expired "Release fails"
 		f := newCheckoutFixture(t, now)
 		first := fanCheckout(start)
-		first.ID, first.Status, first.AuthorizationRef = "checkout-a", entity.CheckoutStatusExpired, "pi_a"
+		first.ID, first.Status, first.CardAuthorizationID = "checkout-a", entity.CheckoutStatusExpired, "pi_a"
 		second := fanCheckout(start)
-		second.ID, second.Status, second.AuthorizationRef = "checkout-b", entity.CheckoutStatusExpired, "pi_b"
+		second.ID, second.Status, second.CardAuthorizationID = "checkout-b", entity.CheckoutStatusExpired, "pi_b"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{first, second}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_a").Return(apperr.New(apperr.ErrUnavailable.Code, "stripe down"))
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_b").Return(nil)
-		f.checkouts.EXPECT().RecordAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-b"), now).Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_a").Return(apperr.New(apperr.ErrUnavailable.Code, "stripe down"))
+		f.auth.EXPECT().Release(mock.Anything, "pi_b").Return(nil)
+		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-b"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 	})
@@ -549,9 +549,9 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		// @spec components/usecase/checkout/release-expired "Money taken on an ended checkout"
 		f := newCheckoutFixture(t, now)
 		released := fanCheckout(start)
-		released.Status, released.AuthorizationRef = entity.CheckoutStatusReleased, "pi_charged"
+		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_charged").
+		f.auth.EXPECT().Release(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold has already been charged"))
 
 		// Reported (logged as needing an operator) and not recorded as released.

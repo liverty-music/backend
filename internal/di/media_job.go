@@ -23,7 +23,7 @@ import (
 
 // MediaConsumerApp is the event-consumer application for the media-consumer.
 // It subscribes to MEDIA.uploaded, generates WebP variants via libvips, and
-// performs the cut-over of series_media in a single transaction.
+// performs the cut-over of series_cover_images in a single transaction.
 type MediaConsumerApp struct {
 	Router          *message.Router
 	Logger          *logging.Logger
@@ -89,16 +89,16 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 
 	consumerHealth := messaging.NewConsumerHealth()
 
-	// Media processor (stub when libvips absent; production binary uses -tags vips).
+	// Image processor (stub when libvips absent; production binary uses -tags vips).
 	processor := event.NewMediaProcessor(logger)
 
-	// MediaUseCase orchestrates ProcessMedia; MediaConsumer only decodes the
+	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; MediaConsumer only decodes the
 	// MEDIA.uploaded message and calls it.
 	eventPublisher := messaging.NewEventPublisher(publisher)
-	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, imageStorer, processor, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, processor, eventPublisher, logger)
 
 	// MediaConsumer
-	mediaConsumer := event.NewMediaConsumer(mediaUC, logger)
+	mediaConsumer := event.NewMediaConsumer(seriesImageUC, logger)
 
 	behaviorTable := []behaviorEntry{
 		{"media_uploaded", entity.SubjectMediaUploaded, mediaConsumer.Handle},

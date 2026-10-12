@@ -21,14 +21,14 @@ import (
 type CheckoutUseCase interface {
 	// Start holds count tickets of the TicketType for the fan for 15 minutes,
 	// or resumes the fan's holding Checkout with the same count. When the sale
-	// requires verification the fan must hold an Active Kyc.
+	// requires verification the fan must hold an Active IdentityVerification.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: the TicketType does not exist.
 	//  - FailedPrecondition: the sale's method is not FirstCome, the event is
 	//    not published, the TicketType is not OnSale or AllHeld, the sale
-	//    requires verification and the fan has no Active Kyc, or the
+	//    requires verification and the fan has no Active IdentityVerification, or the
 	//    per-account limit would be exceeded counting the fan's Issued Tickets
 	//    for the event.
 	//  - InvalidArgument: count is below 1 or above the TicketType's
@@ -44,7 +44,7 @@ type CheckoutUseCase interface {
 	//  - PermissionDenied: the Checkout does not exist or is another fan's.
 	Get(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID) (*entity.Checkout, error)
 
-	// Authorize stores the full name and phone number on the fan's User, opens
+	// AuthorizeCard stores the full name and phone number on the fan's User, opens
 	// the card hold for the fan's holding Checkout, records it on the Checkout
 	// and returns the hold's confirmation secret (never stored).
 	//
@@ -55,7 +55,7 @@ type CheckoutUseCase interface {
 	//  - InvalidArgument: the full name or phone number is missing or breaks
 	//    the User's personal details rule.
 	//  - Unavailable: card payments cannot be reached.
-	Authorize(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error)
+	AuthorizeCard(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error)
 
 	// ReleaseExpired makes lapsed Held Checkouts Expired and gives back the
 	// card hold of every ended Checkout, reporting a charged hold on an ended
@@ -70,14 +70,14 @@ type CheckoutUseCase interface {
 
 // checkoutUseCase implements [CheckoutUseCase].
 type checkoutUseCase struct {
-	checkoutRepo entity.CheckoutRepository
-	saleRepo     entity.TicketSaleRepository
-	userRepo     entity.UserRepository
-	kycRepo      entity.KycRepository
-	eventState   EventPublishStatePort
-	auth         entity.CheckoutAuthorizationPort
-	clock        Clock
-	logger       *logging.Logger
+	checkoutRepo             entity.CheckoutRepository
+	saleRepo                 entity.TicketSaleRepository
+	userRepo                 entity.UserRepository
+	identityVerificationRepo entity.IdentityVerificationRepository
+	eventState               EventPublishStatePort
+	cardAuthorizations       entity.CardAuthorizationRepository
+	clock                    Clock
+	logger                   *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -85,27 +85,27 @@ var _ CheckoutUseCase = (*checkoutUseCase)(nil)
 
 // CheckoutDeps are the dependencies of [NewCheckoutUseCase]. All are required.
 type CheckoutDeps struct {
-	CheckoutRepo entity.CheckoutRepository
-	SaleRepo     entity.TicketSaleRepository
-	UserRepo     entity.UserRepository
-	KycRepo      entity.KycRepository
-	EventState   EventPublishStatePort
-	Auth         entity.CheckoutAuthorizationPort
-	Clock        Clock
-	Logger       *logging.Logger
+	CheckoutRepo             entity.CheckoutRepository
+	SaleRepo                 entity.TicketSaleRepository
+	UserRepo                 entity.UserRepository
+	IdentityVerificationRepo entity.IdentityVerificationRepository
+	EventState               EventPublishStatePort
+	CardAuthorizations       entity.CardAuthorizationRepository
+	Clock                    Clock
+	Logger                   *logging.Logger
 }
 
 // NewCheckoutUseCase constructs a CheckoutUseCase.
 func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 	return &checkoutUseCase{
-		checkoutRepo: d.CheckoutRepo,
-		saleRepo:     d.SaleRepo,
-		userRepo:     d.UserRepo,
-		kycRepo:      d.KycRepo,
-		eventState:   d.EventState,
-		auth:         d.Auth,
-		clock:        d.Clock,
-		logger:       d.Logger,
+		checkoutRepo:             d.CheckoutRepo,
+		saleRepo:                 d.SaleRepo,
+		userRepo:                 d.UserRepo,
+		identityVerificationRepo: d.IdentityVerificationRepo,
+		eventState:               d.EventState,
+		cardAuthorizations:       d.CardAuthorizations,
+		clock:                    d.Clock,
+		logger:                   d.Logger,
 	}
 }
 
@@ -143,22 +143,22 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 }
 
 // verificationGate applies the sale's verification gate: when the sale
-// requires verification, the user must hold an Active Kyc, and
+// requires verification, the user must hold an Active IdentityVerification, and
 // FailedPrecondition is returned otherwise. A sale without a requirement needs
-// no Kyc.
+// no IdentityVerification.
 func (uc *checkoutUseCase) verificationGate(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) error {
 	if !sale.VerificationRequirement.RequiresVerification() {
 		return nil
 	}
-	kyc, err := uc.kycRepo.GetByUserID(ctx, string(userID))
+	identityVerification, err := uc.identityVerificationRepo.GetByUserID(ctx, string(userID))
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return apperr.Wrap(err, codes.FailedPrecondition, "the sale requires verification and the fan has no kyc")
+			return apperr.Wrap(err, codes.FailedPrecondition, "the sale requires verification and the fan has no identity verification")
 		}
 		return err
 	}
-	if kyc.Status != entity.VerificationStatusActive {
-		return apperr.New(codes.FailedPrecondition, "the sale requires verification and the fan's kyc is not active")
+	if identityVerification.Status != entity.VerificationStatusActive {
+		return apperr.New(codes.FailedPrecondition, "the sale requires verification and the fan's identity verification is not active")
 	}
 	return nil
 }
@@ -190,8 +190,8 @@ func (uc *checkoutUseCase) Get(ctx context.Context, userID entity.UserID, checko
 	return &asOf, nil
 }
 
-// Authorize implements [CheckoutUseCase].
-func (uc *checkoutUseCase) Authorize(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error) {
+// AuthorizeCard implements [CheckoutUseCase].
+func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error) {
 	checkout, err := uc.ownCheckout(ctx, userID, checkoutID)
 	if err != nil {
 		return "", err
@@ -214,18 +214,18 @@ func (uc *checkoutUseCase) Authorize(ctx context.Context, userID entity.UserID, 
 	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
 		return "", err
 	}
-	ref, secret, err := uc.auth.CreateAuthorization(ctx, checkout.Amount, entity.AuthorizationMetadata{
+	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
 		CheckoutID:   checkout.ID,
 		TicketTypeID: checkout.TicketTypeID,
 		EventID:      ticketType.EventID,
-	})
+	}, checkout.Amount)
 	if err != nil {
 		return "", err
 	}
-	if err := uc.checkoutRepo.SetAuthorization(ctx, checkoutID, ref); err != nil {
+	if err := uc.checkoutRepo.SetCardAuthorization(ctx, checkoutID, authorization.ID); err != nil {
 		return "", err
 	}
-	return secret, nil
+	return authorization.Secret, nil
 }
 
 // ReleaseExpired implements [CheckoutUseCase].
@@ -252,11 +252,11 @@ func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
 // giveBackCardHold releases an ended checkout's card hold and records it. A
 // charged hold is reported as needing an operator.
 func (uc *checkoutUseCase) giveBackCardHold(ctx context.Context, checkout *entity.Checkout, now time.Time) {
-	if err := uc.auth.CancelAuthorization(ctx, checkout.AuthorizationRef); err != nil {
+	if err := uc.cardAuthorizations.Release(ctx, checkout.CardAuthorizationID); err != nil {
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
 			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card hold of an ended checkout was charged"),
 				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("payment_ref", checkout.AuthorizationRef),
+				slog.String("card_authorization_id", checkout.CardAuthorizationID),
 				slog.String("status", checkout.Status.String()),
 			)
 			return
@@ -265,7 +265,7 @@ func (uc *checkoutUseCase) giveBackCardHold(ctx context.Context, checkout *entit
 			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
 		return
 	}
-	if err := uc.checkoutRepo.RecordAuthorizationRelease(ctx, checkout.ID, now); err != nil {
+	if err := uc.checkoutRepo.RecordCardAuthorizationRelease(ctx, checkout.ID, now); err != nil {
 		uc.logger.Warn(ctx, "release sweep: failed to record card hold release; retrying next run",
 			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
 	}

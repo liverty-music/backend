@@ -44,7 +44,7 @@ func firstPartyConcert(id string, date time.Time) *entity.Concert {
 			Title:         "ONE MAN LIVE",
 			Type:          entity.SeriesTypeSingle,
 			Description:   &description,
-			CoverMedia:    &entity.Media{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID, Kind: entity.MediaKindImage},
+			CoverImage:    &entity.SeriesImage{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID},
 			OrganizerID:   &organizerID,
 			Visibility:    &visibility,
 			PublishState:  &state,
@@ -60,7 +60,7 @@ func newEventPageHandler(t *testing.T) (*rpc.ConcertHandler, *mocks.MockConcertU
 	require.NoError(t, err)
 	concertUC := mocks.NewMockConcertUseCase(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
-	h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder("https://cdn.example.com"), logger)
+	h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder("https://cdn.example.com"), logger)
 	return h, concertUC, userRepo
 }
 
@@ -93,8 +93,8 @@ func TestConcertHandler_Get(t *testing.T) {
 		assert.Equal(t, "Two nights at Shibuya WWW.", s.GetDescription().GetValue())
 		assert.Equal(t, entityv1.Visibility_VISIBILITY_PUBLIC, s.GetVisibility())
 		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, s.GetPublishState())
-		assert.Equal(t, eventPageMediaID, s.GetMedia().GetId().GetValue())
-		assert.Contains(t, s.GetMedia().GetAttributes().GetLarge().GetValue(), "https://cdn.example.com/")
+		assert.Equal(t, eventPageMediaID, s.GetCoverImage().GetId().GetValue())
+		assert.Contains(t, s.GetCoverImage().GetLarge().GetValue(), "https://cdn.example.com/")
 		assert.NotContains(t, s.String(), "secret-share-token", "the share token is never returned")
 	})
 
@@ -212,8 +212,8 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 			h, concertUC, userRepo := newEventPageHandler(t)
 			ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 			user := &entity.User{ID: internalUserID}
-			userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-			concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).
+			userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+			concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
 			resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
@@ -236,12 +236,12 @@ func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 	h, concertUC, userRepo := newEventPageHandler(t)
 	ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 	user := &entity.User{ID: "internal-user-uuid-1"}
-	userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+	userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
 	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
 	c1 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e1", day(20))
 	c2 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e2", day(21))
 	c3 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e3", day(22))
-	concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, user.ID, user.Home, mock.Anything).
+	concertUC.EXPECT().ListFollowed(mock.Anything, user.ID, user.Home, mock.Anything).
 		Return([]*entity.ProximityGroup{
 			{Date: day(20), Home: []*entity.Concert{c1}},
 			{Date: day(21), Nearby: []*entity.Concert{c2}},
@@ -275,8 +275,8 @@ func TestConcertHandler_ListByArtists_CoverImage(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Series, 1)
-	media := resp.Msg.Series[0].GetMedia()
+	media := resp.Msg.Series[0].GetCoverImage()
 	assert.Equal(t, eventPageMediaID, media.GetId().GetValue())
-	assert.Contains(t, media.GetAttributes().GetLarge().GetValue(), "https://cdn.example.com/")
+	assert.Contains(t, media.GetLarge().GetValue(), "https://cdn.example.com/")
 	assert.NotContains(t, resp.Msg.Series[0].String(), "secret-share-token", "the share token is never returned")
 }

@@ -255,7 +255,7 @@ func TestTicketJourneyUseCase_ListByUser(t *testing.T) {
 		}
 		d.repo.EXPECT().ListByUser(ctx, "user-1").Return(expected, nil).Once()
 
-		result, err := d.uc.ListByUser(ctx, "user-1")
+		result, err := d.uc.List(ctx, "user-1")
 
 		assert.NoError(t, err)
 		assert.Equal(t, expected, result)

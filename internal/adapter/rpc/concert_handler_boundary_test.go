@@ -37,7 +37,7 @@ func newConcertBoundaryClient(t *testing.T, concertUC *mocks.MockConcertUseCase)
 
 	logger, err := logging.New()
 	require.NoError(t, err)
-	h := rpc.NewConcertHandler(concertUC, entitymocks.NewMockUserRepository(t), mapper.NewMediaURLBuilder(""), logger)
+	h := rpc.NewConcertHandler(concertUC, entitymocks.NewMockUserRepository(t), mapper.NewSeriesImageURLBuilder(""), logger)
 
 	path, svc := concertv1connect.NewConcertServiceHandler(h, connect.WithInterceptors(validate.NewInterceptor()))
 	mux := http.NewServeMux()

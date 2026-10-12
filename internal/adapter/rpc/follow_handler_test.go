@@ -45,7 +45,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
 			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().Follow(mock.Anything, internalUserID, artistID).Return(nil).Once()
 			},
 			wantErr: false,
@@ -65,7 +65,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
 			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
 			},
 			wantErr: true,
 		},
@@ -120,7 +120,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.UnfollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
 			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().Unfollow(mock.Anything, internalUserID, artistID).Return(nil).Once()
 			},
 			wantErr: false,
@@ -178,8 +178,8 @@ func TestFollowHandler_List(t *testing.T) {
 			name: "success",
 			ctx:  followAuthedCtx("ext-user-1"),
 			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
-				uc.EXPECT().ListFollowed(mock.Anything, internalUserID).Return([]*entity.FollowedArtist{}, nil).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+				uc.EXPECT().List(mock.Anything, internalUserID).Return([]*entity.FollowedArtist{}, nil).Once()
 			},
 			wantErr: false,
 		},
@@ -241,7 +241,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 				Hype:     entityv1.HypeType_HYPE_TYPE_HOME,
 			},
 			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().SetHype(mock.Anything, internalUserID, artistID, mock.Anything).Return(nil).Once()
 			},
 			wantErr: false,
@@ -263,7 +263,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 				Hype:     entityv1.HypeType_HYPE_TYPE_UNSPECIFIED,
 			},
 			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 			},
 			wantCode: connect.CodeInvalidArgument,
 			wantErr:  true,

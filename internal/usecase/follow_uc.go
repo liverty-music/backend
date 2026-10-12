@@ -35,13 +35,13 @@ type FollowUseCase interface {
 	//   - NotFound: the user is not following the specified artist.
 	SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error
 
-	// ListFollowed retrieves all artists currently followed by the specified user,
+	// List retrieves all artists currently followed by the specified user,
 	// enriched with per-user hype metadata.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: query failure.
-	ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
+	List(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
 }
 
 // followUseCase implements the FollowUseCase interface.
@@ -202,7 +202,7 @@ func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, h
 	return nil
 }
 
-// ListFollowed retrieves the list of artists followed by a user, including hype level.
-func (uc *followUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
+// List retrieves the list of artists followed by a user, including hype level.
+func (uc *followUseCase) List(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	return uc.followRepo.ListByUser(ctx, userID)
 }

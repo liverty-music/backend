@@ -194,7 +194,7 @@ func (p *OrganizerProvisioner) EnsureTenantOrg(ctx context.Context, organizerID 
 		return "", apperr.Wrap(err, codes.Internal, "add tenant org")
 	}
 
-	zitadelOrgID, err := p.FindTenantOrg(ctx, organizerID)
+	providerOrganizerID, err := p.FindTenantOrg(ctx, organizerID)
 	if errors.Is(err, apperr.ErrNotFound) {
 		// AddOrg says the org exists, so NotFound here is an inconsistency
 		// (e.g. a lagging projection), not a missing org; a retry may succeed.
@@ -207,9 +207,9 @@ func (p *OrganizerProvisioner) EnsureTenantOrg(ctx context.Context, organizerID 
 	}
 	p.logger.Info(ctx, "tenant org already existed",
 		slog.String("organizer_id", organizerID),
-		slog.String("zitadel_org_id", zitadelOrgID),
+		slog.String("zitadel_org_id", providerOrganizerID),
 	)
-	return zitadelOrgID, nil
+	return providerOrganizerID, nil
 }
 
 // FindTenantOrg resolves the tenant org by its exact deterministic name through
@@ -254,23 +254,23 @@ func (p *OrganizerProvisioner) FindTenantOrg(ctx context.Context, organizerID st
 // Failures caused by the operator email (it belongs to a user outside the
 // tenant org, or Zitadel rejects it) carry AlreadyExists or InvalidArgument and
 // cannot succeed on retry; every other failure is Internal.
-func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID, zitadelOrgID, operatorEmail string) error {
+func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID, providerOrganizerID, operatorEmail string) error {
 	// Management API calls for the tenant's own resources are scoped to the
 	// tenant org.
-	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
+	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
-	if err := p.ensureLoginPolicy(orgCtx, zitadelOrgID); err != nil {
+	if err := p.ensureLoginPolicy(orgCtx, providerOrganizerID); err != nil {
 		return apperr.Wrap(err, codes.Internal, "ensure passkey-primary login policy")
 	}
 
 	// AddProjectGrant is called from the provisioner's own org context; the
 	// organizer-console project lives in the provisioner's org, so we call
 	// it without the tenant org header.
-	if err := p.ensureProjectGrant(ctx, zitadelOrgID); err != nil {
+	if err := p.ensureProjectGrant(ctx, providerOrganizerID); err != nil {
 		return apperr.Wrap(err, codes.Internal, "ensure project grant")
 	}
 
-	operatorID, err := p.ensureOperatorUser(ctx, zitadelOrgID, operatorEmail)
+	operatorID, err := p.ensureOperatorUser(ctx, providerOrganizerID, operatorEmail)
 	if err != nil {
 		// ensureOperatorUser already assigns the code (AlreadyExists /
 		// InvalidArgument / Internal); keep it.
@@ -283,7 +283,7 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 
 	p.logger.Info(ctx, "organizer tenant provisioned",
 		slog.String("organizer_id", organizerID),
-		slog.String("zitadel_org_id", zitadelOrgID),
+		slog.String("zitadel_org_id", providerOrganizerID),
 		slog.String("operator_email", operatorEmail),
 	)
 	return nil
@@ -297,8 +297,8 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 // deactivating an initial user ("User with state initial can only be deleted
 // not deactivated") — and such a user has no credentials/session to disable
 // anyway, so removing it fully satisfies the off-switch intent.
-func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelOrgID string) error {
-	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
+func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, providerOrganizerID string) error {
+	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	resp, err := p.mgmt.ListUsers(orgCtx, &mgmtpb.ListUsersRequest{
@@ -329,7 +329,7 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 				return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove initial operator %s", u.GetId()))
 			}
 			p.logger.Info(ctx, "initial operator removed",
-				slog.String("zitadel_org_id", zitadelOrgID),
+				slog.String("zitadel_org_id", providerOrganizerID),
 				slog.String("user_id", u.GetId()),
 			)
 			continue
@@ -347,7 +347,7 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 			return apperr.Wrap(err, codes.Internal, fmt.Sprintf("deactivate operator %s", u.GetId()))
 		}
 		p.logger.Info(ctx, "operator deactivated",
-			slog.String("zitadel_org_id", zitadelOrgID),
+			slog.String("zitadel_org_id", providerOrganizerID),
 			slog.String("user_id", u.GetId()),
 		)
 	}
@@ -358,18 +358,18 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 // is addressed through the x-zitadel-orgid header, as RemoveOrg acts on the
 // org of the request. A NotFound response means the org is already gone and
 // counts as success, so a retry after a partial deletion completes.
-func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, zitadelOrgID string) error {
-	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
+func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, providerOrganizerID string) error {
+	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	if _, err := p.mgmt.RemoveOrg(orgCtx, &mgmtpb.RemoveOrgRequest{}); err != nil {
 		if isNotFound(err) {
-			p.logger.Info(ctx, "tenant org already removed", slog.String("zitadel_org_id", zitadelOrgID))
+			p.logger.Info(ctx, "tenant org already removed", slog.String("zitadel_org_id", providerOrganizerID))
 			return nil
 		}
-		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove tenant org %s", zitadelOrgID))
+		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove tenant org %s", providerOrganizerID))
 	}
-	p.logger.Info(ctx, "tenant org removed", slog.String("zitadel_org_id", zitadelOrgID))
+	p.logger.Info(ctx, "tenant org removed", slog.String("zitadel_org_id", providerOrganizerID))
 	return nil
 }
 
@@ -407,13 +407,13 @@ func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, zitadelOrgID st
 // a policy without the default redirect (and older ones the broken
 // allow_username_password=false), so on AlreadyExists we UpdateCustomLoginPolicy
 // to converge them in place (idempotent saga).
-func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, zitadelOrgID string) error {
+func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, providerOrganizerID string) error {
 	// The default redirect carries this tenant's org id so the console can
 	// enforce, after the post-invite callback, that the authenticated token's
 	// org is THIS tenant — a stale/other-org SSO session in the browser must not
 	// silently onboard the wrong operator. On a mismatch the console forces
 	// re-authentication (design D-D, Option 2).
-	defaultRedirectURI := fmt.Sprintf("%s/?org_id=%s", p.consoleBaseURL, url.QueryEscape(zitadelOrgID))
+	defaultRedirectURI := fmt.Sprintf("%s/?org_id=%s", p.consoleBaseURL, url.QueryEscape(providerOrganizerID))
 	_, err := p.mgmt.AddCustomLoginPolicy(orgCtx, &mgmtpb.AddCustomLoginPolicyRequest{
 		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
 		AllowUsernamePassword:  true,
@@ -479,9 +479,9 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 // ctx carries no org header; the tenant-scoped calls derive their own.
 // Every returned error is an apperr: AlreadyExists or InvalidArgument when the
 // operator email itself is unusable, Internal otherwise.
-func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
-	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
-	userID, err := p.ensureHumanUser(ctx, zitadelOrgID, operatorEmail)
+func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, providerOrganizerID, operatorEmail string) (string, error) {
+	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
+	userID, err := p.ensureHumanUser(ctx, providerOrganizerID, operatorEmail)
 	if err != nil {
 		return "", err
 	}
@@ -545,8 +545,8 @@ func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, zitadelOr
 // user is therefore looked up in the tenant org: a match is a true retry and is
 // reused; no match means the email belongs to a user in another org, which is
 // a conflict the admin must resolve, so it fails with AlreadyExists.
-func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
-	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
+func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, providerOrganizerID, operatorEmail string) (string, error) {
+	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 	// User v2 AddHumanUser with a verified email and NO password creates a
 	// passwordless operator and sends NO email: the v2 handler hardcodes
 	// allowInitMail=false, so — unlike v1 — no password-initialization mail is
@@ -559,7 +559,7 @@ func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, zitadelOrgID
 	//nolint:staticcheck // SA1019: v2 AddHumanUser is deprecated in favor of CreateUser, but on Zitadel v4.14.0 AddHumanUser is fully supported AND source-verified to hardcode allowInitMail=false (no password-init email) — the exact behavior this fix relies on. CreateUser's init-mail suppression is NOT verified for v4.14.0, so switching to it risks reintroducing the password-init email. Revisit when prod Zitadel is upgraded and CreateUser's behavior is confirmed.
 	addResp, err := p.userV2.AddHumanUser(orgCtx, &userv2pb.AddHumanUserRequest{
 		Organization: &objectv2pb.Organization{
-			Org: &objectv2pb.Organization_OrgId{OrgId: zitadelOrgID},
+			Org: &objectv2pb.Organization_OrgId{OrgId: providerOrganizerID},
 		},
 		Profile: &userv2pb.SetHumanProfile{
 			GivenName:   "Operator",
@@ -586,17 +586,17 @@ func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, zitadelOrgID
 		return "", apperr.Wrap(err, codes.Internal, "add operator user")
 	}
 
-	users, lookupErr := p.listUsersByEmail(ctx, operatorEmail, zitadelOrgID)
+	users, lookupErr := p.listUsersByEmail(ctx, operatorEmail, providerOrganizerID)
 	if lookupErr != nil {
 		return "", lookupErr
 	}
 	if len(users) == 0 {
 		return "", apperr.New(codes.AlreadyExists, operatorEmailInUseMsg,
-			slog.String("zitadel_org_id", zitadelOrgID),
+			slog.String("zitadel_org_id", providerOrganizerID),
 		)
 	}
 	p.logger.Info(ctx, "operator already exists in tenant org; reusing",
-		slog.String("zitadel_org_id", zitadelOrgID),
+		slog.String("zitadel_org_id", providerOrganizerID),
 		slog.String("user_id", users[0].GetUserId()),
 	)
 	return users[0].GetUserId(), nil

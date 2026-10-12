@@ -28,9 +28,8 @@ import (
 // OrganizerSeriesHandler. None has an expectation unless a test sets one, so
 // an unexpected call fails the test.
 type organizerSeriesHandlerDeps struct {
-	authoringUC *ucmocks.MockConcertAuthoringUseCase
+	seriesUC    *ucmocks.MockSeriesUseCase
 	organizerUC *ucmocks.MockOrganizerUseCase
-	mediaUC     *ucmocks.MockMediaUseCase
 	handler     *rpc.OrganizerSeriesHandler
 }
 
@@ -40,15 +39,13 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	require.NoError(t, err)
 
 	d := &organizerSeriesHandlerDeps{
-		authoringUC: ucmocks.NewMockConcertAuthoringUseCase(t),
+		seriesUC:    ucmocks.NewMockSeriesUseCase(t),
 		organizerUC: ucmocks.NewMockOrganizerUseCase(t),
-		mediaUC:     ucmocks.NewMockMediaUseCase(t),
 	}
 	d.handler = rpc.NewOrganizerSeriesHandler(
-		d.authoringUC,
+		d.seriesUC,
 		d.organizerUC,
-		d.mediaUC,
-		mapper.NewMediaURLBuilder("https://cdn.example.com"),
+		mapper.NewSeriesImageURLBuilder("https://cdn.example.com"),
 		logger,
 	)
 	return d
@@ -69,13 +66,13 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		events := []*entity.Event{authoredEvent("event-1", "series-1", 1)}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			ListOwn(mock.Anything, testOrganizerID).
+		d.seriesUC.EXPECT().
+			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "Tour"}, {ID: "series-2", Title: "Festival"}},
 				[]*[]*entity.Event{&events, nil},
@@ -84,7 +81,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.Series, 2)
@@ -101,7 +98,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		events := []*entity.Event{
@@ -110,8 +107,8 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			authoredEvent("event-3", "series-1", 3),
 		}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			ListOwn(mock.Anything, testOrganizerID).
+		d.seriesUC.EXPECT().
+			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "ARENA TOUR 2026"}},
 				[]*[]*entity.Event{&events},
@@ -120,7 +117,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.Series, 1)
@@ -144,7 +141,7 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 	d := newOrganizerSeriesHandlerDeps(t)
 
 	d.organizerUC.EXPECT().
-		ResolveCaller(mock.Anything, testZitadelOrgID).
+		ResolveCaller(mock.Anything, testProviderOrganizerID).
 		Return(activeOrganizer(), nil).
 		Once()
 	ev := authoredEvent("event-1", "series-1", 1)
@@ -157,8 +154,8 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		GooglePlaceID: new("ChIJeVmAOuphGGARoWY4-GPmhhA"),
 	}
 	events := []*entity.Event{ev}
-	d.authoringUC.EXPECT().
-		ListOwn(mock.Anything, testOrganizerID).
+	d.seriesUC.EXPECT().
+		List(mock.Anything, testOrganizerID).
 		Return(
 			[]*entity.Series{{ID: "series-1", Title: "ONE MAN LIVE"}},
 			[]*[]*entity.Event{&events},
@@ -167,7 +164,7 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		).
 		Once()
 
-	resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+	resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Concerts, 1)
@@ -180,58 +177,6 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 	assert.Equal(t, "Zepp Haneda", resp.Msg.Concerts[0].GetEvent().GetListedVenueName().GetValue())
 }
 
-func TestOrganizerSeriesHandler_SearchVenues(t *testing.T) {
-	t.Parallel()
-
-	// @spec components/adapter/organizer/api/rpc/series "Venue search for an active Organizer"
-	t.Run("return the candidate places for an operator of an active organizer", func(t *testing.T) {
-		t.Parallel()
-		d := newOrganizerSeriesHandlerDeps(t)
-
-		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
-			Return(activeOrganizer(), nil).
-			Once()
-		d.authoringUC.EXPECT().
-			SearchPlaces(mock.Anything, testOrganizerID, "Zepp Haneda").
-			Return([]*entity.MapPlaceCandidate{
-				{PlaceID: "ChIJeVmAOuphGGARoWY4-GPmhhA", Name: "Zepp Haneda (TOKYO)", Address: "〒144-0041 東京都大田区羽田空港１丁目１−４"},
-				{PlaceID: "ChIJother", Name: "Zepp DiverCity (TOKYO)", Address: "〒135-0064 東京都江東区青海１丁目１−１０"},
-			}, nil).
-			Once()
-
-		resp, err := d.handler.SearchVenues(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
-
-		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetCandidates(), 2)
-		first := resp.Msg.GetCandidates()[0]
-		assert.Equal(t, "ChIJeVmAOuphGGARoWY4-GPmhhA", first.GetPlaceId().GetValue())
-		assert.Equal(t, "Zepp Haneda (TOKYO)", first.GetName().GetValue())
-		assert.Equal(t, "〒144-0041 東京都大田区羽田空港１丁目１−４", first.GetAddress())
-		assert.Equal(t, "ChIJother", resp.Msg.GetCandidates()[1].GetPlaceId().GetValue())
-	})
-
-	// @spec components/adapter/organizer/api/rpc/series "Venue search without an Organizer"
-	t.Run("return PERMISSION_DENIED without calling the map catalog when no organizer is linked to the tenant", func(t *testing.T) {
-		t.Parallel()
-		d := newOrganizerSeriesHandlerDeps(t)
-
-		// The authoring usecase (the only path to the map catalog) has no
-		// expectation: reaching it fails the test.
-		resolveErr := apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")
-		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
-			Return(nil, resolveErr).
-			Once()
-
-		_, err := d.handler.SearchVenues(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
-
-		require.Error(t, err)
-		assert.ErrorIs(t, err, resolveErr)
-		assert.Equal(t, connect.CodePermissionDenied, connectCodeOf(err))
-	})
-}
-
 func TestOrganizerSeriesHandler_Create(t *testing.T) {
 	t.Parallel()
 
@@ -241,19 +186,19 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		draft := entity.SeriesPublishStateDraft
 		series := &entity.Series{ID: "series-1", Title: "ONE MAN LIVE", Type: entity.SeriesTypeSingle, PublishState: &draft}
 		events := []*entity.Event{authoredEvent("draft-event-1", "series-1", 1), authoredEvent("draft-event-2", "series-1", 2)}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			CreateDraft(mock.Anything, testOrganizerID, mock.Anything, mock.Anything, []string{"artist-1"}).
+		d.seriesUC.EXPECT().
+			Create(mock.Anything, testOrganizerID, mock.Anything, mock.Anything, []string{"artist-1"}).
 			Return(series, events, artists, nil).
 			Once()
 
-		resp, err := d.handler.Create(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.CreateRequest{
+		resp, err := d.handler.Create(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.CreateRequest{
 			Draft: &organizerseriesv1.SeriesDraft{
 				Title:      &entityv1.Title{Value: "ONE MAN LIVE"},
 				Type:       entityv1.SeriesType_SERIES_TYPE_SINGLE,
@@ -314,15 +259,15 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
-		d.authoringUC.EXPECT().
-			RegenerateToken(mock.Anything, testOrganizerID, "series-1").
+		d.seriesUC.EXPECT().
+			RegenerateShareURL(mock.Anything, testOrganizerID, "series-1").
 			Return("new-token", nil).
 			Once()
 
-		resp, err := d.handler.RegenerateShareUrl(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
+		resp, err := d.handler.RegenerateShareUrl(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 		}))
 
@@ -366,16 +311,8 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 			_, err := h.RegenerateShareUrl(ctx, connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{}))
 			return err
 		}},
-		{"CreateMediaUploadUrl", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.CreateMediaUploadUrl(ctx, connect.NewRequest(&organizerseriesv1.CreateMediaUploadUrlRequest{}))
-			return err
-		}},
-		{"AttachMedia", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.AttachMedia(ctx, connect.NewRequest(&organizerseriesv1.AttachMediaRequest{}))
-			return err
-		}},
-		{"SearchVenues", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.SearchVenues(ctx, connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
+		{"SetCoverImage", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
+			_, err := h.SetCoverImage(ctx, connect.NewRequest(&organizerseriesv1.SetCoverImageRequest{}))
 			return err
 		}},
 	}
@@ -411,11 +348,11 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 				// The authoring and media usecases have no expectations: any
 				// call to them fails the test.
 				d.organizerUC.EXPECT().
-					ResolveCaller(mock.Anything, testZitadelOrgID).
+					ResolveCaller(mock.Anything, testProviderOrganizerID).
 					Return(nil, tt.dep.resolveCallerErr).
 					Once()
 
-				err := c.call(orgCtx(testZitadelOrgID), d.handler)
+				err := c.call(orgCtx(testProviderOrganizerID), d.handler)
 
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.dep.resolveCallerErr)

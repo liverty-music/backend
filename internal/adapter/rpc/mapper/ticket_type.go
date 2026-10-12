@@ -22,7 +22,7 @@ func TicketTypeToProto(v *usecase.TicketTypeView, withCounts bool) *entityv1.Tic
 		Id:              &entityv1.TicketTypeId{Value: string(t.ID)},
 		TicketSaleId:    &entityv1.TicketSaleId{Value: string(t.TicketSaleID)},
 		EventId:         &entityv1.EventId{Value: t.EventID},
-		Price:           &entityv1.TicketPrice{Value: t.Price},
+		Price:           &entityv1.TicketTypePrice{Value: t.Price},
 		PerAccountLimit: int32(t.PerAccountLimit),
 	}
 	firstCome := v.State != entity.TicketTypeStateUnspecified
@@ -56,12 +56,12 @@ func LotteryEntryStatsToProto(views []*usecase.TicketSaleView) []*organizerticke
 			}
 			s := tv.Stats
 			out = append(out, &organizerticketsalev1.LotteryEntryStats{
-				TicketTypeId:         &entityv1.TicketTypeId{Value: string(tv.TicketType.ID)},
-				EntryCount:           int32(s.EntryCount),
-				RequestedTicketCount: int32(s.RequestedTicketCount),
-				WonEntryCount:        int32(s.WonEntryCount),
-				WonTicketCount:       int32(s.WonTicketCount),
-				LostEntryCount:       int32(s.LostEntryCount),
+				TicketTypeId:   &entityv1.TicketTypeId{Value: string(tv.TicketType.ID)},
+				EntryCount:     int32(s.EntryCount),
+				TicketCount:    int32(s.TicketCount),
+				WonEntryCount:  int32(s.WonEntryCount),
+				WonTicketCount: int32(s.WonTicketCount),
+				LostEntryCount: int32(s.LostEntryCount),
 			})
 		}
 	}

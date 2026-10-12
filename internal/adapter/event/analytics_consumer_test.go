@@ -56,18 +56,18 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 		{
 			name: "forwards user.created when client + UserID present",
 			args: args{data: entity.UserCreatedData{
-				UserID:     validUserID,
-				ExternalID: "zitadel-sub-abc",
-				Email:      "alice@example.com",
+				UserID:         validUserID,
+				ProviderUserID: "zitadel-sub-abc",
+				Email:          "alice@example.com",
 			}},
 			want: want{expectEnqueue: true, expectStatus: "forwarded"},
 		},
 		{
 			name: "skips forward when client is nil (local dev)",
 			args: args{data: entity.UserCreatedData{
-				UserID:     validUserID,
-				ExternalID: "zitadel-sub-abc",
-				Email:      "alice@example.com",
+				UserID:         validUserID,
+				ProviderUserID: "zitadel-sub-abc",
+				Email:          "alice@example.com",
 			}},
 			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
 			nilClient: true,
@@ -75,9 +75,9 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 		{
 			name: "skips forward when UserID is empty",
 			args: args{data: entity.UserCreatedData{
-				UserID:     "",
-				ExternalID: "zitadel-sub-abc",
-				Email:      "alice@example.com",
+				UserID:         "",
+				ProviderUserID: "zitadel-sub-abc",
+				Email:          "alice@example.com",
 			}},
 			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
 		},

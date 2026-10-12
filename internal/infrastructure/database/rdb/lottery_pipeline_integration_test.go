@@ -48,13 +48,13 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	saleRepo := rdb.NewTicketSaleRepository(testDB)
 	entryRepo := rdb.NewLotteryEntryRepository(testDB)
-	stripePort := payment.NewStripeAuthorizationPort(key, logger)
+	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
 	// A fixed clock inside the sale's window so every step passes the window
 	// check deterministically.
 	now := saleWindowStart.Add(time.Hour)
 	clock := usecase.Clock(func() time.Time { return now })
-	uc := usecase.NewLotteryUseCase(saleRepo, entryRepo, rdb.NewTicketRepository(testDB), rdb.NewKycRepository(testDB),
+	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
 		rdb.NewUserRepository(testDB), stripePort, clock, logger)
 
 	// -- a Lottery ticket type of 2 tickets, so 3 single-ticket entries force one loss --
@@ -70,11 +70,11 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		draft, err := uc.Start(ctx, tt.ID, userID, 1)
 		require.NoError(t, err)
-		_, err = uc.Authorize(ctx, draft.ID, userID, "Test Fan", "+819012345678")
+		_, err = uc.AuthorizeCard(ctx, draft.ID, userID, "Test Fan", "+819012345678")
 		require.NoError(t, err)
 		authorized, err := entryRepo.Get(ctx, draft.ID)
 		require.NoError(t, err)
-		confirmHold(t, key, authorized.Authorization.PaymentIntentRef) // → requires_capture
+		confirmHold(t, key, authorized.CardAuthorizationID) // → requires_capture
 		if confirm {
 			entered, err := uc.Confirm(ctx, draft.ID, userID)
 			require.NoError(t, err)
@@ -99,11 +99,11 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		switch e.State {
 		case entity.LotteryEntryStateWon:
 			won++
-			assert.Equal(t, stripe.PaymentIntentStatusSucceeded, piStatus(t, key, e.Authorization.PaymentIntentRef),
+			assert.Equal(t, stripe.PaymentIntentStatusSucceeded, piStatus(t, key, e.CardAuthorizationID),
 				"winner PaymentIntent must be captured (succeeded)")
 		case entity.LotteryEntryStateLost:
 			lost++
-			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, e.Authorization.PaymentIntentRef),
+			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, e.CardAuthorizationID),
 				"loser PaymentIntent must be released (canceled)")
 			assert.NotNil(t, e.DrawPosition, "loser must carry a waitlist position")
 		default:
@@ -116,7 +116,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	draft, err := entryRepo.Get(ctx, draftID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.LotteryEntryStateWithdrawn, draft.State, "an unconfirmed draft is withdrawn at the draw")
-	assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, draft.Authorization.PaymentIntentRef),
+	assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, draft.CardAuthorizationID),
 		"the draft's hold must be released")
 
 	sale, err := saleRepo.Get(ctx, tt.TicketSaleID, now)

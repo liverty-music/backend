@@ -11,7 +11,7 @@ import (
 
 // Claims represents JWT claims extracted from the token.
 type Claims struct {
-	// Sub is the subject claim (external_id/user ID from identity provider).
+	// Sub is the subject claim (provider_user_id/user ID from identity provider).
 	Sub string
 	// Email is the user's email address.
 	Email string

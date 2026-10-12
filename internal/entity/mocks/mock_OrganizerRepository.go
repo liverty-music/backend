@@ -390,21 +390,21 @@ func (_c *MockOrganizerRepository_Get_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
-// GetByZitadelOrgID provides a mock function with given fields: ctx, zitadelOrgID
-func (_m *MockOrganizerRepository) GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
-	ret := _m.Called(ctx, zitadelOrgID)
+// GetByProviderOrganizerID provides a mock function with given fields: ctx, providerOrganizerID
+func (_m *MockOrganizerRepository) GetByProviderOrganizerID(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, providerOrganizerID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByZitadelOrgID")
+		panic("no return value specified for GetByProviderOrganizerID")
 	}
 
 	var r0 *entity.Organizer
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Organizer, error)); ok {
-		return rf(ctx, zitadelOrgID)
+		return rf(ctx, providerOrganizerID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Organizer); ok {
-		r0 = rf(ctx, zitadelOrgID)
+		r0 = rf(ctx, providerOrganizerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Organizer)
@@ -412,7 +412,7 @@ func (_m *MockOrganizerRepository) GetByZitadelOrgID(ctx context.Context, zitade
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, zitadelOrgID)
+		r1 = rf(ctx, providerOrganizerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -420,31 +420,31 @@ func (_m *MockOrganizerRepository) GetByZitadelOrgID(ctx context.Context, zitade
 	return r0, r1
 }
 
-// MockOrganizerRepository_GetByZitadelOrgID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByZitadelOrgID'
-type MockOrganizerRepository_GetByZitadelOrgID_Call struct {
+// MockOrganizerRepository_GetByProviderOrganizerID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByProviderOrganizerID'
+type MockOrganizerRepository_GetByProviderOrganizerID_Call struct {
 	*mock.Call
 }
 
-// GetByZitadelOrgID is a helper method to define mock.On call
+// GetByProviderOrganizerID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - zitadelOrgID string
-func (_e *MockOrganizerRepository_Expecter) GetByZitadelOrgID(ctx interface{}, zitadelOrgID interface{}) *MockOrganizerRepository_GetByZitadelOrgID_Call {
-	return &MockOrganizerRepository_GetByZitadelOrgID_Call{Call: _e.mock.On("GetByZitadelOrgID", ctx, zitadelOrgID)}
+//   - providerOrganizerID string
+func (_e *MockOrganizerRepository_Expecter) GetByProviderOrganizerID(ctx interface{}, providerOrganizerID interface{}) *MockOrganizerRepository_GetByProviderOrganizerID_Call {
+	return &MockOrganizerRepository_GetByProviderOrganizerID_Call{Call: _e.mock.On("GetByProviderOrganizerID", ctx, providerOrganizerID)}
 }
 
-func (_c *MockOrganizerRepository_GetByZitadelOrgID_Call) Run(run func(ctx context.Context, zitadelOrgID string)) *MockOrganizerRepository_GetByZitadelOrgID_Call {
+func (_c *MockOrganizerRepository_GetByProviderOrganizerID_Call) Run(run func(ctx context.Context, providerOrganizerID string)) *MockOrganizerRepository_GetByProviderOrganizerID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockOrganizerRepository_GetByZitadelOrgID_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerRepository_GetByZitadelOrgID_Call {
+func (_c *MockOrganizerRepository_GetByProviderOrganizerID_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerRepository_GetByProviderOrganizerID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockOrganizerRepository_GetByZitadelOrgID_Call) RunAndReturn(run func(context.Context, string) (*entity.Organizer, error)) *MockOrganizerRepository_GetByZitadelOrgID_Call {
+func (_c *MockOrganizerRepository_GetByProviderOrganizerID_Call) RunAndReturn(run func(context.Context, string) (*entity.Organizer, error)) *MockOrganizerRepository_GetByProviderOrganizerID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -790,6 +790,54 @@ func (_c *MockOrganizerRepository_SetPlatformFeeRate_Call) RunAndReturn(run func
 	return _c
 }
 
+// SetProviderOrganizerID provides a mock function with given fields: ctx, id, providerOrganizerID
+func (_m *MockOrganizerRepository) SetProviderOrganizerID(ctx context.Context, id string, providerOrganizerID string) error {
+	ret := _m.Called(ctx, id, providerOrganizerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetProviderOrganizerID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, id, providerOrganizerID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockOrganizerRepository_SetProviderOrganizerID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetProviderOrganizerID'
+type MockOrganizerRepository_SetProviderOrganizerID_Call struct {
+	*mock.Call
+}
+
+// SetProviderOrganizerID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - providerOrganizerID string
+func (_e *MockOrganizerRepository_Expecter) SetProviderOrganizerID(ctx interface{}, id interface{}, providerOrganizerID interface{}) *MockOrganizerRepository_SetProviderOrganizerID_Call {
+	return &MockOrganizerRepository_SetProviderOrganizerID_Call{Call: _e.mock.On("SetProviderOrganizerID", ctx, id, providerOrganizerID)}
+}
+
+func (_c *MockOrganizerRepository_SetProviderOrganizerID_Call) Run(run func(ctx context.Context, id string, providerOrganizerID string)) *MockOrganizerRepository_SetProviderOrganizerID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetProviderOrganizerID_Call) Return(_a0 error) *MockOrganizerRepository_SetProviderOrganizerID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetProviderOrganizerID_Call) RunAndReturn(run func(context.Context, string, string) error) *MockOrganizerRepository_SetProviderOrganizerID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetStatus provides a mock function with given fields: ctx, id, status
 func (_m *MockOrganizerRepository) SetStatus(ctx context.Context, id string, status entity.OrganizerStatus) error {
 	ret := _m.Called(ctx, id, status)
@@ -834,54 +882,6 @@ func (_c *MockOrganizerRepository_SetStatus_Call) Return(_a0 error) *MockOrganiz
 }
 
 func (_c *MockOrganizerRepository_SetStatus_Call) RunAndReturn(run func(context.Context, string, entity.OrganizerStatus) error) *MockOrganizerRepository_SetStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SetZitadelOrgID provides a mock function with given fields: ctx, id, zitadelOrgID
-func (_m *MockOrganizerRepository) SetZitadelOrgID(ctx context.Context, id string, zitadelOrgID string) error {
-	ret := _m.Called(ctx, id, zitadelOrgID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetZitadelOrgID")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, id, zitadelOrgID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockOrganizerRepository_SetZitadelOrgID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetZitadelOrgID'
-type MockOrganizerRepository_SetZitadelOrgID_Call struct {
-	*mock.Call
-}
-
-// SetZitadelOrgID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - zitadelOrgID string
-func (_e *MockOrganizerRepository_Expecter) SetZitadelOrgID(ctx interface{}, id interface{}, zitadelOrgID interface{}) *MockOrganizerRepository_SetZitadelOrgID_Call {
-	return &MockOrganizerRepository_SetZitadelOrgID_Call{Call: _e.mock.On("SetZitadelOrgID", ctx, id, zitadelOrgID)}
-}
-
-func (_c *MockOrganizerRepository_SetZitadelOrgID_Call) Run(run func(ctx context.Context, id string, zitadelOrgID string)) *MockOrganizerRepository_SetZitadelOrgID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockOrganizerRepository_SetZitadelOrgID_Call) Return(_a0 error) *MockOrganizerRepository_SetZitadelOrgID_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockOrganizerRepository_SetZitadelOrgID_Call) RunAndReturn(run func(context.Context, string, string) error) *MockOrganizerRepository_SetZitadelOrgID_Call {
 	_c.Call.Return(run)
 	return _c
 }

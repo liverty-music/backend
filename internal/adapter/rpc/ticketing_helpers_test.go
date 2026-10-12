@@ -65,9 +65,9 @@ func signedInAs(sub string) func(context.Context) context.Context {
 
 // asOperator returns a decorator that signs the request in as an operator of
 // the given Zitadel tenant.
-func asOperator(zitadelOrgID string) func(context.Context) context.Context {
+func asOperator(providerOrganizerID string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return auth.WithCallerOrgID(auth.WithClaims(ctx, &auth.Claims{Sub: "op-sub"}), zitadelOrgID)
+		return auth.WithCallerOrgID(auth.WithClaims(ctx, &auth.Claims{Sub: "op-sub"}), providerOrganizerID)
 	}
 }
 
@@ -78,7 +78,7 @@ func fanCtx(sub string) context.Context {
 
 // expectFan makes the signed-in tkFanSub resolve to the stored tkFanUserID.
 func expectFan(users *ucmocks.MockUserUseCase) {
-	users.EXPECT().ResolveCaller(mock.Anything, tkFanSub).Return(&entity.User{ID: tkFanUserID, ExternalID: tkFanSub}, nil)
+	users.EXPECT().ResolveCaller(mock.Anything, tkFanSub).Return(&entity.User{ID: tkFanUserID, ProviderUserID: tkFanSub}, nil)
 }
 
 // expectNoAccount makes sub resolve to no stored account.

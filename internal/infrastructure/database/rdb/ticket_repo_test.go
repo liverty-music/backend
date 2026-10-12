@@ -122,6 +122,6 @@ func TestTicketRepository_ListByUserAndEvent(t *testing.T) {
 // setIssuedAt overwrites a ticket's issue time.
 func setIssuedAt(t *testing.T, id entity.TicketID, at time.Time) {
 	t.Helper()
-	_, err := testDB.Pool.Exec(context.Background(), `UPDATE tickets SET issued_at = $2 WHERE id = $1`, string(id), at)
+	_, err := testDB.Pool.Exec(context.Background(), `UPDATE tickets SET issue_at = $2 WHERE id = $1`, string(id), at)
 	require.NoError(t, err)
 }

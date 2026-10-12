@@ -70,12 +70,12 @@ func (_c *MockTicketJourneyUseCase_Delete_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// ListByUser provides a mock function with given fields: ctx, userID
-func (_m *MockTicketJourneyUseCase) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
+// List provides a mock function with given fields: ctx, userID
+func (_m *MockTicketJourneyUseCase) List(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
 	ret := _m.Called(ctx, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListByUser")
+		panic("no return value specified for List")
 	}
 
 	var r0 []*entity.TicketJourney
@@ -100,31 +100,31 @@ func (_m *MockTicketJourneyUseCase) ListByUser(ctx context.Context, userID strin
 	return r0, r1
 }
 
-// MockTicketJourneyUseCase_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
-type MockTicketJourneyUseCase_ListByUser_Call struct {
+// MockTicketJourneyUseCase_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockTicketJourneyUseCase_List_Call struct {
 	*mock.Call
 }
 
-// ListByUser is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
-func (_e *MockTicketJourneyUseCase_Expecter) ListByUser(ctx interface{}, userID interface{}) *MockTicketJourneyUseCase_ListByUser_Call {
-	return &MockTicketJourneyUseCase_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID)}
+func (_e *MockTicketJourneyUseCase_Expecter) List(ctx interface{}, userID interface{}) *MockTicketJourneyUseCase_List_Call {
+	return &MockTicketJourneyUseCase_List_Call{Call: _e.mock.On("List", ctx, userID)}
 }
 
-func (_c *MockTicketJourneyUseCase_ListByUser_Call) Run(run func(ctx context.Context, userID string)) *MockTicketJourneyUseCase_ListByUser_Call {
+func (_c *MockTicketJourneyUseCase_List_Call) Run(run func(ctx context.Context, userID string)) *MockTicketJourneyUseCase_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockTicketJourneyUseCase_ListByUser_Call) Return(_a0 []*entity.TicketJourney, _a1 error) *MockTicketJourneyUseCase_ListByUser_Call {
+func (_c *MockTicketJourneyUseCase_List_Call) Return(_a0 []*entity.TicketJourney, _a1 error) *MockTicketJourneyUseCase_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockTicketJourneyUseCase_ListByUser_Call) RunAndReturn(run func(context.Context, string) ([]*entity.TicketJourney, error)) *MockTicketJourneyUseCase_ListByUser_Call {
+func (_c *MockTicketJourneyUseCase_List_Call) RunAndReturn(run func(context.Context, string) ([]*entity.TicketJourney, error)) *MockTicketJourneyUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -22,13 +22,13 @@ func insertLotteryEntry(t *testing.T, ticketTypeID entity.TicketTypeID, userID e
 	e.State = state
 	var ref any
 	if state != entity.LotteryEntryStateDraft && state != entity.LotteryEntryStateWithdrawn {
-		e.Authorization.PaymentIntentRef = "pi_" + string(e.ID)
-		ref = e.Authorization.PaymentIntentRef
+		e.CardAuthorizationID = "pi_" + string(e.ID)
+		ref = e.CardAuthorizationID
 	}
 	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, string(e.ID), string(e.TicketTypeID), string(e.UserID), e.RequestedTicketCount, ref, int16(e.State))
+	`, string(e.ID), string(e.TicketTypeID), string(e.UserID), e.TicketCount, ref, int16(e.State))
 	require.NoError(t, err)
 	return e
 }
@@ -80,8 +80,8 @@ func TestLotteryEntryRepository_GetOrCreateDraft(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
-		assert.Equal(t, 2, got.RequestedTicketCount)
-		assert.False(t, got.HasAuthorization())
+		assert.Equal(t, 2, got.TicketCount)
+		assert.False(t, got.HasCardAuthorization())
 		assert.Nil(t, got.DrawPosition)
 		stored, err := repo.Get(ctx, got.ID)
 		require.NoError(t, err)
@@ -94,13 +94,13 @@ func TestLotteryEntryRepository_GetOrCreateDraft(t *testing.T) {
 		userID := newUserID()
 		first, err := repo.GetOrCreateDraft(ctx, tt.ID, userID, 2)
 		require.NoError(t, err)
-		require.NoError(t, repo.SetAuthorization(ctx, first.ID, "pi_reload"))
+		require.NoError(t, repo.SetCardAuthorization(ctx, first.ID, "pi_reload"))
 
 		got, err := repo.GetOrCreateDraft(ctx, tt.ID, userID, 2)
 
 		require.NoError(t, err)
 		assert.Equal(t, first.ID, got.ID)
-		assert.Equal(t, "pi_reload", got.Authorization.PaymentIntentRef, "the draft is unchanged")
+		assert.Equal(t, "pi_reload", got.CardAuthorizationID, "the draft is unchanged")
 		all, err := repo.ListByTicketTypeAndUser(ctx, tt.ID, userID)
 		require.NoError(t, err)
 		assert.Len(t, all, 1)
@@ -118,7 +118,7 @@ func TestLotteryEntryRepository_GetOrCreateDraft(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEqual(t, old.ID, got.ID)
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
-		assert.Equal(t, 3, got.RequestedTicketCount)
+		assert.Equal(t, 3, got.TicketCount)
 		withdrawn, err := repo.Get(ctx, old.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateWithdrawn, withdrawn.State)
@@ -201,7 +201,7 @@ func TestLotteryEntryRepository_GetOrCreateDraft(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_SetAuthorization(t *testing.T) {
+func TestLotteryEntryRepository_SetCardAuthorization(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -211,23 +211,47 @@ func TestLotteryEntryRepository_SetAuthorization(t *testing.T) {
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
 	t.Run("hold recorded", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Hold recorded"
+		// @spec components/entity/lottery-entry/set-card-authorization "Card authorization recorded"
 		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
 
-		require.NoError(t, repo.SetAuthorization(ctx, draft.ID, "pi_hold"))
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_hold"))
 
 		got, err := repo.Get(ctx, draft.ID)
 		require.NoError(t, err)
 		want := *draft
-		want.Authorization.PaymentIntentRef = "pi_hold"
+		want.CardAuthorizationID = "pi_hold"
 		assert.Equal(t, &want, got)
 	})
 
+	t.Run("same card authorization on retry", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/set-card-authorization "Same card authorization on retry"
+		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_retry"))
+
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_retry"))
+
+		got, err := repo.Get(ctx, draft.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "pi_retry", got.CardAuthorizationID)
+	})
+
+	t.Run("another card authorization", func(t *testing.T) {
+		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_first"))
+
+		err := repo.SetCardAuthorization(ctx, draft.ID, "pi_second")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		got, err := repo.Get(ctx, draft.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "pi_first", got.CardAuthorizationID, "nothing changes")
+	})
+
 	t.Run("not a draft", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Not a draft"
+		// @spec components/entity/lottery-entry/set-card-authorization "Not a draft"
 		entered := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 
-		err := repo.SetAuthorization(ctx, entered.ID, "pi_other")
+		err := repo.SetCardAuthorization(ctx, entered.ID, "pi_other")
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		got, err := repo.Get(ctx, entered.ID)
@@ -236,8 +260,8 @@ func TestLotteryEntryRepository_SetAuthorization(t *testing.T) {
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Unknown id"
-		err := repo.SetAuthorization(ctx, entity.LotteryEntryID(entity.NewID()), "pi_none")
+		// @spec components/entity/lottery-entry/set-card-authorization "Unknown id"
+		err := repo.SetCardAuthorization(ctx, entity.LotteryEntryID(entity.NewID()), "pi_none")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -272,7 +296,7 @@ func TestLotteryEntryRepository_Get(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_GetByPaymentIntentRef(t *testing.T) {
+func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -282,18 +306,18 @@ func TestLotteryEntryRepository_GetByPaymentIntentRef(t *testing.T) {
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
 	t.Run("charged win", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-by-payment-intent-ref "Charged win"
+		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Charged win"
 		won := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
 
-		got, err := repo.GetByPaymentIntentRef(ctx, won.Authorization.PaymentIntentRef)
+		got, err := repo.GetByCardAuthorizationID(ctx, won.CardAuthorizationID)
 
 		require.NoError(t, err)
 		assert.Equal(t, won, got)
 	})
 
 	t.Run("unknown authorization", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-by-payment-intent-ref "Unknown authorization"
-		_, err := repo.GetByPaymentIntentRef(ctx, "pi_unknown_"+entity.NewID())
+		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Unknown card authorization"
+		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -374,7 +398,7 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_GetTicketTypeStats(t *testing.T) {
+func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -383,42 +407,42 @@ func TestLotteryEntryRepository_GetTicketTypeStats(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("after the draw", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "After the draw"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "After the draw"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, tt.ID, newUserID(), 4, entity.LotteryEntryStateLost)
 
-		got, err := repo.GetTicketTypeStats(ctx, tt.ID)
+		got, err := repo.GetStatsByTicketType(ctx, tt.ID)
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.TicketTypeStats{
-			EntryCount: 3, RequestedTicketCount: 8, WonEntryCount: 2, WonTicketCount: 4, LostEntryCount: 1,
+		assert.Equal(t, entity.LotteryEntryStats{
+			EntryCount: 3, TicketCount: 8, WonEntryCount: 2, WonTicketCount: 4, LostEntryCount: 1,
 		}, got)
 	})
 
 	t.Run("withdrawn and draft entries excluded", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "Withdrawn and draft entries excluded"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "Withdrawn and draft entries excluded"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 		insertLotteryEntry(t, tt.ID, newUserID(), 3, entity.LotteryEntryStateDraft)
 		insertLotteryEntry(t, tt.ID, newUserID(), 4, entity.LotteryEntryStateWithdrawn)
 
-		got, err := repo.GetTicketTypeStats(ctx, tt.ID)
+		got, err := repo.GetStatsByTicketType(ctx, tt.ID)
 
 		require.NoError(t, err)
 		assert.Equal(t, 1, got.EntryCount)
-		assert.Equal(t, 2, got.RequestedTicketCount)
+		assert.Equal(t, 2, got.TicketCount)
 	})
 
 	t.Run("no entries", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "No entries"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "No entries"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
-		got, err := repo.GetTicketTypeStats(ctx, tt.ID)
+		got, err := repo.GetStatsByTicketType(ctx, tt.ID)
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.TicketTypeStats{}, got)
+		assert.Equal(t, entity.LotteryEntryStats{}, got)
 	})
 }
 
@@ -459,10 +483,10 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 		err := repo.PersistDrawOutcome(ctx, sale.ID,
 			[]entity.DrawWinnerRow{
-				{LotteryEntryID: winA.ID, PaymentIntentRef: winA.Authorization.PaymentIntentRef, DrawPosition: 1},
-				{LotteryEntryID: winB.ID, PaymentIntentRef: winB.Authorization.PaymentIntentRef, DrawPosition: 0},
+				{LotteryEntryID: winA.ID, CardAuthorizationID: winA.CardAuthorizationID, DrawPosition: 1},
+				{LotteryEntryID: winB.ID, CardAuthorizationID: winB.CardAuthorizationID, DrawPosition: 0},
 			},
-			[]entity.DrawLoserRow{{LotteryEntryID: loseA.ID, PaymentIntentRef: loseA.Authorization.PaymentIntentRef, DrawPosition: 0}},
+			[]entity.DrawLoserRow{{LotteryEntryID: loseA.ID, CardAuthorizationID: loseA.CardAuthorizationID, DrawPosition: 0}},
 			[]entity.LotteryEntryID{draftB.ID},
 		)
 
@@ -478,8 +502,8 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		assert.Nil(t, gotDraftB.DrawPosition)
 		s, err := sales.Get(ctx, sale.ID, saleWindowStart)
 		require.NoError(t, err)
-		require.NotNil(t, s.DrawnTime)
-		assert.WithinDuration(t, before, *s.DrawnTime, time.Minute)
+		require.NotNil(t, s.DrawTime)
+		assert.WithinDuration(t, before, *s.DrawTime, time.Minute)
 	})
 
 	t.Run("failure leaves nothing recorded", func(t *testing.T) {
@@ -493,8 +517,8 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		firstCome := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 4)
 
 		err := repo.PersistDrawOutcome(ctx, firstCome.TicketSaleID,
-			[]entity.DrawWinnerRow{{LotteryEntryID: winner.ID, PaymentIntentRef: winner.Authorization.PaymentIntentRef, DrawPosition: 0}},
-			[]entity.DrawLoserRow{{LotteryEntryID: loser.ID, PaymentIntentRef: loser.Authorization.PaymentIntentRef, DrawPosition: 1}},
+			[]entity.DrawWinnerRow{{LotteryEntryID: winner.ID, CardAuthorizationID: winner.CardAuthorizationID, DrawPosition: 0}},
+			[]entity.DrawLoserRow{{LotteryEntryID: loser.ID, CardAuthorizationID: loser.CardAuthorizationID, DrawPosition: 1}},
 			[]entity.LotteryEntryID{draft.ID},
 		)
 
@@ -511,7 +535,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		winner := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 
 		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()),
-			[]entity.DrawWinnerRow{{LotteryEntryID: winner.ID, PaymentIntentRef: winner.Authorization.PaymentIntentRef, DrawPosition: 0}},
+			[]entity.DrawWinnerRow{{LotteryEntryID: winner.ID, CardAuthorizationID: winner.CardAuthorizationID, DrawPosition: 0}},
 			nil, nil,
 		)
 

@@ -38,10 +38,10 @@ func connectCodeOf(err error) connect.Code {
 // ── test constants ────────────────────────────────────────────────────────────
 
 const (
-	testOrganizerID        = "org-entity-111"
-	testOrganizerName      = "Test Label"
-	testZitadelOrgID       = "zitadel-org-abc"
-	testForeignOrganizerID = "org-entity-999"
+	testOrganizerID         = "org-entity-111"
+	testOrganizerName       = "Test Label"
+	testProviderOrganizerID = "zitadel-org-abc"
+	testForeignOrganizerID  = "org-entity-999"
 )
 
 // ── context helpers ──────────────────────────────────────────────────────────
@@ -49,9 +49,9 @@ const (
 // orgCtx returns a context that simulates passing through both
 // ClaimsBridgeInterceptor and OrgScopedInterceptor: claims are set and the
 // caller's Zitadel org id is stored by WithCallerOrgID.
-func orgCtx(zitadelOrgID string) context.Context {
+func orgCtx(providerOrganizerID string) context.Context {
 	ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "op-sub"})
-	return auth.WithCallerOrgID(ctx, zitadelOrgID)
+	return auth.WithCallerOrgID(ctx, providerOrganizerID)
 }
 
 // noOrgCtx returns a context with claims but without the caller-org id —
@@ -64,10 +64,10 @@ func noOrgCtx() context.Context {
 
 func activeOrganizer() *entity.Organizer {
 	return &entity.Organizer{
-		ID:           testOrganizerID,
-		Name:         testOrganizerName,
-		ZitadelOrgID: testZitadelOrgID,
-		Status:       entity.OrganizerStatusActive,
+		ID:                  testOrganizerID,
+		Name:                testOrganizerName,
+		ProviderOrganizerID: testProviderOrganizerID,
+		Status:              entity.OrganizerStatusActive,
 	}
 }
 
@@ -92,9 +92,9 @@ func TestOrganizerHandler_Get(t *testing.T) {
 	}{
 		{
 			name: "return own organizer when status is active",
-			args: args{ctx: orgCtx(testZitadelOrgID)},
+			args: args{ctx: orgCtx(testProviderOrganizerID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testProviderOrganizerID).
 					Return(activeOrganizer(), nil).Once()
 			}},
 			wantOrg: true,
@@ -105,9 +105,9 @@ func TestOrganizerHandler_Get(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/organizer "Deactivated Organizer"
 			name: "return FAILED_PRECONDITION when own organizer is deactivated",
-			args: args{ctx: orgCtx(testZitadelOrgID)},
+			args: args{ctx: orgCtx(testProviderOrganizerID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testProviderOrganizerID).
 					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")).Once()
 			}},
 			wantErr:  true,
@@ -116,9 +116,9 @@ func TestOrganizerHandler_Get(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/organizer "Tenant with no Organizer"
 			name: "return PERMISSION_DENIED when no organizer linked to zitadel org",
-			args: args{ctx: orgCtx(testZitadelOrgID)},
+			args: args{ctx: orgCtx(testProviderOrganizerID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testProviderOrganizerID).
 					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,
@@ -127,9 +127,9 @@ func TestOrganizerHandler_Get(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/organizer "Provisioning Organizer"
 			name: "return PERMISSION_DENIED when organizer is in provisioning status",
-			args: args{ctx: orgCtx(testZitadelOrgID)},
+			args: args{ctx: orgCtx(testProviderOrganizerID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testProviderOrganizerID).
 					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,

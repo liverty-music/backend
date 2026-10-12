@@ -29,7 +29,7 @@ func NewLotteryEntryRepository(db *Database) *LotteryEntryRepository {
 
 // lotteryEntryColumns selects a lottery_entries row.
 const lotteryEntryColumns = `
-	id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state, draw_position
+	id, ticket_type_id, user_id, ticket_count, card_authorization_id, state, draw_position
 `
 
 // getOrCreateDraftAttempts bounds the read-insert loop of GetOrCreateDraft. A
@@ -49,20 +49,23 @@ const (
 	// the user for the ticket type exists; a concurrent insert of one makes
 	// it wait for that transaction and then insert nothing.
 	lotteryEntryInsertDraftQuery = `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, state)
 		VALUES ($1, $2, $3, $4, 5)
 		ON CONFLICT (ticket_type_id, user_id) WHERE state <> 4 DO NOTHING
 	`
-	lotteryEntryWithdrawDraftQuery    = `UPDATE lottery_entries SET state = 4 WHERE id = $1 AND state = 5`
-	lotteryEntrySetAuthorizationQuery = `
-		UPDATE lottery_entries SET payment_intent_ref = $2 WHERE id = $1 AND state = 5
+	lotteryEntryWithdrawDraftQuery = `UPDATE lottery_entries SET state = 4 WHERE id = $1 AND state = 5`
+	// lotteryEntrySetCardAuthorizationQuery records the card authorization on
+	// a Draft that has none or already has the same one (a retry).
+	lotteryEntrySetCardAuthorizationQuery = `
+		UPDATE lottery_entries SET card_authorization_id = $2
+		WHERE id = $1 AND state = 5 AND (card_authorization_id IS NULL OR card_authorization_id = $2)
 	`
 	lotteryEntryGetQuery = `SELECT ` + lotteryEntryColumns + ` FROM lottery_entries WHERE id = $1`
-	// lotteryEntryGetByPaymentIntentRefQuery takes the newest entry with the
+	// lotteryEntryGetByCardAuthorizationIDQuery takes the newest entry with the
 	// reference; one hold is recorded on one entry only.
-	lotteryEntryGetByPaymentIntentRefQuery = `
+	lotteryEntryGetByCardAuthorizationIDQuery = `
 		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
-		WHERE payment_intent_ref = $1
+		WHERE card_authorization_id = $1
 		ORDER BY id DESC
 		LIMIT 1
 	`
@@ -80,9 +83,9 @@ const (
 	lotteryEntryStatsQuery = `
 		SELECT
 			COUNT(*),
-			COALESCE(SUM(requested_ticket_count), 0),
+			COALESCE(SUM(ticket_count), 0),
 			COUNT(*) FILTER (WHERE state = 2),
-			COALESCE(SUM(requested_ticket_count) FILTER (WHERE state = 2), 0),
+			COALESCE(SUM(ticket_count) FILTER (WHERE state = 2), 0),
 			COUNT(*) FILTER (WHERE state = 3)
 		FROM lottery_entries
 		WHERE ticket_type_id = $1 AND state IN (1, 2, 3)
@@ -105,7 +108,7 @@ const (
 	// ticketSaleStampDrawnQuery marks the sale drawn, the last write of the
 	// draw's transaction; chk_ticket_sales_drawn_lottery_only rejects a
 	// FirstCome sale.
-	ticketSaleStampDrawnQuery = `UPDATE ticket_sales SET drawn_at = $2 WHERE id = $1`
+	ticketSaleStampDrawnQuery = `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`
 )
 
 // GetOrCreateDraft returns the user's Draft with the same count, replaces a
@@ -132,7 +135,7 @@ func (r *LotteryEntryRepository) GetOrCreateDraft(ctx context.Context, ticketTyp
 				return nil, apperr.New(codes.AlreadyExists, "the user has already entered for the ticket type",
 					append(attrs, slog.String("lottery_entry_id", string(existing.ID)))...)
 			}
-			if existing.RequestedTicketCount == count {
+			if existing.TicketCount == count {
 				if err := tx.Commit(ctx); err != nil {
 					return nil, toAppErr(err, "failed to commit lottery entry start", attrs...)
 				}
@@ -145,7 +148,7 @@ func (r *LotteryEntryRepository) GetOrCreateDraft(ctx context.Context, ticketTyp
 
 		entry := entity.NewLotteryEntry(ticketTypeID, userID, count)
 		tag, err := tx.Exec(ctx, lotteryEntryInsertDraftQuery,
-			string(entry.ID), string(entry.TicketTypeID), string(entry.UserID), entry.RequestedTicketCount)
+			string(entry.ID), string(entry.TicketTypeID), string(entry.UserID), entry.TicketCount)
 		if err != nil {
 			return nil, toAppErr(err, "failed to insert lottery entry draft", attrs...)
 		}
@@ -166,10 +169,10 @@ func (r *LotteryEntryRepository) GetOrCreateDraft(ctx context.Context, ticketTyp
 	return nil, apperr.New(codes.Aborted, "concurrent lottery entry starts did not settle", attrs...)
 }
 
-// SetAuthorization records the card hold on a Draft.
-func (r *LotteryEntryRepository) SetAuthorization(ctx context.Context, id entity.LotteryEntryID, paymentIntentRef string) error {
+// SetCardAuthorization records the card hold on a Draft.
+func (r *LotteryEntryRepository) SetCardAuthorization(ctx context.Context, id entity.LotteryEntryID, cardAuthorizationID string) error {
 	attrs := []slog.Attr{slog.String("lottery_entry_id", string(id))}
-	tag, err := r.db.Pool.Exec(ctx, lotteryEntrySetAuthorizationQuery, string(id), paymentIntentRef)
+	tag, err := r.db.Pool.Exec(ctx, lotteryEntrySetCardAuthorizationQuery, string(id), cardAuthorizationID)
 	if err != nil {
 		return toAppErr(err, "failed to set lottery entry authorization", attrs...)
 	}
@@ -179,7 +182,7 @@ func (r *LotteryEntryRepository) SetAuthorization(ctx context.Context, id entity
 	if _, err := r.Get(ctx, id); err != nil {
 		return err
 	}
-	return apperr.New(codes.FailedPrecondition, "lottery entry is not a draft", attrs...)
+	return apperr.New(codes.FailedPrecondition, "lottery entry is not a draft or has another card authorization", attrs...)
 }
 
 // Get returns the entry by its ID, in any state.
@@ -191,12 +194,12 @@ func (r *LotteryEntryRepository) Get(ctx context.Context, id entity.LotteryEntry
 	return entry, nil
 }
 
-// GetByPaymentIntentRef returns the entry whose card hold has the reference.
-func (r *LotteryEntryRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.LotteryEntry, error) {
-	entry, err := scanLotteryEntry(r.db.Pool.QueryRow(ctx, lotteryEntryGetByPaymentIntentRefQuery, paymentIntentRef))
+// GetByCardAuthorizationID returns the entry whose card hold has the reference.
+func (r *LotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.LotteryEntry, error) {
+	entry, err := scanLotteryEntry(r.db.Pool.QueryRow(ctx, lotteryEntryGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get lottery entry by payment intent",
-			slog.String("payment_intent_ref", paymentIntentRef))
+			slog.String("card_authorization_id", cardAuthorizationID))
 	}
 	return entry, nil
 }
@@ -223,13 +226,13 @@ func (r *LotteryEntryRepository) ListUndrawnForTicketType(ctx context.Context, t
 	return entries, nil
 }
 
-// GetTicketTypeStats tallies the ticket type's Entered, Won and Lost entries.
-func (r *LotteryEntryRepository) GetTicketTypeStats(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.TicketTypeStats, error) {
-	var s entity.TicketTypeStats
+// GetStatsByTicketType tallies the ticket type's Entered, Won and Lost entries.
+func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.LotteryEntryStats, error) {
+	var s entity.LotteryEntryStats
 	if err := r.db.Pool.QueryRow(ctx, lotteryEntryStatsQuery, string(ticketTypeID)).Scan(
-		&s.EntryCount, &s.RequestedTicketCount, &s.WonEntryCount, &s.WonTicketCount, &s.LostEntryCount,
+		&s.EntryCount, &s.TicketCount, &s.WonEntryCount, &s.WonTicketCount, &s.LostEntryCount,
 	); err != nil {
-		return entity.TicketTypeStats{}, toAppErr(err, "failed to get ticket type stats",
+		return entity.LotteryEntryStats{}, toAppErr(err, "failed to get ticket type stats",
 			slog.String("ticket_type_id", string(ticketTypeID)))
 	}
 	return s, nil
@@ -345,25 +348,25 @@ func (r *LotteryEntryRepository) list(ctx context.Context, query string, args ..
 }
 
 // scanLotteryEntry maps one row selected with lotteryEntryColumns.
-// payment_intent_ref is NULL on a Draft without a hold, and draw_position is
+// card_authorization_id is NULL on a Draft without a card authorization, and draw_position is
 // NULL until the draw.
 func scanLotteryEntry(row pgx.Row) (*entity.LotteryEntry, error) {
 	var (
 		e                        entity.LotteryEntry
 		id, ticketTypeID, userID string
-		paymentIntentRef         sql.NullString
+		cardAuthorizationID      sql.NullString
 		state                    int16
 		drawPosition             sql.NullInt64
 	)
-	if err := row.Scan(&id, &ticketTypeID, &userID, &e.RequestedTicketCount, &paymentIntentRef, &state, &drawPosition); err != nil {
+	if err := row.Scan(&id, &ticketTypeID, &userID, &e.TicketCount, &cardAuthorizationID, &state, &drawPosition); err != nil {
 		return nil, err
 	}
 	e.ID = entity.LotteryEntryID(id)
 	e.TicketTypeID = entity.TicketTypeID(ticketTypeID)
 	e.UserID = entity.UserID(userID)
 	e.State = entity.LotteryEntryState(state)
-	if paymentIntentRef.Valid {
-		e.Authorization.PaymentIntentRef = paymentIntentRef.String
+	if cardAuthorizationID.Valid {
+		e.CardAuthorizationID = cardAuthorizationID.String
 	}
 	if drawPosition.Valid {
 		position := int(drawPosition.Int64)

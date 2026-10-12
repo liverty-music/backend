@@ -17,9 +17,9 @@ import (
 type StripeEventType string
 
 const (
-	// StripeEventChargeRefunded fires when a Stripe Refund is applied against
+	// StripeEventProviderChargeIDunded fires when a Stripe Refund is applied against
 	// a Charge. Used to confirm refund-initiated state changes.
-	StripeEventChargeRefunded StripeEventType = "charge.refunded"
+	StripeEventProviderChargeIDunded StripeEventType = "charge.refunded"
 	// StripeEventChargeDisputeCreated fires when a chargeback is opened. The
 	// platform must respond and may need to reverse the Organizer's Transfer.
 	StripeEventChargeDisputeCreated StripeEventType = "charge.dispute.created"
@@ -37,8 +37,15 @@ const (
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 )
 
+// OrderRefunder refunds an Order under the refund policy. OrderUseCase
+// satisfies it. Interfaces are defined where consumed (AGENTS.md rule).
+type OrderRefunder interface {
+	// Refund applies the refund policy for the reason; see [OrderUseCase].
+	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
+}
+
 // PaymentFulfiller turns a completed charge into an issued, announced Order.
-// IssuanceUseCase satisfies it. Interfaces are defined where consumed
+// OrderUseCase satisfies it. Interfaces are defined where consumed
 // (AGENTS.md rule).
 type PaymentFulfiller interface {
 	// FulfillPayment issues, or finds, the Order of the charge's source and
@@ -56,16 +63,16 @@ type StripeWebhookEvent struct {
 	ProviderEventID string
 	// Type is the Stripe event type string.
 	Type StripeEventType
-	// ChargeRef is the affected Charge id ("ch_..."), populated for charge.*
+	// ProviderChargeID is the affected Charge id ("ch_..."), populated for charge.*
 	// events. May be empty for other event types.
-	ChargeRef string
-	// PaymentIntentRef is the PaymentIntent id ("pi_...") associated with the
+	ProviderChargeID string
+	// ProviderPaymentID is the PaymentIntent id ("pi_...") associated with the
 	// charge, if the handler could extract it from the event payload. The use
 	// case layer resolves this to an Order via OrderRepository. For
 	// charge.dispute.created Stripe embeds the payment_intent field on the
 	// Charge object inside the event data.
 	// May be empty when unavailable or for non-charge events.
-	PaymentIntentRef string
+	ProviderPaymentID string
 	// ReceivedAt is the UTC time the webhook was received (not Stripe's event
 	// created time). Used for audit.
 	ReceivedAt time.Time
@@ -98,10 +105,10 @@ type stripeWebhookService struct {
 	// were injected but never called — the handler early-returned because it
 	// relied on the HTTP handler to pre-resolve the OrderID (which it could
 	// not, since extracting the pi_ from the event data was not being passed
-	// through). Fixed: the HTTP handler now extracts ChargeRef+PaymentIntentRef;
-	// this service calls GetByPaymentIntentRef.
+	// through). Fixed: the HTTP handler now extracts ProviderChargeID+ProviderPaymentID;
+	// this service calls GetByProviderPaymentID.
 	orderRepo entity.OrderRepository
-	refundUC  RefundOrderUseCase
+	refunder  OrderRefunder
 	fulfiller PaymentFulfiller
 	logger    *logging.Logger
 }
@@ -114,14 +121,14 @@ var _ StripeWebhookService = (*stripeWebhookService)(nil)
 func NewStripeWebhookService(
 	processedRepo ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
-	refundUC RefundOrderUseCase,
+	refunder OrderRefunder,
 	fulfiller PaymentFulfiller,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
 		processedRepo: processedRepo,
 		orderRepo:     orderRepo,
-		refundUC:      refundUC,
+		refunder:      refunder,
 		fulfiller:     fulfiller,
 		logger:        logger,
 	}
@@ -177,12 +184,12 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 		return s.handleDisputeCreated(ctx, event)
 	case StripeEventPaymentIntentSucceeded:
 		return s.handlePaymentIntentSucceeded(ctx, event)
-	case StripeEventChargeRefunded:
+	case StripeEventProviderChargeIDunded:
 		// A refund that we initiated via RefundOrder is already applied by the
 		// use case. This event confirms it at the Stripe level; informational.
 		s.logger.Info(ctx, "stripe webhook: charge.refunded event received (informational; refund already applied)",
 			slog.String("event_id", event.ProviderEventID),
-			slog.String("charge_ref", event.ChargeRef),
+			slog.String("provider_charge_id", event.ProviderChargeID),
 		)
 		return nil
 	case StripeEventTransferReversed, StripeEventPayoutPaid, StripeEventPayoutFailed:
@@ -210,15 +217,15 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 // is returned as Internal so the event is not marked processed and Stripe
 // delivers it again.
 func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context, event StripeWebhookEvent) error {
-	if event.PaymentIntentRef == "" {
+	if event.ProviderPaymentID == "" {
 		s.logger.Warn(ctx, "stripe webhook: payment_intent.succeeded without a PaymentIntent id; skipped",
 			slog.String("event_id", event.ProviderEventID))
 		return nil
 	}
-	if err := s.fulfiller.FulfillPayment(ctx, event.PaymentIntentRef); err != nil {
+	if err := s.fulfiller.FulfillPayment(ctx, event.ProviderPaymentID); err != nil {
 		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to fulfill the completed charge",
 			slog.String("event_id", event.ProviderEventID),
-			slog.String("payment_intent_ref", event.PaymentIntentRef))
+			slog.String("provider_payment_id", event.ProviderPaymentID))
 	}
 	return nil
 }
@@ -228,7 +235,7 @@ func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context,
 //
 // Order resolution: the HTTP handler extracts the charge ref and the
 // payment_intent id from the dispute event data. This method uses the pi_ to
-// resolve the Order via OrderRepository.GetByPaymentIntentRef. Previously this
+// resolve the Order via OrderRepository.GetByProviderPaymentID. Previously this
 // path was dead because the HTTP handler was not extracting the pi_ and
 // the service was checking a pre-set OrderID field that was always empty.
 //
@@ -243,12 +250,12 @@ func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context,
 //	the Organizer's share. The reserve itself is a Stripe account-level setting
 //	(cloud-provisioning task 5.1) — no code action required here.
 func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event StripeWebhookEvent) error {
-	if event.PaymentIntentRef == "" {
+	if event.ProviderPaymentID == "" {
 		// No pi_ in the event data — cannot resolve the Order. Log a warning
 		// and accept the event (no retry). Admin must handle manually.
-		s.logger.Warn(ctx, "stripe webhook: dispute.created with no PaymentIntentRef; manual review required",
+		s.logger.Warn(ctx, "stripe webhook: dispute.created with no provider payment ID; manual review required",
 			slog.String("event_id", event.ProviderEventID),
-			slog.String("charge_ref", event.ChargeRef),
+			slog.String("provider_charge_id", event.ProviderChargeID),
 		)
 		return nil
 	}
@@ -256,25 +263,25 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	// Resolve the Order from the payment_intent ref. This is the real
 	// production resolution path — the HTTP handler can extract pi_ from the
 	// charge event data; the use case resolves it to an Order via the repo.
-	order, err := s.orderRepo.GetByPaymentIntentRef(ctx, event.PaymentIntentRef)
+	order, err := s.orderRepo.GetByProviderPaymentID(ctx, event.ProviderPaymentID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Possibly a test event or a charge not issued by our platform.
 			// Accept without retry; admin must handle manually.
 			s.logger.Warn(ctx, "stripe webhook: dispute.created for unknown payment intent; manual review required",
 				slog.String("event_id", event.ProviderEventID),
-				slog.String("payment_intent_ref", event.PaymentIntentRef),
-				slog.String("charge_ref", event.ChargeRef),
+				slog.String("provider_payment_id", event.ProviderPaymentID),
+				slog.String("provider_charge_id", event.ProviderChargeID),
 			)
 			return nil
 		}
 		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to resolve order for dispute")
 	}
 
-	// Delegate to RefundOrderUseCase with reason=DISPUTE. Idempotent: if the
+	// Delegate to OrderUseCase.Refund with reason=DISPUTE. Idempotent: if the
 	// Order is already Refunded (e.g. admin ran RefundOrder before the webhook
 	// arrived) the call is a no-op that returns the existing order.
-	if _, err := s.refundUC.RefundOrder(ctx, order.ID, RefundReasonDispute, event.ReceivedAt); err != nil {
+	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute, event.ReceivedAt); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Order disappeared between resolution and refund; very unlikely —
 			// accept without retry.
@@ -290,8 +297,8 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	s.logger.Info(ctx, "stripe webhook: dispute refund executed",
 		slog.String("event_id", event.ProviderEventID),
 		slog.String("order_id", string(order.ID)),
-		slog.String("charge_ref", event.ChargeRef),
-		slog.String("payment_intent_ref", event.PaymentIntentRef),
+		slog.String("provider_charge_id", event.ProviderChargeID),
+		slog.String("provider_payment_id", event.ProviderPaymentID),
 	)
 	return nil
 }

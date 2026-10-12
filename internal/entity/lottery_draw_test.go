@@ -14,7 +14,7 @@ import (
 // assertDrawIntegrity checks the structural invariants that must hold for ANY
 // draw result regardless of the shuffle: (1) partition — every input entry
 // appears exactly once across winners + waitlist; (2) draw position values form
-// a permutation of 0..n-1; (3) each winner's RequestedTicketCount is preserved
+// a permutation of 0..n-1; (3) each winner's TicketCount is preserved
 // (all-or-nothing, no mutation); (4) no winner has a non-positive count. It is
 // applied to every table case so a DrawPosition/count/partition regression
 // cannot hide behind an ID-only ElementsMatch assertion.
@@ -23,7 +23,7 @@ func assertDrawIntegrity(t *testing.T, input []entity.DrawEntry, result entity.D
 
 	countByID := make(map[entity.LotteryEntryID]int, len(input))
 	for _, a := range input {
-		countByID[a.ID] = a.RequestedTicketCount
+		countByID[a.ID] = a.TicketCount
 	}
 
 	seen := make(map[entity.LotteryEntryID]int, len(input))
@@ -31,9 +31,9 @@ func assertDrawIntegrity(t *testing.T, input []entity.DrawEntry, result entity.D
 	for _, w := range result.Winners {
 		seen[w.Entry.ID]++
 		seqs = append(seqs, w.DrawPosition)
-		assert.Equalf(t, countByID[w.Entry.ID], w.Entry.RequestedTicketCount,
-			"winner %q: RequestedTicketCount must be preserved (all-or-nothing)", w.Entry.ID)
-		assert.Positivef(t, w.Entry.RequestedTicketCount,
+		assert.Equalf(t, countByID[w.Entry.ID], w.Entry.TicketCount,
+			"winner %q: TicketCount must be preserved (all-or-nothing)", w.Entry.ID)
+		assert.Positivef(t, w.Entry.TicketCount,
 			"winner %q: a non-positive request must never be admitted", w.Entry.ID)
 	}
 	for _, l := range result.Waitlist {
@@ -60,15 +60,15 @@ func assertDrawIntegrity(t *testing.T, input []entity.DrawEntry, result entity.D
 }
 
 // uniqueDrawEntries builds n entries with distinct IDs (entry-0..entry-n-1) and the
-// per-entry RequestedTicketCount produced by count(i). Distinct IDs are
+// per-entry TicketCount produced by count(i). Distinct IDs are
 // required so partition and per-entry properties are actually checkable at
 // scale (a shared ID makes drops/duplicates invisible).
 func uniqueDrawEntries(n int, count func(i int) int) []entity.DrawEntry {
 	entries := make([]entity.DrawEntry, n)
 	for i := range entries {
 		entries[i] = entity.DrawEntry{
-			ID:                   entity.LotteryEntryID(fmt.Sprintf("entry-%d", i)),
-			RequestedTicketCount: count(i),
+			ID:          entity.LotteryEntryID(fmt.Sprintf("entry-%d", i)),
+			TicketCount: count(i),
 		}
 	}
 	return entries
@@ -90,8 +90,8 @@ func drawEntries(pairs ...any) []entity.DrawEntry {
 	entries := make([]entity.DrawEntry, 0, len(pairs)/2)
 	for i := 0; i < len(pairs); i += 2 {
 		entries = append(entries, entity.DrawEntry{
-			ID:                   entity.LotteryEntryID(pairs[i].(string)),
-			RequestedTicketCount: pairs[i+1].(int),
+			ID:          entity.LotteryEntryID(pairs[i].(string)),
+			TicketCount: pairs[i+1].(int),
 		})
 	}
 	return entries
@@ -165,7 +165,7 @@ func TestRunLotteryDraw(t *testing.T) {
 			wantWinnerIDs: []string{"app-1", "app-2", "app-3"},
 			wantLoserIDs:  []string{},
 		},
-		// @spec components/entity/lottery-entry/run-lottery-draw "Demand at or below capacity"
+		// @spec components/entity/lottery-entry/run-lottery-draw "Demand at or below quantity"
 		{
 			name: "all entries win when total demand is below capacity",
 			args: args{
@@ -270,7 +270,7 @@ func TestRunLotteryDraw(t *testing.T) {
 func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/lottery-entry/run-lottery-draw "Demand above capacity"
+	// @spec components/entity/lottery-entry/run-lottery-draw "Demand above quantity"
 
 	const (
 		trials      = 500
@@ -293,7 +293,7 @@ func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 
 		totalWon := 0
 		for _, w := range result.Winners {
-			totalWon += w.Entry.RequestedTicketCount
+			totalWon += w.Entry.TicketCount
 		}
 		assert.LessOrEqualf(t, totalWon, capacity,
 			"trial %d: oversell: total won tickets (%d) > capacity (%d)",
@@ -325,14 +325,14 @@ func TestRunLotteryDraw_AllOrNothing(t *testing.T) {
 	// Build a map of id → requested count for fast lookup.
 	countByID := make(map[entity.LotteryEntryID]int, len(entries))
 	for _, a := range entries {
-		countByID[a.ID] = a.RequestedTicketCount
+		countByID[a.ID] = a.TicketCount
 	}
 
 	for _, w := range result.Winners {
 		expected := countByID[w.Entry.ID]
-		assert.Equalf(t, expected, w.Entry.RequestedTicketCount,
-			"winner %q: RequestedTicketCount mutated (want %d got %d)",
-			w.Entry.ID, expected, w.Entry.RequestedTicketCount)
+		assert.Equalf(t, expected, w.Entry.TicketCount,
+			"winner %q: TicketCount mutated (want %d got %d)",
+			w.Entry.ID, expected, w.Entry.TicketCount)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestRunLotteryDraw_PartitionProperty(t *testing.T) {
 func TestRunLotteryDraw_WaitlistOrder(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/lottery-entry/run-lottery-draw "Waitlist order"
+	// @spec components/entity/lottery-entry/run-lottery-draw "Order of the losers"
 
 	// Use a capacity small enough that several entries must lose, so we can check
 	// ordering on a non-trivial waitlist.
@@ -529,7 +529,7 @@ func TestRunLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
 		// Confirm no oversell.
 		totalWon := 0
 		for _, w := range result.Winners {
-			totalWon += w.Entry.RequestedTicketCount
+			totalWon += w.Entry.TicketCount
 		}
 		assert.LessOrEqual(t, totalWon, capacity,
 			"seed %d: total won tickets must not exceed capacity", seed)
@@ -577,7 +577,7 @@ func TestRunLotteryDraw_GreedyFitThreeApps(t *testing.T) {
 		// No oversell.
 		totalWon := 0
 		for _, w := range result.Winners {
-			totalWon += w.Entry.RequestedTicketCount
+			totalWon += w.Entry.TicketCount
 		}
 		assert.LessOrEqualf(t, totalWon, capacity,
 			"seed %d: total won (%d) must not exceed capacity (%d)", seed, totalWon, capacity)
@@ -635,7 +635,7 @@ func TestRunLotteryDraw_UniformFairness(t *testing.T) {
 }
 
 // TestRunLotteryDraw_InvalidInputsAreSafe pins the defensive contract for
-// malformed input: a non-positive RequestedTicketCount is never admitted (so a
+// malformed input: a non-positive TicketCount is never admitted (so a
 // zero cannot occupy a 0-ticket winner slot and a negative cannot inflate
 // remaining capacity into an oversell), and a non-positive capacity admits no
 // one. These drive the guard in RunLotteryDraw; without it a negative count
@@ -682,9 +682,9 @@ func TestRunLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
 			// Every winner has a positive count (no zero/negative winners).
 			totalWon := 0
 			for _, w := range result.Winners {
-				assert.Positivef(t, w.Entry.RequestedTicketCount,
+				assert.Positivef(t, w.Entry.TicketCount,
 					"winner %q must have a positive count", w.Entry.ID)
-				totalWon += w.Entry.RequestedTicketCount
+				totalWon += w.Entry.TicketCount
 			}
 
 			// No oversell even against invalid capacity (floor at 0).

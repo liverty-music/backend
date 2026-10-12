@@ -21,30 +21,27 @@ var _ organizerseriesv1connect.SeriesServiceHandler = (*OrganizerSeriesHandler)(
 // OrganizerSeriesHandler implements the organizer-facing SeriesService Connect
 // interface. Org-scoped authorization is enforced structurally by the
 // OrgScopedInterceptor before this handler runs; this handler only resolves the
-// caller's organizer, enforces ownership, and delegates to the authoring or
-// media use case. No business logic lives here.
+// caller's organizer, enforces ownership, and delegates to the Series use case.
+// No business logic lives here.
 type OrganizerSeriesHandler struct {
-	authoringUC     usecase.ConcertAuthoringUseCase
-	organizerUC     usecase.OrganizerUseCase
-	mediaUC         usecase.MediaUseCase
-	mediaURLBuilder *mapper.MediaURLBuilder
-	logger          *logging.Logger
+	seriesUC              usecase.SeriesUseCase
+	organizerUC           usecase.OrganizerUseCase
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	logger                *logging.Logger
 }
 
 // NewOrganizerSeriesHandler creates a new OrganizerSeriesHandler.
 func NewOrganizerSeriesHandler(
-	authoringUC usecase.ConcertAuthoringUseCase,
+	seriesUC usecase.SeriesUseCase,
 	organizerUC usecase.OrganizerUseCase,
-	mediaUC usecase.MediaUseCase,
-	mediaURLBuilder *mapper.MediaURLBuilder,
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *OrganizerSeriesHandler {
 	return &OrganizerSeriesHandler{
-		authoringUC:     authoringUC,
-		organizerUC:     organizerUC,
-		mediaUC:         mediaUC,
-		mediaURLBuilder: mediaURLBuilder,
-		logger:          logger,
+		seriesUC:              seriesUC,
+		organizerUC:           organizerUC,
+		seriesImageURLBuilder: seriesImageURLBuilder,
+		logger:                logger,
 	}
 }
 
@@ -120,14 +117,14 @@ func (h *OrganizerSeriesHandler) Create(
 	}
 
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.authoringUC.CreateDraft(ctx, organizer.ID, s, eventInputs, artistIDs)
+	series, events, artists, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.CreateResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -145,14 +142,14 @@ func (h *OrganizerSeriesHandler) Update(
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.authoringUC.UpdateDraft(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
+	series, events, artists, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.UpdateResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -169,14 +166,14 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
-	series, events, artists, err := h.authoringUC.Publish(ctx, organizer.ID, seriesID)
+	series, events, artists, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID)
 	if err != nil {
 		return nil, err
 	}
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.PublishResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -192,57 +189,33 @@ func (h *OrganizerSeriesHandler) Cancel(
 		return nil, err
 	}
 
-	if err := h.authoringUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue()); err != nil {
+	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue()); err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&organizerseriesv1.CancelResponse{}), nil
 }
 
-// CreateMediaUploadUrl mints a signed GCS PUT URL for a direct-to-storage upload.
-func (h *OrganizerSeriesHandler) CreateMediaUploadUrl(
-	ctx context.Context,
-	req *connect.Request[organizerseriesv1.CreateMediaUploadUrlRequest],
-) (*connect.Response[organizerseriesv1.CreateMediaUploadUrlResponse], error) {
-	organizer, err := h.resolveCallerOrganizer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	out, err := h.mediaUC.CreateMediaUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
-		ContentType: req.Msg.GetContentType(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&organizerseriesv1.CreateMediaUploadUrlResponse{
-		UploadUrl: &entityv1.Url{Value: out.UploadURL},
-		MediaId:   &entityv1.MediaId{Value: out.MediaID},
-		MaxBytes:  out.MaxBytes,
-	}), nil
-}
-
-// AttachMedia records an uploaded media object as belonging to a series and
+// SetCoverImage records an uploaded Series image as the series' cover and
 // publishes MEDIA.uploaded so the processor generates variants.
-func (h *OrganizerSeriesHandler) AttachMedia(
+func (h *OrganizerSeriesHandler) SetCoverImage(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.AttachMediaRequest],
-) (*connect.Response[organizerseriesv1.AttachMediaResponse], error) {
+	req *connect.Request[organizerseriesv1.SetCoverImageRequest],
+) (*connect.Response[organizerseriesv1.SetCoverImageResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.mediaUC.AttachMedia(
+	if err := h.seriesUC.SetCoverImage(
 		ctx, organizer.ID,
 		req.Msg.GetSeriesId().GetValue(),
-		req.Msg.GetMediaId().GetValue(),
+		req.Msg.GetSeriesImageId().GetValue(),
 	); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.AttachMediaResponse{}), nil
+	return connect.NewResponse(&organizerseriesv1.SetCoverImageResponse{}), nil
 }
 
 // RegenerateShareUrl issues a fresh share token for an UNLISTED series; the
@@ -256,7 +229,7 @@ func (h *OrganizerSeriesHandler) RegenerateShareUrl(
 		return nil, err
 	}
 
-	token, err := h.authoringUC.RegenerateToken(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue())
+	token, err := h.seriesUC.RegenerateShareURL(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +253,7 @@ func (h *OrganizerSeriesHandler) List(
 		return nil, err
 	}
 
-	allSeries, allEvents, allArtists, err := h.authoringUC.ListOwn(ctx, organizer.ID)
+	allSeries, allEvents, allArtists, err := h.seriesUC.List(ctx, organizer.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +269,7 @@ func (h *OrganizerSeriesHandler) List(
 		if allArtists[i] != nil {
 			arts = *allArtists[i]
 		}
-		series = append(series, h.mediaURLBuilder.SeriesToProto(s))
+		series = append(series, h.seriesImageURLBuilder.SeriesToProto(s))
 		concerts = append(concerts, mapper.AuthoredConcerts(s, evs, arts)...)
 	}
 
@@ -304,26 +277,5 @@ func (h *OrganizerSeriesHandler) List(
 		Series:   series,
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
-}
-
-// SearchVenues looks up a venue name in the map catalog for the caller's own
-// active Organizer and returns the candidate places.
-func (h *OrganizerSeriesHandler) SearchVenues(
-	ctx context.Context,
-	req *connect.Request[organizerseriesv1.SearchVenuesRequest],
-) (*connect.Response[organizerseriesv1.SearchVenuesResponse], error) {
-	organizer, err := h.resolveCallerOrganizer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	candidates, err := h.authoringUC.SearchPlaces(ctx, organizer.ID, req.Msg.GetText())
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&organizerseriesv1.SearchVenuesResponse{
-		Candidates: mapper.VenueCandidatesToProto(candidates),
 	}), nil
 }

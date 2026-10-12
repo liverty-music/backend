@@ -31,7 +31,7 @@ type rowQuerier interface {
 // ticketSaleColumns selects a ticket_sales row (aliased ts).
 const ticketSaleColumns = `
 	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_at, ts.sale_end_at,
-	ts.verification_requirement, ts.drawn_at
+	ts.verification_requirement, ts.draw_at
 `
 
 const (
@@ -55,7 +55,7 @@ const (
 	`
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.drawn_at IS NULL
+		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.draw_at IS NULL
 		ORDER BY ts.sale_end_at, ts.id
 	`
 	ticketSaleOfTicketTypeQuery = `
@@ -77,7 +77,7 @@ const (
 	ticketSaleSetWindowQuery = `
 		UPDATE ticket_sales SET sale_start_at = $2, sale_end_at = $3 WHERE id = $1
 	`
-	ticketSaleUpdateVerificationRequirementQuery = `
+	ticketSaleSetVerificationRequirementQuery = `
 		UPDATE ticket_sales SET verification_requirement = $2 WHERE id = $1
 	`
 	// ticketTypeLockQuery takes the ticket type's row lock, which Starts and
@@ -123,7 +123,7 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 		return nil, toAppErr(err, "failed to insert ticket sale", attrs...)
 	}
 	created := *sale
-	created.DrawnTime = nil
+	created.DrawTime = nil
 	created.TicketTypes = make([]*entity.TicketType, 0, len(sale.TicketTypes))
 	for _, tt := range sale.TicketTypes {
 		if _, err := tx.Exec(ctx, ticketTypeInsertQuery,
@@ -200,13 +200,13 @@ func (r *TicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSa
 	return r.Get(ctx, id, at)
 }
 
-// UpdateVerificationRequirement sets the sale's verification requirement.
-func (r *TicketSaleRepository) UpdateVerificationRequirement(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time) (*entity.TicketSale, error) {
+// SetVerificationRequirement sets the sale's verification requirement.
+func (r *TicketSaleRepository) SetVerificationRequirement(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time) (*entity.TicketSale, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "ticket sale ID must not be empty")
 	}
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(id))}
-	tag, err := r.db.Pool.Exec(ctx, ticketSaleUpdateVerificationRequirementQuery, string(id), int16(req))
+	tag, err := r.db.Pool.Exec(ctx, ticketSaleSetVerificationRequirementQuery, string(id), int16(req))
 	if err != nil {
 		return nil, toAppErr(err, "failed to update ticket sale verification requirement", attrs...)
 	}
@@ -388,7 +388,7 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	s.VerificationRequirement = entity.VerificationRequirement(verifReq)
 	if drawnAt.Valid {
 		drawn := drawnAt.Time
-		s.DrawnTime = &drawn
+		s.DrawTime = &drawn
 	}
 	return &s, nil
 }

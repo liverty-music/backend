@@ -58,19 +58,19 @@ func TestTicketRepository_Admit(t *testing.T) {
 		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
 		require.NoError(t, err)
 		assert.Equal(t, entity.AdmitOutcomeAdmitted, got.Outcome)
-		assert.True(t, got.AdmittedTime.Equal(nov20(18, 32)))
+		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		require.NotNil(t, tickets[0].AdmittedTime)
-		assert.True(t, tickets[0].AdmittedTime.Equal(nov20(18, 32)))
+		require.NotNil(t, tickets[0].AdmitTime)
+		assert.True(t, tickets[0].AdmitTime.Equal(nov20(18, 32)))
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
 		assert.Equal(t, link.ID, admission.ReceptionLinkID)
 		assert.Equal(t, 1, admission.ReceptionLinkNumber)
 		assert.Equal(t, eventID, admission.EventID)
-		assert.True(t, admission.AdmittedTime.Equal(nov20(18, 32)))
+		assert.True(t, admission.AdmitTime.Equal(nov20(18, 32)))
 	})
 
 	t.Run("second admission", func(t *testing.T) {
@@ -86,11 +86,11 @@ func TestTicketRepository_Admit(t *testing.T) {
 		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 40))
 		require.NoError(t, err)
 		assert.Equal(t, entity.AdmitOutcomeAlreadyAdmitted, got.Outcome)
-		assert.True(t, got.AdmittedTime.Equal(nov20(18, 32)))
+		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
-		assert.True(t, admission.AdmittedTime.Equal(nov20(18, 32)), "the admitted time stays 18:32")
+		assert.True(t, admission.AdmitTime.Equal(nov20(18, 32)), "the admitted time stays 18:32")
 	})
 
 	t.Run("concurrent admissions", func(t *testing.T) {
@@ -184,7 +184,7 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		assert.Nil(t, tickets[0].AdmittedTime, "nothing is admitted through a revoked link")
+		assert.Nil(t, tickets[0].AdmitTime, "nothing is admitted through a revoked link")
 	})
 
 	t.Run("voided after entry keeps the admitted time and the admission", func(t *testing.T) {
@@ -200,17 +200,18 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		require.NoError(t, repo.VoidByOrder(ctx, tickets[0].OrderID))
+		_, err = testDB.Pool.Exec(ctx, `UPDATE tickets SET status = $2 WHERE order_id = $1`, string(tickets[0].OrderID), int16(entity.TicketStatusVoided))
+		require.NoError(t, err)
 
 		tickets, err = repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.TicketStatusVoided, tickets[0].Status)
-		require.NotNil(t, tickets[0].AdmittedTime)
-		assert.True(t, tickets[0].AdmittedTime.Equal(nov20(18, 32)))
+		require.NotNil(t, tickets[0].AdmitTime)
+		assert.True(t, tickets[0].AdmitTime.Equal(nov20(18, 32)))
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
-		assert.True(t, admission.AdmittedTime.Equal(nov20(18, 32)))
+		assert.True(t, admission.AdmitTime.Equal(nov20(18, 32)))
 		assert.Equal(t, link.ID, admission.ReceptionLinkID)
 	})
 }
@@ -636,7 +637,7 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 
 		got, err := repo.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
-		assert.True(t, got.AdmittedTime.Equal(nov20(18, 32)))
+		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
 		assert.Equal(t, 1, got.ReceptionLinkNumber)
 	})
 

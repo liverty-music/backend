@@ -26,5 +26,5 @@ func (s *PlaceSearcher) SearchPlace(ctx context.Context, name, adminArea string)
 	if place.Latitude != nil && place.Longitude != nil {
 		coords = &entity.Coordinates{Latitude: *place.Latitude, Longitude: *place.Longitude}
 	}
-	return &entity.VenuePlace{ExternalID: place.ID, Name: place.Name, Coordinates: coords}, nil
+	return &entity.VenuePlace{ProviderUserID: place.ID, Name: place.Name, Coordinates: coords}, nil
 }

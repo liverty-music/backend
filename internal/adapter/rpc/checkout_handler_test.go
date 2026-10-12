@@ -23,7 +23,7 @@ import (
 // The usecase mocks fail the test on any call not expected.
 type checkoutFixture struct {
 	checkouts *ucmocks.MockCheckoutUseCase
-	issuance  *ucmocks.MockIssuanceUseCase
+	issuance  *ucmocks.MockOrderUseCase
 	users     *ucmocks.MockUserUseCase
 	client    checkoutv1connect.CheckoutServiceClient
 }
@@ -32,7 +32,7 @@ func newCheckoutFixture(t *testing.T, decorate func(context.Context) context.Con
 	t.Helper()
 	f := &checkoutFixture{
 		checkouts: ucmocks.NewMockCheckoutUseCase(t),
-		issuance:  ucmocks.NewMockIssuanceUseCase(t),
+		issuance:  ucmocks.NewMockOrderUseCase(t),
 		users:     ucmocks.NewMockUserUseCase(t),
 	}
 	logger, err := logging.New()
@@ -55,8 +55,8 @@ func TestCheckoutHandler(t *testing.T) {
 	startReq := func() *checkoutv1.StartRequest {
 		return &checkoutv1.StartRequest{TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID}, TicketCount: 2}
 	}
-	authorizeReq := func(phone string) *checkoutv1.AuthorizeRequest {
-		return &checkoutv1.AuthorizeRequest{
+	authorizeReq := func(phone string) *checkoutv1.AuthorizeCardRequest {
+		return &checkoutv1.AuthorizeCardRequest{
 			CheckoutId:  &entityv1.CheckoutId{Value: tkCheckoutID},
 			FullName:    &entityv1.FullName{Value: "山田太郎"},
 			PhoneNumber: &entityv1.PhoneNumber{Value: phone},
@@ -115,13 +115,13 @@ func TestCheckoutHandler(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.checkouts.EXPECT().Authorize(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID), "山田太郎", "+819012345678").
+		f.checkouts.EXPECT().AuthorizeCard(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
-		resp, err := f.client.Authorize(ctx, connect.NewRequest(authorizeReq("+819012345678")))
+		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))
 
 		require.NoError(t, err)
-		assert.Equal(t, "pi_secret", resp.Msg.GetClientSecret())
+		assert.Equal(t, "pi_secret", resp.Msg.GetCardAuthorizationSecret().GetValue())
 	})
 
 	t.Run("fan confirms", func(t *testing.T) {
@@ -151,7 +151,7 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := authorizeReq("+819012345678")
 				req.FullName = nil
-				_, err := c.Authorize(ctx, connect.NewRequest(req))
+				_, err := c.AuthorizeCard(ctx, connect.NewRequest(req))
 				return err
 			},
 		},
@@ -169,7 +169,7 @@ func TestCheckoutHandler(t *testing.T) {
 			// @spec components/adapter/fan/api/rpc/checkout "Domestic-format phone number"
 			name: "domestic-format phone number",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
-				_, err := c.Authorize(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
+				_, err := c.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
 				return err
 			},
 		},

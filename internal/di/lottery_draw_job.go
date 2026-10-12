@@ -15,14 +15,14 @@ const lotteryDrawInterval = 1 * time.Minute
 
 // startLotteryDrawSweeper launches a background goroutine that periodically
 // draws every Lottery sale whose window has closed and that is not drawn
-// (LotteryUseCase.DrawDueSales). A failed sale is logged and skipped so it
+// (LotteryEntryUseCase.DrawDueSales). A failed sale is logged and skipped so it
 // never blocks the rest of the sweep.
 //
 // The sweep stops when ctx is canceled (the shutdown signal). No separate
 // drain phase is needed because the draw is idempotent: if a sweep is
-// interrupted mid-draw, the sale's drawn_at remains NULL and the next tick
+// interrupted mid-draw, the sale's draw_at remains NULL and the next tick
 // retries the full draw safely.
-func startLotteryDrawSweeper(ctx context.Context, uc usecase.LotteryUseCase, logger *logging.Logger) {
+func startLotteryDrawSweeper(ctx context.Context, uc usecase.LotteryEntryUseCase, logger *logging.Logger) {
 	go func() {
 		ticker := time.NewTicker(lotteryDrawInterval)
 		defer ticker.Stop()

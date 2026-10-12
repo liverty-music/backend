@@ -24,7 +24,7 @@ const settlementSweepInterval = 5 * time.Minute
 // tick retries safely. A concurrent pod that races on the same settlement will
 // find status != Held and skip (the status guard in MarkReleased enforces
 // exactly-once release).
-func startSettlementSweeper(ctx context.Context, uc usecase.PayoutSweeperUseCase, logger *logging.Logger) {
+func startSettlementSweeper(ctx context.Context, uc usecase.SettlementUseCase, logger *logging.Logger) {
 	go func() {
 		ticker := time.NewTicker(settlementSweepInterval)
 		defer ticker.Stop()

@@ -11,13 +11,11 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// SettlementRepository implements entity.SettlementRepository for PostgreSQL.
+// SettlementRepository is the PostgreSQL part of entity.SettlementRepository;
+// package repository adds the payment provider part.
 type SettlementRepository struct {
 	db *Database
 }
-
-// Compile-time interface compliance check.
-var _ entity.SettlementRepository = (*SettlementRepository)(nil)
 
 // NewSettlementRepository creates a new settlement repository instance.
 func NewSettlementRepository(db *Database) *SettlementRepository {
@@ -25,67 +23,46 @@ func NewSettlementRepository(db *Database) *SettlementRepository {
 }
 
 const (
-	getSettlementQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
-		FROM settlements WHERE id = $1
-	`
-
 	getSettlementByOrderIDQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements WHERE order_id = $1
 	`
 
 	// listHeldSettlementsQuery returns all settlements in Held status.
 	// The splits are fetched separately via listSplitsBySettlementIDsQuery.
 	listHeldSettlementsQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements
 		WHERE status = 1
-		ORDER BY settled_at
+		ORDER BY created_at
 	`
 
 	listSplitsBySettlementIDsQuery = `
-		SELECT settlement_id, payee_organizer_id, amount, transfer_ref, transfer_reversal_ref
+		SELECT settlement_id, payee_organizer_id, amount, provider_payout_id, provider_payout_reversal_id
 		FROM settlement_splits
 		WHERE settlement_id = ANY($1::uuid[])
 		ORDER BY settlement_id
 	`
 
 	// markReleasedQuery atomically transitions a Held settlement to Released,
-	// records the charge_ref, sets released_at, and upserts each split's
-	// transfer_ref. The status = 1 guard ensures idempotency: a concurrent
+	// records the provider_charge_id, sets release_at, and upserts each split's
+	// provider_payout_id. The status = 1 guard ensures idempotency: a concurrent
 	// release attempt finds status != 1 and the UPDATE affects 0 rows, which
 	// surfaces as FailedPrecondition.
 	markReleasedSettlementQuery = `
 		UPDATE settlements
 		SET status      = 2,
-		    charge_ref  = $2,
-		    released_at = $3
+		    provider_charge_id  = $2,
+		    release_at = $3
 		WHERE id = $1 AND status = 1
 	`
 
-	upsertSplitTransferRefQuery = `
+	upsertSplitProviderPayoutIDQuery = `
 		UPDATE settlement_splits
-		SET transfer_ref = $3
+		SET provider_payout_id = $3
 		WHERE settlement_id = $1 AND payee_organizer_id = $2
 	`
 )
-
-// Get implements [entity.SettlementRepository].
-func (r *SettlementRepository) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
-	row := r.db.Pool.QueryRow(ctx, getSettlementQuery, string(id))
-	s, err := scanSettlement(row)
-	if err != nil {
-		return nil, toAppErr(err, "failed to get settlement",
-			slog.String("settlement_id", string(id)))
-	}
-	splits, err := r.loadSplits(ctx, []string{string(id)})
-	if err != nil {
-		return nil, err
-	}
-	s.Splits = splits[string(id)]
-	return s, nil
-}
 
 // GetByOrderID implements [entity.SettlementRepository].
 func (r *SettlementRepository) GetByOrderID(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
@@ -142,11 +119,11 @@ func (r *SettlementRepository) ListHeld(ctx context.Context) ([]*entity.Settleme
 
 // MarkReleased implements [entity.SettlementRepository].
 //
-// The status flip and every split's transfer_ref update run inside one pgx
+// The status flip and every split's provider_payout_id update run inside one pgx
 // transaction, so a failure partway through (e.g. a split update violating a
 // constraint) rolls back the whole operation and leaves the settlement Held —
 // never Released with a split missing its transfer reference, or vice versa.
-func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit) error {
+func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit) error {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin mark-released transaction",
@@ -156,7 +133,7 @@ func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.Settl
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	tag, err := tx.Exec(ctx, markReleasedSettlementQuery,
-		string(id), chargeRef, releasedAt)
+		string(id), providerChargeID, releasedAt)
 	if err != nil {
 		return toAppErr(err, "failed to mark settlement released",
 			slog.String("settlement_id", string(id)))
@@ -167,11 +144,11 @@ func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.Settl
 			"settlement is not in held status; cannot mark released (already released or reversed)")
 	}
 
-	// Persist the transfer_ref for each split, in the same transaction as the
+	// Persist the provider_payout_id for each split, in the same transaction as the
 	// status flip above.
 	for _, split := range splits {
-		if _, err := tx.Exec(ctx, upsertSplitTransferRefQuery,
-			string(id), split.PayeeOrganizerID, split.TransferRef); err != nil {
+		if _, err := tx.Exec(ctx, upsertSplitProviderPayoutIDQuery,
+			string(id), split.PayeeOrganizerID, split.ProviderPayoutID); err != nil {
 			return toAppErr(err, "failed to update split transfer ref",
 				slog.String("settlement_id", string(id)),
 				slog.String("payee_organizer_id", split.PayeeOrganizerID))
@@ -197,25 +174,25 @@ func (r *SettlementRepository) loadSplits(ctx context.Context, ids []string) (ma
 	result := make(map[string][]entity.SettlementSplit, len(ids))
 	for rows.Next() {
 		var (
-			settlementID   string
-			split          entity.SettlementSplit
-			transferRef    sql.NullString
-			transferRevRef sql.NullString
+			settlementID     string
+			split            entity.SettlementSplit
+			providerPayoutID sql.NullString
+			transferRevRef   sql.NullString
 		)
 		if err := rows.Scan(
 			&settlementID,
 			&split.PayeeOrganizerID,
 			&split.Amount,
-			&transferRef,
+			&providerPayoutID,
 			&transferRevRef,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan settlement split")
 		}
-		if transferRef.Valid {
-			split.TransferRef = transferRef.String
+		if providerPayoutID.Valid {
+			split.ProviderPayoutID = providerPayoutID.String
 		}
 		if transferRevRef.Valid {
-			split.TransferReversalRef = transferRevRef.String
+			split.ProviderPayoutReversalID = transferRevRef.String
 		}
 		result[settlementID] = append(result[settlementID], split)
 	}
@@ -235,33 +212,33 @@ type settlementScanner interface {
 // Splits are not populated here; callers must call loadSplits separately.
 func scanSettlement(s settlementScanner) (*entity.Settlement, error) {
 	var (
-		st         entity.Settlement
-		id         string
-		orderID    string
-		chargeRef  sql.NullString
-		releasedAt sql.NullTime
-		status     int16
+		st               entity.Settlement
+		id               string
+		orderID          string
+		providerChargeID sql.NullString
+		releasedAt       sql.NullTime
+		status           int16
 	)
 	if err := s.Scan(
 		&id,
 		&orderID,
 		&st.OrganizerID,
 		&st.EventID,
-		&chargeRef,
+		&providerChargeID,
 		&status,
 		&releasedAt,
-		&st.CreatedTime,
+		&st.CreateTime,
 	); err != nil {
 		return nil, err
 	}
 	st.ID = entity.SettlementID(id)
 	st.OrderID = entity.OrderID(orderID)
 	st.Status = entity.SettlementStatus(status)
-	if chargeRef.Valid {
-		st.ChargeRef = chargeRef.String
+	if providerChargeID.Valid {
+		st.ProviderChargeID = providerChargeID.String
 	}
 	if releasedAt.Valid {
-		st.ReleasedTime = releasedAt.Time
+		st.ReleaseTime = releasedAt.Time
 	}
 	return &st, nil
 }

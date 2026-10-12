@@ -33,12 +33,12 @@ func (m TicketSaleMethod) IsValid() bool {
 }
 
 // VerificationRequirement states whether and how a TicketSale requires a fan
-// to hold an Active [Kyc]. Values mirror the proto enum
+// to hold an Active [IdentityVerification]. Values mirror the proto enum
 // liverty_music.entity.v1.VerificationRequirement.
 //
 // MVP is JPKI-only: no driver's-licence fallback ships in this iteration, so
 // both [VerificationRequirementVerifiedAny] and [VerificationRequirementJPKIOnly]
-// behave identically — they require an Active [Kyc] established via JPKI. The
+// behave identically — they require an Active [IdentityVerification] established via JPKI. The
 // distinction is preserved for when the licence fallback is introduced.
 type VerificationRequirement int8
 
@@ -47,17 +47,17 @@ const (
 	// requirement. Any signed-in fan may take part.
 	VerificationRequirementNone VerificationRequirement = 0
 
-	// VerificationRequirementVerifiedAny means the fan must hold an Active Kyc
+	// VerificationRequirementVerifiedAny means the fan must hold an Active IdentityVerification
 	// (JPKI or, in the future, the driver's-licence fallback).
 	VerificationRequirementVerifiedAny VerificationRequirement = 1
 
 	// VerificationRequirementJPKIOnly means the fan must hold an Active
-	// JPKI-backed [Kyc]. No licence fallback is offered.
+	// JPKI-backed [IdentityVerification]. No licence fallback is offered.
 	VerificationRequirementJPKIOnly VerificationRequirement = 2
 )
 
 // RequiresVerification reports whether the requirement demands an Active
-// [Kyc]: every value except None does.
+// [IdentityVerification]: every value except None does.
 func (r VerificationRequirement) RequiresVerification() bool {
 	return r != VerificationRequirementNone
 }
@@ -93,11 +93,11 @@ type TicketSale struct {
 	// the start of every event the sale covers (checked by the usecase, which
 	// reads the events).
 	SaleEndTime time.Time
-	// VerificationRequirement says whether a fan must hold an Active Kyc.
+	// VerificationRequirement says whether a fan must hold an Active IdentityVerification.
 	VerificationRequirement VerificationRequirement
-	// DrawnTime is when a Lottery sale was drawn; nil until drawn and always
+	// DrawTime is when a Lottery sale was drawn; nil until drawn and always
 	// nil for a FirstCome sale.
-	DrawnTime *time.Time
+	DrawTime *time.Time
 	// TicketTypes are what the sale offers, one per event.
 	TicketTypes []*TicketType
 }
@@ -173,7 +173,7 @@ func (s *TicketSale) Overlaps(other *TicketSale) bool {
 
 // IsDrawn reports whether the sale's drawn time is set.
 func (s *TicketSale) IsDrawn() bool {
-	return s.DrawnTime != nil
+	return s.DrawTime != nil
 }
 
 // TicketType returns the sale's ticket type with the given id, or nil when
@@ -247,7 +247,7 @@ type TicketSaleRepository interface {
 	//  - Internal: database failure.
 	SetWindow(ctx context.Context, id TicketSaleID, saleStart, saleEnd time.Time, at time.Time) (*TicketSale, error)
 
-	// UpdateVerificationRequirement sets the sale's verification requirement,
+	// SetVerificationRequirement sets the sale's verification requirement,
 	// leaves its other attributes and its TicketTypes unchanged, and returns
 	// the updated sale with its TicketTypes.
 	//
@@ -256,7 +256,7 @@ type TicketSaleRepository interface {
 	//  - InvalidArgument: id is empty.
 	//  - NotFound: no TicketSale has the id.
 	//  - Internal: database failure.
-	UpdateVerificationRequirement(ctx context.Context, id TicketSaleID, req VerificationRequirement, at time.Time) (*TicketSale, error)
+	SetVerificationRequirement(ctx context.Context, id TicketSaleID, req VerificationRequirement, at time.Time) (*TicketSale, error)
 
 	// GetTicketType returns the sale that offers the TicketType with the given
 	// id, with all of its TicketTypes as Get returns them, and that TicketType

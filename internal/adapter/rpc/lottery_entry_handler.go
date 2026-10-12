@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+
 	lotteryentryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	lotteryentryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/lottery_entry/v1"
 	"connectrpc.com/connect"
@@ -23,18 +25,18 @@ var _ lotteryentryv1connect.LotteryEntryServiceHandler = (*LotteryEntryHandler)(
 // User. Requests are validated by the protovalidate interceptor before this
 // handler runs.
 type LotteryEntryHandler struct {
-	lotteryUC usecase.LotteryUseCase
-	userUC    usecase.UserUseCase
-	logger    *logging.Logger
+	lotteryEntryUC usecase.LotteryEntryUseCase
+	userUC         usecase.UserUseCase
+	logger         *logging.Logger
 }
 
 // NewLotteryEntryHandler creates a new LotteryEntryHandler.
 func NewLotteryEntryHandler(
-	lotteryUC usecase.LotteryUseCase,
+	lotteryEntryUC usecase.LotteryEntryUseCase,
 	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *LotteryEntryHandler {
-	return &LotteryEntryHandler{lotteryUC: lotteryUC, userUC: userUC, logger: logger}
+	return &LotteryEntryHandler{lotteryEntryUC: lotteryEntryUC, userUC: userUC, logger: logger}
 }
 
 // callerUserID resolves the signed-in caller to their stored User id. It fails
@@ -62,30 +64,30 @@ func (h *LotteryEntryHandler) Start(
 		return nil, err
 	}
 
-	entry, err := h.lotteryUC.Start(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID, int(req.Msg.GetTicketCount()))
+	entry, err := h.lotteryEntryUC.Start(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID, int(req.Msg.GetTicketCount()))
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&lotteryentryv1.StartResponse{LotteryEntry: mapper.LotteryEntryToProto(entry)}), nil
 }
 
-// Authorize stores the caller's full name and phone number and opens the card
+// AuthorizeCard stores the caller's full name and phone number and opens the card
 // hold for their Draft, returning the hold's confirmation secret.
-func (h *LotteryEntryHandler) Authorize(
+func (h *LotteryEntryHandler) AuthorizeCard(
 	ctx context.Context,
-	req *connect.Request[lotteryentryv1.AuthorizeRequest],
-) (*connect.Response[lotteryentryv1.AuthorizeResponse], error) {
+	req *connect.Request[lotteryentryv1.AuthorizeCardRequest],
+) (*connect.Response[lotteryentryv1.AuthorizeCardResponse], error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	secret, err := h.lotteryUC.Authorize(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID,
+	secret, err := h.lotteryEntryUC.AuthorizeCard(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID,
 		req.Msg.GetFullName().GetValue(), req.Msg.GetPhoneNumber().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&lotteryentryv1.AuthorizeResponse{ClientSecret: secret}), nil
+	return connect.NewResponse(&lotteryentryv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}), nil
 }
 
 // Confirm makes the caller's authorized Draft Entered.
@@ -98,7 +100,7 @@ func (h *LotteryEntryHandler) Confirm(
 		return nil, err
 	}
 
-	entry, err := h.lotteryUC.Confirm(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID)
+	entry, err := h.lotteryEntryUC.Confirm(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +117,7 @@ func (h *LotteryEntryHandler) Withdraw(
 		return nil, err
 	}
 
-	if err := h.lotteryUC.WithdrawEntry(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID); err != nil {
+	if err := h.lotteryEntryUC.Withdraw(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&lotteryentryv1.WithdrawResponse{}), nil
@@ -132,7 +134,7 @@ func (h *LotteryEntryHandler) ListByTicketType(
 		return nil, err
 	}
 
-	entries, err := h.lotteryUC.ListOwnByTicketType(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID)
+	entries, err := h.lotteryEntryUC.ListByTicketType(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID)
 	if err != nil {
 		return nil, err
 	}

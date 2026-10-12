@@ -15,7 +15,7 @@ type TicketID string
 // TicketStatus is the lifecycle of an issued Ticket as owned by ⑤. ⑤ issues a
 // ticket as Issued and voids it when its Order is refunded. Admission at the
 // venue (⑥ ticket-wallet-and-checkin) is not a status: it is the ticket's
-// AdmittedTime, kept when the ticket is later voided.
+// AdmitTime, kept when the ticket is later voided.
 // Values mirror the proto enum liverty_music.entity.v1.TicketStatus.
 type TicketStatus int16
 
@@ -48,7 +48,7 @@ func (s TicketStatus) IsValid() bool {
 
 // Ticket is a Web2, account-bound admission right issued from a won lottery
 // entry or a completed checkout. ⑥ ticket-wallet-and-checkin adds admission at
-// the venue on top of it (AdmittedTime, [TicketRepository.Admit]).
+// the venue on top of it (AdmitTime, [TicketRepository.Admit]).
 //
 // Every issued Ticket is a covered ticket (特定興行入場券) carrying all three
 // conditions:
@@ -73,9 +73,9 @@ type Ticket struct {
 	// EventID is the event this ticket admits to. Supplies the covered-ticket
 	// face's date/venue (condition ii).
 	EventID string
-	// KycID is the Kyc this ticket is bound to, set only when the sale
+	// IdentityVerificationID is the IdentityVerification this ticket is bound to, set only when the sale
 	// required verification; empty otherwise.
-	KycID string
+	IdentityVerificationID string
 	// ResaleWithoutConsentProhibited is covered-ticket condition (i): the face
 	// states resale without the organizer's consent is prohibited. Always true —
 	// every issued ticket asserts this so it qualifies as a 特定興行入場券.
@@ -83,13 +83,13 @@ type Ticket struct {
 	// Status is the ticket's lifecycle status (Issued on issuance; Voided on
 	// refund).
 	Status TicketStatus
-	// IssuedTime is when the ticket was issued (= the Order's capture/issuance
+	// IssueTime is when the ticket was issued (= the Order's capture/issuance
 	// time).
-	IssuedTime time.Time
-	// AdmittedTime is when the ticket was admitted at the venue; nil until
+	IssueTime time.Time
+	// AdmitTime is when the ticket was admitted at the venue; nil until
 	// admitted. Set once, together with its [Admission], and kept when the
 	// ticket is later Voided.
-	AdmittedTime *time.Time
+	AdmitTime *time.Time
 }
 
 // Validate reports whether the ticket is a covered ticket: its face states
@@ -135,7 +135,7 @@ func (t *Ticket) Face(user *User) TicketFace {
 // has no admitted time. A Voided ticket is never admissible, and an admitted
 // ticket is never admissible again.
 func (t *Ticket) IsAdmissible() bool {
-	return t.Status == TicketStatusIssued && t.AdmittedTime == nil
+	return t.Status == TicketStatusIssued && t.AdmitTime == nil
 }
 
 // AdmitOutcome is the outcome of [TicketRepository.Admit].
@@ -156,9 +156,9 @@ const (
 type AdmitResult struct {
 	// Outcome is Admitted, AlreadyAdmitted or Voided.
 	Outcome AdmitOutcome
-	// AdmittedTime is the ticket's admitted time: the given time when
+	// AdmitTime is the ticket's admitted time: the given time when
 	// Admitted, the earlier one when AlreadyAdmitted, zero when Voided.
-	AdmittedTime time.Time
+	AdmitTime time.Time
 }
 
 // TicketRepository defines the persistence contract for [Ticket] records.
@@ -166,12 +166,6 @@ type AdmitResult struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type TicketRepository interface {
-	// ListByOrder returns the tickets issued under the given Order.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query failure.
-	ListByOrder(ctx context.Context, orderID OrderID) ([]*Ticket, error)
 
 	// ListByUser returns every ticket whose user is the given User, Issued and
 	// Voided alike, most recently issued first; empty when none.
@@ -205,13 +199,4 @@ type TicketRepository interface {
 	//    Revoked or does not exist; nothing changed.
 	//  - Internal: database failure.
 	Admit(ctx context.Context, ticketID TicketID, linkID ReceptionLinkID, admittedTime time.Time) (AdmitResult, error)
-
-	// VoidByOrder marks every ticket of the given Order as Voided (on a refund).
-	// Idempotent: voiding already-voided tickets is a no-op. The admitted time
-	// is kept.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database execution failure.
-	VoidByOrder(ctx context.Context, orderID OrderID) error
 }

@@ -6,15 +6,16 @@ packages:
   github.com/liverty-music/backend/internal/usecase:
     interfaces:
       ArtistUseCase:
+      OfficialSiteUseCase:
       ArtistNameResolutionUseCase:
       ConcertUseCase:
       ConcertCreationUseCase:
-      AdminConcertUseCase:
+      ConcertCandidateUseCase:
       UserUseCase:
       TicketUseCase:
       EntryUseCase:
       FollowUseCase:
-      PushNotificationUseCase:
+      PushSubscriptionUseCase:
       ArtistImageSyncUseCase:
       TicketJourneyUseCase:
       CentroidResolver:
@@ -29,16 +30,16 @@ packages:
       OrganizerUseCase:
       OrganizerMetrics:
       OrganizerProvisioner:
-      ConcertAuthoringUseCase:
+      SeriesUseCase:
+      VenueUseCase:
       ImageStorer:
-      KycUseCase:
-      PocketSignVerifier:
-      LotteryUseCase:
+      IdentityVerificationUseCase:
+      IdentityVerifier:
+      LotteryEntryUseCase:
       EventPublishStatePort:
-      IssuanceUseCase:
       WalletPublicKeyUseCase:
       ReceptionLinkUseCase:
-      MediaUseCase:
+      SeriesImageUseCase:
       TicketSaleUseCase:
       TicketTypeUseCase:
       CheckoutUseCase:
@@ -49,10 +50,10 @@ packages:
       FollowRepository:
       ConcertRepository:
       SeriesRepository:
-      MediaRepository:
+      SeriesImageRepository:
       ConcertSearcher:
       UserRepository:
-      SearchLogRepository:
+      ConcertSearchRepository:
       VenueRepository:
       VenueMapCatalog:
       TicketMinter:
@@ -68,24 +69,21 @@ packages:
       SalesPhaseReminderRepository:
       SalesPhaseSearcher:
       SalesPhaseSearchLogRepository:
-      StagedConcertRepository:
-      RejectedConcertLogRepository:
+      ConcertCandidateRepository:
+      RejectedConcertRepository:
       SuppressedConcertRepository:
       NotificationRepository:
       OrganizerRepository:
-      KycRepository:
+      IdentityVerificationRepository:
       LotteryEntryRepository:
       IssuanceRepository:
       OrderRepository:
       SettlementRepository:
       EmailVerifier:
       IdentityRemover:
-      PaymentAuthorizationPort:
-      PaymentCapturePort:
-      PaymentSettlementPort:
+      CardAuthorizationRepository:
       TicketSaleRepository:
       CheckoutRepository:
-      CheckoutAuthorizationPort:
       OrderConfirmationSender:
       MediaProcessor:
       EventRepository:

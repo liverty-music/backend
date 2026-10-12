@@ -1,7 +1,7 @@
 // Package pocketsign provides the Pocket Sign Stamp API integration for the
 // identity eKYC flow.
 //
-// The package contains two implementations of usecase.PocketSignVerifier:
+// The package contains two implementations of usecase.IdentityVerifier:
 //
 //   - [StampClient]: the real HTTP client that calls the Pocket Sign Stamp API
 //     (selected when POCKET_SIGN_BASE_URL, POCKET_SIGN_TOKEN, POCKET_SIGN_TENANT_ID,
@@ -32,7 +32,7 @@
 //     b. Checks the userAuthentication result's VerifyResponse; a non-OK cert
 //     (SIGNATURE_MISMATCH, CERTIFICATE_REVOKED, etc.) → FailedPrecondition.
 //     c. Extracts User.id from result.GetUserAuthentication().GetResult().GetUser().GetId()
-//     → our PocketSignUserID.
+//     → our ProviderUserID.
 //
 //  3. Recheck — calls verify.v2.UserService.CheckUserStatus for 現況確認.
 //
@@ -73,8 +73,8 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// Compile-time assertion that StampClient satisfies usecase.PocketSignVerifier.
-var _ usecase.PocketSignVerifier = (*StampClient)(nil)
+// Compile-time assertion that StampClient satisfies usecase.IdentityVerifier.
+var _ usecase.IdentityVerifier = (*StampClient)(nil)
 
 // sessionTTL is how long a pending nonce is retained. The Stamp flow is
 // interactive and requires the fan to open the PocketSign app, read their card,
@@ -119,7 +119,7 @@ func (c StampClientConfig) IsConfigured() bool {
 	return c.BaseURL != "" && c.Token != "" && c.TenantID != "" && c.CallbackURL != ""
 }
 
-// StampClient is the real implementation of usecase.PocketSignVerifier that
+// StampClient is the real implementation of usecase.IdentityVerifier that
 // calls the Pocket Sign Stamp API via Connect-RPC.
 //
 // The client uses the PocketSign Stamp flow (SessionService.CreateSession →
@@ -276,7 +276,7 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 //     validation (revoked/expired/signature mismatch).
 //   - PermissionDenied: nonce mismatch (replay or tamper attempt).
 //   - Unavailable: Pocket Sign Stamp API unreachable or authentication failed.
-func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID string) (*usecase.PocketSignResult, error) {
+func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID string) (*usecase.IdentityVerifierResult, error) {
 	// Atomically look up AND consume the stored nonce. Unknown/expired
 	// (or already-consumed) sessions are rejected with FailedPrecondition to
 	// match the "session not completed" category — the most likely cause is a
@@ -351,7 +351,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 	}
 
 	// GetResult() returns the *verifyv2.VerifyResponse on success. The
-	// PocketSignUserID is carried in User.id (verify.v2.User.id), accessed via:
+	// ProviderUserID is carried in User.id (verify.v2.User.id), accessed via:
 	//   result.GetUserAuthentication().GetResult().GetUser().GetId()
 	verifyResp := userAuthResult.GetResult()
 	if verifyResp == nil {
@@ -384,9 +384,9 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 		slog.String("cert_type", cert.GetType().String()),
 	)
 
-	return &usecase.PocketSignResult{
-		PocketSignUserID: user.GetId(),
-		Method:           method,
+	return &usecase.IdentityVerifierResult{
+		ProviderUserID: user.GetId(),
+		Method:         method,
 	}, nil
 }
 
@@ -397,7 +397,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 // Possible errors:
 //   - Unavailable: Pocket Sign API unreachable, authentication failed, or
 //     any other vendor-side error.
-func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.PocketSignRecheckResult, error) {
+func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.IdentityVerifierRecheckResult, error) {
 	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
 
 	req := connect.NewRequest(verifyv2.CheckUserStatusRequest_builder{
@@ -439,7 +439,7 @@ func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*us
 		slog.Bool("needs_reverification", needsReverification),
 	)
 
-	return &usecase.PocketSignRecheckResult{
+	return &usecase.IdentityVerifierRecheckResult{
 		NeedsReverification: needsReverification,
 	}, nil
 }

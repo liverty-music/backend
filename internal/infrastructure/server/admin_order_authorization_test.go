@@ -37,14 +37,25 @@ const (
 // unreachableRefundUC fails the test if a refund runs.
 type unreachableRefundUC struct{ t *testing.T }
 
-func (u unreachableRefundUC) RefundOrder(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error) {
-	u.t.Error("RefundOrder must not run")
+func (u unreachableRefundUC) Refund(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error) {
+	u.t.Error("Refund must not run")
 	return nil, nil
+}
+
+// orderWithRefund serves the admin OrderService from orderUC, with Refund
+// answered by refunder.
+type orderWithRefund struct {
+	usecase.OrderUseCase
+	refunder usecase.OrderRefunder
+}
+
+func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
+	return o.refunder.Refund(ctx, orderID, reason, now)
 }
 
 // newTestAdminOrderServer builds an admin Connect server, with the admin role
 // gate as provider.go wires it, serving the admin OrderService.
-func newTestAdminOrderServer(t *testing.T, orderUC usecase.OrderUseCase, refundUC usecase.RefundOrderUseCase) *httptest.Server {
+func newTestAdminOrderServer(t *testing.T, orderUC usecase.OrderUseCase, refundUC usecase.OrderRefunder) *httptest.Server {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -61,7 +72,7 @@ func newTestAdminOrderServer(t *testing.T, orderUC usecase.OrderUseCase, refundU
 	}
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminorderv1connect.NewOrderServiceHandler(rpc.NewAdminOrderHandler(orderUC, refundUC, logger), opts...)
+			return adminorderv1connect.NewOrderServiceHandler(rpc.NewAdminOrderHandler(orderWithRefund{OrderUseCase: orderUC, refunder: refundUC}, logger), opts...)
 		},
 	}
 	cfg := config.ServerSettings{
@@ -111,7 +122,7 @@ func TestAdminServer_OrderGet(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/order "Paid order of a first-party concert"
 		orders := usecasemocks.NewMockOrderUseCase(t)
 		orders.EXPECT().GetWithSettlement(mock.Anything, entity.OrderID(adminOrderOrderID)).Return(paid, &entity.Settlement{
-			ID: "019a0000-0000-7000-8000-0000000000f2", OrderID: adminOrderOrderID, ChargeRef: "ch_1", Status: entity.SettlementStatusHeld,
+			ID: "019a0000-0000-7000-8000-0000000000f2", OrderID: adminOrderOrderID, ProviderChargeID: "ch_1", Status: entity.SettlementStatusHeld,
 			Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 5520}},
 		}, nil)
 		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})

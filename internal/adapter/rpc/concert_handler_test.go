@@ -31,7 +31,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		artistID := "artist-123"
 		supportID := "artist-456"
@@ -80,7 +80,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-999").Return([]*entity.Concert{}, nil).Once()
 
@@ -101,7 +101,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-123").Return(nil, assert.AnError).Once()
 
@@ -130,7 +130,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		// No auth context → GetExternalUserID returns CodeUnauthenticated.
 		req := connect.NewRequest(&concertv1.ListFollowedRequest{})
@@ -151,12 +151,12 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID, Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"}}
-		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID,
+		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+		concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID,
 			mock.MatchedBy(func(h *entity.Home) bool { return h != nil && h.Level1 == "JP-13" }), mock.Anything).
 			Return([]*entity.ProximityGroup{}, nil).Once()
 
@@ -176,17 +176,17 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID}
-		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
 
 		// A client-supplied from must reach the use case mapped to a UTC-midnight
 		// *time.Time; the getter chain is nil-safe when the field is omitted.
 		wantFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().
-			ListByFollowerGrouped(mock.Anything, internalUserID, user.Home,
+			ListFollowed(mock.Anything, internalUserID, user.Home,
 				mock.MatchedBy(func(from *time.Time) bool {
 					return from != nil && from.Equal(wantFrom)
 				})).
@@ -211,10 +211,10 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
-		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
+		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
 
 		_, err = h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
 

@@ -17,7 +17,7 @@ const checkoutSweepInterval = 1 * time.Minute
 // checkouts, and IssueDueCheckouts finishes checkouts committed more than a
 // minute ago. Both are idempotent across pods (conditional updates, the
 // per-Checkout lock), so an interrupted run is retried on the next tick.
-func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCase, issuanceUC usecase.IssuanceUseCase, logger *logging.Logger) {
+func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCase, orderUC usecase.OrderUseCase, logger *logging.Logger) {
 	go func() {
 		ticker := time.NewTicker(checkoutSweepInterval)
 		defer ticker.Stop()
@@ -32,7 +32,7 @@ func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCa
 				if err := checkoutUC.ReleaseExpired(ctx); err != nil {
 					logger.Warn(ctx, "release-expired sweep failed", slog.Any("error", err))
 				}
-				if err := issuanceUC.IssueDueCheckouts(ctx); err != nil {
+				if err := orderUC.IssueDueCheckouts(ctx); err != nil {
 					logger.Warn(ctx, "stalled-checkout sweep failed", slog.Any("error", err))
 				}
 			}
