@@ -60,28 +60,31 @@ type organizerTableWrites struct {
 // organizerWrites is every write the organizer server performs (see
 // 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql,
 // 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql,
-// 20261010010000_grant_organizer_console_api_ticket_sales.sql and
-// 20261011000000_unify_ticket_sales.sql; 20261012000000_one_name_per_concept.sql
-// and 20261012220000_rename_reception_links_to_scanners.sql rename the tables
-// and columns, and the privileges follow them).
+// 20261010010000_grant_organizer_console_api_ticket_sales.sql,
+// 20261011000000_unify_ticket_sales.sql and
+// 20261013000100_grant_organizer_console_api_event_lifecycle.sql;
+// 20261012000000_one_name_per_concept.sql and
+// 20261012220000_rename_reception_links_to_scanners.sql rename the tables and
+// columns, and the privileges follow them; 20261013000000_event_publish_state.sql
+// drops the draft tables and the series state columns with their privileges).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
-	"series": {insert: true, updateColumns: []string{
-		"title", "type", "source_url", "description", "visibility",
-		"unlisted_token", "publish_state", "published_at", "cancelled_at",
+	"series": {insert: true, delete: true, updateColumns: []string{
+		"title", "type", "source_url", "description", "visibility", "unlisted_token",
 	}},
-	"draft_events":            {insert: true, delete: true},
-	"draft_series_performers": {insert: true, delete: true},
-	"venues":                  {insert: true},
-	"events":                  {insert: true, updateColumns: []string{"series_id"}},
-	"concert_artists":         {insert: true},
-	"concerts":                {insert: true},
-	"concert_candidates":      {delete: true},
-	"series_images":           {insert: true},
-	"payout_accounts":         {insert: true, updateColumns: []string{"provider_account_id", "status", "status_synced_at"}},
-	"scanners":                {insert: true, updateColumns: []string{"status", "link_token", "revoked_at"}},
-	"ticket_sales":            {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
-	"ticket_types":            {insert: true, updateColumns: []string{"price", "quantity", "per_account_limit"}},
+	"venues": {insert: true},
+	"events": {insert: true, delete: true, updateColumns: []string{
+		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_at", "open_at",
+	}},
+	"concert_artists":    {insert: true, delete: true},
+	"ticket_journeys":    {insert: true},
+	"concerts":           {insert: true},
+	"concert_candidates": {delete: true},
+	"series_images":      {insert: true},
+	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_synced_at"}},
+	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoked_at"}},
+	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
+	"ticket_types":       {insert: true, updateColumns: []string{"price", "quantity", "per_account_limit"}},
 }
 
 // receptionTableAccess is the access of the reception-api role to one app

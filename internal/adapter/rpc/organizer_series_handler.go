@@ -92,6 +92,10 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 			v := pid.GetValue()
 			inp.PlaceID = &v
 		}
+		if eid := ev.GetEventId(); eid != nil {
+			v := eid.GetValue()
+			inp.EventID = &v
+		}
 		if st := ev.GetStartTime(); st != nil && st.GetValue() != nil {
 			t := st.GetValue().AsTime()
 			inp.StartTime = &t
@@ -103,6 +107,18 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 		eventInputs = append(eventInputs, inp)
 	}
 	return s, eventInputs, artistIDs
+}
+
+// eventIDValues unwraps the event ids of a request; nil when none is named.
+func eventIDValues(ids []*entityv1.EventId) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.GetValue()
+	}
+	return out
 }
 
 // Create authors a new first-party series draft and returns it with its
@@ -155,7 +171,7 @@ func (h *OrganizerSeriesHandler) Update(
 	}), nil
 }
 
-// Publish transitions a DRAFT series to PUBLISHED.
+// Publish publishes the named DRAFT events of a series, or all of them.
 func (h *OrganizerSeriesHandler) Publish(
 	ctx context.Context,
 	req *connect.Request[organizerseriesv1.PublishRequest],
@@ -166,7 +182,7 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
-	series, events, artists, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID)
+	series, events, artists, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID, eventIDValues(req.Msg.GetEventIds()))
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +195,8 @@ func (h *OrganizerSeriesHandler) Publish(
 	}), nil
 }
 
-// Cancel marks a series CANCELLED.
+// Cancel cancels the named events of a series, or all its published and
+// draft events.
 func (h *OrganizerSeriesHandler) Cancel(
 	ctx context.Context,
 	req *connect.Request[organizerseriesv1.CancelRequest],
@@ -189,7 +206,7 @@ func (h *OrganizerSeriesHandler) Cancel(
 		return nil, err
 	}
 
-	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue()); err != nil {
+	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue(), eventIDValues(req.Msg.GetEventIds())); err != nil {
 		return nil, err
 	}
 

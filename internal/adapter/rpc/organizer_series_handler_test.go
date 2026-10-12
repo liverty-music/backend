@@ -189,7 +189,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
-		draft := entity.SeriesPublishStateDraft
+		draft := entity.PublishStateDraft
 		series := &entity.Series{ID: "series-1", Title: "ONE MAN LIVE", Type: entity.SeriesTypeSingle, PublishState: &draft}
 		events := []*entity.Event{authoredEvent("draft-event-1", "series-1", 1), authoredEvent("draft-event-2", "series-1", 2)}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}

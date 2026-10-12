@@ -93,10 +93,10 @@ func Render(tags Tags) ([]byte, error) {
 }
 
 // title is the Series' title, " | " and the performers' names, prefixed with
-// cancelledTitlePrefix when the Series is CANCELLED.
+// cancelledTitlePrefix when the concert's Event is CANCELLED.
 func title(c *entity.Concert) string {
 	var sb strings.Builder
-	if c.Series.PublishState != nil && *c.Series.PublishState == entity.SeriesPublishStateCancelled {
+	if c.HasPublishState(entity.PublishStateCancelled) {
 		sb.WriteString(cancelledTitlePrefix)
 	}
 	sb.WriteString(c.Series.Title)

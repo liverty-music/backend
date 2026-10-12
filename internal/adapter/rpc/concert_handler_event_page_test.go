@@ -34,7 +34,7 @@ func firstPartyConcert(id string, date time.Time) *entity.Concert {
 	organizerID := eventPageOrganizerID
 	description := "Two nights at Shibuya WWW."
 	visibility := entity.SeriesVisibilityPublic
-	state := entity.SeriesPublishStatePublished
+	state := entity.PublishStatePublished
 	token := "secret-share-token"
 	return &entity.Concert{
 		ID: id, SeriesID: eventPageSeriesID, LocalDate: date,

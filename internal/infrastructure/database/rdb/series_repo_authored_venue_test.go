@@ -42,14 +42,8 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 		Visibility:  &vis,
 	}
 	listed := "Zepp Haneda"
-	draftEvent := &entity.DraftEvent{
-		ID:              entity.NewID(),
-		SeriesID:        series.ID,
-		VenueID:         venueID,
-		ListedVenueName: &listed,
-		LocalDate:       time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC),
-	}
-	require.NoError(t, repo.CreateDraft(ctx, series, []*entity.DraftEvent{draftEvent}, []string{artistID}))
+	draftEvent := entity.NewAuthoredEvent(series.ID, venueID, &listed, time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC), nil, nil)
+	require.NoError(t, repo.CreateDraft(ctx, series, []*entity.Event{draftEvent}, []string{artistID}))
 
 	wantVenue := &entity.Venue{
 		ID:            venueID,
@@ -68,7 +62,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 	})
 
 	t.Run("fill the venue of each published event", func(t *testing.T) {
-		_, err := repo.PublishDraft(ctx, series.ID, time.Now().UTC())
+		_, err := repo.PublishEvents(ctx, series.ID, []string{draftEvent.ID})
 		require.NoError(t, err)
 
 		_, events, _, err := repo.GetAuthored(ctx, series.ID)

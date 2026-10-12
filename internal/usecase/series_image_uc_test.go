@@ -108,7 +108,7 @@ func newSeriesImageDeps(t *testing.T) *seriesImageDeps {
 	d.uc = usecase.NewSeriesImageUseCase(
 		d.seriesRepo, d.seriesImageRepo, d.storer, d.processor, d.publisher, logger,
 	)
-	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, d.publisher, logger)
+	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, nil, d.publisher, logger, time.Now)
 	return d
 }
 

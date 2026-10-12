@@ -277,8 +277,6 @@ func cleanTables(db *rdb.Database) {
 		"concert_artists",
 		"concerts",
 		"events",
-		"draft_series_performers",
-		"draft_events",
 		"series_cover_images",
 		"series_images",
 		"series",

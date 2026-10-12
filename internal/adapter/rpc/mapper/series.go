@@ -111,14 +111,14 @@ func visibilityToProto(v entity.SeriesVisibility) entityv1.Visibility {
 	}
 }
 
-// publishStateToProto maps a domain SeriesPublishState to the proto PublishState enum.
-func publishStateToProto(ps entity.SeriesPublishState) entityv1.PublishState {
+// publishStateToProto maps a domain PublishState to the proto PublishState enum.
+func publishStateToProto(ps entity.PublishState) entityv1.PublishState {
 	switch ps {
-	case entity.SeriesPublishStateDraft:
+	case entity.PublishStateDraft:
 		return entityv1.PublishState_PUBLISH_STATE_DRAFT
-	case entity.SeriesPublishStatePublished:
+	case entity.PublishStatePublished:
 		return entityv1.PublishState_PUBLISH_STATE_PUBLISHED
-	case entity.SeriesPublishStateCancelled:
+	case entity.PublishStateCancelled:
 		return entityv1.PublishState_PUBLISH_STATE_CANCELLED
 	default:
 		return entityv1.PublishState_PUBLISH_STATE_UNSPECIFIED

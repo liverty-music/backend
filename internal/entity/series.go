@@ -2,7 +2,9 @@ package entity
 
 import (
 	"context"
-	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // SeriesType classifies the shape of an event series.
@@ -41,23 +43,23 @@ const (
 	SeriesVisibilityUnlisted SeriesVisibility = "UNLISTED"
 )
 
-// SeriesPublishState is the authoring lifecycle of a first-party series.
-// It is meaningful only for series that carry an OrganizerID; discovered
-// series leave it zero/empty.
-type SeriesPublishState string
+// PublishState is the publish lifecycle of an [Event] of a first-party series.
+// An Event of a discovered series has none (nil). A first-party [Series]
+// carries a state derived from its Events (see [DerivePublishState]).
+type PublishState string
 
 const (
-	// SeriesPublishStateDraft means the series is being authored and is not
-	// yet visible to fans. Its events live in draft_events, not events.
-	SeriesPublishStateDraft SeriesPublishState = "DRAFT"
-	// SeriesPublishStatePublished means the draft events have been materialized
-	// into the live events table and the series is visible according to its
-	// Visibility setting.
-	SeriesPublishStatePublished SeriesPublishState = "PUBLISHED"
-	// SeriesPublishStateCancelled means the series was cancelled. Its events
-	// rows remain in the events table (claimed slots), but they are excluded
-	// from all fan-facing surfaces by the shared visibility guard.
-	SeriesPublishStateCancelled SeriesPublishState = "CANCELLED"
+	// PublishStateDraft means the event is being authored. It holds no slot of
+	// the catalog, is not a [Concert], and is visible only in the organizer
+	// console. A new event of a first-party series starts here.
+	PublishStateDraft PublishState = "DRAFT"
+	// PublishStatePublished means the event is live; it is publicly visible
+	// when its series is PUBLIC.
+	PublishStatePublished PublishState = "PUBLISHED"
+	// PublishStateCancelled means the published event was cancelled. It is
+	// terminal: the event keeps its slot and its event page but is dropped
+	// from fan lists.
+	PublishStateCancelled PublishState = "CANCELLED"
 )
 
 // SeriesImage represents a single image object uploaded by an organizer. The ID is
@@ -124,17 +126,13 @@ type Series struct {
 	// Visibility controls who can reach the series (PUBLIC or UNLISTED). Nil
 	// for discovered series.
 	Visibility *SeriesVisibility
-	// PublishState is the authoring lifecycle (DRAFT/PUBLISHED/CANCELLED). Nil
-	// for discovered series.
-	PublishState *SeriesPublishState
+	// PublishState is derived from the series' Events (see
+	// [DerivePublishState]) and filled by the repository on read; the series
+	// stores no state of its own. Nil for discovered series.
+	PublishState *PublishState
 	// UnlistedToken is the backend-only HMAC-derived share token for an
 	// UNLISTED series. Never exposed on read DTOs. Nil unless UNLISTED.
 	UnlistedToken *string
-	// PublishedAt is when the series was first transitioned to PUBLISHED. Nil
-	// while DRAFT.
-	PublishedAt *time.Time
-	// CancelledAt is when the series was cancelled. Nil unless CANCELLED.
-	CancelledAt *time.Time
 }
 
 // IsFirstParty reports whether the series was authored by an organizer (as
@@ -143,31 +141,71 @@ func (s *Series) IsFirstParty() bool {
 	return s.OrganizerID != nil
 }
 
-// IsPubliclyVisible reports whether the series should appear on fan-facing
-// public and follower surfaces. A discovered series (OrganizerID nil) is
-// always publicly visible. A first-party series is only visible when it is
-// PUBLISHED and PUBLIC.
-func (s *Series) IsPubliclyVisible() bool {
-	if !s.IsFirstParty() {
-		return true
-	}
-	return s.PublishState != nil &&
-		*s.PublishState == SeriesPublishStatePublished &&
-		s.Visibility != nil &&
-		*s.Visibility == SeriesVisibilityPublic
+// IsPublic reports whether the series' visibility is PUBLIC.
+func (s *Series) IsPublic() bool {
+	return s.Visibility != nil && *s.Visibility == SeriesVisibilityPublic
 }
 
-// HasEventPage reports whether the Events of the series have a public event
-// page (/events/:id). Only a first-party series that is PUBLIC and either
-// PUBLISHED or CANCELLED has one. Unlike [Series.IsPubliclyVisible], a
-// CANCELLED series keeps its event page so a shared link can still explain
-// the cancellation; discovered, DRAFT and UNLISTED series have none.
-func (s *Series) HasEventPage() bool {
-	if !s.IsFirstParty() || s.Visibility == nil || *s.Visibility != SeriesVisibilityPublic {
-		return false
+// DerivePublishState returns the publish state of a first-party series from
+// the publish states of its Events: PUBLISHED when at least one is PUBLISHED;
+// CANCELLED when none is PUBLISHED and at least one is CANCELLED; DRAFT
+// otherwise, when every Event is DRAFT. It returns nil when no Event has a
+// publish state, as for a discovered series, unless firstParty is set: a
+// first-party series always has a state.
+func DerivePublishState(firstParty bool, events []*Event) *PublishState {
+	if !firstParty {
+		return nil
 	}
-	return s.PublishState != nil &&
-		(*s.PublishState == SeriesPublishStatePublished || *s.PublishState == SeriesPublishStateCancelled)
+	state := PublishStateDraft
+	for _, e := range events {
+		switch {
+		case e.HasPublishState(PublishStatePublished):
+			published := PublishStatePublished
+			return &published
+		case e.HasPublishState(PublishStateCancelled):
+			state = PublishStateCancelled
+		}
+	}
+	return &state
+}
+
+// HasPublishedOrCancelledEvent reports whether any of the series' Events was
+// ever published, that is, is PUBLISHED or CANCELLED.
+func HasPublishedOrCancelledEvent(events []*Event) bool {
+	for _, e := range events {
+		if e.HasPublishState(PublishStatePublished) || e.HasPublishState(PublishStateCancelled) {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckChange returns FailedPrecondition when next would change what publish
+// fixes on the series. While every Event is DRAFT, every authored attribute
+// may change. Once the series has a PUBLISHED or CANCELLED Event, its type,
+// source page and visibility are fixed; title, description, cover image and
+// performers stay changeable.
+func (s *Series) CheckChange(next *Series, events []*Event) error {
+	if !HasPublishedOrCancelledEvent(events) {
+		return nil
+	}
+	sameVisibility := (s.Visibility == nil) == (next.Visibility == nil) &&
+		(s.Visibility == nil || *s.Visibility == *next.Visibility)
+	if next.Type != s.Type || next.SourceURL != s.SourceURL || !sameVisibility {
+		return apperr.New(codes.FailedPrecondition, "the type, source page and visibility of a published series cannot change")
+	}
+	return nil
+}
+
+// HasAnyEventPage reports whether the series has an event page: at least one
+// of its Events has one (see [Event.HasEventPage]).
+func (s *Series) HasAnyEventPage(events []*Event) bool {
+	for _, e := range events {
+		if e.HasEventPage(s) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewSeries creates a new Series with an auto-generated UUIDv7 ID.
@@ -269,42 +307,80 @@ type SeriesRepository interface {
 	// candidate slice is a no-op. Returns the number of rows deleted. Idempotent.
 	DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error)
 
-	// CreateDraft persists a new first-party series in the DRAFT state along with
-	// its draft events and draft performers in a single transaction.
+	// CreateDraft persists a new first-party series and its events in a single
+	// transaction: each event is stored DRAFT, as a concert performed by the
+	// given artists. The events' ids are kept.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the series is missing required fields.
-	//  - FailedPrecondition: If a foreign key constraint is violated.
-	CreateDraft(ctx context.Context, series *Series, draftEvents []*DraftEvent, performerArtistIDs []string) error
+	//  - FailedPrecondition: If a referenced organizer, venue or artist does not exist.
+	CreateDraft(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
-	// UpdateDraft replaces the draft content of a DRAFT series in a single
-	// transaction: updates series authoring columns and replaces all draft_events
-	// and draft_series_performers by delete + reinsert. Only allowed while the
-	// series is in the DRAFT state.
+	// Update applies an organizer's edit to a first-party series in a single
+	// transaction. It sets the series' title, type, source page, description
+	// and visibility. For each given event: an event with an empty ID is added
+	// as a new DRAFT event; a DRAFT event takes the given venue, listed venue
+	// name, date and times; a PUBLISHED event takes the given start and open
+	// times and keeps its venue and date; a CANCELLED event is left unchanged.
+	// The given performers become the performers of every given DRAFT and
+	// PUBLISHED event. Every DRAFT event of the series that is not given is
+	// removed.
+	//
+	// When a PUBLISHED event's start time changes, the event takes its new
+	// slot and keeps its id: a discovered event at that slot is merged into it
+	// (its ticket journeys and performers move over and it is removed).
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If no series with the given ID exists.
-	//  - FailedPrecondition: If the series is not in the DRAFT state.
-	UpdateDraft(ctx context.Context, series *Series, draftEvents []*DraftEvent, performerArtistIDs []string) error
+	//  - FailedPrecondition: If the series does not exist or is not
+	//    first-party, if a given id is not an event of the series, or if a
+	//    PUBLISHED event's new slot is suppressed or held by an event of
+	//    another first-party series. Nothing changes.
+	Update(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
-	// LoadDraft retrieves the draft events and performer artist IDs for the given
-	// series. Used by the Publish path to materialize draft content into events.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If no series with the given ID exists.
-	LoadDraft(ctx context.Context, seriesID string) ([]*DraftEvent, []string, error)
-
-	// GetAuthored retrieves the full authored concert for one series: the series
-	// itself, its events (live events when PUBLISHED/CANCELLED, draft events when
-	// DRAFT), and the performing artists.
+	// GetAuthored retrieves the full authored concert for one series: the
+	// series with its cover image and derived publish state, every one of its
+	// events whatever its publish state (ordered by date, then start time with
+	// unknown start times last), and the artists performing at any of them.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
 	GetAuthored(ctx context.Context, seriesID string) (*Series, []*Event, []*Artist, error)
+
+	// PublishEvents publishes the given DRAFT events of a first-party series
+	// in a single transaction and returns the ids of the events it made
+	// PUBLISHED in place. At each event's slot (venue, date and start time):
+	// with no event there that is not DRAFT, the event becomes PUBLISHED; with
+	// a PUBLISHED event of this series there, the draft is removed; with an
+	// event of a discovered series or of another series of the same
+	// organizer, that event is claimed (moved to this series with its id,
+	// made PUBLISHED, given the draft's performers) and the draft is removed.
+	// Claimed events are not returned. The series' concert candidates are
+	// dropped.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If no event is given.
+	//  - NotFound: If the series does not exist.
+	//  - FailedPrecondition: If a given event is not a DRAFT event of the
+	//    series, or a slot is suppressed, held by another organizer's event, or
+	//    held by a CANCELLED event. Nothing changes.
+	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
+
+	// CancelEvents cancels the given events of a first-party series in a
+	// single transaction: a PUBLISHED event becomes CANCELLED and is kept, a
+	// DRAFT event is removed, and a series left with no event is removed. It
+	// returns the ids of the events it made CANCELLED.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If no event is given.
+	//  - NotFound: If the series does not exist.
+	//  - FailedPrecondition: If a given event is not an event of the series
+	//    or is already CANCELLED. Nothing changes.
+	CancelEvents(ctx context.Context, seriesID string, eventIDs []string) (cancelledEventIDs []string, err error)
 
 	// ListByOrganizer retrieves all first-party series owned by the given organizer,
 	// ordered by creation time descending (newest first).
@@ -332,21 +408,6 @@ type SeriesRepository interface {
 	//  - AlreadyExists: If the generated token collides with another series.
 	SetUnlistedToken(ctx context.Context, seriesID, token string) error
 
-	// MarkPublished transitions the series to PUBLISHED and records published_at.
-	// The series MUST already be a first-party series (OrganizerID not null).
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If no series with the given ID exists.
-	MarkPublished(ctx context.Context, seriesID string, publishedAt time.Time) error
-
-	// MarkCancelled transitions the series to CANCELLED and records cancelled_at.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If no series with the given ID exists.
-	MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error
-
 	// ReplaceCover atomically replaces a series' cover in a single
 	// transaction: it inserts a new series image row (with the given organizer, kind, and
 	// attributes), inserts the series_cover_images join row, and deletes any prior
@@ -357,25 +418,4 @@ type SeriesRepository interface {
 	//
 	//  - NotFound: If no series with the given ID exists.
 	ReplaceCoverImage(ctx context.Context, seriesID string, newSeriesImage *SeriesImage) (oldSeriesImageID string, err error)
-
-	// PublishDraft materializes the draft content of a first-party DRAFT series
-	// into the live events table and returns the IDs of newly inserted events (the
-	// notification payload). The caller is responsible for emitting CONCERT.created
-	// after a successful return.
-	//
-	// Steps performed in one transaction:
-	//  1. Load draft_events and draft_series_performers for the series.
-	//  2. For each draft event, run the same suppression / duplicate / claim /
-	//     cross-organizer decision tree used by the discovery pipeline.
-	//  3. Delete draft_events and draft_series_performers for the series.
-	//  4. Mark the series PUBLISHED (published_at = now).
-	//  5. Drop any concert_candidates that reference the same series_id (they are
-	//     superseded by the organizer's authoritative version).
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the series or any referenced artist/venue does not exist.
-	//  - FailedPrecondition: If the series is not in the DRAFT state, if a slot
-	//    is suppressed, or if a cross-organizer ownership conflict is detected.
-	PublishDraft(ctx context.Context, seriesID string, now time.Time) (newEventIDs []string, err error)
 }

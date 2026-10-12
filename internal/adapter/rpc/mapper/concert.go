@@ -114,6 +114,9 @@ func EventToProto(e *entity.Event) *entityv1.Event {
 	if e.ListedVenueName != nil {
 		proto.ListedVenueName = &entityv1.ListedVenueName{Value: *e.ListedVenueName}
 	}
+	if e.PublishState != nil {
+		proto.PublishState = publishStateToProto(*e.PublishState)
+	}
 	return proto
 }
 

@@ -40,7 +40,7 @@ func jstTime(hour int) *time.Time {
 // concertOpts customise the fixture Concert.
 type concertOpts struct {
 	title string
-	state entity.SeriesPublishState
+	state entity.PublishState
 	cover bool
 	desc  string
 }
@@ -50,7 +50,7 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 		o.title = "ONE MAN LIVE"
 	}
 	if o.state == "" {
-		o.state = entity.SeriesPublishStatePublished
+		o.state = entity.PublishStatePublished
 	}
 	org := organizerID
 	visibility := entity.SeriesVisibilityPublic
@@ -67,12 +67,14 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 	if o.cover {
 		s.CoverImage = &entity.SeriesImage{ID: seriesImageID, OrganizerID: organizerID}
 	}
+	eventState := o.state
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,
 		OpenTime: jstTime(18), StartTime: jstTime(19),
-		Venue:   &entity.Venue{Name: "Shibuya WWW", AdminArea: &area},
-		Series:  s,
-		Artists: []*entity.Artist{{Name: "The Band"}},
+		Venue:        &entity.Venue{Name: "Shibuya WWW", AdminArea: &area},
+		PublishState: &eventState,
+		Series:       s,
+		Artists:      []*entity.Artist{{Name: "The Band"}},
 	}
 }
 
@@ -186,7 +188,7 @@ func TestHandler_CancelledEvent(t *testing.T) {
 	// @spec components/infrastructure/fan/web/global/link-preview "Cancelled event"
 	t.Parallel()
 	f := newFixture(t)
-	c := newConcert(eventID, nov20, concertOpts{state: entity.SeriesPublishStateCancelled})
+	c := newConcert(eventID, nov20, concertOpts{state: entity.PublishStateCancelled})
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
@@ -258,7 +260,7 @@ func TestHandler_SeriesCancelledWithinCacheTTL(t *testing.T) {
 	}
 
 	published := newConcert(eventID, nov20, concertOpts{})
-	cancelled := newConcert(eventID, nov20, concertOpts{state: entity.SeriesPublishStateCancelled})
+	cancelled := newConcert(eventID, nov20, concertOpts{state: entity.PublishStateCancelled})
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(published, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{published}, nil).Once()
 

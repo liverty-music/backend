@@ -832,3 +832,33 @@ func TestDiscoveredSeries_JSONSerialization(t *testing.T) {
 		})
 	}
 }
+
+func TestConcert_PublishStateAndVisibility(t *testing.T) {
+	t.Parallel()
+
+	public := firstPartySeries(entity.SeriesVisibilityPublic)
+	concertOf := func(series *entity.Series, state entity.PublishState) *entity.Concert {
+		return &entity.Concert{Event: *eventAt(testVenueA, nil, new(state)), Series: series}
+	}
+
+	t.Run("carry the CANCELLED state of its event in a published tour", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/concert "Cancelled date of a published tour"
+		c := concertOf(public, entity.PublishStateCancelled)
+		assert.True(t, c.HasPublishState(entity.PublishStateCancelled))
+	})
+
+	t.Run("hide a concert of an UNLISTED organizer series", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/concert "Concert of an unlisted organizer series"
+		c := concertOf(firstPartySeries(entity.SeriesVisibilityUnlisted), entity.PublishStatePublished)
+		assert.False(t, c.IsVisibleToFans())
+	})
+
+	t.Run("hide the CANCELLED date of a PUBLIC series and show its PUBLISHED date", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/concert "Cancelled date of a public series"
+		assert.False(t, concertOf(public, entity.PublishStateCancelled).IsVisibleToFans())
+		assert.True(t, concertOf(public, entity.PublishStatePublished).IsVisibleToFans())
+	})
+}

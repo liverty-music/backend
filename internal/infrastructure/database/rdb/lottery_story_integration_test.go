@@ -177,14 +177,14 @@ func (s *lotteryStory) seedOrganizerEvent() {
 
 	s.seriesID = uuid.NewV7().String()
 	_, err = testDB.Pool.Exec(s.ctx, `
-		INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
-		VALUES ($1, 'Story Live', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED', now())
+		INSERT INTO series (id, title, type, organizer_id, visibility)
+		VALUES ($1, 'Story Live', 'SINGLE', $2, 'PUBLIC')
 	`, s.seriesID, s.organizerID)
 	require.NoError(t, err)
 
 	s.eventID = uuid.NewV7().String()
 	_, err = testDB.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at) VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED')
 	`, s.eventID, s.seriesID, seedVenue(t, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
 	require.NoError(t, err)
 }

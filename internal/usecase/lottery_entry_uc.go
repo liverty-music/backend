@@ -24,8 +24,9 @@ type Clock func() time.Time
 // is defined here (consumer package) per Clean Architecture conventions.
 type EventPublishStatePort interface {
 	// IsEventPublished returns true when the event with the given ID exists and
-	// its series' publish_state is PUBLISHED. Returns false — not an error — when
-	// the event exists but is still DRAFT or CANCELLED.
+	// its own publish state is PUBLISHED, whatever its other dates are.
+	// Returns false — not an error — when the event exists but is DRAFT,
+	// CANCELLED or discovered.
 	//
 	// # Possible errors
 	//

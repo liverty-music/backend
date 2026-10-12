@@ -188,10 +188,10 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(d, &created)
 			}
-			var stored []*entity.DraftEvent
+			var stored []*entity.Event
 			if tt.wantStored {
 				d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
-					Run(func(_ context.Context, _ *entity.Series, events []*entity.DraftEvent, _ []string) { stored = events }).
+					Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).
 					Return(nil).Once()
 				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).
 					Return(&entity.Series{ID: "series-1"}, nil, nil, nil).Once()
@@ -216,20 +216,20 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 	}
 }
 
-// TestSeriesUseCase_Update_PickedPlace verifies that UpdateDraft
+// TestSeriesUseCase_Update_PickedPlace verifies that Update
 // applies the picked-place rule of CreateDraft ("find or create each event's
 // Venue as CreateDraft does").
 func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 	t.Parallel()
 
 	const seriesID = "series-1"
-	draftState := entity.SeriesPublishStateDraft
+	draftState := entity.PublishStateDraft
 	existing := &entity.Series{ID: seriesID, OrganizerID: new(authoringOrgID), PublishState: &draftState}
 
 	t.Run("fail with INVALID_ARGUMENT and store nothing when an event gives no place id", func(t *testing.T) {
 		t.Parallel()
 		d := newAuthoringDeps(t)
-		d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(existing, nil).Once()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil, nil).Once()
 		d.organizerRepo.EXPECT().ListArtists(mock.Anything, authoringOrgID).
 			Return([]*entity.Artist{{ID: authoringArtistID}}, nil).Once()
 
@@ -242,7 +242,6 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 	t.Run("create a Venue from the catalog's place when no Venue holds the place id", func(t *testing.T) {
 		t.Parallel()
 		d := newAuthoringDeps(t)
-		d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(existing, nil).Once()
 		d.organizerRepo.EXPECT().ListArtists(mock.Anything, authoringOrgID).
 			Return([]*entity.Artist{{ID: authoringArtistID}}, nil).Once()
 		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
@@ -253,11 +252,11 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 		d.venueRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(v *entity.Venue) bool {
 			return *v.GooglePlaceID == zeppHanedaPlaceID && *v.AdminArea == "JP-13" && v.Name == "Zepp Haneda (TOKYO)"
 		})).Return(createdVenueID, nil).Once()
-		var stored []*entity.DraftEvent
-		d.seriesRepo.EXPECT().UpdateDraft(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
-			Run(func(_ context.Context, _ *entity.Series, events []*entity.DraftEvent, _ []string) { stored = events }).
+		var stored []*entity.Event
+		d.seriesRepo.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
+			Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).
 			Return(nil).Once()
-		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil, nil).Once()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil, nil).Twice()
 
 		_, _, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
 			[]*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))}, []string{authoringArtistID})

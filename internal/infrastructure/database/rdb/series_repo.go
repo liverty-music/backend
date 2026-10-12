@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
@@ -42,8 +41,7 @@ const (
 	getSeriesQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
 		       s.description, s.organizer_id,
-		       s.visibility, s.publish_state, s.unlisted_token,
-		       s.published_at, s.cancelled_at,
+		       s.visibility, ` + seriesPublishStateColumn + `, s.unlisted_token,
 		       m.id, m.organizer_id, m.attributes
 		FROM series s
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
@@ -54,8 +52,7 @@ const (
 	listSeriesByIDsQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
 		       s.description, s.organizer_id,
-		       s.visibility, s.publish_state, s.unlisted_token,
-		       s.published_at, s.cancelled_at,
+		       s.visibility, ` + seriesPublishStateColumn + `, s.unlisted_token,
 		       m.id, m.organizer_id, m.attributes
 		FROM series s
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
@@ -71,61 +68,16 @@ const (
 	`
 
 	insertFirstPartySeriesQuery = `
-		INSERT INTO series (id, title, type, source_url, description, organizer_id, visibility, publish_state)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO series (id, title, type, source_url, description, organizer_id, visibility)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO NOTHING
 	`
 
-	insertDraftEventQuery = `
-		INSERT INTO draft_events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-
-	insertDraftPerformerQuery = `
-		INSERT INTO draft_series_performers (series_id, artist_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`
-
-	deleteDraftEventsQuery = `
-		DELETE FROM draft_events WHERE series_id = $1
-	`
-
-	deleteDraftPerformersQuery = `
-		DELETE FROM draft_series_performers WHERE series_id = $1
-	`
-
-	updateDraftSeriesQuery = `
-		UPDATE series
-		SET title = $2, type = $3, source_url = $4, description = $5, visibility = $6
-		WHERE id = $1 AND publish_state = 'DRAFT' AND organizer_id IS NOT NULL
-	`
-
-	loadDraftEventsQuery = `
-		SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at
-		FROM draft_events
-		WHERE series_id = $1
-		ORDER BY local_event_date, start_at NULLS LAST
-	`
-
-	loadDraftPerformersQuery = `
-		SELECT artist_id FROM draft_series_performers WHERE series_id = $1
-	`
-
-	// getAuthoredSeriesDraftEventsQuery and getAuthoredSeriesLiveEventsQuery
-	// read an authored Series' events with each event's Venue (id, name, admin
-	// area, place id), so the editor can show and resend the picked place.
-	getAuthoredSeriesDraftEventsQuery = `
-		SELECT de.id, de.series_id, de.venue_id, de.listed_venue_name, de.local_event_date, de.start_at, de.open_at,
-		       v.name, v.admin_area, v.google_place_id
-		FROM draft_events de
-		JOIN venues v ON v.id = de.venue_id
-		WHERE de.series_id = $1
-		ORDER BY de.local_event_date, de.start_at NULLS LAST
-	`
-
-	getAuthoredSeriesLiveEventsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+	// getAuthoredSeriesEventsQuery reads every event of an authored series,
+	// whatever its publish state, with its Venue (id, name, admin area, place
+	// id), so the editor can show and resend the picked place.
+	getAuthoredSeriesEventsQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       v.name, v.admin_area, v.google_place_id
 		FROM events e
 		JOIN venues v ON v.id = e.venue_id
@@ -142,19 +94,10 @@ const (
 		ORDER BY a.id
 	`
 
-	getAuthoredSeriesDraftPerformersQuery = `
-		SELECT a.id, a.name, a.mbid
-		FROM artists a
-		JOIN draft_series_performers dsp ON dsp.artist_id = a.id
-		WHERE dsp.series_id = $1
-		ORDER BY a.id
-	`
-
 	listSeriesByOrganizerQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
 		       s.description, s.organizer_id,
-		       s.visibility, s.publish_state, s.unlisted_token,
-		       s.published_at, s.cancelled_at,
+		       s.visibility, ` + seriesPublishStateColumn + `, s.unlisted_token,
 		       m.id, m.organizer_id, m.attributes
 		FROM series s
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
@@ -166,8 +109,7 @@ const (
 	getSeriesByUnlistedTokenQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
 		       s.description, s.organizer_id,
-		       s.visibility, s.publish_state, s.unlisted_token,
-		       s.published_at, s.cancelled_at,
+		       s.visibility, ` + seriesPublishStateColumn + `, s.unlisted_token,
 		       m.id, m.organizer_id, m.attributes
 		FROM series s
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
@@ -177,18 +119,6 @@ const (
 
 	setUnlistedTokenQuery = `
 		UPDATE series SET unlisted_token = $2 WHERE id = $1
-	`
-
-	markSeriesPublishedQuery = `
-		UPDATE series
-		SET publish_state = 'PUBLISHED', published_at = $2
-		WHERE id = $1
-	`
-
-	markSeriesCancelledQuery = `
-		UPDATE series
-		SET publish_state = 'CANCELLED', cancelled_at = $2
-		WHERE id = $1
 	`
 
 	dropConcertCandidatesBySeriesQuery = `
@@ -274,8 +204,6 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		visibility   sql.NullString
 		publishState sql.NullString
 		unlistedTok  sql.NullString
-		publishedAt  sql.NullTime
-		cancelledAt  sql.NullTime
 		// Cover image columns (NULL when no cover exists).
 		seriesImageID    sql.NullString
 		imageOrganizerID sql.NullString
@@ -285,7 +213,6 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		&s.ID, &s.Title, &seriesT, &sourceURL,
 		&description, &organizerID,
 		&visibility, &publishState, &unlistedTok,
-		&publishedAt, &cancelledAt,
 		&seriesImageID, &imageOrganizerID, &imageAttrs,
 	); err != nil {
 		return nil, err
@@ -308,21 +235,10 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		v := entity.SeriesVisibility(visibility.String)
 		s.Visibility = &v
 	}
-	if publishState.Valid {
-		v := entity.SeriesPublishState(publishState.String)
-		s.PublishState = &v
-	}
+	s.PublishState = nullPublishState(publishState)
 	if unlistedTok.Valid {
 		v := unlistedTok.String
 		s.UnlistedToken = &v
-	}
-	if publishedAt.Valid {
-		v := publishedAt.Time
-		s.PublishedAt = &v
-	}
-	if cancelledAt.Valid {
-		v := cancelledAt.Time
-		s.CancelledAt = &v
 	}
 	// Populate CoverImage when the LEFT JOIN produced a row.
 	if seriesImageID.Valid {
@@ -501,223 +417,10 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 	return result, nil
 }
 
-// CreateDraft persists a new first-party series in the DRAFT state along with
-// its draft events and draft performers in a single transaction.
-func (r *SeriesRepository) CreateDraft(ctx context.Context, series *entity.Series, draftEvents []*entity.DraftEvent, performerArtistIDs []string) error {
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin transaction")
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var descPtr *string
-	if series.Description != nil {
-		descPtr = series.Description
-	}
-	var sourceURLPtr *string
-	if series.SourceURL != "" {
-		sourceURLPtr = &series.SourceURL
-	}
-	var visStr *string
-	if series.Visibility != nil {
-		v := string(*series.Visibility)
-		visStr = &v
-	}
-
-	if _, err := tx.Exec(ctx, insertFirstPartySeriesQuery,
-		series.ID, series.Title, string(series.Type), sourceURLPtr,
-		descPtr, series.OrganizerID, visStr, string(entity.SeriesPublishStateDraft),
-	); err != nil {
-		return toAppErr(err, "failed to insert first-party series draft", slog.String("series_id", series.ID))
-	}
-
-	for _, de := range draftEvents {
-		var lvn *string
-		if de.ListedVenueName != nil {
-			lvn = de.ListedVenueName
-		}
-		if _, err := tx.Exec(ctx, insertDraftEventQuery,
-			de.ID, de.SeriesID, de.VenueID, lvn, de.LocalDate, de.StartTime, de.OpenTime,
-		); err != nil {
-			return toAppErr(err, "failed to insert draft event", slog.String("series_id", series.ID))
-		}
-	}
-
-	for _, artistID := range performerArtistIDs {
-		if _, err := tx.Exec(ctx, insertDraftPerformerQuery, series.ID, artistID); err != nil {
-			return toAppErr(err, "failed to insert draft performer",
-				slog.String("series_id", series.ID),
-				slog.String("artist_id", artistID),
-			)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit draft creation transaction")
-	}
-	return nil
-}
-
-// UpdateDraft replaces draft content for a DRAFT series in a single transaction.
-// The update is rejected (0 rows) when the series is not in the DRAFT state.
-func (r *SeriesRepository) UpdateDraft(ctx context.Context, series *entity.Series, draftEvents []*entity.DraftEvent, performerArtistIDs []string) error {
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin transaction")
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var descPtr *string
-	if series.Description != nil {
-		descPtr = series.Description
-	}
-	var sourceURLPtr *string
-	if series.SourceURL != "" {
-		sourceURLPtr = &series.SourceURL
-	}
-	var visStr *string
-	if series.Visibility != nil {
-		v := string(*series.Visibility)
-		visStr = &v
-	}
-
-	tag, err := tx.Exec(ctx, updateDraftSeriesQuery,
-		series.ID, series.Title, string(series.Type), sourceURLPtr, descPtr, visStr,
-	)
-	if err != nil {
-		return toAppErr(err, "failed to update draft series", slog.String("series_id", series.ID))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.FailedPrecondition, "series is not in DRAFT state or does not exist")
-	}
-
-	if _, err := tx.Exec(ctx, deleteDraftEventsQuery, series.ID); err != nil {
-		return toAppErr(err, "failed to delete draft events", slog.String("series_id", series.ID))
-	}
-	if _, err := tx.Exec(ctx, deleteDraftPerformersQuery, series.ID); err != nil {
-		return toAppErr(err, "failed to delete draft performers", slog.String("series_id", series.ID))
-	}
-
-	for _, de := range draftEvents {
-		var lvn *string
-		if de.ListedVenueName != nil {
-			lvn = de.ListedVenueName
-		}
-		if _, err := tx.Exec(ctx, insertDraftEventQuery,
-			de.ID, de.SeriesID, de.VenueID, lvn, de.LocalDate, de.StartTime, de.OpenTime,
-		); err != nil {
-			return toAppErr(err, "failed to insert draft event on update", slog.String("series_id", series.ID))
-		}
-	}
-	for _, artistID := range performerArtistIDs {
-		if _, err := tx.Exec(ctx, insertDraftPerformerQuery, series.ID, artistID); err != nil {
-			return toAppErr(err, "failed to insert draft performer on update",
-				slog.String("series_id", series.ID),
-				slog.String("artist_id", artistID),
-			)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit draft update transaction")
-	}
-	return nil
-}
-
-// LoadDraft retrieves the draft events and performer artist IDs for the given series.
-func (r *SeriesRepository) LoadDraft(ctx context.Context, seriesID string) ([]*entity.DraftEvent, []string, error) {
-	evRows, err := r.db.Pool.Query(ctx, loadDraftEventsQuery, seriesID)
-	if err != nil {
-		return nil, nil, toAppErr(err, "failed to load draft events", slog.String("series_id", seriesID))
-	}
-	defer evRows.Close()
-
-	var draftEvents []*entity.DraftEvent
-	for evRows.Next() {
-		var de entity.DraftEvent
-		var lvn sql.NullString
-		if err := evRows.Scan(&de.ID, &de.SeriesID, &de.VenueID, &lvn, &de.LocalDate, &de.StartTime, &de.OpenTime); err != nil {
-			return nil, nil, toAppErr(err, "failed to scan draft event")
-		}
-		if lvn.Valid {
-			v := lvn.String
-			de.ListedVenueName = &v
-		}
-		draftEvents = append(draftEvents, &de)
-	}
-	if err := evRows.Err(); err != nil {
-		return nil, nil, toAppErr(err, "draft events iteration ended with error")
-	}
-	evRows.Close()
-
-	perfRows, err := r.db.Pool.Query(ctx, loadDraftPerformersQuery, seriesID)
-	if err != nil {
-		return nil, nil, toAppErr(err, "failed to load draft performers", slog.String("series_id", seriesID))
-	}
-	defer perfRows.Close()
-
-	var performerIDs []string
-	for perfRows.Next() {
-		var artistID string
-		if err := perfRows.Scan(&artistID); err != nil {
-			return nil, nil, toAppErr(err, "failed to scan draft performer")
-		}
-		performerIDs = append(performerIDs, artistID)
-	}
-	if err := perfRows.Err(); err != nil {
-		return nil, nil, toAppErr(err, "draft performers iteration ended with error")
-	}
-	return draftEvents, performerIDs, nil
-}
-
-// GetAuthored retrieves the full authored concert for one series.
-func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	s, err := scanSeries(r.db.Pool.QueryRow(ctx, getSeriesQuery, seriesID).Scan)
-	if err != nil {
-		return nil, nil, nil, toAppErr(err, "failed to get authored series", slog.String("series_id", seriesID))
-	}
-
-	isDraft := s.PublishState != nil && *s.PublishState == entity.SeriesPublishStateDraft
-
-	// Draft events are returned as Event structs for a uniform response shape.
-	eventsQuery := getAuthoredSeriesLiveEventsQuery
-	if isDraft {
-		eventsQuery = getAuthoredSeriesDraftEventsQuery
-	}
-	events, err := r.queryAuthoredEvents(ctx, eventsQuery, seriesID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	performersQuery := getAuthoredSeriesPerformersQuery
-	if isDraft {
-		performersQuery = getAuthoredSeriesDraftPerformersQuery
-	}
-	perfRows, err := r.db.Pool.Query(ctx, performersQuery, seriesID)
-	if err != nil {
-		return nil, nil, nil, toAppErr(err, "failed to load authored performers", slog.String("series_id", seriesID))
-	}
-	defer perfRows.Close()
-
-	var artists []*entity.Artist
-	for perfRows.Next() {
-		var a entity.Artist
-		if err := perfRows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
-			return nil, nil, nil, toAppErr(err, "failed to scan authored performer")
-		}
-		artists = append(artists, &a)
-	}
-	if err := perfRows.Err(); err != nil {
-		return nil, nil, nil, toAppErr(err, "performers iteration ended with error")
-	}
-
-	return s, events, artists, nil
-}
-
-// queryAuthoredEvents runs one of the authored-events queries and scans each
-// row into an Event carrying its Venue.
-func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, query, seriesID string) ([]*entity.Event, error) {
-	rows, err := r.db.Pool.Query(ctx, query, seriesID)
+// queryAuthoredEvents reads every event of the series with its publish state
+// and its Venue.
+func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, q rowQuerier, seriesID string) ([]*entity.Event, error) {
+	rows, err := q.Query(ctx, getAuthoredSeriesEventsQuery, seriesID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to load authored events", slog.String("series_id", seriesID))
 	}
@@ -727,9 +430,9 @@ func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, query, serie
 	for rows.Next() {
 		var ev entity.Event
 		var venue entity.Venue
-		var lvn, adminArea, placeID sql.NullString
+		var lvn, state, adminArea, placeID sql.NullString
 		if err := rows.Scan(
-			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime,
+			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime, &state,
 			&venue.Name, &adminArea, &placeID,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan authored event")
@@ -738,6 +441,7 @@ func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, query, serie
 			v := lvn.String
 			ev.ListedVenueName = &v
 		}
+		ev.PublishState = nullPublishState(state)
 		venue.ID = ev.VenueID
 		if adminArea.Valid {
 			v := adminArea.String
@@ -795,18 +499,6 @@ func (r *SeriesRepository) SetUnlistedToken(ctx context.Context, seriesID, token
 	tag, err := r.db.Pool.Exec(ctx, setUnlistedTokenQuery, seriesID, token)
 	if err != nil {
 		return toAppErr(err, "failed to set unlisted token", slog.String("series_id", seriesID))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "series not found")
-	}
-	return nil
-}
-
-// MarkPublished transitions the series to PUBLISHED and records published_at.
-func (r *SeriesRepository) MarkPublished(ctx context.Context, seriesID string, publishedAt time.Time) error {
-	tag, err := r.db.Pool.Exec(ctx, markSeriesPublishedQuery, seriesID, publishedAt)
-	if err != nil {
-		return toAppErr(err, "failed to mark series published", slog.String("series_id", seriesID))
 	}
 	if tag.RowsAffected() == 0 {
 		return apperr.New(codes.NotFound, "series not found")
@@ -873,191 +565,4 @@ func (r *SeriesRepository) ReplaceCoverImage(ctx context.Context, seriesID strin
 		return "", toAppErr(err, "failed to commit cover image transaction")
 	}
 	return oldSeriesImageID, nil
-}
-
-// MarkCancelled transitions the series to CANCELLED and records cancelled_at.
-func (r *SeriesRepository) MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error {
-	tag, err := r.db.Pool.Exec(ctx, markSeriesCancelledQuery, seriesID, cancelledAt)
-	if err != nil {
-		return toAppErr(err, "failed to mark series cancelled", slog.String("series_id", seriesID))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "series not found")
-	}
-	return nil
-}
-
-// PublishDraft materializes the draft events of a first-party DRAFT series into
-// the live events table in a single transaction, applying the same
-// suppression / duplicate / claim / cross-organizer decision tree as the
-// discovery pipeline.
-func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, now time.Time) ([]string, error) {
-	// Load the draft content outside the transaction (read-only, no locking needed).
-	draftEvents, performerIDs, err := r.LoadDraft(ctx, seriesID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Load the series to verify state and get the organizer id.
-	series, err := r.Get(ctx, seriesID)
-	if err != nil {
-		return nil, err
-	}
-	if series.PublishState == nil || *series.PublishState != entity.SeriesPublishStateDraft {
-		return nil, apperr.New(codes.FailedPrecondition, "series is not in DRAFT state")
-	}
-
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return nil, toAppErr(err, "failed to begin publish transaction")
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var insertedEventIDs []string
-
-	for _, de := range draftEvents {
-		// Check suppression: a previously-deleted-then-re-authored natural key is
-		// blocked. In this MVP there is no override flag — treat suppressed as a
-		// publish error.
-		var suppressed bool
-		err := tx.QueryRow(ctx, `
-			SELECT EXISTS(
-				SELECT 1 FROM suppressed_concerts
-				WHERE venue_id = $1
-				  AND local_event_date = $2
-				  AND start_at IS NOT DISTINCT FROM $3
-			)`, de.VenueID, de.LocalDate, de.StartTime,
-		).Scan(&suppressed)
-		if err != nil {
-			return nil, toAppErr(err, "failed to check suppression during publish")
-		}
-		if suppressed {
-			return nil, apperr.New(codes.FailedPrecondition,
-				"publish blocked: one or more event slots are suppressed",
-				slog.String("series_id", seriesID),
-				slog.String("venue_id", de.VenueID),
-				slog.String("local_date", de.LocalDate.Format("2006-01-02")),
-			)
-		}
-
-		// Check for an existing event at this natural key.
-		var existingID, existingSeriesID string
-		var existingOrganizerIDNull sql.NullString
-		err = tx.QueryRow(ctx, `
-			SELECT e.id, e.series_id, s.organizer_id
-			FROM events e
-			JOIN series s ON s.id = e.series_id
-			WHERE e.venue_id = $1
-			  AND e.local_event_date = $2
-			  AND e.start_at IS NOT DISTINCT FROM $3
-			LIMIT 1`,
-			de.VenueID, de.LocalDate, de.StartTime,
-		).Scan(&existingID, &existingSeriesID, &existingOrganizerIDNull)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, toAppErr(err, "failed to check existing event during publish")
-		}
-		// pgx.ErrNoRows (or no error): no conflict — fall through to insert.
-
-		if existingID != "" {
-			// Determine ownership of the existing event's series.
-			existingIsOtherOrg := existingOrganizerIDNull.Valid &&
-				existingOrganizerIDNull.String != "" &&
-				existingOrganizerIDNull.String != *series.OrganizerID
-
-			if existingIsOtherOrg {
-				// Cross-organizer collision: another organizer already owns this slot.
-				return nil, apperr.New(codes.FailedPrecondition,
-					"publish blocked: event slot already claimed by another organizer",
-					slog.String("series_id", seriesID),
-					slog.String("conflicting_event_id", existingID),
-					slog.String("conflicting_organizer_id", existingOrganizerIDNull.String),
-				)
-			}
-
-			if existingSeriesID == seriesID {
-				// Already belongs to THIS series — no-op.
-				continue
-			}
-		}
-
-		if existingID != "" {
-			// Claim the discovered event: re-point its series_id to the organizer's series.
-			// The existing event belongs to a discovered (no-organizer) series.
-			if _, err := tx.Exec(ctx, `UPDATE events SET series_id = $1 WHERE id = $2`, seriesID, existingID); err != nil {
-				return nil, toAppErr(err, "failed to claim existing event during publish",
-					slog.String("event_id", existingID),
-				)
-			}
-			// Attach performers to the claimed event.
-			for _, artistID := range performerIDs {
-				if _, err := tx.Exec(ctx,
-					`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-					existingID, artistID,
-				); err != nil {
-					return nil, toAppErr(err, "failed to link performer to claimed event")
-				}
-			}
-			// Do not re-emit CONCERT.created for a claimed event (no double-notify).
-			continue
-		}
-
-		// Genuinely new event: insert it.
-		eventID := entity.NewID()
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT ON CONSTRAINT uq_events_natural_key DO NOTHING`,
-			eventID, seriesID, de.VenueID, de.ListedVenueName, de.LocalDate, de.StartTime, de.OpenTime,
-		); err != nil {
-			return nil, toAppErr(err, "failed to insert event during publish")
-		}
-
-		// Check whether the event actually landed (ON CONFLICT might have absorbed it).
-		var landed bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`, eventID).Scan(&landed); err != nil {
-			return nil, toAppErr(err, "failed to verify event insert during publish")
-		}
-		if !landed {
-			continue
-		}
-
-		// Insert the concerts placeholder row.
-		if _, err := tx.Exec(ctx, `INSERT INTO concerts (event_id) VALUES ($1) ON CONFLICT DO NOTHING`, eventID); err != nil {
-			return nil, toAppErr(err, "failed to insert concerts row during publish")
-		}
-
-		// Attach performers.
-		for _, artistID := range performerIDs {
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-				eventID, artistID,
-			); err != nil {
-				return nil, toAppErr(err, "failed to link performer to new event during publish")
-			}
-		}
-		insertedEventIDs = append(insertedEventIDs, eventID)
-	}
-
-	// Delete draft rows — they have been materialized.
-	if _, err := tx.Exec(ctx, deleteDraftEventsQuery, seriesID); err != nil {
-		return nil, toAppErr(err, "failed to delete draft events after publish")
-	}
-	if _, err := tx.Exec(ctx, deleteDraftPerformersQuery, seriesID); err != nil {
-		return nil, toAppErr(err, "failed to delete draft performers after publish")
-	}
-
-	// Drop concert candidates that referenced this series (superseded by organizer version).
-	if _, err := tx.Exec(ctx, dropConcertCandidatesBySeriesQuery, seriesID); err != nil {
-		return nil, toAppErr(err, "failed to drop concert candidates for series")
-	}
-
-	// Mark the series PUBLISHED.
-	if _, err := tx.Exec(ctx, markSeriesPublishedQuery, seriesID, now); err != nil {
-		return nil, toAppErr(err, "failed to mark series published in publish transaction")
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, toAppErr(err, "failed to commit publish transaction")
-	}
-	return insertedEventIDs, nil
 }

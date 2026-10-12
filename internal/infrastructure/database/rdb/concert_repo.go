@@ -17,14 +17,16 @@ type ConcertRepository struct {
 }
 
 const (
-	// upsertEventsQuery bulk-inserts events with their new (series_id, local_event_date, venue_id)
-	// natural key. On natural-key conflict the existing row is preserved and only NULL
+	// upsertEventsQuery bulk-inserts discovered events (publish_state NULL) on
+	// the (venue_id, local_event_date, start_at) natural key, inferring the
+	// partial unique index uq_events_natural_key, which skips DRAFT rows: a
+	// discovered event never collides with, or fills the times of, a draft. On natural-key conflict the existing row is preserved and only NULL
 	// open_at / start_at are filled in via COALESCE. The input id is discarded in that case;
 	// callers detect this by re-querying with WHERE EXISTS on the input UUID.
 	upsertEventsQuery = `
 		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
 		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[])
-		ON CONFLICT ON CONSTRAINT uq_events_natural_key DO UPDATE SET
+		ON CONFLICT (venue_id, local_event_date, start_at) WHERE ` + notDraftPredicate + ` DO UPDATE SET
 			start_at = COALESCE(events.start_at, EXCLUDED.start_at),
 			open_at  = COALESCE(events.open_at, EXCLUDED.open_at)
 	`
@@ -67,6 +69,7 @@ const (
 			ON e.venue_id = perf.venue_id
 			AND e.local_event_date = perf.local_event_date
 			AND e.start_at IS NOT DISTINCT FROM perf.start_at
+			AND ` + catalogEventCondition + `
 		ON CONFLICT DO NOTHING
 		RETURNING event_id
 	`
@@ -81,6 +84,7 @@ const (
 		JOIN unnest($1::uuid[], $2::date[]) AS pairs(venue_id, local_event_date)
 			ON e.venue_id = pairs.venue_id
 			AND e.local_event_date = pairs.local_event_date
+		WHERE ` + catalogEventCondition + `
 	`
 
 	// findEventsByArtistDateQuery returns existing events on any of the given
@@ -95,6 +99,7 @@ const (
 		JOIN concert_artists ep ON ep.event_id = e.id
 		WHERE ep.artist_id = $1
 			AND e.local_event_date = ANY($2::date[])
+			AND ` + catalogEventCondition + `
 	`
 
 	// listEventsBySeriesQuery returns every event of a series, ordered by
@@ -102,9 +107,10 @@ const (
 	// with a NULL start_at last (NULLS LAST). Projects only the physical-identity
 	// fields a series-level notification link needs.
 	listEventsBySeriesQuery = `
-		SELECT e.id, e.series_id, e.local_event_date, e.start_at
+		SELECT e.id, e.series_id, e.local_event_date, e.start_at, e.publish_state
 		FROM events e
 		WHERE e.series_id = $1
+		  AND ` + catalogEventCondition + `
 		ORDER BY e.local_event_date ASC, e.start_at ASC NULLS LAST
 	`
 
@@ -117,29 +123,27 @@ const (
 		    open_at  = COALESCE(e.open_at, u.open_at)
 		FROM unnest($1::uuid[], $2::timestamptz[], $3::timestamptz[]) AS u(id, start_at, open_at)
 		WHERE e.id = u.id
+		  AND ` + catalogEventCondition + `
 	`
 
-	// firstPartyVisibilityGuard is the SQL fragment appended to every fan-facing
-	// query to exclude first-party (organizer-authored) series that are not
-	// publicly visible. A series is considered publicly visible iff it is either:
-	//   - a discovered series (organizer_id IS NULL), or
-	//   - a first-party series that is PUBLISHED and PUBLIC.
-	// DRAFT, UNLISTED, and CANCELLED first-party series are excluded so they
-	// never appear on fan-facing surfaces before publish or after cancellation.
-	firstPartyVisibilityGuard = `
-		AND NOT (s.organizer_id IS NOT NULL
-		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+	// fanVisibilityGuard leaves out every concert that is not visible to fans.
+	// A concert is visible exactly when its event is discovered, or PUBLISHED
+	// in a PUBLIC first-party series (components/entity/concert "Fan visibility
+	// follows the event").
+	fanVisibilityGuard = `
+		AND ` + catalogEventCondition + `
+		AND ` + fanVisibleCondition + `
 	`
 
 	// listConcertsByArtistQuery returns concerts where the given artist appears
 	// in concert_artists. The Series parent and the venue are joined; performer
 	// hydration happens in a follow-up query (listPerformersByEventIDsQuery).
-	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party
-	// series from this fan-facing surface.
+	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party
+	// events from this fan-facing surface.
 	listConcertsByArtistQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area
 		FROM events e
@@ -149,14 +153,14 @@ const (
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
-		)` + firstPartyVisibilityGuard + `
+		)` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
 	listUpcomingConcertsByArtistQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area
 		FROM events e
@@ -167,16 +171,16 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
-		AND e.local_event_date >= CURRENT_DATE` + firstPartyVisibilityGuard + `
+		AND e.local_event_date >= CURRENT_DATE` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
 	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
-	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party series.
+	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party events.
 	listConcertsByArtistsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
@@ -186,7 +190,7 @@ const (
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
-		)` + firstPartyVisibilityGuard + `
+		)` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -198,11 +202,11 @@ const (
 	// 200 km cut and HOME/NEARBY classification happen in the use-case layer.
 	// Venue lat/lng are included (withCoords) so that classification can run.
 	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax, $7 admin_area.
-	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party series.
+	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party events.
 	listConcertsByLocationQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
@@ -214,7 +218,7 @@ const (
 		  AND (
 		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
 		    OR v.admin_area = $7
-		  )` + firstPartyVisibilityGuard + `
+		  )` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -224,9 +228,9 @@ const (
 	// Admin queries intentionally omit the visibility guard so operators can
 	// see all series states.
 	listAllConcertsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
@@ -234,12 +238,13 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
+		WHERE ` + catalogEventCondition + `
 		ORDER BY e.local_event_date ASC
 	`
 
 	// deleteEventQuery removes a published event by id. Rows referencing the
 	// event are removed by the schema's ON DELETE CASCADE foreign keys.
-	deleteEventQuery = `DELETE FROM events WHERE id = $1`
+	deleteEventQuery = `DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition
 
 	// deleteEventAndSuppressQuery deletes a published event (cascading via the
 	// schema's foreign keys) and, in the same statement, records a suppression
@@ -260,8 +265,8 @@ const (
 	// ticket_types refuses the whole statement, like an issued ticket does.
 	deleteEventAndSuppressQuery = `
 		WITH deleted AS (
-			DELETE FROM events WHERE id = $1
-			RETURNING venue_id, local_event_date, start_at
+			DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition + `
+			RETURNING e.venue_id, e.local_event_date, e.start_at
 		), abandoned_checkouts AS (
 			DELETE FROM checkouts c
 			USING ticket_types tt
@@ -286,9 +291,9 @@ const (
 	// ProximityAway for every concert and HypeNearby followers are silently
 	// excluded from every new-concert push notification.
 	listConcertsByIDsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
@@ -297,6 +302,7 @@ const (
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE e.id = ANY($1)
+		  AND ` + catalogEventCondition + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -309,12 +315,12 @@ const (
 	// date) widens the range to that date. The from boundary is client-supplied
 	// to anchor "today" to the caller's timezone (server runs in UTC).
 	//
-	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party
-	// series from this fan-facing surface.
+	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party
+	// events from this fan-facing surface.
 	listConcertsByFollowerQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
-		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
@@ -325,7 +331,7 @@ const (
 		JOIN concert_artists ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
-		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)` + firstPartyVisibilityGuard + `
+		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -374,6 +380,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		venue         entity.Venue
 		seriesT       string
 		sourceURL     *string
+		eventState    sql.NullString
 		organizerID   sql.NullString
 		description   sql.NullString
 		visibility    sql.NullString
@@ -383,7 +390,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		lat, lng      *float64
 	)
 	dests := []any{
-		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
+		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &eventState,
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
 		&seriesImageID, &imageOrgID,
@@ -429,10 +436,8 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		v := entity.SeriesVisibility(visibility.String)
 		series.Visibility = &v
 	}
-	if publishState.Valid {
-		v := entity.SeriesPublishState(publishState.String)
-		series.PublishState = &v
-	}
+	c.PublishState = nullPublishState(eventState)
+	series.PublishState = nullPublishState(publishState)
 	if seriesImageID.Valid {
 		series.CoverImage = &entity.SeriesImage{
 			ID:          seriesImageID.String,
@@ -1066,7 +1071,7 @@ func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artis
 }
 
 // ListEventsBySeries implements entity.ConcertRepository. It returns every
-// event of the given series, ordered by local_event_date then start_at
+// event of the given series that is not DRAFT, with its publish state, ordered by local_event_date then start_at
 // (NULLS LAST), projected to the fields series-level notification link
 // resolution needs.
 func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID string) ([]*entity.Event, error) {
@@ -1081,11 +1086,13 @@ func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID str
 		var (
 			e       entity.Event
 			startAt *time.Time
+			state   sql.NullString
 		)
-		if err := rows.Scan(&e.ID, &e.SeriesID, &e.LocalDate, &startAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.LocalDate, &startAt, &state); err != nil {
 			return nil, toAppErr(err, "failed to scan event by series")
 		}
 		e.StartTime = startAt
+		e.PublishState = nullPublishState(state)
 		events = append(events, &e)
 	}
 	if err := rows.Err(); err != nil {
@@ -1108,10 +1115,10 @@ func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []
 }
 
 const updateEventListedVenueNameQuery = `
-	UPDATE events
+	UPDATE events e
 	SET listed_venue_name = $2
-	WHERE id = $1
-`
+	WHERE e.id = $1
+	  AND ` + catalogEventCondition
 
 // UpdateEventListedVenueName implements entity.ConcertRepository. It overwrites
 // the listed_venue_name display field of an existing event, leaving venue_id and

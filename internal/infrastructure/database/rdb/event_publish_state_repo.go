@@ -15,7 +15,7 @@ import (
 var _ usecase.EventPublishStatePort = (*EventPublishStateRepository)(nil)
 
 // EventPublishStateRepository implements [usecase.EventPublishStatePort] for
-// PostgreSQL. It answers whether a given event's parent series is PUBLISHED,
+// PostgreSQL. It answers whether a given event is itself PUBLISHED,
 // distinguishing "event not found" from "event exists but not published".
 type EventPublishStateRepository struct {
 	db *Database
@@ -30,16 +30,15 @@ const (
 	// eventExistsQuery checks whether an event row with the given ID exists.
 	eventExistsQuery = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
 
-	// eventPublishedQuery returns true only when the event exists AND its parent
-	// series has publish_state = 'PUBLISHED'. Discovered series carry NULL
-	// publish_state, so COALESCE maps NULL to FALSE (not published).
+	// eventPublishedQuery returns true only when the event exists AND its own
+	// publish state is PUBLISHED. The other dates of its series play no part;
+	// an event of a discovered series has NULL and reads as not published.
 	eventPublishedQuery = `
 		SELECT EXISTS(
 			SELECT 1
 			FROM events e
-			JOIN series s ON e.series_id = s.id
 			WHERE e.id = $1
-			  AND COALESCE(s.publish_state::text, '') = 'PUBLISHED'
+			  AND e.publish_state = 'PUBLISHED'
 		)
 	`
 
@@ -56,8 +55,8 @@ const (
 // IsEventPublished implements [usecase.EventPublishStatePort].
 //
 // It returns:
-//   - (true,  nil):  the event exists and its series is PUBLISHED.
-//   - (false, nil):  the event exists but the series is DRAFT, CANCELLED, or discovered (NULL).
+//   - (true,  nil):  the event exists and is PUBLISHED.
+//   - (false, nil):  the event exists but is DRAFT, CANCELLED, or discovered (NULL).
 //   - (false, err):  err carries NotFound when the event does not exist, or
 //     Internal for a database failure.
 func (r *EventPublishStateRepository) IsEventPublished(ctx context.Context, eventID string) (bool, error) {
@@ -83,7 +82,7 @@ func (r *EventPublishStateRepository) IsEventPublished(ctx context.Context, even
 		return false, apperr.New(codes.NotFound, "event not found")
 	}
 
-	// Event exists — now check whether its series is PUBLISHED.
+	// Event exists — now check whether it is PUBLISHED.
 	var published bool
 	err = r.db.Pool.QueryRow(ctx, eventPublishedQuery, eventID).Scan(&published)
 	if err != nil {
