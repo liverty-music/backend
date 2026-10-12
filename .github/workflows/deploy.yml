@@ -5,13 +5,12 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   9× docker/build-push-action across the
+#                           * build:   8× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
 #                                      official-site-refresh,
 #                                      sales-phase-discovery, sales-reminders,
-#                                      series-image-consumer, and the
-#                                      temporary media-consumer alias),
+#                                      series-image-consumer),
 #                                      pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
@@ -19,7 +18,7 @@ name: Deploy Backend
 #                                      push changed no build-relevant file
 #                                      (CI config / docs only).
 #  - release published -> retag dev AR digest into prod AR
-#                         (liverty-music-prod/backend). 9× `crane copy`
+#                         (liverty-music-prod/backend). 8× `crane copy`
 #                         across the matrix — no rebuild. Each matrix
 #                         entry resolves its own dev AR digest for
 #                         github.sha and promotes that exact digest to
@@ -77,10 +76,10 @@ jobs:
       id-token: write
     strategy:
       # fail-fast: false so that one matrix entry's failure (e.g. transient
-      # AR error during digest-resolve) does NOT cancel the other 3. Partial
+      # AR error during digest-resolve) does NOT cancel the other 7. Partial
       # success is the expected steady state on release events: per the
       # retag runbook, the operator can `gh run rerun --job <job-id>` the
-      # single failing matrix entry. The 3 successful entries' prod AR
+      # single failing matrix entry. The 7 successful entries' prod AR
       # writes are idempotent because `crane copy` to an existing
       # immutable tag at the same digest is a no-op.
       fail-fast: false
@@ -112,12 +111,6 @@ jobs:
           # CGO-off distroless targets, but the build/push/retag path is
           # identical — one more image in the shared `backend` AR repo.
           - name: series-image-consumer
-            target: series-image-consumer
-          # TEMPORARY: the same series-image-consumer target, also published under
-          # its old image name so the prod pin bump's provenance gate still finds
-          # a media-consumer image while the k8s cutover lands. The cleanup PR
-          # removes this entry.
-          - name: media-consumer
             target: series-image-consumer
     env:
       REGION: ${{ vars.REGION }}
@@ -264,7 +257,7 @@ jobs:
         run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main" >> $GITHUB_ENV
 
       # =====================================================================
-      # Dev build path: build + push the 4 images to dev AR
+      # Dev build path: build + push the 8 images to dev AR
       # =====================================================================
       - name: Set up Docker Buildx
         if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
@@ -499,7 +492,7 @@ jobs:
   # auto-syncs). Per OpenSpec change `automate-prod-pin-bump` (D5): this is a
   # SEPARATE job gated on `build-and-push` succeeding as a whole. With
   # `fail-fast: false`, the matrix job's `result` is `success` ONLY when every
-  # one of the 4 entries passed, so a partially-failed retag (e.g. 3/4 images)
+  # one of the 8 entries passed, so a partially-failed retag (e.g. 7/8 images)
   # never bumps the pin to a release tag whose prod images are incomplete
   # (which would ImagePullBackOff in prod).
   #
