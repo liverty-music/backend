@@ -389,8 +389,8 @@ const (
 	deleteOrganizerRejectedScansQuery = `
 		DELETE FROM rejected_scans WHERE event_id IN (` + organizerEventIDsSubquery + `)
 	`
-	deleteOrganizerReceptionLinksQuery = `
-		DELETE FROM reception_links WHERE event_id IN (` + organizerEventIDsSubquery + `)
+	deleteOrganizerScannersQuery = `
+		DELETE FROM scanners WHERE event_id IN (` + organizerEventIDsSubquery + `)
 	`
 	// The purchase deletions below are filtered by status as well as by event:
 	// a Paid Order committed after the blocker check is then left in place, and
@@ -428,7 +428,8 @@ const (
 // organizer row is locked first and the blockers are checked under that lock;
 // with dryRun the transaction is rolled back after the check.
 //
-// The statements run in RESTRICT-safe order: reception records, then the
+// The statements run in RESTRICT-safe order: the admission records
+// (admissions, rejected scans, Scanners), then the
 // refunded purchases, then the checkouts, then the Series (which cascades its
 // TicketSales and Events, and through them the TicketTypes, lottery entries,
 // journeys, performers and series_cover_images), then the SeriesImage rows
@@ -475,7 +476,7 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 	}{
 		{deleteOrganizerAdmissionsQuery, []any{id}, "admissions"},
 		{deleteOrganizerRejectedScansQuery, []any{id}, "rejected scans"},
-		{deleteOrganizerReceptionLinksQuery, []any{id}, "reception links"},
+		{deleteOrganizerScannersQuery, []any{id}, "scanners"},
 		{deleteOrganizerSettlementsQuery, []any{id, int16(entity.SettlementStatusReversed)}, "settlements"},
 		{deleteOrganizerTicketsQuery, []any{id, int16(entity.OrderStatusRefunded)}, "tickets"},
 		{deleteOrganizerOrdersQuery, []any{id, int16(entity.OrderStatusRefunded)}, "orders"},

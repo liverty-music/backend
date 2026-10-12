@@ -15,7 +15,7 @@ import (
 
 // deletableOrganizer holds the ids of an Organizer seeded with one published
 // Series, one Event (with a performer, a lottery TicketType of a TicketSale
-// and a reception link),
+// and a Scanner),
 // a cover SeriesImage, a second SeriesImage no Series uses, and one associated Artist that
 // a fan follows.
 type deletableOrganizer struct {
@@ -28,7 +28,7 @@ type deletableOrganizer struct {
 	unusedID    string
 	artistID    string
 	followerID  string
-	linkID      entity.ReceptionLinkID
+	scannerID   entity.ScannerID
 }
 
 // seedDeletableOrganizer seeds a deletableOrganizer in the given status.
@@ -68,9 +68,9 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 
 	tt := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodLottery, 100, 4)
 	o.saleID, o.typeID = tt.TicketSaleID, tt.ID
-	o.linkID = seedLink(t, o.eventID).ID
-	exec(`INSERT INTO rejected_scans (id, event_id, reception_link_id, reason, scanned_at) VALUES ($1, $2, $3, 1, now())`,
-		uuid.NewV7().String(), o.eventID, string(o.linkID))
+	o.scannerID = seedScanner(t, o.eventID).ID
+	exec(`INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scanned_at) VALUES ($1, $2, $3, 1, now())`,
+		uuid.NewV7().String(), o.eventID, string(o.scannerID))
 	return o
 }
 
@@ -84,8 +84,7 @@ type seededPurchase struct {
 
 // seedPurchase seeds a Won lottery entry, an Order in orderStatus with one
 // Ticket, and a Settlement in settlementStatus for the organizer's Event. An
-// admitted purchase also gets an admission through the organizer's reception
-// link.
+// admitted purchase also gets an admission through a Scanner of that Event.
 func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderStatus, settlementStatus entity.SettlementStatus, admitted bool) seededPurchase {
 	t.Helper()
 	ctx := context.Background()
@@ -117,8 +116,8 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 		p.settlementID, o.organizerID)
 	if admitted {
 		exec(`UPDATE tickets SET admit_at = $2 WHERE id = $1`, p.ticketID, paidAt)
-		exec(`INSERT INTO admissions (ticket_id, event_id, reception_link_id, admitted_at) VALUES ($1, $2, $3, $4)`,
-			p.ticketID, o.eventID, string(o.linkID), paidAt)
+		exec(`INSERT INTO admissions (ticket_id, event_id, scanner_id, admitted_at) VALUES ($1, $2, $3, $4)`,
+			p.ticketID, o.eventID, string(o.scannerID), paidAt)
 	}
 	return p
 }
@@ -139,18 +138,18 @@ func assertOrganizerRecords(t *testing.T, o deletableOrganizer, wantExist bool) 
 		query string
 		arg   any
 	}{
-		"organizer":      {`SELECT 1 FROM organizers WHERE id = $1`, o.organizerID},
-		"series":         {`SELECT 1 FROM series WHERE id = $1`, o.seriesID},
-		"event":          {`SELECT 1 FROM events WHERE id = $1`, o.eventID},
-		"performer":      {`SELECT 1 FROM concert_artists WHERE event_id = $1`, o.eventID},
-		"ticket sale":    {`SELECT 1 FROM ticket_sales WHERE id = $1`, string(o.saleID)},
-		"ticket type":    {`SELECT 1 FROM ticket_types WHERE id = $1`, string(o.typeID)},
-		"cover image":    {`SELECT 1 FROM series_images WHERE id = $1`, o.coverID},
-		"unused image":   {`SELECT 1 FROM series_images WHERE id = $1`, o.unusedID},
-		"cover link":     {`SELECT 1 FROM series_cover_images WHERE series_id = $1`, o.seriesID},
-		"association":    {`SELECT 1 FROM organizer_artists WHERE organizer_id = $1`, o.organizerID},
-		"reception link": {`SELECT 1 FROM reception_links WHERE id = $1`, string(o.linkID)},
-		"rejected scan":  {`SELECT 1 FROM rejected_scans WHERE event_id = $1`, o.eventID},
+		"organizer":     {`SELECT 1 FROM organizers WHERE id = $1`, o.organizerID},
+		"series":        {`SELECT 1 FROM series WHERE id = $1`, o.seriesID},
+		"event":         {`SELECT 1 FROM events WHERE id = $1`, o.eventID},
+		"performer":     {`SELECT 1 FROM concert_artists WHERE event_id = $1`, o.eventID},
+		"ticket sale":   {`SELECT 1 FROM ticket_sales WHERE id = $1`, string(o.saleID)},
+		"ticket type":   {`SELECT 1 FROM ticket_types WHERE id = $1`, string(o.typeID)},
+		"cover image":   {`SELECT 1 FROM series_images WHERE id = $1`, o.coverID},
+		"unused image":  {`SELECT 1 FROM series_images WHERE id = $1`, o.unusedID},
+		"cover link":    {`SELECT 1 FROM series_cover_images WHERE series_id = $1`, o.seriesID},
+		"association":   {`SELECT 1 FROM organizer_artists WHERE organizer_id = $1`, o.organizerID},
+		"scanner":       {`SELECT 1 FROM scanners WHERE id = $1`, string(o.scannerID)},
+		"rejected scan": {`SELECT 1 FROM rejected_scans WHERE event_id = $1`, o.eventID},
 	}
 	for what, c := range checks {
 		assert.Equal(t, wantExist, rowExists(t, c.query, c.arg), what)

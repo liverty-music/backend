@@ -58,7 +58,8 @@ type organizerTableWrites struct {
 // 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql,
 // 20261010010000_grant_organizer_console_api_ticket_sales.sql and
 // 20261011000000_unify_ticket_sales.sql; 20261012000000_one_name_per_concept.sql
-// renames the tables and columns, and the privileges follow them).
+// and 20261012220000_rename_reception_links_to_scanners.sql rename the tables
+// and columns, and the privileges follow them).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, updateColumns: []string{
@@ -74,7 +75,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"concert_candidates":      {delete: true},
 	"series_images":           {insert: true},
 	"payout_accounts":         {insert: true, updateColumns: []string{"provider_account_id", "status", "status_synced_at"}},
-	"reception_links":         {insert: true, updateColumns: []string{"status", "token", "revoked_at"}},
+	"scanners":                {insert: true, updateColumns: []string{"status", "link_token", "revoked_at"}},
 	"ticket_sales":            {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
 	"ticket_types":            {insert: true, updateColumns: []string{"price", "quantity", "per_account_limit"}},
 }
@@ -89,10 +90,12 @@ type receptionTableAccess struct {
 }
 
 // receptionAccess is every read and write the reception server performs (see
-// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql).
+// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql;
+// 20261012220000_rename_reception_links_to_scanners.sql renames reception_links
+// to scanners and token to link_token, and the privileges follow them).
 // The role has no privilege on any other app table.
 var receptionAccess = map[string]receptionTableAccess{
-	"reception_links":    {selects: true, updateColumns: []string{"status", "bound_public_key", "bound_at", "token"}},
+	"scanners":           {selects: true, updateColumns: []string{"status", "bound_public_key", "bound_at", "link_token"}},
 	"events":             {selects: true},
 	"wallet_public_keys": {selects: true},
 	"tickets":            {selects: true, updateColumns: []string{"admit_at"}},

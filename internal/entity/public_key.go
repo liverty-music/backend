@@ -24,7 +24,7 @@ const (
 // PublicKey is the public half of an ECDSA P-256 key pair that a device
 // created with WebCrypto as a non-extractable signing key, encoded as the
 // 65-byte uncompressed SEC1 point. Used both for a fan's [WalletPublicKey] and
-// for the device a [ReceptionLink] is bound to.
+// for the device a [Scanner] is bound to.
 //
 // Mirrors liverty_music.entity.v1.PublicKey.
 type PublicKey []byte
@@ -44,7 +44,7 @@ func (k PublicKey) Equal(other PublicKey) bool {
 }
 
 // Base64URL returns the key as base64url without padding — the call content
-// of a reception Open call.
+// of a scanner Open call.
 func (k PublicKey) Base64URL() string {
 	return base64.RawURLEncoding.EncodeToString(k)
 }

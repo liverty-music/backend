@@ -13,11 +13,11 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// AdmitInput is one scan sent by a reception device.
+// AdmitInput is one scan sent by a scanner device.
 type AdmitInput struct {
 	// Procedure is the full Connect procedure path the call was signed for.
 	Procedure string
-	// LinkToken is the secret part of the reception link's URL.
+	// LinkToken is the secret part of the Scanner's link.
 	LinkToken string
 	// SignTime is when the device signed the call, by its clock.
 	SignTime time.Time
@@ -37,9 +37,9 @@ type RejectedTicket struct {
 	// EarlierAdmitTime is, for AlreadyAdmitted, when the ticket was
 	// admitted earlier.
 	EarlierAdmitTime *time.Time
-	// EarlierReceptionLinkNumber is, for AlreadyAdmitted, the number of the
-	// link it was admitted through; 0 when unknown.
-	EarlierReceptionLinkNumber int
+	// EarlierScannerNumber is, for AlreadyAdmitted, the number of the
+	// Scanner it was admitted through; 0 when unknown.
+	EarlierScannerNumber int
 }
 
 // AdmitResult is what staff see for one scan: a head count and the reasons
@@ -57,7 +57,7 @@ type AdmitResult struct {
 }
 
 // TicketUseCase is the fan-facing read surface over a caller's own Orders and
-// issued Tickets, and the reception-side admission of Tickets at the venue.
+// issued Tickets, and the admission of Tickets at the venue.
 type TicketUseCase interface {
 	// List returns every Ticket whose user is the calling fan, Voided
 	// ones included; empty when the fan has none.
@@ -67,8 +67,8 @@ type TicketUseCase interface {
 	//  - Internal: database query failure.
 	List(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error)
 
-	// Admit decides one scan: through a usable link, from its bound device,
-	// inside its event's reception window, it admits each ticket a genuine and
+	// Admit decides one scan: through a usable Scanner, from its bound device,
+	// inside its event's admission window, it admits each ticket a genuine and
 	// fresh AdmissionCode for its event presents exactly once, records every
 	// refusal as a RejectedScan, and returns the head count and reasons. A code
 	// presenting any ticket that is not its user's own for the event is
@@ -77,11 +77,11 @@ type TicketUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - PermissionDenied: no link holds the token (cause
-	//    [ErrUnknownReceptionLinkToken]), the link is Revoked (also when revoked
+	//  - PermissionDenied: no Scanner holds the link token (cause
+	//    [ErrUnknownScannerLinkToken]), the Scanner is Revoked (also when revoked
 	//    while the scan is decided), or the call is not proven by the bound
 	//    device. Nothing is admitted.
-	//  - FailedPrecondition: now is outside the link's reception window.
+	//  - FailedPrecondition: now is outside the admission window.
 	//    Nothing is admitted or recorded.
 	//  - Unavailable: admitting a ticket failed; scan again.
 	//  - Internal: database failure before any ticket was considered.
@@ -92,7 +92,7 @@ type TicketUseCase interface {
 type ticketUseCase struct {
 	orderRepo        entity.OrderRepository
 	ticketRepo       entity.TicketRepository
-	linkRepo         entity.ReceptionLinkRepository
+	scannerRepo      entity.ScannerRepository
 	eventRepo        entity.EventRepository
 	walletKeyRepo    entity.WalletPublicKeyRepository
 	admissionRepo    entity.AdmissionRepository
@@ -107,7 +107,7 @@ var _ TicketUseCase = (*ticketUseCase)(nil)
 func NewTicketUseCase(
 	orderRepo entity.OrderRepository,
 	ticketRepo entity.TicketRepository,
-	linkRepo entity.ReceptionLinkRepository,
+	scannerRepo entity.ScannerRepository,
 	eventRepo entity.EventRepository,
 	walletKeyRepo entity.WalletPublicKeyRepository,
 	admissionRepo entity.AdmissionRepository,
@@ -117,7 +117,7 @@ func NewTicketUseCase(
 	return &ticketUseCase{
 		orderRepo:        orderRepo,
 		ticketRepo:       ticketRepo,
-		linkRepo:         linkRepo,
+		scannerRepo:      scannerRepo,
 		eventRepo:        eventRepo,
 		walletKeyRepo:    walletKeyRepo,
 		admissionRepo:    admissionRepo,
@@ -133,40 +133,40 @@ func (uc *ticketUseCase) List(ctx context.Context, userID entity.UserID) ([]*ent
 
 // Admit implements [TicketUseCase].
 func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult, error) {
-	// -- the caller: a usable link, the bound device, inside the window --
-	link, err := uc.linkRepo.GetByToken(ctx, in.LinkToken)
+	// -- the caller: a usable Scanner, the bound device, inside the window --
+	scanner, err := uc.scannerRepo.GetByLinkToken(ctx, in.LinkToken)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, receptionRefused(ErrUnknownReceptionLinkToken)
+			return nil, scannerRefused(ErrUnknownScannerLinkToken)
 		}
 		return nil, err
 	}
-	call := entity.ReceptionCall{
+	call := entity.ScannerCall{
 		Procedure: in.Procedure,
-		Token:     in.LinkToken,
+		LinkToken: in.LinkToken,
 		Content:   in.ScannedText,
 		SignTime:  in.SignTime,
 		Signature: in.Signature,
 	}
-	if !link.IsUsable() || !link.Proves(call, in.Now) {
-		return nil, receptionRefused(errReceptionLinkRefused)
+	if !scanner.IsUsable() || !scanner.Proves(call, in.Now) {
+		return nil, scannerRefused(errScannerRefused)
 	}
-	event, err := uc.eventRepo.Get(ctx, link.EventID)
+	event, err := uc.eventRepo.Get(ctx, scanner.EventID)
 	if err != nil {
 		return nil, err
 	}
-	window, ok := entity.ReceptionWindowOf(event)
+	window, ok := entity.AdmissionWindowOf(event)
 	if !ok || !window.Contains(in.Now) {
-		return nil, apperr.New(codes.FailedPrecondition, "outside the reception window")
+		return nil, apperr.New(codes.FailedPrecondition, "outside the admission window")
 	}
 
 	// -- the code: genuine, fresh, for this event, only the user's own tickets --
-	code, reason, err := uc.checkCode(ctx, in.ScannedText, link.EventID, in.Now)
+	code, reason, err := uc.checkCode(ctx, in.ScannedText, scanner.EventID, in.Now)
 	if err != nil {
 		return nil, err
 	}
 	if reason != entity.RejectedScanReasonUnspecified {
-		uc.appendRejections(ctx, wholeScanRejections(link, code, reason, in.Now))
+		uc.appendRejections(ctx, wholeScanRejections(scanner, code, reason, in.Now))
 		return &AdmitResult{RejectedScanReason: reason}, nil
 	}
 
@@ -175,15 +175,15 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 	var rejections []*entity.RejectedScan
 	reject := func(ticketID entity.TicketID, rt RejectedTicket) {
 		result.RejectedTickets = append(result.RejectedTickets, rt)
-		rejections = append(rejections, entity.NewRejectedScan(link.EventID, link.ID, ticketID, rt.Reason, in.Now))
+		rejections = append(rejections, entity.NewRejectedScan(scanner.EventID, scanner.ID, ticketID, rt.Reason, in.Now))
 	}
 	for _, ticketID := range code.TicketIDs {
-		admitted, err := uc.ticketRepo.Admit(ctx, ticketID, link.ID, in.Now)
+		admitted, err := uc.ticketRepo.Admit(ctx, ticketID, scanner.ID, in.Now)
 		if err != nil {
 			// Refusals decided so far are still recorded.
 			uc.appendRejections(ctx, rejections)
-			if errors.Is(err, entity.ErrReceptionLinkNotUsable) {
-				return nil, receptionRefused(errReceptionLinkRefused)
+			if errors.Is(err, entity.ErrScannerNotUsable) {
+				return nil, scannerRefused(errScannerRefused)
 			}
 			return nil, apperr.Wrap(err, codes.Unavailable, "failed to admit a ticket; scan again")
 		}
@@ -249,20 +249,20 @@ func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, no
 // wholeScanRejections returns the RejectedScans of a scan rejected as a
 // whole: one without a ticket for Forged, one per presented ticket for
 // Expired and OtherEvent (the signature verified, so the tickets are known).
-func wholeScanRejections(link *entity.ReceptionLink, code *entity.AdmissionCode, reason entity.RejectedScanReason, now time.Time) []*entity.RejectedScan {
+func wholeScanRejections(scanner *entity.Scanner, code *entity.AdmissionCode, reason entity.RejectedScanReason, now time.Time) []*entity.RejectedScan {
 	if reason == entity.RejectedScanReasonForged {
-		return []*entity.RejectedScan{entity.NewRejectedScan(link.EventID, link.ID, "", reason, now)}
+		return []*entity.RejectedScan{entity.NewRejectedScan(scanner.EventID, scanner.ID, "", reason, now)}
 	}
 	scans := make([]*entity.RejectedScan, 0, len(code.TicketIDs))
 	for _, id := range code.TicketIDs {
-		scans = append(scans, entity.NewRejectedScan(link.EventID, link.ID, id, reason, now))
+		scans = append(scans, entity.NewRejectedScan(scanner.EventID, scanner.ID, id, reason, now))
 	}
 	return scans
 }
 
 // alreadyAdmitted builds the AlreadyAdmitted rejection with the earlier
-// admission's time and link number. When the Admission cannot be read the
-// ticket's admitted time is still reported, without a link number.
+// admission's time and Scanner number. When the Admission cannot be read the
+// ticket's admitted time is still reported, without a Scanner number.
 func (uc *ticketUseCase) alreadyAdmitted(ctx context.Context, ticketID entity.TicketID, admittedTime time.Time) RejectedTicket {
 	rt := RejectedTicket{Reason: entity.RejectedScanReasonAlreadyAdmitted}
 	admission, err := uc.admissionRepo.GetByTicket(ctx, ticketID)
@@ -275,7 +275,7 @@ func (uc *ticketUseCase) alreadyAdmitted(ctx context.Context, ticketID entity.Ti
 	}
 	t := admission.AdmitTime
 	rt.EarlierAdmitTime = &t
-	rt.EarlierReceptionLinkNumber = admission.ReceptionLinkNumber
+	rt.EarlierScannerNumber = admission.ScannerNumber
 	return rt
 }
 

@@ -17,25 +17,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const openProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Open"
+const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
-// receptionLinkFixture wires ReceptionLinkUseCase to mocks for one event
+// scannerFixture wires ScannerUseCase to mocks for one event
 // owned by "org-owner", published, on 2026-11-20 opening 18:00 and starting
 // 19:00 (window 15:00 to 04:00 the next day).
-type receptionLinkFixture struct {
-	uc         usecase.ReceptionLinkUseCase
-	links      *entitymocks.MockReceptionLinkRepository
+type scannerFixture struct {
+	uc         usecase.ScannerUseCase
+	scanners   *entitymocks.MockScannerRepository
 	events     *entitymocks.MockEventRepository
 	eventState *ucmocks.MockEventPublishStatePort
 	owner      *stubEventOrganizerRepo
 	event      *entity.Event
 }
 
-func newReceptionLinkFixture(t *testing.T) *receptionLinkFixture {
+func newScannerFixture(t *testing.T) *scannerFixture {
 	t.Helper()
 	open, start := evening(18, 0, 0), evening(19, 0, 0)
-	f := &receptionLinkFixture{
-		links:      entitymocks.NewMockReceptionLinkRepository(t),
+	f := &scannerFixture{
+		scanners:   entitymocks.NewMockScannerRepository(t),
 		events:     entitymocks.NewMockEventRepository(t),
 		eventState: ucmocks.NewMockEventPublishStatePort(t),
 		event: &entity.Event{
@@ -51,86 +51,86 @@ func newReceptionLinkFixture(t *testing.T) *receptionLinkFixture {
 		}
 		return "org-owner", nil
 	}}
-	f.uc = usecase.NewReceptionLinkUseCase(f.links, f.events, f.owner, f.eventState, newTestLogger(t))
+	f.uc = usecase.NewScannerUseCase(f.scanners, f.events, f.owner, f.eventState, newTestLogger(t))
 	return f
 }
 
-func TestReceptionLinkUseCase_Issue(t *testing.T) {
+func TestScannerUseCase_Create(t *testing.T) {
 	t.Parallel()
 
-	t.Run("link issued the day before", func(t *testing.T) {
+	t.Run("scanner created the day before", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/issue "Link issued the day before"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/create "Scanner created the day before"
+		f := newScannerFixture(t)
 		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(true, nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
-		f.links.EXPECT().Create(mock.Anything, mock.MatchedBy(func(l *entity.ReceptionLink) bool {
-			return l.EventID == f.event.ID && l.Status == entity.ReceptionLinkStatusUnused && l.Token != ""
-		})).RunAndReturn(func(_ context.Context, l *entity.ReceptionLink) (*entity.ReceptionLink, error) {
+		f.scanners.EXPECT().Create(mock.Anything, mock.MatchedBy(func(l *entity.Scanner) bool {
+			return l.EventID == f.event.ID && l.Status == entity.ScannerStatusUnused && l.LinkToken != ""
+		})).RunAndReturn(func(_ context.Context, l *entity.Scanner) (*entity.Scanner, error) {
 			created := *l
 			created.Number = 1
 			return &created, nil
 		})
 
-		got, err := f.uc.Issue(context.Background(), "org-owner", f.event.ID)
+		got, err := f.uc.Create(context.Background(), "org-owner", f.event.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 1, got.Number)
-		assert.Equal(t, entity.ReceptionLinkStatusUnused, got.Status)
-		assert.NotEmpty(t, got.Token)
+		assert.Equal(t, entity.ScannerStatusUnused, got.Status)
+		assert.NotEmpty(t, got.LinkToken)
 	})
 
 	t.Run("another organizer's event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/issue "Another organizer's event"
-		f := newReceptionLinkFixture(t)
-		_, err := f.uc.Issue(context.Background(), "org-other", f.event.ID)
+		// @spec components/usecase/scanner/create "Another organizer's event"
+		f := newScannerFixture(t)
+		_, err := f.uc.Create(context.Background(), "org-other", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		f.links.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	})
 
 	t.Run("unknown event is not revealed", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionLinkFixture(t)
-		_, err := f.uc.Issue(context.Background(), "org-owner", entity.NewID())
+		f := newScannerFixture(t)
+		_, err := f.uc.Create(context.Background(), "org-owner", entity.NewID())
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
 	t.Run("draft event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/issue "Draft event"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/create "Draft event"
+		f := newScannerFixture(t)
 		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(false, nil)
-		_, err := f.uc.Issue(context.Background(), "org-owner", f.event.ID)
+		_, err := f.uc.Create(context.Background(), "org-owner", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		f.links.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	})
 
 	t.Run("event without a start time", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/issue "Event without a start time"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/create "Event without a start time"
+		f := newScannerFixture(t)
 		f.event.StartTime = nil
 		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(true, nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
-		_, err := f.uc.Issue(context.Background(), "org-owner", f.event.ID)
+		_, err := f.uc.Create(context.Background(), "org-owner", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		f.links.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	})
 }
 
-func TestReceptionLinkUseCase_ListByEvent(t *testing.T) {
+func TestScannerUseCase_ListByEvent(t *testing.T) {
 	t.Parallel()
 
-	t.Run("links of an event", func(t *testing.T) {
+	t.Run("scanners of an event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/list-by-event "Links of an event"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/list-by-event "Scanners of an event"
+		f := newScannerFixture(t)
 		bound := evening(14, 10, 0)
-		f.links.EXPECT().ListByEvent(mock.Anything, f.event.ID).Return([]*entity.ReceptionLink{
-			// The token of an InUse link is cleared by the usecase even if a
+		f.scanners.EXPECT().ListByEvent(mock.Anything, f.event.ID).Return([]*entity.Scanner{
+			// The link token of an InUse scanner is cleared by the usecase even if a
 			// store still returned one.
-			{ID: "l1", EventID: f.event.ID, Number: 1, Token: "stale", Status: entity.ReceptionLinkStatusInUse, BoundTime: &bound},
-			{ID: "l2", EventID: f.event.ID, Number: 2, Token: "tok-2", Status: entity.ReceptionLinkStatusUnused},
+			{ID: "l1", EventID: f.event.ID, Number: 1, LinkToken: "stale", Status: entity.ScannerStatusInUse, BoundTime: &bound},
+			{ID: "l2", EventID: f.event.ID, Number: 2, LinkToken: "tok-2", Status: entity.ScannerStatusUnused},
 		}, nil)
 
 		got, err := f.uc.ListByEvent(context.Background(), "org-owner", f.event.ID)
@@ -138,87 +138,87 @@ func TestReceptionLinkUseCase_ListByEvent(t *testing.T) {
 		require.Len(t, got, 2)
 		assert.Equal(t, 1, got[0].Number)
 		assert.True(t, got[0].BoundTime.Equal(bound))
-		assert.Empty(t, got[0].Token)
-		assert.Equal(t, "tok-2", got[1].Token)
+		assert.Empty(t, got[0].LinkToken)
+		assert.Equal(t, "tok-2", got[1].LinkToken)
 	})
 
 	t.Run("another organizer's event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/list-by-event "Another organizer's event"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/list-by-event "Another organizer's event"
+		f := newScannerFixture(t)
 		_, err := f.uc.ListByEvent(context.Background(), "org-other", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 }
 
-func TestReceptionLinkUseCase_Revoke(t *testing.T) {
+func TestScannerUseCase_Revoke(t *testing.T) {
 	t.Parallel()
 
 	now := evening(19, 10, 0)
 
 	t.Run("device lost during the show", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/revoke "Device lost during the show"
-		f := newReceptionLinkFixture(t)
-		link := &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ReceptionLinkStatusInUse}
-		f.links.EXPECT().Get(mock.Anything, link.ID).Return(link, nil)
-		f.links.EXPECT().Revoke(mock.Anything, link.ID, now).
-			Return(&entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ReceptionLinkStatusRevoked, RevokedTime: &now}, nil)
+		// @spec components/usecase/scanner/revoke "Device lost during the show"
+		f := newScannerFixture(t)
+		scanner := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusInUse}
+		f.scanners.EXPECT().Get(mock.Anything, scanner.ID).Return(scanner, nil)
+		f.scanners.EXPECT().Revoke(mock.Anything, scanner.ID, now).
+			Return(&entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokedTime: &now}, nil)
 
-		got, err := f.uc.Revoke(context.Background(), "org-owner", link.ID, now)
+		got, err := f.uc.Revoke(context.Background(), "org-owner", scanner.ID, now)
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReceptionLinkStatusRevoked, got.Status)
+		assert.Equal(t, entity.ScannerStatusRevoked, got.Status)
 		assert.True(t, got.RevokedTime.Equal(now))
 		// The next scan through it is refused: see TestTicketUseCase_Admit_Caller
-		// "revoked link" and the store-level "link revoked before the
+		// "revoked scanner" and the store-level "scanner revoked before the
 		// admission" contract test.
 	})
 
 	t.Run("revoked twice", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/revoke "Revoked twice"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/revoke "Revoked twice"
+		f := newScannerFixture(t)
 		earlier := evening(18, 5, 0)
-		revoked := &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ReceptionLinkStatusRevoked, RevokedTime: &earlier}
-		f.links.EXPECT().Get(mock.Anything, revoked.ID).Return(revoked, nil)
-		f.links.EXPECT().Revoke(mock.Anything, revoked.ID, now).Return(revoked, nil)
+		revoked := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokedTime: &earlier}
+		f.scanners.EXPECT().Get(mock.Anything, revoked.ID).Return(revoked, nil)
+		f.scanners.EXPECT().Revoke(mock.Anything, revoked.ID, now).Return(revoked, nil)
 
 		got, err := f.uc.Revoke(context.Background(), "org-owner", revoked.ID, now)
 		require.NoError(t, err)
 		assert.True(t, got.RevokedTime.Equal(earlier))
 	})
 
-	t.Run("another organizer's link", func(t *testing.T) {
+	t.Run("another organizer's scanner", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/revoke "Another organizer's link"
-		f := newReceptionLinkFixture(t)
-		link := &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Status: entity.ReceptionLinkStatusInUse}
-		f.links.EXPECT().Get(mock.Anything, link.ID).Return(link, nil)
+		// @spec components/usecase/scanner/revoke "Another organizer's scanner"
+		f := newScannerFixture(t)
+		scanner := &entity.Scanner{ID: "l1", EventID: f.event.ID, Status: entity.ScannerStatusInUse}
+		f.scanners.EXPECT().Get(mock.Anything, scanner.ID).Return(scanner, nil)
 
-		_, err := f.uc.Revoke(context.Background(), "org-other", link.ID, now)
+		_, err := f.uc.Revoke(context.Background(), "org-other", scanner.ID, now)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		f.links.AssertNotCalled(t, "Revoke", mock.Anything, mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "Revoke", mock.Anything, mock.Anything, mock.Anything)
 	})
 
-	t.Run("unknown link is not revealed", func(t *testing.T) {
+	t.Run("unknown scanner is not revealed", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionLinkFixture(t)
-		f.links.EXPECT().Get(mock.Anything, entity.ReceptionLinkID("nope")).Return(nil, apperr.New(codes.NotFound, "no link"))
+		f := newScannerFixture(t)
+		f.scanners.EXPECT().Get(mock.Anything, entity.ScannerID("nope")).Return(nil, apperr.New(codes.NotFound, "no scanner"))
 
 		_, err := f.uc.Revoke(context.Background(), "org-owner", "nope", now)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 }
 
-func TestReceptionLinkUseCase_Open(t *testing.T) {
+func TestScannerUseCase_Open(t *testing.T) {
 	t.Parallel()
 
 	// openInput returns an Open call from device, signed at now.
-	openInput := func(t *testing.T, device *testutil.DeviceKey, now time.Time) usecase.OpenReceptionLinkInput {
+	openInput := func(t *testing.T, device *testutil.DeviceKey, now time.Time) usecase.OpenScannerInput {
 		t.Helper()
 		key := device.PublicKey(t)
 		call := device.SignCall(t, openProcedure, "tok-1", key.Base64URL(), now)
-		return usecase.OpenReceptionLinkInput{
+		return usecase.OpenScannerInput{
 			Procedure: openProcedure,
 			LinkToken: "tok-1",
 			PublicKey: key,
@@ -227,30 +227,30 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 			Now:       now,
 		}
 	}
-	unused := func(f *receptionLinkFixture) *entity.ReceptionLink {
-		return &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Token: "tok-1", Status: entity.ReceptionLinkStatusUnused}
+	unused := func(f *scannerFixture) *entity.Scanner {
+		return &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, LinkToken: "tok-1", Status: entity.ScannerStatusUnused}
 	}
-	boundTo := func(t *testing.T, f *receptionLinkFixture, device *testutil.DeviceKey, at time.Time) *entity.ReceptionLink {
+	boundTo := func(t *testing.T, f *scannerFixture, device *testutil.DeviceKey, at time.Time) *entity.Scanner {
 		t.Helper()
-		return &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ReceptionLinkStatusInUse, BoundPublicKey: device.PublicKey(t), BoundTime: &at}
+		return &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusInUse, BoundPublicKey: device.PublicKey(t), BoundTime: &at}
 	}
 
 	t.Run("staff open the link for the first time", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Staff open the link for the first time"
-		// @spec components/usecase/reception-link/open "Opened during the window"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/open "Staff open the link for the first time"
+		// @spec components/usecase/scanner/open "Opened during the window"
+		f := newScannerFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(unused(f), nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), device.PublicKey(t), now).
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(unused(f), nil)
+		f.scanners.EXPECT().BindDevice(mock.Anything, entity.ScannerID("l1"), device.PublicKey(t), now).
 			Return(entity.BindOutcomeBound, boundTo(t, f, device, now), nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 
 		got, err := f.uc.Open(context.Background(), openInput(t, device, now))
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReceptionLinkStatusInUse, got.Link.Status)
-		assert.Empty(t, got.Link.Token, "the token is never returned to the device")
+		assert.Equal(t, entity.ScannerStatusInUse, got.Scanner.Status)
+		assert.Empty(t, got.Scanner.LinkToken, "the link token is never returned to the device")
 		require.NotNil(t, got.Window)
 		assert.True(t, got.Window.OpenTime.Equal(evening(15, 0, 0)))
 		assert.True(t, got.InsideWindow)
@@ -258,12 +258,12 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 
 	t.Run("opened the day before", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Opened the day before"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/open "Opened the day before"
+		f := newScannerFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := time.Date(2026, 11, 19, 14, 10, 0, 0, jst)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(unused(f), nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), device.PublicKey(t), now).
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(unused(f), nil)
+		f.scanners.EXPECT().BindDevice(mock.Anything, entity.ScannerID("l1"), device.PublicKey(t), now).
 			Return(entity.BindOutcomeBound, boundTo(t, f, device, now), nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 
@@ -276,12 +276,12 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 
 	t.Run("event without a start time has no window", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionLinkFixture(t)
+		f := newScannerFixture(t)
 		f.event.StartTime = nil
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(unused(f), nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), device.PublicKey(t), now).
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(unused(f), nil)
+		f.scanners.EXPECT().BindDevice(mock.Anything, entity.ScannerID("l1"), device.PublicKey(t), now).
 			Return(entity.BindOutcomeBound, boundTo(t, f, device, now), nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 
@@ -293,82 +293,82 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 
 	t.Run("link forwarded to another device", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Link forwarded to another device"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/open "Link forwarded to another device"
+		f := newScannerFixture(t)
 		first, second := testutil.NewDeviceKey(t), testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
 		bound := boundTo(t, f, first, evening(14, 10, 0))
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(bound, nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), second.PublicKey(t), now).
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(bound, nil)
+		f.scanners.EXPECT().BindDevice(mock.Anything, entity.ScannerID("l1"), second.PublicKey(t), now).
 			Return(entity.BindOutcomeOtherDevice, bound, nil)
 
 		_, err := f.uc.Open(context.Background(), openInput(t, second, now))
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
-	t.Run("revoked link", func(t *testing.T) {
+	t.Run("revoked scanner", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Revoked link"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/open "Revoked scanner"
+		f := newScannerFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
-		revoked := &entity.ReceptionLink{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ReceptionLinkStatusRevoked}
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(revoked, nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), device.PublicKey(t), now).
+		revoked := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked}
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(revoked, nil)
+		f.scanners.EXPECT().BindDevice(mock.Anything, entity.ScannerID("l1"), device.PublicKey(t), now).
 			Return(entity.BindOutcomeRevoked, revoked, nil)
 
 		_, err := f.uc.Open(context.Background(), openInput(t, device, now))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.NotErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		assert.NotErrorIs(t, err, usecase.ErrUnknownScannerLinkToken)
 	})
 
-	t.Run("unknown token", func(t *testing.T) {
+	t.Run("unknown link token", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Unknown token"
-		f := newReceptionLinkFixture(t)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(nil, apperr.New(codes.NotFound, "no link"))
+		// @spec components/usecase/scanner/open "Unknown link token"
+		f := newScannerFixture(t)
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(nil, apperr.New(codes.NotFound, "no scanner"))
 
 		_, err := f.uc.Open(context.Background(), openInput(t, testutil.NewDeviceKey(t), evening(16, 0, 0)))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.ErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		assert.ErrorIs(t, err, usecase.ErrUnknownScannerLinkToken)
 	})
 
 	t.Run("signature from another key", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reception-link/open "Signature from another key"
-		f := newReceptionLinkFixture(t)
+		// @spec components/usecase/scanner/open "Signature from another key"
+		f := newScannerFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
 		in := openInput(t, device, now)
 		in.PublicKey = testutil.NewDeviceKey(t).PublicKey(t) // claims a key it does not hold
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(unused(f), nil)
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(unused(f), nil)
 
 		_, err := f.uc.Open(context.Background(), in)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		f.links.AssertNotCalled(t, "BindDevice", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "BindDevice", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("stale call from the bound device is refused", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionLinkFixture(t)
+		f := newScannerFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
 		in := openInput(t, device, now.Add(-time.Minute))
 		in.Now = now
 		bound := boundTo(t, f, device, evening(14, 10, 0))
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(bound, nil)
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(bound, nil)
 
 		_, err := f.uc.Open(context.Background(), in)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		f.links.AssertNotCalled(t, "BindDevice", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		f.scanners.AssertNotCalled(t, "BindDevice", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("invalid public key", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionLinkFixture(t)
+		f := newScannerFixture(t)
 		in := openInput(t, testutil.NewDeviceKey(t), evening(16, 0, 0))
 		in.PublicKey = append(entity.PublicKey{0x04}, make([]byte, 64)...)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(unused(f), nil)
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(unused(f), nil)
 
 		_, err := f.uc.Open(context.Background(), in)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)

@@ -10,7 +10,7 @@ import (
 )
 
 // UnknownTokenThrottle counts, per client, the calls made with unknown
-// secrets (such as reception link tokens) and blocks a client that has made
+// secrets (such as Scanner link tokens) and blocks a client that has made
 // limit of them within window, until the oldest of those calls is older than
 // window. It is in-memory and per process.
 type UnknownTokenThrottle struct {

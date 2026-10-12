@@ -32,18 +32,18 @@ const (
 	// concurrent admit blocks on the row lock, then re-checks admit_at and
 	// matches nothing), and the Admission is inserted from its RETURNING rows,
 	// so the admitted time and the Admission are stored together or not at
-	// all. The reception link row is share-locked and must not be Revoked, so
+	// all. The Scanner row is share-locked and must not be Revoked, so
 	// a Revoke either commits first (nothing is admitted) or waits until the
 	// admission is decided.
 	ticketAdmitQuery = `
-		WITH link AS (
-			SELECT id FROM reception_links WHERE id = $2::uuid AND status <> 3 FOR SHARE
+		WITH scanner AS (
+			SELECT id FROM scanners WHERE id = $2::uuid AND status <> 3 FOR SHARE
 		), admitted AS (
 			UPDATE tickets SET admit_at = $3
-			WHERE id = $1 AND status = 1 AND admit_at IS NULL AND EXISTS (SELECT 1 FROM link)
+			WHERE id = $1 AND status = 1 AND admit_at IS NULL AND EXISTS (SELECT 1 FROM scanner)
 			RETURNING id, event_id, admit_at
 		), recorded AS (
-			INSERT INTO admissions (ticket_id, event_id, reception_link_id, admitted_at)
+			INSERT INTO admissions (ticket_id, event_id, scanner_id, admitted_at)
 			SELECT id, event_id, $2::uuid, admit_at FROM admitted
 			RETURNING ticket_id
 		)
@@ -53,7 +53,7 @@ const (
 	// ticketAdmitStateQuery explains why ticketAdmitQuery admitted nothing.
 	ticketAdmitStateQuery = `
 		SELECT t.status, t.admit_at,
-		       EXISTS (SELECT 1 FROM reception_links WHERE id = $2::uuid AND status <> 3)
+		       EXISTS (SELECT 1 FROM scanners WHERE id = $2::uuid AND status <> 3)
 		FROM tickets t WHERE t.id = $1
 	`
 )
@@ -86,13 +86,13 @@ func (r *TicketRepository) ListByUserAndEvent(ctx context.Context, userID entity
 	return scanTickets(rows)
 }
 
-// Admit admits the ticket through the link at admittedTime, at most once,
+// Admit admits the ticket through the Scanner at admittedTime, at most once,
 // storing its Admission in the same statement.
-func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, linkID entity.ReceptionLinkID, admittedTime time.Time) (entity.AdmitResult, error) {
-	attrs := []slog.Attr{slog.String("ticket_id", string(ticketID)), slog.String("reception_link_id", string(linkID))}
+func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time) (entity.AdmitResult, error) {
+	attrs := []slog.Attr{slog.String("ticket_id", string(ticketID)), slog.String("scanner_id", string(scannerID))}
 
 	var admittedCount int
-	if err := r.db.Pool.QueryRow(ctx, ticketAdmitQuery, string(ticketID), string(linkID), admittedTime).Scan(&admittedCount); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, ticketAdmitQuery, string(ticketID), string(scannerID), admittedTime).Scan(&admittedCount); err != nil {
 		return entity.AdmitResult{}, toAppErr(err, "failed to admit ticket", attrs...)
 	}
 	if admittedCount == 1 {
@@ -100,22 +100,22 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 	}
 
 	var (
-		status     int16
-		admittedAt sql.NullTime
-		linkUsable bool
+		status        int16
+		admittedAt    sql.NullTime
+		scannerUsable bool
 	)
-	if err := r.db.Pool.QueryRow(ctx, ticketAdmitStateQuery, string(ticketID), string(linkID)).Scan(&status, &admittedAt, &linkUsable); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, ticketAdmitStateQuery, string(ticketID), string(scannerID)).Scan(&status, &admittedAt, &scannerUsable); err != nil {
 		return entity.AdmitResult{}, toAppErr(err, "failed to read ticket admission state", attrs...)
 	}
 	switch {
-	case !linkUsable:
-		return entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "reception link not usable", attrs...)
+	case !scannerUsable:
+		return entity.AdmitResult{}, apperr.Wrap(entity.ErrScannerNotUsable, codes.PermissionDenied, "scanner not usable", attrs...)
 	case admittedAt.Valid:
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: admittedAt.Time}, nil
 	case entity.TicketStatus(status) == entity.TicketStatusVoided:
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil
 	default:
-		// Unreachable: an Issued, unadmitted ticket through a usable link is
+		// Unreachable: an Issued, unadmitted ticket through a usable Scanner is
 		// always admitted by ticketAdmitQuery.
 		return entity.AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted", attrs...)
 	}

@@ -273,7 +273,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		cleanDatabase(t)
 		user, err := repo.Create(ctx, newTestUser("ext-del-2", "del2@example.com", "Delete"))
 		require.NoError(t, err)
-		ticketID := seedIssuedTickets(t, seedReceptionEvent(t), user.ID, 1)[0]
+		ticketID := seedIssuedTickets(t, seedAdmissionEvent(t), user.ID, 1)[0]
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
 
@@ -662,7 +662,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 		id := seedUser(t, "details-fix", entity.NewID()+"@example.com", entity.NewID())
 		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
 		require.NoError(t, err)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		seedIssuedTickets(t, eventID, id, 2)
 
 		_, err = repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+818098765432")

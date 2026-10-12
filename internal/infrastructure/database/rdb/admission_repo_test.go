@@ -22,20 +22,20 @@ func nov20(hh, mm int) time.Time {
 	return time.Date(2026, 11, 20, hh, mm, 0, 0, jst)
 }
 
-// seedReceptionEvent inserts an event on 2026-11-20 and returns its id.
-func seedReceptionEvent(t *testing.T) string {
+// seedAdmissionEvent inserts an event on 2026-11-20 and returns its id.
+func seedAdmissionEvent(t *testing.T) string {
 	t.Helper()
-	artistID := seedArtist(t, "reception-artist", uuid.NewV7().String())
-	venueID := seedVenue(t, "reception-venue-"+uuid.NewV7().String())
-	return seedEvent(t, venueID, artistID, "reception-concert", "2026-11-20")
+	artistID := seedArtist(t, "admission-artist", uuid.NewV7().String())
+	venueID := seedVenue(t, "admission-venue-"+uuid.NewV7().String())
+	return seedEvent(t, venueID, artistID, "admission-concert", "2026-11-20")
 }
 
-// seedLink creates a reception link for eventID.
-func seedLink(t *testing.T, eventID string) *entity.ReceptionLink {
+// seedScanner creates a Scanner for eventID.
+func seedScanner(t *testing.T, eventID string) *entity.Scanner {
 	t.Helper()
-	link, err := rdb.NewReceptionLinkRepository(testDB).Create(context.Background(), entity.NewReceptionLink(eventID))
+	scanner, err := rdb.NewScannerRepository(testDB).Create(context.Background(), entity.NewScanner(eventID))
 	require.NoError(t, err)
-	return link
+	return scanner
 }
 
 func TestTicketRepository_Admit(t *testing.T) {
@@ -45,17 +45,17 @@ func TestTicketRepository_Admit(t *testing.T) {
 	ctx := context.Background()
 	repo := rdb.NewTicketRepository(testDB)
 	admissions := rdb.NewAdmissionRepository(testDB)
-	links := rdb.NewReceptionLinkRepository(testDB)
+	scanners := rdb.NewScannerRepository(testDB)
 
 	t.Run("first admission", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "First admission"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
+		scanner := seedScanner(t, eventID)
 
-		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
 		assert.Equal(t, entity.AdmitOutcomeAdmitted, got.Outcome)
 		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
@@ -67,8 +67,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
-		assert.Equal(t, link.ID, admission.ReceptionLinkID)
-		assert.Equal(t, 1, admission.ReceptionLinkNumber)
+		assert.Equal(t, scanner.ID, admission.ScannerID)
+		assert.Equal(t, 1, admission.ScannerNumber)
 		assert.Equal(t, eventID, admission.EventID)
 		assert.True(t, admission.AdmitTime.Equal(nov20(18, 32)))
 	})
@@ -76,14 +76,14 @@ func TestTicketRepository_Admit(t *testing.T) {
 	t.Run("second admission", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "Second admission"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
+		scanner := seedScanner(t, eventID)
 
-		_, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		_, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
-		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 40))
+		got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 40))
 		require.NoError(t, err)
 		assert.Equal(t, entity.AdmitOutcomeAlreadyAdmitted, got.Outcome)
 		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
@@ -96,11 +96,11 @@ func TestTicketRepository_Admit(t *testing.T) {
 	t.Run("concurrent admissions", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "Concurrent admissions"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link1 := seedLink(t, eventID)
-		link2 := seedLink(t, eventID)
+		scanner1 := seedScanner(t, eventID)
+		scanner2 := seedScanner(t, eventID)
 
 		const callers = 8
 		var (
@@ -110,13 +110,13 @@ func TestTicketRepository_Admit(t *testing.T) {
 		)
 		start := make(chan struct{})
 		for i := range callers {
-			link := link1
+			scanner := scanner1
 			if i%2 == 1 {
-				link = link2
+				scanner = scanner2
 			}
 			wg.Go(func() {
 				<-start
-				got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+				got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 				assert.NoError(t, err)
 				mu.Lock()
 				outcomes = append(outcomes, got.Outcome)
@@ -144,14 +144,14 @@ func TestTicketRepository_Admit(t *testing.T) {
 	t.Run("voided ticket", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "Voided ticket"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
+		scanner := seedScanner(t, eventID)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(ticket))
 		require.NoError(t, err)
 
-		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
 		assert.Equal(t, entity.AdmitOutcomeVoided, got.Outcome)
 
@@ -162,40 +162,40 @@ func TestTicketRepository_Admit(t *testing.T) {
 	t.Run("unknown ticket", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "Unknown ticket"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		link := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		scanner := seedScanner(t, eventID)
 
-		_, err := repo.Admit(ctx, entity.TicketID(entity.NewID()), link.ID, nov20(18, 32))
+		_, err := repo.Admit(ctx, entity.TicketID(entity.NewID()), scanner.ID, nov20(18, 32))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
-	t.Run("link revoked before the admission", func(t *testing.T) {
+	t.Run("scanner revoked before the admission", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
-		_, err := links.Revoke(ctx, link.ID, nov20(18, 30))
+		scanner := seedScanner(t, eventID)
+		_, err := scanners.Revoke(ctx, scanner.ID, nov20(18, 30))
 		require.NoError(t, err)
 
-		_, err = repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		_, err = repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.ErrorIs(t, err, entity.ErrReceptionLinkNotUsable)
+		assert.ErrorIs(t, err, entity.ErrScannerNotUsable)
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		assert.Nil(t, tickets[0].AdmitTime, "nothing is admitted through a revoked link")
+		assert.Nil(t, tickets[0].AdmitTime, "nothing is admitted through a revoked scanner")
 	})
 
 	t.Run("voided after entry keeps the admitted time and the admission", func(t *testing.T) {
 		// @spec components/entity/ticket "Voided after entry"
 		// @spec components/entity/admission "Ticket voided after entry"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
-		_, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		scanner := seedScanner(t, eventID)
+		_, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
@@ -212,7 +212,7 @@ func TestTicketRepository_Admit(t *testing.T) {
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
 		assert.True(t, admission.AdmitTime.Equal(nov20(18, 32)))
-		assert.Equal(t, link.ID, admission.ReceptionLinkID)
+		assert.Equal(t, scanner.ID, admission.ScannerID)
 	})
 }
 
@@ -322,43 +322,43 @@ func TestWalletPublicKeyRepository(t *testing.T) {
 	})
 }
 
-func TestReceptionLinkRepository(t *testing.T) {
+func TestScannerRepository(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewReceptionLinkRepository(testDB)
+	repo := rdb.NewScannerRepository(testDB)
 
 	t.Run("numbering and creation", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 
-		// @spec components/entity/reception-link "First link"
-		first := seedLink(t, eventID)
+		// @spec components/entity/scanner "First scanner"
+		first := seedScanner(t, eventID)
 		assert.Equal(t, 1, first.Number)
-		assert.Equal(t, entity.ReceptionLinkStatusUnused, first.Status)
-		assert.NotEmpty(t, first.Token)
+		assert.Equal(t, entity.ScannerStatusUnused, first.Status)
+		assert.NotEmpty(t, first.LinkToken)
 
-		second := seedLink(t, eventID)
+		second := seedScanner(t, eventID)
 		_, err := repo.Revoke(ctx, second.ID, nov20(12, 0))
 		require.NoError(t, err)
 
-		// @spec components/entity/reception-link "After a revoked link"
-		// @spec components/entity/reception-link/create "New link stored"
-		third, err := repo.Create(ctx, entity.NewReceptionLink(eventID))
+		// @spec components/entity/scanner "After a revoked scanner"
+		// @spec components/entity/scanner/create "New scanner stored"
+		third, err := repo.Create(ctx, entity.NewScanner(eventID))
 		require.NoError(t, err)
 		assert.Equal(t, 3, third.Number)
-		assert.Equal(t, entity.ReceptionLinkStatusUnused, third.Status)
-		assert.NotEmpty(t, third.Token)
+		assert.Equal(t, entity.ScannerStatusUnused, third.Status)
+		assert.NotEmpty(t, third.LinkToken)
 
-		other := seedLink(t, seedReceptionEvent(t))
+		other := seedScanner(t, seedAdmissionEvent(t))
 		assert.Equal(t, 1, other.Number, "numbers are per event")
 	})
 
-	t.Run("two links created at once", func(t *testing.T) {
-		// @spec components/entity/reception-link/create "Two links created at once"
+	t.Run("two scanners created at once", func(t *testing.T) {
+		// @spec components/entity/scanner/create "Two scanners created at once"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 
 		var (
 			wg      sync.WaitGroup
@@ -369,11 +369,11 @@ func TestReceptionLinkRepository(t *testing.T) {
 		for range 2 {
 			wg.Go(func() {
 				<-start
-				link, err := repo.Create(ctx, entity.NewReceptionLink(eventID))
+				scanner, err := repo.Create(ctx, entity.NewScanner(eventID))
 				assert.NoError(t, err)
-				if link != nil {
+				if scanner != nil {
 					mu.Lock()
-					numbers = append(numbers, link.Number)
+					numbers = append(numbers, scanner.Number)
 					mu.Unlock()
 				}
 			})
@@ -385,71 +385,71 @@ func TestReceptionLinkRepository(t *testing.T) {
 
 	t.Run("create for an unknown event", func(t *testing.T) {
 		cleanDatabase(t)
-		_, err := repo.Create(ctx, entity.NewReceptionLink(entity.NewID()))
+		_, err := repo.Create(ctx, entity.NewScanner(entity.NewID()))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("get", func(t *testing.T) {
 		cleanDatabase(t)
-		link := seedLink(t, seedReceptionEvent(t))
-		_, err := repo.Revoke(ctx, link.ID, nov20(12, 0))
+		scanner := seedScanner(t, seedAdmissionEvent(t))
+		_, err := repo.Revoke(ctx, scanner.ID, nov20(12, 0))
 		require.NoError(t, err)
 
-		// @spec components/entity/reception-link/get "Existing link"
-		got, err := repo.Get(ctx, link.ID)
+		// @spec components/entity/scanner/get "Existing scanner"
+		got, err := repo.Get(ctx, scanner.ID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReceptionLinkStatusRevoked, got.Status)
+		assert.Equal(t, entity.ScannerStatusRevoked, got.Status)
 
-		// @spec components/entity/reception-link/get "Unknown link"
-		_, err = repo.Get(ctx, entity.ReceptionLinkID(entity.NewID()))
+		// @spec components/entity/scanner/get "Unknown scanner"
+		_, err = repo.Get(ctx, entity.ScannerID(entity.NewID()))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
-	t.Run("get by token", func(t *testing.T) {
+	t.Run("get by link token", func(t *testing.T) {
 		cleanDatabase(t)
-		link := seedLink(t, seedReceptionEvent(t))
+		scanner := seedScanner(t, seedAdmissionEvent(t))
 
-		// @spec components/entity/reception-link/get-by-token "Known token"
-		got, err := repo.GetByToken(ctx, link.Token)
+		// @spec components/entity/scanner/get-by-link-token "Known link token"
+		got, err := repo.GetByLinkToken(ctx, scanner.LinkToken)
 		require.NoError(t, err)
-		assert.Equal(t, link.ID, got.ID)
+		assert.Equal(t, scanner.ID, got.ID)
 
-		// @spec components/entity/reception-link/get-by-token "Unknown token"
-		_, err = repo.GetByToken(ctx, entity.NewReceptionLink("x").Token)
+		// @spec components/entity/scanner/get-by-link-token "Unknown link token"
+		_, err = repo.GetByLinkToken(ctx, entity.NewScanner("x").LinkToken)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 
-		// The token keeps finding the link after it is bound, but is no longer
+		// The link token keeps finding the scanner after it is bound, but is no longer
 		// returned.
 		key := testutil.NewDeviceKey(t).PublicKey(t)
-		_, _, err = repo.BindDevice(ctx, link.ID, key, nov20(14, 10))
+		_, _, err = repo.BindDevice(ctx, scanner.ID, key, nov20(14, 10))
 		require.NoError(t, err)
-		bound, err := repo.GetByToken(ctx, link.Token)
+		bound, err := repo.GetByLinkToken(ctx, scanner.LinkToken)
 		require.NoError(t, err)
-		assert.Equal(t, link.ID, bound.ID)
-		assert.Empty(t, bound.Token)
+		assert.Equal(t, scanner.ID, bound.ID)
+		assert.Empty(t, bound.LinkToken)
 	})
 
 	t.Run("list by event", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		l1 := seedLink(t, eventID)
-		l2 := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		l1 := seedScanner(t, eventID)
+		l2 := seedScanner(t, eventID)
 		_, _, err := repo.BindDevice(ctx, l1.ID, testutil.NewDeviceKey(t).PublicKey(t), nov20(14, 10))
 		require.NoError(t, err)
 		_, err = repo.Revoke(ctx, l2.ID, nov20(15, 0))
 		require.NoError(t, err)
 
-		// @spec components/entity/reception-link/list-by-event "Event with links"
+		// @spec components/entity/scanner/list-by-event "Event with scanners"
 		got, err := repo.ListByEvent(ctx, eventID)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, 1, got[0].Number)
-		assert.Equal(t, entity.ReceptionLinkStatusInUse, got[0].Status)
+		assert.Equal(t, entity.ScannerStatusInUse, got[0].Status)
 		assert.Equal(t, 2, got[1].Number)
-		assert.Equal(t, entity.ReceptionLinkStatusRevoked, got[1].Status)
+		assert.Equal(t, entity.ScannerStatusRevoked, got[1].Status)
 
-		// @spec components/entity/reception-link/list-by-event "Event without links"
-		empty, err := repo.ListByEvent(ctx, seedReceptionEvent(t))
+		// @spec components/entity/scanner/list-by-event "Event without scanners"
+		empty, err := repo.ListByEvent(ctx, seedAdmissionEvent(t))
 		require.NoError(t, err)
 		assert.NotNil(t, empty)
 		assert.Empty(t, empty)
@@ -457,35 +457,35 @@ func TestReceptionLinkRepository(t *testing.T) {
 
 	t.Run("bind device", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		p1 := testutil.NewDeviceKey(t).PublicKey(t)
 		p2 := testutil.NewDeviceKey(t).PublicKey(t)
-		link := seedLink(t, eventID)
+		scanner := seedScanner(t, eventID)
 
-		// @spec components/entity/reception-link/bind-device "First device"
-		outcome, got, err := repo.BindDevice(ctx, link.ID, p1, nov20(14, 10))
+		// @spec components/entity/scanner/bind-device "First device"
+		outcome, got, err := repo.BindDevice(ctx, scanner.ID, p1, nov20(14, 10))
 		require.NoError(t, err)
 		assert.Equal(t, entity.BindOutcomeBound, outcome)
-		assert.Equal(t, entity.ReceptionLinkStatusInUse, got.Status)
+		assert.Equal(t, entity.ScannerStatusInUse, got.Status)
 		assert.Equal(t, p1, got.BoundPublicKey)
 		require.NotNil(t, got.BoundTime)
 		assert.True(t, got.BoundTime.Equal(nov20(14, 10)))
-		assert.Empty(t, got.Token, "the token is not kept once bound")
+		assert.Empty(t, got.LinkToken, "the token is not kept once bound")
 
-		// @spec components/entity/reception-link/bind-device "Same device again"
-		outcome, got, err = repo.BindDevice(ctx, link.ID, p1, nov20(15, 0))
+		// @spec components/entity/scanner/bind-device "Same device again"
+		outcome, got, err = repo.BindDevice(ctx, scanner.ID, p1, nov20(15, 0))
 		require.NoError(t, err)
 		assert.Equal(t, entity.BindOutcomeBound, outcome)
 		assert.True(t, got.BoundTime.Equal(nov20(14, 10)), "nothing changes")
 
-		// @spec components/entity/reception-link/bind-device "Another device"
-		outcome, got, err = repo.BindDevice(ctx, link.ID, p2, nov20(15, 0))
+		// @spec components/entity/scanner/bind-device "Another device"
+		outcome, got, err = repo.BindDevice(ctx, scanner.ID, p2, nov20(15, 0))
 		require.NoError(t, err)
 		assert.Equal(t, entity.BindOutcomeOtherDevice, outcome)
 		assert.Equal(t, p1, got.BoundPublicKey)
 
-		// @spec components/entity/reception-link/bind-device "Revoked link"
-		revoked := seedLink(t, eventID)
+		// @spec components/entity/scanner/bind-device "Revoked scanner"
+		revoked := seedScanner(t, eventID)
 		_, err = repo.Revoke(ctx, revoked.ID, nov20(15, 0))
 		require.NoError(t, err)
 		outcome, got, err = repo.BindDevice(ctx, revoked.ID, p1, nov20(15, 5))
@@ -493,16 +493,16 @@ func TestReceptionLinkRepository(t *testing.T) {
 		assert.Equal(t, entity.BindOutcomeRevoked, outcome)
 		assert.Nil(t, got.BoundPublicKey)
 
-		_, _, err = repo.BindDevice(ctx, link.ID, entity.PublicKey{0x04, 0x01}, nov20(15, 0))
+		_, _, err = repo.BindDevice(ctx, scanner.ID, entity.PublicKey{0x04, 0x01}, nov20(15, 0))
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		_, _, err = repo.BindDevice(ctx, entity.ReceptionLinkID(entity.NewID()), p1, nov20(15, 0))
+		_, _, err = repo.BindDevice(ctx, entity.ScannerID(entity.NewID()), p1, nov20(15, 0))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("two devices at once", func(t *testing.T) {
-		// @spec components/entity/reception-link/bind-device "Two devices at once"
+		// @spec components/entity/scanner/bind-device "Two devices at once"
 		cleanDatabase(t)
-		link := seedLink(t, seedReceptionEvent(t))
+		scanner := seedScanner(t, seedAdmissionEvent(t))
 
 		var (
 			wg       sync.WaitGroup
@@ -514,7 +514,7 @@ func TestReceptionLinkRepository(t *testing.T) {
 			key := testutil.NewDeviceKey(t).PublicKey(t)
 			wg.Go(func() {
 				<-start
-				outcome, _, err := repo.BindDevice(ctx, link.ID, key, nov20(14, 10))
+				outcome, _, err := repo.BindDevice(ctx, scanner.ID, key, nov20(14, 10))
 				assert.NoError(t, err)
 				mu.Lock()
 				outcomes = append(outcomes, outcome)
@@ -528,24 +528,24 @@ func TestReceptionLinkRepository(t *testing.T) {
 
 	t.Run("revoke", func(t *testing.T) {
 		cleanDatabase(t)
-		link := seedLink(t, seedReceptionEvent(t))
-		_, _, err := repo.BindDevice(ctx, link.ID, testutil.NewDeviceKey(t).PublicKey(t), nov20(14, 10))
+		scanner := seedScanner(t, seedAdmissionEvent(t))
+		_, _, err := repo.BindDevice(ctx, scanner.ID, testutil.NewDeviceKey(t).PublicKey(t), nov20(14, 10))
 		require.NoError(t, err)
 
-		// @spec components/entity/reception-link/revoke "Link in use"
-		got, err := repo.Revoke(ctx, link.ID, nov20(18, 5))
+		// @spec components/entity/scanner/revoke "Scanner in use"
+		got, err := repo.Revoke(ctx, scanner.ID, nov20(18, 5))
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReceptionLinkStatusRevoked, got.Status)
+		assert.Equal(t, entity.ScannerStatusRevoked, got.Status)
 		require.NotNil(t, got.RevokedTime)
 		assert.True(t, got.RevokedTime.Equal(nov20(18, 5)))
 
-		// @spec components/entity/reception-link/revoke "Already revoked"
-		got, err = repo.Revoke(ctx, link.ID, nov20(18, 10))
+		// @spec components/entity/scanner/revoke "Already revoked"
+		got, err = repo.Revoke(ctx, scanner.ID, nov20(18, 10))
 		require.NoError(t, err)
 		assert.True(t, got.RevokedTime.Equal(nov20(18, 5)), "the revoked time stays 18:05")
 
-		// @spec components/entity/reception-link/revoke "Unknown link"
-		_, err = repo.Revoke(ctx, entity.ReceptionLinkID(entity.NewID()), nov20(18, 10))
+		// @spec components/entity/scanner/revoke "Unknown scanner"
+		_, err = repo.Revoke(ctx, entity.ScannerID(entity.NewID()), nov20(18, 10))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
@@ -557,63 +557,63 @@ func TestRejectedScanRepository_Append(t *testing.T) {
 	ctx := context.Background()
 	repo := rdb.NewRejectedScanRepository(testDB)
 
-	count := func(t *testing.T, linkID entity.ReceptionLinkID) int {
+	count := func(t *testing.T, scannerID entity.ScannerID) int {
 		t.Helper()
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM rejected_scans WHERE reception_link_id = $1`, string(linkID)).Scan(&n))
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM rejected_scans WHERE scanner_id = $1`, string(scannerID)).Scan(&n))
 		return n
 	}
 
 	t.Run("group rejected", func(t *testing.T) {
 		// @spec components/entity/rejected-scan/append "Group rejected"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		link := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		scanner := seedScanner(t, eventID)
 		scans := []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonExpired, nov20(18, 40)),
 		}
 		require.NoError(t, repo.Append(ctx, scans))
-		assert.Equal(t, 3, count(t, link.ID))
+		assert.Equal(t, 3, count(t, scanner.ID))
 	})
 
 	t.Run("forged scan without a ticket", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		link := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		scanner := seedScanner(t, eventID)
 		require.NoError(t, repo.Append(ctx, []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, "", entity.RejectedScanReasonForged, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, "", entity.RejectedScanReasonForged, nov20(18, 40)),
 		}))
-		assert.Equal(t, 1, count(t, link.ID))
+		assert.Equal(t, 1, count(t, scanner.ID))
 	})
 
 	t.Run("invalid one in the batch", func(t *testing.T) {
 		// @spec components/entity/rejected-scan/append "Invalid one in the batch"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		link := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		scanner := seedScanner(t, eventID)
 		scans := []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonForged, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonForged, nov20(18, 40)),
 		}
 		err := repo.Append(ctx, scans)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		assert.Equal(t, 0, count(t, link.ID), "none is stored")
+		assert.Equal(t, 0, count(t, scanner.ID), "none is stored")
 	})
 
 	t.Run("a database failure stores none", func(t *testing.T) {
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		link := seedLink(t, eventID)
+		eventID := seedAdmissionEvent(t)
+		scanner := seedScanner(t, eventID)
 		scans := []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
-			// Unknown link: the foreign key fails inside the transaction.
-			entity.NewRejectedScan(eventID, entity.ReceptionLinkID(entity.NewID()), entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
+			entity.NewRejectedScan(eventID, scanner.ID, entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
+			// Unknown scanner: the foreign key fails inside the transaction.
+			entity.NewRejectedScan(eventID, entity.ScannerID(entity.NewID()), entity.TicketID(entity.NewID()), entity.RejectedScanReasonVoided, nov20(18, 40)),
 		}
 		require.Error(t, repo.Append(ctx, scans))
-		assert.Equal(t, 0, count(t, link.ID))
+		assert.Equal(t, 0, count(t, scanner.ID))
 	})
 }
 
@@ -628,28 +628,28 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 	t.Run("admitted ticket", func(t *testing.T) {
 		// @spec components/entity/admission/get-by-ticket "Admitted ticket"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
-		_, err := tickets.Admit(ctx, ticket, link.ID, nov20(18, 32))
+		scanner := seedScanner(t, eventID)
+		_, err := tickets.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
 
 		got, err := repo.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
 		assert.True(t, got.AdmitTime.Equal(nov20(18, 32)))
-		assert.Equal(t, 1, got.ReceptionLinkNumber)
+		assert.Equal(t, 1, got.ScannerNumber)
 	})
 
 	t.Run("ticket not admitted", func(t *testing.T) {
 		// @spec components/entity/admission/get-by-ticket "Ticket not admitted"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
-		link := seedLink(t, eventID)
+		scanner := seedScanner(t, eventID)
 		require.NoError(t, rdb.NewRejectedScanRepository(testDB).Append(ctx, []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, ticket, entity.RejectedScanReasonVoided, nov20(18, 32)),
+			entity.NewRejectedScan(eventID, scanner.ID, ticket, entity.RejectedScanReasonVoided, nov20(18, 32)),
 		}))
 
 		_, err := repo.GetByTicket(ctx, ticket)
@@ -667,7 +667,7 @@ func TestEventRepository_Get(t *testing.T) {
 	t.Run("event with both times", func(t *testing.T) {
 		// @spec components/entity/event/get "Event with both times"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
 
@@ -683,7 +683,7 @@ func TestEventRepository_Get(t *testing.T) {
 	t.Run("start time filled in later", func(t *testing.T) {
 		// @spec components/entity/event/get "Start time filled in later"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		before, err := repo.Get(ctx, eventID)
 		require.NoError(t, err)
 		assert.Nil(t, before.StartTime)

@@ -12,8 +12,8 @@ import (
 )
 
 // DeviceKey is an ECDSA P-256 key pair standing in for the WebCrypto key a
-// fan's or reception device creates. It signs the way WebCrypto does: SHA-256
-// and the IEEE P1363 r || s form.
+// fan's phone or a scanner device creates. It signs the way WebCrypto does:
+// SHA-256 and the IEEE P1363 r || s form.
 type DeviceKey struct {
 	priv *ecdsa.PrivateKey
 }
@@ -68,12 +68,12 @@ func (k *DeviceKey) SignCode(t *testing.T, code *entity.AdmissionCode) string {
 	return text
 }
 
-// SignCall returns a reception call signed by this key at signTime.
-func (k *DeviceKey) SignCall(t *testing.T, procedure, token, content string, signTime time.Time) entity.ReceptionCall {
+// SignCall returns a scanner call signed by this key at signTime.
+func (k *DeviceKey) SignCall(t *testing.T, procedure, linkToken, content string, signTime time.Time) entity.ScannerCall {
 	t.Helper()
-	call := entity.ReceptionCall{
+	call := entity.ScannerCall{
 		Procedure: procedure,
-		Token:     token,
+		LinkToken: linkToken,
 		Content:   content,
 		SignTime:  signTime,
 	}

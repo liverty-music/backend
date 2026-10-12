@@ -22,7 +22,7 @@ func NewRejectedScanRepository(db *Database) *RejectedScanRepository {
 }
 
 const rejectedScanInsertQuery = `
-	INSERT INTO rejected_scans (id, event_id, reception_link_id, ticket_id, reason, scanned_at)
+	INSERT INTO rejected_scans (id, event_id, scanner_id, ticket_id, reason, scanned_at)
 	VALUES ($1, $2, $3, $4, $5, $6)
 `
 
@@ -52,7 +52,7 @@ func (r *RejectedScanRepository) Append(ctx context.Context, scans []*entity.Rej
 			id := string(s.TicketID)
 			ticketID = &id
 		}
-		batch.Queue(rejectedScanInsertQuery, s.ID, s.EventID, string(s.ReceptionLinkID), ticketID, int16(s.Reason), s.ScannedTime)
+		batch.Queue(rejectedScanInsertQuery, s.ID, s.EventID, string(s.ScannerID), ticketID, int16(s.Reason), s.ScannedTime)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return toAppErr(err, "failed to append rejected scans")

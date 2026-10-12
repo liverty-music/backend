@@ -221,7 +221,7 @@ type OrganizerRepository interface {
 	// Delete permanently removes, in one transaction, a deactivated Organizer
 	// together with its first-party Series with their TicketSales, and their
 	// Events (with each Event's TicketTypes, lottery entries, ticket journeys,
-	// performers, reception links, admissions and rejected scans), the
+	// performers, Scanners, admissions and rejected scans), the
 	// refunded Orders, their Tickets and their Reversed Settlements for those
 	// Events, its SeriesImage records, its artist associations and its
 	// payout-account record. It removes nothing when

@@ -38,7 +38,7 @@ packages:
       LotteryEntryUseCase:
       EventPublishStatePort:
       WalletPublicKeyUseCase:
-      ReceptionLinkUseCase:
+      ScannerUseCase:
       SeriesImageUseCase:
       TicketSaleUseCase:
       TicketTypeUseCase:
@@ -88,7 +88,7 @@ packages:
       MediaProcessor:
       EventRepository:
       WalletPublicKeyRepository:
-      ReceptionLinkRepository:
+      ScannerRepository:
       AdmissionRepository:
       RejectedScanRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:

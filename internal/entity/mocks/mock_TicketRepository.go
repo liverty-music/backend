@@ -24,9 +24,9 @@ func (_m *MockTicketRepository) EXPECT() *MockTicketRepository_Expecter {
 	return &MockTicketRepository_Expecter{mock: &_m.Mock}
 }
 
-// Admit provides a mock function with given fields: ctx, ticketID, linkID, admittedTime
-func (_m *MockTicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, linkID entity.ReceptionLinkID, admittedTime time.Time) (entity.AdmitResult, error) {
-	ret := _m.Called(ctx, ticketID, linkID, admittedTime)
+// Admit provides a mock function with given fields: ctx, ticketID, scannerID, admittedTime
+func (_m *MockTicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time) (entity.AdmitResult, error) {
+	ret := _m.Called(ctx, ticketID, scannerID, admittedTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Admit")
@@ -34,17 +34,17 @@ func (_m *MockTicketRepository) Admit(ctx context.Context, ticketID entity.Ticke
 
 	var r0 entity.AdmitResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketID, entity.ReceptionLinkID, time.Time) (entity.AdmitResult, error)); ok {
-		return rf(ctx, ticketID, linkID, admittedTime)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketID, entity.ScannerID, time.Time) (entity.AdmitResult, error)); ok {
+		return rf(ctx, ticketID, scannerID, admittedTime)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketID, entity.ReceptionLinkID, time.Time) entity.AdmitResult); ok {
-		r0 = rf(ctx, ticketID, linkID, admittedTime)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketID, entity.ScannerID, time.Time) entity.AdmitResult); ok {
+		r0 = rf(ctx, ticketID, scannerID, admittedTime)
 	} else {
 		r0 = ret.Get(0).(entity.AdmitResult)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketID, entity.ReceptionLinkID, time.Time) error); ok {
-		r1 = rf(ctx, ticketID, linkID, admittedTime)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketID, entity.ScannerID, time.Time) error); ok {
+		r1 = rf(ctx, ticketID, scannerID, admittedTime)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -60,15 +60,15 @@ type MockTicketRepository_Admit_Call struct {
 // Admit is a helper method to define mock.On call
 //   - ctx context.Context
 //   - ticketID entity.TicketID
-//   - linkID entity.ReceptionLinkID
+//   - scannerID entity.ScannerID
 //   - admittedTime time.Time
-func (_e *MockTicketRepository_Expecter) Admit(ctx interface{}, ticketID interface{}, linkID interface{}, admittedTime interface{}) *MockTicketRepository_Admit_Call {
-	return &MockTicketRepository_Admit_Call{Call: _e.mock.On("Admit", ctx, ticketID, linkID, admittedTime)}
+func (_e *MockTicketRepository_Expecter) Admit(ctx interface{}, ticketID interface{}, scannerID interface{}, admittedTime interface{}) *MockTicketRepository_Admit_Call {
+	return &MockTicketRepository_Admit_Call{Call: _e.mock.On("Admit", ctx, ticketID, scannerID, admittedTime)}
 }
 
-func (_c *MockTicketRepository_Admit_Call) Run(run func(ctx context.Context, ticketID entity.TicketID, linkID entity.ReceptionLinkID, admittedTime time.Time)) *MockTicketRepository_Admit_Call {
+func (_c *MockTicketRepository_Admit_Call) Run(run func(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time)) *MockTicketRepository_Admit_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.TicketID), args[2].(entity.ReceptionLinkID), args[3].(time.Time))
+		run(args[0].(context.Context), args[1].(entity.TicketID), args[2].(entity.ScannerID), args[3].(time.Time))
 	})
 	return _c
 }
@@ -78,7 +78,7 @@ func (_c *MockTicketRepository_Admit_Call) Return(_a0 entity.AdmitResult, _a1 er
 	return _c
 }
 
-func (_c *MockTicketRepository_Admit_Call) RunAndReturn(run func(context.Context, entity.TicketID, entity.ReceptionLinkID, time.Time) (entity.AdmitResult, error)) *MockTicketRepository_Admit_Call {
+func (_c *MockTicketRepository_Admit_Call) RunAndReturn(run func(context.Context, entity.TicketID, entity.ScannerID, time.Time) (entity.AdmitResult, error)) *MockTicketRepository_Admit_Call {
 	_c.Call.Return(run)
 	return _c
 }

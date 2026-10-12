@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// oneNamePerConceptVersion is 20261012000000_one_name_per_concept.sql itself;
+// later migrations rename what it leaves (reception_links becomes scanners).
+const oneNamePerConceptVersion = "20261012000000"
+
 // TestMigration_OneNamePerConcept loads one row into every table that
 // 20261012000000_one_name_per_concept.sql renames, in the old shape, applies
 // the migration and reads each row back under its new table and column
@@ -85,7 +89,7 @@ func TestMigration_OneNamePerConcept(t *testing.T) {
 	mustExec(`INSERT INTO rejected_scans (id, event_id, reception_link_id, ticket_id, reason, scanned_at) VALUES ($1, $2, $3, $4, 5, $5)`,
 		scanID, eventID, linkID, ticketID, at)
 
-	apply("")
+	apply(oneNamePerConceptVersion)
 
 	readOne := func(t *testing.T, sql string, args []any, dest ...any) {
 		t.Helper()

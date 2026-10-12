@@ -9,7 +9,7 @@ import (
 )
 
 // RejectedScanReason is why a scan, or one Ticket presented in it, was
-// refused at reception. Values mirror the proto enum
+// refused by a Scanner. Values mirror the proto enum
 // liverty_music.entity.v1.RejectedScanReason, except that reason 4 is
 // retired and invalid: a code presenting a Ticket the user does not hold for
 // the event is rejected as Forged.
@@ -48,17 +48,17 @@ func (r RejectedScanReason) IsValid() bool {
 }
 
 // RejectedScan is the permanent note that a scan at the venue, or one Ticket
-// in it, was refused: why, through which ReceptionLink and when. RejectedScans
+// in it, was refused: why, through which Scanner and when. RejectedScans
 // are append-only; unlike an Admission, losing one is acceptable.
 //
 // Mirrors liverty_music.entity.v1.RejectedScan.
 type RejectedScan struct {
 	// ID is the surrogate key (UUIDv7).
 	ID string
-	// EventID is the event of the ReceptionLink that scanned.
+	// EventID is the event of the Scanner that scanned.
 	EventID string
-	// ReceptionLinkID is the ReceptionLink that scanned.
-	ReceptionLinkID ReceptionLinkID
+	// ScannerID is the Scanner that scanned.
+	ScannerID ScannerID
 	// TicketID is the Ticket the refusal is about; empty exactly when the
 	// reason is Forged.
 	TicketID TicketID
@@ -69,24 +69,24 @@ type RejectedScan struct {
 }
 
 // NewRejectedScan returns a RejectedScan with a fresh id.
-func NewRejectedScan(eventID string, linkID ReceptionLinkID, ticketID TicketID, reason RejectedScanReason, scannedTime time.Time) *RejectedScan {
+func NewRejectedScan(eventID string, scannerID ScannerID, ticketID TicketID, reason RejectedScanReason, scannedTime time.Time) *RejectedScan {
 	return &RejectedScan{
-		ID:              NewID(),
-		EventID:         eventID,
-		ReceptionLinkID: linkID,
-		TicketID:        ticketID,
-		Reason:          reason,
-		ScannedTime:     scannedTime,
+		ID:          NewID(),
+		EventID:     eventID,
+		ScannerID:   scannerID,
+		TicketID:    ticketID,
+		Reason:      reason,
+		ScannedTime: scannedTime,
 	}
 }
 
 // Validate reports InvalidArgument unless the RejectedScan names an event, a
-// link, a known reason and a scanned time, and names a Ticket exactly when
+// Scanner, a known reason and a scanned time, and names a Ticket exactly when
 // the reason is not Forged: a forged code proves nothing about the Tickets it
 // lists, while any other reason follows a verified signature.
 func (s *RejectedScan) Validate() error {
-	if s.EventID == "" || s.ReceptionLinkID == "" || s.ScannedTime.IsZero() {
-		return apperr.New(codes.InvalidArgument, "rejected scan needs an event, a reception link and a scanned time")
+	if s.EventID == "" || s.ScannerID == "" || s.ScannedTime.IsZero() {
+		return apperr.New(codes.InvalidArgument, "rejected scan needs an event, a scanner and a scanned time")
 	}
 	if !s.Reason.IsValid() {
 		return apperr.New(codes.InvalidArgument, "rejected scan reason is not valid")

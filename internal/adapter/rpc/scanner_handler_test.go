@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	receptionv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
+	scannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	receptionv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/reception/v1"
+	scannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/scanner/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -24,29 +24,29 @@ import (
 
 const testLinkToken = "tok_0123456789abcdefghijklmn"
 
-type receptionHandlerFixture struct {
-	h       *handler.ReceptionHandler
-	links   *ucmocks.MockReceptionLinkUseCase
-	tickets *ucmocks.MockTicketUseCase
+type scannerHandlerFixture struct {
+	h        *handler.ScannerHandler
+	scanners *ucmocks.MockScannerUseCase
+	tickets  *ucmocks.MockTicketUseCase
 }
 
-func newReceptionHandler(t *testing.T) *receptionHandlerFixture {
+func newScannerHandler(t *testing.T) *scannerHandlerFixture {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	f := &receptionHandlerFixture{
-		links:   ucmocks.NewMockReceptionLinkUseCase(t),
-		tickets: ucmocks.NewMockTicketUseCase(t),
+	f := &scannerHandlerFixture{
+		scanners: ucmocks.NewMockScannerUseCase(t),
+		tickets:  ucmocks.NewMockTicketUseCase(t),
 	}
-	f.h = handler.NewReceptionHandler(f.links, f.tickets, logger)
+	f.h = handler.NewScannerHandler(f.scanners, f.tickets, logger)
 	return f
 }
 
 // openRequest is a well-formed Open from client IP ip.
-func openRequest(t *testing.T, token, ip string) *connect.Request[receptionv1.OpenRequest] {
+func openRequest(t *testing.T, token, ip string) *connect.Request[scannerv1.OpenRequest] {
 	t.Helper()
-	req := connect.NewRequest(&receptionv1.OpenRequest{
-		LinkToken: &entityv1.ReceptionLinkToken{Value: token},
+	req := connect.NewRequest(&scannerv1.OpenRequest{
+		LinkToken: &entityv1.ScannerLinkToken{Value: token},
 		SignTime:  timestamppb.Now(),
 		Signature: &entityv1.Signature{Value: make([]byte, entity.SignatureLen)},
 		PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
@@ -56,9 +56,9 @@ func openRequest(t *testing.T, token, ip string) *connect.Request[receptionv1.Op
 }
 
 // admitRequest is a well-formed Admit from client IP ip.
-func admitRequest(token, ip string) *connect.Request[receptionv1.AdmitRequest] {
-	req := connect.NewRequest(&receptionv1.AdmitRequest{
-		LinkToken:   &entityv1.ReceptionLinkToken{Value: token},
+func admitRequest(token, ip string) *connect.Request[scannerv1.AdmitRequest] {
+	req := connect.NewRequest(&scannerv1.AdmitRequest{
+		LinkToken:   &entityv1.ScannerLinkToken{Value: token},
 		SignTime:    timestamppb.Now(),
 		Signature:   &entityv1.Signature{Value: make([]byte, entity.SignatureLen)},
 		ScannedText: &entityv1.ScannedText{Value: "6BFOXN*TS0BI$ZD"},
@@ -67,36 +67,36 @@ func admitRequest(token, ip string) *connect.Request[receptionv1.AdmitRequest] {
 	return req
 }
 
-func TestReceptionHandler_Open(t *testing.T) {
+func TestScannerHandler_Open(t *testing.T) {
 	t.Parallel()
 
-	t.Run("passes the call to ReceptionLinkUseCase.Open", func(t *testing.T) {
+	t.Run("passes the call to ScannerUseCase.Open", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionHandler(t)
+		f := newScannerHandler(t)
 		req := openRequest(t, testLinkToken, "203.0.113.1")
 		start := time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC)
-		f.links.EXPECT().Open(mock.Anything, mock.MatchedBy(func(in usecase.OpenReceptionLinkInput) bool {
-			return in.Procedure == receptionv1connect.ReceptionServiceOpenProcedure &&
+		f.scanners.EXPECT().Open(mock.Anything, mock.MatchedBy(func(in usecase.OpenScannerInput) bool {
+			return in.Procedure == scannerv1connect.ScannerServiceOpenProcedure &&
 				in.LinkToken == testLinkToken &&
 				string(in.PublicKey) == string(req.Msg.PublicKey.Value) &&
 				!in.Now.IsZero()
-		})).Return(&usecase.OpenReceptionLinkResult{
-			Link:         &entity.ReceptionLink{ID: testLinkID, EventID: testEventID, Number: 2, Status: entity.ReceptionLinkStatusInUse},
-			Window:       &entity.ReceptionWindow{OpenTime: start, CloseTime: start.Add(13 * time.Hour)},
+		})).Return(&usecase.OpenScannerResult{
+			Scanner:      &entity.Scanner{ID: testScannerID, EventID: testEventID, Number: 2, Status: entity.ScannerStatusInUse},
+			Window:       &entity.AdmissionWindow{OpenTime: start, CloseTime: start.Add(13 * time.Hour)},
 			InsideWindow: true,
 		}, nil)
 
 		resp, err := f.h.Open(context.Background(), req)
 		require.NoError(t, err)
-		assert.Equal(t, int32(2), resp.Msg.ReceptionLink.Number.Value)
-		assert.Nil(t, resp.Msg.ReceptionLink.Token)
-		assert.True(t, resp.Msg.ReceptionWindow.OpenTime.AsTime().Equal(start))
+		assert.Equal(t, int32(2), resp.Msg.Scanner.Number.Value)
+		assert.Nil(t, resp.Msg.Scanner.LinkToken)
+		assert.True(t, resp.Msg.AdmissionWindow.OpenTime.AsTime().Equal(start))
 		assert.True(t, resp.Msg.InsideWindow)
 	})
 
 	t.Run("missing public key", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionHandler(t)
+		f := newScannerHandler(t)
 		req := openRequest(t, testLinkToken, "203.0.113.1")
 		req.Msg.PublicKey = nil
 		_, err := f.h.Open(context.Background(), req)
@@ -104,13 +104,13 @@ func TestReceptionHandler_Open(t *testing.T) {
 	})
 }
 
-func TestReceptionHandler_Admit(t *testing.T) {
+func TestScannerHandler_Admit(t *testing.T) {
 	t.Parallel()
 
 	t.Run("missing signature", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/reception "Missing signature"
-		f := newReceptionHandler(t)
+		// @spec components/adapter/organizer/api/rpc/scanner-device "Missing signature"
+		f := newScannerHandler(t)
 		req := admitRequest(testLinkToken, "203.0.113.1")
 		req.Msg.Signature = nil
 		_, err := f.h.Admit(context.Background(), req)
@@ -118,13 +118,13 @@ func TestReceptionHandler_Admit(t *testing.T) {
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything)
 	})
 
-	t.Run("missing token, sign time or scanned text", func(t *testing.T) {
+	t.Run("missing link token, sign time or scanned text", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionHandler(t)
-		for _, strip := range []func(*receptionv1.AdmitRequest){
-			func(m *receptionv1.AdmitRequest) { m.LinkToken = nil },
-			func(m *receptionv1.AdmitRequest) { m.SignTime = nil },
-			func(m *receptionv1.AdmitRequest) { m.ScannedText = nil },
+		f := newScannerHandler(t)
+		for _, strip := range []func(*scannerv1.AdmitRequest){
+			func(m *scannerv1.AdmitRequest) { m.LinkToken = nil },
+			func(m *scannerv1.AdmitRequest) { m.SignTime = nil },
+			func(m *scannerv1.AdmitRequest) { m.ScannedText = nil },
 		} {
 			req := admitRequest(testLinkToken, "203.0.113.1")
 			strip(req.Msg)
@@ -135,15 +135,15 @@ func TestReceptionHandler_Admit(t *testing.T) {
 
 	t.Run("result carries a head count and reasons, no personal data", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionHandler(t)
+		f := newScannerHandler(t)
 		earlier := time.Date(2026, 11, 20, 9, 32, 0, 0, time.UTC)
 		f.tickets.EXPECT().Admit(mock.Anything, mock.MatchedBy(func(in usecase.AdmitInput) bool {
-			return in.Procedure == receptionv1connect.ReceptionServiceAdmitProcedure &&
+			return in.Procedure == scannerv1connect.ScannerServiceAdmitProcedure &&
 				in.LinkToken == testLinkToken && in.ScannedText == "6BFOXN*TS0BI$ZD"
 		})).Return(&usecase.AdmitResult{
 			AdmittedTicketCount: 2,
 			RejectedTickets: []usecase.RejectedTicket{
-				{Reason: entity.RejectedScanReasonAlreadyAdmitted, EarlierAdmitTime: &earlier, EarlierReceptionLinkNumber: 1},
+				{Reason: entity.RejectedScanReasonAlreadyAdmitted, EarlierAdmitTime: &earlier, EarlierScannerNumber: 1},
 			},
 		}, nil)
 
@@ -154,19 +154,19 @@ func TestReceptionHandler_Admit(t *testing.T) {
 		rt := resp.Msg.RejectedTickets[0]
 		assert.Equal(t, entityv1.RejectedScanReason_REJECTED_SCAN_REASON_ALREADY_ADMITTED, rt.Reason)
 		assert.True(t, rt.EarlierAdmitTime.AsTime().Equal(earlier))
-		assert.Equal(t, int32(1), rt.EarlierReceptionLinkNumber.Value)
+		assert.Equal(t, int32(1), rt.EarlierScannerNumber.Value)
 
 		// Task 6.3: the response shape itself can carry no personal data —
-		// only a count, reasons, a time and a link number. Any new field
+		// only a count, reasons, a time and a scanner number. Any new field
 		// (such as a full name, phone number or account) fails this test.
 		assertFields(t, resp.Msg, "admitted_ticket_count", "rejected_scan_reason", "rejected_tickets")
-		assertFields(t, rt, "reason", "earlier_admit_time", "earlier_reception_link_number")
-		assertFields(t, rt.EarlierReceptionLinkNumber, "value")
+		assertFields(t, rt, "reason", "earlier_admit_time", "earlier_scanner_number")
+		assertFields(t, rt.EarlierScannerNumber, "value")
 	})
 
 	t.Run("whole-scan rejection", func(t *testing.T) {
 		t.Parallel()
-		f := newReceptionHandler(t)
+		f := newScannerHandler(t)
 		f.tickets.EXPECT().Admit(mock.Anything, mock.Anything).
 			Return(&usecase.AdmitResult{RejectedScanReason: entity.RejectedScanReasonExpired}, nil)
 
