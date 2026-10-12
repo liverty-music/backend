@@ -151,7 +151,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		Clock:                    clock,
 		Logger:                   logger,
 	})
-	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewReceptionLinkRepository(testDB),
+	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		rdb.NewEventRepository(testDB), rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
 		rdb.NewRejectedScanRepository(testDB), logger)
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.published, logger)

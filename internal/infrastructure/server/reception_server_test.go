@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	receptionv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
-	receptionlinkv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
+	organizerscannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
+	scannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	receptionv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/reception/v1"
-	receptionlinkv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/reception_link/v1"
+	organizerscannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/scanner/v1"
+	scannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/scanner/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -65,9 +65,9 @@ func unusedHealthHandler(_ ...connect.HandlerOption) (string, http.Handler) {
 
 // newReceptionTestServer builds the reception Connect server the way
 // di.InitializeApp does: the reception AuthFunc with ReceptionPublicProcedures,
-// the unknown-token interceptor, and only the ReceptionService handler over
+// the unknown-token interceptor, and only the device-facing ScannerService handler over
 // mocked use cases.
-func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockReceptionLinkUseCase) {
+func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockScannerUseCase) {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -77,26 +77,26 @@ func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockR
 	throttle := ratelimit.NewUnknownTokenThrottle(10, 10*time.Minute, time.Now)
 	interceptors := []connect.Interceptor{
 		ratelimit.NewUnknownTokenInterceptor(throttle, public, func(err error) bool {
-			return errors.Is(err, usecase.ErrUnknownReceptionLinkToken)
+			return errors.Is(err, usecase.ErrUnknownScannerLinkToken)
 		}),
 	}
 
-	linkUC := usecasemocks.NewMockReceptionLinkUseCase(t)
+	scannerUC := usecasemocks.NewMockScannerUseCase(t)
 	ticketUC := usecasemocks.NewMockTicketUseCase(t)
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return receptionv1connect.NewReceptionServiceHandler(rpc.NewReceptionHandler(linkUC, ticketUC, logger), opts...)
+			return scannerv1connect.NewScannerServiceHandler(rpc.NewScannerHandler(scannerUC, ticketUC, logger), opts...)
 		},
 	}
 	srv := server.NewConnectServer(testServerSettings(receptionOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, linkUC
+	return ts, scannerUC
 }
 
 // newOrganizerTestServer builds the organizer Connect server the way
-// di.InitializeApp does as far as reception is concerned: an AuthFunc with no
-// public procedures, the OrgScopedInterceptor, and the ReceptionLinkService
+// di.InitializeApp does as far as Scanners are concerned: an AuthFunc with no
+// public procedures, the OrgScopedInterceptor, and the ScannerService
 // handler over mocked use cases.
 func newOrganizerTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -105,11 +105,11 @@ func newOrganizerTestServer(t *testing.T) *httptest.Server {
 
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), nil)
 	interceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor("organizer-console-project")}
-	linkUC := usecasemocks.NewMockReceptionLinkUseCase(t)
+	scannerUC := usecasemocks.NewMockScannerUseCase(t)
 	organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return receptionlinkv1connect.NewReceptionLinkServiceHandler(rpc.NewOrganizerReceptionLinkHandler(linkUC, organizerUC, logger), opts...)
+			return organizerscannerv1connect.NewScannerServiceHandler(rpc.NewOrganizerScannerHandler(scannerUC, organizerUC, logger), opts...)
 		},
 	}
 	srv := server.NewConnectServer(testServerSettings(organizerOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)
@@ -119,10 +119,10 @@ func newOrganizerTestServer(t *testing.T) *httptest.Server {
 }
 
 // openRequest returns a well-formed Open request with no bearer token.
-func openRequest(t *testing.T) *connect.Request[receptionv1.OpenRequest] {
+func openRequest(t *testing.T) *connect.Request[scannerv1.OpenRequest] {
 	t.Helper()
-	return connect.NewRequest(&receptionv1.OpenRequest{
-		LinkToken: &entityv1.ReceptionLinkToken{Value: "tok_0123456789abcdefghijklmn"},
+	return connect.NewRequest(&scannerv1.OpenRequest{
+		LinkToken: &entityv1.ScannerLinkToken{Value: "tok_0123456789abcdefghijklmn"},
 		SignTime:  timestamppb.Now(),
 		Signature: &entityv1.Signature{Value: make([]byte, 64)},
 		PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
@@ -134,26 +134,26 @@ func TestReceptionServer(t *testing.T) {
 
 	t.Run("staff device without an account", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/reception "Staff device without an account"
-		ts, linkUC := newReceptionTestServer(t)
-		linkUC.EXPECT().Open(mock.Anything, mock.MatchedBy(func(in usecase.OpenReceptionLinkInput) bool {
+		// @spec components/adapter/organizer/api/rpc/scanner-device "Staff device without an account"
+		ts, scannerUC := newReceptionTestServer(t)
+		scannerUC.EXPECT().Open(mock.Anything, mock.MatchedBy(func(in usecase.OpenScannerInput) bool {
 			return in.LinkToken == "tok_0123456789abcdefghijklmn"
-		})).Return(&usecase.OpenReceptionLinkResult{
-			Link: &entity.ReceptionLink{ID: "019a0000-0000-7000-8000-0000000000a1", EventID: "019a0000-0000-7000-8000-0000000000e1", Number: 1, Status: entity.ReceptionLinkStatusInUse},
+		})).Return(&usecase.OpenScannerResult{
+			Scanner: &entity.Scanner{ID: "019a0000-0000-7000-8000-0000000000a1", EventID: "019a0000-0000-7000-8000-0000000000e1", Number: 1, Status: entity.ScannerStatusInUse},
 		}, nil)
 
-		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
+		client := scannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
 		resp, err := client.Open(context.Background(), openRequest(t))
-		require.NoError(t, err, "no bearer token is needed for the reception service")
-		assert.Equal(t, int32(1), resp.Msg.ReceptionLink.Number.Value)
+		require.NoError(t, err, "no bearer token is needed for the device-facing ScannerService")
+		assert.Equal(t, int32(1), resp.Msg.Scanner.Number.Value)
 	})
 
-	t.Run("malformed reception call is refused by validation", func(t *testing.T) {
+	t.Run("malformed scanner call is refused by validation", func(t *testing.T) {
 		t.Parallel()
 		ts, _ := newReceptionTestServer(t)
-		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
-		_, err := client.Admit(context.Background(), connect.NewRequest(&receptionv1.AdmitRequest{
-			LinkToken: &entityv1.ReceptionLinkToken{Value: "tok_0123456789abcdefghijklmn"},
+		client := scannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
+		_, err := client.Admit(context.Background(), connect.NewRequest(&scannerv1.AdmitRequest{
+			LinkToken: &entityv1.ScannerLinkToken{Value: "tok_0123456789abcdefghijklmn"},
 			SignTime:  timestamppb.Now(),
 			Signature: &entityv1.Signature{Value: make([]byte, 10)},
 		}))
@@ -163,17 +163,32 @@ func TestReceptionServer(t *testing.T) {
 	t.Run("no other service is served", func(t *testing.T) {
 		t.Parallel()
 		ts, _ := newReceptionTestServer(t)
-		client := receptionlinkv1connect.NewReceptionLinkServiceClient(ts.Client(), ts.URL)
-		_, err := client.Issue(context.Background(), connect.NewRequest(&receptionlinkv1.IssueRequest{
+		client := organizerscannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
+		_, err := client.Create(context.Background(), connect.NewRequest(&organizerscannerv1.CreateRequest{
 			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
 		}))
 		assert.Contains(t, []connect.Code{connect.CodeUnauthenticated, connect.CodeUnimplemented}, connect.CodeOf(err))
 	})
 
+	t.Run("procedures of the old ReceptionService are not served", func(t *testing.T) {
+		t.Parallel()
+		// The mocked use cases have no expectations, so a call that reached a
+		// handler would fail the test.
+		ts, _ := newReceptionTestServer(t)
+		for _, procedure := range []string{
+			"/liverty_music.rpc.organizer.reception.v1.ReceptionService/Open",
+			"/liverty_music.rpc.organizer.reception.v1.ReceptionService/Admit",
+		} {
+			client := connect.NewClient[scannerv1.OpenRequest, scannerv1.OpenResponse](ts.Client(), ts.URL+procedure)
+			_, err := client.CallUnary(context.Background(), openRequest(t))
+			assert.Contains(t, []connect.Code{connect.CodeUnauthenticated, connect.CodeUnimplemented}, connect.CodeOf(err), procedure)
+		}
+	})
+
 	t.Run("CORS preflight from the reception web origin", func(t *testing.T) {
 		t.Parallel()
 		ts, _ := newReceptionTestServer(t)
-		req, err := http.NewRequest(http.MethodOptions, ts.URL+receptionv1connect.ReceptionServiceAdmitProcedure, nil)
+		req, err := http.NewRequest(http.MethodOptions, ts.URL+scannerv1connect.ScannerServiceAdmitProcedure, nil)
 		require.NoError(t, err)
 		req.Header.Set("Origin", receptionOrigin)
 		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
@@ -197,10 +212,10 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 	t.Parallel()
 
 	// openFrom sends an Open with a fresh unknown-looking token from ip.
-	openFrom := func(t *testing.T, client receptionv1connect.ReceptionServiceClient, ip string) error {
+	openFrom := func(t *testing.T, client scannerv1connect.ScannerServiceClient, ip string) error {
 		t.Helper()
-		req := connect.NewRequest(&receptionv1.OpenRequest{
-			LinkToken: &entityv1.ReceptionLinkToken{Value: entity.NewReceptionLink("x").Token},
+		req := connect.NewRequest(&scannerv1.OpenRequest{
+			LinkToken: &entityv1.ScannerLinkToken{Value: entity.NewScanner("x").LinkToken},
 			SignTime:  timestamppb.Now(),
 			Signature: &entityv1.Signature{Value: make([]byte, 64)},
 			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
@@ -212,11 +227,11 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 
 	t.Run("token guessing", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/reception "Token guessing"
-		ts, linkUC := newReceptionTestServer(t)
-		unknown := apperr.Wrap(usecase.ErrUnknownReceptionLinkToken, codes.PermissionDenied, "reception link refused")
-		linkUC.EXPECT().Open(mock.Anything, mock.Anything).Return(nil, unknown).Times(11)
-		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
+		// @spec components/adapter/organizer/api/rpc/scanner-device "Token guessing"
+		ts, scannerUC := newReceptionTestServer(t)
+		unknown := apperr.Wrap(usecase.ErrUnknownScannerLinkToken, codes.PermissionDenied, "scanner refused")
+		scannerUC.EXPECT().Open(mock.Anything, mock.Anything).Return(nil, unknown).Times(11)
+		client := scannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
 
 		for i := range 10 {
 			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(openFrom(t, client, "203.0.113.7")), "call %d", i+1)
@@ -224,8 +239,8 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 		assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(openFrom(t, client, "203.0.113.7")), "the 11th call fails")
 
 		// Admit from the same client is refused too, before validation or any usecase.
-		_, err := client.Admit(context.Background(), func() *connect.Request[receptionv1.AdmitRequest] {
-			r := connect.NewRequest(&receptionv1.AdmitRequest{})
+		_, err := client.Admit(context.Background(), func() *connect.Request[scannerv1.AdmitRequest] {
+			r := connect.NewRequest(&scannerv1.AdmitRequest{})
 			r.Header().Set("X-Forwarded-For", "203.0.113.7")
 			return r
 		}())
@@ -237,10 +252,10 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 
 	t.Run("refusals other than unknown tokens do not count", func(t *testing.T) {
 		t.Parallel()
-		ts, linkUC := newReceptionTestServer(t)
-		linkUC.EXPECT().Open(mock.Anything, mock.Anything).
-			Return(nil, apperr.New(codes.PermissionDenied, "reception link refused")).Times(12)
-		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
+		ts, scannerUC := newReceptionTestServer(t)
+		scannerUC.EXPECT().Open(mock.Anything, mock.Anything).
+			Return(nil, apperr.New(codes.PermissionDenied, "scanner refused")).Times(12)
+		client := scannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
 		for range 12 {
 			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(openFrom(t, client, "203.0.113.8")))
 		}
@@ -252,19 +267,19 @@ func TestOrganizerServer_NoPublicProcedures(t *testing.T) {
 
 	t.Run("not signed in", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/reception-link "Not signed in"
+		// @spec components/adapter/organizer/api/rpc/scanner "Not signed in"
 		ts := newOrganizerTestServer(t)
-		client := receptionlinkv1connect.NewReceptionLinkServiceClient(ts.Client(), ts.URL)
-		_, err := client.Issue(context.Background(), connect.NewRequest(&receptionlinkv1.IssueRequest{
+		client := organizerscannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
+		_, err := client.Create(context.Background(), connect.NewRequest(&organizerscannerv1.CreateRequest{
 			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
 		}))
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
-	t.Run("reception service is not served", func(t *testing.T) {
+	t.Run("the device-facing ScannerService is not served", func(t *testing.T) {
 		t.Parallel()
 		ts := newOrganizerTestServer(t)
-		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
+		client := scannerv1connect.NewScannerServiceClient(ts.Client(), ts.URL)
 		_, err := client.Open(context.Background(), openRequest(t))
 		assert.Contains(t, []connect.Code{connect.CodeUnauthenticated, connect.CodeUnimplemented}, connect.CodeOf(err))
 	})

@@ -29,11 +29,11 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user "User with tickets"
 		cleanDatabase(t)
 		fan := seedFanUser(t)
-		may1 := seedIssuedTickets(t, seedReceptionEvent(t), fan, 1)[0]
-		may3 := seedIssuedTickets(t, seedReceptionEvent(t), fan, 1)[0]
+		may1 := seedIssuedTickets(t, seedAdmissionEvent(t), fan, 1)[0]
+		may3 := seedIssuedTickets(t, seedAdmissionEvent(t), fan, 1)[0]
 		setIssuedAt(t, may1, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 		setIssuedAt(t, may3, time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC))
-		seedIssuedTickets(t, seedReceptionEvent(t), seedFanUser(t), 1)
+		seedIssuedTickets(t, seedAdmissionEvent(t), seedFanUser(t), 1)
 
 		got, err := repo.ListByUser(ctx, entity.UserID(fan))
 
@@ -48,7 +48,7 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user "Voided tickets included"
 		cleanDatabase(t)
 		fan := seedFanUser(t)
-		ids := seedIssuedTickets(t, seedReceptionEvent(t), fan, 2)
+		ids := seedIssuedTickets(t, seedAdmissionEvent(t), fan, 2)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(ids[0]))
 		require.NoError(t, err)
 
@@ -86,10 +86,10 @@ func TestTicketRepository_ListByUserAndEvent(t *testing.T) {
 	t.Run("group of tickets", func(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user-and-event "Group of tickets"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedFanUser(t)
 		group := seedIssuedTickets(t, eventID, fan, 3)
-		seedIssuedTickets(t, seedReceptionEvent(t), fan, 1)
+		seedIssuedTickets(t, seedAdmissionEvent(t), fan, 1)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(group[2]))
 		require.NoError(t, err)
 
@@ -107,9 +107,9 @@ func TestTicketRepository_ListByUserAndEvent(t *testing.T) {
 	t.Run("no tickets for the event", func(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user-and-event "No tickets for the event"
 		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
+		eventID := seedAdmissionEvent(t)
 		fan := seedFanUser(t)
-		seedIssuedTickets(t, seedReceptionEvent(t), fan, 1)
+		seedIssuedTickets(t, seedAdmissionEvent(t), fan, 1)
 
 		got, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 

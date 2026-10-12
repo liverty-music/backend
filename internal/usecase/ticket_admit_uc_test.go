@@ -17,30 +17,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const admitProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Admit"
+const admitProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Admit"
 
 // evening returns 2026-11-20 hh:mm:ss in Japan time; the test event opens at
-// 18:00 and starts at 19:00, so its reception window is 15:00 to 04:00 the
+// 18:00 and starts at 19:00, so its admission window is 15:00 to 04:00 the
 // next day.
 func evening(hh, mm, ss int) time.Time {
 	return time.Date(2026, 11, 20, hh, mm, ss, 0, jst)
 }
 
-// admitFixture is one reception link (受付1, InUse on the staff device) for
+// admitFixture is one Scanner (受付1, InUse on the staff device) for
 // one event, a fan with a registered wallet key, and the mocks behind
 // TicketUseCase.Admit.
 type admitFixture struct {
 	t        *testing.T
 	uc       usecase.TicketUseCase
 	tickets  *entitymocks.MockTicketRepository
-	links    *entitymocks.MockReceptionLinkRepository
+	scanners *entitymocks.MockScannerRepository
 	events   *entitymocks.MockEventRepository
 	keys     *entitymocks.MockWalletPublicKeyRepository
 	admits   *entitymocks.MockAdmissionRepository
 	rejects  *entitymocks.MockRejectedScanRepository
 	staff    *testutil.DeviceKey
 	fan      *testutil.DeviceKey
-	link     *entity.ReceptionLink
+	scanner  *entity.Scanner
 	event    *entity.Event
 	fanID    entity.UserID
 	appended []*entity.RejectedScan
@@ -49,16 +49,16 @@ type admitFixture struct {
 func newAdmitFixture(t *testing.T) *admitFixture {
 	t.Helper()
 	f := &admitFixture{
-		t:       t,
-		tickets: entitymocks.NewMockTicketRepository(t),
-		links:   entitymocks.NewMockReceptionLinkRepository(t),
-		events:  entitymocks.NewMockEventRepository(t),
-		keys:    entitymocks.NewMockWalletPublicKeyRepository(t),
-		admits:  entitymocks.NewMockAdmissionRepository(t),
-		rejects: entitymocks.NewMockRejectedScanRepository(t),
-		staff:   testutil.NewDeviceKey(t),
-		fan:     testutil.NewDeviceKey(t),
-		fanID:   entity.UserID(entity.NewID()),
+		t:        t,
+		tickets:  entitymocks.NewMockTicketRepository(t),
+		scanners: entitymocks.NewMockScannerRepository(t),
+		events:   entitymocks.NewMockEventRepository(t),
+		keys:     entitymocks.NewMockWalletPublicKeyRepository(t),
+		admits:   entitymocks.NewMockAdmissionRepository(t),
+		rejects:  entitymocks.NewMockRejectedScanRepository(t),
+		staff:    testutil.NewDeviceKey(t),
+		fan:      testutil.NewDeviceKey(t),
+		fanID:    entity.UserID(entity.NewID()),
 	}
 	open, start := evening(18, 0, 0), evening(19, 0, 0)
 	f.event = &entity.Event{
@@ -67,20 +67,20 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 		OpenTime:  &open,
 		StartTime: &start,
 	}
-	f.link = &entity.ReceptionLink{
-		ID:             entity.ReceptionLinkID(entity.NewID()),
+	f.scanner = &entity.Scanner{
+		ID:             entity.ScannerID(entity.NewID()),
 		EventID:        f.event.ID,
 		Number:         1,
-		Status:         entity.ReceptionLinkStatusInUse,
+		Status:         entity.ScannerStatusInUse,
 		BoundPublicKey: f.staff.PublicKey(t),
 	}
-	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.links, f.events, f.keys, f.admits, f.rejects, newTestLogger(t))
+	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, newTestLogger(t))
 	return f
 }
 
-// expectLinkAndEvent sets up the token lookup and the event read.
-func (f *admitFixture) expectLinkAndEvent() {
-	f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(f.link, nil)
+// expectScannerAndEvent sets up the link token lookup and the event read.
+func (f *admitFixture) expectScannerAndEvent() {
+	f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(f.scanner, nil)
 	f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 }
 
@@ -139,16 +139,16 @@ func ids(tickets []*entity.Ticket) []entity.TicketID {
 func TestTicketUseCase_Admit_Caller(t *testing.T) {
 	t.Parallel()
 
-	t.Run("revoked link", func(t *testing.T) {
+	t.Run("revoked scanner", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Revoked link"
 		f := newAdmitFixture(t)
-		f.link.Status = entity.ReceptionLinkStatusRevoked
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(f.link, nil)
+		f.scanner.Status = entity.ScannerStatusRevoked
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(f.scanner, nil)
 
 		_, err := f.admit(f.staff, "anything", evening(18, 32, 0))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.NotErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		assert.NotErrorIs(t, err, usecase.ErrUnknownScannerLinkToken)
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
@@ -156,29 +156,29 @@ func TestTicketUseCase_Admit_Caller(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Call from another device"
 		f := newAdmitFixture(t)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(f.link, nil)
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(f.scanner, nil)
 
 		_, err := f.admit(testutil.NewDeviceKey(t), "anything", evening(18, 32, 0))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
-	t.Run("unknown token", func(t *testing.T) {
+	t.Run("unknown link token", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(nil, apperr.New(codes.NotFound, "no link"))
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(nil, apperr.New(codes.NotFound, "no scanner"))
 
 		_, err := f.admit(f.staff, "anything", evening(18, 32, 0))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.ErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		assert.ErrorIs(t, err, usecase.ErrUnknownScannerLinkToken)
 	})
 
-	t.Run("unused link is never proven", func(t *testing.T) {
+	t.Run("unused scanner is never proven", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.link.Status = entity.ReceptionLinkStatusUnused
-		f.link.BoundPublicKey = nil
-		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(f.link, nil)
+		f.scanner.Status = entity.ScannerStatusUnused
+		f.scanner.BoundPublicKey = nil
+		f.scanners.EXPECT().GetByLinkToken(mock.Anything, "tok-1").Return(f.scanner, nil)
 
 		_, err := f.admit(f.staff, "anything", evening(18, 32, 0))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -188,7 +188,7 @@ func TestTicketUseCase_Admit_Caller(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "After the window"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		now := time.Date(2026, 11, 21, 4, 30, 0, 0, jst)
 		tickets := f.heldTickets(1)
 
@@ -202,7 +202,7 @@ func TestTicketUseCase_Admit_Caller(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
 		f.event.StartTime = nil
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 
 		_, err := f.admit(f.staff, "anything", evening(18, 32, 0))
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
@@ -218,7 +218,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Screenshot shown later"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		tickets := f.heldTickets(2)
@@ -232,7 +232,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		for i, s := range f.appended {
 			assert.Equal(t, tickets[i].ID, s.TicketID)
 			assert.Equal(t, entity.RejectedScanReasonExpired, s.Reason)
-			assert.Equal(t, f.link.ID, s.ReceptionLinkID)
+			assert.Equal(t, f.scanner.ID, s.ScannerID)
 			assert.Equal(t, f.event.ID, s.EventID)
 			assert.True(t, s.ScannedTime.Equal(now))
 		}
@@ -243,7 +243,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Code from a replaced phone"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectAppend()
 		f.keys.EXPECT().GetByUser(mock.Anything, f.fanID).
 			Return(&entity.WalletPublicKey{UserID: f.fanID, PublicKey: testutil.NewDeviceKey(t).PublicKey(t)}, nil)
@@ -260,7 +260,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Not an entry code"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectAppend()
 
 		got, err := f.admit(f.staff, "https://example.com/", now)
@@ -273,7 +273,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 	t.Run("user without a wallet key", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectAppend()
 		f.keys.EXPECT().GetByUser(mock.Anything, f.fanID).Return(nil, apperr.New(codes.NotFound, "no key"))
 
@@ -286,7 +286,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Ticket for another event"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		other := []entity.TicketID{entity.TicketID(entity.NewID()), entity.TicketID(entity.NewID())}
@@ -296,7 +296,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		assert.Equal(t, entity.RejectedScanReasonOtherEvent, got.RejectedScanReason)
 		require.Len(t, f.appended, 2, "one RejectedScan per presented ticket")
 		assert.Equal(t, other[0], f.appended[0].TicketID)
-		assert.Equal(t, f.event.ID, f.appended[0].EventID, "the event of the link that scanned")
+		assert.Equal(t, f.event.ID, f.appended[0].EventID, "the event of the scanner that scanned")
 		f.tickets.AssertNotCalled(t, "ListByUserAndEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
@@ -317,7 +317,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			f := newAdmitFixture(t)
-			f.expectLinkAndEvent()
+			f.expectScannerAndEvent()
 			f.expectFanKey()
 			f.expectAppend()
 			own := f.heldTickets(2)
@@ -332,7 +332,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 			require.Len(t, f.appended, 1, "one RejectedScan for the whole scan")
 			assert.Equal(t, entity.RejectedScanReasonForged, f.appended[0].Reason)
 			assert.Empty(t, f.appended[0].TicketID, "a forged scan names no ticket")
-			assert.Equal(t, f.link.ID, f.appended[0].ReceptionLinkID)
+			assert.Equal(t, f.scanner.ID, f.appended[0].ScannerID)
 			assert.True(t, f.appended[0].ScannedTime.Equal(now))
 			f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		})
@@ -341,7 +341,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 	t.Run("ticket list failure fails the scan", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).
@@ -364,12 +364,12 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		// @spec components/usecase/ticket/admit "Group of three admitted"
 		// @spec components/usecase/ticket/admit "Admission recorded"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(3)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		for _, tk := range tickets {
-			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
+			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.scanner.ID, now).
 				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
 		}
 
@@ -386,16 +386,16 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		// @spec components/usecase/ticket/admit "Already used earlier"
 		// @spec components/usecase/ticket/admit "Rejection recorded"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		later := evening(18, 40, 0)
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
-			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkID: f.link.ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[0].ID, ScannerID: f.scanner.ID, ScannerNumber: 1, AdmitTime: now}, nil)
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, later, ids(tickets)...), later)
 		require.NoError(t, err)
@@ -405,12 +405,12 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, rt.Reason)
 		require.NotNil(t, rt.EarlierAdmitTime)
 		assert.True(t, rt.EarlierAdmitTime.Equal(now))
-		assert.Equal(t, 1, rt.EarlierReceptionLinkNumber)
+		assert.Equal(t, 1, rt.EarlierScannerNumber)
 
 		require.Len(t, f.appended, 1)
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, f.appended[0].Reason)
 		assert.Equal(t, tickets[0].ID, f.appended[0].TicketID)
-		assert.Equal(t, f.link.ID, f.appended[0].ReceptionLinkID)
+		assert.Equal(t, f.scanner.ID, f.appended[0].ScannerID)
 		assert.True(t, f.appended[0].ScannedTime.Equal(later))
 	})
 
@@ -418,13 +418,13 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Refunded ticket"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		tickets := f.heldTickets(1)
 		tickets[0].Status = entity.TicketStatusVoided
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil)
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
@@ -438,20 +438,20 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Result of a group scan"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		later := evening(18, 40, 0)
 		tickets := f.heldTickets(3)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: later}, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, later).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.scanner.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[2].ID, f.link.ID, later).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[2].ID, f.scanner.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: later}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[1].ID).
-			Return(&entity.Admission{TicketID: tickets[1].ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[1].ID, ScannerNumber: 1, AdmitTime: now}, nil)
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, later, ids(tickets)...), later)
 		require.NoError(t, err)
@@ -461,9 +461,9 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.Equal(t, &usecase.AdmitResult{
 			AdmittedTicketCount: 2,
 			RejectedTickets: []usecase.RejectedTicket{{
-				Reason:                     entity.RejectedScanReasonAlreadyAdmitted,
-				EarlierAdmitTime:           &now,
-				EarlierReceptionLinkNumber: 1,
+				Reason:               entity.RejectedScanReasonAlreadyAdmitted,
+				EarlierAdmitTime:     &now,
+				EarlierScannerNumber: 1,
 			}},
 		}, got)
 	})
@@ -471,11 +471,11 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 	t.Run("rejection append failure still returns the result", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil)
 		f.rejects.EXPECT().Append(mock.Anything, mock.Anything).Return(apperr.New(codes.Internal, "db down"))
 
@@ -490,12 +490,12 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		// Admission.GetByTicket fails (Each presented ticket admitted exactly
 		// once).
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: evening(18, 1, 0)}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).Return(nil, apperr.New(codes.Internal, "db down"))
 
@@ -503,19 +503,19 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got.RejectedTickets, 1)
 		assert.True(t, got.RejectedTickets[0].EarlierAdmitTime.Equal(evening(18, 1, 0)))
-		assert.Zero(t, got.RejectedTickets[0].EarlierReceptionLinkNumber)
+		assert.Zero(t, got.RejectedTickets[0].EarlierScannerNumber)
 	})
 
 	t.Run("ticket admit failure fails with Unavailable", func(t *testing.T) {
 		t.Parallel()
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(2)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil)
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{}, errors.New("connection reset"))
 
 		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
@@ -526,43 +526,43 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Revoked during a group scan"
 		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
+		f.expectScannerAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(3)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
-		// The first ticket is admitted, then the link is revoked: the store
-		// refuses the second (see the "link revoked before the admission"
+		// The first ticket is admitted, then the scanner is revoked: the store
+		// refuses the second (see the "scanner revoked before the admission"
 		// contract test of Ticket.Admit).
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
-		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
-			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "revoked")).Once()
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.scanner.ID, now).
+			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrScannerNotUsable, codes.PermissionDenied, "revoked")).Once()
 
 		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.NotErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		assert.NotErrorIs(t, err, usecase.ErrUnknownScannerLinkToken)
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, tickets[2].ID, mock.Anything, mock.Anything)
 
-		// A later scan through a new link reports the first ticket
+		// A later scan through a new scanner reports the first ticket
 		// AlreadyAdmitted (the store kept its admission).
 		later := evening(18, 40, 0)
 		next := newAdmitFixture(t)
 		next.fan, next.fanID, next.event = f.fan, f.fanID, f.event
-		next.link.EventID = f.event.ID
-		next.link.Number = 2
-		next.expectLinkAndEvent()
+		next.scanner.EventID = f.event.ID
+		next.scanner.Number = 2
+		next.expectScannerAndEvent()
 		next.expectFanKey()
 		next.expectAppend()
 		next.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets[:1], nil)
-		next.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, next.link.ID, later).
+		next.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, next.scanner.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
 		next.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
-			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[0].ID, ScannerNumber: 1, AdmitTime: now}, nil)
 
 		got, err := next.admit(next.staff, next.code(f.event.ID, later, tickets[0].ID), later)
 		require.NoError(t, err)
 		require.Len(t, got.RejectedTickets, 1)
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, got.RejectedTickets[0].Reason)
-		assert.Equal(t, 1, got.RejectedTickets[0].EarlierReceptionLinkNumber)
+		assert.Equal(t, 1, got.RejectedTickets[0].EarlierScannerNumber)
 	})
 }

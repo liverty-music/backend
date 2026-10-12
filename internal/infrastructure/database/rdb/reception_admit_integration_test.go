@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	integrationAdmitProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Admit"
+	integrationAdmitProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Admit"
 
 	// receptionTestRole is a login role named like the reception-api Cloud
 	// SQL IAM user, so the reception grant migration applies to it. It differs
@@ -53,11 +53,17 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 	}
 	migration, err := os.ReadFile(receptionGrantMigration)
 	require.NoError(t, err)
-	// 20261012000000_one_name_per_concept.sql later renames
-	// tickets.admitted_at to admit_at. In a migrated database the column
-	// grant follows the rename; replayed here on the current schema, the
-	// grant names the column by its current name.
-	grants := strings.ReplaceAll(string(migration), "(admitted_at) ON tickets", "(admit_at) ON tickets")
+	// Later migrations rename what this grant names:
+	// 20261012000000_one_name_per_concept.sql renames tickets.admitted_at to
+	// admit_at, and 20261012220000_rename_reception_links_to_scanners.sql
+	// renames reception_links to scanners and its token to link_token. In a
+	// migrated database the grants follow the renames; replayed here on the
+	// current schema, the grant names them by their current names.
+	grants := strings.NewReplacer(
+		"(admitted_at) ON tickets", "(admit_at) ON tickets",
+		"(status, bound_public_key, bound_at, token) ON reception_links", "(status, bound_public_key, bound_at, link_token) ON scanners",
+		"reception_links", "scanners",
+	).Replace(string(migration))
 	_, err = testDB.Pool.Exec(ctx, grants)
 	require.NoError(t, err)
 
@@ -101,29 +107,29 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 
 	receptionDB := connectAsReceptionRole(t)
 	uc := usecase.NewTicketUseCase(
-		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
+		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewScannerRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
 		rdb.NewRejectedScanRepository(receptionDB), logger,
 	)
 	// Seeding runs as the test superuser.
-	linkRepo := rdb.NewReceptionLinkRepository(testDB)
+	scannerRepo := rdb.NewScannerRepository(testDB)
 	keyRepo := rdb.NewWalletPublicKeyRepository(testDB)
 
 	// setup seeds an event opening 18:00 / starting 19:00 on 2026-11-20, a
-	// fan holding n tickets with a registered wallet key, and two links
+	// fan holding n tickets with a registered wallet key, and two scanners
 	// (受付1, 受付2) bound to two staff devices.
 	type stage struct {
-		eventID string
-		fanID   entity.UserID
-		fan     *testutil.DeviceKey
-		tickets []entity.TicketID
-		links   [2]*entity.ReceptionLink
-		staff   [2]*testutil.DeviceKey
+		eventID  string
+		fanID    entity.UserID
+		fan      *testutil.DeviceKey
+		tickets  []entity.TicketID
+		scanners [2]*entity.Scanner
+		staff    [2]*testutil.DeviceKey
 	}
 	setup := func(t *testing.T, n int) *stage {
 		t.Helper()
 		cleanDatabase(t)
-		s := &stage{eventID: seedReceptionEvent(t), fan: testutil.NewDeviceKey(t)}
+		s := &stage{eventID: seedAdmissionEvent(t), fan: testutil.NewDeviceKey(t)}
 		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
 		s.fanID = entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
@@ -132,19 +138,19 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		require.NoError(t, err)
 		for i := range 2 {
 			s.staff[i] = testutil.NewDeviceKey(t)
-			link := seedLink(t, s.eventID)
-			_, bound, err := linkRepo.BindDevice(ctx, link.ID, s.staff[i].PublicKey(t), nov20(14, 0))
+			scanner := seedScanner(t, s.eventID)
+			_, bound, err := scannerRepo.BindDevice(ctx, scanner.ID, s.staff[i].PublicKey(t), nov20(14, 0))
 			require.NoError(t, err)
-			bound.Token = link.Token
-			s.links[i] = bound
+			bound.LinkToken = scanner.LinkToken
+			s.scanners[i] = bound
 		}
 		return s
 	}
 	admit := func(t *testing.T, s *stage, i int, scanned string, now time.Time) (*usecase.AdmitResult, error) {
 		t.Helper()
-		call := s.staff[i].SignCall(t, integrationAdmitProcedure, s.links[i].Token, scanned, now)
+		call := s.staff[i].SignCall(t, integrationAdmitProcedure, s.scanners[i].LinkToken, scanned, now)
 		return uc.Admit(ctx, usecase.AdmitInput{
-			Procedure: integrationAdmitProcedure, LinkToken: s.links[i].Token,
+			Procedure: integrationAdmitProcedure, LinkToken: s.scanners[i].LinkToken,
 			SignTime: call.SignTime, Signature: call.Signature, ScannedText: scanned, Now: now,
 		})
 	}
@@ -173,7 +179,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		require.NotNil(t, results[0])
 		require.NotNil(t, results[1])
 
-		assert.Equal(t, 2, results[0].AdmittedTicketCount+results[1].AdmittedTicketCount, "each ticket admitted through exactly one link")
+		assert.Equal(t, 2, results[0].AdmittedTicketCount+results[1].AdmittedTicketCount, "each ticket admitted through exactly one scanner")
 		already := 0
 		for _, r := range results {
 			for _, rt := range r.RejectedTickets {
@@ -204,38 +210,38 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		rt := got.RejectedTickets[0]
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, rt.Reason)
 		assert.True(t, rt.EarlierAdmitTime.Equal(first))
-		assert.Equal(t, 1, rt.EarlierReceptionLinkNumber)
+		assert.Equal(t, 1, rt.EarlierScannerNumber)
 
 		var reason int16
-		var linkID string
+		var scannerID string
 		require.NoError(t, testDB.Pool.QueryRow(ctx,
-			`SELECT reason, reception_link_id FROM rejected_scans WHERE ticket_id = $1`, string(s.tickets[0])).Scan(&reason, &linkID))
+			`SELECT reason, scanner_id FROM rejected_scans WHERE ticket_id = $1`, string(s.tickets[0])).Scan(&reason, &scannerID))
 		assert.Equal(t, int16(entity.RejectedScanReasonAlreadyAdmitted), reason)
-		assert.Equal(t, string(s.links[1].ID), linkID)
+		assert.Equal(t, string(s.scanners[1].ID), scannerID)
 	})
 }
 
-// TestReceptionLinkUseCase_Open_Integration opens one Unused link from two
+// TestScannerUseCase_Open_Integration opens one Unused scanner from two
 // devices at once against the real store, connected as the reception-api
 // role: exactly one is bound, and the other
-// is told the link is in use on another device (FailedPrecondition), never
+// is told the scanner is in use on another device (FailedPrecondition), never
 // PermissionDenied.
-func TestReceptionLinkUseCase_Open_Integration(t *testing.T) {
+func TestScannerUseCase_Open_Integration(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	const openProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Open"
+	const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
 	cleanDatabase(t)
-	eventID := seedReceptionEvent(t)
+	eventID := seedAdmissionEvent(t)
 	_, err = testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
 	require.NoError(t, err)
-	link := seedLink(t, eventID)
+	scanner := seedScanner(t, eventID)
 	receptionDB := connectAsReceptionRole(t)
-	uc := usecase.NewReceptionLinkUseCase(rdb.NewReceptionLinkRepository(receptionDB), rdb.NewEventRepository(receptionDB),
+	uc := usecase.NewScannerUseCase(rdb.NewScannerRepository(receptionDB), rdb.NewEventRepository(receptionDB),
 		rdb.NewEventOrganizerRepository(receptionDB), rdb.NewEventPublishStateRepository(receptionDB), logger)
 
 	now := nov20(14, 10)
@@ -247,11 +253,11 @@ func TestReceptionLinkUseCase_Open_Integration(t *testing.T) {
 	for i := range 2 {
 		device := testutil.NewDeviceKey(t)
 		key := device.PublicKey(t)
-		call := device.SignCall(t, openProcedure, link.Token, key.Base64URL(), now)
+		call := device.SignCall(t, openProcedure, scanner.LinkToken, key.Base64URL(), now)
 		wg.Go(func() {
 			<-start
-			_, errs[i] = uc.Open(ctx, usecase.OpenReceptionLinkInput{
-				Procedure: openProcedure, LinkToken: link.Token, PublicKey: key,
+			_, errs[i] = uc.Open(ctx, usecase.OpenScannerInput{
+				Procedure: openProcedure, LinkToken: scanner.LinkToken, PublicKey: key,
 				SignTime: call.SignTime, Signature: call.Signature, Now: now,
 			})
 		})

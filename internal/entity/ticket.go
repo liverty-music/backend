@@ -183,20 +183,21 @@ type TicketRepository interface {
 	//  - Internal: database query failure.
 	ListByUserAndEvent(ctx context.Context, userID UserID, eventID string) ([]*Ticket, error)
 
-	// Admit admits the ticket through the reception link at admittedTime, at
+	// Admit admits the ticket through the Scanner at admittedTime, at
 	// most once. When the ticket is admissible it sets the admitted time and
 	// stores the [Admission] in one indivisible step (a per-ticket conditional
 	// update, never a table lock) and reports Admitted; of any number of
 	// concurrent calls for one ticket exactly one reports Admitted. A ticket
 	// with an admitted time reports AlreadyAdmitted with that time; a Voided
-	// ticket without one reports Voided. The link must still be usable when
-	// the ticket is admitted, so a link revoked mid-scan admits nothing more.
+	// ticket without one reports Voided. The Scanner must still be usable
+	// when the ticket is admitted, so a Scanner revoked mid-scan admits nothing
+	// more.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no ticket has the id.
-	//  - PermissionDenied (cause [ErrReceptionLinkNotUsable]): the link is
+	//  - PermissionDenied (cause [ErrScannerNotUsable]): the Scanner is
 	//    Revoked or does not exist; nothing changed.
 	//  - Internal: database failure.
-	Admit(ctx context.Context, ticketID TicketID, linkID ReceptionLinkID, admittedTime time.Time) (AdmitResult, error)
+	Admit(ctx context.Context, ticketID TicketID, scannerID ScannerID, admittedTime time.Time) (AdmitResult, error)
 }

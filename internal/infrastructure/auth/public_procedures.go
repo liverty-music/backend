@@ -3,7 +3,7 @@ package auth
 import (
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
-	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
+	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 )
 
@@ -27,14 +27,14 @@ func FanPublicProcedures() map[string]bool {
 }
 
 // ReceptionPublicProcedures returns the reception-server Connect procedures,
-// all of which are called without a sign-in: the ReceptionService a venue
-// staff device calls. Its caller is identified by a reception link token and
+// all of which are called without a sign-in: the device-facing ScannerService
+// (rpc.scanner.v1) a venue staff device calls. Its caller is identified by a link token and
 // the bound device's signature, checked by the use cases, so the authn
 // middleware lets these calls through without a token. The organizer server
 // has no public procedures.
 func ReceptionPublicProcedures() map[string]bool {
 	return map[string]bool{
-		receptionconnect.ReceptionServiceOpenProcedure:  true,
-		receptionconnect.ReceptionServiceAdmitProcedure: true,
+		scannerconnect.ScannerServiceOpenProcedure:  true,
+		scannerconnect.ScannerServiceAdmitProcedure: true,
 	}
 }

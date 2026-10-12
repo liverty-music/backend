@@ -26,8 +26,7 @@ import (
 	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/order/v1/orderv1connect"
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
-	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
-	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
+	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
 	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	organizerseriesimageconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series_image/v1/series_imagev1connect"
 	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
@@ -35,6 +34,7 @@ import (
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
@@ -79,12 +79,12 @@ import (
 )
 
 const (
-	// receptionUnknownTokenLimit is how many calls with unknown reception link
-	// tokens a client may make within receptionUnknownTokenWindow before
-	// further reception calls are refused with ResourceExhausted.
+	// receptionUnknownTokenLimit is how many calls with unknown link tokens
+	// a client may make within receptionUnknownTokenWindow before
+	// further scanner calls are refused with ResourceExhausted.
 	receptionUnknownTokenLimit = 10
-	// receptionUnknownTokenWindow is the window over which unknown reception
-	// link tokens are counted per client.
+	// receptionUnknownTokenWindow is the window over which unknown link
+	// tokens are counted per client.
 	receptionUnknownTokenWindow = 10 * time.Minute
 )
 
@@ -182,7 +182,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	checkoutRepo := rdb.NewCheckoutRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
-	receptionLinkRepo := rdb.NewReceptionLinkRepository(db)
+	scannerRepo := rdb.NewScannerRepository(db)
 	admissionRepo := rdb.NewAdmissionRepository(db)
 	rejectedScanRepo := rdb.NewRejectedScanRepository(db)
 	processedWebhookEventRepo := rdb.NewProcessedWebhookEventRepository(db)
@@ -383,11 +383,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
-	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
-	// ⑥ ticket wallet and venue reception.
+	// ⑥ ticket wallet and venue admission (Scanners).
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
-	receptionLinkUC := usecase.NewReceptionLinkUseCase(receptionLinkRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
+	scannerUC := usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
 
 	// Orders: the fan's and the admin's reads, the issuance pipeline that turns
 	// Won-captured lottery entries and committed first-come checkouts into
@@ -513,7 +513,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// procedures: every organizer call is a signed-in operator's.
 	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
 
-	// The reception server's AuthFunc makes only the reception procedures
+	// The reception server's AuthFunc makes only the scanner device's procedures
 	// public (no sign-in; link token + device signature). Nothing else is
 	// mounted there.
 	receptionAuthFunc := auth.NewAuthFunc(jwtValidator, auth.ReceptionPublicProcedures())
@@ -779,10 +779,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Organizer-facing ReceptionLinkService: Issue, List, Revoke.
+		// Organizer-facing ScannerService: Create, ListByEvent, Revoke.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return receptionlinkconnect.NewReceptionLinkServiceHandler(
-				rpc.NewOrganizerReceptionLinkHandler(receptionLinkUC, organizerUC, logger),
+			return organizerscannerconnect.NewScannerServiceHandler(
+				rpc.NewOrganizerScannerHandler(scannerUC, organizerUC, logger),
 				opts...,
 			)
 		},
@@ -804,28 +804,29 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
 
 	// Reception Connect server — a fourth listener in the same binary on its
-	// own port and CORS allowlist, serving ONLY ReceptionService (Open, Admit),
-	// called by a venue staff device without a sign-in. Its caller is a
-	// reception link token and the bound device's signature, checked by the
-	// use cases. It is exposed only by the reception-api workload, apart from
-	// the organizer console's workload and database role.
+	// own port and CORS allowlist, serving ONLY the device-facing
+	// ScannerService (rpc.scanner.v1: Open, Admit), called by a venue staff
+	// device without a sign-in. Its caller is a link token and the bound
+	// device's signature, checked by the use cases. It is exposed only by the
+	// reception-api workload, apart from the organizer console's workload and
+	// database role.
 	receptionServerCfg := cfg.Server
 	receptionServerCfg.Port = cfg.Server.ReceptionPort
 	receptionServerCfg.AllowedOrigins = cfg.Server.ReceptionAllowedOrigins
 	receptionInterceptors := []connect.Interceptor{
-		// Clients that make receptionUnknownTokenLimit reception calls with
+		// Clients that make receptionUnknownTokenLimit scanner calls with
 		// unknown link tokens within receptionUnknownTokenWindow are refused
 		// with ResourceExhausted until the window passes.
 		ratelimit.NewUnknownTokenInterceptor(
 			ratelimit.NewUnknownTokenThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
 			auth.ReceptionPublicProcedures(),
-			func(err error) bool { return errors.Is(err, usecase.ErrUnknownReceptionLinkToken) },
+			func(err error) bool { return errors.Is(err, usecase.ErrUnknownScannerLinkToken) },
 		),
 	}
 	receptionHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return receptionconnect.NewReceptionServiceHandler(
-				rpc.NewReceptionHandler(receptionLinkUC, ticketUC, logger),
+			return scannerconnect.NewScannerServiceHandler(
+				rpc.NewScannerHandler(scannerUC, ticketUC, logger),
 				opts...,
 			)
 		},

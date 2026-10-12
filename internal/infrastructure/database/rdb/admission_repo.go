@@ -22,24 +22,24 @@ func NewAdmissionRepository(db *Database) *AdmissionRepository {
 }
 
 const admissionGetByTicketQuery = `
-	SELECT a.ticket_id, a.event_id, a.reception_link_id, l.number, a.admitted_at
+	SELECT a.ticket_id, a.event_id, a.scanner_id, l.number, a.admitted_at
 	FROM admissions a
-	JOIN reception_links l ON l.id = a.reception_link_id
+	JOIN scanners l ON l.id = a.scanner_id
 	WHERE a.ticket_id = $1
 `
 
 // GetByTicket implements [entity.AdmissionRepository].
 func (r *AdmissionRepository) GetByTicket(ctx context.Context, ticketID entity.TicketID) (*entity.Admission, error) {
 	var (
-		a        entity.Admission
-		ticketDB string
-		linkID   string
+		a         entity.Admission
+		ticketDB  string
+		scannerID string
 	)
 	if err := r.db.Pool.QueryRow(ctx, admissionGetByTicketQuery, string(ticketID)).
-		Scan(&ticketDB, &a.EventID, &linkID, &a.ReceptionLinkNumber, &a.AdmitTime); err != nil {
+		Scan(&ticketDB, &a.EventID, &scannerID, &a.ScannerNumber, &a.AdmitTime); err != nil {
 		return nil, toAppErr(err, "failed to get admission", slog.String("ticket_id", string(ticketID)))
 	}
 	a.TicketID = entity.TicketID(ticketDB)
-	a.ReceptionLinkID = entity.ReceptionLinkID(linkID)
+	a.ScannerID = entity.ScannerID(scannerID)
 	return &a, nil
 }

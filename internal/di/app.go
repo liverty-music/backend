@@ -23,10 +23,10 @@ type App struct {
 	// authorization via OrgScopedInterceptor.
 	OrganizerServer *server.ConnectServer
 	// ReceptionServer is a fourth Connect listener in the same binary serving
-	// only the ReceptionService a venue staff device calls without a sign-in,
-	// on its own port and ingress host (api.reception.{base-domain}). It is
-	// exposed only by the reception-api workload, whose database role holds
-	// the reception grants alone.
+	// only the device-facing ScannerService (rpc.scanner.v1) a venue staff
+	// device calls without a sign-in, on its own port and ingress host
+	// (api.reception.{base-domain}). It is exposed only by the reception-api
+	// workload, whose database role holds the reception grants alone.
 	ReceptionServer *server.ConnectServer
 	// WebhookServer handles Zitadel Actions v2 callbacks
 	// (/pre-access-token) on a separate internal-only port. See
