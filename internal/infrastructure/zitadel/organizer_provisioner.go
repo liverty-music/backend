@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -373,6 +375,19 @@ func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, providerOrganiz
 	return nil
 }
 
+// Check lifetimes of the tenant login policy, set to Zitadel's instance
+// defaults (cmd/defaults.yaml at v4.19.4). Omitting them stores 0, which the
+// Zitadel Console rejects on save ("Form contains invalid value(s).";
+// minValueValidator(1) in login-policy.component.ts), so the tenant policy
+// could no longer be edited from the Console.
+var (
+	loginPolicyPasswordCheckLifetime      = durationpb.New(240 * time.Hour)
+	loginPolicyExternalLoginCheckLifetime = durationpb.New(240 * time.Hour)
+	loginPolicyMFAInitSkipLifetime        = durationpb.New(720 * time.Hour)
+	loginPolicySecondFactorCheckLifetime  = durationpb.New(18 * time.Hour)
+	loginPolicyMultiFactorCheckLifetime   = durationpb.New(12 * time.Hour)
+)
+
 // ensureLoginPolicy sets a passkey-primary custom login policy on the tenant
 // org, converging an existing policy to the correct shape on retry.
 //
@@ -421,6 +436,15 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 		AllowExternalIdp:       true,
 		IgnoreUnknownUsernames: true,
 		DefaultRedirectUri:     defaultRedirectURI,
+		// Operators never get a password; hiding the reset removes the hosted
+		// login's only self-service path to set one while local
+		// authentication must stay enabled for passkeys.
+		HidePasswordReset:          true,
+		PasswordCheckLifetime:      loginPolicyPasswordCheckLifetime,
+		ExternalLoginCheckLifetime: loginPolicyExternalLoginCheckLifetime,
+		MfaInitSkipLifetime:        loginPolicyMFAInitSkipLifetime,
+		SecondFactorCheckLifetime:  loginPolicySecondFactorCheckLifetime,
+		MultiFactorCheckLifetime:   loginPolicyMultiFactorCheckLifetime,
 	})
 	if err == nil {
 		return nil
@@ -433,12 +457,18 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 	// before this change converge to the correct passkey-primary shape and gain
 	// the console default_redirect_uri.
 	if _, err := p.mgmt.UpdateCustomLoginPolicy(orgCtx, &mgmtpb.UpdateCustomLoginPolicyRequest{
-		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
-		AllowUsernamePassword:  true,
-		AllowRegister:          false,
-		AllowExternalIdp:       true,
-		IgnoreUnknownUsernames: true,
-		DefaultRedirectUri:     defaultRedirectURI,
+		PasswordlessType:           policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
+		AllowUsernamePassword:      true,
+		AllowRegister:              false,
+		AllowExternalIdp:           true,
+		IgnoreUnknownUsernames:     true,
+		DefaultRedirectUri:         defaultRedirectURI,
+		HidePasswordReset:          true,
+		PasswordCheckLifetime:      loginPolicyPasswordCheckLifetime,
+		ExternalLoginCheckLifetime: loginPolicyExternalLoginCheckLifetime,
+		MfaInitSkipLifetime:        loginPolicyMFAInitSkipLifetime,
+		SecondFactorCheckLifetime:  loginPolicySecondFactorCheckLifetime,
+		MultiFactorCheckLifetime:   loginPolicyMultiFactorCheckLifetime,
 	}); err != nil {
 		return fmt.Errorf("update custom login policy: %w", err)
 	}

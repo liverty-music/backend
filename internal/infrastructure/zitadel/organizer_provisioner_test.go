@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
@@ -14,6 +15,7 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -292,6 +294,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.addCustomLoginPolicyReq.GetDefaultRedirectUri(),
 					"invite acceptance must return the operator to the console")
+				assertLoginPolicyDefaults(t, stub.addCustomLoginPolicyReq)
 
 				require.Len(t, stub.addProjectGrantReqs, 1)
 				req := stub.addProjectGrantReqs[0]
@@ -328,6 +331,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.True(t, stub.updateCustomLoginPolicyReq.GetAllowUsernamePassword())
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.updateCustomLoginPolicyReq.GetDefaultRedirectUri())
+				assertLoginPolicyDefaults(t, stub.updateCustomLoginPolicyReq)
 				// The existing user is looked up in the tenant org only.
 				require.Len(t, userV2.listUsersReqs, 1)
 				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
@@ -886,4 +890,28 @@ func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
 			assert.Equal(t, []string{"zitadel-org-tenant"}, tt.stub.removeOrgOrgIDs, "RemoveOrg must target the tenant org")
 		})
 	}
+}
+
+// loginPolicyDefaults is the part of the add and update login policy requests
+// that both must set the same way.
+type loginPolicyDefaults interface {
+	GetHidePasswordReset() bool
+	GetPasswordCheckLifetime() *durationpb.Duration
+	GetExternalLoginCheckLifetime() *durationpb.Duration
+	GetMfaInitSkipLifetime() *durationpb.Duration
+	GetSecondFactorCheckLifetime() *durationpb.Duration
+	GetMultiFactorCheckLifetime() *durationpb.Duration
+}
+
+// assertLoginPolicyDefaults checks that the tenant policy hides the password
+// reset and sets every check lifetime to Zitadel's instance default, never 0
+// (a 0 lifetime makes the Zitadel Console refuse to save the policy).
+func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
+	t.Helper()
+	assert.True(t, req.GetHidePasswordReset(), "operators must not be offered a password reset")
+	assert.Equal(t, 240*time.Hour, req.GetPasswordCheckLifetime().AsDuration())
+	assert.Equal(t, 240*time.Hour, req.GetExternalLoginCheckLifetime().AsDuration())
+	assert.Equal(t, 720*time.Hour, req.GetMfaInitSkipLifetime().AsDuration())
+	assert.Equal(t, 18*time.Hour, req.GetSecondFactorCheckLifetime().AsDuration())
+	assert.Equal(t, 12*time.Hour, req.GetMultiFactorCheckLifetime().AsDuration())
 }
