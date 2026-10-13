@@ -43,7 +43,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 
 // expectNotificationRequested sets up a PublishEventWithID expectation
 // matching a NOTIFICATION.requested publish for the given recipient and
-// notification type — the request NotifyNewConcerts / AnnounceDiscoveredPhase
+// notification type — the request NotifyNewConcerts / AnnounceDiscoveredSale
 // now issue instead of calling NotificationUseCase.Deliver directly. The id
 // argument is deliberately not asserted here (it is a deterministic hash of
 // business keys, covered by its own test); mock.AnythingOfType("string")

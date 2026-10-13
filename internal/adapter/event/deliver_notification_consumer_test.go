@@ -65,6 +65,27 @@ func TestDeliverNotificationConsumer_Handle(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	// @spec components/usecase/notification/deliver "Discovered sale announced"
+	t.Run("delegates a ticket sale announcement", func(t *testing.T) {
+		t.Parallel()
+
+		announcement := entity.NotificationRequestedData{
+			UserID:  "user-1",
+			Type:    entity.NotificationTypeTicketSaleAnnouncement,
+			Payload: entity.NewNotificationPayload("Ticket Lottery", "Ticket lottery entry starts Oct 5 (Mon) 18:00!\nTour", "/concerts/c1", "ticket-sale-sale-1"),
+		}
+		notificationUC := ucmocks.NewMockNotificationUseCase(t)
+		handler := event.NewDeliverNotificationConsumer(notificationUC, newTestLogger(t))
+
+		notificationUC.EXPECT().
+			Deliver(anyCtx, "user-1", entity.NotificationType("ticket_sale_announcement"), announcement.Payload).
+			Return(&entity.Notification{ID: "notif-2", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}, nil).
+			Once()
+
+		err := handler.Handle(makeNotificationRequestedMsg(t, announcement))
+		assert.NoError(t, err)
+	})
+
 	t.Run("returns error on invalid payload", func(t *testing.T) {
 		t.Parallel()
 

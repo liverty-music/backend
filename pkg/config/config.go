@@ -407,7 +407,7 @@ type GCPConfig struct {
 	// Model override for the Gemini searchers' grounded call (GoogleSearch +
 	// URLContext). Set per job; unset falls back to the searcher's built-in
 	// default: gemini-3.8-flash for both the concert searcher
-	// (ConcertSearchModel) and the sales-phase searcher (SalesPhaseSearchModel).
+	// (ConcertSearchModel) and the published-sale searcher (PublishedSaleSearchModel).
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
 
 	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
@@ -419,7 +419,7 @@ type GCPConfig struct {
 
 	// Thinking level override for the searchers' grounded call. Unset falls
 	// back to GeminiSearchThinkingLevel, then to the searcher's default "low"
-	// (ConcertSearchThinkingLevel, SalesPhaseSearchThinking).
+	// (ConcertSearchThinkingLevel, PublishedSaleSearchThinking).
 	// Accepted: "", "low", "medium", "high".
 	GeminiSearchThinkingExtract string `envconfig:"GCP_GEMINI_SEARCH_THINKING_EXTRACT"`
 
@@ -466,40 +466,40 @@ const (
 	defaultSearchDiscoveryWindow = 14 * 24 * time.Hour
 )
 
-// Defaults for the sales-phase discovery and reminder jobs.
+// Defaults for the ticket sale discovery and reminder jobs.
 const (
-	// defaultSalesPhaseSearchModel is the grounded model of the single-call
-	// sales-phase searcher.
-	defaultSalesPhaseSearchModel = "gemini-3.8-flash"
-	// defaultSalesPhaseSearchThinking is the sales-phase searcher's thinking
+	// defaultPublishedSaleSearchModel is the grounded model of the single-call
+	// published-sale searcher.
+	defaultPublishedSaleSearchModel = "gemini-3.8-flash"
+	// defaultPublishedSaleSearchThinking is the published-sale searcher's thinking
 	// level.
-	defaultSalesPhaseSearchThinking = "low"
-	// defaultSalesReminderWindow covers phases whose apply_start_at is within
-	// 7 days. Stages due within that horizon are evaluated each scan run.
+	defaultPublishedSaleSearchThinking = "low"
+	// defaultSalesReminderWindow covers ticket sales that open within 7
+	// days. Stages due within that horizon are evaluated each scan run.
 	defaultSalesReminderWindow = 7 * 24 * time.Hour
 )
 
-// SalesPhaseSearchModel returns the model of the sales-phase searcher.
+// PublishedSaleSearchModel returns the model of the published-sale searcher.
 // Resolution: env override (GCP_GEMINI_SEARCH_MODEL_EXTRACT, set per job) →
 // built-in default. It does not share the concert searcher's default.
-func (c *GCPConfig) SalesPhaseSearchModel() string {
+func (c *GCPConfig) PublishedSaleSearchModel() string {
 	if c.GeminiSearchModelExtract != "" {
 		return c.GeminiSearchModelExtract
 	}
-	return defaultSalesPhaseSearchModel
+	return defaultPublishedSaleSearchModel
 }
 
-// SalesPhaseSearchThinking returns the thinking level of the sales-phase
-// searcher. Resolution: GCP_GEMINI_SEARCH_THINKING_EXTRACT →
+// PublishedSaleSearchThinking returns the thinking level of the
+// published-sale searcher. Resolution: GCP_GEMINI_SEARCH_THINKING_EXTRACT →
 // GCP_GEMINI_SEARCH_THINKING_LEVEL → built-in default.
-func (c *GCPConfig) SalesPhaseSearchThinking() string {
+func (c *GCPConfig) PublishedSaleSearchThinking() string {
 	if c.GeminiSearchThinkingExtract != "" {
 		return c.GeminiSearchThinkingExtract
 	}
 	if c.GeminiSearchThinkingLevel != "" {
 		return c.GeminiSearchThinkingLevel
 	}
-	return defaultSalesPhaseSearchThinking
+	return defaultPublishedSaleSearchThinking
 }
 
 // SalesReminderScanWindow returns the reminder scan look-ahead window.

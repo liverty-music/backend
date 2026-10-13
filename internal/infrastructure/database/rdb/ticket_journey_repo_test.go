@@ -338,3 +338,81 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 		})
 	}
 }
+
+func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewTicketJourneyRepository(testDB)
+	ctx := context.Background()
+
+	day := func(offset int) string {
+		return time.Now().AddDate(0, 0, offset).Format(time.DateOnly)
+	}
+	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
+		t.Helper()
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
+	}
+	byUser := func(trackers []*entity.SeriesTracker) map[string]string {
+		out := make(map[string]string, len(trackers))
+		for _, tr := range trackers {
+			out[tr.UserID] = tr.EventID
+		}
+		return out
+	}
+
+	cleanDatabase(t)
+	artistID := seedArtist(t, "events-artist", "11112222-3333-4444-5555-666677779999")
+	venueID := seedVenue(t, "events-venue")
+	seriesID := seedSeriesOnly(t, "EventsTour")
+	oct20 := seedEventForSeries(t, seriesID, venueID, artistID, day(7))  // not given
+	nov1 := seedEventForSeries(t, seriesID, venueID, artistID, day(19))  // given
+	nov15 := seedEventForSeries(t, seriesID, venueID, artistID, day(33)) // given
+
+	fanA := seedUser(t, "events-a", "events-a@test.com", "ext-events-a")
+	fanB := seedUser(t, "events-b", "events-b@test.com", "ext-events-b")
+	fanC := seedUser(t, "events-c", "events-c@test.com", "ext-events-c")
+	fanD := seedUser(t, "events-d", "events-d@test.com", "ext-events-d")
+
+	track(t, fanA, oct20, entity.TicketJourneyStatusTracking)
+	track(t, fanA, nov1, entity.TicketJourneyStatusTracking)
+	track(t, fanA, nov15, entity.TicketJourneyStatusTracking)
+	track(t, fanB, nov15, entity.TicketJourneyStatusTracking)
+	track(t, fanC, oct20, entity.TicketJourneyStatusTracking)
+	track(t, fanD, nov1, entity.TicketJourneyStatusApplied)
+
+	trackers, err := repo.ListUserIDsTrackingEvents(ctx, []string{nov1, nov15})
+	require.NoError(t, err)
+	got := byUser(trackers)
+
+	t.Run("fans tracking offered events", func(t *testing.T) {
+		// @spec components/entity/ticket-journey/list-user-ids-tracking-events "Fans tracking offered events"
+		assert.Len(t, trackers, 2, "each fan appears once")
+		assert.Contains(t, got, fanA)
+		assert.Contains(t, got, fanB)
+	})
+
+	t.Run("linked event is among the given events", func(t *testing.T) {
+		// @spec components/entity/ticket-journey/list-user-ids-tracking-events "Linked event is among the given events"
+		assert.Equal(t, nov1, got[fanA], "the earlier 20 October event is not given")
+		assert.Equal(t, nov15, got[fanB])
+	})
+
+	t.Run("tracking only an event not given", func(t *testing.T) {
+		// @spec components/entity/ticket-journey/list-user-ids-tracking-events "Tracking only an event not given"
+		assert.NotContains(t, got, fanC)
+	})
+
+	t.Run("a fan past the tracking stage", func(t *testing.T) {
+		// @spec components/entity/ticket-journey/list-user-ids-tracking-events "A fan past the Tracking stage"
+		assert.NotContains(t, got, fanD)
+	})
+
+	t.Run("no event given", func(t *testing.T) {
+		// @spec components/entity/ticket-journey/list-user-ids-tracking-events "No event given"
+		none, err := repo.ListUserIDsTrackingEvents(ctx, nil)
+		require.NoError(t, err)
+		assert.Empty(t, none)
+	})
+}

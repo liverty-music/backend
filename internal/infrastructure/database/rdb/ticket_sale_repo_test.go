@@ -302,6 +302,11 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`, string(drawn.ID), now)
 	require.NoError(t, err)
 	firstCome := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, saleWindowStart, end, seedPublishedEvent(t)))
+	discoveredID, _, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		SeriesID: seedSeriesOnly(t, "Discovered Tour"), Method: entity.TicketSaleMethodLottery,
+		SaleStartTime: saleWindowStart, SaleEndTime: end,
+	})
+	require.NoError(t, err)
 
 	got, err := repo.ListDueForDraw(ctx, now)
 	require.NoError(t, err)
@@ -330,6 +335,11 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 
 	t.Run("first-come sale", func(t *testing.T) {
 		assert.NotContains(t, ids, firstCome.ID)
+	})
+
+	t.Run("discovered lottery has closed", func(t *testing.T) {
+		// @spec components/entity/ticket-sale/list-due-for-draw "Discovered lottery has closed"
+		assert.NotContains(t, ids, discoveredID)
 	})
 }
 

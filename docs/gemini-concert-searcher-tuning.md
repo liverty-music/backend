@@ -636,7 +636,7 @@ Switching the key to `(local_date, venue)` only would fold each (1st, 2nd) pair 
 
 ### 10.7 Model selection per step (defaults + env overrides)
 
-> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `SalesPhaseSearchModel()` (default `gemini-3.8-flash`). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
+> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `PublishedSaleSearchModel()` (formerly `SalesPhaseSearchModel()`) (default `gemini-3.8-flash`). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
 
 `pkg/config.GCPConfig` had two per-step model fields:
 

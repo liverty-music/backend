@@ -18,11 +18,10 @@ import (
 )
 
 // SalesRemindersJobApp is the dependency bundle for the sales-reminders
-// CronJob. The job scans upcoming sales phases for due milestones and
-// publishes SALES_PHASE.reminder.due events for each (user, phase, stage)
-// triple not yet sent.
+// CronJob. The job scans the ticket sales for due milestones and publishes
+// SALES_PHASE.reminder_due events for each (user, sale, stage) not yet sent.
 type SalesRemindersJobApp struct {
-	SalesReminderUC usecase.SalesReminderUseCase
+	SalesReminderUC usecase.TicketSaleReminderUseCase
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 }
@@ -54,8 +53,8 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	}
 
 	// Repositories
-	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
-	reminderRepo := rdb.NewSalesPhaseReminderRepository(db)
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	reminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	userRepo := rdb.NewUserRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
@@ -80,8 +79,8 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	}
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	salesReminderUC := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo,
+	salesReminderUC := usecase.NewTicketSaleReminderUseCase(
+		ticketSaleRepo,
 		reminderRepo,
 		ticketJourneyRepo,
 		userRepo,

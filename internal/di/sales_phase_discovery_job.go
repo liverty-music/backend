@@ -22,20 +22,20 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// SalesPhaseDiscoveryJobApp is the dependency bundle for the sales-phase
+// TicketSaleDiscoveryJobApp is the dependency bundle for the sales-phase
 // discovery CronJob. The job enumerates upcoming series for all followed
-// artists, calls the sales-phase searcher once per artist, upserts results,
+// artists, calls the published-sale searcher once per artist, upserts results,
 // and publishes SALES_PHASE.discovered events for new phases.
-type SalesPhaseDiscoveryJobApp struct {
+type TicketSaleDiscoveryJobApp struct {
 	FollowRepo       entity.FollowRepository
-	SalesPhaseDiscUC usecase.SalesPhaseDiscoveryUseCase
+	TicketSaleDiscUC usecase.TicketSaleDiscoveryUseCase
 	Logger           *logging.Logger
 	ShutdownTimeout  time.Duration
 }
 
-// InitializeSalesPhaseDiscoveryJobApp wires the sales-phase discovery job.
+// InitializeTicketSaleDiscoveryJobApp wires the sales-phase discovery job.
 // A missing Gemini API key is a hard initialization error.
-func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscoveryJobApp, error) {
+func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscoveryJobApp, error) {
 	cfg, err := config.Load[config.JobConfig]()
 	if err != nil {
 		return nil, err
@@ -64,8 +64,8 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	artistRepo := rdb.NewArtistRepository(db)
-	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
-	salesPhaseSearchLogRepo := rdb.NewSalesPhaseSearchLogRepository(db)
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	ticketSaleSearchRepo := rdb.NewTicketSaleSearchRepository(db)
 	journeyRepo := rdb.NewTicketJourneyRepository(db)
 
 	// Messaging
@@ -88,15 +88,15 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	}
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	// Gemini sales-phase searcher — mandatory for this job.
+	// Gemini published-sale searcher — mandatory for this job.
 	if cfg.GCP.GeminiSearchAPIKey == "" {
 		return nil, fmt.Errorf("sales-phase-discovery job requires GCP_GEMINI_SEARCH_API_KEY")
 	}
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	searcher, err := gemini.NewSalesPhaseSearcher(ctx, gemini.SalesPhaseConfig{
+	searcher, err := gemini.NewTicketSaleSearcher(ctx, gemini.TicketSaleSearcherConfig{
 		APIKey:   cfg.GCP.GeminiSearchAPIKey,
-		Model:    cfg.GCP.SalesPhaseSearchModel(),
-		Thinking: cfg.GCP.SalesPhaseSearchThinking(),
+		Model:    cfg.GCP.PublishedSaleSearchModel(),
+		Thinking: cfg.GCP.PublishedSaleSearchThinking(),
 	}, geminiHTTPClient, logger)
 	if err != nil {
 		return nil, err
@@ -105,11 +105,11 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	// Metrics wired for future observability; not yet plumbed into the UC.
 	_ = infratelemetry.NewBusinessMetrics()
 
-	salesPhaseDiscUC := usecase.NewSalesPhaseDiscoveryUseCase(
+	ticketSaleDiscUC := usecase.NewTicketSaleDiscoveryUseCase(
 		concertRepo,
 		artistRepo,
-		salesPhaseRepo,
-		salesPhaseSearchLogRepo,
+		ticketSaleRepo,
+		ticketSaleSearchRepo,
 		journeyRepo,
 		searcher,
 		eventPublisher,
@@ -121,9 +121,9 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 
-	return &SalesPhaseDiscoveryJobApp{
+	return &TicketSaleDiscoveryJobApp{
 		FollowRepo:       followRepo,
-		SalesPhaseDiscUC: salesPhaseDiscUC,
+		TicketSaleDiscUC: ticketSaleDiscUC,
 		Logger:           logger,
 		ShutdownTimeout:  cfg.ShutdownTimeout,
 	}, nil

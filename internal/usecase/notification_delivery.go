@@ -21,7 +21,7 @@ import (
 // another usecase interface, by both:
 //   - NotificationUseCase.Deliver, driven by the deliver-notification
 //     consumer reacting to NOTIFICATION.requested; and
-//   - SalesReminderDeliveryUseCase.DeliverReminder, which stays synchronous
+//   - TicketSaleReminderDeliveryUseCase.DeliverReminder, which stays synchronous
 //     (no event hop) and calls deliverNotification directly.
 type notificationDeliveryDeps struct {
 	notificationRepo entity.NotificationRepository
@@ -70,7 +70,7 @@ const (
 // are responsible for rejecting a nil payload themselves — the two current
 // callers disagree on what a nil payload means (an InvalidArgument error for
 // NotificationUseCase.Deliver; a defensive no-op skip for
-// SalesReminderDeliveryUseCase.DeliverReminder) — so this function assumes a
+// TicketSaleReminderDeliveryUseCase.DeliverReminder) — so this function assumes a
 // non-nil payload.
 func deliverNotification(
 	ctx context.Context,

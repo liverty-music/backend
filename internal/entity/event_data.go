@@ -24,15 +24,16 @@ const (
 	// tracked in PostHog, keyed by notification_id. Matches the existing
 	// NOTIFICATION.* JetStream stream — no new stream required.
 	SubjectNotificationDelivered = "NOTIFICATION.delivered"
-	// SubjectSalesPhaseDiscovered is published when a brand-new sales phase row
-	// is inserted. Re-discovery of an existing phase (UpsertOutcomeUpdated)
-	// must NOT publish this event.
-	SubjectSalesPhaseDiscovered = "SALES_PHASE.discovered"
-	// SubjectSalesPhaseReminderDue is published by the reminder scan for each
-	// (user, phase, stage) triple that became due and has not yet been sent.
+	// SubjectTicketSaleDiscovered is published when a new discovered
+	// TicketSale is created. Re-discovery of a known one
+	// (UpsertOutcomeUpdated) must NOT publish this event. The subject keeps
+	// the stream's former name (design "Non-Goals").
+	SubjectTicketSaleDiscovered = "SALES_PHASE.discovered"
+	// SubjectTicketSaleReminderDue is published by the reminder scan for each
+	// (user, ticket sale, stage) that became due and has not yet been sent.
 	// Two tokens (reminder_due, not reminder.due) so the SALES_PHASE stream
 	// filter can be a plain `SALES_PHASE.*`.
-	SubjectSalesPhaseReminderDue = "SALES_PHASE.reminder_due"
+	SubjectTicketSaleReminderDue = "SALES_PHASE.reminder_due"
 	// SubjectTicketJourneyStatusChanged is published by SetStatus after a
 	// successful upsert when the new status differs from the prior one (or
 	// when no prior journey existed). It drives the
@@ -52,7 +53,7 @@ const (
 	// It drives the organizer.created analytics event (admin-actor / group event
 	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
 	// org.created) so the ORGANIZER.* stream filter matches with a plain
-	// single-token wildcard — same rationale as SubjectSalesPhaseReminderDue.
+	// single-token wildcard — same rationale as SubjectTicketSaleReminderDue.
 	SubjectOrganizerCreated = "ORGANIZER.created"
 	// SubjectOrganizerArtistAssociated is published by OrganizerUseCase.AssociateArtist
 	// after the repository persists the artist link. It drives the
@@ -79,11 +80,11 @@ const (
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
 	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain
-	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
+	// single-token wildcard — same convention as SubjectTicketSaleReminderDue.
 	SubjectSeriesImageUploaded = "SERIES_IMAGE.uploaded"
 	// SubjectNotificationRequested is published once per eligible recipient by
 	// every producer of a user-facing notification (PushSubscriptionUseCase.
-	// NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase).
+	// NotifyNewConcerts, TicketSaleAnnouncementUseCase.AnnounceDiscoveredSale).
 	// The deliver-notification consumer subscribes to this subject and calls
 	// NotificationUseCase.Deliver, which records the durable Notification and
 	// dispatches the push. Producers publish with a deterministic id (see
@@ -120,8 +121,8 @@ var AllSubjects = []string{
 	SubjectNotificationSubscribed,
 	SubjectNotificationUnsubscribed,
 	SubjectNotificationDelivered,
-	SubjectSalesPhaseDiscovered,
-	SubjectSalesPhaseReminderDue,
+	SubjectTicketSaleDiscovered,
+	SubjectTicketSaleReminderDue,
 	SubjectTicketJourneyStatusChanged,
 	SubjectUserLoggedIn,
 	SubjectOrganizerCreated,
@@ -346,8 +347,8 @@ type NotificationDeliveredData struct {
 
 // NotificationRequestedData is the payload for NOTIFICATION.requested.
 // Published once per eligible recipient by every notification producer
-// (PushSubscriptionUseCase.NotifyNewConcerts, SalesPhaseAnnouncementUseCase.
-// AnnounceDiscoveredPhase); the deliver-notification consumer decodes it and
+// (PushSubscriptionUseCase.NotifyNewConcerts, TicketSaleAnnouncementUseCase.
+// AnnounceDiscoveredSale); the deliver-notification consumer decodes it and
 // calls NotificationUseCase.Deliver(UserID, Type, Payload) — the producer
 // never depends on NotificationUseCase directly.
 type NotificationRequestedData struct {
@@ -359,33 +360,38 @@ type NotificationRequestedData struct {
 	Payload *NotificationPayload `json:"payload"`
 }
 
-// SalesPhaseDiscoveredData is the payload for SALES_PHASE.discovered events.
-// Published by the discovery use case only when a brand-new sales_phases row is
-// inserted (UpsertOutcomeInserted). Re-discovery of an existing phase
-// (UpsertOutcomeUpdated) must NOT publish this event.
-type SalesPhaseDiscoveredData struct {
-	// PhaseID is the surrogate UUID of the newly inserted SalesPhase row.
-	PhaseID string `json:"phase_id"`
-	// SeriesID is the parent series of the phase. The announcement consumer
-	// resolves its audience from the Tracking ticket journeys on this series'
-	// events.
+// TicketSaleDiscoveredData is the payload for SALES_PHASE.discovered events.
+// Published by the discovery use case only when a new discovered TicketSale is
+// created (UpsertOutcomeInserted); an update of a known one must NOT publish
+// it.
+//
+// The JSON names predate the move of discovered sales onto TicketSale and are
+// kept with the subject names (design "Non-Goals"). Method carries the
+// TicketSaleMethod value (1=FirstCome, 2=Lottery), whose numbers differ from
+// the former SalesMethod; no message could be in flight across that change,
+// because production stored no sales phase when it shipped.
+type TicketSaleDiscoveredData struct {
+	// TicketSaleID is the id of the newly created discovered TicketSale.
+	TicketSaleID string `json:"phase_id"`
+	// SeriesID is the sale's series. The announcement resolves its audience
+	// from the Tracking ticket journeys on this series' events.
 	SeriesID string `json:"series_id"`
-	// Method is the phase's SalesMethod int16 value; the announcement copy
+	// Method is the sale's TicketSaleMethod value; the announcement copy
 	// depends on it.
 	Method int16 `json:"method"`
-	// ApplyStartTime is when the phase's application opens; the announcement
-	// names it.
-	ApplyStartTime time.Time `json:"apply_start_time"`
+	// SaleStartTime is when the sale opens; the announcement names it.
+	SaleStartTime time.Time `json:"apply_start_time"`
 }
 
-// SalesPhaseReminderDueData is the payload for SALES_PHASE.reminder.due events.
-// Published by the reminder scan for each (user, phase, stage) triple that
-// became due in this scan window.
-type SalesPhaseReminderDueData struct {
+// TicketSaleReminderDueData is the payload for SALES_PHASE.reminder_due
+// events. Published by the reminder scan for each (user, ticket sale, stage)
+// that became due in this scan window. The JSON names are kept with the
+// subject names (see [TicketSaleDiscoveredData]).
+type TicketSaleReminderDueData struct {
 	// UserID is the recipient.
 	UserID string `json:"user_id"`
-	// PhaseID is the sales phase surrogate id.
-	PhaseID string `json:"phase_id"`
+	// TicketSaleID is the id of the TicketSale, discovered or an Organizer's.
+	TicketSaleID string `json:"phase_id"`
 	// Stage is the reminder stage (ReminderStage int16 value).
 	Stage int16 `json:"stage"`
 	// Payload is the pre-built notification payload for this recipient.

@@ -90,7 +90,7 @@ type TicketJourneyRepository interface {
 	// once each, with the event to link that user to: the earliest upcoming
 	// event (date today or later) the user tracks in the series, otherwise the
 	// earliest event the user tracks there. It is the reverse-lookup the
-	// sales-phase announcement and reminder paths use to resolve their audience
+	// discovered ticket sale announcement and reminder paths use to resolve their audience
 	// from explicit fan intent (a Tracking journey is a "notify me about this
 	// sale" signal) rather than follower proximity. Fans in later lifecycle
 	// states (Applied/Paid/…) are intentionally excluded. The result has no
@@ -103,6 +103,19 @@ type TicketJourneyRepository interface {
 	//   - InvalidArgument: If seriesID is empty.
 	//   - Internal: database query failure.
 	ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*SeriesTracker, error)
+
+	// ListUserIDsTrackingEvents returns every user that has a Tracking ticket
+	// journey on at least one of the given events, once each, with the event
+	// to link that user to, chosen among the given events the user tracks: the
+	// earliest upcoming one (date today or later), otherwise the earliest. It
+	// is the audience of an Organizer's ticket sale, which may offer only some
+	// events of its Series. The result has no particular order; no event given
+	// returns an empty result.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListUserIDsTrackingEvents(ctx context.Context, eventIDs []string) ([]*SeriesTracker, error)
 }
 
 // SeriesTracker is a user tracking a series, with the event a notification

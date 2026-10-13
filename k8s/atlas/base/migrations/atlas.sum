@@ -1,4 +1,4 @@
-h1:uAfKYC68rm+FGD4f3q6cqs3NDTTJKv9ri5Qv5J2TRgY=
+h1:5wzL0V2xueoFfsS3J2jCeeLxPkz61LX8Asng5R74ZeY=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -110,3 +110,4 @@ h1:uAfKYC68rm+FGD4f3q6cqs3NDTTJKv9ri5Qv5J2TRgY=
 20261012235000_revoke_media_consumer_app_schema.sql h1:XfjW5iuz+sH8WykcMj2vEj0H4jOUAhXZe5m4jF3wNB0=
 20261013000000_event_publish_state.sql h1:rZlvbF4GMw8TYEPGqCAa73yL1Ch1QuN+I6ZsXqax5P0=
 20261013000100_grant_organizer_console_api_event_lifecycle.sql h1:CiEsWiNYVMLassJeTs3HcdSD1XUzD95CgYdS+8lot4M=
+20261013002947_migrate_discovered_sales.sql h1:ejjqSEEwQz68Yp21Ntc4Gq/vw2wo/0dOpcEi5pVHO44=

@@ -735,7 +735,7 @@ func TestAnalyticsConsumer_HandleNotificationDelivered(t *testing.T) {
 			args: args{data: entity.NotificationDeliveredData{
 				UserID:         validUserID,
 				NotificationID: "01890000-0000-7000-8000-000000000abc",
-				Type:           "sales_phase_announcement",
+				Type:           "ticket_sale_announcement",
 			}},
 			want: want{
 				expectEnqueue:    true,

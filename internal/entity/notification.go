@@ -12,10 +12,10 @@ type NotificationType string
 const (
 	// NotificationTypeNewConcerts is a new-concert alert for a followed artist.
 	NotificationTypeNewConcerts NotificationType = "new_concerts"
-	// NotificationTypeSalesReminder is a ticket sales-phase reminder for a tracked event.
+	// NotificationTypeSalesReminder is a ticket sale reminder for a tracked event.
 	NotificationTypeSalesReminder NotificationType = "sales_reminder"
-	// NotificationTypeSalesPhaseAnnouncement announces a newly discovered sales phase.
-	NotificationTypeSalesPhaseAnnouncement NotificationType = "sales_phase_announcement"
+	// NotificationTypeTicketSaleAnnouncement announces a newly discovered ticket sale.
+	NotificationTypeTicketSaleAnnouncement NotificationType = "ticket_sale_announcement"
 	// NotificationTypeOrderConfirmation confirms a paid Order (a completed
 	// checkout or a won lottery) and opens the Tickets screen.
 	NotificationTypeOrderConfirmation NotificationType = "order_confirmation"

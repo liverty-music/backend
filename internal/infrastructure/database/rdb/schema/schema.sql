@@ -131,6 +131,46 @@ CREATE TYPE event_publish_state AS ENUM ('DRAFT', 'PUBLISHED', 'CANCELLED');
 
 COMMENT ON TYPE event_publish_state IS 'Publish lifecycle of an event of a first-party series: DRAFT (console-only, holds no slot), PUBLISHED (live), CANCELLED (terminal, keeps its slot). NULL for an event of a discovered series.';
 
+-- Organizers: the vetted business an admin creates to represent artists. Existence
+-- is the vetting (no verified flag). status is the operational lifecycle
+-- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
+-- tenant to this row and is set once tenant provisioning completes.
+CREATE TABLE IF NOT EXISTS organizers (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    operator_email TEXT NOT NULL,
+    provider_organizer_id TEXT,
+    status SMALLINT NOT NULL,
+    legal_name TEXT,
+    representative_name TEXT,
+    business_address TEXT,
+    business_phone_number TEXT,
+    contact_email TEXT,
+    platform_fee_rate_bps INTEGER NOT NULL DEFAULT 800,
+    CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
+    CONSTRAINT chk_organizers_operator_email_non_empty CHECK (operator_email <> ''),
+    CONSTRAINT chk_organizers_status CHECK (status BETWEEN 1 AND 3),
+    CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_organizers_platform_fee_rate_bps CHECK (platform_fee_rate_bps BETWEEN 0 AND 3000),
+    CONSTRAINT chk_organizers_business_details_together CHECK ((legal_name IS NULL AND representative_name IS NULL AND business_address IS NULL AND business_phone_number IS NULL AND contact_email IS NULL) OR (legal_name IS NOT NULL AND representative_name IS NOT NULL AND business_address IS NOT NULL AND business_phone_number IS NOT NULL AND contact_email IS NOT NULL)),
+    CONSTRAINT chk_organizers_business_phone_e164 CHECK (business_phone_number IS NULL OR business_phone_number ~ '^\+[1-9][0-9]{1,14}$')
+);
+COMMENT ON TABLE organizers IS 'Vetted businesses (label / agency / promoter / self-publishing artist) that represent artists and sell their tickets';
+COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
+COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
+COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
+COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
+COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
+COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
+COMMENT ON COLUMN organizers.business_address IS '特商法 business address (1-300 characters); NULL until entered';
+COMMENT ON COLUMN organizers.business_phone_number IS '特商法 business phone number in E.164 form; NULL until entered';
+COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email; NULL until entered';
+COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_provider_organizer_id ON organizers(provider_organizer_id) WHERE provider_organizer_id IS NOT NULL;
+COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
+
 -- Series table
 CREATE TABLE IF NOT EXISTS series (
     id UUID PRIMARY KEY,
@@ -329,7 +369,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
 COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
 COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, sales_phase_announcement';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation';
 COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
 COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
 COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
@@ -337,71 +377,6 @@ COMMENT ON COLUMN notifications.queued_at IS 'Timestamp when the notification re
 COMMENT ON COLUMN notifications.delivered_at IS 'Timestamp when the channel accepted the send; NULL until delivered';
 COMMENT ON COLUMN notifications.read_at IS 'Timestamp when the user marked the notification read; NULL until read';
 COMMENT ON COLUMN notifications.dismissed_at IS 'Timestamp when the user dismissed the notification; NULL until dismissed';
-
--- Sales phases table
--- Represents a single series-level ticket-sales window: one application period
--- under one method (lottery or first come). A phase applies to its series as a
--- whole; there is no per-event coverage subset. Re-discovery converges on
--- (series_id, method, apply start date in Japan time), enforced by a unique key.
-CREATE TABLE IF NOT EXISTS sales_phases (
-    id UUID PRIMARY KEY,
-    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    method SMALLINT NOT NULL,
-    apply_start_at TIMESTAMPTZ NOT NULL,
-    apply_end_at TIMESTAMPTZ,
-    lottery_result_at TIMESTAMPTZ,
-    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    apply_start_date_jst DATE GENERATED ALWAYS AS ((apply_start_at AT TIME ZONE 'Asia/Tokyo')::date) STORED,
-    CONSTRAINT chk_sales_phases_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_sales_phases_method CHECK (method IN (1, 2)),
-    CONSTRAINT chk_sales_phases_result_only_lottery CHECK (method = 1 OR lottery_result_at IS NULL),
-    CONSTRAINT chk_sales_phases_lottery_has_end CHECK (method = 2 OR apply_end_at IS NOT NULL),
-    CONSTRAINT chk_sales_phases_end_after_start CHECK (apply_end_at IS NULL OR apply_end_at > apply_start_at),
-    CONSTRAINT uq_sales_phases_series_method_start_date UNIQUE (series_id, method, apply_start_date_jst)
-);
-
-COMMENT ON TABLE sales_phases IS 'A single series-level ticket-sales window. Re-discovered phases converge on (series_id, method, apply_start_date_jst).';
-COMMENT ON COLUMN sales_phases.id IS 'Unique sales phase identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN sales_phases.series_id IS 'Reference to the parent series that owns this sales phase';
-COMMENT ON COLUMN sales_phases.method IS 'Sales method: 1=LOTTERY, 2=FIRST_COME';
-COMMENT ON COLUMN sales_phases.apply_start_at IS 'Start of the application or on-sale window (required).';
-COMMENT ON COLUMN sales_phases.apply_end_at IS 'End of the application window. Required for a lottery; NULL for a first-come sale that ends when tickets run out.';
-COMMENT ON COLUMN sales_phases.lottery_result_at IS 'When lottery results are announced. NULL for first-come phases or when not announced.';
-COMMENT ON COLUMN sales_phases.discovered_at IS 'Timestamp when this sales phase row was first inserted. Used as the first-sight guard: stages whose natural trigger is before discovered_at are not fired.';
-COMMENT ON COLUMN sales_phases.apply_start_date_jst IS 'Calendar date of apply_start_at in Asia/Tokyo; part of the re-discovery convergence key.';
-
--- Sales phase search logs
--- Records when each series was last searched for sales phases, so discovery
--- searches a series at most once per interval whether or not it found anything.
-CREATE TABLE IF NOT EXISTS sales_phase_search_logs (
-    series_id UUID PRIMARY KEY REFERENCES series(id) ON DELETE CASCADE,
-    searched_at TIMESTAMPTZ NOT NULL
-);
-
-COMMENT ON TABLE sales_phase_search_logs IS 'When each series was last searched for ticket sales phases. One row per series.';
-COMMENT ON COLUMN sales_phase_search_logs.series_id IS 'The series that was searched';
-COMMENT ON COLUMN sales_phase_search_logs.searched_at IS 'When the series was last searched successfully';
-
--- Sales phase reminders sent-log
--- Tracks which reminder stages have already been dispatched to each user for a
--- given sales phase. UNIQUE (user_id, sales_phase_id, stage) prevents double-send.
-CREATE TABLE IF NOT EXISTS sales_phase_reminders (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    sales_phase_id UUID NOT NULL REFERENCES sales_phases(id) ON DELETE CASCADE,
-    stage SMALLINT NOT NULL,
-    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_sales_phase_reminders UNIQUE (user_id, sales_phase_id, stage),
-    CONSTRAINT chk_sales_phase_reminders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_sales_phase_reminders_stage CHECK (stage BETWEEN 1 AND 10)
-);
-
-COMMENT ON TABLE sales_phase_reminders IS 'Sent-log for sales phase reminder notifications. UNIQUE (user_id, sales_phase_id, stage) prevents duplicate dispatches.';
-COMMENT ON COLUMN sales_phase_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN sales_phase_reminders.user_id IS 'Reference to the user who received the reminder';
-COMMENT ON COLUMN sales_phase_reminders.sales_phase_id IS 'Reference to the sales phase this reminder relates to';
-COMMENT ON COLUMN sales_phase_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at apply_start_time for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before apply_end_time, lottery only), 4=RESULT_DAY (09:00 on lottery_result_time day). 3 was APPLY_CLOSE_1H and is unused.';
-COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
 -- Concert candidates (approval queue)
 -- Concerts discovered by the Gemini search pipeline are held here in a pending
@@ -576,20 +551,6 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(
 CREATE INDEX IF NOT EXISTS idx_notifications_user_queued ON notifications(user_id, queued_at DESC);
 COMMENT ON INDEX idx_notifications_user_queued IS 'Optimizes the inbox query: a user''s notifications most-recent-first';
 
--- Sales phases indexes
-CREATE INDEX IF NOT EXISTS idx_sales_phases_series_id ON sales_phases(series_id);
-COMMENT ON INDEX idx_sales_phases_series_id IS 'Optimizes listing all sales phases for a series';
-
-CREATE INDEX IF NOT EXISTS idx_sales_phases_apply_start_at ON sales_phases(apply_start_at);
-COMMENT ON INDEX idx_sales_phases_apply_start_at IS 'Supports ListUpcomingByDueWindow queries that filter by apply_start_at range';
-
--- Sales phase reminders indexes
-CREATE INDEX IF NOT EXISTS idx_sales_phase_reminders_user_id ON sales_phase_reminders(user_id);
-COMMENT ON INDEX idx_sales_phase_reminders_user_id IS 'Optimizes lookup of all reminders for a user';
-
-CREATE INDEX IF NOT EXISTS idx_sales_phase_reminders_sales_phase_id ON sales_phase_reminders(sales_phase_id);
-COMMENT ON INDEX idx_sales_phase_reminders_sales_phase_id IS 'Optimizes lookup of all reminder records for a sales phase';
-
 -- Concert candidates indexes
 -- Two partial unique indexes form the NULL-safe natural key: when the venue
 -- resolved, dedup on the canonical place id; otherwise fall back to the raw
@@ -610,46 +571,6 @@ COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysi
 
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_rejected_at ON rejected_concerts(rejected_at);
 COMMENT ON INDEX idx_rejected_concerts_rejected_at IS 'Supports time-windowed analysis of rejections';
-
--- Organizers: the vetted business an admin creates to represent artists. Existence
--- is the vetting (no verified flag). status is the operational lifecycle
--- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
--- tenant to this row and is set once tenant provisioning completes.
-CREATE TABLE IF NOT EXISTS organizers (
-    id UUID PRIMARY KEY,
-    name TEXT NOT NULL,
-    operator_email TEXT NOT NULL,
-    provider_organizer_id TEXT,
-    status SMALLINT NOT NULL,
-    legal_name TEXT,
-    representative_name TEXT,
-    business_address TEXT,
-    business_phone_number TEXT,
-    contact_email TEXT,
-    platform_fee_rate_bps INTEGER NOT NULL DEFAULT 800,
-    CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
-    CONSTRAINT chk_organizers_operator_email_non_empty CHECK (operator_email <> ''),
-    CONSTRAINT chk_organizers_status CHECK (status BETWEEN 1 AND 3),
-    CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_organizers_platform_fee_rate_bps CHECK (platform_fee_rate_bps BETWEEN 0 AND 3000),
-    CONSTRAINT chk_organizers_business_details_together CHECK ((legal_name IS NULL AND representative_name IS NULL AND business_address IS NULL AND business_phone_number IS NULL AND contact_email IS NULL) OR (legal_name IS NOT NULL AND representative_name IS NOT NULL AND business_address IS NOT NULL AND business_phone_number IS NOT NULL AND contact_email IS NOT NULL)),
-    CONSTRAINT chk_organizers_business_phone_e164 CHECK (business_phone_number IS NULL OR business_phone_number ~ '^\+[1-9][0-9]{1,14}$')
-);
-COMMENT ON TABLE organizers IS 'Vetted businesses (label / agency / promoter / self-publishing artist) that represent artists and sell their tickets';
-COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
-COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
-COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
-COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
-COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
-COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
-COMMENT ON COLUMN organizers.business_address IS '特商法 business address (1-300 characters); NULL until entered';
-COMMENT ON COLUMN organizers.business_phone_number IS '特商法 business phone number in E.164 form; NULL until entered';
-COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email; NULL until entered';
-COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_provider_organizer_id ON organizers(provider_organizer_id) WHERE provider_organizer_id IS NOT NULL;
-COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
 
 -- Organizer-artist association: an organizer represents many artists, and each
 -- artist is represented by at most one organizer (uq_organizer_artists_artist_id).
@@ -713,38 +634,96 @@ COMMENT ON INDEX idx_identity_verifications_user_id IS 'Optimizes lookup of a us
 -- Ticket sales (organizer-authored first-come and lottery sales)
 -- ============================================================
 
--- Ticket sales: one sale opportunity (受付) over the events of one Series: a
--- name, an allocation method, a window and a verification requirement. What it
--- offers for each event is a ticket_types row.
+-- Ticket sales: one sale opportunity (受付) over the events of one Series. An
+-- Organizer's sale (discovered_at IS NULL) has a name, a verification
+-- requirement and a ticket_types row for each event it offers. A discovered
+-- sale (discovered_at IS NOT NULL) belongs to a Series without an Organizer and
+-- is only reported to fans: it has no name and no ticket types, may have a
+-- lottery result time, and a first-come one may have no end. Re-discovery
+-- converges on (series_id, method, sale start date in Japan time).
 CREATE TABLE IF NOT EXISTS ticket_sales (
     id                       UUID        PRIMARY KEY,
     series_id                UUID        NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    name                     TEXT        NOT NULL,
+    name                     TEXT,
     method                   SMALLINT    NOT NULL,
     sale_start_at            TIMESTAMPTZ NOT NULL,
-    sale_end_at              TIMESTAMPTZ NOT NULL,
+    sale_end_at              TIMESTAMPTZ,
     verification_requirement SMALLINT    NOT NULL DEFAULT 0,
     draw_at                  TIMESTAMPTZ,
+    lottery_result_at        TIMESTAMPTZ,
+    discovered_at            TIMESTAMPTZ,
+    sale_start_date_jst      DATE GENERATED ALWAYS AS ((sale_start_at AT TIME ZONE 'Asia/Tokyo')::date) STORED,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
+    CONSTRAINT chk_ticket_sales_name_by_kind CHECK ((discovered_at IS NULL) = (name IS NOT NULL)),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
-    CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
+    CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at IS NULL OR sale_end_at > sale_start_at),
+    CONSTRAINT chk_ticket_sales_end_required CHECK (sale_end_at IS NOT NULL OR (discovered_at IS NOT NULL AND method = 1)),
     CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
-    CONSTRAINT chk_ticket_sales_draw_lottery_only CHECK (draw_at IS NULL OR method = 2)
+    CONSTRAINT chk_ticket_sales_draw_lottery_only CHECK (draw_at IS NULL OR method = 2),
+    CONSTRAINT chk_ticket_sales_lottery_result CHECK (lottery_result_at IS NULL OR (discovered_at IS NOT NULL AND method = 2 AND lottery_result_at >= sale_end_at)),
+    CONSTRAINT chk_ticket_sales_discovered CHECK (discovered_at IS NULL OR (verification_requirement = 0 AND draw_at IS NULL))
 );
 
-COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method, a window and a verification requirement. Its per-event price, quantity and limit are ticket_types rows.';
+COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: an allocation method and a window. An Organizer''s sale (discovered_at NULL) also has a name and a verification requirement, and its per-event price, quantity and limit are ticket_types rows. A discovered sale (discovered_at set) belongs to a Series without an Organizer, has no name and no ticket types, and is only reported to fans.';
 COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
-COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and operators (1-100 characters), e.g. ファンクラブ先行 or 一般発売';
+COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and operators (1-100 characters), e.g. ファンクラブ先行 or 一般発売; required on an Organizer''s sale, NULL on a discovered sale';
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
-COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at, 1 to 14 days after it for a lottery, and before the start of every event the sale covers (checked by the application)';
-COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required)';
-COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until the draw runs and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
+COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at. On an Organizer''s sale required, 1 to 14 days after the start for a lottery, and before the start of every event the sale covers (checked by the application). NULL only on a discovered first-come sale that ends when tickets run out';
+COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required); always 0 on a discovered sale';
+COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until the draw runs, for a first-come sale and for a discovered sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
+COMMENT ON COLUMN ticket_sales.lottery_result_at IS 'When the lottery result is announced (当落発表), as published on the official pages; a discovered lottery only, not before sale_end_at, NULL when not announced';
+COMMENT ON COLUMN ticket_sales.discovered_at IS 'When discovery first stored the sale; set on insert and never updated. NULL exactly on an Organizer''s sale. The reminder scan uses it as the first-sight guard: a stage whose anchor is before discovered_at is not sent.';
+COMMENT ON COLUMN ticket_sales.sale_start_date_jst IS 'Calendar date of sale_start_at in Asia/Tokyo; part of the discovered-sale convergence key';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
 COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_sales_discovered_convergence
+    ON ticket_sales(series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL;
+COMMENT ON INDEX uq_ticket_sales_discovered_convergence IS 'One discovered sale per (series, method, start date in Japan time): re-discovery updates it in place. Partial, so an Organizer may open two sales of one Series on the same day for different events. Upserts infer it with ON CONFLICT (series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL.';
+
+-- Ticket sale reminders sent-log
+-- Tracks which reminder stages have already been sent to each user for a
+-- ticket sale. UNIQUE (user_id, ticket_sale_id, stage) prevents double-send.
+CREATE TABLE IF NOT EXISTS ticket_sale_reminders (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ticket_sale_id UUID NOT NULL REFERENCES ticket_sales(id) ON DELETE CASCADE,
+    stage SMALLINT NOT NULL,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_ticket_sale_reminders UNIQUE (user_id, ticket_sale_id, stage),
+    CONSTRAINT chk_ticket_sale_reminders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage BETWEEN 1 AND 10)
+);
+
+COMMENT ON TABLE ticket_sale_reminders IS 'Sent-log for ticket sale reminder notifications, for discovered and Organizer''s sales alike. UNIQUE (user_id, ticket_sale_id, stage) prevents duplicate dispatches.';
+COMMENT ON COLUMN ticket_sale_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN ticket_sale_reminders.user_id IS 'Reference to the user who received the reminder';
+COMMENT ON COLUMN ticket_sale_reminders.ticket_sale_id IS 'Reference to the ticket sale this reminder relates to';
+COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only), 4=RESULT_DAY (09:00 on the day of the lottery''s result time). 3 was APPLY_CLOSE_1H and is unused.';
+COMMENT ON COLUMN ticket_sale_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
+
+CREATE INDEX IF NOT EXISTS idx_ticket_sale_reminders_user_id ON ticket_sale_reminders(user_id);
+COMMENT ON INDEX idx_ticket_sale_reminders_user_id IS 'Optimizes lookup of all reminders for a user';
+
+CREATE INDEX IF NOT EXISTS idx_ticket_sale_reminders_ticket_sale_id ON ticket_sale_reminders(ticket_sale_id);
+COMMENT ON INDEX idx_ticket_sale_reminders_ticket_sale_id IS 'Optimizes lookup of all reminder records for a ticket sale';
+
+-- Ticket sale searches
+-- Records when each series was last searched for published ticket sales, so
+-- discovery searches a series at most once per interval whether or not it
+-- found anything.
+CREATE TABLE IF NOT EXISTS ticket_sale_searches (
+    series_id UUID PRIMARY KEY REFERENCES series(id) ON DELETE CASCADE,
+    searched_at TIMESTAMPTZ NOT NULL
+);
+
+COMMENT ON TABLE ticket_sale_searches IS 'When each series was last searched for published ticket sales. One row per series.';
+COMMENT ON COLUMN ticket_sale_searches.series_id IS 'The series that was searched';
+COMMENT ON COLUMN ticket_sale_searches.searched_at IS 'When the series was last searched successfully';
 
 -- Ticket types: what one ticket sale offers for one event. For a first-come
 -- sale, sold_count holds the tickets of the type's Committed and Completed

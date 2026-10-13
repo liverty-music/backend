@@ -346,6 +346,74 @@ func (_c *MockTicketSaleRepository_ListByEvent_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
+// ListBySeries provides a mock function for the type MockTicketSaleRepository
+func (_mock *MockTicketSaleRepository) ListBySeries(ctx context.Context, seriesID string) ([]*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, seriesID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListBySeries")
+	}
+
+	var r0 []*entity.TicketSale
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, seriesID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.TicketSale); ok {
+		r0 = returnFunc(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.TicketSale)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, seriesID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockTicketSaleRepository_ListBySeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListBySeries'
+type MockTicketSaleRepository_ListBySeries_Call struct {
+	*mock.Call
+}
+
+// ListBySeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesID string
+func (_e *MockTicketSaleRepository_Expecter) ListBySeries(ctx any, seriesID any) *MockTicketSaleRepository_ListBySeries_Call {
+	return &MockTicketSaleRepository_ListBySeries_Call{Call: _e.mock.On("ListBySeries", ctx, seriesID)}
+}
+
+func (_c *MockTicketSaleRepository_ListBySeries_Call) Run(run func(ctx context.Context, seriesID string)) *MockTicketSaleRepository_ListBySeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_ListBySeries_Call) Return(ticketSales []*entity.TicketSale, err error) *MockTicketSaleRepository_ListBySeries_Call {
+	_c.Call.Return(ticketSales, err)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_ListBySeries_Call) RunAndReturn(run func(ctx context.Context, seriesID string) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListBySeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListDueForDraw provides a mock function for the type MockTicketSaleRepository
 func (_mock *MockTicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time) ([]*entity.TicketSale, error) {
 	ret := _mock.Called(ctx, now)
@@ -410,6 +478,80 @@ func (_c *MockTicketSaleRepository_ListDueForDraw_Call) Return(ticketSales []*en
 }
 
 func (_c *MockTicketSaleRepository_ListDueForDraw_Call) RunAndReturn(run func(ctx context.Context, now time.Time) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListDueForDraw_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListWithPendingMilestones provides a mock function for the type MockTicketSaleRepository
+func (_mock *MockTicketSaleRepository) ListWithPendingMilestones(ctx context.Context, lookahead time.Duration, lookback time.Duration) ([]*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, lookahead, lookback)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWithPendingMilestones")
+	}
+
+	var r0 []*entity.TicketSale
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, time.Duration) ([]*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, lookahead, lookback)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, time.Duration) []*entity.TicketSale); ok {
+		r0 = returnFunc(ctx, lookahead, lookback)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.TicketSale)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Duration, time.Duration) error); ok {
+		r1 = returnFunc(ctx, lookahead, lookback)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockTicketSaleRepository_ListWithPendingMilestones_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListWithPendingMilestones'
+type MockTicketSaleRepository_ListWithPendingMilestones_Call struct {
+	*mock.Call
+}
+
+// ListWithPendingMilestones is a helper method to define mock.On call
+//   - ctx context.Context
+//   - lookahead time.Duration
+//   - lookback time.Duration
+func (_e *MockTicketSaleRepository_Expecter) ListWithPendingMilestones(ctx any, lookahead any, lookback any) *MockTicketSaleRepository_ListWithPendingMilestones_Call {
+	return &MockTicketSaleRepository_ListWithPendingMilestones_Call{Call: _e.mock.On("ListWithPendingMilestones", ctx, lookahead, lookback)}
+}
+
+func (_c *MockTicketSaleRepository_ListWithPendingMilestones_Call) Run(run func(ctx context.Context, lookahead time.Duration, lookback time.Duration)) *MockTicketSaleRepository_ListWithPendingMilestones_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 time.Duration
+		if args[1] != nil {
+			arg1 = args[1].(time.Duration)
+		}
+		var arg2 time.Duration
+		if args[2] != nil {
+			arg2 = args[2].(time.Duration)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_ListWithPendingMilestones_Call) Return(ticketSales []*entity.TicketSale, err error) *MockTicketSaleRepository_ListWithPendingMilestones_Call {
+	_c.Call.Return(ticketSales, err)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_ListWithPendingMilestones_Call) RunAndReturn(run func(ctx context.Context, lookahead time.Duration, lookback time.Duration) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListWithPendingMilestones_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -658,6 +800,78 @@ func (_c *MockTicketSaleRepository_UpdateTicketType_Call) Return(ticketSale *ent
 }
 
 func (_c *MockTicketSaleRepository_UpdateTicketType_Call) RunAndReturn(run func(ctx context.Context, ticketType *entity.TicketType, at time.Time) (*entity.TicketSale, *entity.TicketType, error)) *MockTicketSaleRepository_UpdateTicketType_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpsertDiscovered provides a mock function for the type MockTicketSaleRepository
+func (_mock *MockTicketSaleRepository) UpsertDiscovered(ctx context.Context, sale *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error) {
+	ret := _mock.Called(ctx, sale)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertDiscovered")
+	}
+
+	var r0 entity.TicketSaleID
+	var r1 entity.UpsertOutcome
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error)); ok {
+		return returnFunc(ctx, sale)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.DiscoveredTicketSale) entity.TicketSaleID); ok {
+		r0 = returnFunc(ctx, sale)
+	} else {
+		r0 = ret.Get(0).(entity.TicketSaleID)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.DiscoveredTicketSale) entity.UpsertOutcome); ok {
+		r1 = returnFunc(ctx, sale)
+	} else {
+		r1 = ret.Get(1).(entity.UpsertOutcome)
+	}
+	if returnFunc, ok := ret.Get(2).(func(context.Context, *entity.DiscoveredTicketSale) error); ok {
+		r2 = returnFunc(ctx, sale)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+// MockTicketSaleRepository_UpsertDiscovered_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertDiscovered'
+type MockTicketSaleRepository_UpsertDiscovered_Call struct {
+	*mock.Call
+}
+
+// UpsertDiscovered is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sale *entity.DiscoveredTicketSale
+func (_e *MockTicketSaleRepository_Expecter) UpsertDiscovered(ctx any, sale any) *MockTicketSaleRepository_UpsertDiscovered_Call {
+	return &MockTicketSaleRepository_UpsertDiscovered_Call{Call: _e.mock.On("UpsertDiscovered", ctx, sale)}
+}
+
+func (_c *MockTicketSaleRepository_UpsertDiscovered_Call) Run(run func(ctx context.Context, sale *entity.DiscoveredTicketSale)) *MockTicketSaleRepository_UpsertDiscovered_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.DiscoveredTicketSale
+		if args[1] != nil {
+			arg1 = args[1].(*entity.DiscoveredTicketSale)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpsertDiscovered_Call) Return(ticketSaleID entity.TicketSaleID, upsertOutcome entity.UpsertOutcome, err error) *MockTicketSaleRepository_UpsertDiscovered_Call {
+	_c.Call.Return(ticketSaleID, upsertOutcome, err)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpsertDiscovered_Call) RunAndReturn(run func(ctx context.Context, sale *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error)) *MockTicketSaleRepository_UpsertDiscovered_Call {
 	_c.Call.Return(run)
 	return _c
 }

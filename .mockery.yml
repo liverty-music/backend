@@ -37,10 +37,6 @@ packages:
       PushSubscriptionRepository: {}
       RejectedConcertRepository: {}
       RejectedScanRepository: {}
-      SalesPhaseReminderRepository: {}
-      SalesPhaseRepository: {}
-      SalesPhaseSearchLogRepository: {}
-      SalesPhaseSearcher: {}
       ScannerRepository: {}
       SeriesImageProcessor: {}
       SeriesImageRepository: {}
@@ -49,7 +45,10 @@ packages:
       SuppressedConcertRepository: {}
       TicketJourneyRepository: {}
       TicketRepository: {}
+      TicketSaleReminderRepository: {}
       TicketSaleRepository: {}
+      TicketSaleSearchRepository: {}
+      TicketSaleSearcher: {}
       UserRepository: {}
       VenueMapCatalog: {}
       VenueRepository: {}
@@ -84,13 +83,13 @@ packages:
       OrganizerProvisioner: {}
       OrganizerUseCase: {}
       PushSubscriptionUseCase: {}
-      SalesPhaseAnnouncementUseCase: {}
-      SalesPhaseDiscoveryUseCase: {}
-      SalesReminderDeliveryUseCase: {}
       ScannerUseCase: {}
       SeriesImageUseCase: {}
       SeriesUseCase: {}
       TicketJourneyUseCase: {}
+      TicketSaleAnnouncementUseCase: {}
+      TicketSaleDiscoveryUseCase: {}
+      TicketSaleReminderDeliveryUseCase: {}
       TicketSaleUseCase: {}
       TicketTypeUseCase: {}
       TicketUseCase: {}

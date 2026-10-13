@@ -2,8 +2,10 @@ package rdb
 
 import (
 	"context"
+
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -47,6 +49,18 @@ const (
 		FROM ticket_journeys tj
 		JOIN events e ON e.id = tj.event_id
 		WHERE e.series_id = $1
+		  AND tj.status = 1
+		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
+	`
+
+	// ticketJourneyListUserIDsTrackingEventsQuery is
+	// ticketJourneyListUserIDsTrackingSeriesQuery over the given events
+	// instead of a series, so the linked event is one of them.
+	ticketJourneyListUserIDsTrackingEventsQuery = `
+		SELECT DISTINCT ON (tj.user_id) tj.user_id, tj.event_id
+		FROM ticket_journeys tj
+		JOIN events e ON e.id = tj.event_id
+		WHERE tj.event_id = ANY($1::uuid[])
 		  AND tj.status = 1
 		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
 	`
@@ -151,6 +165,24 @@ func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context,
 	if err != nil {
 		return nil, toAppErr(err, "failed to list users tracking series", slog.String("series_id", seriesID))
 	}
+	return scanSeriesTrackers(rows)
+}
+
+// ListUserIDsTrackingEvents returns each user with a Tracking journey on any
+// of the given events, with the user's linked event among them.
+func (r *TicketJourneyRepository) ListUserIDsTrackingEvents(ctx context.Context, eventIDs []string) ([]*entity.SeriesTracker, error) {
+	if len(eventIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingEventsQuery, eventIDs)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list users tracking events", slog.Int("event_count", len(eventIDs)))
+	}
+	return scanSeriesTrackers(rows)
+}
+
+// scanSeriesTrackers reads (user_id, event_id) rows and closes them.
+func scanSeriesTrackers(rows pgx.Rows) ([]*entity.SeriesTracker, error) {
 	defer rows.Close()
 
 	var trackers []*entity.SeriesTracker
