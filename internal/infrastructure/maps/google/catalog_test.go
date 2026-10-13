@@ -17,14 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The testdata files are responses recorded from the Places API (New) on
-// 2026-10-11 with the same field masks and language the client sends:
-//   - search_text_zepp_haneda.json: places:searchText "Zepp Haneda"
-//   - search_text_no_match.json: places:searchText for a text with no match
+// The testdata files are responses recorded from the Places API (New) with
+// the same field masks, language and region the client sends:
+//   - autocomplete_zepp_haneda.json: places:autocomplete "Zepp Haneda" (2026-10-13)
+//   - autocomplete_liquidro.json: places:autocomplete "LIQUIDRO" (2026-10-13)
+//   - autocomplete_no_match.json: places:autocomplete for a text with no match (2026-10-13)
+// and on 2026-10-11:
 //   - place_details_zepp_haneda.json: GET places/ChIJeVmAOuphGGARoWY4-GPmhhA
 //   - place_details_invalid_id.json: GET places/ChIJAAAAAAAAAAAAAAAAAAAAAAA (HTTP 400)
 
-const zeppHanedaPlaceID = "ChIJeVmAOuphGGARoWY4-GPmhhA"
+const (
+	zeppHanedaPlaceID = "ChIJeVmAOuphGGARoWY4-GPmhhA"
+	liquidroomPlaceID = "ChIJxTAYVt3gGGARc6fo_RMKO5I"
+)
 
 // recordedResponse reads a recorded catalog response from testdata.
 func recordedResponse(t *testing.T, name string) []byte {
@@ -49,7 +54,7 @@ func catalogServer(t *testing.T, status int, body []byte, inspect func(r *http.R
 	}))
 	t.Cleanup(srv.Close)
 	c := google.NewClient(staticTokenSource(), "test-project", srv.Client(), testLogger(t))
-	c.SetBaseURL(srv.URL + "/v1/places:searchText")
+	c.SetAutocompleteURL(srv.URL + "/v1/places:autocomplete")
 	c.SetDetailsBaseURL(srv.URL + "/v1/places")
 	return c
 }
@@ -61,7 +66,7 @@ func unreachableClient(t *testing.T) *google.Client {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close()
 	c := google.NewClient(staticTokenSource(), "test-project", http.DefaultClient, testLogger(t))
-	c.SetBaseURL(srv.URL + "/v1/places:searchText")
+	c.SetAutocompleteURL(srv.URL + "/v1/places:autocomplete")
 	c.SetDetailsBaseURL(srv.URL + "/v1/places")
 	return c
 }
@@ -72,11 +77,13 @@ func TestClient_SearchPlaces(t *testing.T) {
 	// @spec components/entity/venue/search-places "Known venue"
 	t.Run("return Zepp Haneda first with its place id and Japanese address", func(t *testing.T) {
 		t.Parallel()
-		var gotPath, gotMask string
+		var gotPath, gotMask, gotAuth, gotProject string
 		var gotBody map[string]any
-		c := catalogServer(t, http.StatusOK, recordedResponse(t, "search_text_zepp_haneda.json"), func(r *http.Request, body []byte) {
+		c := catalogServer(t, http.StatusOK, recordedResponse(t, "autocomplete_zepp_haneda.json"), func(r *http.Request, body []byte) {
 			gotPath = r.URL.Path
 			gotMask = r.Header.Get("X-Goog-FieldMask")
+			gotAuth = r.Header.Get("Authorization")
+			gotProject = r.Header.Get("X-Goog-User-Project")
 			_ = json.Unmarshal(body, &gotBody)
 		})
 
@@ -88,22 +95,61 @@ func TestClient_SearchPlaces(t *testing.T) {
 		assert.Equal(t, &entity.MapPlaceCandidate{
 			PlaceID: zeppHanedaPlaceID,
 			Name:    "Zepp Haneda (TOKYO)",
-			Address: "〒144-0041 東京都大田区羽田空港１丁目１−４",
+			Address: "東京都大田区羽田空港１丁目１−４",
 		}, got[0])
-		assert.Equal(t, "/v1/places:searchText", gotPath)
-		assert.Equal(t, "places.id,places.displayName,places.formattedAddress", gotMask)
+		assert.Equal(t, "/v1/places:autocomplete", gotPath)
+		assert.Equal(t, "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat", gotMask)
+		assert.Equal(t, "Bearer test-token", gotAuth)
+		assert.Equal(t, "test-project", gotProject)
 		assert.Equal(t, map[string]any{
-			"textQuery":    "Zepp Haneda",
+			"input":        "Zepp Haneda",
 			"languageCode": "ja",
-			"regionCode":   "JP",
-			"pageSize":     float64(5),
+			"regionCode":   "jp",
 		}, gotBody)
+	})
+
+	// @spec components/entity/venue/search-places "Beginning of a name"
+	t.Run("return LIQUIDROOM among the places for LIQUIDRO, in the catalog's order", func(t *testing.T) {
+		t.Parallel()
+		c := catalogServer(t, http.StatusOK, recordedResponse(t, "autocomplete_liquidro.json"), nil)
+
+		got, err := c.SearchPlaces(context.Background(), "LIQUIDRO")
+
+		require.NoError(t, err)
+		assert.Len(t, got, 5)
+		assert.Contains(t, got, &entity.MapPlaceCandidate{
+			PlaceID: liquidroomPlaceID,
+			Name:    "LIQUIDROOM",
+			Address: "東京都渋谷区東３丁目１６−６",
+		})
+		assert.Equal(t, liquidroomPlaceID, got[0].PlaceID)
+	})
+
+	t.Run("drop a prediction without an address and keep at most 5", func(t *testing.T) {
+		t.Parallel()
+		prediction := func(id, name, address string) string {
+			return `{"placePrediction":{"placeId":"` + id + `","structuredFormat":{"mainText":{"text":"` + name +
+				`"},"secondaryText":{"text":"` + address + `"}}}}`
+		}
+		body := `{"suggestions":[` + `{"placePrediction":{"placeId":"p0","structuredFormat":{"mainText":{"text":"日本"}}}},` +
+			prediction("p1", "a", "x") + "," + prediction("p2", "b", "x") + "," + prediction("p3", "c", "x") + "," +
+			prediction("p4", "d", "x") + "," + prediction("p5", "e", "x") + "," + prediction("p6", "f", "x") + `]}`
+		c := catalogServer(t, http.StatusOK, []byte(body), nil)
+
+		got, err := c.SearchPlaces(context.Background(), "日本")
+
+		require.NoError(t, err)
+		ids := make([]string, 0, len(got))
+		for _, p := range got {
+			ids = append(ids, p.PlaceID)
+		}
+		assert.Equal(t, []string{"p1", "p2", "p3", "p4", "p5"}, ids)
 	})
 
 	// @spec components/entity/venue/search-places "No match"
 	t.Run("return an empty list when the catalog has no match", func(t *testing.T) {
 		t.Parallel()
-		c := catalogServer(t, http.StatusOK, recordedResponse(t, "search_text_no_match.json"), nil)
+		c := catalogServer(t, http.StatusOK, recordedResponse(t, "autocomplete_no_match.json"), nil)
 
 		got, err := c.SearchPlaces(context.Background(), "xqzvwplkjh qqqzzzxxyy")
 

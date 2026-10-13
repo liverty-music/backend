@@ -77,7 +77,8 @@ type MapPlace struct {
 // venue from. It is separate from VenuePlaceSearcher, which concert discovery
 // uses for a single best match and which MusicBrainz also implements.
 type VenueMapCatalog interface {
-	// SearchPlaces looks up a venue name and returns at most 5 candidate places,
+	// SearchPlaces looks up a venue name, which may be only the beginning of a
+	// name as the operator types it, and returns at most 5 candidate places,
 	// best match first, places in Japan before places elsewhere. It returns an
 	// empty slice when the catalog has no match.
 	//
