@@ -85,20 +85,6 @@ func (b *SeriesImageURLBuilder) ReferencedSeries(concerts []*entity.Concert) []*
 	return out
 }
 
-// AuthoredConcerts builds the Concerts of an authored Series: one per date,
-// each performed by the Series' artists. A DRAFT Series' dates are its
-// DraftEvents and its artists the draft performers.
-func AuthoredConcerts(s *entity.Series, events []*entity.Event, artists []*entity.Artist) []*entity.Concert {
-	out := make([]*entity.Concert, 0, len(events))
-	for _, ev := range events {
-		if ev == nil {
-			continue
-		}
-		out = append(out, &entity.Concert{Event: *ev, Series: s, Artists: artists})
-	}
-	return out
-}
-
 // visibilityToProto maps a domain SeriesVisibility to the proto Visibility enum.
 func visibilityToProto(v entity.SeriesVisibility) entityv1.Visibility {
 	switch v {

@@ -85,13 +85,15 @@ const (
 		ORDER BY e.local_event_date, e.start_at NULLS LAST
 	`
 
+	// getAuthoredSeriesPerformersQuery reads the performers of every event of
+	// an authored series, one row per (event, artist).
 	getAuthoredSeriesPerformersQuery = `
-		SELECT DISTINCT a.id, a.name, a.mbid
+		SELECT ep.event_id, a.id, a.name, a.mbid
 		FROM artists a
 		JOIN concert_artists ep ON ep.artist_id = a.id
 		JOIN events e ON e.id = ep.event_id
 		WHERE e.series_id = $1
-		ORDER BY a.id
+		ORDER BY ep.event_id, a.id
 	`
 
 	listSeriesByOrganizerQuery = `

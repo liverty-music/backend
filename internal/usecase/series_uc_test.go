@@ -47,6 +47,16 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 	return d
 }
 
+// concertsOf builds the Concerts Series.GetAuthored returns: one per event,
+// each performed by the artists.
+func concertsOf(events []*entity.Event, artists []*entity.Artist) []*entity.Concert {
+	concerts := make([]*entity.Concert, len(events))
+	for i, e := range events {
+		concerts[i] = &entity.Concert{Event: *e, Artists: artists}
+	}
+	return concerts
+}
+
 // authoringNow is the clock of every SeriesUseCase under test.
 var authoringNow = time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
 
@@ -78,7 +88,7 @@ func TestSeriesUseCase_Create_OwnershipReject(t *testing.T) {
 		LocalDate: futureDate(),
 	}}
 
-	_, _, _, err := d.uc.Create(ctx, orgID, series, inp, []string{artistID})
+	_, _, err := d.uc.Create(ctx, orgID, series, inp, []string{artistID})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
 }

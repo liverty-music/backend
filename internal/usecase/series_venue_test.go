@@ -194,10 +194,10 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 					Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).
 					Return(nil).Once()
 				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).
-					Return(&entity.Series{ID: "series-1"}, nil, nil, nil).Once()
+					Return(&entity.Series{ID: "series-1"}, nil, nil).Once()
 			}
 
-			_, _, _, err := d.uc.Create(ctx, authoringOrgID, newDraftSeries(), tt.inputs, []string{authoringArtistID})
+			_, _, err := d.uc.Create(ctx, authoringOrgID, newDraftSeries(), tt.inputs, []string{authoringArtistID})
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -229,11 +229,11 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 	t.Run("fail with INVALID_ARGUMENT and store nothing when an event gives no place id", func(t *testing.T) {
 		t.Parallel()
 		d := newAuthoringDeps(t)
-		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil, nil).Once()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil).Once()
 		d.organizerRepo.EXPECT().ListArtists(mock.Anything, authoringOrgID).
 			Return([]*entity.Artist{{ID: authoringArtistID}}, nil).Once()
 
-		_, _, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
+		_, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
 			[]*usecase.DraftEventInput{draftInput("Zepp Haneda", nil)}, []string{authoringArtistID})
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
@@ -256,9 +256,9 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 		d.seriesRepo.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
 			Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).
 			Return(nil).Once()
-		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil, nil).Twice()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil).Twice()
 
-		_, _, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
+		_, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
 			[]*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))}, []string{authoringArtistID})
 
 		require.NoError(t, err)

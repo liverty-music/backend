@@ -340,14 +340,16 @@ type SeriesRepository interface {
 	Update(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
 	// GetAuthored retrieves the full authored concert for one series: the
-	// series with its cover image and derived publish state, every one of its
-	// events whatever its publish state (ordered by date, then start time with
-	// unknown start times last), and the artists performing at any of them.
+	// series with its cover image and derived publish state, and one Concert
+	// per event whatever its publish state (ordered by date, then start time
+	// with unknown start times last), each with its Venue, its publish state
+	// and its own performers. [Performers] gives the artists performing at any
+	// of them.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
-	GetAuthored(ctx context.Context, seriesID string) (*Series, []*Event, []*Artist, error)
+	GetAuthored(ctx context.Context, seriesID string) (*Series, []*Concert, error)
 
 	// PublishEvents publishes the given DRAFT events of a first-party series
 	// in a single transaction and returns the ids of the events it made

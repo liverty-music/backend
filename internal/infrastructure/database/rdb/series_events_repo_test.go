@@ -146,7 +146,8 @@ func (f *authoredFixture) performers(eventID string) []string {
 // edit returns the series as stored with its events as Update takes them.
 func (f *authoredFixture) edit(seriesID string) (*entity.Series, []*entity.Event) {
 	f.t.Helper()
-	s, events, _, err := f.repo.GetAuthored(f.ctx, seriesID)
+	s, concerts, err := f.repo.GetAuthored(f.ctx, seriesID)
+	events := entity.EventsOf(concerts)
 	require.NoError(f.t, err)
 	return s, events
 }
@@ -161,7 +162,8 @@ func TestSeriesRepository_CreateDraft(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
 
-		_, events, _, _ := f.repo.GetAuthored(f.ctx, seriesID)
+		_, concerts, _ := f.repo.GetAuthored(f.ctx, seriesID)
+		events := entity.EventsOf(concerts)
 		require.Len(t, events, 2)
 		for _, id := range ids {
 			state, ok := f.state(id)
@@ -196,7 +198,9 @@ func TestSeriesRepository_GetAuthored(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, _ := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
 
-		s, events, artists, err := f.repo.GetAuthored(f.ctx, seriesID)
+		s, concerts, err := f.repo.GetAuthored(f.ctx, seriesID)
+		events := entity.EventsOf(concerts)
+		artists := entity.Performers(concerts)
 
 		require.NoError(t, err)
 		require.NotNil(t, s.PublishState)
@@ -213,7 +217,8 @@ func TestSeriesRepository_GetAuthored(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStatePublished, entity.PublishStateDraft)
 
-		s, events, _, err := f.repo.GetAuthored(f.ctx, seriesID)
+		s, concerts, err := f.repo.GetAuthored(f.ctx, seriesID)
+		events := entity.EventsOf(concerts)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.PublishStatePublished, *s.PublishState)
@@ -224,11 +229,28 @@ func TestSeriesRepository_GetAuthored(t *testing.T) {
 		}
 	})
 
+	t.Run("give each event its own performers", func(t *testing.T) {
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStateCancelled)
+		guest := seedArtist(t, "Guest Act", uuid.NewV4().String())
+		s, events := f.edit(seriesID)
+		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID, guest}))
+
+		_, concerts, err := f.repo.GetAuthored(f.ctx, seriesID)
+
+		require.NoError(t, err)
+		require.Len(t, concerts, 2)
+		assert.Equal(t, ids[0], concerts[0].ID)
+		assert.ElementsMatch(t, []string{f.artistID, guest}, concerts[0].ArtistIDs(), "the published date gains the guest")
+		assert.Equal(t, []string{f.artistID}, concerts[1].ArtistIDs(), "the cancelled date keeps its performers")
+		assert.ElementsMatch(t, []string{f.artistID, guest}, artistIDsOf(entity.Performers(concerts)))
+	})
+
 	t.Run("fail with NOT_FOUND for an unknown series id", func(t *testing.T) {
 		// @spec components/entity/series/get-authored "Unknown series id"
 		f := newAuthoredFixture(t)
 
-		_, _, _, err := f.repo.GetAuthored(f.ctx, entity.NewID())
+		_, _, err := f.repo.GetAuthored(f.ctx, entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -581,4 +603,12 @@ func TestSeriesRepository_CancelEvents(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
+}
+
+func artistIDsOf(artists []*entity.Artist) []string {
+	ids := make([]string, len(artists))
+	for i, a := range artists {
+		ids[i] = a.ID
+	}
+	return ids
 }

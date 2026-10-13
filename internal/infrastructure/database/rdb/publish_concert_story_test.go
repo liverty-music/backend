@@ -84,8 +84,9 @@ func (s *publishStory) draft(title string, visibility entity.SeriesVisibility) *
 // create creates a concert with one date and returns its series and event ids.
 func (s *publishStory) create(visibility entity.SeriesVisibility) (string, string) {
 	s.t.Helper()
-	series, events, _, err := s.series.Create(s.ctx, s.orgID, s.draft("Story Tour", visibility),
+	series, concerts, err := s.series.Create(s.ctx, s.orgID, s.draft("Story Tour", visibility),
 		[]*usecase.DraftEventInput{s.input("", 0)}, []string{s.artistID})
+	events := entity.EventsOf(concerts)
 	require.NoError(s.t, err)
 	require.Len(s.t, events, 1)
 	return series.ID, events[0].ID
@@ -108,12 +109,12 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Public concert goes live"
 		s := newPublishStory(t)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
-		_, _, _, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour 2027", entity.SeriesVisibilityPublic),
+		_, _, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour 2027", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{s.input(eventID, 0)}, []string{s.artistID})
 		require.NoError(t, err)
 		assert.Empty(t, s.listed(), "a draft is on no fan list")
 
-		_, _, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
 		got := s.listed()
@@ -127,7 +128,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		s := newPublishStory(t)
 		seriesID, _ := s.create(entity.SeriesVisibilityUnlisted)
 
-		_, _, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, s.listed())
@@ -147,7 +148,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, discoveredID)
 		require.NoError(t, err)
 
-		_, _, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
 		got := s.listed()
@@ -161,7 +162,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Cancel after publish"
 		s := newPublishStory(t)
 		seriesID, _ := s.create(entity.SeriesVisibilityPublic)
-		_, _, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 		require.Len(t, s.listed(), 1)
 
@@ -174,18 +175,19 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Tour adds a date"
 		s := newPublishStory(t)
 		seriesID, firstID := s.create(entity.SeriesVisibilityPublic)
-		_, _, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 		s.publisher.take(entity.SubjectConcertCreated)
 
-		_, events, _, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
+		_, concerts, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{s.input(firstID, 0), s.input("", 7)}, []string{s.artistID})
+		events := entity.EventsOf(concerts)
 		require.NoError(t, err)
 		require.Len(t, events, 2)
 		addedID := events[1].ID
 		assert.Equal(t, []string{firstID}, concertIDs(s.listed()), "the new date is not listed before its publish")
 
-		_, _, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, []string{addedID})
+		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, []string{addedID})
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{firstID, addedID}, concertIDs(s.listed()))
@@ -198,13 +200,13 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Doors-open time announced after publish"
 		s := newPublishStory(t)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
-		_, _, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 		in := s.input(eventID, 0)
 		doors := s.date.Add(8 * time.Hour)
 		in.OpenTime = &doors
 
-		_, _, _, err = s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
+		_, _, err = s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{in}, []string{s.artistID})
 		require.NoError(t, err)
 
@@ -218,12 +220,12 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Venue cannot move after publish"
 		s := newPublishStory(t)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
-		_, _, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
+		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 		moved := s.input(eventID, 0)
 		moved.VenueName, moved.PlaceID = "Budokan", new("ChIJ-budokan")
 
-		_, _, _, err = s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
+		_, _, err = s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{moved}, []string{s.artistID})
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)

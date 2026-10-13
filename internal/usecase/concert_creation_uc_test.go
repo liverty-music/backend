@@ -135,8 +135,8 @@ func (r *fakeSeriesRepo) Update(_ context.Context, _ *entity.Series, _ []*entity
 	return nil
 }
 
-func (r *fakeSeriesRepo) GetAuthored(_ context.Context, _ string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	return nil, nil, nil, nil
+func (r *fakeSeriesRepo) GetAuthored(_ context.Context, _ string) (*entity.Series, []*entity.Concert, error) {
+	return nil, nil, nil
 }
 
 func (r *fakeSeriesRepo) ListByOrganizer(_ context.Context, _ string) ([]*entity.Series, error) {

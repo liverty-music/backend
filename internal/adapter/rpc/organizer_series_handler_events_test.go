@@ -40,7 +40,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 			Run(func(_ context.Context, _, _ string, _ *entity.Series, in []*usecase.DraftEventInput, _ []string) {
 				inputs = in
 			}).
-			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil, nil).Once()
+			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil).Once()
 
 		_, err := d.handler.Update(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.UpdateRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
@@ -74,7 +74,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 			inState(authoredEvent("event-2", "series-1", 2), entity.PublishStateDraft),
 		}
 		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string{"event-1"}).
-			Return(series, events, []*entity.Artist{{ID: "artist-1"}}, nil).Once()
+			Return(series, concertsOf(events, []*entity.Artist{{ID: "artist-1"}}), nil).Once()
 
 		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
@@ -93,7 +93,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 		expectCaller(d)
 		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string(nil)).
-			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil, nil).Once()
+			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil).Once()
 
 		_, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
@@ -114,6 +114,28 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		}))
 
 		require.NoError(t, err)
+	})
+
+	t.Run("return each date with its own performers", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerSeriesHandlerDeps(t)
+		expectCaller(d)
+		concerts := []*entity.Concert{
+			{Event: *inState(authoredEvent("event-1", "series-1", 1), entity.PublishStatePublished), Artists: []*entity.Artist{{ID: "artist-1"}, {ID: "guest-1"}}},
+			{Event: *inState(authoredEvent("event-2", "series-1", 2), entity.PublishStateCancelled), Artists: []*entity.Artist{{ID: "artist-1"}}},
+		}
+		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string(nil)).
+			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, concerts, nil).Once()
+
+		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
+			SeriesId: &entityv1.SeriesId{Value: "series-1"},
+		}))
+
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.GetConcerts(), 2)
+		assert.Len(t, resp.Msg.GetConcerts()[0].GetArtistIds(), 2)
+		assert.Len(t, resp.Msg.GetConcerts()[1].GetArtistIds(), 1)
+		assert.Len(t, resp.Msg.GetArtists(), 2, "each artist once")
 	})
 
 	t.Run("set a fan concert's publish state on its event", func(t *testing.T) {

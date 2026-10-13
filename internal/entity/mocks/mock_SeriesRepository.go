@@ -406,7 +406,7 @@ func (_c *MockSeriesRepository_Get_Call) RunAndReturn(run func(ctx context.Conte
 }
 
 // GetAuthored provides a mock function for the type MockSeriesRepository
-func (_mock *MockSeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+func (_mock *MockSeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Concert, error) {
 	ret := _mock.Called(ctx, seriesID)
 
 	if len(ret) == 0 {
@@ -414,10 +414,9 @@ func (_mock *MockSeriesRepository) GetAuthored(ctx context.Context, seriesID str
 	}
 
 	var r0 *entity.Series
-	var r1 []*entity.Event
-	var r2 []*entity.Artist
-	var r3 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*entity.Series, []*entity.Event, []*entity.Artist, error)); ok {
+	var r1 []*entity.Concert
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*entity.Series, []*entity.Concert, error)); ok {
 		return returnFunc(ctx, seriesID)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *entity.Series); ok {
@@ -427,26 +426,19 @@ func (_mock *MockSeriesRepository) GetAuthored(ctx context.Context, seriesID str
 			r0 = ret.Get(0).(*entity.Series)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string) []*entity.Event); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) []*entity.Concert); ok {
 		r1 = returnFunc(ctx, seriesID)
 	} else {
 		if ret.Get(1) != nil {
-			r1 = ret.Get(1).([]*entity.Event)
+			r1 = ret.Get(1).([]*entity.Concert)
 		}
 	}
-	if returnFunc, ok := ret.Get(2).(func(context.Context, string) []*entity.Artist); ok {
+	if returnFunc, ok := ret.Get(2).(func(context.Context, string) error); ok {
 		r2 = returnFunc(ctx, seriesID)
 	} else {
-		if ret.Get(2) != nil {
-			r2 = ret.Get(2).([]*entity.Artist)
-		}
+		r2 = ret.Error(2)
 	}
-	if returnFunc, ok := ret.Get(3).(func(context.Context, string) error); ok {
-		r3 = returnFunc(ctx, seriesID)
-	} else {
-		r3 = ret.Error(3)
-	}
-	return r0, r1, r2, r3
+	return r0, r1, r2
 }
 
 // MockSeriesRepository_GetAuthored_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAuthored'
@@ -479,12 +471,12 @@ func (_c *MockSeriesRepository_GetAuthored_Call) Run(run func(ctx context.Contex
 	return _c
 }
 
-func (_c *MockSeriesRepository_GetAuthored_Call) Return(series *entity.Series, events []*entity.Event, artists []*entity.Artist, err error) *MockSeriesRepository_GetAuthored_Call {
-	_c.Call.Return(series, events, artists, err)
+func (_c *MockSeriesRepository_GetAuthored_Call) Return(series *entity.Series, concerts []*entity.Concert, err error) *MockSeriesRepository_GetAuthored_Call {
+	_c.Call.Return(series, concerts, err)
 	return _c
 }
 
-func (_c *MockSeriesRepository_GetAuthored_Call) RunAndReturn(run func(ctx context.Context, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error)) *MockSeriesRepository_GetAuthored_Call {
+func (_c *MockSeriesRepository_GetAuthored_Call) RunAndReturn(run func(ctx context.Context, seriesID string) (*entity.Series, []*entity.Concert, error)) *MockSeriesRepository_GetAuthored_Call {
 	_c.Call.Return(run)
 	return _c
 }
