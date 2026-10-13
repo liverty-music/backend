@@ -266,7 +266,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/usecase/series/update "Published date moved"
+			// A published date keeps its date as well as its venue.
 			name: "a PUBLISHED event given with another date",
 			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
 				s := lifecycleSeries(entity.SeriesVisibilityPublic)
