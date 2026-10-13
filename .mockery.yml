@@ -1,96 +1,99 @@
-with-expecter: true
-dir: "{{.InterfaceDir}}/mocks"
-mockname: "Mock{{.InterfaceName}}"
-outpkg: mocks
+dir: '{{.InterfaceDir}}/mocks'
+filename: 'mock_{{.InterfaceName}}.go'
+structname: Mock{{.InterfaceName}}
+pkgname: mocks
+template: testify
+template-data:
+  unroll-variadic: true
 packages:
-  github.com/liverty-music/backend/internal/usecase:
-    interfaces:
-      ArtistUseCase:
-      OfficialSiteUseCase:
-      ArtistNameResolutionUseCase:
-      ConcertUseCase:
-      ConcertCreationUseCase:
-      ConcertCandidateUseCase:
-      UserUseCase:
-      TicketUseCase:
-      EntryUseCase:
-      FollowUseCase:
-      PushSubscriptionUseCase:
-      ArtistImageSyncUseCase:
-      TicketJourneyUseCase:
-      CentroidResolver:
-      EventPublisher:
-      AnalyticsClient:
-      AnalyticsConsumerMetrics:
-      FeatureFlagEvaluator:
-      SalesPhaseDiscoveryUseCase:
-      SalesPhaseAnnouncementUseCase:
-      SalesReminderDeliveryUseCase:
-      NotificationUseCase:
-      OrganizerUseCase:
-      OrganizerMetrics:
-      OrganizerProvisioner:
-      SeriesUseCase:
-      VenueUseCase:
-      ImageStorer:
-      IdentityVerificationUseCase:
-      IdentityVerifier:
-      LotteryEntryUseCase:
-      EventPublishStatePort:
-      WalletPublicKeyUseCase:
-      ScannerUseCase:
-      SeriesImageUseCase:
-      TicketSaleUseCase:
-      TicketTypeUseCase:
-      CheckoutUseCase:
-      OrderUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
-      ArtistRepository:
-      FollowRepository:
-      ConcertRepository:
-      SeriesRepository:
-      SeriesImageRepository:
-      ConcertSearcher:
-      UserRepository:
-      ConcertSearchRepository:
-      VenueRepository:
-      VenueMapCatalog:
-      TicketMinter:
-      TicketRepository:
-      PushSubscriptionRepository:
-      PushNotificationSender:
-      MerkleTreeBuilder:
-      Cache:
-      ArtistImageResolver:
-      TicketJourneyRepository:
-      LogoImageFetcher:
-      SalesPhaseRepository:
-      SalesPhaseReminderRepository:
-      SalesPhaseSearcher:
-      SalesPhaseSearchLogRepository:
-      ConcertCandidateRepository:
-      RejectedConcertRepository:
-      SuppressedConcertRepository:
-      NotificationRepository:
-      OrganizerRepository:
-      IdentityVerificationRepository:
-      LotteryEntryRepository:
-      IssuanceRepository:
-      OrderRepository:
-      SettlementRepository:
-      EmailVerifier:
-      IdentityRemover:
-      CardAuthorizationRepository:
-      TicketSaleRepository:
-      CheckoutRepository:
-      OrderConfirmationSender:
-      SeriesImageProcessor:
-      EventRepository:
-      WalletPublicKeyRepository:
-      ScannerRepository:
-      AdmissionRepository:
-      RejectedScanRepository:
+      AdmissionRepository: {}
+      ArtistIdentityManager: {}
+      ArtistImageResolver: {}
+      ArtistRepository: {}
+      ArtistSearcher: {}
+      Cache: {}
+      CardAuthorizationRepository: {}
+      CheckoutRepository: {}
+      ConcertCandidateRepository: {}
+      ConcertRepository: {}
+      ConcertSearchRepository: {}
+      ConcertSearcher: {}
+      EmailVerifier: {}
+      EventRepository: {}
+      FollowRepository: {}
+      IdentityRemover: {}
+      IdentityVerificationRepository: {}
+      IssuanceRepository: {}
+      LogoImageFetcher: {}
+      LotteryEntryRepository: {}
+      NotificationRepository: {}
+      OfficialSiteResolver: {}
+      OrderConfirmationSender: {}
+      OrderRepository: {}
+      OrganizerRepository: {}
+      PushNotificationSender: {}
+      PushSubscriptionRepository: {}
+      RejectedConcertRepository: {}
+      RejectedScanRepository: {}
+      SalesPhaseReminderRepository: {}
+      SalesPhaseRepository: {}
+      SalesPhaseSearchLogRepository: {}
+      SalesPhaseSearcher: {}
+      ScannerRepository: {}
+      SeriesImageProcessor: {}
+      SeriesImageRepository: {}
+      SeriesRepository: {}
+      SettlementRepository: {}
+      SuppressedConcertRepository: {}
+      TicketJourneyRepository: {}
+      TicketRepository: {}
+      TicketSaleRepository: {}
+      UserRepository: {}
+      VenueMapCatalog: {}
+      VenueRepository: {}
+      WalletPublicKeyRepository: {}
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
-      TokenValidator:
+      TokenValidator: {}
+  github.com/liverty-music/backend/internal/usecase:
+    interfaces:
+      AnalyticsClient: {}
+      AnalyticsConsumerMetrics: {}
+      ArtistImageSyncUseCase: {}
+      ArtistNameResolutionUseCase: {}
+      ArtistUseCase: {}
+      CentroidResolver: {}
+      CheckoutUseCase: {}
+      ConcertCandidateUseCase: {}
+      ConcertCreationUseCase: {}
+      ConcertUseCase: {}
+      EventPublishStatePort: {}
+      EventPublisher: {}
+      FeatureFlagEvaluator: {}
+      FollowUseCase: {}
+      IdentityVerificationUseCase: {}
+      IdentityVerifier: {}
+      ImageStorer: {}
+      LotteryEntryUseCase: {}
+      NotificationUseCase: {}
+      OfficialSiteUseCase: {}
+      OrderUseCase: {}
+      OrganizerMetrics: {}
+      OrganizerProvisioner: {}
+      OrganizerUseCase: {}
+      PushSubscriptionUseCase: {}
+      SalesPhaseAnnouncementUseCase: {}
+      SalesPhaseDiscoveryUseCase: {}
+      SalesReminderDeliveryUseCase: {}
+      ScannerUseCase: {}
+      SeriesImageUseCase: {}
+      SeriesUseCase: {}
+      TicketJourneyUseCase: {}
+      TicketSaleUseCase: {}
+      TicketTypeUseCase: {}
+      TicketUseCase: {}
+      UserUseCase: {}
+      VenueUseCase: {}
+      WalletPublicKeyUseCase: {}

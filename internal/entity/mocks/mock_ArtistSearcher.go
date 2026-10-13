@@ -17,10 +17,19 @@ func NewMockArtistSearcher(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockArtistSearcher {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockArtistSearcher{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -75,7 +84,7 @@ type MockArtistSearcher_ListSimilar_Call struct {
 //   - ctx context.Context
 //   - artist *entity.Artist
 //   - limit int32
-func (_e *MockArtistSearcher_Expecter) ListSimilar(ctx interface{}, artist interface{}, limit interface{}) *MockArtistSearcher_ListSimilar_Call {
+func (_e *MockArtistSearcher_Expecter) ListSimilar(ctx any, artist any, limit any) *MockArtistSearcher_ListSimilar_Call {
 	return &MockArtistSearcher_ListSimilar_Call{Call: _e.mock.On("ListSimilar", ctx, artist, limit)}
 }
 
@@ -150,7 +159,7 @@ type MockArtistSearcher_ListTop_Call struct {
 //   - country string
 //   - tag string
 //   - limit int32
-func (_e *MockArtistSearcher_Expecter) ListTop(ctx interface{}, country interface{}, tag interface{}, limit interface{}) *MockArtistSearcher_ListTop_Call {
+func (_e *MockArtistSearcher_Expecter) ListTop(ctx any, country any, tag any, limit any) *MockArtistSearcher_ListTop_Call {
 	return &MockArtistSearcher_ListTop_Call{Call: _e.mock.On("ListTop", ctx, country, tag, limit)}
 }
 
@@ -228,7 +237,7 @@ type MockArtistSearcher_Search_Call struct {
 // Search is a helper method to define mock.On call
 //   - ctx context.Context
 //   - query string
-func (_e *MockArtistSearcher_Expecter) Search(ctx interface{}, query interface{}) *MockArtistSearcher_Search_Call {
+func (_e *MockArtistSearcher_Expecter) Search(ctx any, query any) *MockArtistSearcher_Search_Call {
 	return &MockArtistSearcher_Search_Call{Call: _e.mock.On("Search", ctx, query)}
 }
 

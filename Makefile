@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema modernize fix test test-integration test-stripe-e2e check
+.PHONY: lint lint-schema modernize fix mocks test test-integration test-stripe-e2e check
 
 # Every binary links both the Pocket Sign and the Zitadel SDKs, which register
 # the same protobuf extension number; protobuf panics at init unless this is
@@ -42,6 +42,10 @@ lint-schema:
 modernize:
 	@echo "==> Checking go fix modernizers..."
 	@test -z "$$(go fix -diff ./... 2>&1)" || (echo "Run 'go fix ./...' to modernize code"; go fix -diff ./...; exit 1)
+
+## mocks: regenerate the testify mocks listed in .mockery.yml (mockery v3)
+mocks:
+	go tool mockery
 
 ## fix: auto-apply go fix modernizers, then format
 fix:
