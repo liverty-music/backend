@@ -16,10 +16,19 @@ func NewMockOfficialSiteResolver(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockOfficialSiteResolver {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockOfficialSiteResolver{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -71,7 +80,7 @@ type MockOfficialSiteResolver_ResolveOfficialSiteURL_Call struct {
 // ResolveOfficialSiteURL is a helper method to define mock.On call
 //   - ctx context.Context
 //   - mbid string
-func (_e *MockOfficialSiteResolver_Expecter) ResolveOfficialSiteURL(ctx interface{}, mbid interface{}) *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call {
+func (_e *MockOfficialSiteResolver_Expecter) ResolveOfficialSiteURL(ctx any, mbid any) *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call {
 	return &MockOfficialSiteResolver_ResolveOfficialSiteURL_Call{Call: _e.mock.On("ResolveOfficialSiteURL", ctx, mbid)}
 }
 
@@ -85,13 +94,16 @@ func (_c *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call) Run(run func(ctx
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		run(arg0, arg1)
+		run(
+			arg0,
+			arg1,
+		)
 	})
 	return _c
 }
 
-func (_c *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call) Return(url string, err error) *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call {
-	_c.Call.Return(url, err)
+func (_c *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call) Return(s string, err error) *MockOfficialSiteResolver_ResolveOfficialSiteURL_Call {
+	_c.Call.Return(s, err)
 	return _c
 }
 

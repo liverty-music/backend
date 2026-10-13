@@ -17,10 +17,19 @@ func NewMockArtistIdentityManager(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockArtistIdentityManager {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockArtistIdentityManager{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -74,7 +83,7 @@ type MockArtistIdentityManager_GetArtist_Call struct {
 // GetArtist is a helper method to define mock.On call
 //   - ctx context.Context
 //   - mbid string
-func (_e *MockArtistIdentityManager_Expecter) GetArtist(ctx interface{}, mbid interface{}) *MockArtistIdentityManager_GetArtist_Call {
+func (_e *MockArtistIdentityManager_Expecter) GetArtist(ctx any, mbid any) *MockArtistIdentityManager_GetArtist_Call {
 	return &MockArtistIdentityManager_GetArtist_Call{Call: _e.mock.On("GetArtist", ctx, mbid)}
 }
 
