@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -38,6 +40,19 @@ const organizerConsoleRoleOwner = "owner"
 // userSearchLimit caps the operator-email user search. Any match is decisive,
 // so a few results are enough.
 const userSearchLimit = 10
+
+// loginPolicy lifetimes mirror Zitadel's instance defaults (cmd/defaults.yaml).
+// The Console's login-policy form validates every check lifetime with
+// minValueValidator(1), so a tenant policy created without them stores 0 and the
+// Console refuses to save it ("Form contains invalid value(s)."). Set them
+// explicitly on both the add and update paths so existing tenant orgs converge.
+const (
+	passwordCheckLifetime      = 240 * time.Hour
+	externalLoginCheckLifetime = 240 * time.Hour
+	mfaInitSkipLifetime        = 720 * time.Hour
+	secondFactorCheckLifetime  = 18 * time.Hour
+	multiFactorCheckLifetime   = 12 * time.Hour
+)
 
 // Compile-time interface compliance check.
 var _ usecase.OrganizerProvisioner = (*OrganizerProvisioner)(nil)
@@ -403,6 +418,12 @@ func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, providerOrganiz
 // Pointing it at the console returns the operator there to complete sign-in;
 // without it they would dead-end on a Zitadel page.
 //
+// Every check lifetime is set explicitly and HidePasswordReset is true. A
+// policy created without the lifetimes stores them all as 0, which the
+// Console's login-policy form rejects with "Form contains invalid value(s).";
+// and because the operator is passkey-only, the hosted login must not offer a
+// self-service password reset that would let them set a password.
+//
 // AddCustomLoginPolicy is create-only. Orgs provisioned before this change carry
 // a policy without the default redirect (and older ones the broken
 // allow_username_password=false), so on AlreadyExists we UpdateCustomLoginPolicy
@@ -415,12 +436,18 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 	// re-authentication (design D-D, Option 2).
 	defaultRedirectURI := fmt.Sprintf("%s/?org_id=%s", p.consoleBaseURL, url.QueryEscape(providerOrganizerID))
 	_, err := p.mgmt.AddCustomLoginPolicy(orgCtx, &mgmtpb.AddCustomLoginPolicyRequest{
-		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
-		AllowUsernamePassword:  true,
-		AllowRegister:          false,
-		AllowExternalIdp:       true,
-		IgnoreUnknownUsernames: true,
-		DefaultRedirectUri:     defaultRedirectURI,
+		PasswordlessType:           policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
+		AllowUsernamePassword:      true,
+		AllowRegister:              false,
+		AllowExternalIdp:           true,
+		IgnoreUnknownUsernames:     true,
+		DefaultRedirectUri:         defaultRedirectURI,
+		HidePasswordReset:          true,
+		PasswordCheckLifetime:      durationpb.New(passwordCheckLifetime),
+		ExternalLoginCheckLifetime: durationpb.New(externalLoginCheckLifetime),
+		MfaInitSkipLifetime:        durationpb.New(mfaInitSkipLifetime),
+		SecondFactorCheckLifetime:  durationpb.New(secondFactorCheckLifetime),
+		MultiFactorCheckLifetime:   durationpb.New(multiFactorCheckLifetime),
 	})
 	if err == nil {
 		return nil
@@ -433,12 +460,18 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 	// before this change converge to the correct passkey-primary shape and gain
 	// the console default_redirect_uri.
 	if _, err := p.mgmt.UpdateCustomLoginPolicy(orgCtx, &mgmtpb.UpdateCustomLoginPolicyRequest{
-		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
-		AllowUsernamePassword:  true,
-		AllowRegister:          false,
-		AllowExternalIdp:       true,
-		IgnoreUnknownUsernames: true,
-		DefaultRedirectUri:     defaultRedirectURI,
+		PasswordlessType:           policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
+		AllowUsernamePassword:      true,
+		AllowRegister:              false,
+		AllowExternalIdp:           true,
+		IgnoreUnknownUsernames:     true,
+		DefaultRedirectUri:         defaultRedirectURI,
+		HidePasswordReset:          true,
+		PasswordCheckLifetime:      durationpb.New(passwordCheckLifetime),
+		ExternalLoginCheckLifetime: durationpb.New(externalLoginCheckLifetime),
+		MfaInitSkipLifetime:        durationpb.New(mfaInitSkipLifetime),
+		SecondFactorCheckLifetime:  durationpb.New(secondFactorCheckLifetime),
+		MultiFactorCheckLifetime:   durationpb.New(multiFactorCheckLifetime),
 	}); err != nil {
 		return fmt.Errorf("update custom login policy: %w", err)
 	}

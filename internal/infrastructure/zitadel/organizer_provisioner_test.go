@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
@@ -292,6 +293,14 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.addCustomLoginPolicyReq.GetDefaultRedirectUri(),
 					"invite acceptance must return the operator to the console")
+				policy := stub.addCustomLoginPolicyReq
+				assert.True(t, policy.GetHidePasswordReset(),
+					"the hosted login must not offer a password reset to passkey-only operators")
+				assert.Equal(t, 240*time.Hour, policy.GetPasswordCheckLifetime().AsDuration())
+				assert.Equal(t, 240*time.Hour, policy.GetExternalLoginCheckLifetime().AsDuration())
+				assert.Equal(t, 720*time.Hour, policy.GetMfaInitSkipLifetime().AsDuration())
+				assert.Equal(t, 18*time.Hour, policy.GetSecondFactorCheckLifetime().AsDuration())
+				assert.Equal(t, 12*time.Hour, policy.GetMultiFactorCheckLifetime().AsDuration())
 
 				require.Len(t, stub.addProjectGrantReqs, 1)
 				req := stub.addProjectGrantReqs[0]
@@ -328,6 +337,14 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.True(t, stub.updateCustomLoginPolicyReq.GetAllowUsernamePassword())
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.updateCustomLoginPolicyReq.GetDefaultRedirectUri())
+				updated := stub.updateCustomLoginPolicyReq
+				assert.True(t, updated.GetHidePasswordReset(),
+					"the converged policy must hide the password reset too")
+				assert.Equal(t, 240*time.Hour, updated.GetPasswordCheckLifetime().AsDuration())
+				assert.Equal(t, 240*time.Hour, updated.GetExternalLoginCheckLifetime().AsDuration())
+				assert.Equal(t, 720*time.Hour, updated.GetMfaInitSkipLifetime().AsDuration())
+				assert.Equal(t, 18*time.Hour, updated.GetSecondFactorCheckLifetime().AsDuration())
+				assert.Equal(t, 12*time.Hour, updated.GetMultiFactorCheckLifetime().AsDuration())
 				// The existing user is looked up in the tenant org only.
 				require.Len(t, userV2.listUsersReqs, 1)
 				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
