@@ -1,0 +1,28 @@
+{
+  "suggestions": [
+    {
+      "placePrediction": {
+        "placeId": "ChIJeVmAOuphGGARoWY4-GPmhhA",
+        "structuredFormat": {
+          "mainText": {
+            "text": "Zepp Haneda (TOKYO)",
+            "matches": [
+              {
+                "endOffset": 11
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "東京都大田区羽田空港１丁目１−４",
+            "matches": [
+              {
+                "startOffset": 13,
+                "endOffset": 16
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

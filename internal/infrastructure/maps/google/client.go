@@ -1,11 +1,14 @@
 // Package google provides a client for the Google Maps Places API (New).
 //
-// This client uses the Places Text Search API (New) to search for venues by name
-// and Place Details (New) to read one place by its id.
+// This client uses Text Search (New) to find the one place of a discovered
+// concert's venue, Autocomplete (New) to list the places an organizer operator
+// picks a venue from, and Place Details (New) to read one place by its id.
 // It authenticates via OAuth 2.0 using Application Default Credentials (ADC),
 // which integrates with GKE Workload Identity for automatic token management.
 //
-// For more details, refer to: https://developers.google.com/maps/documentation/places/web-service/text-search
+// For more details, refer to:
+//   - https://developers.google.com/maps/documentation/places/web-service/text-search
+//   - https://developers.google.com/maps/documentation/places/web-service/place-autocomplete
 package google
 
 import (
@@ -59,12 +62,14 @@ type textSearchResponse struct {
 	} `json:"places"`
 }
 
-// Client is a Google Maps Places Text Search client.
+// Client is a Google Maps Places API (New) client.
 type Client struct {
 	httpClient  *http.Client
 	tokenSource oauth2.TokenSource
 	projectID   string
 	baseURL     string
+	// autocompleteURL is the Autocomplete (New) endpoint used by SearchPlaces.
+	autocompleteURL string
 	// detailsBaseURL is the Places resource collection used by GetPlace.
 	detailsBaseURL string
 	logger         *logging.Logger
@@ -80,12 +85,13 @@ func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client,
 		}
 	}
 	return &Client{
-		httpClient:     httpClient,
-		tokenSource:    ts,
-		projectID:      projectID,
-		baseURL:        defaultBaseURL,
-		detailsBaseURL: defaultDetailsBaseURL,
-		logger:         logger.With(slog.String("component", "googlemaps")),
+		httpClient:      httpClient,
+		tokenSource:     ts,
+		projectID:       projectID,
+		baseURL:         defaultBaseURL,
+		autocompleteURL: defaultAutocompleteURL,
+		detailsBaseURL:  defaultDetailsBaseURL,
+		logger:          logger.With(slog.String("component", "googlemaps")),
 	}
 }
 
@@ -157,6 +163,12 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 // SetBaseURL overrides the API base URL. Intended for tests.
 func (c *Client) SetBaseURL(u string) {
 	c.baseURL = u
+}
+
+// SetAutocompleteURL overrides the Autocomplete (New) endpoint that
+// SearchPlaces posts to. Intended for tests.
+func (c *Client) SetAutocompleteURL(u string) {
+	c.autocompleteURL = u
 }
 
 // SetDetailsBaseURL overrides the Places resource collection URL that

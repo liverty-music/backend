@@ -1,0 +1,106 @@
+{
+  "suggestions": [
+    {
+      "placePrediction": {
+        "placeId": "ChIJxTAYVt3gGGARc6fo_RMKO5I",
+        "structuredFormat": {
+          "mainText": {
+            "text": "LIQUIDROOM",
+            "matches": [
+              {
+                "endOffset": 8
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "東京都渋谷区東３丁目１６−６",
+            "matches": [
+              {
+                "startOffset": 10,
+                "endOffset": 14
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "placePrediction": {
+        "placeId": "ChIJM60oqdJRqEcRy8_3DSb5_JI",
+        "structuredFormat": {
+          "mainText": {
+            "text": "LIQUIDROM",
+            "matches": [
+              {
+                "endOffset": 8
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "Möckernstraße, ベルリン-フリードリヒスハイン＝クロイツベルク ドイツ"
+          }
+        }
+      }
+    },
+    {
+      "placePrediction": {
+        "placeId": "ChIJIXRT6UGLGGARPdVuzyUsJk0",
+        "structuredFormat": {
+          "mainText": {
+            "text": "恵比寿レジデンス弐番館",
+            "matches": [
+              {
+                "endOffset": 11
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "東京都渋谷区東３丁目１６−６",
+            "matches": [
+              {
+                "startOffset": 10,
+                "endOffset": 14
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "placePrediction": {
+        "placeId": "ChIJ4_Cc0nDeQUcR49lnrl05yc4",
+        "structuredFormat": {
+          "mainText": {
+            "text": "Liquid Rock",
+            "matches": [
+              {
+                "endOffset": 11
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "ブダペスト, ラーコーツィ通り ハンガリー"
+          }
+        }
+      }
+    },
+    {
+      "placePrediction": {
+        "placeId": "ChIJ4agwNzFZl0cRsceIabRcXXg",
+        "structuredFormat": {
+          "mainText": {
+            "text": "Liquidroast - LQR",
+            "matches": [
+              {
+                "endOffset": 8
+              }
+            ]
+          },
+          "secondaryText": {
+            "text": "Schönbuchstraße, Ammerbuch-Altingen, ドイツ"
+          }
+        }
+      }
+    }
+  ]
+}

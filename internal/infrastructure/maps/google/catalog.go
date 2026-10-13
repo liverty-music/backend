@@ -18,6 +18,9 @@ import (
 )
 
 const (
+	// defaultAutocompleteURL is the Autocomplete (New) endpoint SearchPlaces
+	// posts to.
+	defaultAutocompleteURL = "https://places.googleapis.com/v1/places:autocomplete"
 	// defaultDetailsBaseURL is the Places API (New) resource collection; a
 	// Place Details request is a GET on {defaultDetailsBaseURL}/{place id}.
 	defaultDetailsBaseURL = "https://places.googleapis.com/v1/places"
@@ -25,12 +28,15 @@ const (
 	// catalogLanguageCode asks for Japanese names and addresses: the organizer
 	// console serves operators in Japan.
 	catalogLanguageCode = "ja"
-	// catalogRegionCode ranks places in Japan before places elsewhere.
-	catalogRegionCode = "JP"
+	// catalogRegionCode ranks places in Japan before places elsewhere and
+	// formats addresses for Japan. Autocomplete takes a two-letter ccTLD.
+	catalogRegionCode = "jp"
 	// catalogSearchPageSize is the most candidates an operator picks from.
+	// Autocomplete returns at most 5 predictions; the cap keeps the contract
+	// if that ever grows.
 	catalogSearchPageSize = 5
 
-	searchPlacesFieldMask = "places.id,places.displayName,places.formattedAddress"
+	searchPlacesFieldMask = "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat"
 	getPlaceFieldMask     = "id,displayName,location,addressComponents"
 
 	addressTypeAdminAreaLevel1 = "administrative_area_level_1"
@@ -39,27 +45,33 @@ const (
 // Compile-time check that Client is the organizer console's map catalog.
 var _ entity.VenueMapCatalog = (*Client)(nil)
 
-// searchPlacesRequest is the JSON body of a Text Search (New) request for
-// operator-facing candidates.
+// searchPlacesRequest is the JSON body of an Autocomplete (New) request for
+// operator-facing candidates. It sets no type filter (a live house's primary
+// type may be bar or night_club), no session token (billing is per request;
+// a session would bill GetPlace's Details call at a higher SKU) and no query
+// predictions, so every suggestion is a place prediction.
 type searchPlacesRequest struct {
-	TextQuery    string `json:"textQuery"`
+	Input        string `json:"input"`
 	LanguageCode string `json:"languageCode"`
 	RegionCode   string `json:"regionCode"`
-	PageSize     int    `json:"pageSize"`
 }
 
 type localizedText struct {
 	Text string `json:"text"`
 }
 
-// searchPlacesResponse is the Text Search (New) response restricted to
-// searchPlacesFieldMask.
+// searchPlacesResponse is the Autocomplete (New) response restricted to
+// searchPlacesFieldMask. The catalog answers no match with an empty object.
 type searchPlacesResponse struct {
-	Places []struct {
-		ID               string        `json:"id"`
-		DisplayName      localizedText `json:"displayName"`
-		FormattedAddress string        `json:"formattedAddress"`
-	} `json:"places"`
+	Suggestions []struct {
+		PlacePrediction *struct {
+			PlaceID          string `json:"placeId"`
+			StructuredFormat struct {
+				MainText      localizedText `json:"mainText"`
+				SecondaryText localizedText `json:"secondaryText"`
+			} `json:"structuredFormat"`
+		} `json:"placePrediction"`
+	} `json:"suggestions"`
 }
 
 // placeDetailsResponse is the Place Details (New) response restricted to
@@ -78,19 +90,22 @@ type placeDetailsResponse struct {
 	} `json:"addressComponents"`
 }
 
-// SearchPlaces implements entity.VenueMapCatalog with Places Text Search
-// (New): at most 5 places, Japanese names, places in Japan ranked first.
+// SearchPlaces implements entity.VenueMapCatalog with Place Autocomplete
+// (New), so the beginning of a name already matches: at most 5 places in the
+// catalog's order, Japanese names, places in Japan ranked first. The name is
+// the prediction's main text and the address its secondary text. A
+// prediction without a place id, main text or secondary text is dropped: a
+// candidate needs all three (the address tells same-named places apart).
 func (c *Client) SearchPlaces(ctx context.Context, text string) ([]*entity.MapPlaceCandidate, error) {
 	body, err := json.Marshal(searchPlacesRequest{
-		TextQuery:    text,
+		Input:        text,
 		LanguageCode: catalogLanguageCode,
 		RegionCode:   catalogRegionCode,
-		PageSize:     catalogSearchPageSize,
 	})
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to marshal google maps search request body")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.autocompleteURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to create google maps search request")
 	}
@@ -101,13 +116,20 @@ func (c *Client) SearchPlaces(ctx context.Context, text string) ([]*entity.MapPl
 		return nil, err
 	}
 
-	out := make([]*entity.MapPlaceCandidate, 0, len(data.Places))
-	for _, p := range data.Places {
+	out := make([]*entity.MapPlaceCandidate, 0, catalogSearchPageSize)
+	for _, s := range data.Suggestions {
+		p := s.PlacePrediction
+		if p == nil || p.PlaceID == "" || p.StructuredFormat.MainText.Text == "" || p.StructuredFormat.SecondaryText.Text == "" {
+			continue
+		}
 		out = append(out, &entity.MapPlaceCandidate{
-			PlaceID: p.ID,
-			Name:    p.DisplayName.Text,
-			Address: p.FormattedAddress,
+			PlaceID: p.PlaceID,
+			Name:    p.StructuredFormat.MainText.Text,
+			Address: p.StructuredFormat.SecondaryText.Text,
 		})
+		if len(out) == catalogSearchPageSize {
+			break
+		}
 	}
 	return out, nil
 }
