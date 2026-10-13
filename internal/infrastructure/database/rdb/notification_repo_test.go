@@ -135,7 +135,7 @@ func TestNotificationRepository_MarkDismissed(t *testing.T) {
 
 	cleanDatabase(t)
 	userID := seedUser(t, "notif-dismiss-user", "notif-dismiss@example.com", "ext-notif-dismiss-01")
-	n := newTestNotification(userID, entity.NotificationTypeSalesPhaseAnnouncement)
+	n := newTestNotification(userID, entity.NotificationTypeTicketSaleAnnouncement)
 	require.NoError(t, repo.Create(ctx, n))
 
 	require.NoError(t, repo.MarkDismissed(ctx, userID, n.ID))

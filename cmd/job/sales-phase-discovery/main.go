@@ -42,7 +42,7 @@ func run(bootLogger *logging.Logger) error {
 
 	bootLogger.Info(ctx, "starting sales-phase-discovery job")
 
-	var app *di.SalesPhaseDiscoveryJobApp
+	var app *di.TicketSaleDiscoveryJobApp
 	defer func() {
 		timeout := fallbackShutdownTimeout
 		if app != nil {
@@ -56,7 +56,7 @@ func run(bootLogger *logging.Logger) error {
 	}()
 
 	var err error
-	app, err = di.InitializeSalesPhaseDiscoveryJobApp(ctx)
+	app, err = di.InitializeTicketSaleDiscoveryJobApp(ctx)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func run(bootLogger *logging.Logger) error {
 		if ctx.Err() != nil {
 			break
 		}
-		if _, err := app.SalesPhaseDiscUC.DiscoverForArtist(ctx, artist); err != nil {
+		if _, err := app.TicketSaleDiscUC.DiscoverForArtist(ctx, artist); err != nil {
 			totalFailed++
 			consecutiveErrors++
 			app.Logger.Error(ctx, "sales-phase-discovery: artist failed", err,

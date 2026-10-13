@@ -282,6 +282,20 @@ func TestUserRepository_Delete(t *testing.T) {
 		assert.True(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE user_id = $1`, user.ID), "lottery entry")
 	})
 
+	t.Run("reminder records go with the user", func(t *testing.T) {
+		// @spec components/entity/user/delete "Reminder records go with the user"
+		cleanDatabase(t)
+		user, err := repo.Create(ctx, newTestUser("ext-del-3", "del3@example.com", "Delete"))
+		require.NoError(t, err)
+		saleID := seedDiscoveredSale(t)
+		require.NoError(t, rdb.NewTicketSaleReminderRepository(testDB).RecordSent(ctx, user.ID, saleID, entity.ReminderStageApplyOpen))
+
+		require.NoError(t, repo.Delete(ctx, user.ID))
+
+		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_sale_reminders WHERE user_id = $1`, user.ID), "ticket sale reminder")
+		assert.True(t, rowExists(t, `SELECT 1 FROM ticket_sales WHERE id = $1`, string(saleID)), "the sale stays")
+	})
+
 	t.Run("unknown id", func(t *testing.T) {
 		// @spec components/entity/user/delete "Unknown id"
 		err := repo.Delete(ctx, "00000000-0000-0000-0000-000000000000")

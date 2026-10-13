@@ -529,7 +529,7 @@ type ConcertRepository interface {
 	// ordered by local_event_date ascending and, for equal dates, by start_at
 	// ascending with a NULL start_at ordered last. Used to resolve which event
 	// of a series a series-level notification should deep-link to (see
-	// [SalesPhaseAnnouncementUseCase] and [SalesReminderUseCase]).
+	// TicketSaleAnnouncementUseCase and TicketSaleReminderUseCase).
 	//
 	// Only physical-identity fields are populated (ID, SeriesID, LocalDate,
 	// StartTime); Venue and Artists are not hydrated. Returns an empty
@@ -557,14 +557,15 @@ type ConcertRepository interface {
 	// ticket_types). Rows that outlive the event but still reference it
 	// — tickets and settlements — are protected by ON DELETE RESTRICT, so the
 	// delete fails instead of orphaning them when any exist. The event's series
-	// and the series' own sales_phases are untouched either way: sales_phases
-	// key off series_id, not event_id, so deleting one event never removes
-	// them. It is idempotent: deleting an id that no longer exists is a no-op
+	// and the series' discovered ticket sales are untouched either way: a
+	// discovered sale has no ticket type, so deleting one event never removes
+	// it. It is idempotent: deleting an id that no longer exists is a no-op
 	// success.
 	Delete(ctx context.Context, eventID string) error
 	// DeleteAndSuppress removes a published event by id (cascading exactly like
 	// Delete, including the event's ticket types with their lottery entries)
-	// and every ticket sale left without a ticket type, and, in the same
+	// and every Organizer's ticket sale the removal leaves without a ticket
+	// type (a discovered sale never has one and stays), and, in the same
 	// statement, records a suppression entry derived from
 	// the deleted event's own natural key (venue_id, local_event_date, start_at) so
 	// a later discovery run does not auto-publish or re-stage it. The two effects

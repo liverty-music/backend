@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -31,7 +32,7 @@ type rowQuerier interface {
 // ticketSaleColumns selects a ticket_sales row (aliased ts).
 const ticketSaleColumns = `
 	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_at, ts.sale_end_at,
-	ts.verification_requirement, ts.draw_at
+	ts.verification_requirement, ts.draw_at, ts.lottery_result_at, ts.discovered_at
 `
 
 const (
@@ -53,10 +54,58 @@ const (
 		WHERE EXISTS (SELECT 1 FROM ticket_types tt WHERE tt.ticket_sale_id = ts.id AND tt.event_id = $1)
 		ORDER BY ts.sale_start_at, ts.id
 	`
+	// ticketSaleListDueForDrawQuery skips discovered sales: the platform
+	// takes no entries for them, and drawing one would break
+	// chk_ticket_sales_discovered.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.draw_at IS NULL
+		  AND ts.discovered_at IS NULL
 		ORDER BY ts.sale_end_at, ts.id
+	`
+	ticketSaleListBySeriesQuery = `
+		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
+		WHERE ts.series_id = $1
+		ORDER BY ts.sale_start_at, ts.id
+	`
+	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
+	// within the lookahead ($1 seconds) and whose latest milestone is no
+	// further back than the lookback ($2 seconds). The milestones are the
+	// start, the end and the result time; an Organizer's lottery's result
+	// time is its end, already in GREATEST. An Organizer's sale is returned
+	// only while its Series is Published, that is while one of its events is
+	// PUBLISHED.
+	ticketSaleListWithPendingMilestonesQuery = `
+		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
+		WHERE ts.sale_start_at <= NOW() + make_interval(secs => $1)
+		  AND GREATEST(
+		        ts.sale_start_at,
+		        COALESCE(ts.sale_end_at,       '-infinity'::timestamptz),
+		        COALESCE(ts.lottery_result_at, '-infinity'::timestamptz)
+		      ) >= NOW() - make_interval(secs => $2)
+		  AND (ts.discovered_at IS NOT NULL OR EXISTS (
+		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
+		ORDER BY ts.sale_start_at, ts.id
+	`
+	// ticketSaleUpsertDiscoveredQuery stores a discovered sale in one
+	// statement. The SELECT from series yields no row when the series does
+	// not exist or has an Organizer, so nothing is written and no row is
+	// returned. A known discovered sale with the same series, method and start
+	// date in Japan time (uq_ticket_sales_discovered_convergence) gets the new
+	// times (NULL clears a stored one) and keeps its id, series, method and
+	// discovered_at. xmax = 0 is true only for a freshly inserted row.
+	ticketSaleUpsertDiscoveredQuery = `
+		INSERT INTO ticket_sales (
+			id, series_id, name, method, sale_start_at, sale_end_at,
+			verification_requirement, lottery_result_at, discovered_at
+		)
+		SELECT $1, s.id, NULL, $3, $4, $5, 0, $6, NOW()
+		FROM series s WHERE s.id = $2 AND s.organizer_id IS NULL
+		ON CONFLICT (series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL DO UPDATE
+		SET sale_start_at     = EXCLUDED.sale_start_at,
+		    sale_end_at       = EXCLUDED.sale_end_at,
+		    lottery_result_at = EXCLUDED.lottery_result_at
+		RETURNING id, (xmax = 0) AS inserted
 	`
 	ticketSaleOfTicketTypeQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
@@ -108,6 +157,10 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid ticket sale")
 	}
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(sale.ID)), slog.String("series_id", sale.SeriesID)}
+
+	if sale.IsDiscovered() {
+		return nil, apperr.New(codes.InvalidArgument, "a discovered sale is stored with UpsertDiscovered", attrs...)
+	}
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -175,6 +228,82 @@ func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time
 	sales, err := listTicketSales(ctx, r.db.Pool, now, ticketSaleListDueForDrawQuery, now)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list ticket sales due for draw")
+	}
+	return sales, nil
+}
+
+// UpsertDiscovered stores a discovered sale, converging on the known
+// discovered sale with the same series, method and start date in Japan time.
+func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error) {
+	if found == nil {
+		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, "discovered sale must not be nil")
+	}
+	if found.SeriesID == "" {
+		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, "discovered sale must name a series")
+	}
+	attrs := []slog.Attr{slog.String("series_id", found.SeriesID)}
+	// A sale whose start the pages do not give is skipped, not stored.
+	if found.SaleStartTime.IsZero() {
+		r.db.logger.Info(ctx, "ticket_sale_repo: skipping discovered sale without a start time", attrs...)
+		return "", entity.UpsertOutcomeSkipped, nil
+	}
+	if err := found.Validate(); err != nil {
+		return "", entity.UpsertOutcomeSkipped, apperr.Wrap(err, codes.InvalidArgument, "invalid discovered sale", attrs...)
+	}
+
+	var (
+		id       string
+		inserted bool
+	)
+	err := r.db.Pool.QueryRow(ctx, ticketSaleUpsertDiscoveredQuery,
+		entity.NewID(),
+		found.SeriesID,
+		int16(found.Method),
+		found.SaleStartTime,
+		nullableTime(found.SaleEndTime),
+		nullableTime(found.LotteryResultTime),
+	).Scan(&id, &inserted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.FailedPrecondition,
+			"series does not exist or has an Organizer", attrs...)
+	}
+	if err != nil {
+		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to upsert discovered ticket sale", attrs...)
+	}
+	if inserted {
+		return entity.TicketSaleID(id), entity.UpsertOutcomeInserted, nil
+	}
+	return entity.TicketSaleID(id), entity.UpsertOutcomeUpdated, nil
+}
+
+// ListBySeries returns every sale of the series, earliest start first.
+func (r *TicketSaleRepository) ListBySeries(ctx context.Context, seriesID string) ([]*entity.TicketSale, error) {
+	if seriesID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	}
+	sales, err := listTicketSales(ctx, r.db.Pool, time.Now(), ticketSaleListBySeriesQuery, seriesID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list ticket sales by series", slog.String("series_id", seriesID))
+	}
+	return sales, nil
+}
+
+// ListWithPendingMilestones returns the sales with a reminder milestone
+// still pending or just past.
+func (r *TicketSaleRepository) ListWithPendingMilestones(ctx context.Context, lookahead, lookback time.Duration) ([]*entity.TicketSale, error) {
+	if lookahead <= 0 {
+		return nil, apperr.New(codes.InvalidArgument, "lookahead must be positive")
+	}
+	if lookback < 0 {
+		return nil, apperr.New(codes.InvalidArgument, "lookback must not be negative")
+	}
+	sales, err := listTicketSales(ctx, r.db.Pool, time.Now(), ticketSaleListWithPendingMilestonesQuery,
+		lookahead.Seconds(), lookback.Seconds())
+	if err != nil {
+		return nil, toAppErr(err, "failed to list ticket sales with pending milestones",
+			slog.Float64("lookahead_secs", lookahead.Seconds()),
+			slog.Float64("lookback_secs", lookback.Seconds()),
+		)
 	}
 	return sales, nil
 }
@@ -371,17 +500,35 @@ func listTicketSales(ctx context.Context, q rowQuerier, at time.Time, query stri
 // ticket types.
 func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	var (
-		s        entity.TicketSale
-		id       string
-		method   int16
-		verifReq int16
-		drawAt   sql.NullTime
+		s            entity.TicketSale
+		id           string
+		name         sql.NullString
+		method       int16
+		saleEndAt    sql.NullTime
+		verifReq     int16
+		drawAt       sql.NullTime
+		resultAt     sql.NullTime
+		discoveredAt sql.NullTime
 	)
 	if err := row.Scan(
-		&id, &s.SeriesID, &s.Name, &method, &s.SaleStartTime, &s.SaleEndTime,
-		&verifReq, &drawAt,
+		&id, &s.SeriesID, &name, &method, &s.SaleStartTime, &saleEndAt,
+		&verifReq, &drawAt, &resultAt, &discoveredAt,
 	); err != nil {
 		return nil, err
+	}
+	if name.Valid {
+		s.Name = name.String
+	}
+	if saleEndAt.Valid {
+		s.SaleEndTime = saleEndAt.Time
+	}
+	if resultAt.Valid {
+		resultTime := resultAt.Time
+		s.LotteryResultTime = &resultTime
+	}
+	if discoveredAt.Valid {
+		discoveredTime := discoveredAt.Time
+		s.DiscoveredTime = &discoveredTime
 	}
 	s.ID = entity.TicketSaleID(id)
 	s.Method = entity.TicketSaleMethod(method)
@@ -409,4 +556,13 @@ func scanTicketType(row pgx.Row) (*entity.TicketType, error) {
 	tt.ID = entity.TicketTypeID(id)
 	tt.TicketSaleID = entity.TicketSaleID(saleID)
 	return &tt, nil
+}
+
+// nullableTime returns a *time.Time (nil for the zero time) so pgx maps an
+// unknown time to SQL NULL.
+func nullableTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }

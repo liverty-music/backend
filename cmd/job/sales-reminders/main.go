@@ -1,10 +1,10 @@
 // Package main provides the sales-reminders CronJob entry point.
 //
-// The job runs approximately every 15 minutes. Each run scans sales phases
-// for milestones (application open, 24h/1h before close, lottery-result day)
-// that became due since the last scan, applies quiet-hours logic, checks the
-// sent-log, and publishes SALES_PHASE.reminder.due events for each eligible
-// (user, phase, stage) triple.
+// The job runs approximately every 15 minutes. Each run scans the ticket
+// sales, discovered and the Organizer's, for milestones (application open,
+// 24h before close, lottery-result day) that became due since the last scan,
+// applies quiet-hours logic, checks the sent-log, and publishes
+// SALES_PHASE.reminder_due events for each eligible (user, sale, stage).
 package main
 
 import (

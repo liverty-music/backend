@@ -128,6 +128,10 @@ func firstComeInput() usecase.CreateTicketSaleInput {
 	}
 }
 
+// TicketSaleUseCase has no EventPublisher, so creating an Organizer's sale
+// never requests an announcement: only discovery does.
+//
+// @spec components/usecase/ticket-sale/announce-discovered-sale "Organizer's sale created"
 func TestTicketSaleUseCase_Create(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

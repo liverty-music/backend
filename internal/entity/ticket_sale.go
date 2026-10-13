@@ -71,34 +71,52 @@ const (
 	LotteryMaxWindow = 14 * 24 * time.Hour
 )
 
-// TicketSale (受付) is one sale opportunity of a Series: its name, method,
-// window, verification requirement and, for a Lottery, when it was drawn. What
-// it offers for each event is a [TicketType]; a sale has at most one
-// TicketType per event.
+// TicketSale (受付) is one sale opportunity of a Series: its method, window
+// and, for a Lottery, when its result is known. It is of one of two kinds,
+// told apart by the Series' Organizer and mirrored on the sale by
+// DiscoveredTime:
 //
-// Mirrors liverty_music.entity.v1.TicketSale.
+//   - An Organizer's sale (Series with an Organizer, DiscoveredTime nil) is
+//     sold on the platform. It has a name and a verification requirement, is
+//     drawn when it is a Lottery, and offers a [TicketType] for each event it
+//     sells, at most one per event.
+//   - A discovered sale (Series without an Organizer, DiscoveredTime set) was
+//     found on the artist's official pages and is only reported to fans. It
+//     has no name and no TicketType, and may have a lottery result time.
+//
+// Mirrors liverty_music.entity.v1.TicketSale, which carries an Organizer's
+// sale only.
 type TicketSale struct {
 	// ID is the surrogate primary key (UUIDv7).
 	ID TicketSaleID
 	// SeriesID is the Series whose events the sale covers.
 	SeriesID string
-	// Name tells the sale apart from the event's other sales (e.g.
-	// "ファンクラブ先行"), 1 to 100 characters.
+	// Name tells an Organizer's sale apart from the event's other sales (e.g.
+	// "ファンクラブ先行"), 1 to 100 characters. Empty on a discovered sale.
 	Name string
 	// Method is how tickets are allocated (FirstCome or Lottery).
 	Method TicketSaleMethod
 	// SaleStartTime is when the window opens.
 	SaleStartTime time.Time
-	// SaleEndTime is when the window closes: after SaleStartTime, and before
-	// the start of every event the sale covers (checked by the usecase, which
-	// reads the events).
+	// SaleEndTime is when the window closes: after SaleStartTime, and on an
+	// Organizer's sale before the start of every event the sale covers
+	// (checked by the usecase, which reads the events). Zero only on a
+	// discovered FirstCome sale that ends when tickets run out.
 	SaleEndTime time.Time
-	// VerificationRequirement says whether a fan must hold an Active IdentityVerification.
+	// VerificationRequirement says whether a fan must hold an Active
+	// IdentityVerification. Always None on a discovered sale.
 	VerificationRequirement VerificationRequirement
 	// DrawTime is when a Lottery sale was drawn; nil until drawn and always
-	// nil for a FirstCome sale.
+	// nil for a FirstCome sale and a discovered sale.
 	DrawTime *time.Time
-	// TicketTypes are what the sale offers, one per event.
+	// LotteryResultTime is when the result of a discovered Lottery sale is
+	// announced (当落発表); nil when not announced and on every other sale.
+	LotteryResultTime *time.Time
+	// DiscoveredTime is when discovery first stored a discovered sale; nil on
+	// an Organizer's sale. It never changes once set.
+	DiscoveredTime *time.Time
+	// TicketTypes are what an Organizer's sale offers, one per event. A
+	// discovered sale has none.
 	TicketTypes []*TicketType
 }
 
@@ -116,19 +134,38 @@ func NewTicketSale(seriesID, name string, method TicketSaleMethod, saleStart, sa
 	}
 }
 
-// Validate reports whether the sale follows the TicketSale rules — its name,
-// method and window — and whether each of its ticket types follows the
-// TicketType rules, with at most one ticket type per event. The entity layer
-// returns stdlib errors; callers wrap them with an apperr code.
+// IsDiscovered reports whether the sale is a discovered sale rather than an
+// Organizer's sale.
+func (s *TicketSale) IsDiscovered() bool {
+	return s.DiscoveredTime != nil
+}
+
+// Validate reports whether the sale follows the TicketSale rules for its kind
+// — name, method, window, required times, result time, verification and
+// TicketTypes — and whether each of its ticket types follows the TicketType
+// rules, with at most one ticket type per event. The entity layer returns
+// stdlib errors; callers wrap them with an apperr code.
 func (s *TicketSale) Validate() error {
-	if n := utf8.RuneCountInString(s.Name); n < 1 || n > TicketSaleNameMaxLen {
-		return errors.New("sale name must be 1 to 100 characters")
-	}
 	if !s.Method.IsValid() {
 		return errors.New("sale method must be FirstCome or Lottery")
 	}
+	if s.SaleStartTime.IsZero() {
+		return errors.New("sale start time is required")
+	}
 	if err := s.ValidateWindow(s.SaleStartTime, s.SaleEndTime); err != nil {
 		return err
+	}
+	if s.IsDiscovered() {
+		return s.validateDiscovered()
+	}
+	if n := utf8.RuneCountInString(s.Name); n < 1 || n > TicketSaleNameMaxLen {
+		return errors.New("sale name must be 1 to 100 characters")
+	}
+	if s.LotteryResultTime != nil {
+		return errors.New("an Organizer's sale has no lottery result time")
+	}
+	if len(s.TicketTypes) == 0 {
+		return errors.New("an Organizer's sale offers at least one ticket type")
 	}
 	events := make(map[string]struct{}, len(s.TicketTypes))
 	for _, tt := range s.TicketTypes {
@@ -143,20 +180,86 @@ func (s *TicketSale) Validate() error {
 	return nil
 }
 
+// validateDiscovered checks the rules only a discovered sale has: no name,
+// no TicketType, the verification requirement None, never drawn, and a
+// lottery result time only on a Lottery, not before its end.
+func (s *TicketSale) validateDiscovered() error {
+	if s.Name != "" {
+		return errors.New("a discovered sale has no name")
+	}
+	if len(s.TicketTypes) > 0 {
+		return errors.New("a discovered sale offers no ticket type")
+	}
+	if s.VerificationRequirement != VerificationRequirementNone {
+		return errors.New("a discovered sale has no verification requirement")
+	}
+	if s.DrawTime != nil {
+		return errors.New("a discovered sale is never drawn")
+	}
+	if s.LotteryResultTime != nil {
+		if s.Method != TicketSaleMethodLottery {
+			return errors.New("only a lottery may have a lottery result time")
+		}
+		if s.LotteryResultTime.Before(s.SaleEndTime) {
+			return errors.New("lottery result time must not be before the sale end")
+		}
+	}
+	return nil
+}
+
 // ValidateWindow reports whether start and end form a valid window for the
-// sale's method: the end is after the start, and a Lottery window lasts 1 to
-// 14 days. It does not read the sale's stored window, so a usecase can check a
-// new window before storing it.
+// sale's method and kind: the end, when there is one, is after the start; a
+// Lottery and an Organizer's sale have an end; and an Organizer's Lottery
+// window lasts 1 to 14 days. A zero end means none. It does not read the
+// sale's stored window, so a usecase can check a new window before storing
+// it.
 func (s *TicketSale) ValidateWindow(start, end time.Time) error {
+	if end.IsZero() {
+		if s.Method == TicketSaleMethodLottery {
+			return errors.New("a lottery sale needs an end time")
+		}
+		if !s.IsDiscovered() {
+			return errors.New("an Organizer's sale needs an end time")
+		}
+		return nil
+	}
 	if !end.After(start) {
 		return errors.New("sale end must be after the sale start")
 	}
-	if s.Method == TicketSaleMethodLottery {
+	if s.Method == TicketSaleMethodLottery && !s.IsDiscovered() {
 		if d := end.Sub(start); d < LotteryMinWindow || d > LotteryMaxWindow {
 			return errors.New("a lottery window must last 1 to 14 days")
 		}
 	}
 	return nil
+}
+
+// ResultTime returns when a Lottery sale's result is known: its lottery
+// result time when it has one, and an Organizer's Lottery sale's end time,
+// because its draw runs within a minute after it. ok is false for a FirstCome
+// sale and for a discovered Lottery sale without a lottery result time.
+func (s *TicketSale) ResultTime() (t time.Time, ok bool) {
+	if s.Method != TicketSaleMethodLottery {
+		return time.Time{}, false
+	}
+	if s.LotteryResultTime != nil {
+		return *s.LotteryResultTime, true
+	}
+	if !s.IsDiscovered() && !s.SaleEndTime.IsZero() {
+		return s.SaleEndTime, true
+	}
+	return time.Time{}, false
+}
+
+// IsNotYetOverAt reports whether the sale is not yet over at t: t is before
+// its end time. A sale without an end time is not yet over only before its
+// start time, because nothing tells when its tickets run out.
+func (s *TicketSale) IsNotYetOverAt(t time.Time) bool {
+	end := s.SaleEndTime
+	if end.IsZero() {
+		end = s.SaleStartTime
+	}
+	return t.Before(end)
 }
 
 // IsOpenAt reports whether the window is open at t: at or after the start
@@ -227,14 +330,59 @@ type TicketSaleRepository interface {
 	//  - Internal: database failure.
 	ListByEvent(ctx context.Context, eventID string, at time.Time) ([]*TicketSale, error)
 
-	// ListDueForDraw returns every Lottery sale whose end time is at or before
-	// now and that is not drawn, each with all of its TicketTypes. It returns
-	// an empty slice when none is due.
+	// ListDueForDraw returns every Organizer's Lottery sale whose end time is
+	// at or before now and that is not drawn, each with all of its
+	// TicketTypes. A discovered sale is never returned: the platform takes no
+	// entries for it. It returns an empty slice when none is due.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
 	ListDueForDraw(ctx context.Context, now time.Time) ([]*TicketSale, error)
+
+	// UpsertDiscovered stores a discovered sale. The known discovered sale with
+	// the same series and method and a start time on the same calendar day in
+	// Japan time (Asia/Tokyo) is the same sale: its start, end and lottery
+	// result times are replaced with the discovered ones (an absent value
+	// clears the stored one), its id, series, method and discovered time are
+	// kept, and UpsertOutcomeUpdated is returned with its id. Otherwise a new
+	// discovered sale with a new id and the current time as discovered time is
+	// created, and UpsertOutcomeInserted is returned with the new id.
+	//
+	// A discovered sale with a zero start time is skipped: ("",
+	// UpsertOutcomeSkipped, nil), nothing written. It never removes a sale.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the sale names no series or breaks the TicketSale
+	//    rules for a discovered sale.
+	//  - FailedPrecondition: the series does not exist or has an Organizer.
+	//  - Internal: database failure.
+	UpsertDiscovered(ctx context.Context, sale *DiscoveredTicketSale) (TicketSaleID, UpsertOutcome, error)
+
+	// ListBySeries returns every sale of the series, of either kind, each with
+	// all of its TicketTypes, ordered by start time, earliest first. A series
+	// with no sale, or one that does not exist, returns an empty slice.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: seriesID is empty.
+	//  - Internal: database failure.
+	ListBySeries(ctx context.Context, seriesID string) ([]*TicketSale, error)
+
+	// ListWithPendingMilestones returns every sale, discovered or an
+	// Organizer's, whose start time is no later than now plus lookahead and
+	// whose latest known milestone among start, end and result time (see
+	// [TicketSale.ResultTime]) is no earlier than now minus lookback, ordered
+	// by start time, each with all of its TicketTypes. An Organizer's sale is
+	// returned only while its Series is Published (at least one of its events
+	// is PUBLISHED).
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: lookahead is not positive or lookback is negative.
+	//  - Internal: database failure.
+	ListWithPendingMilestones(ctx context.Context, lookahead, lookback time.Duration) ([]*TicketSale, error)
 
 	// SetWindow stores saleStart and saleEnd as the sale's window, leaves its
 	// other attributes and its TicketTypes unchanged, and returns the updated

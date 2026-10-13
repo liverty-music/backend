@@ -19,7 +19,7 @@ import (
 // Producers never call Deliver directly: they publish NOTIFICATION.requested
 // (via EventPublisher.PublishEventWithID) and the deliver-notification event
 // consumer calls Deliver, so no usecase depends on NotificationUseCase's
-// interface. SalesReminderDeliveryUseCase.DeliverReminder is the one exception —
+// interface. TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception —
 // it stays synchronous and composes the same delivery ports directly (see
 // notification_delivery.go) rather than going through NotificationUseCase.
 type NotificationUseCase interface {

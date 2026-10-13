@@ -123,8 +123,8 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		otherEventID := uuid.NewV7().String()
 		exec(t, `INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2026-08-02')`,
 			otherEventID, seriesID, venueID)
-		phaseID := uuid.NewV7().String()
-		exec(t, `INSERT INTO sales_phases (id, series_id, method, apply_start_at, apply_end_at) VALUES ($1, $2, 1, now(), now() + interval '1 day')`, phaseID, seriesID)
+		discoveredID := uuid.NewV7().String()
+		exec(t, `INSERT INTO ticket_sales (id, series_id, method, sale_start_at, sale_end_at, discovered_at) VALUES ($1, $2, 2, now(), now() + interval '1 day', now())`, discoveredID, seriesID)
 		// A sale only for the deleted event, with a lottery entry, and a sale
 		// that also offers the other event.
 		onlyType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 10, 4)
@@ -139,7 +139,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		require.NoError(t, repo.DeleteAndSuppress(ctx, eventID))
 
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM series WHERE id = $1`, seriesID), "series")
-		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM sales_phases WHERE id = $1`, phaseID), "sales phase")
+		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM ticket_sales WHERE id = $1`, discoveredID), "the series' discovered sale")
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM events WHERE id = $1`, otherEventID), "other event")
 		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM ticket_types WHERE event_id = $1`, eventID), "the event's ticket types")
 		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM lottery_entries WHERE id = $1`, entryID), "their lottery entries")

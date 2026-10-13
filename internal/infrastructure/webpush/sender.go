@@ -20,7 +20,7 @@ import (
 // service only delivers if the user agent is connected at that instant and
 // silently drops the message otherwise — yet still returns 201, so the failure
 // is invisible. 24h lets the push service store-and-forward across an offline
-// device (e.g. overnight) so a sales-phase announcement is not missed.
+// device (e.g. overnight) so a ticket sale announcement is not missed.
 const pushTTLSeconds = 24 * 60 * 60
 
 // Sender implements entity.PushNotificationSender using the webpush-go library.

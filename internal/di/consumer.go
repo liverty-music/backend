@@ -90,7 +90,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
-	salesReminderRepo := rdb.NewSalesPhaseReminderRepository(db)
+	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	userRepo := rdb.NewUserRepository(db)
 
 	// Infrastructure - Messaging
@@ -245,20 +245,20 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		analyticsClient = ac
 	}
 
-	// Sales-phase use cases for the two new consumers. AnnounceDiscoveredPhase
+	// Ticket sale use cases for the two SALES_PHASE consumers. AnnounceDiscoveredSale
 	// requests delivery per recipient via NOTIFICATION.requested (handled by
 	// deliverNotificationConsumer below) so it depends on EventPublisher, not
 	// NotificationUseCase. DeliverReminder stays synchronous and composes the
 	// same delivery ports directly (see notification_delivery.go), so every
 	// reminder still gets a durable record without an event hop.
-	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
+	ticketSaleAnnouncementUC := usecase.NewTicketSaleAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
 		seriesRepo,
 		eventPublisher,
 		logger,
 	)
-	salesReminderDeliveryUC := usecase.NewSalesReminderDeliveryUseCase(
+	salesReminderDeliveryUC := usecase.NewTicketSaleReminderDeliveryUseCase(
 		salesReminderRepo,
 		notificationRepo,
 		pushSubRepo,
@@ -277,8 +277,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
-	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(salesPhaseAnnouncementUC, logger)
-	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
+	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
+	salesReminderConsumer := event.NewTicketSaleReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
@@ -306,8 +306,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"analytics-organizer-created", entity.SubjectOrganizerCreated, analyticsConsumer.HandleOrganizerCreated},
 		{"analytics-organizer-artist-associated", entity.SubjectOrganizerArtistAssociated, analyticsConsumer.HandleOrganizerArtistAssociated},
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
-		{"notify-sales-phase", entity.SubjectSalesPhaseDiscovered, salesPhaseAnnouncementConsumer.Handle},
-		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},
+		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
+		{"notify-sales-reminder", entity.SubjectTicketSaleReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
 		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
