@@ -60,8 +60,8 @@ type SeriesUseCase interface {
 	// Update edits a concert: everything while every event is DRAFT, and
 	// corrections once it has PUBLISHED or CANCELLED events. An input with an
 	// EventID edits that event; one without adds a DRAFT event; a DRAFT event
-	// left out is removed. The venue given for a PUBLISHED or CANCELLED event
-	// is not read: the event keeps its Venue. Nothing is announced.
+	// left out is removed. A PUBLISHED or CANCELLED event needs no place id,
+	// but its venue must stay the same. Nothing is announced.
 	//
 	// # Possible errors
 	//
@@ -71,8 +71,8 @@ type SeriesUseCase interface {
 	//    PUBLISHED or CANCELLED event needs no place id, and its date is not
 	//    checked against the current day.
 	//  - FailedPrecondition: A PUBLISHED or CANCELLED event is left out; an
-	//    EventID is not an event of the series; a PUBLISHED event's date
-	//    differs; a CANCELLED event differs in any value other than its venue; the type,
+	//    EventID is not an event of the series; a PUBLISHED event's venue or
+	//    date differs; a CANCELLED event differs in any value; the type,
 	//    source page or visibility of a series with a PUBLISHED or CANCELLED
 	//    event differs; a PUBLISHED event's start time changes while a
 	//    TicketSale offers it; or its new slot is blocked. Nothing changes.
@@ -447,14 +447,19 @@ func (uc *seriesUseCase) Update(
 
 // correctedEvent returns the PUBLISHED or CANCELLED event as the input
 // corrects it, or FailedPrecondition when the input changes what publish
-// fixed. The venue given for it is not read: the event keeps its Venue and
-// listed venue name, so a date published before venues were picked from the
-// map catalog (no place id) can still be corrected.
+// fixed. The venue counts as unchanged when the entered venue name equals the
+// event's listed venue name and the place id, when given and when the Venue
+// has one, equals the Venue's; a date published before venues were picked
+// (no place id) is therefore corrected without one. The venue is never
+// resolved, so a refused save creates no Venue.
 func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Event, inp *DraftEventInput) (*entity.Event, error) {
 	next := *current
 	next.LocalDate = inp.LocalDate
 	next.StartTime = inp.StartTime
 	next.OpenTime = inp.OpenTime
+	if !sameVenue(current, inp) {
+		next.VenueID = ""
+	}
 
 	onSale := false
 	if current.HasPublishState(entity.PublishStatePublished) && !sameInstant(current.StartTime, inp.StartTime) {
@@ -468,6 +473,17 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 		return nil, err
 	}
 	return &next, nil
+}
+
+// sameVenue reports whether the input names the event's stored venue.
+func sameVenue(current *entity.Event, inp *DraftEventInput) bool {
+	if current.ListedVenueName == nil || strings.TrimSpace(*current.ListedVenueName) != strings.TrimSpace(inp.VenueName) {
+		return false
+	}
+	if inp.PlaceID == nil || current.Venue == nil || current.Venue.GooglePlaceID == nil {
+		return true
+	}
+	return *inp.PlaceID == *current.Venue.GooglePlaceID
 }
 
 // sameInstant reports whether two optional instants are equal, where two

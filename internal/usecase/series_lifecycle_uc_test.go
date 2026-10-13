@@ -254,6 +254,18 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		setup func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput)
 	}{
 		{
+			// @spec components/usecase/series/update "Published venue changed"
+			name: "a PUBLISHED event given at another venue",
+			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
+				s := lifecycleSeries(entity.SeriesVisibilityPublic)
+				pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
+				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
+				inp := inputFor(pub)
+				inp.VenueName, inp.PlaceID = "Budokan", new("ChIJ-budokan")
+				return editOf(s), []*usecase.DraftEventInput{inp}
+			},
+		},
+		{
 			// @spec components/usecase/series/update "Published date moved"
 			name: "a PUBLISHED event given with another date",
 			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
@@ -331,24 +343,6 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 		return given
 	}
-
-	t.Run("keep the Venue of a PUBLISHED event given at another venue", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/series/update "Published venue changed"
-		d := newAuthoringDeps(t)
-		representsArtists(d, authoringArtistID)
-		pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
-		inp := inputFor(pub)
-		inp.VenueName, inp.PlaceID = "Budokan", new("ChIJ-budokan")
-
-		given := updated(t, d, lifecycleSeries(entity.SeriesVisibilityPublic), []*entity.Event{pub}, []*usecase.DraftEventInput{inp})
-
-		require.Len(t, given, 1)
-		assert.Equal(t, lifecycleVenueID, given[0].VenueID)
-		assert.Equal(t, lifecycleVenue, *given[0].ListedVenueName)
-		d.venueRepo.AssertNotCalled(t, "GetByPlaceID", mock.Anything, mock.Anything)
-		d.venueRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
-	})
 
 	t.Run("correct a PUBLISHED event whose Venue has no place id", func(t *testing.T) {
 		t.Parallel()
