@@ -36,7 +36,7 @@ func newTicketTypeFixture(t *testing.T, now time.Time) *ticketTypeFixture {
 // owns makes series-1 the given Organizer's.
 func (f *ticketTypeFixture) owns(organizerID string) {
 	f.series.EXPECT().GetAuthored(mock.Anything, "series-1").
-		Return(&entity.Series{ID: "series-1", OrganizerID: &organizerID}, nil, nil, nil).Maybe()
+		Return(&entity.Series{ID: "series-1", OrganizerID: &organizerID}, nil, nil).Maybe()
 }
 
 // reads makes TicketType.Get return the sale's first TicketType.

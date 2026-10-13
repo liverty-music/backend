@@ -180,7 +180,7 @@ func errNotOwnSeries() error {
 // events, failing with PermissionDenied when the Series does not exist or is
 // not the Organizer's.
 func authoredEvents(ctx context.Context, seriesRepo entity.SeriesRepository, organizerID, seriesID string) ([]*entity.Event, error) {
-	series, events, _, err := seriesRepo.GetAuthored(ctx, seriesID)
+	series, concerts, err := seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return nil, errNotOwnSeries()
@@ -190,7 +190,7 @@ func authoredEvents(ctx context.Context, seriesRepo entity.SeriesRepository, org
 	if series.OrganizerID == nil || *series.OrganizerID != organizerID {
 		return nil, errNotOwnSeries()
 	}
-	return events, nil
+	return entity.EventsOf(concerts), nil
 }
 
 // eventIDsOf returns the events the sale's TicketTypes admit to, in order.

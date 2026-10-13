@@ -35,6 +35,32 @@ func (c *Concert) IsVisibleToFans() bool {
 	return c.IsPubliclyVisible(c.Series)
 }
 
+// EventsOf returns the Event of each concert, in order.
+func EventsOf(concerts []*Concert) []*Event {
+	events := make([]*Event, len(concerts))
+	for i, c := range concerts {
+		events[i] = &c.Event
+	}
+	return events
+}
+
+// Performers returns every artist performing at any of the concerts, once
+// each, in the order the concerts first name them.
+func Performers(concerts []*Concert) []*Artist {
+	var artists []*Artist
+	seen := make(map[string]bool)
+	for _, c := range concerts {
+		for _, a := range c.Artists {
+			if a == nil || seen[a.ID] {
+				continue
+			}
+			seen[a.ID] = true
+			artists = append(artists, a)
+		}
+	}
+	return artists
+}
+
 // ArtistIDs returns the IDs of all artists performing at this concert.
 // Convenient for callers that only need identifiers (e.g. mock comparisons,
 // repository writes, or hype checks against followed_artists).

@@ -55,7 +55,7 @@ type SeriesUseCase interface {
 	//  - PermissionDenied: A performer is not among the caller's represented
 	//    artists. Non-revealing.
 	//  - Unavailable: The map catalog cannot be reached for a new place.
-	Create(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
+	Create(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Concert, error)
 
 	// Update edits a concert: everything while every event is DRAFT, and
 	// corrections once it has PUBLISHED or CANCELLED events. An input with an
@@ -74,7 +74,7 @@ type SeriesUseCase interface {
 	//    source page or visibility of a series with a PUBLISHED or CANCELLED
 	//    event differs; a PUBLISHED event's start time changes while a
 	//    TicketSale offers it; or its new slot is blocked. Nothing changes.
-	Update(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
+	Update(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Concert, error)
 
 	// Publish publishes the named DRAFT events of a series, or every DRAFT
 	// event when none is named. For a PUBLIC series it announces the newly
@@ -89,7 +89,7 @@ type SeriesUseCase interface {
 	//    event to publish has no venue or date, a named event is not DRAFT,
 	//    no event is named and none is DRAFT, or a slot is suppressed, held by
 	//    another organizer or held by a CANCELLED event.
-	Publish(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
+	Publish(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) (*entity.Series, []*entity.Concert, error)
 
 	// Cancel cancels the named events of a series, or every PUBLISHED and
 	// DRAFT event when none is named: a PUBLISHED event becomes CANCELLED, a
@@ -115,12 +115,13 @@ type SeriesUseCase interface {
 	RegenerateShareURL(ctx context.Context, callerOrgID, seriesID string) (string, error)
 
 	// List returns all first-party series owned by the caller's organizer,
-	// ordered newest first. Each returned series carries its events and artists.
+	// ordered newest first, and the Concerts of every one of them (one per
+	// event, each with its own performers), series by series.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: The organizerID is empty.
-	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
+	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*entity.Concert, error)
 
 	// SetCoverImage verifies that the caller owns the target series, inserts the
 	// series image row idempotently, and publishes SERIES_IMAGE.uploaded{series_image_id, series_id}.
@@ -285,23 +286,23 @@ func (uc *seriesUseCase) Create(
 	draft *entity.Series,
 	eventInputs []*DraftEventInput,
 	performerArtistIDs []string,
-) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+) (*entity.Series, []*entity.Concert, error) {
 	if draft.Title == "" {
-		return nil, nil, nil, apperr.New(codes.InvalidArgument, "title is required")
+		return nil, nil, apperr.New(codes.InvalidArgument, "title is required")
 	}
 	if len(eventInputs) == 0 {
-		return nil, nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
+		return nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
 	}
 
 	// Performer ownership check.
 	if err := uc.checkPerformerOwnership(ctx, callerOrgID, performerArtistIDs); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Validate event timing.
 	for _, inp := range eventInputs {
 		if err := uc.validateEventInput(inp, true); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -315,20 +316,20 @@ func (uc *seriesUseCase) Create(
 	for _, inp := range eventInputs {
 		e, err := uc.newDraftEvent(ctx, draft.ID, entity.NewID(), inp)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		events = append(events, e)
 	}
 
 	if err := uc.seriesRepo.CreateDraft(ctx, draft, events, performerArtistIDs); err != nil {
-		return nil, nil, nil, fmt.Errorf("create draft: %w", err)
+		return nil, nil, fmt.Errorf("create draft: %w", err)
 	}
 
-	series, stored, artists, err := uc.seriesRepo.GetAuthored(ctx, draft.ID)
+	series, concerts, err := uc.seriesRepo.GetAuthored(ctx, draft.ID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get authored after create: %w", err)
+		return nil, nil, fmt.Errorf("get authored after create: %w", err)
 	}
-	return series, stored, artists, nil
+	return series, concerts, nil
 }
 
 // Update edits a concert, published or not (design D9).
@@ -338,29 +339,30 @@ func (uc *seriesUseCase) Update(
 	draft *entity.Series,
 	eventInputs []*DraftEventInput,
 	performerArtistIDs []string,
-) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	existing, storedEvents, _, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
+) (*entity.Series, []*entity.Concert, error) {
+	existing, storedConcerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, nil, nil, apperr.New(codes.PermissionDenied, "permission denied")
+			return nil, nil, apperr.New(codes.PermissionDenied, "permission denied")
 		}
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if err := uc.assertOwnsSeries(existing, callerOrgID); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
+	storedEvents := entity.EventsOf(storedConcerts)
 
 	// Performer ownership check.
 	if err := uc.checkPerformerOwnership(ctx, callerOrgID, performerArtistIDs); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Basic validation.
 	if draft.Title == "" {
-		return nil, nil, nil, apperr.New(codes.InvalidArgument, "title is required")
+		return nil, nil, apperr.New(codes.InvalidArgument, "title is required")
 	}
 	if len(eventInputs) == 0 {
-		return nil, nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
+		return nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
 	}
 	stored := make(map[string]*entity.Event, len(storedEvents))
 	for _, e := range storedEvents {
@@ -371,14 +373,14 @@ func (uc *seriesUseCase) Update(
 		if inp.EventID != nil {
 			current = stored[*inp.EventID]
 			if current == nil {
-				return nil, nil, nil, apperr.New(codes.FailedPrecondition, "a given event is not an event of the series")
+				return nil, nil, apperr.New(codes.FailedPrecondition, "a given event is not an event of the series")
 			}
 		}
 		// The date of a PUBLISHED or CANCELLED event is not checked against
 		// the current day: a past published date can still be corrected.
 		checkDate := current == nil || current.HasPublishState(entity.PublishStateDraft)
 		if err := uc.validateEventInput(inp, checkDate); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -387,7 +389,7 @@ func (uc *seriesUseCase) Update(
 	draft.ID = seriesID
 	draft.OrganizerID = existing.OrganizerID
 	if err := existing.CheckChange(draft, storedEvents); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	given := make(map[string]bool, len(eventInputs))
 	for _, inp := range eventInputs {
@@ -397,7 +399,7 @@ func (uc *seriesUseCase) Update(
 	}
 	for _, e := range storedEvents {
 		if !given[e.ID] && !e.HasPublishState(entity.PublishStateDraft) {
-			return nil, nil, nil, apperr.New(codes.FailedPrecondition,
+			return nil, nil, apperr.New(codes.FailedPrecondition,
 				"every published or cancelled date must be given; a published date is cancelled, not removed")
 		}
 	}
@@ -407,7 +409,7 @@ func (uc *seriesUseCase) Update(
 		if inp.EventID == nil {
 			e, err := uc.newDraftEvent(ctx, seriesID, "", inp)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 			events = append(events, e)
 			continue
@@ -416,27 +418,27 @@ func (uc *seriesUseCase) Update(
 		if current.HasPublishState(entity.PublishStateDraft) {
 			e, err := uc.newDraftEvent(ctx, seriesID, current.ID, inp)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 			events = append(events, e)
 			continue
 		}
 		next, err := uc.correctedEvent(ctx, current, inp)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		events = append(events, next)
 	}
 
 	if err := uc.seriesRepo.Update(ctx, draft, events, performerArtistIDs); err != nil {
-		return nil, nil, nil, fmt.Errorf("update series: %w", err)
+		return nil, nil, fmt.Errorf("update series: %w", err)
 	}
 
-	series, updated, artists, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
+	series, concerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get authored after update: %w", err)
+		return nil, nil, fmt.Errorf("get authored after update: %w", err)
 	}
-	return series, updated, artists, nil
+	return series, concerts, nil
 }
 
 // correctedEvent returns the PUBLISHED or CANCELLED event as the input
@@ -492,27 +494,27 @@ func (uc *seriesUseCase) Publish(
 	ctx context.Context,
 	callerOrgID, seriesID string,
 	eventIDs []string,
-) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	series, events, artists, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
+) (*entity.Series, []*entity.Concert, error) {
+	series, concerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, nil, nil, apperr.New(codes.PermissionDenied, "permission denied")
+			return nil, nil, apperr.New(codes.PermissionDenied, "permission denied")
 		}
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if err := uc.assertOwnsSeries(series, callerOrgID); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	targets, err := eventsToPublish(events, eventIDs)
+	targets, err := eventsToPublish(entity.EventsOf(concerts), eventIDs)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Final server-side gate: re-validate the complete required-field set so an
 	// incomplete draft (missing performer, venue, or date) can never go live.
-	if err := validatePublishReadiness(series, targets, artists); err != nil {
-		return nil, nil, nil, err
+	if err := validatePublishReadiness(series, targets, entity.Performers(concerts)); err != nil {
+		return nil, nil, err
 	}
 
 	targetIDs := make([]string, len(targets))
@@ -521,7 +523,7 @@ func (uc *seriesUseCase) Publish(
 	}
 	newEventIDs, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publish events: %w", err)
+		return nil, nil, fmt.Errorf("publish events: %w", err)
 	}
 
 	// An UNLISTED series gets its share token on the first publish and keeps
@@ -529,16 +531,16 @@ func (uc *seriesUseCase) Publish(
 	if series.Visibility != nil && *series.Visibility == entity.SeriesVisibilityUnlisted && series.UnlistedToken == nil {
 		token, err := generateUnlistedToken()
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("generate unlisted token: %w", err)
+			return nil, nil, fmt.Errorf("generate unlisted token: %w", err)
 		}
 		if err := uc.seriesRepo.SetUnlistedToken(ctx, seriesID, token); err != nil {
-			return nil, nil, nil, fmt.Errorf("set unlisted token: %w", err)
+			return nil, nil, fmt.Errorf("set unlisted token: %w", err)
 		}
 	}
 
-	published, publishedEvents, publishedArtists, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
+	published, publishedConcerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("get authored after publish: %w", err)
+		return nil, nil, fmt.Errorf("get authored after publish: %w", err)
 	}
 
 	// Announce only the events this publish added, once per performing artist
@@ -546,7 +548,7 @@ func (uc *seriesUseCase) Publish(
 	// events published before are not announced; UNLISTED series announce
 	// nothing.
 	if series.IsPublic() && len(newEventIDs) > 0 {
-		for _, artist := range publishedArtists {
+		for _, artist := range entity.Performers(publishedConcerts) {
 			created := entity.ConcertCreatedData{
 				ArtistID:   artist.ID,
 				ConcertIDs: newEventIDs,
@@ -575,7 +577,7 @@ func (uc *seriesUseCase) Publish(
 		// Non-fatal: the events are already published.
 	}
 
-	return published, publishedEvents, publishedArtists, nil
+	return published, publishedConcerts, nil
 }
 
 // eventsToPublish returns the named events, each of which must be DRAFT, or
@@ -610,13 +612,14 @@ func eventsToPublish(events []*entity.Event, eventIDs []string) ([]*entity.Event
 
 // Cancel cancels the named events of a series, or all PUBLISHED and DRAFT ones.
 func (uc *seriesUseCase) Cancel(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) error {
-	series, events, _, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
+	series, concerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return apperr.New(codes.PermissionDenied, "permission denied")
 		}
 		return err
 	}
+	events := entity.EventsOf(concerts)
 	if err := uc.assertOwnsSeries(series, callerOrgID); err != nil {
 		return err
 	}
@@ -684,29 +687,23 @@ func (uc *seriesUseCase) RegenerateShareURL(ctx context.Context, callerOrgID, se
 	return token, nil
 }
 
-// List returns all series authored by the caller's organizer.
-func (uc *seriesUseCase) List(
-	ctx context.Context,
-	callerOrgID string,
-) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error) {
+// List returns all series authored by the caller's organizer with their
+// Concerts.
+func (uc *seriesUseCase) List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*entity.Concert, error) {
 	allSeries, err := uc.seriesRepo.ListByOrganizer(ctx, callerOrgID)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("list by organizer: %w", err)
+		return nil, nil, fmt.Errorf("list by organizer: %w", err)
 	}
 
-	allEvents := make([]*[]*entity.Event, len(allSeries))
-	allArtists := make([]*[]*entity.Artist, len(allSeries))
-	for i, s := range allSeries {
-		_, events, artists, err := uc.seriesRepo.GetAuthored(ctx, s.ID)
+	var concerts []*entity.Concert
+	for _, s := range allSeries {
+		_, ofSeries, err := uc.seriesRepo.GetAuthored(ctx, s.ID)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("get authored for series %s: %w", s.ID, err)
+			return nil, nil, fmt.Errorf("get authored for series %s: %w", s.ID, err)
 		}
-		ev := events
-		ar := artists
-		allEvents[i] = &ev
-		allArtists[i] = &ar
+		concerts = append(concerts, ofSeries...)
 	}
-	return allSeries, allEvents, allArtists, nil
+	return allSeries, concerts, nil
 }
 
 // validateEventInput checks that an event input carries a picked place id and

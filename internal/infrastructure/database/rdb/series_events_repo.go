@@ -397,36 +397,47 @@ func takeNewSlot(ctx context.Context, tx pgx.Tx, e *entity.Event) error {
 	return nil
 }
 
-// GetAuthored retrieves the full authored concert for one series.
-func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+// GetAuthored retrieves the full authored concert for one series: one
+// Concert per event, each with its own performers.
+func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Concert, error) {
 	s, err := scanSeries(r.db.Pool.QueryRow(ctx, getSeriesQuery, seriesID).Scan)
 	if err != nil {
-		return nil, nil, nil, toAppErr(err, "failed to get authored series", slog.String("series_id", seriesID))
+		return nil, nil, toAppErr(err, "failed to get authored series", slog.String("series_id", seriesID))
 	}
 
 	events, err := r.queryAuthoredEvents(ctx, r.db.Pool, seriesID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
+	}
+	concerts := make([]*entity.Concert, len(events))
+	byEvent := make(map[string]*entity.Concert, len(events))
+	for i, e := range events {
+		concerts[i] = &entity.Concert{Event: *e, Series: s}
+		byEvent[e.ID] = concerts[i]
 	}
 
 	perfRows, err := r.db.Pool.Query(ctx, getAuthoredSeriesPerformersQuery, seriesID)
 	if err != nil {
-		return nil, nil, nil, toAppErr(err, "failed to load authored performers", slog.String("series_id", seriesID))
+		return nil, nil, toAppErr(err, "failed to load authored performers", slog.String("series_id", seriesID))
 	}
 	defer perfRows.Close()
 
-	var artists []*entity.Artist
 	for perfRows.Next() {
-		var a entity.Artist
-		if err := perfRows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
-			return nil, nil, nil, toAppErr(err, "failed to scan authored performer")
+		var (
+			eventID string
+			a       entity.Artist
+		)
+		if err := perfRows.Scan(&eventID, &a.ID, &a.Name, &a.MBID); err != nil {
+			return nil, nil, toAppErr(err, "failed to scan authored performer")
 		}
-		artists = append(artists, &a)
+		if c := byEvent[eventID]; c != nil {
+			c.Artists = append(c.Artists, &a)
+		}
 	}
 	if err := perfRows.Err(); err != nil {
-		return nil, nil, nil, toAppErr(err, "performers iteration ended with error")
+		return nil, nil, toAppErr(err, "performers iteration ended with error")
 	}
-	return s, events, artists, nil
+	return s, concerts, nil
 }
 
 // PublishEvents publishes the given DRAFT events of a first-party series in a

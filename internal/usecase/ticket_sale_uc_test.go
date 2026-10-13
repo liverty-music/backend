@@ -71,7 +71,7 @@ func (f *ticketSaleFixture) seriesOwnedBy(organizerID string, eventIDs ...string
 		events = append(events, &entity.Event{ID: id, SeriesID: "series-1"})
 	}
 	f.series.EXPECT().GetAuthored(mock.Anything, "series-1").
-		Return(&entity.Series{ID: "series-1", OrganizerID: &organizerID}, events, nil, nil).Maybe()
+		Return(&entity.Series{ID: "series-1", OrganizerID: &organizerID}, concertsOf(events, nil), nil).Maybe()
 }
 
 // organizer makes org-1 have complete business details, or none.
@@ -147,7 +147,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 	t.Run("unknown series is not revealed", func(t *testing.T) {
 		t.Parallel()
 		f := newTicketSaleFixture(t, now)
-		f.series.EXPECT().GetAuthored(mock.Anything, "series-1").Return(nil, nil, nil, apperr.ErrNotFound)
+		f.series.EXPECT().GetAuthored(mock.Anything, "series-1").Return(nil, nil, apperr.ErrNotFound)
 
 		_, err := f.uc.Create(ctx, "org-1", lotteryInput())
 

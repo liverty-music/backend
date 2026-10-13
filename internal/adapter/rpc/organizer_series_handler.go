@@ -133,12 +133,11 @@ func (h *OrganizerSeriesHandler) Create(
 	}
 
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
+	series, concerts, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.CreateResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
@@ -158,12 +157,11 @@ func (h *OrganizerSeriesHandler) Update(
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
+	series, concerts, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.UpdateResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
@@ -182,12 +180,11 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
-	series, events, artists, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID, eventIDValues(req.Msg.GetEventIds()))
+	series, concerts, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID, eventIDValues(req.Msg.GetEventIds()))
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.PublishResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
@@ -270,24 +267,14 @@ func (h *OrganizerSeriesHandler) List(
 		return nil, err
 	}
 
-	allSeries, allEvents, allArtists, err := h.seriesUC.List(ctx, organizer.ID)
+	allSeries, concerts, err := h.seriesUC.List(ctx, organizer.ID)
 	if err != nil {
 		return nil, err
 	}
 
 	series := make([]*entityv1.Series, 0, len(allSeries))
-	var concerts []*entity.Concert
-	for i, s := range allSeries {
-		var evs []*entity.Event
-		var arts []*entity.Artist
-		if allEvents[i] != nil {
-			evs = *allEvents[i]
-		}
-		if allArtists[i] != nil {
-			arts = *allArtists[i]
-		}
+	for _, s := range allSeries {
 		series = append(series, h.seriesImageURLBuilder.SeriesToProto(s))
-		concerts = append(concerts, mapper.AuthoredConcerts(s, evs, arts)...)
 	}
 
 	return connect.NewResponse(&organizerseriesv1.ListResponse{

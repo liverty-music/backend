@@ -51,6 +51,16 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	return d
 }
 
+// concertsOf builds the Concerts of an authored Series as the authoring
+// usecase returns them: one per event, each performed by the artists.
+func concertsOf(events []*entity.Event, artists []*entity.Artist) []*entity.Concert {
+	concerts := make([]*entity.Concert, len(events))
+	for i, e := range events {
+		concerts[i] = &entity.Concert{Event: *e, Artists: artists}
+	}
+	return concerts
+}
+
 // authoredEvent builds a date of an authored Series as the authoring usecase
 // returns it.
 func authoredEvent(id, seriesID string, day int) *entity.Event {
@@ -75,8 +85,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "Tour"}, {ID: "series-2", Title: "Festival"}},
-				[]*[]*entity.Event{&events, nil},
-				[]*[]*entity.Artist{&artists, nil},
+				concertsOf(events, artists),
 				nil,
 			).
 			Once()
@@ -111,8 +120,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "ARENA TOUR 2026"}},
-				[]*[]*entity.Event{&events},
-				[]*[]*entity.Artist{&artists},
+				concertsOf(events, artists),
 				nil,
 			).
 			Once()
@@ -158,8 +166,7 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		List(mock.Anything, testOrganizerID).
 		Return(
 			[]*entity.Series{{ID: "series-1", Title: "ONE MAN LIVE"}},
-			[]*[]*entity.Event{&events},
-			[]*[]*entity.Artist{nil},
+			concertsOf(events, nil),
 			nil,
 		).
 		Once()
@@ -195,7 +202,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
 		d.seriesUC.EXPECT().
 			Create(mock.Anything, testOrganizerID, mock.Anything, mock.Anything, []string{"artist-1"}).
-			Return(series, events, artists, nil).
+			Return(series, concertsOf(events, artists), nil).
 			Once()
 
 		resp, err := d.handler.Create(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.CreateRequest{
