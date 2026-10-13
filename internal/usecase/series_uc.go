@@ -60,17 +60,19 @@ type SeriesUseCase interface {
 	// Update edits a concert: everything while every event is DRAFT, and
 	// corrections once it has PUBLISHED or CANCELLED events. An input with an
 	// EventID edits that event; one without adds a DRAFT event; a DRAFT event
-	// left out is removed. Nothing is announced.
+	// left out is removed. The venue given for a PUBLISHED or CANCELLED event
+	// is not read: the event keeps its Venue. Nothing is announced.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: The series does not exist or is not owned by the
 	//    caller, or a performer is not represented. Non-revealing.
-	//  - InvalidArgument, Unavailable: As Create, except that the date of a
-	//    PUBLISHED or CANCELLED event is not checked against the current day.
+	//  - InvalidArgument, Unavailable: As Create for new and DRAFT events. A
+	//    PUBLISHED or CANCELLED event needs no place id, and its date is not
+	//    checked against the current day.
 	//  - FailedPrecondition: A PUBLISHED or CANCELLED event is left out; an
-	//    EventID is not an event of the series; a PUBLISHED event's venue or
-	//    date differs; a CANCELLED event differs in any value; the type,
+	//    EventID is not an event of the series; a PUBLISHED event's date
+	//    differs; a CANCELLED event differs in any value other than its venue; the type,
 	//    source page or visibility of a series with a PUBLISHED or CANCELLED
 	//    event differs; a PUBLISHED event's start time changes while a
 	//    TicketSale offers it; or its new slot is blocked. Nothing changes.
@@ -301,7 +303,7 @@ func (uc *seriesUseCase) Create(
 
 	// Validate event timing.
 	for _, inp := range eventInputs {
-		if err := uc.validateEventInput(inp, true); err != nil {
+		if err := uc.validateEventInput(inp, true, true); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -376,10 +378,12 @@ func (uc *seriesUseCase) Update(
 				return nil, nil, apperr.New(codes.FailedPrecondition, "a given event is not an event of the series")
 			}
 		}
-		// The date of a PUBLISHED or CANCELLED event is not checked against
-		// the current day: a past published date can still be corrected.
-		checkDate := current == nil || current.HasPublishState(entity.PublishStateDraft)
-		if err := uc.validateEventInput(inp, checkDate); err != nil {
+		// A new or DRAFT event is checked as Create checks it. A PUBLISHED or
+		// CANCELLED event keeps its Venue, so its place id is not required,
+		// and its date is not checked against the current day: a past
+		// published date can still be corrected.
+		isDraft := current == nil || current.HasPublishState(entity.PublishStateDraft)
+		if err := uc.validateEventInput(inp, isDraft, isDraft); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -443,17 +447,14 @@ func (uc *seriesUseCase) Update(
 
 // correctedEvent returns the PUBLISHED or CANCELLED event as the input
 // corrects it, or FailedPrecondition when the input changes what publish
-// fixed. The venue counts as unchanged when the entered venue name equals the
-// event's listed venue name and the place id, when given, equals the Venue's;
-// it is never resolved, so a refused save creates no Venue.
+// fixed. The venue given for it is not read: the event keeps its Venue and
+// listed venue name, so a date published before venues were picked from the
+// map catalog (no place id) can still be corrected.
 func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Event, inp *DraftEventInput) (*entity.Event, error) {
 	next := *current
 	next.LocalDate = inp.LocalDate
 	next.StartTime = inp.StartTime
 	next.OpenTime = inp.OpenTime
-	if !sameVenue(current, inp) {
-		next.VenueID = ""
-	}
 
 	onSale := false
 	if current.HasPublishState(entity.PublishStatePublished) && !sameInstant(current.StartTime, inp.StartTime) {
@@ -467,17 +468,6 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 		return nil, err
 	}
 	return &next, nil
-}
-
-// sameVenue reports whether the input names the event's stored venue.
-func sameVenue(current *entity.Event, inp *DraftEventInput) bool {
-	if current.ListedVenueName == nil || strings.TrimSpace(*current.ListedVenueName) != strings.TrimSpace(inp.VenueName) {
-		return false
-	}
-	if inp.PlaceID == nil || current.Venue == nil || current.Venue.GooglePlaceID == nil {
-		return true
-	}
-	return *inp.PlaceID == *current.Venue.GooglePlaceID
 }
 
 // sameInstant reports whether two optional instants are equal, where two
@@ -706,13 +696,13 @@ func (uc *seriesUseCase) List(ctx context.Context, callerOrgID string) ([]*entit
 	return allSeries, concerts, nil
 }
 
-// validateEventInput checks that an event input carries a picked place id and
-// a date, that open_time <= start_time when both are set, and, when checkDate
-// is set (new and DRAFT events), that the date is not in the past relative to
-// the current UTC day. It runs before any venue is read or created, so a
-// rejected save stores nothing.
-func (uc *seriesUseCase) validateEventInput(inp *DraftEventInput, checkDate bool) error {
-	if inp.PlaceID == nil || strings.TrimSpace(*inp.PlaceID) == "" {
+// validateEventInput checks that an event input carries a date, that
+// open_time <= start_time when both are set, and, for new and DRAFT events
+// (requirePlace, checkDate), that it carries a picked place id and its date is
+// not in the past relative to the current UTC day. It runs before any venue is
+// read or created, so a rejected save stores nothing.
+func (uc *seriesUseCase) validateEventInput(inp *DraftEventInput, requirePlace, checkDate bool) error {
+	if requirePlace && (inp.PlaceID == nil || strings.TrimSpace(*inp.PlaceID) == "") {
 		return apperr.New(codes.InvalidArgument, "each event must give the place id of a venue picked from the map catalog")
 	}
 	if inp.LocalDate.IsZero() {

@@ -254,14 +254,14 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		setup func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput)
 	}{
 		{
-			// @spec components/usecase/series/update "Published venue changed"
-			name: "a PUBLISHED event given at another venue",
+			// @spec components/usecase/series/update "Published date moved"
+			name: "a PUBLISHED event given with another date",
 			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
 				s := lifecycleSeries(entity.SeriesVisibilityPublic)
 				pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
 				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
 				inp := inputFor(pub)
-				inp.VenueName, inp.PlaceID = "Budokan", new("ChIJ-budokan")
+				inp.LocalDate = date.AddDate(0, 0, 7)
 				return editOf(s), []*usecase.DraftEventInput{inp}
 			},
 		},
@@ -331,6 +331,70 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 		return given
 	}
+
+	t.Run("keep the Venue of a PUBLISHED event given at another venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/update "Published venue changed"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
+		inp := inputFor(pub)
+		inp.VenueName, inp.PlaceID = "Budokan", new("ChIJ-budokan")
+
+		given := updated(t, d, lifecycleSeries(entity.SeriesVisibilityPublic), []*entity.Event{pub}, []*usecase.DraftEventInput{inp})
+
+		require.Len(t, given, 1)
+		assert.Equal(t, lifecycleVenueID, given[0].VenueID)
+		assert.Equal(t, lifecycleVenue, *given[0].ListedVenueName)
+		d.venueRepo.AssertNotCalled(t, "GetByPlaceID", mock.Anything, mock.Anything)
+		d.venueRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	})
+
+	t.Run("correct a PUBLISHED event whose Venue has no place id", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/update "Published date without a place id"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
+		pub.Venue = &entity.Venue{ID: lifecycleVenueID, Name: "Zepp Haneda (TOKYO)"}
+		inp := inputFor(pub)
+		inp.PlaceID = nil
+		edit := lifecycleSeries(entity.SeriesVisibilityPublic)
+		s := lifecycleSeries(entity.SeriesVisibilityPublic)
+		edit.Title = "XX Tour 2026 (追加公演あり)"
+
+		var given []*entity.Event
+		var series *entity.Series
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Twice()
+		d.seriesRepo.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
+			Run(func(_ context.Context, sr *entity.Series, events []*entity.Event, _ []string) {
+				series, given = sr, events
+			}).
+			Return(nil).Once()
+
+		_, _, err := d.uc.Update(ctx, authoringOrgID, lifecycleSeriesID, editOf(edit), []*usecase.DraftEventInput{inp}, []string{authoringArtistID})
+
+		require.NoError(t, err)
+		assert.Equal(t, "XX Tour 2026 (追加公演あり)", series.Title)
+		require.Len(t, given, 1)
+		assert.Equal(t, lifecycleVenueID, given[0].VenueID)
+	})
+
+	t.Run("refuse a new date without a place id", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/update "New date without a place id"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		s := lifecycleSeries(entity.SeriesVisibilityPublic)
+		pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
+		added := &usecase.DraftEventInput{VenueName: "Zepp Osaka Bayside", LocalDate: futureDate()}
+
+		_, _, err := d.uc.Update(ctx, authoringOrgID, lifecycleSeriesID, editOf(s), []*usecase.DraftEventInput{inputFor(pub), added}, []string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		d.seriesRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
 
 	t.Run("set the start time of a PUBLISHED event no TicketSale offers", func(t *testing.T) {
 		t.Parallel()
