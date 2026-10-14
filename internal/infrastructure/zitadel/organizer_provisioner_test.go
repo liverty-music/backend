@@ -9,6 +9,7 @@ import (
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
+	policypb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
 	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"google.golang.org/grpc"
@@ -143,8 +144,10 @@ type stubUserV2 struct {
 	addHumanUserResp *userv2pb.AddHumanUserResponse
 	addHumanUserErr  error
 
-	// addHumanUserCalls counts AddHumanUser calls.
+	// addHumanUserCalls counts AddHumanUser calls; addHumanUserReq captures
+	// the last request.
 	addHumanUserCalls int
+	addHumanUserReq   *userv2pb.AddHumanUserRequest
 
 	// listUsersResp/listUsersErr controls ListUsers (v2); listUsersReqs
 	// records every request.
@@ -158,8 +161,9 @@ type stubUserV2 struct {
 	createInviteReq *userv2pb.CreateInviteCodeRequest
 }
 
-func (s *stubUserV2) AddHumanUser(_ context.Context, _ *userv2pb.AddHumanUserRequest, _ ...grpc.CallOption) (*userv2pb.AddHumanUserResponse, error) {
+func (s *stubUserV2) AddHumanUser(_ context.Context, req *userv2pb.AddHumanUserRequest, _ ...grpc.CallOption) (*userv2pb.AddHumanUserResponse, error) {
 	s.addHumanUserCalls++
+	s.addHumanUserReq = req
 	return s.addHumanUserResp, s.addHumanUserErr
 }
 
@@ -278,6 +282,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 	}{
 		{
 			// @spec components/entity/organizer/provision-tenant "Organizer is provisioned"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned tenant org has the passkey-primary policy"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "The policy renders a usable login and returns the operator to the console"
+			// @spec stories/sign-in-as-organizer "Invited operator lands on the console after accepting the invite"
 			name: "happy path: completes every step on the given tenant org without creating an org",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
@@ -295,6 +302,12 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 					stub.addCustomLoginPolicyReq.GetDefaultRedirectUri(),
 					"invite acceptance must return the operator to the console")
 				assertLoginPolicyDefaults(t, stub.addCustomLoginPolicyReq)
+
+				// The operator is created without a password, so the passkey is
+				// their only usable local method.
+				require.NotNil(t, userV2.addHumanUserReq)
+				assert.Nil(t, userV2.addHumanUserReq.GetPassword(), "operator must have no password")
+				assert.Nil(t, userV2.addHumanUserReq.GetHashedPassword(), "operator must have no password")
 
 				require.Len(t, stub.addProjectGrantReqs, 1)
 				req := stub.addProjectGrantReqs[0]
@@ -314,6 +327,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 		},
 		{
 			// @spec components/entity/organizer/provision-tenant "Repeated call"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned tenant org has the passkey-primary policy"
 			name: "true retry: the operator already exists in the tenant org and is reused; duplicate steps are swallowed",
 			stub: &stubMgmt{
 				addCustomLoginPolicyErr: alreadyExists("policy exists"),
@@ -895,6 +909,11 @@ func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
 // loginPolicyDefaults is the part of the add and update login policy requests
 // that both must set the same way.
 type loginPolicyDefaults interface {
+	GetPasswordlessType() policypb.PasswordlessType
+	GetAllowUsernamePassword() bool
+	GetAllowRegister() bool
+	GetAllowExternalIdp() bool
+	GetIgnoreUnknownUsernames() bool
 	GetHidePasswordReset() bool
 	GetPasswordCheckLifetime() *durationpb.Duration
 	GetExternalLoginCheckLifetime() *durationpb.Duration
@@ -903,11 +922,18 @@ type loginPolicyDefaults interface {
 	GetMultiFactorCheckLifetime() *durationpb.Duration
 }
 
-// assertLoginPolicyDefaults checks that the tenant policy hides the password
-// reset and sets every check lifetime to Zitadel's instance default, never 0
-// (a 0 lifetime makes the Zitadel Console refuse to save the policy).
+// assertLoginPolicyDefaults checks that the tenant policy is passkey-primary
+// with local authentication enabled, closed to self-registration, open to
+// federation, anti-enumerating, hides the password reset and sets every check
+// lifetime to Zitadel's instance default, never 0 (a 0 lifetime makes the
+// Zitadel Console refuse to save the policy).
 func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
 	t.Helper()
+	assert.Equal(t, policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED, req.GetPasswordlessType(), "passkeys must be allowed")
+	assert.True(t, req.GetAllowUsernamePassword(), "local authentication must stay enabled for passkeys")
+	assert.False(t, req.GetAllowRegister(), "no open self-registration")
+	assert.True(t, req.GetAllowExternalIdp(), "federation must be permitted")
+	assert.True(t, req.GetIgnoreUnknownUsernames(), "login must not disclose unknown accounts")
 	assert.True(t, req.GetHidePasswordReset(), "operators must not be offered a password reset")
 	assert.Equal(t, 240*time.Hour, req.GetPasswordCheckLifetime().AsDuration())
 	assert.Equal(t, 240*time.Hour, req.GetExternalLoginCheckLifetime().AsDuration())
