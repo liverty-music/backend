@@ -71,6 +71,9 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 	}{
 		// ── Happy path ──────────────────────────────────────────────────────
 		{
+			// The caller's org comes from the token alone (its single
+			// login-scope org), never from an email domain or a URL hint.
+			// @spec components/infrastructure/organizer/web/global/hosted-login "Org is resolved by org-pinned entry for every operator"
 			name: "allow when aud contains project id, exactly one login-scope org, and role matches",
 			args: args{
 				claims:    happyClaims(),
@@ -124,6 +127,7 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 
 		// ── Role cross-check ─────────────────────────────────────────────────
 		{
+			// @spec components/infrastructure/organizer/web/global/hosted-login "Org is resolved by org-pinned entry for every operator"
 			// LoginScopeOrgID points to org-X but RoleOrgIDs only contains org-Y.
 			// This exercises the explicit cross-check in authorize().
 			name: "deny when login-scope org does not appear in role-claim org ids",
