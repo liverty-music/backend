@@ -38,6 +38,15 @@ func TestOrganizerUseCase_SendSignInLinks(t *testing.T) {
 		d.uc.SendSignInLinks(ctx, email)
 	})
 
+	t.Run("sends to the owner email as stored when the request spells it in other letter case", func(t *testing.T) {
+		t.Parallel()
+		d := newDeps(t)
+		d.orgRepo.EXPECT().ListByOwnerEmail(mock.Anything, "Band@Example.com").Return([]*entity.Organizer{xx}, nil).Once()
+		d.signInLinks.EXPECT().SendSignInLinks(mock.Anything, email, []*entity.Organizer{xx}).Return(nil).Once()
+
+		d.uc.SendSignInLinks(ctx, "Band@Example.com")
+	})
+
 	// @spec components/usecase/organizer/send-sign-in-links "Address that owns nothing"
 	t.Run("sends nothing for an address that owns no active Organizer", func(t *testing.T) {
 		t.Parallel()

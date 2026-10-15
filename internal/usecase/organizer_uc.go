@@ -645,7 +645,8 @@ func (uc *organizerUseCase) SendSignInLinks(ctx context.Context, email string) {
 }
 
 // sendSignInLinks reads the active Organizers the address owns and, when
-// there are any, sends their sign-in links. Failures are logged.
+// there are any, sends their sign-in links to the owner email as stored.
+// Failures are logged.
 func (uc *organizerUseCase) sendSignInLinks(ctx context.Context, email string) {
 	organizers, err := uc.organizerRepo.ListByOwnerEmail(ctx, email)
 	if err != nil {
@@ -655,7 +656,9 @@ func (uc *organizerUseCase) sendSignInLinks(ctx context.Context, email string) {
 	if len(organizers) == 0 {
 		return
 	}
-	if err := uc.signInLinks.SendSignInLinks(ctx, email, organizers); err != nil {
+	// The lookup ignores letter case; send to the address as stored, which
+	// was given by an admin, not to the caller's spelling of it.
+	if err := uc.signInLinks.SendSignInLinks(ctx, organizers[0].OwnerEmail, organizers); err != nil {
 		uc.logger.Error(ctx, "failed to send sign-in links", err,
 			slog.Int("organizer_count", len(organizers)))
 		return
