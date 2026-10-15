@@ -72,6 +72,17 @@ type CreateTicketSaleInput struct {
 	TicketTypes []TicketTypeInput
 }
 
+// OwnEventSales is what an event's Organizer sees of its sales: the sales
+// with their TicketTypes, and beside them the event's purchases per referral
+// code.
+type OwnEventSales struct {
+	// Sales are the event's sales in start order.
+	Sales []*TicketSaleView
+	// ReferralCodeStats are the event's Paid Orders per referral code, as
+	// [entity.ReferralRepository.ListStatsByEvent] gives them.
+	ReferralCodeStats []entity.ReferralCodeStats
+}
+
 // TicketSaleUseCase lets an Organizer open sales, by lottery or first come,
 // on the published events of its Series and change them, and shows the
 // sales of an event to fans and to its Organizer.
@@ -97,13 +108,15 @@ type TicketSaleUseCase interface {
 
 	// ListOwnByEvent returns every sale of one of the Organizer's events, in
 	// start order, with all of their TicketTypes: a Lottery TicketType with its
-	// entry stats, a FirstCome TicketType with its counts and state now. It
-	// returns an empty slice when the event has no sale.
+	// entry stats, a FirstCome TicketType with its counts and state now.
+	// Beside the sales it returns the event's purchases per referral code. The
+	// sales are empty when the event has no sale, and the purchases per code
+	// when the event has no Paid Order.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: the event does not exist or is another Organizer's.
-	ListOwnByEvent(ctx context.Context, organizerID, eventID string) ([]*TicketSaleView, error)
+	ListOwnByEvent(ctx context.Context, organizerID, eventID string) (*OwnEventSales, error)
 
 	// ListByEvent returns, for anyone, the sales of a published event in start
 	// order, each with only its TicketType for the event; a FirstCome
@@ -139,6 +152,7 @@ type TicketSaleUseCase interface {
 type ticketSaleUseCase struct {
 	saleRepo      entity.TicketSaleRepository
 	entryRepo     entity.LotteryEntryRepository
+	referralRepo  entity.ReferralRepository
 	seriesRepo    entity.SeriesRepository
 	organizerRepo entity.OrganizerRepository
 	eventState    EventPublishStatePort
@@ -153,6 +167,7 @@ var _ TicketSaleUseCase = (*ticketSaleUseCase)(nil)
 func NewTicketSaleUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
+	referralRepo entity.ReferralRepository,
 	seriesRepo entity.SeriesRepository,
 	organizerRepo entity.OrganizerRepository,
 	eventState EventPublishStatePort,
@@ -162,6 +177,7 @@ func NewTicketSaleUseCase(
 	return &ticketSaleUseCase{
 		saleRepo:      saleRepo,
 		entryRepo:     entryRepo,
+		referralRepo:  referralRepo,
 		seriesRepo:    seriesRepo,
 		organizerRepo: organizerRepo,
 		eventState:    eventState,
@@ -358,7 +374,7 @@ func ticketTypeViewAt(sale *entity.TicketSale, tt *entity.TicketType, now time.T
 }
 
 // ListOwnByEvent implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, eventID string) ([]*TicketSaleView, error) {
+func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, eventID string) (*OwnEventSales, error) {
 	owner, err := uc.eventState.GetEventOrganizerID(ctx, eventID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -388,7 +404,11 @@ func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, ev
 		}
 		views = append(views, view)
 	}
-	return views, nil
+	referralStats, err := uc.referralRepo.ListStatsByEvent(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	return &OwnEventSales{Sales: views, ReferralCodeStats: referralStats}, nil
 }
 
 // ListByEvent implements [TicketSaleUseCase].

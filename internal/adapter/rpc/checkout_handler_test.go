@@ -68,7 +68,7 @@ func TestCheckoutHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/checkout "Fan starts a checkout"
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2).Return(held, nil)
+		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2, (*entity.ReferralCode)(nil)).Return(held, nil)
 
 		resp, err := f.client.Start(ctx, connect.NewRequest(startReq()))
 
@@ -76,6 +76,21 @@ func TestCheckoutHandler(t *testing.T) {
 		assert.Equal(t, tkCheckoutID, resp.Msg.GetCheckout().GetId().GetValue())
 		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_HELD, resp.Msg.GetCheckout().GetStatus())
 		assert.Equal(t, tkTicketTypeID, resp.Msg.GetCheckout().GetTicketTypeId().GetValue())
+	})
+
+	t.Run("referral code passed on", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/checkout "Referral code passed on"
+		f := newCheckoutFixture(t, signedInAs(tkFanSub))
+		expectFan(f.users)
+		code := entity.ReferralCode("member-a")
+		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2, &code).Return(held, nil)
+		req := startReq()
+		req.ReferralCode = &entityv1.ReferralCode{Value: "member-a"}
+
+		_, err := f.client.Start(ctx, connect.NewRequest(req))
+
+		require.NoError(t, err)
 	})
 
 	t.Run("guest tries to buy", func(t *testing.T) {
@@ -161,6 +176,25 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := startReq()
 				req.TicketCount = 0
+				_, err := c.Start(ctx, connect.NewRequest(req))
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/fan/api/rpc/checkout "Malformed referral code"
+			name: "malformed referral code",
+			call: func(c checkoutv1connect.CheckoutServiceClient) error {
+				req := startReq()
+				req.ReferralCode = &entityv1.ReferralCode{Value: "member_a"}
+				_, err := c.Start(ctx, connect.NewRequest(req))
+				return err
+			},
+		},
+		{
+			name: "uppercase referral code",
+			call: func(c checkoutv1connect.CheckoutServiceClient) error {
+				req := startReq()
+				req.ReferralCode = &entityv1.ReferralCode{Value: "Member-A"}
 				_, err := c.Start(ctx, connect.NewRequest(req))
 				return err
 			},

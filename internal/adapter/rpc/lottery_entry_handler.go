@@ -64,7 +64,8 @@ func (h *LotteryEntryHandler) Start(
 		return nil, err
 	}
 
-	entry, err := h.lotteryEntryUC.Start(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID, int(req.Msg.GetTicketCount()))
+	entry, err := h.lotteryEntryUC.Start(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID, int(req.Msg.GetTicketCount()),
+		mapper.ReferralCodeFromProto(req.Msg.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}

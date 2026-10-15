@@ -54,7 +54,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	// check deterministically.
 	now := saleWindowStart.Add(time.Hour)
 	clock := usecase.Clock(func() time.Time { return now })
-	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
+	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewReferralRepository(testDB), rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
 		rdb.NewUserRepository(testDB), stripePort, clock, logger)
 
 	// -- a Lottery ticket type of 2 tickets, so 3 single-ticket entries force one loss --
@@ -68,7 +68,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	enter := func(confirm bool) entity.LotteryEntryID {
 		t.Helper()
 		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-		draft, err := uc.Start(ctx, tt.ID, userID, 1)
+		draft, err := uc.Start(ctx, tt.ID, userID, 1, nil)
 		require.NoError(t, err)
 		_, err = uc.AuthorizeCard(ctx, draft.ID, userID, "Test Fan", "+819012345678")
 		require.NoError(t, err)

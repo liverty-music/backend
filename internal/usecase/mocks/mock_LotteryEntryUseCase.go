@@ -388,8 +388,8 @@ func (_c *MockLotteryEntryUseCase_RunDraw_Call) RunAndReturn(run func(ctx contex
 }
 
 // Start provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error) {
-	ret := _mock.Called(ctx, ticketTypeID, userID, count)
+func (_mock *MockLotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error) {
+	ret := _mock.Called(ctx, ticketTypeID, userID, count, code)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Start")
@@ -397,18 +397,18 @@ func (_mock *MockLotteryEntryUseCase) Start(ctx context.Context, ticketTypeID en
 
 	var r0 *entity.LotteryEntry
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int) (*entity.LotteryEntry, error)); ok {
-		return returnFunc(ctx, ticketTypeID, userID, count)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) (*entity.LotteryEntry, error)); ok {
+		return returnFunc(ctx, ticketTypeID, userID, count, code)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int) *entity.LotteryEntry); ok {
-		r0 = returnFunc(ctx, ticketTypeID, userID, count)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) *entity.LotteryEntry); ok {
+		r0 = returnFunc(ctx, ticketTypeID, userID, count, code)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.LotteryEntry)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int) error); ok {
-		r1 = returnFunc(ctx, ticketTypeID, userID, count)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) error); ok {
+		r1 = returnFunc(ctx, ticketTypeID, userID, count, code)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -425,11 +425,12 @@ type MockLotteryEntryUseCase_Start_Call struct {
 //   - ticketTypeID entity.TicketTypeID
 //   - userID entity.UserID
 //   - count int
-func (_e *MockLotteryEntryUseCase_Expecter) Start(ctx any, ticketTypeID any, userID any, count any) *MockLotteryEntryUseCase_Start_Call {
-	return &MockLotteryEntryUseCase_Start_Call{Call: _e.mock.On("Start", ctx, ticketTypeID, userID, count)}
+//   - code *entity.ReferralCode
+func (_e *MockLotteryEntryUseCase_Expecter) Start(ctx any, ticketTypeID any, userID any, count any, code any) *MockLotteryEntryUseCase_Start_Call {
+	return &MockLotteryEntryUseCase_Start_Call{Call: _e.mock.On("Start", ctx, ticketTypeID, userID, count, code)}
 }
 
-func (_c *MockLotteryEntryUseCase_Start_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int)) *MockLotteryEntryUseCase_Start_Call {
+func (_c *MockLotteryEntryUseCase_Start_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode)) *MockLotteryEntryUseCase_Start_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -447,11 +448,16 @@ func (_c *MockLotteryEntryUseCase_Start_Call) Run(run func(ctx context.Context, 
 		if args[3] != nil {
 			arg3 = args[3].(int)
 		}
+		var arg4 *entity.ReferralCode
+		if args[4] != nil {
+			arg4 = args[4].(*entity.ReferralCode)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -462,7 +468,7 @@ func (_c *MockLotteryEntryUseCase_Start_Call) Return(lotteryEntry *entity.Lotter
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_Start_Call {
+func (_c *MockLotteryEntryUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

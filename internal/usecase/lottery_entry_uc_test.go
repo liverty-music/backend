@@ -26,6 +26,7 @@ func fixedClock(t time.Time) usecase.Clock {
 type lotteryFixture struct {
 	sales                *entitymocks.MockTicketSaleRepository
 	entries              *entitymocks.MockLotteryEntryRepository
+	referrals            *entitymocks.MockReferralRepository
 	tickets              *entitymocks.MockTicketRepository
 	identityVerification *entitymocks.MockIdentityVerificationRepository
 	users                *entitymocks.MockUserRepository
@@ -40,12 +41,13 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 	f := &lotteryFixture{
 		sales:                entitymocks.NewMockTicketSaleRepository(t),
 		entries:              entitymocks.NewMockLotteryEntryRepository(t),
+		referrals:            entitymocks.NewMockReferralRepository(t),
 		tickets:              entitymocks.NewMockTicketRepository(t),
 		identityVerification: entitymocks.NewMockIdentityVerificationRepository(t),
 		users:                entitymocks.NewMockUserRepository(t),
 		cardAuthorizations:   entitymocks.NewMockCardAuthorizationRepository(t),
 	}
-	f.uc = usecase.NewLotteryEntryUseCaseWithRand(f.sales, f.entries, f.tickets, f.identityVerification, f.users, f.cardAuthorizations,
+	f.uc = usecase.NewLotteryEntryUseCaseWithRand(f.sales, f.entries, f.referrals, f.tickets, f.identityVerification, f.users, f.cardAuthorizations,
 		fixedClock(now), func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) }, newTestLogger(t))
 	return f
 }
@@ -100,7 +102,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		draft := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(draft, nil)
 
-		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
@@ -118,9 +120,9 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		draft := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(draft, nil).Twice()
 
-		first, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		first, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 		require.NoError(t, err)
-		second, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		second, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, first.ID, second.ID)
@@ -133,7 +135,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -145,7 +147,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 5)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 5, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
@@ -158,7 +160,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.readsTicketType(sale)
 		f.holdsTickets(entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusIssued)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -172,7 +174,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 1).
 			Return(entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 1), nil)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1, nil)
 
 		require.NoError(t, err)
 	})
@@ -186,7 +188,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.holdsTickets()
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(nil, apperr.ErrAlreadyExists)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -201,7 +203,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		fresh := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(fresh, nil)
 
-		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, fresh.ID, got.ID)
@@ -216,7 +218,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.readsTicketType(sale)
 		f.identityVerification.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -229,7 +231,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.readsTicketType(sale)
 		f.identityVerification.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -245,7 +247,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).
 			Return(entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2), nil)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		require.NoError(t, err)
 	})
@@ -257,7 +259,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		sale.Method = entity.TicketSaleMethodFirstCome
 		f.readsTicketType(sale)
 
-		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -267,7 +269,7 @@ func TestLotteryEntryUseCase_Start(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("missing"), duringWindow).Return(nil, nil, apperr.ErrNotFound)
 
-		_, err := f.uc.Start(ctx, "missing", "fan-1", 2)
+		_, err := f.uc.Start(ctx, "missing", "fan-1", 2, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -1019,5 +1021,91 @@ func TestLotteryEntryUseCase_DrawDueSales(t *testing.T) {
 		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return(nil, listErr)
 
 		assert.Equal(t, listErr, f.uc.DrawDueSales(ctx))
+	})
+}
+
+func TestLotteryEntryUseCase_Start_RecordsReferral(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
+	// startsDraft makes the sale open and GetOrCreateDraft return a Draft of
+	// 2 tickets.
+	startsDraft := func(f *lotteryFixture, sale *entity.TicketSale) *entity.LotteryEntry {
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		draft := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(draft, nil)
+		return draft
+	}
+
+	t.Run("entry from a referral link", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Entry from a referral link"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		draft := startsDraft(f, sale)
+		f.referrals.EXPECT().Record(mock.Anything, entity.ReferralSource{LotteryEntryID: draft.ID}, entity.ReferralCode("member-a"), duringWindow).Return(nil)
+
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, code("member-a"))
+
+		require.NoError(t, err)
+		assert.Same(t, draft, got)
+	})
+
+	t.Run("another link before confirming", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Another link before confirming"
+		// The Draft already has member-a; Record replaces it.
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		draft := startsDraft(f, sale)
+		f.referrals.EXPECT().Record(mock.Anything, entity.ReferralSource{LotteryEntryID: draft.ID}, entity.ReferralCode("member-b"), duringWindow).Return(nil)
+
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, code("member-b"))
+
+		require.NoError(t, err)
+		assert.Equal(t, draft.ID, got.ID)
+	})
+
+	t.Run("started again without a code", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Started again without a code"
+		// No Record call: the Referral holding member-a stays as it is.
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		draft := startsDraft(f, sale)
+
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, draft.ID, got.ID)
+		f.referrals.AssertNotCalled(t, "Record", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("already entered with a code", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Already entered with a code"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(nil, apperr.ErrAlreadyExists)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, code("member-b"))
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		f.referrals.AssertNotCalled(t, "Record", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("record failure fails start", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		draft := startsDraft(f, sale)
+		f.referrals.EXPECT().Record(mock.Anything, entity.ReferralSource{LotteryEntryID: draft.ID}, entity.ReferralCode("member-a"), duringWindow).Return(apperr.ErrInternal)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2, code("member-a"))
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 }

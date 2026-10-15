@@ -55,16 +55,18 @@ func TestAdminServer_OrganizerCreateValidation(t *testing.T) {
 			// @spec components/adapter/admin/api/rpc/organizer "Name too long"
 			name: "returns InvalidArgument for a 201-character name and creates nothing",
 			req: &adminorganizerv1.CreateRequest{
-				Name:          &entityv1.OrganizerName{Value: strings.Repeat("a", 201)},
-				OperatorEmail: &entityv1.UserEmail{Value: "operator@example.com"},
+				Name:       &entityv1.OrganizerName{Value: strings.Repeat("a", 201)},
+				OwnerEmail: &entityv1.Email{Value: "operator@example.com"},
+				ShortName:  &entityv1.OrganizerShortName{Value: "acme"},
 			},
 		},
 		{
 			// @spec components/adapter/admin/api/rpc/organizer "Malformed operator email"
 			name: "returns InvalidArgument for an operator email that is not an email address",
 			req: &adminorganizerv1.CreateRequest{
-				Name:          &entityv1.OrganizerName{Value: "Acme Music"},
-				OperatorEmail: &entityv1.UserEmail{Value: "not-an-email"},
+				Name:       &entityv1.OrganizerName{Value: "Acme Music"},
+				OwnerEmail: &entityv1.Email{Value: "not-an-email"},
+				ShortName:  &entityv1.OrganizerShortName{Value: "acme"},
 			},
 		},
 	}

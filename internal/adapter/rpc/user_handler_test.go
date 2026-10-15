@@ -64,7 +64,7 @@ func TestUserHandler_NotSignedIn(t *testing.T) {
 		ctx := context.Background()
 
 		_, getErr := client.Get(ctx, connect.NewRequest(&userv1.GetRequest{}))
-		_, createErr := client.Create(ctx, connect.NewRequest(&userv1.CreateRequest{Email: &entitypb.UserEmail{Value: "a@example.com"}}))
+		_, createErr := client.Create(ctx, connect.NewRequest(&userv1.CreateRequest{Email: &entitypb.Email{Value: "a@example.com"}}))
 		_, updateErr := client.Update(ctx, connect.NewRequest(&userv1.UpdateRequest{PhoneNumber: &entitypb.PhoneNumber{Value: "+819098765432"}}))
 		_, langErr := client.SetPreferredLanguage(ctx, connect.NewRequest(&userv1.SetPreferredLanguageRequest{PreferredLanguage: "en"}))
 		_, homeErr := client.SetHome(ctx, connect.NewRequest(&userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}}))
@@ -172,7 +172,7 @@ func TestUserHandler_Create(t *testing.T) {
 
 		lang := "ja"
 		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
-			Email:             &entitypb.UserEmail{Value: "id@example.com"},
+			Email:             &entitypb.Email{Value: "id@example.com"},
 			PreferredLanguage: &lang,
 		}))
 
@@ -190,7 +190,7 @@ func TestUserHandler_Create(t *testing.T) {
 		})).Return(&entity.User{ID: testCallerUserID, Email: "id@example.com"}, nil).Once()
 
 		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
-			Email: &entitypb.UserEmail{Value: "other@example.com"},
+			Email: &entitypb.Email{Value: "other@example.com"},
 		}))
 
 		require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestUserHandler_Create(t *testing.T) {
 		userUC.EXPECT().Create(mock.Anything, mock.Anything).Return(existing, nil).Once()
 
 		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
-			Email: &entitypb.UserEmail{Value: "id@example.com"},
+			Email: &entitypb.Email{Value: "id@example.com"},
 		}))
 
 		require.NoError(t, err)

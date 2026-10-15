@@ -136,7 +136,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			}},
 		}
 		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).
-			Return([]*usecase.TicketSaleView{lottery, firstComeView(entity.TicketTypeStateOnSale)}, nil)
+			Return(&usecase.OwnEventSales{Sales: []*usecase.TicketSaleView{lottery, firstComeView(entity.TicketTypeStateOnSale)}}, nil)
 
 		resp, err := f.client.ListByEvent(context.Background(), connect.NewRequest(&ticketsalev1.ListByEventRequest{
 			EventId: &entityv1.EventId{Value: testEventID},
@@ -157,6 +157,36 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		assert.Equal(t, "019a0000-0000-7000-8000-0000000000d3", stats.GetTicketTypeId().GetValue())
 		assert.Equal(t, int32(80), stats.GetEntryCount())
 		assert.Equal(t, int32(50), stats.GetWonTicketCount())
+		assert.Empty(t, resp.Msg.GetReferralCodeStats())
+	})
+
+	t.Run("purchases per referral code with a direct group", func(t *testing.T) {
+		t.Parallel()
+		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		f.resolvesTo("org-1")
+		memberA := entity.ReferralCode("member-a")
+		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).Return(&usecase.OwnEventSales{
+			Sales: []*usecase.TicketSaleView{firstComeView(entity.TicketTypeStateOnSale)},
+			ReferralCodeStats: []entity.ReferralCodeStats{
+				{Code: &memberA, OrderCount: 2, TicketCount: 5, Amount: 16250},
+				{OrderCount: 1, TicketCount: 1, Amount: 3250},
+			},
+		}, nil)
+
+		resp, err := f.client.ListByEvent(context.Background(), connect.NewRequest(&ticketsalev1.ListByEventRequest{
+			EventId: &entityv1.EventId{Value: testEventID},
+		}))
+
+		require.NoError(t, err)
+		got := resp.Msg.GetReferralCodeStats()
+		require.Len(t, got, 2)
+		assert.Equal(t, "member-a", got[0].GetCode().GetValue())
+		assert.Equal(t, int32(2), got[0].GetOrderCount())
+		assert.Equal(t, int32(5), got[0].GetTicketCount())
+		assert.Equal(t, int64(16250), got[0].GetAmount())
+		assert.Nil(t, got[1].GetCode(), "the direct group has no code")
+		assert.Equal(t, int32(1), got[1].GetOrderCount())
+		assert.Equal(t, int64(3250), got[1].GetAmount())
 	})
 
 	t.Run("operator moves a window", func(t *testing.T) {

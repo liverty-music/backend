@@ -133,9 +133,9 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
-	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewSeriesRepository(testDB), organizerRepo,
+	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewReferralRepository(testDB), rdb.NewSeriesRepository(testDB), organizerRepo,
 		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, ticketRepo, identityVerificationRepo, s.userRepo, cardAuthorizations, clock, logger)
+	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, rdb.NewReferralRepository(testDB), ticketRepo, identityVerificationRepo, s.userRepo, cardAuthorizations, clock, logger)
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
 		OrderRepo:                s.orderRepo,
@@ -218,7 +218,7 @@ func (s *lotteryStory) newFan() entity.UserID {
 // completes card authentication, leaving an authorized Draft.
 func (s *lotteryStory) authorize(ttID entity.TicketTypeID, fan entity.UserID, count int) *entity.LotteryEntry {
 	s.t.Helper()
-	draft, err := s.lottery.Start(s.ctx, ttID, fan, count)
+	draft, err := s.lottery.Start(s.ctx, ttID, fan, count, nil)
 	require.NoError(s.t, err)
 	_, err = s.lottery.AuthorizeCard(s.ctx, draft.ID, fan, storyFanName, storyFanPhone)
 	require.NoError(s.t, err)
@@ -474,7 +474,7 @@ func TestLotteryStory_PresaleWinnerAtTheLimit(t *testing.T) {
 	general := s.createLottery("一般抽選", generalStart, generalStart.Add(3*24*time.Hour), 8000, 100, 4)
 	s.now = generalStart.Add(time.Hour)
 
-	_, err := s.lottery.Start(s.ctx, general.ID, fan, 1)
+	_, err := s.lottery.Start(s.ctx, general.ID, fan, 1, nil)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the entry into the general sale is refused")
 	entries, err := s.lottery.ListByTicketType(s.ctx, general.ID, fan)
 	require.NoError(t, err)

@@ -12,6 +12,7 @@ import (
 func NewLotteryEntryUseCaseWithRand(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
+	referralRepo entity.ReferralRepository,
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
@@ -20,5 +21,5 @@ func NewLotteryEntryUseCaseWithRand(
 	newRand func() *mrand.Rand,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, newRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, newRand, logger)
 }

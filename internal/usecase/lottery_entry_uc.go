@@ -65,7 +65,13 @@ type LotteryEntryUseCase interface {
 	//    open, the fan has no Active IdentityVerification when the sale requires one, the count
 	//    does not fit the per-account limit with the tickets the fan holds, or
 	//    the fan already has an Entered, Won or Lost entry.
-	Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error)
+	//  - The error of [entity.ReferralRepository.Record], unchanged; the
+	//    Draft stays, so starting again resumes it and records the code again.
+	//
+	// When code is not nil, the returned Draft's Referral is recorded with
+	// it; a nil code records nothing and keeps an existing Referral. The code
+	// is not checked against any list or the event's Series.
+	Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error)
 
 	// AuthorizeCard stores the fan's full name and phone number on their User and
 	// opens the card authorization for their own Draft, or reuses it, and returns
@@ -140,6 +146,7 @@ type LotteryEntryUseCase interface {
 type lotteryEntryUseCase struct {
 	saleRepo                 entity.TicketSaleRepository
 	entryRepo                entity.LotteryEntryRepository
+	referralRepo             entity.ReferralRepository
 	ticketRepo               entity.TicketRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
@@ -157,6 +164,7 @@ var _ LotteryEntryUseCase = (*lotteryEntryUseCase)(nil)
 func NewLotteryEntryUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
+	referralRepo entity.ReferralRepository,
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
@@ -164,13 +172,14 @@ func NewLotteryEntryUseCase(
 	clock Clock,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, cryptoSeededRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, cryptoSeededRand, logger)
 }
 
 // newLotteryUseCase constructs the use case with the draw's random source.
 func newLotteryUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
+	referralRepo entity.ReferralRepository,
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
@@ -182,6 +191,7 @@ func newLotteryUseCase(
 	return &lotteryEntryUseCase{
 		saleRepo:                 saleRepo,
 		entryRepo:                entryRepo,
+		referralRepo:             referralRepo,
 		ticketRepo:               ticketRepo,
 		identityVerificationRepo: identityVerificationRepo,
 		userRepo:                 userRepo,
@@ -193,7 +203,7 @@ func newLotteryUseCase(
 }
 
 // Start implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error) {
+func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error) {
 	now := uc.clock()
 	sale, tt, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, now)
 	if err != nil {
@@ -230,6 +240,11 @@ func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.Ti
 			return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this ticket type")
 		}
 		return nil, err
+	}
+	if code != nil {
+		if err := uc.referralRepo.Record(ctx, entity.ReferralSource{LotteryEntryID: entry.ID}, *code, now); err != nil {
+			return nil, err
+		}
 	}
 	return entry, nil
 }

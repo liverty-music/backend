@@ -192,23 +192,23 @@ func (_c *MockTicketSaleUseCase_ListByEvent_Call) RunAndReturn(run func(ctx cont
 }
 
 // ListOwnByEvent provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID string, eventID string) ([]*usecase.TicketSaleView, error) {
+func (_mock *MockTicketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID string, eventID string) (*usecase.OwnEventSales, error) {
 	ret := _mock.Called(ctx, organizerID, eventID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListOwnByEvent")
 	}
 
-	var r0 []*usecase.TicketSaleView
+	var r0 *usecase.OwnEventSales
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]*usecase.TicketSaleView, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*usecase.OwnEventSales, error)); ok {
 		return returnFunc(ctx, organizerID, eventID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []*usecase.TicketSaleView); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *usecase.OwnEventSales); ok {
 		r0 = returnFunc(ctx, organizerID, eventID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*usecase.TicketSaleView)
+			r0 = ret.Get(0).(*usecase.OwnEventSales)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
@@ -255,12 +255,12 @@ func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) Run(run func(ctx context.Co
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) Return(ticketSaleViews []*usecase.TicketSaleView, err error) *MockTicketSaleUseCase_ListOwnByEvent_Call {
-	_c.Call.Return(ticketSaleViews, err)
+func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) Return(ownEventSales *usecase.OwnEventSales, err error) *MockTicketSaleUseCase_ListOwnByEvent_Call {
+	_c.Call.Return(ownEventSales, err)
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) RunAndReturn(run func(ctx context.Context, organizerID string, eventID string) ([]*usecase.TicketSaleView, error)) *MockTicketSaleUseCase_ListOwnByEvent_Call {
+func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) RunAndReturn(run func(ctx context.Context, organizerID string, eventID string) (*usecase.OwnEventSales, error)) *MockTicketSaleUseCase_ListOwnByEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }

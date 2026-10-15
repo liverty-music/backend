@@ -23,7 +23,7 @@ func UserToProto(user *entity.User) *proto.User {
 		Id: &proto.UserId{
 			Value: user.ID,
 		},
-		Email: &proto.UserEmail{
+		Email: &proto.Email{
 			Value: user.Email,
 		},
 		ProviderUserId: &proto.User_ProviderUserId{

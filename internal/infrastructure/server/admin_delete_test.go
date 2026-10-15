@@ -261,8 +261,9 @@ func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/organizer "Non-admin cannot create an Organizer"
 		c, _ := client(t)
 		req := connect.NewRequest(&adminorganizerv1.CreateRequest{
-			Name:          &entityv1.OrganizerName{Value: "Acme Music"},
-			OperatorEmail: &entityv1.UserEmail{Value: "operator@example.com"},
+			Name:       &entityv1.OrganizerName{Value: "Acme Music"},
+			OwnerEmail: &entityv1.Email{Value: "operator@example.com"},
+			ShortName:  &entityv1.OrganizerShortName{Value: "acme"},
 		})
 		withToken(req, deleteNonAdminToken)
 
