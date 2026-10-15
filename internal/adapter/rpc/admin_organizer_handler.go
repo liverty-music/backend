@@ -30,13 +30,15 @@ func NewAdminOrganizerHandler(organizerUseCase usecase.OrganizerUseCase, logger 
 	return &AdminOrganizerHandler{organizerUseCase: organizerUseCase, logger: logger}
 }
 
-// Create registers a new Organizer and provisions its Zitadel tenant, then
-// returns the persisted record.
+// Create registers a new Organizer with its short name and owner email,
+// provisions its Organization at the identity provider, then returns the
+// persisted record.
 func (h *AdminOrganizerHandler) Create(
 	ctx context.Context,
 	req *connect.Request[organizerv1.CreateRequest],
 ) (*connect.Response[organizerv1.CreateResponse], error) {
-	organizer, err := h.organizerUseCase.Create(ctx, req.Msg.GetName().GetValue(), req.Msg.GetOwnerEmail().GetValue())
+	organizer, err := h.organizerUseCase.Create(ctx,
+		req.Msg.GetName().GetValue(), req.Msg.GetShortName().GetValue(), req.Msg.GetOwnerEmail().GetValue())
 	if err != nil {
 		return nil, err
 	}

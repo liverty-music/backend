@@ -119,7 +119,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			RoleOrgIDs:      map[string]struct{}{testProviderOrganizerID: {}},
 		})
 
-		_, err := auth.NewOrgScopedInterceptor("organizer-console-project").WrapUnary(next)(ctx, connect.NewRequest(&organizerartistv1.ListRequest{}))
+		_, err := auth.NewOrgScopedInterceptor("organizer-console-project", nil).WrapUnary(next)(ctx, connect.NewRequest(&organizerartistv1.ListRequest{}))
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})

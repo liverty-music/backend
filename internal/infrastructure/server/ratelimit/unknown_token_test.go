@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestUnknownTokenThrottle(t *testing.T) {
+func TestClientThrottle(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 11, 20, 18, 0, 0, 0, time.UTC)
@@ -16,11 +16,11 @@ func TestUnknownTokenThrottle(t *testing.T) {
 	t.Run("blocks after the limit until the window passes", func(t *testing.T) {
 		t.Parallel()
 		now := start
-		th := ratelimit.NewUnknownTokenThrottle(10, 10*time.Minute, func() time.Time { return now })
+		th := ratelimit.NewClientThrottle(10, 10*time.Minute, func() time.Time { return now })
 
 		for i := range 10 {
 			assert.False(t, th.Blocked("a"), "call %d", i+1)
-			th.RecordUnknown("a")
+			th.Record("a")
 			now = now.Add(time.Second)
 		}
 		assert.True(t, th.Blocked("a"), "the 11th call is refused")
@@ -35,10 +35,10 @@ func TestUnknownTokenThrottle(t *testing.T) {
 	t.Run("guesses spread over more than the window never block", func(t *testing.T) {
 		t.Parallel()
 		now := start
-		th := ratelimit.NewUnknownTokenThrottle(10, 10*time.Minute, func() time.Time { return now })
+		th := ratelimit.NewClientThrottle(10, 10*time.Minute, func() time.Time { return now })
 		for range 30 {
 			assert.False(t, th.Blocked("a"))
-			th.RecordUnknown("a")
+			th.Record("a")
 			now = now.Add(time.Minute + time.Second)
 		}
 	})

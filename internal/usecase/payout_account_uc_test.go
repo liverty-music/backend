@@ -7,6 +7,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,6 +80,9 @@ func (s *stubOrganizerRepoForPayoutAccount) GetByProviderOrganizerID(ctx context
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
 func (s *stubOrganizerRepoForPayoutAccount) List(ctx context.Context) ([]*entity.Organizer, error) {
+	return nil, nil
+}
+func (s *stubOrganizerRepoForPayoutAccount) ListByOwnerEmail(ctx context.Context, email string) ([]*entity.Organizer, error) {
 	return nil, nil
 }
 func (s *stubOrganizerRepoForPayoutAccount) ListByStatus(ctx context.Context, status entity.OrganizerStatus) ([]*entity.Organizer, error) {
@@ -265,6 +269,79 @@ func TestPayoutAccountUseCase_Get(t *testing.T) {
 	}
 }
 
+// contactCapturingProvider is a stubPaymentProvider that records the contact
+// email a payout account is opened with and can fail the opening.
+type contactCapturingProvider struct {
+	*stubPaymentProvider
+	contacts  []string
+	createErr error
+}
+
+func (p *contactCapturingProvider) Create(_ context.Context, _ string, contactEmail string) (string, error) {
+	p.contacts = append(p.contacts, contactEmail)
+	if p.createErr != nil {
+		return "", p.createErr
+	}
+	return "acct_first", nil
+}
+
+func TestPayoutAccountUseCase_Get_FirstCall(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = "org-first"
+		ownerEmail = "band@example.com"
+	)
+	organizers := &stubOrganizerRepoForPayoutAccount{
+		getFn: func(_ context.Context, id string) (*entity.Organizer, error) {
+			return &entity.Organizer{ID: id, ShortName: "xx-records", OwnerEmail: ownerEmail, Status: entity.OrganizerStatusActive}, nil
+		},
+	}
+
+	// @spec components/usecase/payout-account/get "First call"
+	t.Run("opens the account with the owner email as contact, stores it pending and returns an onboarding link", func(t *testing.T) {
+		t.Parallel()
+		var stored []*entity.PayoutAccount
+		acctRepo := &stubPayoutAccountRepo{upsertFn: func(_ context.Context, a *entity.PayoutAccount) error {
+			stored = append(stored, a)
+			return nil
+		}}
+		provider := &contactCapturingProvider{stubPaymentProvider: &stubPaymentProvider{}}
+		uc := usecase.NewPayoutAccountUseCase(withPayoutAccountProvider(acctRepo, provider), organizers,
+			"https://console.example.com/payout", newTestLogger(t))
+
+		acct, onboardingURL, err := uc.Get(context.Background(), orgID)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{ownerEmail}, provider.contacts, "the account is opened with the owner email as contact")
+		require.Len(t, stored, 1)
+		assert.Equal(t, entity.PayoutOnboardingStatusPending, stored[0].Status)
+		assert.Equal(t, "acct_first", stored[0].ProviderAccountID)
+		assert.Equal(t, entity.PayoutOnboardingStatusPending, acct.Status)
+		assert.NotEmpty(t, onboardingURL)
+	})
+
+	// @spec components/usecase/payout-account/get "Provider unreachable on first call"
+	t.Run("fails with Unavailable and stores nothing when the payment provider cannot be reached", func(t *testing.T) {
+		t.Parallel()
+		acctRepo := &stubPayoutAccountRepo{upsertFn: func(context.Context, *entity.PayoutAccount) error {
+			t.Fatal("no account may be stored")
+			return nil
+		}}
+		provider := &contactCapturingProvider{
+			stubPaymentProvider: &stubPaymentProvider{},
+			createErr:           apperr.New(codes.Unavailable, "payment provider unreachable"),
+		}
+		uc := usecase.NewPayoutAccountUseCase(withPayoutAccountProvider(acctRepo, provider), organizers,
+			"https://console.example.com/payout", newTestLogger(t))
+
+		_, _, err := uc.Get(context.Background(), orgID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}
+
+// @spec components/usecase/payout-account/get "Unknown Organizer"
 func TestPayoutAccountUseCase_Get_OrganizerNotFound(t *testing.T) {
 	t.Parallel()
 

@@ -43,6 +43,7 @@ packages:
       SeriesImageRepository: {}
       SeriesRepository: {}
       SettlementRepository: {}
+      SignInLinkSender: {}
       SuppressedConcertRepository: {}
       TicketJourneyRepository: {}
       TicketRepository: {}

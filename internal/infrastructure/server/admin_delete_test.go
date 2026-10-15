@@ -262,8 +262,8 @@ func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
 		c, _ := client(t)
 		req := connect.NewRequest(&adminorganizerv1.CreateRequest{
 			Name:       &entityv1.OrganizerName{Value: "Acme Music"},
-			OwnerEmail: &entityv1.Email{Value: "operator@example.com"},
-			ShortName:  &entityv1.OrganizerShortName{Value: "acme"},
+			ShortName:  &entityv1.OrganizerShortName{Value: "acme-music"},
+			OwnerEmail: &entityv1.Email{Value: "band@example.com"},
 		})
 		withToken(req, deleteNonAdminToken)
 

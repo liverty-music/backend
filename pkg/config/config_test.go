@@ -110,6 +110,10 @@ func TestLoad_ServerConfig(t *testing.T) {
 				Stripe: StripeConfig{
 					SettlementDisputeBufferDays: 7,
 				},
+				Postmark: PostmarkConfig{
+					FromAddress:   "Liverty Music <noreply@mail.liverty-music.app>",
+					MessageStream: "outbound",
+				},
 			},
 		},
 		{
@@ -208,6 +212,10 @@ func TestLoad_ServerConfig(t *testing.T) {
 				FanWebBaseURL: "https://liverty-music.app",
 				Stripe: StripeConfig{
 					SettlementDisputeBufferDays: 7,
+				},
+				Postmark: PostmarkConfig{
+					FromAddress:   "Liverty Music <noreply@mail.liverty-music.app>",
+					MessageStream: "outbound",
 				},
 			},
 		},

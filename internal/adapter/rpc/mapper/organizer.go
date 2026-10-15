@@ -6,22 +6,26 @@ import (
 )
 
 // OrganizerToProto maps a domain Organizer to its Protobuf message for the
-// admin and organizer consoles: its id, name, business details and platform
-// fee rate. The internal provider_organizer_id and operational status are
-// backend-only and intentionally not exposed.
+// admin and organizer consoles: its id, name, short name (when it has one),
+// business details and platform fee rate. The internal provider_organizer_id,
+// owner email and operational status are backend-only and intentionally not
+// exposed.
 func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {
 		return nil
 	}
 	pb := PublicOrganizerToProto(o)
+	if o.ShortName != "" {
+		pb.ShortName = &entityv1.OrganizerShortName{Value: o.ShortName}
+	}
 	pb.PlatformFeeRateBps = int32(o.PlatformFeeRateBps)
 	return pb
 }
 
 // PublicOrganizerToProto maps a domain Organizer to the Protobuf message a fan
 // sees: its id, name and, when present, business details, which the checkout
-// shows as the 特商法 disclosure. The platform fee rate is the Organizer's
-// business with the platform and is never set.
+// shows as the 特商法 disclosure. The short name and the platform fee rate are
+// the Organizer's business with the platform and are never set.
 func PublicOrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {
 		return nil

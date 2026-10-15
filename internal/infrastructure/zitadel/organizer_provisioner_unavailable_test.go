@@ -19,12 +19,11 @@ func TestUnavailableOrganizerProvisioner(t *testing.T) {
 	_, ensureErr := p.EnsureTenantOrg(ctx, "org")
 	_, findErr := p.FindTenantOrg(ctx, "org")
 	errs := map[string]error{
-		"CheckOperatorEmailAvailable": p.CheckOperatorEmailAvailable(ctx, "op@example.com"),
-		"EnsureTenantOrg":             ensureErr,
-		"FindTenantOrg":               findErr,
-		"ProvisionTenant":             p.ProvisionTenant(ctx, "org", "zorg", "op@example.com"),
-		"DeactivateOperators":         p.DeactivateOperators(ctx, "zorg"),
-		"DeleteTenant":                p.DeleteTenant(ctx, "zorg"),
+		"EnsureTenantOrg":     ensureErr,
+		"FindTenantOrg":       findErr,
+		"ProvisionTenant":     p.ProvisionTenant(ctx, "zorg", "xx-records", "op@example.com"),
+		"DeactivateOperators": p.DeactivateOperators(ctx, "zorg"),
+		"DeleteTenant":        p.DeleteTenant(ctx, "zorg"),
 	}
 	for method, err := range errs {
 		assert.ErrorIs(t, err, apperr.ErrUnavailable, method)

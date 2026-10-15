@@ -71,7 +71,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// No account exists yet — provision one.
-			return uc.provisionAndPersist(ctx, organizerID, organizer.OperatorEmail)
+			return uc.provisionAndPersist(ctx, organizerID, organizer.OwnerEmail)
 		}
 		return nil, "", err
 	}

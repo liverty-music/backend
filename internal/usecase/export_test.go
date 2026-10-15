@@ -31,3 +31,15 @@ var ExportedOfficialSiteRefreshBatchSize = officialSiteRefreshBatchSize
 
 // ExportedTicketSaleSearchDue exposes ticketSaleSearchDue for black-box tests.
 var ExportedTicketSaleSearchDue = ticketSaleSearchDue
+
+// RunSignInLinksSynchronously makes the OrganizerUseCase run the background
+// lookup and send of SendSignInLinks before SendSignInLinks returns.
+func RunSignInLinksSynchronously(uc OrganizerUseCase) {
+	RunSignInLinksWith(uc, func(task func()) { task() })
+}
+
+// RunSignInLinksWith makes the OrganizerUseCase hand the background lookup
+// and send of SendSignInLinks to run.
+func RunSignInLinksWith(uc OrganizerUseCase, run func(task func())) {
+	uc.(*organizerUseCase).background = run
+}

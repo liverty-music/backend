@@ -168,6 +168,11 @@ type ServerConfig struct {
 	// payment adapter that returns Unavailable, so it starts without a Stripe
 	// account.
 	Stripe StripeConfig `envconfig:""`
+
+	// Postmark sends the organizer sign-in link email
+	// (OrganizerService.SendSignInLinks). When its server token is empty (local
+	// development) the server uses a no-op sender that fails every send.
+	Postmark PostmarkConfig `envconfig:""`
 }
 
 // JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).

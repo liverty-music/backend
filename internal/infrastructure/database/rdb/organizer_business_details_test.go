@@ -29,7 +29,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("new organizer has the default rate and no business details", func(t *testing.T) {
-		created, err := repo.Create(ctx, &entity.Organizer{ID: entity.NewID(), Name: "New Label", OperatorEmail: "op@example.com", Status: entity.OrganizerStatusProvisioning})
+		created, err := repo.Create(ctx, &entity.Organizer{ID: entity.NewID(), Name: "New Label", ShortName: uniqueShortName(), OwnerEmail: "op@example.com", Status: entity.OrganizerStatusProvisioning})
 		require.NoError(t, err)
 
 		assert.Equal(t, entity.DefaultPlatformFeeRateBps, created.PlatformFeeRateBps)

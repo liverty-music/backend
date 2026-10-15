@@ -35,17 +35,34 @@ type OrderStore interface {
 	MarkConfirmationSent(ctx context.Context, id entity.OrderID, at time.Time) error
 }
 
-// PostmarkConfirmationSender implements [entity.OrderConfirmationSender] with
-// Postmark's transactional message stream.
-type PostmarkConfirmationSender struct {
-	orders        OrderStore
+// postmarkClient posts single emails to Postmark's transactional message
+// stream. The senders of this package share it.
+type postmarkClient struct {
 	httpClient    *http.Client
 	apiURL        string
 	serverToken   string
 	fromAddress   string
 	messageStream string
-	clock         func() time.Time
 	logger        *logging.Logger
+}
+
+func newPostmarkClient(apiURL, serverToken, fromAddress, messageStream string, logger *logging.Logger) postmarkClient {
+	return postmarkClient{
+		httpClient:    &http.Client{Timeout: postmarkHTTPTimeout},
+		apiURL:        apiURL,
+		serverToken:   serverToken,
+		fromAddress:   fromAddress,
+		messageStream: messageStream,
+		logger:        logger,
+	}
+}
+
+// PostmarkConfirmationSender implements [entity.OrderConfirmationSender] with
+// Postmark's transactional message stream.
+type PostmarkConfirmationSender struct {
+	postmarkClient
+	orders OrderStore
+	clock  func() time.Time
 }
 
 // Compile-time interface compliance check.
@@ -59,14 +76,9 @@ func NewPostmarkConfirmationSender(orders OrderStore, serverToken, fromAddress, 
 
 func newPostmarkConfirmationSender(orders OrderStore, apiURL, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkConfirmationSender {
 	return &PostmarkConfirmationSender{
-		orders:        orders,
-		httpClient:    &http.Client{Timeout: postmarkHTTPTimeout},
-		apiURL:        apiURL,
-		serverToken:   serverToken,
-		fromAddress:   fromAddress,
-		messageStream: messageStream,
-		clock:         clock,
-		logger:        logger,
+		postmarkClient: newPostmarkClient(apiURL, serverToken, fromAddress, messageStream, logger),
+		orders:         orders,
+		clock:          clock,
 	}
 }
 
@@ -83,7 +95,8 @@ func (s *PostmarkConfirmationSender) SendConfirmationEmail(ctx context.Context, 
 	if order.ConfirmationSendTime != nil {
 		return nil
 	}
-	if err := s.send(ctx, orderID, to, msg); err != nil {
+	if err := s.post(ctx, to, msg.Subject, msg.TextBody, orderConfirmationTag,
+		map[string]string{"order_id": string(orderID)}, slog.String("order_id", string(orderID))); err != nil {
 		return err
 	}
 	return s.orders.MarkConfirmationSent(ctx, orderID, s.clock())
@@ -97,7 +110,7 @@ type postmarkEmail struct {
 	TextBody      string            `json:"TextBody"`
 	Tag           string            `json:"Tag"`
 	MessageStream string            `json:"MessageStream"`
-	Metadata      map[string]string `json:"Metadata"`
+	Metadata      map[string]string `json:"Metadata,omitempty"`
 }
 
 // postmarkResponse is the response body of Postmark's single-email endpoint.
@@ -107,17 +120,18 @@ type postmarkResponse struct {
 	MessageID string `json:"MessageID"`
 }
 
-// send posts one email to Postmark.
-func (s *PostmarkConfirmationSender) send(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
-	attrs := []slog.Attr{slog.String("order_id", string(orderID))}
+// post sends one email to Postmark, tagged tag, with metadata and the log
+// attributes attrs. A request Postmark refuses on its merits fails with
+// InvalidArgument; any other failure with Unavailable.
+func (s *postmarkClient) post(ctx context.Context, to, subject, textBody, tag string, metadata map[string]string, attrs ...slog.Attr) error {
 	body, err := json.Marshal(postmarkEmail{
 		From:          s.fromAddress,
 		To:            to,
-		Subject:       msg.Subject,
-		TextBody:      msg.TextBody,
-		Tag:           orderConfirmationTag,
+		Subject:       subject,
+		TextBody:      textBody,
+		Tag:           tag,
 		MessageStream: s.messageStream,
-		Metadata:      map[string]string{"order_id": string(orderID)},
+		Metadata:      metadata,
 	})
 	if err != nil {
 		return apperr.Wrap(err, codes.Internal, "failed to encode the email", attrs...)
@@ -140,19 +154,19 @@ func (s *PostmarkConfirmationSender) send(ctx context.Context, orderID entity.Or
 	var result postmarkResponse
 	_ = json.Unmarshal(raw, &result)
 	if resp.StatusCode == http.StatusOK && result.ErrorCode == 0 {
-		s.logger.Info(ctx, "order confirmation email sent",
-			slog.String("order_id", string(orderID)),
+		s.logger.Info(ctx, "email sent", append(attrs,
+			slog.String("tag", tag),
 			slog.String("postmark_message_id", result.MessageID),
-		)
+		)...)
 		return nil
 	}
 
 	cause := fmt.Errorf("postmark: HTTP %d, error code %d: %s", resp.StatusCode, result.ErrorCode, result.Message)
-	s.logger.Warn(ctx, "order confirmation email rejected by Postmark",
-		slog.String("order_id", string(orderID)),
+	s.logger.Warn(ctx, "email rejected by Postmark", append(attrs,
+		slog.String("tag", tag),
 		slog.Int("http_status", resp.StatusCode),
 		slog.Int("postmark_error_code", result.ErrorCode),
-	)
+	)...)
 	// A request Postmark refuses on its merits (422) is not retried into
 	// success; anything else (5xx, 429, auth) means mail cannot be sent now.
 	if resp.StatusCode == http.StatusUnprocessableEntity {

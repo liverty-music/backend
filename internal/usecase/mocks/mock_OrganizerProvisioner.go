@@ -46,63 +46,6 @@ func (_m *MockOrganizerProvisioner) EXPECT() *MockOrganizerProvisioner_Expecter 
 	return &MockOrganizerProvisioner_Expecter{mock: &_m.Mock}
 }
 
-// CheckOperatorEmailAvailable provides a mock function for the type MockOrganizerProvisioner
-func (_mock *MockOrganizerProvisioner) CheckOperatorEmailAvailable(ctx context.Context, operatorEmail string) error {
-	ret := _mock.Called(ctx, operatorEmail)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CheckOperatorEmailAvailable")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, operatorEmail)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckOperatorEmailAvailable'
-type MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call struct {
-	*mock.Call
-}
-
-// CheckOperatorEmailAvailable is a helper method to define mock.On call
-//   - ctx context.Context
-//   - operatorEmail string
-func (_e *MockOrganizerProvisioner_Expecter) CheckOperatorEmailAvailable(ctx any, operatorEmail any) *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call {
-	return &MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call{Call: _e.mock.On("CheckOperatorEmailAvailable", ctx, operatorEmail)}
-}
-
-func (_c *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call) Run(run func(ctx context.Context, operatorEmail string)) *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call) Return(err error) *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call) RunAndReturn(run func(ctx context.Context, operatorEmail string) error) *MockOrganizerProvisioner_CheckOperatorEmailAvailable_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // DeactivateOperators provides a mock function for the type MockOrganizerProvisioner
 func (_mock *MockOrganizerProvisioner) DeactivateOperators(ctx context.Context, providerOrganizerID string) error {
 	ret := _mock.Called(ctx, providerOrganizerID)
@@ -218,8 +161,8 @@ func (_c *MockOrganizerProvisioner_DeleteTenant_Call) RunAndReturn(run func(ctx 
 }
 
 // EnsureTenantOrg provides a mock function for the type MockOrganizerProvisioner
-func (_mock *MockOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, organizerID string) (string, error) {
-	ret := _mock.Called(ctx, organizerID)
+func (_mock *MockOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, shortName string) (string, error) {
+	ret := _mock.Called(ctx, shortName)
 
 	if len(ret) == 0 {
 		panic("no return value specified for EnsureTenantOrg")
@@ -228,15 +171,15 @@ func (_mock *MockOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, orga
 	var r0 string
 	var r1 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
-		return returnFunc(ctx, organizerID)
+		return returnFunc(ctx, shortName)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) string); ok {
-		r0 = returnFunc(ctx, organizerID)
+		r0 = returnFunc(ctx, shortName)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, organizerID)
+		r1 = returnFunc(ctx, shortName)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -250,12 +193,12 @@ type MockOrganizerProvisioner_EnsureTenantOrg_Call struct {
 
 // EnsureTenantOrg is a helper method to define mock.On call
 //   - ctx context.Context
-//   - organizerID string
-func (_e *MockOrganizerProvisioner_Expecter) EnsureTenantOrg(ctx any, organizerID any) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
-	return &MockOrganizerProvisioner_EnsureTenantOrg_Call{Call: _e.mock.On("EnsureTenantOrg", ctx, organizerID)}
+//   - shortName string
+func (_e *MockOrganizerProvisioner_Expecter) EnsureTenantOrg(ctx any, shortName any) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
+	return &MockOrganizerProvisioner_EnsureTenantOrg_Call{Call: _e.mock.On("EnsureTenantOrg", ctx, shortName)}
 }
 
-func (_c *MockOrganizerProvisioner_EnsureTenantOrg_Call) Run(run func(ctx context.Context, organizerID string)) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
+func (_c *MockOrganizerProvisioner_EnsureTenantOrg_Call) Run(run func(ctx context.Context, shortName string)) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -278,14 +221,14 @@ func (_c *MockOrganizerProvisioner_EnsureTenantOrg_Call) Return(providerOrganize
 	return _c
 }
 
-func (_c *MockOrganizerProvisioner_EnsureTenantOrg_Call) RunAndReturn(run func(ctx context.Context, organizerID string) (string, error)) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
+func (_c *MockOrganizerProvisioner_EnsureTenantOrg_Call) RunAndReturn(run func(ctx context.Context, shortName string) (string, error)) *MockOrganizerProvisioner_EnsureTenantOrg_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // FindTenantOrg provides a mock function for the type MockOrganizerProvisioner
-func (_mock *MockOrganizerProvisioner) FindTenantOrg(ctx context.Context, organizerID string) (string, error) {
-	ret := _mock.Called(ctx, organizerID)
+func (_mock *MockOrganizerProvisioner) FindTenantOrg(ctx context.Context, shortName string) (string, error) {
+	ret := _mock.Called(ctx, shortName)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindTenantOrg")
@@ -294,15 +237,15 @@ func (_mock *MockOrganizerProvisioner) FindTenantOrg(ctx context.Context, organi
 	var r0 string
 	var r1 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
-		return returnFunc(ctx, organizerID)
+		return returnFunc(ctx, shortName)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string) string); ok {
-		r0 = returnFunc(ctx, organizerID)
+		r0 = returnFunc(ctx, shortName)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, organizerID)
+		r1 = returnFunc(ctx, shortName)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -316,12 +259,12 @@ type MockOrganizerProvisioner_FindTenantOrg_Call struct {
 
 // FindTenantOrg is a helper method to define mock.On call
 //   - ctx context.Context
-//   - organizerID string
-func (_e *MockOrganizerProvisioner_Expecter) FindTenantOrg(ctx any, organizerID any) *MockOrganizerProvisioner_FindTenantOrg_Call {
-	return &MockOrganizerProvisioner_FindTenantOrg_Call{Call: _e.mock.On("FindTenantOrg", ctx, organizerID)}
+//   - shortName string
+func (_e *MockOrganizerProvisioner_Expecter) FindTenantOrg(ctx any, shortName any) *MockOrganizerProvisioner_FindTenantOrg_Call {
+	return &MockOrganizerProvisioner_FindTenantOrg_Call{Call: _e.mock.On("FindTenantOrg", ctx, shortName)}
 }
 
-func (_c *MockOrganizerProvisioner_FindTenantOrg_Call) Run(run func(ctx context.Context, organizerID string)) *MockOrganizerProvisioner_FindTenantOrg_Call {
+func (_c *MockOrganizerProvisioner_FindTenantOrg_Call) Run(run func(ctx context.Context, shortName string)) *MockOrganizerProvisioner_FindTenantOrg_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -344,14 +287,14 @@ func (_c *MockOrganizerProvisioner_FindTenantOrg_Call) Return(providerOrganizerI
 	return _c
 }
 
-func (_c *MockOrganizerProvisioner_FindTenantOrg_Call) RunAndReturn(run func(ctx context.Context, organizerID string) (string, error)) *MockOrganizerProvisioner_FindTenantOrg_Call {
+func (_c *MockOrganizerProvisioner_FindTenantOrg_Call) RunAndReturn(run func(ctx context.Context, shortName string) (string, error)) *MockOrganizerProvisioner_FindTenantOrg_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ProvisionTenant provides a mock function for the type MockOrganizerProvisioner
-func (_mock *MockOrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID string, providerOrganizerID string, operatorEmail string) error {
-	ret := _mock.Called(ctx, organizerID, providerOrganizerID, operatorEmail)
+func (_mock *MockOrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrganizerID string, shortName string, ownerEmail string) error {
+	ret := _mock.Called(ctx, providerOrganizerID, shortName, ownerEmail)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ProvisionTenant")
@@ -359,7 +302,7 @@ func (_mock *MockOrganizerProvisioner) ProvisionTenant(ctx context.Context, orga
 
 	var r0 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = returnFunc(ctx, organizerID, providerOrganizerID, operatorEmail)
+		r0 = returnFunc(ctx, providerOrganizerID, shortName, ownerEmail)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -373,14 +316,14 @@ type MockOrganizerProvisioner_ProvisionTenant_Call struct {
 
 // ProvisionTenant is a helper method to define mock.On call
 //   - ctx context.Context
-//   - organizerID string
 //   - providerOrganizerID string
-//   - operatorEmail string
-func (_e *MockOrganizerProvisioner_Expecter) ProvisionTenant(ctx any, organizerID any, providerOrganizerID any, operatorEmail any) *MockOrganizerProvisioner_ProvisionTenant_Call {
-	return &MockOrganizerProvisioner_ProvisionTenant_Call{Call: _e.mock.On("ProvisionTenant", ctx, organizerID, providerOrganizerID, operatorEmail)}
+//   - shortName string
+//   - ownerEmail string
+func (_e *MockOrganizerProvisioner_Expecter) ProvisionTenant(ctx any, providerOrganizerID any, shortName any, ownerEmail any) *MockOrganizerProvisioner_ProvisionTenant_Call {
+	return &MockOrganizerProvisioner_ProvisionTenant_Call{Call: _e.mock.On("ProvisionTenant", ctx, providerOrganizerID, shortName, ownerEmail)}
 }
 
-func (_c *MockOrganizerProvisioner_ProvisionTenant_Call) Run(run func(ctx context.Context, organizerID string, providerOrganizerID string, operatorEmail string)) *MockOrganizerProvisioner_ProvisionTenant_Call {
+func (_c *MockOrganizerProvisioner_ProvisionTenant_Call) Run(run func(ctx context.Context, providerOrganizerID string, shortName string, ownerEmail string)) *MockOrganizerProvisioner_ProvisionTenant_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -413,7 +356,7 @@ func (_c *MockOrganizerProvisioner_ProvisionTenant_Call) Return(err error) *Mock
 	return _c
 }
 
-func (_c *MockOrganizerProvisioner_ProvisionTenant_Call) RunAndReturn(run func(ctx context.Context, organizerID string, providerOrganizerID string, operatorEmail string) error) *MockOrganizerProvisioner_ProvisionTenant_Call {
+func (_c *MockOrganizerProvisioner_ProvisionTenant_Call) RunAndReturn(run func(ctx context.Context, providerOrganizerID string, shortName string, ownerEmail string) error) *MockOrganizerProvisioner_ProvisionTenant_Call {
 	_c.Call.Return(run)
 	return _c
 }

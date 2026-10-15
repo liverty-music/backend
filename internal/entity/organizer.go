@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"regexp"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -26,16 +28,22 @@ const (
 )
 
 // Organizer is a vetted business — a record label, management/agency, promoter, or
-// a self-publishing artist — that an admin creates to represent artists. It runs
-// against its own isolated Zitadel tenant its operators sign into. Existence is
-// the vetting; there is no separate verified flag.
+// a self-publishing artist — that an admin creates to represent artists. The
+// people who run it sign in through its own Organization at the identity
+// provider, named by its short name. Existence is the vetting; there is no
+// separate verified flag.
 type Organizer struct {
 	ID   string
 	Name string
-	// OperatorEmail is the initial operator's email, captured at creation and
-	// persisted so the reconciler can complete provisioning after a partial
-	// failure. It is backend-only (not exposed on the consumer proto).
-	OperatorEmail       string
+	// ShortName names the Organizer's Organization at the identity provider
+	// and completes its identities' user names. It is unique and never
+	// changes. Empty only for an Organizer created before short names existed,
+	// until it is given one.
+	ShortName string
+	// OwnerEmail is the email of the person who owns the Organizer, captured at
+	// creation and persisted so the reconciler can complete provisioning after
+	// a partial failure. It is not exposed on any proto.
+	OwnerEmail          string
 	ProviderOrganizerID string // empty until tenant provisioning persists the tenant link
 	Status              OrganizerStatus
 	// BusinessDetails is the 特商法 販売業者 disclosure entered by an admin at
@@ -54,14 +62,72 @@ const (
 )
 
 // NewOrganizer creates a new Organizer in the provisioning state with a generated
-// UUIDv7 id and the default platform fee rate.
-func NewOrganizer(name string) *Organizer {
+// UUIDv7 id and the default platform fee rate. It does not validate its
+// arguments; see [Organizer.Validate].
+func NewOrganizer(name, shortName, ownerEmail string) *Organizer {
 	return &Organizer{
 		ID:                 NewID(),
 		Name:               name,
+		ShortName:          shortName,
+		OwnerEmail:         ownerEmail,
 		Status:             OrganizerStatusProvisioning,
 		PlatformFeeRateBps: DefaultPlatformFeeRateBps,
 	}
+}
+
+// EmailMaxLen is the longest email accepted anywhere, in characters, so that
+// any address can become an Organizer identity's user name
+// "<email> (<short name>)" within the identity provider's 200 characters.
+// Mirrors max_len on liverty_music.entity.v1.Email.
+const EmailMaxLen = 165
+
+// ValidateEmail reports whether s is a bare email address of at most
+// [EmailMaxLen] characters.
+func ValidateEmail(s string) error {
+	if addr, err := mail.ParseAddress(s); err != nil || addr.Address != s {
+		return errors.New("must be an email address")
+	}
+	if utf8.RuneCountInString(s) > EmailMaxLen {
+		return errors.New("must be at most 165 characters")
+	}
+	return nil
+}
+
+// shortNameRe matches a short name: 3 to 32 lowercase letters, digits and
+// hyphens, starting with a letter. Mirrors the protovalidate pattern on
+// liverty_music.entity.v1.OrganizerShortName and the CHECK constraint in
+// storage.
+var shortNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,31}$`)
+
+// reservedShortNames are the names of the product and admin Organizations,
+// which no Organizer may take.
+var reservedShortNames = []string{"admin", "liverty-music"}
+
+// ValidateShortName reports whether s is a valid, unreserved short name.
+func ValidateShortName(s string) error {
+	if !shortNameRe.MatchString(s) {
+		return errors.New("short name must be 3 to 32 lowercase letters, digits and hyphens, starting with a letter")
+	}
+	if slices.Contains(reservedShortNames, s) {
+		return errors.New("short name is reserved")
+	}
+	return nil
+}
+
+// Validate reports whether the Organizer's name is 1 to 200 characters, its
+// short name is valid and unreserved, and its owner email is an email
+// address of at most 165 characters.
+func (o *Organizer) Validate() error {
+	if !lenBetween(o.Name, 1, 200) {
+		return errors.New("name must be 1 to 200 characters")
+	}
+	if err := ValidateShortName(o.ShortName); err != nil {
+		return err
+	}
+	if err := ValidateEmail(o.OwnerEmail); err != nil {
+		return errors.New("owner email " + err.Error())
+	}
+	return nil
 }
 
 // HasCompleteBusinessDetails reports whether the Organizer has business
@@ -97,7 +163,8 @@ type BusinessDetails struct {
 	// BusinessPhoneNumber is the Organizer's business phone number in E.164
 	// form.
 	BusinessPhoneNumber string
-	// ContactEmail is the Organizer's contact email address.
+	// ContactEmail is the Organizer's contact email address, at most 165
+	// characters.
 	ContactEmail string
 }
 
@@ -115,8 +182,8 @@ func (d *BusinessDetails) Validate() error {
 	if !IsE164(d.BusinessPhoneNumber) {
 		return errors.New("business phone number must be in E.164 form")
 	}
-	if addr, err := mail.ParseAddress(d.ContactEmail); err != nil || addr.Address != d.ContactEmail {
-		return errors.New("contact email must be an email address")
+	if err := ValidateEmail(d.ContactEmail); err != nil {
+		return errors.New("contact email " + err.Error())
 	}
 	return nil
 }
@@ -129,7 +196,14 @@ func lenBetween(s string, lo, hi int) bool {
 
 // OrganizerRepository persists Organizers and their artist associations.
 type OrganizerRepository interface {
-	// Create inserts a new Organizer row (typically in the provisioning state).
+	// Create stores the Organizer with its id, name, short name, owner email,
+	// provider organizer ID and status, and returns it as stored. An Organizer
+	// without an id receives a new one. It does not deduplicate by name or
+	// owner email.
+	//
+	// # Possible errors
+	//   - AlreadyExists: another Organizer, in any status, has the short name;
+	//     nothing is stored.
 	Create(ctx context.Context, o *Organizer) (*Organizer, error)
 
 	// Get returns the Organizer by id.
@@ -148,6 +222,11 @@ type OrganizerRepository interface {
 
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*Organizer, error)
+
+	// ListByOwnerEmail returns every active Organizer whose owner email equals
+	// email, compared without regard to letter case, ordered by name. It
+	// returns an empty list when none matches.
+	ListByOwnerEmail(ctx context.Context, email string) ([]*Organizer, error)
 
 	// ListByStatus returns every Organizer in the given operational status. Used
 	// by the reconciler to find rows stuck in the provisioning state.
@@ -239,4 +318,16 @@ type OrganizerRepository interface {
 	//  - FailedPrecondition: the organizer is not deactivated, or a purchase or
 	//    payout account blocks deletion.
 	Delete(ctx context.Context, id string, dryRun bool) error
+}
+
+// SignInLinkSender sends the email that carries the organizer console
+// sign-in links (Organizer.SendSignInLinks).
+type SignInLinkSender interface {
+	// SendSignInLinks sends one email, in Japanese, to the address to, listing
+	// each Organizer by name with a link to the organizer console that names
+	// its Organization by its short name.
+	//
+	// # Possible errors
+	//   - Internal: the email could not be sent.
+	SendSignInLinks(ctx context.Context, to string, organizers []*Organizer) error
 }

@@ -59,6 +59,20 @@ func (h *OrganizerHandler) Get(
 	}), nil
 }
 
+// SendSignInLinks asks for an email with a sign-in link for each active
+// Organizer the given address owns. It is the one organizer procedure that
+// needs no sign-in (auth.OrganizerPublicProcedures). It answers with the same
+// empty success whether or not any Organizer has the address; the per-client
+// limit (ResourceExhausted) is applied by the organizer server's interceptor,
+// keyed by the client's network address, before this handler runs.
+func (h *OrganizerHandler) SendSignInLinks(
+	ctx context.Context,
+	req *connect.Request[organizerv1.SendSignInLinksRequest],
+) (*connect.Response[organizerv1.SendSignInLinksResponse], error) {
+	h.organizerUC.SendSignInLinks(ctx, req.Msg.GetEmail().GetValue())
+	return connect.NewResponse(&organizerv1.SendSignInLinksResponse{}), nil
+}
+
 // resolveCallerOrganizer reads the caller's Zitadel org id from the context
 // (placed there by OrgScopedInterceptor) and delegates to the usecase to
 // resolve the linked Organizer and enforce its lifecycle status. It returns
