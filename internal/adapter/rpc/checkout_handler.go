@@ -50,7 +50,8 @@ func (h *CheckoutHandler) Start(
 		return nil, err
 	}
 
-	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), int(req.Msg.GetTicketCount()))
+	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), int(req.Msg.GetTicketCount()),
+		mapper.ReferralCodeFromProto(req.Msg.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}

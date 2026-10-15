@@ -3,6 +3,7 @@ package rpc_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	lotteryentryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
@@ -63,13 +64,28 @@ func TestLotteryEntryHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/lottery-entry "Fan starts an entry"
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2).Return(draft, nil)
+		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2, (*entity.ReferralCode)(nil)).Return(draft, nil)
 
 		resp, err := f.client.Start(ctx, connect.NewRequest(startReq()))
 
 		require.NoError(t, err)
 		assert.Equal(t, tkFanUserID, resp.Msg.GetLotteryEntry().GetUserId().GetValue(), "the Draft's user is the signed-in fan")
 		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_DRAFT, resp.Msg.GetLotteryEntry().GetState())
+	})
+
+	t.Run("referral code passed on", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/lottery-entry "Referral code passed on"
+		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
+		expectFan(f.users)
+		code := entity.ReferralCode("member-a")
+		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2, &code).Return(draft, nil)
+		req := startReq()
+		req.ReferralCode = &entityv1.ReferralCode{Value: "member-a"}
+
+		_, err := f.client.Start(ctx, connect.NewRequest(req))
+
+		require.NoError(t, err)
 	})
 
 	t.Run("not signed in", func(t *testing.T) {
@@ -163,7 +179,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		t.Parallel()
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2).
+		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2, (*entity.ReferralCode)(nil)).
 			Return(nil, apperr.New(codes.FailedPrecondition, "window closed"))
 
 		_, err := f.client.Start(ctx, connect.NewRequest(startReq()))
@@ -181,6 +197,16 @@ func TestLotteryEntryHandler(t *testing.T) {
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := startReq()
 				req.TicketCount = 0
+				_, err := c.Start(ctx, connect.NewRequest(req))
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/fan/api/rpc/lottery-entry "Malformed referral code"
+			name: "malformed referral code",
+			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
+				req := startReq()
+				req.ReferralCode = &entityv1.ReferralCode{Value: strings.Repeat("a", 33)}
 				_, err := c.Start(ctx, connect.NewRequest(req))
 				return err
 			},

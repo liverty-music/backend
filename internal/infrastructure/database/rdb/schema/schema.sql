@@ -901,6 +901,34 @@ COMMENT ON INDEX uq_orders_checkout_id IS 'One order per checkout — the issuan
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders';
 
+-- Referrals: the referral code a checkout or a lottery entry was started with,
+-- from the ?ref= of the link the fan followed. At most one per source; the
+-- code changes only while the source is open (Held checkout, Draft entry). A
+-- purchase without a code has no row. The Order is reached through its source.
+CREATE TABLE IF NOT EXISTS referrals (
+    id                UUID        PRIMARY KEY,
+    checkout_id       UUID        REFERENCES checkouts(id) ON DELETE CASCADE,
+    lottery_entry_id  UUID        REFERENCES lottery_entries(id) ON DELETE CASCADE,
+    code              TEXT        NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_referrals_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_referrals_one_source CHECK ((checkout_id IS NULL) <> (lottery_entry_id IS NULL)),
+    CONSTRAINT chk_referrals_code CHECK (code ~ '^[a-z0-9-]{1,32}$')
+);
+
+COMMENT ON TABLE referrals IS 'The referral code one checkout or one lottery entry was started with, from the ?ref= of the link the fan followed. At most one row per source, removed with its source; a purchase without a code has no row.';
+COMMENT ON COLUMN referrals.id IS 'Unique referral identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN referrals.checkout_id IS 'The checkout started with the code; NULL when the source is a lottery entry; unique';
+COMMENT ON COLUMN referrals.lottery_entry_id IS 'The lottery entry started with the code; NULL when the source is a checkout; unique';
+COMMENT ON COLUMN referrals.code IS 'The referral code: 1 to 32 lowercase ASCII letters, digits or hyphens. Replaced only while the source is a Held checkout or a Draft entry';
+COMMENT ON COLUMN referrals.created_at IS 'When the source was first started with a code; kept when the code is replaced';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_referrals_checkout_id ON referrals(checkout_id) WHERE checkout_id IS NOT NULL;
+COMMENT ON INDEX uq_referrals_checkout_id IS 'At most one referral per checkout; the conflict target of Record and the join from orders.checkout_id';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_referrals_lottery_entry_id ON referrals(lottery_entry_id) WHERE lottery_entry_id IS NOT NULL;
+COMMENT ON INDEX uq_referrals_lottery_entry_id IS 'At most one referral per lottery entry; the conflict target of Record and the join from orders.lottery_entry_id';
+
 -- Tickets: account-bound covered tickets (特定興行入場券) issued from a won
 -- lottery entry or a completed checkout. One order issues the N tickets of its
 -- companion group. The face shows the user's current full name and phone

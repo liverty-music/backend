@@ -35,6 +35,7 @@ packages:
       OrganizerRepository: {}
       PushNotificationSender: {}
       PushSubscriptionRepository: {}
+      ReferralRepository: {}
       RejectedConcertRepository: {}
       RejectedScanRepository: {}
       ScannerRepository: {}

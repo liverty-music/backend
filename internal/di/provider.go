@@ -180,6 +180,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
 	checkoutRepo := rdb.NewCheckoutRepository(db)
+	referralRepo := rdb.NewReferralRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	scannerRepo := rdb.NewScannerRepository(db)
@@ -367,14 +368,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 	}
-	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, time.Now, logger)
+	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, time.Now, logger)
 
 	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
 	// 15-minute first-come checkout.
-	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
+	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, referralRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
 	ticketTypeUC := usecase.NewTicketTypeUseCase(ticketSaleRepo, seriesRepo, time.Now)
 	checkoutUC := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             checkoutRepo,
+		ReferralRepo:             referralRepo,
 		SaleRepo:                 ticketSaleRepo,
 		UserRepo:                 userRepo,
 		IdentityVerificationRepo: identityVerificationRepo,

@@ -34,7 +34,13 @@ type CheckoutUseCase interface {
 	//  - InvalidArgument: count is below 1 or above the TicketType's
 	//    per-account limit.
 	//  - ResourceExhausted: not enough tickets remain.
-	Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int) (*entity.Checkout, error)
+	//  - The error of [entity.ReferralRepository.Record], unchanged; the hold
+	//    stays, so starting again resumes it and records the code again.
+	//
+	// When code is not nil, the returned Checkout's Referral is recorded with
+	// it; a nil code records nothing and keeps an existing Referral. The code
+	// is not checked against any list or the event's Series.
+	Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode) (*entity.Checkout, error)
 
 	// Get returns the fan's own Checkout as of now: a Held Checkout whose hold
 	// has lapsed is returned Expired.
@@ -71,6 +77,7 @@ type CheckoutUseCase interface {
 // checkoutUseCase implements [CheckoutUseCase].
 type checkoutUseCase struct {
 	checkoutRepo             entity.CheckoutRepository
+	referralRepo             entity.ReferralRepository
 	saleRepo                 entity.TicketSaleRepository
 	userRepo                 entity.UserRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
@@ -86,6 +93,7 @@ var _ CheckoutUseCase = (*checkoutUseCase)(nil)
 // CheckoutDeps are the dependencies of [NewCheckoutUseCase]. All are required.
 type CheckoutDeps struct {
 	CheckoutRepo             entity.CheckoutRepository
+	ReferralRepo             entity.ReferralRepository
 	SaleRepo                 entity.TicketSaleRepository
 	UserRepo                 entity.UserRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
@@ -99,6 +107,7 @@ type CheckoutDeps struct {
 func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 	return &checkoutUseCase{
 		checkoutRepo:             d.CheckoutRepo,
+		referralRepo:             d.ReferralRepo,
 		saleRepo:                 d.SaleRepo,
 		userRepo:                 d.UserRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
@@ -113,7 +122,7 @@ func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 // fan's Issued Tickets for the event is checked by
 // [entity.CheckoutRepository.GetOrCreateHeld] under the ticket type's row
 // lock, so two concurrent starts cannot both pass it.
-func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int) (*entity.Checkout, error) {
+func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode) (*entity.Checkout, error) {
 	now := uc.clock()
 	sale, ticketType, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, now)
 	if err != nil {
@@ -139,7 +148,16 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 		return nil, err
 	}
 
-	return uc.checkoutRepo.GetOrCreateHeld(ctx, ticketTypeID, userID, count, now)
+	checkout, err := uc.checkoutRepo.GetOrCreateHeld(ctx, ticketTypeID, userID, count, now)
+	if err != nil {
+		return nil, err
+	}
+	if code != nil {
+		if err := uc.referralRepo.Record(ctx, entity.ReferralSource{CheckoutID: checkout.ID}, *code, now); err != nil {
+			return nil, err
+		}
+	}
+	return checkout, nil
 }
 
 // verificationGate applies the sale's verification gate: when the sale
