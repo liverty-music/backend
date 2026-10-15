@@ -36,7 +36,7 @@ func (h *AdminOrganizerHandler) Create(
 	ctx context.Context,
 	req *connect.Request[organizerv1.CreateRequest],
 ) (*connect.Response[organizerv1.CreateResponse], error) {
-	organizer, err := h.organizerUseCase.Create(ctx, req.Msg.GetName().GetValue(), req.Msg.GetOperatorEmail().GetValue())
+	organizer, err := h.organizerUseCase.Create(ctx, req.Msg.GetName().GetValue(), req.Msg.GetOwnerEmail().GetValue())
 	if err != nil {
 		return nil, err
 	}

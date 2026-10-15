@@ -35,7 +35,7 @@ func PublicOrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 		pb.RepresentativeName = &entityv1.RepresentativeName{Value: d.RepresentativeName}
 		pb.BusinessAddress = &entityv1.BusinessAddress{Value: d.BusinessAddress}
 		pb.BusinessPhoneNumber = &entityv1.PhoneNumber{Value: d.BusinessPhoneNumber}
-		pb.ContactEmail = &entityv1.ContactEmail{Value: d.ContactEmail}
+		pb.ContactEmail = &entityv1.Email{Value: d.ContactEmail}
 	}
 	return pb
 }
@@ -47,7 +47,7 @@ func BusinessDetailsFromSetRequest(
 	representativeName *entityv1.RepresentativeName,
 	businessAddress *entityv1.BusinessAddress,
 	businessPhoneNumber *entityv1.PhoneNumber,
-	contactEmail *entityv1.ContactEmail,
+	contactEmail *entityv1.Email,
 ) entity.BusinessDetails {
 	return entity.BusinessDetails{
 		LegalName:           legalName.GetValue(),

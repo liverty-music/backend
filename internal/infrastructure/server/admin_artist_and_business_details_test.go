@@ -97,7 +97,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 			RepresentativeName:  &entityv1.RepresentativeName{Value: details.RepresentativeName},
 			BusinessAddress:     &entityv1.BusinessAddress{Value: details.BusinessAddress},
 			BusinessPhoneNumber: &entityv1.PhoneNumber{Value: details.BusinessPhoneNumber},
-			ContactEmail:        &entityv1.ContactEmail{Value: details.ContactEmail},
+			ContactEmail:        &entityv1.Email{Value: details.ContactEmail},
 		}
 	}
 
