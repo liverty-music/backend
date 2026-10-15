@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -23,21 +25,23 @@ type OrganizerMetrics interface {
 
 // OrganizerUseCase defines the admin-side business logic for managing Organizers.
 type OrganizerUseCase interface {
-	// Create registers a new Organizer and synchronously provisions its isolated
-	// Zitadel tenant, seeding the initial operator as owner. On success the
-	// Organizer is active. The operator email is checked against every existing
-	// Zitadel user before anything is created. A transient provisioning failure
-	// leaves the Organizer in the provisioning state for the reconciler to
-	// complete and returns the error. A failure that no retry can fix (the
-	// operator email is taken or rejected) removes the Organizer and its tenant
-	// again and returns the error.
+	// Create registers a new Organizer and synchronously provisions its
+	// Organization at the identity provider, named by its short name, with an
+	// owner identity for the owner email. On success the Organizer is active.
+	// The owner email is not checked against other Organizations: it may be
+	// the email of a fan account, an admin or another Organizer's owner. A
+	// transient provisioning failure leaves the Organizer in the provisioning
+	// state for the reconciler to complete and returns the error. A failure
+	// that no retry can fix (the owner email is rejected) removes the
+	// Organizer and its Organization again and returns the error.
 	//
 	// # Possible errors:
-	//   - InvalidArgument: the name is empty, or the operator email is malformed
-	//     or rejected by Zitadel.
-	//   - AlreadyExists: the operator email is already used by another account.
+	//   - InvalidArgument: the name, short name or owner email breaks the
+	//     Organizer rule, or the identity provider rejects the owner email.
+	//   - AlreadyExists: another Organizer, in any status, has the short name;
+	//     nothing is created.
 	//   - Internal: provisioning failed; the reconciler retries it.
-	Create(ctx context.Context, name, operatorEmail string) (*entity.Organizer, error)
+	Create(ctx context.Context, name, shortName, ownerEmail string) (*entity.Organizer, error)
 
 	// Get returns a single Organizer by id.
 	//
@@ -141,6 +145,15 @@ type OrganizerUseCase interface {
 	//   - NotFound: the organizer does not exist.
 	//   - InvalidArgument: the rate is outside 0 to 3000 basis points.
 	SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error)
+
+	// SendSignInLinks emails the address one organizer console sign-in link
+	// per active Organizer it owns, and sends nothing when it owns none. It
+	// succeeds in the same way either way, so the caller cannot tell whether
+	// the address owns an Organizer: after the per-address limit (at most 3
+	// sends per 60 minutes, compared without regard to letter case; a further
+	// request succeeds without sending) it returns at once, and the lookup and
+	// the send run in the background, where failures are logged.
+	SendSignInLinks(ctx context.Context, email string)
 }
 
 // StorageBuckets names the GCS buckets that hold Organizer series images: the
@@ -153,6 +166,7 @@ type StorageBuckets struct {
 
 type organizerUseCase struct {
 	organizerRepo   entity.OrganizerRepository
+	signInLinks     entity.SignInLinkSender
 	artistRepo      entity.ArtistRepository
 	provisioner     OrganizerProvisioner
 	seriesImageRepo entity.SeriesImageRepository
@@ -161,13 +175,30 @@ type organizerUseCase struct {
 	publisher       EventPublisher
 	metrics         OrganizerMetrics
 	logger          *logging.Logger
+
+	// signInLinkLimiter bounds the sign-in link emails sent to one address.
+	signInLinkLimiter *slidingWindowLimiter
+	// background runs the sign-in link lookup and send after the call
+	// returns. Tests replace it to run the task synchronously.
+	background func(task func())
 }
+
+// signInLinkLimit and signInLinkWindow bound the sign-in link emails sent to
+// one address: at most signInLinkLimit within any signInLinkWindow.
+const (
+	signInLinkLimit  = 3
+	signInLinkWindow = 60 * time.Minute
+	// signInLinkTimeout bounds the background lookup and send.
+	signInLinkTimeout = 30 * time.Second
+)
 
 // NewOrganizerUseCase creates a new OrganizerUseCase. imageStorer may be nil
 // in local development; Delete then fails with Internal for an Organizer that
-// owns series images rather than leaving its files behind.
+// owns series images rather than leaving its files behind. signInLinks sends
+// the sign-in link emails of SendSignInLinks.
 func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
+	signInLinks entity.SignInLinkSender,
 	artistRepo entity.ArtistRepository,
 	provisioner OrganizerProvisioner,
 	seriesImageRepo entity.SeriesImageRepository,
@@ -178,34 +209,35 @@ func NewOrganizerUseCase(
 	logger *logging.Logger,
 ) OrganizerUseCase {
 	return &organizerUseCase{
-		organizerRepo:   organizerRepo,
-		artistRepo:      artistRepo,
-		provisioner:     provisioner,
-		seriesImageRepo: seriesImageRepo,
-		imageStorer:     imageStorer,
-		storageBuckets:  storageBuckets,
-		publisher:       publisher,
-		metrics:         metrics,
-		logger:          logger,
+		organizerRepo:     organizerRepo,
+		signInLinks:       signInLinks,
+		signInLinkLimiter: newSlidingWindowLimiter(signInLinkLimit, signInLinkWindow, time.Now),
+		background:        func(task func()) { go task() },
+		artistRepo:        artistRepo,
+		provisioner:       provisioner,
+		seriesImageRepo:   seriesImageRepo,
+		imageStorer:       imageStorer,
+		storageBuckets:    storageBuckets,
+		publisher:         publisher,
+		metrics:           metrics,
+		logger:            logger,
 	}
 }
 
-// Create registers a new Organizer and synchronously provisions its Zitadel
-// tenant. The operator email is checked first so that an email already used by
-// another Zitadel account fails before anything is created. On a transient
-// provisioning failure the row is left in the provisioning state and the error
-// is returned; the reconciler completes the saga on the next sweep. On a
-// permanent failure the row and its tenant are removed again (see
-// discardUnprovisionable) so nothing is left for the reconciler.
-func (uc *organizerUseCase) Create(ctx context.Context, name, operatorEmail string) (*entity.Organizer, error) {
-	if err := uc.provisioner.CheckOperatorEmailAvailable(ctx, operatorEmail); err != nil {
-		return nil, err
-	}
-
+// Create registers a new Organizer and synchronously provisions its
+// Organization. A short name already used fails at the insert, before
+// anything else is created. On a transient provisioning failure the row is
+// left in the provisioning state and the error is returned; the reconciler
+// completes the saga on the next sweep. On a permanent failure the row and its
+// Organization are removed again (see discardUnprovisionable) so nothing is
+// left for the reconciler.
+func (uc *organizerUseCase) Create(ctx context.Context, name, shortName, ownerEmail string) (*entity.Organizer, error) {
 	// Insert the organizers row in the provisioning state, capturing the
-	// operator email so the reconciler can complete provisioning after a failure.
-	org := entity.NewOrganizer(name)
-	org.OperatorEmail = operatorEmail
+	// owner email so the reconciler can complete provisioning after a failure.
+	org := entity.NewOrganizer(name, shortName, ownerEmail)
+	if err := org.Validate(); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+	}
 	created, err := uc.organizerRepo.Create(ctx, org)
 	if err != nil {
 		return nil, err
@@ -222,7 +254,7 @@ func (uc *organizerUseCase) Create(ctx context.Context, name, operatorEmail stri
 
 // isPermanentProvisioningFailure reports whether a provisioning error can never
 // be fixed by retrying: the provisioner reports a conflict or a rejected input
-// (e.g. the operator email belongs to another account) with these codes, while
+// (e.g. the identity provider rejects the owner email) with these codes, while
 // transient failures are Internal.
 func isPermanentProvisioningFailure(err error) bool {
 	return errors.Is(err, apperr.ErrAlreadyExists) ||
@@ -278,7 +310,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	}
 
 	if org.ProviderOrganizerID == "" {
-		providerOrganizerID, err := uc.provisioner.EnsureTenantOrg(ctx, org.ID)
+		providerOrganizerID, err := uc.provisioner.EnsureTenantOrg(ctx, org.ShortName)
 		if err != nil {
 			return fail(err)
 		}
@@ -288,7 +320,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 		org.ProviderOrganizerID = providerOrganizerID
 	}
 
-	if err := uc.provisioner.ProvisionTenant(ctx, org.ID, org.ProviderOrganizerID, org.OperatorEmail); err != nil {
+	if err := uc.provisioner.ProvisionTenant(ctx, org.ProviderOrganizerID, org.ShortName, org.OwnerEmail); err != nil {
 		return fail(err)
 	}
 
@@ -374,15 +406,20 @@ func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	return nil
 }
 
-// tenantOrgID returns the Organizer's tenant org id: the recorded link, or,
+// tenantOrgID returns the Organizer's Organization id: the recorded link, or,
 // when none was recorded (an Organizer whose first provisioning attempt failed
-// before the link was stored), the org found by its deterministic name. It
-// returns "" when the Organizer has no tenant org.
+// before the link was stored), the Organization found by its short name. It
+// returns "" when the Organizer has no Organization.
 func (uc *organizerUseCase) tenantOrgID(ctx context.Context, org *entity.Organizer) (string, error) {
 	if org.ProviderOrganizerID != "" {
 		return org.ProviderOrganizerID, nil
 	}
-	providerOrganizerID, err := uc.provisioner.FindTenantOrg(ctx, org.ID)
+	if org.ShortName == "" {
+		// Only the Organizer created before short names lacks one, and it
+		// has a recorded Organization.
+		return "", nil
+	}
+	providerOrganizerID, err := uc.provisioner.FindTenantOrg(ctx, org.ShortName)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return "", nil
@@ -587,4 +624,44 @@ func (uc *organizerUseCase) SetPlatformFeeRate(ctx context.Context, organizerID 
 	uc.logger.Info(ctx, "organizer platform fee rate set",
 		slog.String("organizer_id", organizerID), slog.Int("platform_fee_rate_bps", rateBps))
 	return uc.organizerRepo.Get(ctx, organizerID)
+}
+
+// SendSignInLinks implements [OrganizerUseCase]. The per-address check runs
+// before it returns; the lookup and the send run afterwards on a context
+// detached from the request, so neither the answer nor its timing depends on
+// whether the address owns an Organizer.
+func (uc *organizerUseCase) SendSignInLinks(ctx context.Context, email string) {
+	address := strings.ToLower(email)
+	if !uc.signInLinkLimiter.allow(address) {
+		uc.logger.Info(ctx, "sign-in links not sent: per-address limit reached")
+		return
+	}
+	bgCtx := context.WithoutCancel(ctx)
+	uc.background(func() {
+		ctx, cancel := context.WithTimeout(bgCtx, signInLinkTimeout)
+		defer cancel()
+		uc.sendSignInLinks(ctx, email)
+	})
+}
+
+// sendSignInLinks reads the active Organizers the address owns and, when
+// there are any, sends their sign-in links to the owner email as stored.
+// Failures are logged.
+func (uc *organizerUseCase) sendSignInLinks(ctx context.Context, email string) {
+	organizers, err := uc.organizerRepo.ListByOwnerEmail(ctx, email)
+	if err != nil {
+		uc.logger.Error(ctx, "failed to list organizers for sign-in links", err)
+		return
+	}
+	if len(organizers) == 0 {
+		return
+	}
+	// The lookup ignores letter case; send to the address as stored, which
+	// was given by an admin, not to the caller's spelling of it.
+	if err := uc.signInLinks.SendSignInLinks(ctx, organizers[0].OwnerEmail, organizers); err != nil {
+		uc.logger.Error(ctx, "failed to send sign-in links", err,
+			slog.Int("organizer_count", len(organizers)))
+		return
+	}
+	uc.logger.Info(ctx, "sign-in links sent", slog.Int("organizer_count", len(organizers)))
 }

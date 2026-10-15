@@ -18,13 +18,14 @@ CREATE TABLE IF NOT EXISTS users (
     phone_number TEXT,
     CONSTRAINT chk_users_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_users_full_name_len CHECK (full_name IS NULL OR char_length(full_name) BETWEEN 1 AND 200),
-    CONSTRAINT chk_users_phone_number_e164 CHECK (phone_number IS NULL OR phone_number ~ '^\+[1-9][0-9]{1,14}$')
+    CONSTRAINT chk_users_phone_number_e164 CHECK (phone_number IS NULL OR phone_number ~ '^\+[1-9][0-9]{1,14}$'),
+    CONSTRAINT chk_users_email_len CHECK (char_length(email) <= 165)
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
 COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN users.provider_user_id IS 'The identity provider''s ID for the user (Zitadel sub claim), used for account sync';
-COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
+COMMENT ON COLUMN users.email IS 'Primary contact and login identifier (at most 165 characters)';
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
 COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). NULL means "not yet set by client"; client backfills via UpdatePreferredLanguage on first observation.';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
@@ -138,7 +139,7 @@ COMMENT ON TYPE event_publish_state IS 'Publish lifecycle of an event of a first
 CREATE TABLE IF NOT EXISTS organizers (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
-    operator_email TEXT NOT NULL,
+    owner_email TEXT NOT NULL,
     provider_organizer_id TEXT,
     status SMALLINT NOT NULL,
     legal_name TEXT,
@@ -147,8 +148,12 @@ CREATE TABLE IF NOT EXISTS organizers (
     business_phone_number TEXT,
     contact_email TEXT,
     platform_fee_rate_bps INTEGER NOT NULL DEFAULT 800,
+    short_name TEXT,
     CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
-    CONSTRAINT chk_organizers_operator_email_non_empty CHECK (operator_email <> ''),
+    CONSTRAINT chk_organizers_owner_email_non_empty CHECK (owner_email <> ''),
+    CONSTRAINT chk_organizers_owner_email_len CHECK (char_length(owner_email) <= 165),
+    CONSTRAINT chk_organizers_contact_email_len CHECK (contact_email IS NULL OR char_length(contact_email) <= 165),
+    CONSTRAINT chk_organizers_short_name CHECK (short_name ~ '^[a-z][a-z0-9-]{2,31}$' AND short_name NOT IN ('admin', 'liverty-music')),
     CONSTRAINT chk_organizers_status CHECK (status BETWEEN 1 AND 3),
     CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_organizers_platform_fee_rate_bps CHECK (platform_fee_rate_bps BETWEEN 0 AND 3000),
@@ -158,18 +163,21 @@ CREATE TABLE IF NOT EXISTS organizers (
 COMMENT ON TABLE organizers IS 'Vetted businesses (label / agency / promoter / self-publishing artist) that represent artists and sell their tickets';
 COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
-COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
+COMMENT ON COLUMN organizers.owner_email IS 'Email of the person who owns the Organizer (at most 165 characters); seeded as the owner identity of the Organizer''s Organization at the identity provider';
+COMMENT ON COLUMN organizers.short_name IS 'The Organizer''s short name: 3-32 lowercase letters, digits and hyphens, starting with a letter, unique, never changed; admin and liverty-music are reserved. Names its Organization at the identity provider. NULL only for the Organizer created before short names, until it is given one';
 COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
 COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
 COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
 COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
 COMMENT ON COLUMN organizers.business_address IS '特商法 business address (1-300 characters); NULL until entered';
 COMMENT ON COLUMN organizers.business_phone_number IS '特商法 business phone number in E.164 form; NULL until entered';
-COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email; NULL until entered';
+COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email (at most 165 characters); NULL until entered';
 COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_provider_organizer_id ON organizers(provider_organizer_id) WHERE provider_organizer_id IS NOT NULL;
 COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_short_name ON organizers(short_name);
+COMMENT ON INDEX uq_organizers_short_name IS 'No two Organizers, in any status, share a short name';
 
 -- Series table
 CREATE TABLE IF NOT EXISTS series (

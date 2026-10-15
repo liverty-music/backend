@@ -68,18 +68,25 @@ type OrgScopedInterceptor struct {
 	// organizer-console application. It must be present in the token's "aud"
 	// claim for every request that reaches this interceptor.
 	organizerConsoleProjectID string
+	// publicProcedures are the procedures called without a sign-in (see
+	// OrganizerPublicProcedures). They pass through unchecked and carry no
+	// caller org id.
+	publicProcedures map[string]bool
 }
 
 // NewOrgScopedInterceptor creates an OrgScopedInterceptor that requires the
 // given organizerConsoleProjectID in the token's audience claim for every
-// procedure.
-func NewOrgScopedInterceptor(organizerConsoleProjectID string) OrgScopedInterceptor {
-	return OrgScopedInterceptor{organizerConsoleProjectID: organizerConsoleProjectID}
+// procedure except publicProcedures.
+func NewOrgScopedInterceptor(organizerConsoleProjectID string, publicProcedures map[string]bool) OrgScopedInterceptor {
+	return OrgScopedInterceptor{organizerConsoleProjectID: organizerConsoleProjectID, publicProcedures: publicProcedures}
 }
 
 // WrapUnary enforces org-scoped authorization for unary RPCs.
 func (i OrgScopedInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		if len(i.publicProcedures) > 0 && i.publicProcedures[req.Spec().Procedure] {
+			return next(ctx, req)
+		}
 		ctx, err := i.authorize(ctx)
 		if err != nil {
 			return nil, err
@@ -96,6 +103,9 @@ func (i OrgScopedInterceptor) WrapStreamingClient(next connect.StreamingClientFu
 // WrapStreamingHandler enforces org-scoped authorization for streaming RPCs.
 func (i OrgScopedInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		if len(i.publicProcedures) > 0 && i.publicProcedures[conn.Spec().Procedure] {
+			return next(ctx, conn)
+		}
 		ctx, err := i.authorize(ctx)
 		if err != nil {
 			return err

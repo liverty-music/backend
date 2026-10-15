@@ -267,3 +267,13 @@ func TestUser_HasPersonalDetails(t *testing.T) {
 	assert.False(t, (&entity.User{FullName: "山田 花子"}).HasPersonalDetails())
 	assert.False(t, (&entity.User{}).HasPersonalDetails())
 }
+
+func TestNewUser_ValidateEmail(t *testing.T) {
+	t.Parallel()
+
+	const domain = "@example.com"
+	email := func(n int) string { return strings.Repeat("a", n-len(domain)) + domain }
+
+	assert.NoError(t, (&entity.NewUser{Email: email(165)}).ValidateEmail())
+	assert.Error(t, (&entity.NewUser{Email: email(166)}).ValidateEmail())
+}

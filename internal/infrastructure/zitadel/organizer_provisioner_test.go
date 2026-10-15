@@ -35,8 +35,9 @@ type stubMgmt struct {
 	addOrgResp *mgmtpb.AddOrgResponse
 	addOrgErr  error
 
-	// addOrgCalls counts AddOrg calls.
+	// addOrgCalls counts AddOrg calls; addOrgReq captures the last request.
 	addOrgCalls int
+	addOrgReq   *mgmtpb.AddOrgRequest
 
 	// addCustomLoginPolicyReq captures the last AddCustomLoginPolicy request;
 	// addCustomLoginPolicyErr controls its error.
@@ -87,6 +88,7 @@ func (s *stubMgmt) RemoveOrg(ctx context.Context, _ *mgmtpb.RemoveOrgRequest, _ 
 
 func (s *stubMgmt) AddOrg(_ context.Context, in *mgmtpb.AddOrgRequest, _ ...grpc.CallOption) (*mgmtpb.AddOrgResponse, error) {
 	s.addOrgCalls++
+	s.addOrgReq = in
 	return s.addOrgResp, s.addOrgErr
 }
 
@@ -268,9 +270,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 
 	ctx := context.Background()
 	const (
-		organizerID         = "01a11dec-968d-762a-a64d-17f4ce185b92"
 		providerOrganizerID = "zitadel-org-xyz"
-		email               = "op@acme.com"
+		shortName           = "xx-records"
+		email               = "band@example.com"
 	)
 
 	tests := []struct {
@@ -285,7 +287,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned tenant org has the passkey-primary policy"
 			// @spec components/infrastructure/organizer/web/global/hosted-login "The policy renders a usable login and returns the operator to the console"
 			// @spec stories/sign-in-as-organizer "Invited operator lands on the console after accepting the invite"
-			name: "happy path: completes every step on the given tenant org without creating an org",
+			name: "happy path: completes every step on the given Organization and names the owner identity <email> (<short name>)",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
 				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"},
@@ -308,6 +310,10 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				require.NotNil(t, userV2.addHumanUserReq)
 				assert.Nil(t, userV2.addHumanUserReq.GetPassword(), "operator must have no password")
 				assert.Nil(t, userV2.addHumanUserReq.GetHashedPassword(), "operator must have no password")
+				assert.Equal(t, "band@example.com (xx-records)", userV2.addHumanUserReq.GetUsername())
+				assert.Equal(t, "band@example.com", userV2.addHumanUserReq.GetEmail().GetEmail())
+				assert.True(t, userV2.addHumanUserReq.GetEmail().GetIsVerified())
+				assert.Equal(t, providerOrganizerID, userV2.addHumanUserReq.GetOrganization().GetOrgId())
 
 				require.Len(t, stub.addProjectGrantReqs, 1)
 				req := stub.addProjectGrantReqs[0]
@@ -354,8 +360,23 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/entity/organizer/provision-tenant "Operator email used in another tenant"
-			name: "email collision: the email belongs to a user in another org, fails with AlreadyExists and grants nothing",
+			// @spec components/entity/organizer/provision-tenant "Owner email of a fan account"
+			name: "fan email: the email of a fan account is accepted; a separate identity is created in the Organization without any instance-wide search",
+			stub: &stubMgmt{},
+			// The fan account's user name is the bare email, so the owner
+			// identity's user name "<email> (<short name>)" does not collide
+			// and AddHumanUser succeeds.
+			userV2: &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "owner-identity"}},
+			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
+				t.Helper()
+				assert.Equal(t, "band@example.com (xx-records)", userV2.addHumanUserReq.GetUsername())
+				assert.Empty(t, userV2.listUsersReqs, "no user is searched, so the fan account is neither used nor changed")
+				require.Len(t, stub.addUserGrantReqs, 1)
+				assert.Equal(t, "owner-identity", stub.addUserGrantReqs[0].GetUserId())
+			},
+		},
+		{
+			name: "user name taken outside the Organization: fails with AlreadyExists and grants nothing",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
 				// AddHumanUser reports the instance-wide user name collision, but
@@ -396,12 +417,20 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 		},
 		{
-			name: "rejected email: AddHumanUser InvalidArgument fails with InvalidArgument",
+			// @spec components/entity/organizer/provision-tenant "Email rejected by the sign-in service"
+			name: "rejected email: AddHumanUser InvalidArgument fails with InvalidArgument and creates no identity",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
 				addHumanUserErr: invalidArg("email invalid"),
 			},
 			wantErr: apperr.ErrInvalidArgument,
+			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
+				t.Helper()
+				assert.Equal(t, 1, userV2.addHumanUserCalls)
+				assert.Empty(t, userV2.listUsersReqs)
+				assert.Nil(t, userV2.createInviteReq)
+				assert.Empty(t, stub.addUserGrantReqs)
+			},
 		},
 		{
 			name:    "user lookup failure after AlreadyExists is Internal",
@@ -452,7 +481,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			}
 			p := newTestProvisioner(t, tt.stub, tt.userV2)
 
-			err := p.ProvisionTenant(ctx, organizerID, providerOrganizerID, email)
+			err := p.ProvisionTenant(ctx, providerOrganizerID, shortName, email)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -471,20 +500,48 @@ func TestOrganizerProvisioner_ProvisionTenant_collisionMessageReachesAdmin(t *te
 
 	p := newTestProvisioner(t, &stubMgmt{}, &stubUserV2{addHumanUserErr: alreadyExists("user exists")})
 
-	err := p.ProvisionTenant(context.Background(), "organizer-1", "zitadel-org-1", "admin@example.com")
+	err := p.ProvisionTenant(context.Background(), "zitadel-org-1", "xx-records", "admin@example.com")
 
 	// The Connect error interceptor exposes the innermost AppErr message of a
 	// client error, so that is what the admin sees.
 	var appErr *apperr.AppErr
 	require.ErrorAs(t, err, &appErr)
-	assert.Contains(t, appErr.Msg, "operator email is already used by another account")
+	assert.Contains(t, appErr.Msg, "user name is already used outside the organization")
+}
+
+func TestOrganizerProvisioner_ProvisionTenant_ownerLookupIsOrgScopedAndIgnoresCase(t *testing.T) {
+	t.Parallel()
+
+	userV2 := &stubUserV2{addHumanUserErr: alreadyExists("user exists"), listUsersResp: tenantUsers("existing")}
+	p := newTestProvisioner(t, &stubMgmt{}, userV2)
+
+	require.NoError(t, p.ProvisionTenant(context.Background(), "zitadel-org-1", "xx-records", "Band@Example.com"))
+
+	require.Len(t, userV2.listUsersReqs, 1)
+	req := userV2.listUsersReqs[0]
+	assert.Equal(t, "zitadel-org-1", orgIDFilter(req), "the identity is looked up in the Organization only")
+	email := req.GetQueries()[0].GetEmailQuery()
+	assert.Equal(t, "Band@Example.com", email.GetEmailAddress())
+	assert.Equal(t, objectv2pb.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE, email.GetMethod())
+}
+
+func TestOrganizerProvisioner_ProvisionTenant_withoutShortName(t *testing.T) {
+	t.Parallel()
+
+	userV2 := &stubUserV2{}
+	p := newTestProvisioner(t, &stubMgmt{}, userV2)
+
+	err := p.ProvisionTenant(context.Background(), "zitadel-org-1", "", "band@example.com")
+
+	assert.ErrorIs(t, err, apperr.ErrInternal, "retryable once the short name is set")
+	assert.Zero(t, userV2.addHumanUserCalls, "no identity named \"<email> ()\" is created")
 }
 
 func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 	t.Parallel()
 
-	const organizerID = "01a11dec-968d-762a-a64d-17f4ce185b92"
-	orgName := "org-" + organizerID
+	const shortName = "xx-records"
+	orgName := shortName
 
 	tests := []struct {
 		name    string
@@ -495,7 +552,7 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 	}{
 		{
 			// @spec components/entity/organizer/ensure-tenant-org "First attempt"
-			name: "creates the org named after the organizer",
+			name: "creates the Organization named by the short name",
 			stub: &stubMgmt{addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-new"}},
 			want: "zitadel-org-new",
 		},
@@ -525,8 +582,9 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 			t.Parallel()
 			p := newTestProvisionerWithOrgs(t, tt.stub, nil, tt.orgV2)
 
-			got, err := p.EnsureTenantOrg(context.Background(), organizerID)
+			got, err := p.EnsureTenantOrg(context.Background(), shortName)
 
+			assert.Equal(t, orgName, tt.stub.addOrgReq.GetName(), "the Organization is named by the short name")
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.False(t, errors.Is(err, apperr.ErrNotFound))
@@ -534,6 +592,7 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			assert.Equal(t, 1, tt.stub.addOrgCalls, "no second Organization is created")
 		})
 	}
 }
@@ -541,8 +600,8 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 	t.Parallel()
 
-	const organizerID = "01a11dec-968d-762a-a64d-17f4ce185b92"
-	orgName := "org-" + organizerID
+	const shortName = "xx-records"
+	orgName := shortName
 
 	tests := []struct {
 		name    string
@@ -583,11 +642,11 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 			t.Parallel()
 			p := newTestProvisionerWithOrgs(t, nil, nil, tt.orgV2)
 
-			got, err := p.FindTenantOrg(context.Background(), organizerID)
+			got, err := p.FindTenantOrg(context.Background(), shortName)
 
 			require.Len(t, tt.orgV2.listOrgsReqs, 1)
 			nameQuery := tt.orgV2.listOrgsReqs[0].GetQueries()[0].GetNameQuery()
-			assert.Equal(t, orgName, nameQuery.GetName(), "the org is searched by its exact deterministic name")
+			assert.Equal(t, orgName, nameQuery.GetName(), "the Organization is searched by the exact short name")
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
@@ -598,76 +657,6 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_CheckOperatorEmailAvailable(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		userV2  *stubUserV2
-		wantErr error
-	}{
-		{
-			// @spec components/entity/organizer/check-operator-email-available "Unused email"
-			name:   "available when no user in the instance uses the email",
-			userV2: &stubUserV2{listUsersResp: tenantUsers()},
-		},
-		{
-			// @spec components/entity/organizer/check-operator-email-available "Email of the platform administrator"
-			name:    "AlreadyExists when a user in any org uses the email",
-			userV2:  &stubUserV2{listUsersResp: tenantUsers("human-admin")},
-			wantErr: apperr.ErrAlreadyExists,
-		},
-		{
-			name:    "search failure is Internal",
-			userV2:  &stubUserV2{listUsersErr: internalErr("search failed")},
-			wantErr: apperr.ErrInternal,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			p := newTestProvisioner(t, nil, tt.userV2)
-
-			err := p.CheckOperatorEmailAvailable(context.Background(), "admin@example.com")
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				assert.NoError(t, err)
-			}
-			require.Len(t, tt.userV2.listUsersReqs, 1)
-			req := tt.userV2.listUsersReqs[0]
-			assert.Empty(t, orgIDFilter(req), "the check spans the whole instance")
-			or := req.GetQueries()[0].GetOrQuery().GetQueries()
-			require.Len(t, or, 3)
-			assert.Equal(t, "admin@example.com", or[0].GetEmailQuery().GetEmailAddress())
-			assert.Equal(t, "admin@example.com", or[1].GetUserNameQuery().GetUserName())
-			assert.Equal(t, "admin@example.com", or[2].GetLoginNameQuery().GetLoginName())
-		})
-	}
-}
-
-// @spec components/entity/organizer/check-operator-email-available "Different letter case"
-func TestOrganizerProvisioner_CheckOperatorEmailAvailable_ignoresLetterCase(t *testing.T) {
-	t.Parallel()
-
-	// Zitadel returns the user registered as Operator@Example.com for the
-	// case-insensitive search.
-	userV2 := &stubUserV2{listUsersResp: tenantUsers("operator-mixed-case")}
-	p := newTestProvisioner(t, nil, userV2)
-
-	err := p.CheckOperatorEmailAvailable(context.Background(), "operator@example.com")
-
-	assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
-	require.Len(t, userV2.listUsersReqs, 1)
-	or := userV2.listUsersReqs[0].GetQueries()[0].GetOrQuery().GetQueries()
-	require.Len(t, or, 3)
-	ignoreCase := objectv2pb.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE
-	assert.Equal(t, ignoreCase, or[0].GetEmailQuery().GetMethod(), "email is compared without regard to letter case")
-	assert.Equal(t, ignoreCase, or[1].GetUserNameQuery().GetMethod(), "user name is compared without regard to letter case")
-	assert.Equal(t, ignoreCase, or[2].GetLoginNameQuery().GetMethod(), "login name is compared without regard to letter case")
-}
-
 func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testing.T) {
 	t.Parallel()
 
@@ -675,7 +664,7 @@ func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testi
 	userV2 := &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"}}
 	p := newTestProvisioner(t, stub, userV2)
 
-	err := p.ProvisionTenant(context.Background(), "org-abc12345", "zitadel-org-xyz", "op@acme.com")
+	err := p.ProvisionTenant(context.Background(), "zitadel-org-xyz", "xx-records", "op@acme.com")
 	require.NoError(t, err)
 
 	// The onboarding email is Zitadel's STANDARD invite: its "Accept invite" link
@@ -729,7 +718,7 @@ func TestConsoleBaseURLFromIssuer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := consoleBaseURLFromIssuer(tt.issuer)
+			got, err := ConsoleBaseURLFromIssuer(tt.issuer)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -914,6 +903,7 @@ type loginPolicyDefaults interface {
 	GetAllowRegister() bool
 	GetAllowExternalIdp() bool
 	GetIgnoreUnknownUsernames() bool
+	GetDisableLoginWithEmail() bool
 	GetHidePasswordReset() bool
 	GetPasswordCheckLifetime() *durationpb.Duration
 	GetExternalLoginCheckLifetime() *durationpb.Duration
@@ -924,7 +914,8 @@ type loginPolicyDefaults interface {
 
 // assertLoginPolicyDefaults checks that the tenant policy is passkey-primary
 // with local authentication enabled, closed to self-registration, open to
-// federation, anti-enumerating, hides the password reset and sets every check
+// federation, reports unknown emails (so a passkey sign-in typed by email
+// completes), allows login with the email, hides the password reset and sets every check
 // lifetime to Zitadel's instance default, never 0 (a 0 lifetime makes the
 // Zitadel Console refuse to save the policy).
 func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
@@ -933,7 +924,8 @@ func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
 	assert.True(t, req.GetAllowUsernamePassword(), "local authentication must stay enabled for passkeys")
 	assert.False(t, req.GetAllowRegister(), "no open self-registration")
 	assert.True(t, req.GetAllowExternalIdp(), "federation must be permitted")
-	assert.True(t, req.GetIgnoreUnknownUsernames(), "login must not disclose unknown accounts")
+	assert.False(t, req.GetIgnoreUnknownUsernames(), "an unknown email is reported, or a passkey sign-in typed by email fails")
+	assert.False(t, req.GetDisableLoginWithEmail(), "people sign in by typing their email")
 	assert.True(t, req.GetHidePasswordReset(), "operators must not be offered a password reset")
 	assert.Equal(t, 240*time.Hour, req.GetPasswordCheckLifetime().AsDuration())
 	assert.Equal(t, 240*time.Hour, req.GetExternalLoginCheckLifetime().AsDuration())

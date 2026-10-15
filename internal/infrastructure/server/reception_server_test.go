@@ -74,7 +74,7 @@ func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockS
 
 	public := auth.ReceptionPublicProcedures()
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), public)
-	throttle := ratelimit.NewUnknownTokenThrottle(10, 10*time.Minute, time.Now)
+	throttle := ratelimit.NewClientThrottle(10, 10*time.Minute, time.Now)
 	interceptors := []connect.Interceptor{
 		ratelimit.NewUnknownTokenInterceptor(throttle, public, func(err error) bool {
 			return errors.Is(err, usecase.ErrUnknownScannerLinkToken)
@@ -95,16 +95,17 @@ func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockS
 }
 
 // newOrganizerTestServer builds the organizer Connect server the way
-// di.InitializeApp does as far as Scanners are concerned: an AuthFunc with no
-// public procedures, the OrgScopedInterceptor, and the ScannerService
-// handler over mocked use cases.
+// di.InitializeApp does as far as Scanners are concerned: an AuthFunc whose
+// only public procedure is OrganizerService.SendSignInLinks, the
+// OrgScopedInterceptor, and the ScannerService handler over mocked use cases.
 func newOrganizerTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), nil)
-	interceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor("organizer-console-project")}
+	public := auth.OrganizerPublicProcedures()
+	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), public)
+	interceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor("organizer-console-project", public)}
 	scannerUC := usecasemocks.NewMockScannerUseCase(t)
 	organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
 	handlers := []server.RPCHandlerFunc{
@@ -262,7 +263,7 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 	})
 }
 
-func TestOrganizerServer_NoPublicProcedures(t *testing.T) {
+func TestOrganizerServer_ScannerServiceNeedsSignIn(t *testing.T) {
 	t.Parallel()
 
 	t.Run("not signed in", func(t *testing.T) {

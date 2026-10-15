@@ -26,27 +26,22 @@ func NewNoopOrganizerProvisioner(logger *logging.Logger) *NoopOrganizerProvision
 	return &NoopOrganizerProvisioner{logger: logger}
 }
 
-// CheckOperatorEmailAvailable performs no check; every email is available.
-func (p *NoopOrganizerProvisioner) CheckOperatorEmailAvailable(context.Context, string) error {
-	return nil
-}
-
 // EnsureTenantOrg performs no real provisioning and returns a placeholder org id.
-func (p *NoopOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, organizerID string) (string, error) {
+func (p *NoopOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, shortName string) (string, error) {
 	p.logger.Warn(ctx, "organizer tenant org creation skipped: no organizer-provisioner credential configured",
-		slog.String("organizer_id", organizerID))
-	return "local-org-" + organizerID, nil
+		slog.String("short_name", shortName))
+	return "local-org-" + shortName, nil
 }
 
 // FindTenantOrg reports NotFound: no tenant org exists without a live Zitadel.
-func (p *NoopOrganizerProvisioner) FindTenantOrg(_ context.Context, organizerID string) (string, error) {
-	return "", apperr.New(codes.NotFound, "tenant org not found", slog.String("organizer_id", organizerID))
+func (p *NoopOrganizerProvisioner) FindTenantOrg(_ context.Context, shortName string) (string, error) {
+	return "", apperr.New(codes.NotFound, "tenant org not found", slog.String("short_name", shortName))
 }
 
 // ProvisionTenant performs no real provisioning.
-func (p *NoopOrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID, _, _ string) error {
+func (p *NoopOrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrganizerID, _, _ string) error {
 	p.logger.Warn(ctx, "organizer provisioning skipped: no organizer-provisioner credential configured",
-		slog.String("organizer_id", organizerID))
+		slog.String("zitadel_org_id", providerOrganizerID))
 	return nil
 }
 

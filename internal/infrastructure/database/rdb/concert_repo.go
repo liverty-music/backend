@@ -338,7 +338,7 @@ const (
 	// listOrganizersByIDsQuery hydrates the Organizer of each first-party
 	// Series, with the columns scanOrganizer reads.
 	listOrganizersByIDsQuery = `
-		SELECT id, name, operator_email, provider_organizer_id, status,
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = ANY($1)
 	`

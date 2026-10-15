@@ -32,11 +32,6 @@ func (p *UnavailableOrganizerProvisioner) err() error {
 		slog.String("workload", p.workload))
 }
 
-// CheckOperatorEmailAvailable fails with Unavailable.
-func (p *UnavailableOrganizerProvisioner) CheckOperatorEmailAvailable(context.Context, string) error {
-	return p.err()
-}
-
 // EnsureTenantOrg fails with Unavailable.
 func (p *UnavailableOrganizerProvisioner) EnsureTenantOrg(context.Context, string) (string, error) {
 	return "", p.err()

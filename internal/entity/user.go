@@ -121,7 +121,7 @@ type User struct {
 	ID string
 	// ProviderUserID is the identity provider's user identifier (Zitadel sub claim).
 	ProviderUserID string
-	// Email is the user's email address.
+	// Email is the user's email address, at most 165 characters.
 	Email string
 	// Name is the user's display name.
 	Name string
@@ -160,7 +160,7 @@ func (u *User) HasPersonalDetails() bool {
 type NewUser struct {
 	// ProviderUserID is the identity provider's user identifier (Zitadel sub claim).
 	ProviderUserID string
-	// Email is the user's email address.
+	// Email is the user's email address, at most 165 characters.
 	Email string
 	// Name is the user's display name.
 	Name string
@@ -172,6 +172,16 @@ type NewUser struct {
 	TimeZone string
 	// Home is the user's home area. Nil when not provided during creation.
 	Home *Home
+}
+
+// ValidateEmail reports whether the new user's email is at most
+// [EmailMaxLen] characters. The email comes from the identity provider's
+// verified claims, so its form is not checked again here.
+func (n *NewUser) ValidateEmail() error {
+	if utf8.RuneCountInString(n.Email) > EmailMaxLen {
+		return errors.New("email must be at most 165 characters")
+	}
+	return nil
 }
 
 // CreateUser creates a new User with an auto-generated UUIDv7 ID from the given parameters.

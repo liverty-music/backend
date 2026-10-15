@@ -111,8 +111,8 @@ func (_c *MockOrganizerUseCase_AssociateArtist_Call) RunAndReturn(run func(ctx c
 }
 
 // Create provides a mock function for the type MockOrganizerUseCase
-func (_mock *MockOrganizerUseCase) Create(ctx context.Context, name string, operatorEmail string) (*entity.Organizer, error) {
-	ret := _mock.Called(ctx, name, operatorEmail)
+func (_mock *MockOrganizerUseCase) Create(ctx context.Context, name string, shortName string, ownerEmail string) (*entity.Organizer, error) {
+	ret := _mock.Called(ctx, name, shortName, ownerEmail)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -120,18 +120,18 @@ func (_mock *MockOrganizerUseCase) Create(ctx context.Context, name string, oper
 
 	var r0 *entity.Organizer
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*entity.Organizer, error)); ok {
-		return returnFunc(ctx, name, operatorEmail)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) (*entity.Organizer, error)); ok {
+		return returnFunc(ctx, name, shortName, ownerEmail)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *entity.Organizer); ok {
-		r0 = returnFunc(ctx, name, operatorEmail)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) *entity.Organizer); ok {
+		r0 = returnFunc(ctx, name, shortName, ownerEmail)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Organizer)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = returnFunc(ctx, name, operatorEmail)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = returnFunc(ctx, name, shortName, ownerEmail)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -146,12 +146,13 @@ type MockOrganizerUseCase_Create_Call struct {
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
 //   - name string
-//   - operatorEmail string
-func (_e *MockOrganizerUseCase_Expecter) Create(ctx any, name any, operatorEmail any) *MockOrganizerUseCase_Create_Call {
-	return &MockOrganizerUseCase_Create_Call{Call: _e.mock.On("Create", ctx, name, operatorEmail)}
+//   - shortName string
+//   - ownerEmail string
+func (_e *MockOrganizerUseCase_Expecter) Create(ctx any, name any, shortName any, ownerEmail any) *MockOrganizerUseCase_Create_Call {
+	return &MockOrganizerUseCase_Create_Call{Call: _e.mock.On("Create", ctx, name, shortName, ownerEmail)}
 }
 
-func (_c *MockOrganizerUseCase_Create_Call) Run(run func(ctx context.Context, name string, operatorEmail string)) *MockOrganizerUseCase_Create_Call {
+func (_c *MockOrganizerUseCase_Create_Call) Run(run func(ctx context.Context, name string, shortName string, ownerEmail string)) *MockOrganizerUseCase_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -165,10 +166,15 @@ func (_c *MockOrganizerUseCase_Create_Call) Run(run func(ctx context.Context, na
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -179,7 +185,7 @@ func (_c *MockOrganizerUseCase_Create_Call) Return(organizer *entity.Organizer, 
 	return _c
 }
 
-func (_c *MockOrganizerUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, name string, operatorEmail string) (*entity.Organizer, error)) *MockOrganizerUseCase_Create_Call {
+func (_c *MockOrganizerUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, name string, shortName string, ownerEmail string) (*entity.Organizer, error)) *MockOrganizerUseCase_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -607,6 +613,52 @@ func (_c *MockOrganizerUseCase_ResolveCaller_Call) Return(organizer *entity.Orga
 
 func (_c *MockOrganizerUseCase_ResolveCaller_Call) RunAndReturn(run func(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error)) *MockOrganizerUseCase_ResolveCaller_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// SendSignInLinks provides a mock function for the type MockOrganizerUseCase
+func (_mock *MockOrganizerUseCase) SendSignInLinks(ctx context.Context, email string) {
+	_mock.Called(ctx, email)
+	return
+}
+
+// MockOrganizerUseCase_SendSignInLinks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendSignInLinks'
+type MockOrganizerUseCase_SendSignInLinks_Call struct {
+	*mock.Call
+}
+
+// SendSignInLinks is a helper method to define mock.On call
+//   - ctx context.Context
+//   - email string
+func (_e *MockOrganizerUseCase_Expecter) SendSignInLinks(ctx any, email any) *MockOrganizerUseCase_SendSignInLinks_Call {
+	return &MockOrganizerUseCase_SendSignInLinks_Call{Call: _e.mock.On("SendSignInLinks", ctx, email)}
+}
+
+func (_c *MockOrganizerUseCase_SendSignInLinks_Call) Run(run func(ctx context.Context, email string)) *MockOrganizerUseCase_SendSignInLinks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SendSignInLinks_Call) Return() *MockOrganizerUseCase_SendSignInLinks_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SendSignInLinks_Call) RunAndReturn(run func(ctx context.Context, email string)) *MockOrganizerUseCase_SendSignInLinks_Call {
+	_c.Run(run)
 	return _c
 }
 

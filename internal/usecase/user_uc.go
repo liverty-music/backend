@@ -177,6 +177,9 @@ func NewUserUseCase(
 // Create creates a new user, or returns the existing user on duplicate
 // provider_user_id (idempotent).
 func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
+	if err := params.ValidateEmail(); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+	}
 	if params.Home != nil {
 		if err := params.Home.Validate(); err != nil {
 			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())

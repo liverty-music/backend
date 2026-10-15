@@ -54,6 +54,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -86,7 +87,30 @@ const (
 	// receptionUnknownTokenWindow is the window over which unknown link
 	// tokens are counted per client.
 	receptionUnknownTokenWindow = 10 * time.Minute
+	// signInLinksClientLimit is how many OrganizerService.SendSignInLinks
+	// calls a client may make within signInLinksClientWindow before further
+	// calls are refused with ResourceExhausted.
+	signInLinksClientLimit = 10
+	// signInLinksClientWindow is the window over which SendSignInLinks calls
+	// are counted per client.
+	signInLinksClientWindow = 60 * time.Minute
 )
+
+// newSignInLinkSender returns the sender of the organizer sign-in link email:
+// Postmark when its server token is set, else (local development) a sender
+// that fails every call. The links open the organizer console, whose origin
+// is derived from the issuer like the provisioner's redirect.
+func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (entity.SignInLinkSender, error) {
+	if cfg.Postmark.ServerToken == "" {
+		return mail.NewNoopSignInLinkSender(logger), nil
+	}
+	consoleBaseURL, err := infrazitadel.ConsoleBaseURLFromIssuer(cfg.JWT.Issuer)
+	if err != nil {
+		return nil, fmt.Errorf("derive organizer console base url: %w", err)
+	}
+	return mail.NewPostmarkSignInLinkSender(consoleBaseURL, cfg.Postmark.ServerToken,
+		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
+}
 
 // newVenueMapCatalog builds the Google Maps Places client that serves the
 // organizer venue search and reads a picked place. It authenticates with
@@ -290,7 +314,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		imageStorer = storer
 		shutdown.AddExternalPhase(storer)
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, rdb.NewSeriesImageRepository(db), imageStorer,
+	signInLinkSender, err := newSignInLinkSender(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizerProvisioner, rdb.NewSeriesImageRepository(db), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
 		eventPublisher, businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
@@ -511,9 +539,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// is identical; only the public-procedure allowlist differs.
 	adminAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
 
-	// The organizer server gets its own AuthFunc too, with no public
-	// procedures: every organizer call is a signed-in operator's.
-	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
+	// The organizer server gets its own AuthFunc too. Its only public
+	// procedure is OrganizerService.SendSignInLinks; every other organizer
+	// call is a signed-in operator's.
+	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, auth.OrganizerPublicProcedures())
 
 	// The reception server's AuthFunc makes only the scanner device's procedures
 	// public (no sign-in; link token + device signature). Nothing else is
@@ -732,13 +761,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// own port and CORS allowlist, serving ONLY the organizer-facing
 	// OrganizerService. Its server-wide OrgScopedInterceptor enforces token
 	// audience, login-scope org derivation, and role cross-check before any
-	// handler runs. It has no public procedures; no fan, admin or reception
-	// services are registered here.
+	// handler runs, except for its one public procedure, SendSignInLinks,
+	// which a client may call signInLinksClientLimit times per
+	// signInLinksClientWindow. No fan, admin or reception services are
+	// registered here.
 	organizerServerCfg := cfg.Server
 	organizerServerCfg.Port = cfg.Server.OrganizerPort
 	organizerServerCfg.AllowedOrigins = cfg.Server.OrganizerAllowedOrigins
 	organizerInterceptors := []connect.Interceptor{
-		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID),
+		ratelimit.NewClientQuotaInterceptor(
+			ratelimit.NewClientThrottle(signInLinksClientLimit, signInLinksClientWindow, time.Now),
+			auth.OrganizerPublicProcedures(),
+		),
+		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID, auth.OrganizerPublicProcedures()),
 	}
 	organizerHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
@@ -820,7 +855,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// unknown link tokens within receptionUnknownTokenWindow are refused
 		// with ResourceExhausted until the window passes.
 		ratelimit.NewUnknownTokenInterceptor(
-			ratelimit.NewUnknownTokenThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
+			ratelimit.NewClientThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
 			auth.ReceptionPublicProcedures(),
 			func(err error) bool { return errors.Is(err, usecase.ErrUnknownScannerLinkToken) },
 		),

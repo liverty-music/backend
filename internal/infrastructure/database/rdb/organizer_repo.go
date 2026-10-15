@@ -22,29 +22,34 @@ func NewOrganizerRepository(db *Database) *OrganizerRepository {
 
 const (
 	insertOrganizerQuery = `
-		INSERT INTO organizers (id, name, operator_email, provider_organizer_id, status)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, operator_email, provider_organizer_id, status,
+		INSERT INTO organizers (id, name, short_name, owner_email, provider_organizer_id, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps
 	`
 	getOrganizerQuery = `
-		SELECT id, name, operator_email, provider_organizer_id, status,
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = $1
 	`
 	getOrganizerByProviderOrganizerIDQuery = `
-		SELECT id, name, operator_email, provider_organizer_id, status,
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE provider_organizer_id = $1
 	`
 	listOrganizersQuery = `
-		SELECT id, name, operator_email, provider_organizer_id, status,
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers ORDER BY name
 	`
+	listOrganizersByOwnerEmailQuery = `
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
+			legal_name, representative_name, business_address, business_phone_number, contact_email,
+			platform_fee_rate_bps FROM organizers WHERE lower(owner_email) = lower($1) AND status = 2 ORDER BY name
+	`
 	listOrganizersByStatusQuery = `
-		SELECT id, name, operator_email, provider_organizer_id, status,
+		SELECT id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE status = $1 ORDER BY name
 	`
@@ -78,7 +83,7 @@ const (
 		SET legal_name = $2, representative_name = $3, business_address = $4,
 			business_phone_number = $5, contact_email = $6
 		WHERE id = $1
-		RETURNING id, name, operator_email, provider_organizer_id, status,
+		RETURNING id, name, short_name, owner_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps
 	`
@@ -91,15 +96,20 @@ const (
 func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
 	var (
 		o                                                  entity.Organizer
+		shortName                                          sql.NullString
 		providerOrganizerID                                *string
 		status                                             int16
 		legalName, representative, address, phone, contact sql.NullString
 		feeRate                                            int32
 	)
 
-	if err := scan(&o.ID, &o.Name, &o.OperatorEmail, &providerOrganizerID, &status,
+	if err := scan(&o.ID, &o.Name, &shortName, &o.OwnerEmail, &providerOrganizerID, &status,
 		&legalName, &representative, &address, &phone, &contact, &feeRate); err != nil {
 		return nil, err
+	}
+	// NULL only for the Organizer created before short names existed.
+	if shortName.Valid {
+		o.ShortName = shortName.String
 	}
 	if providerOrganizerID != nil {
 		o.ProviderOrganizerID = *providerOrganizerID
@@ -122,10 +132,11 @@ func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
 // Create inserts a new Organizer row and returns the persisted record. The ID
 // is generated from the entity if absent. provider_organizer_id is stored as NULL
 // until provisioning completes, satisfying the partial unique index that only
-// covers non-NULL values.
+// covers non-NULL values. A short name another Organizer already has violates
+// uq_organizers_short_name and fails with AlreadyExists.
 func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (*entity.Organizer, error) {
 	if o.ID == "" {
-		o.ID = entity.NewOrganizer(o.Name).ID
+		o.ID = entity.NewID()
 	}
 
 	// Keep provider_organizer_id NULL until provisioning persists it (the partial unique
@@ -135,7 +146,7 @@ func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (
 		providerOrganizerID = &o.ProviderOrganizerID
 	}
 
-	row := r.db.Pool.QueryRow(ctx, insertOrganizerQuery, o.ID, o.Name, o.OperatorEmail, providerOrganizerID, int16(o.Status))
+	row := r.db.Pool.QueryRow(ctx, insertOrganizerQuery, o.ID, o.Name, o.ShortName, o.OwnerEmail, providerOrganizerID, int16(o.Status))
 	created, err := scanOrganizer(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert organizer", slog.String("id", o.ID))
@@ -178,6 +189,29 @@ func (r *OrganizerRepository) List(ctx context.Context) ([]*entity.Organizer, er
 	defer rows.Close()
 
 	var organizers []*entity.Organizer
+	for rows.Next() {
+		o, err := scanOrganizer(rows.Scan)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan organizer")
+		}
+		organizers = append(organizers, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate organizers")
+	}
+	return organizers, nil
+}
+
+// ListByOwnerEmail returns the active Organizers whose owner email equals
+// email, ignoring letter case, ordered alphabetically by name.
+func (r *OrganizerRepository) ListByOwnerEmail(ctx context.Context, email string) ([]*entity.Organizer, error) {
+	rows, err := r.db.Pool.Query(ctx, listOrganizersByOwnerEmailQuery, email)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list organizers by owner email")
+	}
+	defer rows.Close()
+
+	organizers := []*entity.Organizer{}
 	for rows.Next() {
 		o, err := scanOrganizer(rows.Scan)
 		if err != nil {
