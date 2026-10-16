@@ -48,8 +48,8 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 		coverID:     uuid.NewV7().String(),
 		unusedID:    uuid.NewV7().String(),
 	}
-	exec(`INSERT INTO organizers (id, name, owner_email, status, provider_organizer_id) VALUES ($1, 'Delete Organizer', 'op@example.com', $2, $3)`,
-		o.organizerID, int16(status), "org-"+o.organizerID)
+	exec(`INSERT INTO organizers (id, name, short_name, owner_email, status, provider_organizer_id) VALUES ($1, 'Delete Organizer', $4, 'op@example.com', $2, $3)`,
+		o.organizerID, int16(status), "org-"+o.organizerID, testShortName(o.organizerID))
 	o.artistID = seedArtist(t, "delete-artist", uuid.NewV7().String())
 	exec(`INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, o.organizerID, o.artistID)
 	o.followerID = seedUser(t, "delete-follower", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())

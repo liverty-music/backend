@@ -127,3 +127,4 @@ configMapGenerator:
   - migrations/20261013002947_migrate_discovered_sales.sql
   - migrations/20261015144549_create_referrals.sql
   - migrations/20261015160000_organizer_short_name_and_owner_email.sql
+  - migrations/20261016010000_organizer_short_name_not_null.sql

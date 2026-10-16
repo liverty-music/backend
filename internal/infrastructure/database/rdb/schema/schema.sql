@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS organizers (
     business_phone_number TEXT,
     contact_email TEXT,
     platform_fee_rate_bps INTEGER NOT NULL DEFAULT 800,
-    short_name TEXT,
+    short_name TEXT NOT NULL,
     CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
     CONSTRAINT chk_organizers_owner_email_non_empty CHECK (owner_email <> ''),
     CONSTRAINT chk_organizers_owner_email_len CHECK (char_length(owner_email) <= 165),
@@ -164,7 +164,7 @@ COMMENT ON TABLE organizers IS 'Vetted businesses (label / agency / promoter / s
 COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
 COMMENT ON COLUMN organizers.owner_email IS 'Email of the person who owns the Organizer (at most 165 characters); seeded as the owner identity of the Organizer''s Organization at the identity provider';
-COMMENT ON COLUMN organizers.short_name IS 'The Organizer''s short name: 3-32 lowercase letters, digits and hyphens, starting with a letter, unique, never changed; admin and liverty-music are reserved. Names its Organization at the identity provider. NULL only for the Organizer created before short names, until it is given one';
+COMMENT ON COLUMN organizers.short_name IS 'The Organizer''s short name: 3-32 lowercase letters, digits and hyphens, starting with a letter, unique, never changed; admin and liverty-music are reserved. Names its Organization at the identity provider';
 COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
 COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
 COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
