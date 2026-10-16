@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -73,13 +74,18 @@ func seedDiscoveredEvent(t *testing.T) string {
 }
 
 // seedOrganizer inserts a minimal organizer row and returns its ID.
+// testShortName derives a unique, valid short name from an Organizer id.
+func testShortName(id string) string {
+	return "o" + strings.ReplaceAll(id, "-", "")[:31]
+}
+
 func seedOrganizer(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO organizers (id, name, owner_email, status, provider_organizer_id) VALUES ($1, 'Test Organizer', 'test@example.com', 2, $2)`,
-		id, "org-"+id,
+		`INSERT INTO organizers (id, name, short_name, owner_email, status, provider_organizer_id) VALUES ($1, 'Test Organizer', $3, 'test@example.com', 2, $2)`,
+		id, "org-"+id, testShortName(id),
 	)
 	require.NoError(t, err)
 	return id

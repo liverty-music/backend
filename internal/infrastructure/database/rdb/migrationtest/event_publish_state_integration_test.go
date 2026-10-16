@@ -12,6 +12,10 @@ import (
 // 20261013000000_event_publish_state.sql.
 const eventPublishStatePrevious = "20261012235000"
 
+// eventPublishStateVersion is 20261013000000_event_publish_state.sql. The test
+// stops there: its old-shape organizer predates the required short name.
+const eventPublishStateVersion = "20261013000000"
+
 // TestMigration_EventPublishState loads, in the old shape, a DRAFT series with
 // two draft events and one draft performer, a PUBLISHED series whose event
 // claimed a discovered event, a CANCELLED series with an event, a CANCELLED
@@ -86,7 +90,7 @@ func TestMigration_EventPublishState(t *testing.T) {
 	draftEvent(draftOnlyRow, draftOnlyCanc, "2026-12-05")
 	mustExec(`INSERT INTO draft_series_performers (series_id, artist_id) VALUES ($1, $2)`, draftOnlyCanc, artistID)
 
-	apply("")
+	apply(eventPublishStateVersion)
 
 	stateOf := func(t *testing.T, eventID string) *string {
 		t.Helper()
