@@ -79,7 +79,7 @@ func NewFeatureFlagEvaluator(apiHost, projectAPIKey, personalAPIKey string, logg
 
 	sdkClient, err := posthogsdk.NewWithConfig(projectAPIKey, posthogsdk.Config{
 		Endpoint:                           apiHost,
-		PersonalApiKey:                     personalAPIKey,
+		SecretKey:                          personalAPIKey,
 		DefaultFeatureFlagsPollingInterval: defaultFlagPollingInterval,
 	})
 	if err != nil {

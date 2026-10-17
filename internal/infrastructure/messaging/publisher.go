@@ -49,7 +49,7 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 			}),
 		),
 		JetStream: watermillnats.JetStreamConfig{
-			TrackMsgId: true,
+			TrackMsgID: true,
 		},
 	}, wmLogger)
 	if err != nil {
