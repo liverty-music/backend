@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -52,7 +53,7 @@ type ArtistUseCase interface {
 
 	// ListSimilar identifies artists with musical affinity to the target artist.
 	// When limit is greater than zero, the result is capped to that many entries;
-	// otherwise the external service's default is used.
+	// otherwise every artist of the 50-artist catalog lookup is returned.
 	//
 	// # Possible errors:
 	//
@@ -78,6 +79,16 @@ type ArtistUseCase interface {
 	//   - NotFound: no Organizer has the id.
 	ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error)
 }
+
+// ArtistCacheTTL is how long ArtistUseCase reuses a catalog result (Search,
+// ListSimilar, ListTop) before consulting the catalog again. Charts and
+// catalog matches do not change materially within hours.
+const ArtistCacheTTL = 6 * time.Hour
+
+// similarLookupLimit is the number of similar artists ListSimilar asks the
+// catalog for on a cache miss, whatever limit the caller requested. One
+// cached lookup per artist then serves every limit up to it.
+const similarLookupLimit = 50
 
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
@@ -203,14 +214,15 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 }
 
 // ListSimilar retrieves artists similar to a specified artist.
-// Results are cached to reduce external API calls.
+// The catalog is asked for similarLookupLimit artists once per artist and the
+// result is cached under the artist id alone, so calls with any limit share it.
+// Each call returns the first limit artists, or all of them when limit is 0.
 // Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
-	// Check cache first
-	cacheKey := fmt.Sprintf("similar:%s:%d", artistID, limit)
+	cacheKey := fmt.Sprintf("similar:%s", artistID)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			return artists, nil
+			return firstN(artists, limit), nil
 		}
 	}
 
@@ -220,7 +232,7 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 		return nil, err
 	}
 
-	artists, err := uc.artistSearcher.ListSimilar(ctx, artist, limit)
+	artists, err := uc.artistSearcher.ListSimilar(ctx, artist, similarLookupLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -234,10 +246,20 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 		return nil, err
 	}
 
-	// Store in cache
+	// Cache the full lookup so a later call with a larger limit is served too.
 	uc.cache.Set(cacheKey, persisted)
 
-	return persisted, nil
+	return firstN(persisted, limit), nil
+}
+
+// firstN returns the first n artists, or all of them when n is 0 or exceeds
+// the length. The returned slice has its capacity clipped so a caller's append
+// cannot write into the cached backing array.
+func firstN(artists []*entity.Artist, n int32) []*entity.Artist {
+	if n <= 0 || int(n) >= len(artists) {
+		return artists[:len(artists):len(artists)]
+	}
+	return artists[:n:n]
 }
 
 // ListTop retrieves popular artists.

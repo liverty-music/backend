@@ -235,8 +235,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, musicHTTPClient, logger)
 	musicbrainzClient := musicbrainz.NewClient(musicHTTPClient, logger)
 
-	// Cache - Artist discovery results with 1 hour TTL
-	artistCache := cache.NewMemoryCache(1 * time.Hour)
+	// Cache - Artist discovery results (search, similar, top) for usecase.ArtistCacheTTL (6 h)
+	artistCache := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 
 	// Initialize the shutdown package for phased resource teardown.
 	shutdown.Init(logger)
