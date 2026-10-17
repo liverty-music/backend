@@ -54,7 +54,7 @@ require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/pannpers/go-apperr v1.1.0
 	github.com/pannpers/go-logging v1.2.1
-	github.com/posthog/posthog-go v1.34.0
+	github.com/posthog/posthog-go v1.35.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
 	github.com/stripe/stripe-go/v86 v86.4.2
