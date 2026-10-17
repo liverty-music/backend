@@ -77,8 +77,9 @@ func TestOrganizerUseCase_SetPlatformFeeRate(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/organizer/set-platform-fee-rate "Pilot Organizer"
 		d := newOrganizerTestDeps(t)
-		d.orgRepo.EXPECT().SetPlatformFeeRate(mock.Anything, "org-1", 500).Return(nil)
-		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", PlatformFeeRateBps: 500}, nil)
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").
+			Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusActive, PlatformFeeRateBps: 800}, nil).Once()
+		d.orgRepo.EXPECT().SetPlatformFeeRate(mock.Anything, "org-1", 500).Return(nil).Once()
 
 		org, err := d.uc.SetPlatformFeeRate(context.Background(), "org-1", 500)
 
@@ -86,13 +87,40 @@ func TestOrganizerUseCase_SetPlatformFeeRate(t *testing.T) {
 		assert.Equal(t, 500, org.PlatformFeeRateBps)
 	})
 
+	t.Run("deactivated organizer", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/organizer/set-platform-fee-rate "Deactivated Organizer"
+		d := newOrganizerTestDeps(t)
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").
+			Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusDeactivated, PlatformFeeRateBps: 800}, nil).Once()
+
+		_, err := d.uc.SetPlatformFeeRate(context.Background(), "org-1", 500)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		d.orgRepo.AssertNotCalled(t, "SetPlatformFeeRate", mock.Anything, mock.Anything, mock.Anything)
+	})
+
 	t.Run("unknown organizer", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
-		d.orgRepo.EXPECT().SetPlatformFeeRate(mock.Anything, "org-x", 500).Return(apperr.ErrNotFound)
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-x").Return(nil, apperr.ErrNotFound).Once()
 
 		_, err := d.uc.SetPlatformFeeRate(context.Background(), "org-x", 500)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		d.orgRepo.AssertNotCalled(t, "SetPlatformFeeRate", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("store failure is returned unchanged", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerTestDeps(t)
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").
+			Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusActive}, nil).Once()
+		d.orgRepo.EXPECT().SetPlatformFeeRate(mock.Anything, "org-1", 5000).
+			Return(apperr.New(apperr.ErrInvalidArgument.Code, "rate out of range")).Once()
+
+		_, err := d.uc.SetPlatformFeeRate(context.Background(), "org-1", 5000)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

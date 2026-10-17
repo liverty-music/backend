@@ -143,6 +143,7 @@ type OrganizerUseCase interface {
 	// # Possible errors
 	//
 	//   - NotFound: the organizer does not exist.
+	//   - FailedPrecondition: the organizer is deactivated; nothing changed.
 	//   - InvalidArgument: the rate is outside 0 to 3000 basis points.
 	SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error)
 
@@ -650,12 +651,20 @@ func (uc *organizerUseCase) SetBusinessDetails(ctx context.Context, organizerID 
 
 // SetPlatformFeeRate implements [OrganizerUseCase].
 func (uc *organizerUseCase) SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error) {
+	org, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	if org.Status == entity.OrganizerStatusDeactivated {
+		return nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated")
+	}
 	if err := uc.organizerRepo.SetPlatformFeeRate(ctx, organizerID, rateBps); err != nil {
 		return nil, err
 	}
 	uc.logger.Info(ctx, "organizer platform fee rate set",
 		slog.String("organizer_id", organizerID), slog.Int("platform_fee_rate_bps", rateBps))
-	return uc.organizerRepo.Get(ctx, organizerID)
+	org.PlatformFeeRateBps = rateBps
+	return org, nil
 }
 
 // SendSignInLinks implements [OrganizerUseCase]. The per-address check runs

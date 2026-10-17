@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// OrganizerStatus is the operational provisioning lifecycle of an Organizer. It
-// is a backend-only marker (not exposed on the consumer proto) and is distinct
-// from any business vetting flag: existence is the vetting.
+// OrganizerStatus is the operational provisioning lifecycle of an Organizer.
+// Admin reads expose it; fan-facing reads never do. It is distinct from any
+// business vetting flag: existence is the vetting.
 type OrganizerStatus int16
 
 const (
