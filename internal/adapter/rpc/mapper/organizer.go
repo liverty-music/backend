@@ -7,8 +7,8 @@ import (
 
 // OrganizerToProto maps a domain Organizer to its Protobuf message for the
 // admin and organizer consoles: its id, name, short name (when it has one),
-// business details and platform fee rate. The internal provider_organizer_id,
-// owner email and operational status are backend-only and intentionally not
+// status, business details and platform fee rate. The internal
+// provider_organizer_id and owner email are backend-only and intentionally not
 // exposed.
 func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {
@@ -18,14 +18,31 @@ func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o.ShortName != "" {
 		pb.ShortName = &entityv1.OrganizerShortName{Value: o.ShortName}
 	}
+	pb.Status = organizerStatusToProto(o.Status)
 	pb.PlatformFeeRateBps = int32(o.PlatformFeeRateBps)
 	return pb
 }
 
+// organizerStatusToProto maps a domain OrganizerStatus to its Protobuf enum.
+// OrganizerStatusUnspecified, and any value the proto does not define, maps to
+// ORGANIZER_STATUS_UNSPECIFIED.
+func organizerStatusToProto(s entity.OrganizerStatus) entityv1.OrganizerStatus {
+	switch s {
+	case entity.OrganizerStatusProvisioning:
+		return entityv1.OrganizerStatus_ORGANIZER_STATUS_PROVISIONING
+	case entity.OrganizerStatusActive:
+		return entityv1.OrganizerStatus_ORGANIZER_STATUS_ACTIVE
+	case entity.OrganizerStatusDeactivated:
+		return entityv1.OrganizerStatus_ORGANIZER_STATUS_DEACTIVATED
+	default:
+		return entityv1.OrganizerStatus_ORGANIZER_STATUS_UNSPECIFIED
+	}
+}
+
 // PublicOrganizerToProto maps a domain Organizer to the Protobuf message a fan
 // sees: its id, name and, when present, business details, which the checkout
-// shows as the 特商法 disclosure. The short name and the platform fee rate are
-// the Organizer's business with the platform and are never set.
+// shows as the 特商法 disclosure. The short name, the status and the platform
+// fee rate are the Organizer's business with the platform and are never set.
 func PublicOrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {
 		return nil

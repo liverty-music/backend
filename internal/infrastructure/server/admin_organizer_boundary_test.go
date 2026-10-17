@@ -193,8 +193,33 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		assert.Equal(t, artistID, roster.Msg.GetArtists()[0].GetId().GetValue())
 	})
 
+	// @spec components/adapter/admin/api/rpc/organizer "Admin lists Organizers in every status"
+	t.Run("lists a provisioning, an active and a deactivated organizer each with its own status", func(t *testing.T) {
+		t.Parallel()
+		const provisioningID = "019a0000-0000-7000-8000-0000000000e5"
+		organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
+		organizerUC.EXPECT().List(mock.Anything).Return([]*entity.Organizer{
+			{ID: provisioningID, Name: "New Label", ShortName: "new-label", Status: entity.OrganizerStatusProvisioning},
+			{ID: organizerID, Name: "Acme Music", ShortName: "acme-music", Status: entity.OrganizerStatusActive},
+			{ID: otherID, Name: "Old Label", ShortName: "old-label", Status: entity.OrganizerStatusDeactivated},
+		}, nil).Once()
+
+		list, err := newAdminOrganizerClient(t, organizerUC).List(context.Background(), asAdmin(&adminorganizerv1.ListRequest{}))
+
+		require.NoError(t, err)
+		got := make(map[string]entityv1.OrganizerStatus, len(list.Msg.GetOrganizers()))
+		for _, o := range list.Msg.GetOrganizers() {
+			got[o.GetId().GetValue()] = o.GetStatus()
+		}
+		assert.Equal(t, map[string]entityv1.OrganizerStatus{
+			provisioningID: entityv1.OrganizerStatus_ORGANIZER_STATUS_PROVISIONING,
+			organizerID:    entityv1.OrganizerStatus_ORGANIZER_STATUS_ACTIVE,
+			otherID:        entityv1.OrganizerStatus_ORGANIZER_STATUS_DEACTIVATED,
+		}, got)
+	})
+
 	// @spec components/adapter/admin/api/rpc/organizer "Admin reads any Organizer"
-	t.Run("returns a deactivated organizer with its id, name and short name, never its owner email", func(t *testing.T) {
+	t.Run("returns a deactivated organizer with its id, name, short name, status, business details and fee rate, never its owner email", func(t *testing.T) {
 		t.Parallel()
 		organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
 		organizerUC.EXPECT().Get(mock.Anything, otherID).Return(&entity.Organizer{
@@ -204,6 +229,14 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			OwnerEmail:          "owner@example.com",
 			ProviderOrganizerID: "zitadel-org-1",
 			Status:              entity.OrganizerStatusDeactivated,
+			BusinessDetails: &entity.BusinessDetails{
+				LegalName:           "株式会社オールドレーベル",
+				RepresentativeName:  "代表 太郎",
+				BusinessAddress:     "東京都渋谷区1-2-3",
+				BusinessPhoneNumber: "+81312345678",
+				ContactEmail:        "contact@example.com",
+			},
+			PlatformFeeRateBps: 500,
 		}, nil).Once()
 		client := newAdminOrganizerClient(t, organizerUC)
 
@@ -213,9 +246,16 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 
 		require.NoError(t, err)
 		want := &entityv1.Organizer{
-			Id:        &entityv1.OrganizerId{Value: otherID},
-			Name:      &entityv1.OrganizerName{Value: "Old Label"},
-			ShortName: &entityv1.OrganizerShortName{Value: "old-label"},
+			Id:                  &entityv1.OrganizerId{Value: otherID},
+			Name:                &entityv1.OrganizerName{Value: "Old Label"},
+			ShortName:           &entityv1.OrganizerShortName{Value: "old-label"},
+			Status:              entityv1.OrganizerStatus_ORGANIZER_STATUS_DEACTIVATED,
+			LegalName:           &entityv1.LegalName{Value: "株式会社オールドレーベル"},
+			RepresentativeName:  &entityv1.RepresentativeName{Value: "代表 太郎"},
+			BusinessAddress:     &entityv1.BusinessAddress{Value: "東京都渋谷区1-2-3"},
+			BusinessPhoneNumber: &entityv1.PhoneNumber{Value: "+81312345678"},
+			ContactEmail:        &entityv1.Email{Value: "contact@example.com"},
+			PlatformFeeRateBps:  500,
 		}
 		assert.True(t, proto.Equal(want, got.Msg.GetOrganizer()), "got %v", got.Msg.GetOrganizer())
 	})
