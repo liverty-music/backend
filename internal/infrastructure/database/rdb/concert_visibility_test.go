@@ -311,7 +311,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 	}
 
 	t.Run("return a CANCELLED organizer concert as CANCELLED", func(t *testing.T) {
-		// @spec components/entity/concert/list "Cancelled organizer concert included"
+		// @spec components/entity/concert/list "Cancelled Organizer concert included"
 		f := newVisibilityFixture(t)
 		id := f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 5, "CANCELLED", f.artist())
 
@@ -383,7 +383,7 @@ func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
 	})
 
 	t.Run("leave out a DRAFT organizer concert", func(t *testing.T) {
-		// @spec components/entity/concert/list-by-artist "Draft organizer concert excluded"
+		// @spec components/entity/concert/list-by-artist "Draft Organizer concert excluded"
 		f := newVisibilityFixture(t)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 3, "DRAFT", a)
@@ -438,7 +438,7 @@ func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
 	})
 
 	t.Run("leave out a CANCELLED organizer concert", func(t *testing.T) {
-		// @spec components/entity/concert/list-by-artists "Cancelled organizer concert excluded"
+		// @spec components/entity/concert/list-by-artists "Cancelled Organizer concert excluded"
 		f := newVisibilityFixture(t)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 3, "CANCELLED", a)
@@ -519,7 +519,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 	})
 
 	t.Run("leave out a PUBLISHED event of an UNLISTED series", func(t *testing.T) {
-		// @spec components/entity/concert/list-by-follower "Unlisted organizer concert excluded"
+		// @spec components/entity/concert/list-by-follower "Unlisted Organizer concert excluded"
 		f := newVisibilityFixture(t)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityUnlisted), f.venue("JP-13", nil, nil), 1, "PUBLISHED", a)

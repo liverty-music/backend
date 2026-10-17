@@ -208,7 +208,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		//       caller sees the email-collision signal.
 		//   (c) GetByProviderUserID itself errored for a non-NotFound reason
 		//       (Internal scan failure, Unavailable, transient pool error,
-		//       etc.). Return the retry error so the operator sees the real
+		//       etc.). Return the retry error so the admin sees the real
 		//       failure instead of a masquerading AlreadyExists — masking
 		//       caused a multi-hour incident on 2026-05-23 when scanUser
 		//       failed on NULL columns and surfaced to clients as

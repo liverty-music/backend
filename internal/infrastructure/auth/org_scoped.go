@@ -35,7 +35,7 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 //  2. Exactly one login-scope org id is present (derived from the unique inner
 //     orgId in the project-scoped roles claim). Zero or multiple → denied.
 //  3. The login-scope org id equals at least one of the orgIds under which the
-//     operator holds a role in the organizer-console project. Any role suffices.
+//     member holds a role in the organizer-console project. Any role suffices.
 //
 // On success it stores the resolved caller Zitadel org id in the context via
 // WithCallerOrgID so handlers can call GetCallerOrgID without re-reading claims.
@@ -51,7 +51,7 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 // # Login-scope org assumption
 //
 // Zitadel does not expose a dedicated top-level claim for the login-scope org.
-// When an operator scopes their session to org A via the OIDC scope
+// When a member scopes their session to org A via the OIDC scope
 // "urn:zitadel:iam:org:id:<A>", Zitadel filters the role grants in the
 // project-scoped roles claim to only those held within org A. As a result,
 // the inner orgId under the project-scoped roles claim is exactly the
@@ -141,7 +141,7 @@ func (i OrgScopedInterceptor) authorize(ctx context.Context) (context.Context, e
 		return denied()
 	}
 
-	// Check 3: the login-scope org must be one for which the operator holds
+	// Check 3: the login-scope org must be one for which the member holds
 	// a role (i.e. it appears as an inner orgId in the project-scoped roles
 	// claim). When RoleOrgIDs contains exactly one entry and LoginScopeOrgID
 	// was derived from it, this check is logically implied — but we perform

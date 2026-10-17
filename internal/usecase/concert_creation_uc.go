@@ -21,7 +21,7 @@ type ConcertCreationUseCase interface {
 	// artist. For each concert it resolves a venue via Google Places API, then:
 	//   - unresolved venue → staged for review (no venues row, no publish);
 	//   - resolved venue whose natural key is suppressed → skipped (no publish,
-	//     no stage), so an operator's deletion is not undone by re-discovery;
+	//     no stage), so an admin's deletion is not undone by re-discovery;
 	//   - resolved venue with a same-slot conflict → staged for reconciliation
 	//     (no publish), resolved later via ConcertCandidateUseCase.Approve;
 	//   - resolved venue, genuinely new → auto-published: the
@@ -337,7 +337,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		return nil, fmt.Errorf("check suppression for %q: %w", series.Title, err)
 	}
 	if suppressed {
-		uc.logger.Info(ctx, "skipping suppressed concert (deleted by operator)",
+		uc.logger.Info(ctx, "skipping suppressed concert (deleted by an admin)",
 			slog.String("artist_id", artistID),
 			slog.String("venue_id", venueID),
 			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),

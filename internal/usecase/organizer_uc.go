@@ -87,11 +87,11 @@ type OrganizerUseCase interface {
 	//   - FailedPrecondition: the organizer is deactivated.
 	DisassociateArtist(ctx context.Context, organizerID, artistID string) error
 
-	// Deactivate turns an Organizer off: it deactivates the Zitadel operators,
-	// frees the artist associations, and marks the Organizer deactivated
-	// (idempotent). It accepts an Organizer in any status, including one stuck
-	// in provisioning; a tenant whose link was never recorded is found by its
-	// deterministic name.
+	// Deactivate turns an Organizer off: it deactivates its members'
+	// identities, frees the artist associations, and marks the Organizer
+	// deactivated (idempotent). It accepts an Organizer in any status,
+	// including one stuck in provisioning; an Organization whose link was
+	// never recorded is found by its deterministic name.
 	//
 	// # Possible errors:
 	//   - NotFound: the organizer does not exist.
@@ -101,16 +101,16 @@ type OrganizerUseCase interface {
 	// provisioning state (e.g. after a partial failure). It is safe to run
 	// repeatedly (the saga is idempotent); per-organizer failures are logged and
 	// skipped so one bad row does not stall the sweep. An Organizer whose
-	// provisioning can never succeed (its operator email is taken or rejected)
+	// provisioning can never succeed (its owner email is taken or rejected)
 	// is deactivated so the sweep stops retrying it; an admin deletes it.
 	ReconcileProvisioning(ctx context.Context) error
 
 	// Delete permanently removes a deactivated Organizer: the original and
-	// served files of every SeriesImage it owns, then its tenant (when it has one,
+	// served files of every SeriesImage it owns, then its Organization (when it has one,
 	// found by its deterministic name when the link was never recorded), then
 	// its records. Before anything is removed it runs the record deletion
 	// as a dry run, so a purchase or payout account that blocks deletion stops
-	// the call with nothing removed. Removed files and tenants count as removed
+	// the call with nothing removed. Removed files and Organizations count as removed
 	// on a retry, so calling Delete again completes a deletion that failed
 	// partway.
 	//
@@ -119,7 +119,7 @@ type OrganizerUseCase interface {
 	//   - FailedPrecondition: the organizer is not deactivated, or an Order
 	//     that is not Refunded, a Settlement that is not Reversed or a payout
 	//     account blocks deletion.
-	//   - Internal: a file or the tenant could not be removed, or image
+	//   - Internal: a file or the Organization could not be removed, or image
 	//     storage is not configured while the organizer owns series images.
 	Delete(ctx context.Context, organizerID string) error
 
@@ -165,16 +165,16 @@ type StorageBuckets struct {
 }
 
 type organizerUseCase struct {
-	organizerRepo   entity.OrganizerRepository
-	signInLinks     entity.SignInLinkSender
-	artistRepo      entity.ArtistRepository
-	provisioner     OrganizerProvisioner
-	seriesImageRepo entity.SeriesImageRepository
-	imageStorer     ImageStorer
-	storageBuckets  StorageBuckets
-	publisher       EventPublisher
-	metrics         OrganizerMetrics
-	logger          *logging.Logger
+	organizerRepo    entity.OrganizerRepository
+	signInLinks      entity.SignInLinkSender
+	artistRepo       entity.ArtistRepository
+	organizationRepo entity.OrganizationRepository
+	seriesImageRepo  entity.SeriesImageRepository
+	imageStorer      ImageStorer
+	storageBuckets   StorageBuckets
+	publisher        EventPublisher
+	metrics          OrganizerMetrics
+	logger           *logging.Logger
 
 	// signInLinkLimiter bounds the sign-in link emails sent to one address.
 	signInLinkLimiter *slidingWindowLimiter
@@ -200,7 +200,7 @@ func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	signInLinks entity.SignInLinkSender,
 	artistRepo entity.ArtistRepository,
-	provisioner OrganizerProvisioner,
+	organizationRepo entity.OrganizationRepository,
 	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
 	storageBuckets StorageBuckets,
@@ -214,7 +214,7 @@ func NewOrganizerUseCase(
 		signInLinkLimiter: newSlidingWindowLimiter(signInLinkLimit, signInLinkWindow, time.Now),
 		background:        func(task func()) { go task() },
 		artistRepo:        artistRepo,
-		provisioner:       provisioner,
+		organizationRepo:  organizationRepo,
 		seriesImageRepo:   seriesImageRepo,
 		imageStorer:       imageStorer,
 		storageBuckets:    storageBuckets,
@@ -253,7 +253,7 @@ func (uc *organizerUseCase) Create(ctx context.Context, name, shortName, ownerEm
 }
 
 // isPermanentProvisioningFailure reports whether a provisioning error can never
-// be fixed by retrying: the provisioner reports a conflict or a rejected input
+// be fixed by retrying: the identity provider reports a conflict or a rejected input
 // (e.g. the identity provider rejects the owner email) with these codes, while
 // transient failures are Internal.
 func isPermanentProvisioningFailure(err error) bool {
@@ -264,8 +264,8 @@ func isPermanentProvisioningFailure(err error) bool {
 
 // discardUnprovisionable compensates a Create whose provisioning failed
 // permanently: it deactivates the Organizer, which immediately takes it out of
-// the reconciler's provisioning sweep, then deletes it together with its tenant
-// org through the regular Delete path. Create returns cause either way, so
+// the reconciler's provisioning sweep, then deletes it together with its
+// Organization through the regular Delete path. Create returns cause either way, so
 // a compensation failure is only logged; whatever remains is a deactivated
 // Organizer that an admin can delete.
 func (uc *organizerUseCase) discardUnprovisionable(ctx context.Context, organizerID string, cause error) {
@@ -292,25 +292,25 @@ func (uc *organizerUseCase) discardUnprovisionable(ctx context.Context, organize
 }
 
 // completeProvisioning runs the Zitadel provisioning saga (idempotent) for an
-// organizer and flips it to active. The tenant org id is recorded as soon as
-// the org exists, before the remaining steps, so a retry reuses the recorded id
-// and never creates or searches for the org again. It wraps the call in a span
+// Organizer and flips it to active. The Organization's id is recorded as soon
+// as the Organization exists, before the remaining steps, so a retry reuses
+// the recorded id and never creates or searches for the Organization again. It wraps the call in a span
 // + a provisioning-outcome metric. On failure the organizer is left in the
 // provisioning state.
 func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entity.Organizer) error {
-	ctx, span := otel.Tracer("usecase/organizer").Start(ctx, "ProvisionTenant")
+	ctx, span := otel.Tracer("usecase/organizer").Start(ctx, "ProvisionOrganization")
 	span.SetAttributes(attribute.String("organizer.id", org.ID))
 	defer span.End()
 
 	fail := func(err error) error {
 		span.RecordError(err)
-		span.SetStatus(otelcodes.Error, "organizer tenant provisioning failed")
+		span.SetStatus(otelcodes.Error, "organization provisioning failed")
 		uc.metrics.RecordOrganizerProvisioning(ctx, "failed")
 		return err
 	}
 
 	if org.ProviderOrganizerID == "" {
-		providerOrganizerID, err := uc.provisioner.EnsureTenantOrg(ctx, org.ShortName)
+		providerOrganizerID, err := uc.createOrganization(ctx, org.ShortName)
 		if err != nil {
 			return fail(err)
 		}
@@ -320,15 +320,15 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 		org.ProviderOrganizerID = providerOrganizerID
 	}
 
-	if err := uc.provisioner.ProvisionTenant(ctx, org.ProviderOrganizerID, org.ShortName, org.OwnerEmail); err != nil {
+	if err := uc.organizationRepo.Provision(ctx, org.ProviderOrganizerID, org.ShortName, org.OwnerEmail); err != nil {
 		return fail(err)
 	}
 
 	// Flip to active only if the row is still provisioning. A concurrent
 	// Deactivate (which does not guard against an in-flight saga) may have moved
-	// the row to deactivated during the multi-second ProvisionTenant window; an
+	// the row to deactivated during the multi-second Provision window; an
 	// unconditional flip would silently clobber that, leaving an "active" row
-	// whose operators are disabled and whose artists were freed — and which the
+	// whose identities are disabled and whose artists were freed — and which the
 	// reconciler (provisioning-only) never revisits. Treat a superseded row as a
 	// no-op: deactivation wins.
 	activated, err := uc.organizerRepo.CompareAndSetStatus(ctx, org.ID, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive)
@@ -344,7 +344,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 
 	org.Status = entity.OrganizerStatusActive
 	uc.metrics.RecordOrganizerProvisioning(ctx, "success")
-	uc.logger.Info(ctx, "organizer tenant provisioned",
+	uc.logger.Info(ctx, "organizer provisioned",
 		slog.String("organizer_id", org.ID),
 		slog.String("provider_organizer_id", org.ProviderOrganizerID),
 	)
@@ -369,7 +369,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 // A permanent failure (see isPermanentProvisioningFailure) would fail the same
 // way on every sweep, so the Organizer is deactivated instead: deactivated is
 // the existing terminal status the sweep ignores, and an admin removes the row
-// and its tenant with Delete. The sweep does not delete on its own, so nothing
+// and its Organization with Delete. The sweep does not delete on its own, so nothing
 // an admin created disappears in the background.
 func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	stuck, err := uc.organizerRepo.ListByStatus(ctx, entity.OrganizerStatusProvisioning)
@@ -406,11 +406,41 @@ func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	return nil
 }
 
-// tenantOrgID returns the Organizer's Organization id: the recorded link, or,
+// createOrganization creates the Organizer's Organization, named by its short
+// name, and returns its id. When Create reports AlreadyExists, an earlier
+// attempt created the Organization but did not record it (short names are
+// unique among Organizers and the product and admin names are reserved), so it
+// is resolved by its name. NotFound there contradicts AlreadyExists (e.g. a
+// lagging search index), so it is Internal: the Organizer stays provisioning
+// and the next sweep retries.
+func (uc *organizerUseCase) createOrganization(ctx context.Context, shortName string) (string, error) {
+	providerOrganizerID, err := uc.organizationRepo.Create(ctx, shortName)
+	if err == nil {
+		return providerOrganizerID, nil
+	}
+	if !errors.Is(err, apperr.ErrAlreadyExists) {
+		return "", err
+	}
+	providerOrganizerID, err = uc.organizationRepo.GetByName(ctx, shortName)
+	if errors.Is(err, apperr.ErrNotFound) {
+		return "", apperr.New(codes.Internal, "organization already exists but was not found by name",
+			slog.String("short_name", shortName))
+	}
+	if err != nil {
+		return "", err
+	}
+	uc.logger.Info(ctx, "organization created by an earlier attempt; reusing it",
+		slog.String("short_name", shortName),
+		slog.String("provider_organizer_id", providerOrganizerID),
+	)
+	return providerOrganizerID, nil
+}
+
+// organizationID returns the Organizer's Organization id: the recorded link, or,
 // when none was recorded (an Organizer whose first provisioning attempt failed
 // before the link was stored), the Organization found by its short name. It
 // returns "" when the Organizer has no Organization.
-func (uc *organizerUseCase) tenantOrgID(ctx context.Context, org *entity.Organizer) (string, error) {
+func (uc *organizerUseCase) organizationID(ctx context.Context, org *entity.Organizer) (string, error) {
 	if org.ProviderOrganizerID != "" {
 		return org.ProviderOrganizerID, nil
 	}
@@ -419,7 +449,7 @@ func (uc *organizerUseCase) tenantOrgID(ctx context.Context, org *entity.Organiz
 		// has a recorded Organization.
 		return "", nil
 	}
-	providerOrganizerID, err := uc.provisioner.FindTenantOrg(ctx, org.ShortName)
+	providerOrganizerID, err := uc.organizationRepo.GetByName(ctx, org.ShortName)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return "", nil
@@ -511,8 +541,8 @@ func (uc *organizerUseCase) DisassociateArtist(ctx context.Context, organizerID,
 	return uc.organizerRepo.DisassociateArtist(ctx, organizerID, artistID)
 }
 
-// Deactivate turns an Organizer off: it deactivates all Zitadel operators in
-// the tenant, releases artist associations so they can be re-associated
+// Deactivate turns an Organizer off: it deactivates every identity in its
+// Organization, releases artist associations so they can be re-associated
 // elsewhere, and marks the Organizer deactivated. It accepts an Organizer in
 // any status, including provisioning. The operation is idempotent — calling it
 // on an already-deactivated organizer returns nil. Returns NotFound if the
@@ -526,13 +556,13 @@ func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) 
 		return nil // idempotent
 	}
 
-	// Deactivate the tenant operators in Zitadel (skip when there is no tenant).
-	providerOrganizerID, err := uc.tenantOrgID(ctx, org)
+	// Deactivate the members' identities (skip when there is no Organization).
+	providerOrganizerID, err := uc.organizationID(ctx, org)
 	if err != nil {
 		return err
 	}
 	if providerOrganizerID != "" {
-		if err := uc.provisioner.DeactivateOperators(ctx, providerOrganizerID); err != nil {
+		if err := uc.organizationRepo.DeactivateIdentities(ctx, providerOrganizerID); err != nil {
 			return err
 		}
 	}
@@ -550,8 +580,9 @@ func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) 
 }
 
 // Delete removes a deactivated Organizer in the order of design D1: the dry-run
-// blocker check, the image files, the tenant, and finally the records. The
-// records go last because they are what lets a retry find the tenant and the
+// blocker check, the image files, the Organization, and finally the records.
+// The records go last because they are what lets a retry find the
+// Organization and the
 // series image id again.
 func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) error {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
@@ -581,14 +612,15 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		}
 	}
 
-	// An Organizer whose provisioning failed before the tenant link was recorded
-	// may still own a tenant org; find it by name so it is not orphaned.
-	providerOrganizerID, err := uc.tenantOrgID(ctx, org)
+	// An Organizer whose provisioning failed before the Organization link was
+	// recorded may still own an Organization; find it by name so it is not
+	// orphaned.
+	providerOrganizerID, err := uc.organizationID(ctx, org)
 	if err != nil {
 		return err
 	}
 	if providerOrganizerID != "" {
-		if err := uc.provisioner.DeleteTenant(ctx, providerOrganizerID); err != nil {
+		if err := uc.organizationRepo.Delete(ctx, providerOrganizerID); err != nil {
 			return err
 		}
 	}

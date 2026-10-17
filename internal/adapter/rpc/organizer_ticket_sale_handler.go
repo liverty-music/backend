@@ -20,7 +20,7 @@ import (
 var _ ticketsalev1connect.TicketSaleServiceHandler = (*OrganizerTicketSaleHandler)(nil)
 
 // OrganizerTicketSaleHandler implements the organizer-facing TicketSaleService:
-// an operator opens and changes the sales of their own Organizer's Series.
+// a member opens and changes the sales of their own Organizer's Series.
 // Org-scoped authorization is enforced by the OrgScopedInterceptor and the
 // request by the protovalidate interceptor before this handler runs; the
 // handler resolves the caller's own Organizer and delegates to the use case.
@@ -40,7 +40,7 @@ func NewOrganizerTicketSaleHandler(
 }
 
 // resolveCallerOrganizer returns the caller's own active Organizer. It fails
-// with PermissionDenied when the caller has no tenant; a failure of
+// with PermissionDenied when the caller has no Organization; a failure of
 // OrganizerUseCase.ResolveCaller is returned unchanged.
 func resolveCallerOrganizer(ctx context.Context, organizerUC usecase.OrganizerUseCase) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)

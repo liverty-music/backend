@@ -18,7 +18,7 @@ import (
 var _ tickettypev1connect.TicketTypeServiceHandler = (*OrganizerTicketTypeHandler)(nil)
 
 // OrganizerTicketTypeHandler implements the organizer-facing
-// TicketTypeService: an operator changes what one of their sales offers for an
+// TicketTypeService: a member changes what one of their sales offers for an
 // event. It resolves the caller's own Organizer and delegates to the use case.
 type OrganizerTicketTypeHandler struct {
 	ticketTypeUC usecase.TicketTypeUseCase

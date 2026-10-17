@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// SuppressedConcert is the natural key of a published concert an operator
+// SuppressedConcert is the natural key of a published concert an admin
 // deleted, recorded so a later discovery run does not auto-publish or re-stage
 // the same physical slot.
 //
@@ -13,7 +13,7 @@ import (
 // with NULLS NOT DISTINCT semantics: an unknown (nil) StartTime collapses onto
 // the same slot the way the events unique key does. It is deliberately
 // independent of the performing artist so a co-headliner's per-artist discovery
-// cannot resurrect a slot the operator removed.
+// cannot resurrect a slot the admin removed.
 //
 // Suppression is distinct from RejectedConcert: the rejection log is
 // analysis-only and never suppresses, whereas a SuppressedConcert actively

@@ -5,7 +5,7 @@
 Triggers the push notification delivery pipeline for a specific set of concerts, bypassing the NATS `CONCERT.created` event bus. Use this for:
 
 - Deterministic integration testing of the delivery pipeline without waiting for Gemini-driven concert discovery.
-- Operator-initiated re-delivery when a legitimate batch of notifications failed to send (e.g., NATS outage, consumer pod restart loop).
+- Admin-initiated re-delivery when a legitimate batch of notifications failed to send (e.g., NATS outage, consumer pod restart loop).
 
 Invokes the same `PushNotificationUseCase.NotifyNewConcerts` code path as the consumer, so hype filtering and webpush delivery behave identically.
 

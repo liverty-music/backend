@@ -39,9 +39,9 @@ func TestOrganizerScannerHandler(t *testing.T) {
 
 	ctx := auth.WithCallerOrgID(context.Background(), "zorg-1")
 
-	t.Run("operator creates a scanner", func(t *testing.T) {
+	t.Run("member creates a scanner", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/scanner "Operator creates a scanner"
+		// @spec components/adapter/organizer/api/rpc/scanner "Member creates a scanner"
 		h, scanners, orgs := newOrganizerScannerHandler(t)
 		orgs.EXPECT().ResolveCaller(ctx, "zorg-1").Return(&entity.Organizer{ID: "org-1"}, nil)
 		scanners.EXPECT().Create(ctx, "org-1", testEventID).Return(&entity.Scanner{

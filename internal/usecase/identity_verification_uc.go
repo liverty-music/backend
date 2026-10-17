@@ -15,7 +15,8 @@ import (
 // The raw certificate and card response are validated vendor-side and never
 // cross the boundary into our application; only these fields are retained.
 type IdentityVerifierResult struct {
-	// ProviderUserID is the Pocket Sign tenant-scoped person key (User.id).
+	// ProviderUserID is the Pocket Sign person key (User.id), scoped to
+	// Liverty Music's account at the verification provider.
 	// Stable across card renewal, re-issue, cert-type change. Never the serial
 	// or 個人番号.
 	ProviderUserID string

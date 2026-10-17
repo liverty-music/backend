@@ -225,7 +225,7 @@ const (
 	// listAllConcertsQuery returns every published concert with no audience
 	// filter, for the admin console's catalog management. Venue lat/lng are
 	// included (withCoords) so the shared scanConcertRow path is reused.
-	// Admin queries intentionally omit the visibility guard so operators can
+	// Admin queries intentionally omit the visibility guard so admins can
 	// see all series states.
 	listAllConcertsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,

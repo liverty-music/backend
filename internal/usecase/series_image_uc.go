@@ -76,7 +76,7 @@ type SeriesImageUseCase interface {
 	// CreateUploadURL validates the content type, mints a new series image id
 	// (UUIDv7), and returns a V4-signed GCS PUT URL for the ORIGINALS bucket
 	// together with the series image id and the maximum allowed bytes. The caller's
-	// organizer id is the tenant segment of the object key; no series is
+	// organizer id is the per-Organizer segment of the object key; no series is
 	// referenced at this stage.
 	//
 	// # Possible errors

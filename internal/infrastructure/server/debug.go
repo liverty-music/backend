@@ -22,10 +22,10 @@ import (
 // physically separate from the public Connect-RPC / admin / webhook / health
 // listeners. That port is deliberately NOT added to any Kubernetes Service,
 // Gateway, or HTTPRoute, so the profiling surface is unreachable from the
-// public ingress. Operators pull profiles over an internal access path only
+// public ingress. Admins pull profiles over an internal access path only
 // (e.g. `kubectl port-forward` to the pod), satisfying the goroutine-leak
-// spec's "operator/internal access, not a public unauthenticated route"
-// requirement.
+// spec's requirement of internal access only, not a public unauthenticated
+// route.
 //
 // The handlers are mounted on a private mux rather than http.DefaultServeMux,
 // so importing net/http/pprof (which registers on DefaultServeMux via init)

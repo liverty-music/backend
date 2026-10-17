@@ -247,7 +247,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		// path can encounter. Internal is the original incident's class
 		// (scanUser NULL→string crash); Unavailable covers transient pool
 		// / connection failures. Both MUST propagate as themselves so the
-		// operator sees the real failure instead of AlreadyExists.
+		// admin sees the real failure instead of AlreadyExists.
 		cases := []struct {
 			name           string
 			providerUserID string

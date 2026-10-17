@@ -557,7 +557,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		f.auth.EXPECT().Release(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card authorization has already been charged"))
 
-		// Reported (logged as needing an operator) and not recorded as released.
+		// Reported (logged as needing an admin) and not recorded as released.
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 	})
 

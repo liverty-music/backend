@@ -30,7 +30,7 @@ func newOrganizerTicketTypeClient(t *testing.T) (tickettypev1connect.TicketTypeS
 	h := handler.NewOrganizerTicketTypeHandler(types, orgs, logger)
 	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return tickettypev1connect.NewTicketTypeServiceHandler(h, opts...)
-	}, asOperator(testProviderOrganizerID))
+	}, asMember(testProviderOrganizerID))
 	return tickettypev1connect.NewTicketTypeServiceClient(srv.Client(), srv.URL), types, orgs
 }
 
@@ -46,9 +46,9 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 		}
 	}
 
-	t.Run("operator raises the quantity", func(t *testing.T) {
+	t.Run("member raises the quantity", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/ticket-type "Operator raises the quantity"
+		// @spec components/adapter/organizer/api/rpc/ticket-type "Member raises the quantity"
 		client, types, orgs := newOrganizerTicketTypeClient(t)
 		orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(&entity.Organizer{ID: "org-1"}, nil)
 		types.EXPECT().Update(mock.Anything, "org-1", usecase.UpdateTicketTypeInput{

@@ -141,7 +141,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 
 	t.Run("another organizer's series", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/create "Another organizer's series"
+		// @spec components/usecase/ticket-sale/create "Another Organizer's series"
 		f := newTicketSaleFixture(t, now)
 		f.seriesOwnedBy("org-2", "event-1")
 
@@ -524,7 +524,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 
 	t.Run("another organizer's event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/list-own-by-event "Another organizer's event"
+		// @spec components/usecase/ticket-sale/list-own-by-event "Another Organizer's event"
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-2", nil)
 

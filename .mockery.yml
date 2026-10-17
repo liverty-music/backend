@@ -32,6 +32,7 @@ packages:
       OfficialSiteResolver: {}
       OrderConfirmationSender: {}
       OrderRepository: {}
+      OrganizationRepository: {}
       OrganizerRepository: {}
       PushNotificationSender: {}
       PushSubscriptionRepository: {}
@@ -82,7 +83,6 @@ packages:
       OfficialSiteUseCase: {}
       OrderUseCase: {}
       OrganizerMetrics: {}
-      OrganizerProvisioner: {}
       OrganizerUseCase: {}
       PushSubscriptionUseCase: {}
       ScannerUseCase: {}

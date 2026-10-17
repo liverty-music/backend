@@ -17,18 +17,18 @@ import (
 )
 
 // DraftEventInput is the intermediate representation of an event being authored,
-// carrying the venue name the operator saw and the place id of the map place
-// the operator picked alongside the timing fields. The usecase finds or creates
+// carrying the venue name the member saw and the place id of the map place
+// the member picked alongside the timing fields. The usecase finds or creates
 // the Venue holding that place id for a new or DRAFT event; a PUBLISHED or
 // CANCELLED event keeps its Venue.
 type DraftEventInput struct {
 	// EventID is the id of the series' Event this input edits; nil for a new
 	// date, which is added as a DRAFT Event. Used by Update only.
 	EventID *string
-	// VenueName is the venue name as the operator saw it for the picked place,
+	// VenueName is the venue name as the member saw it for the picked place,
 	// kept as the event's listed venue name.
 	VenueName string
-	// PlaceID is the map catalog place id of the place the operator picked.
+	// PlaceID is the map catalog place id of the place the member picked.
 	// Required: an event without one is rejected.
 	PlaceID *string
 	// LocalDate is the calendar date of the performance (midnight UTC).
@@ -221,10 +221,10 @@ func generateUnlistedToken() (string, error) {
 // resolveVenueForInput returns the id of the Venue for one event's picked
 // place: the Venue holding the place id when one is held, otherwise a new Venue
 // created from the map catalog's place (its name, coordinates and admin area).
-// A catalog NotFound becomes InvalidArgument (the operator sent a place id the
+// A catalog NotFound becomes InvalidArgument (the member sent a place id the
 // catalog does not know); Unavailable passes through.
 //
-// The new Venue carries no listed venue name: the operator's typed name is
+// The new Venue carries no listed venue name: the member's typed name is
 // kept on the event (Event.ListedVenueName), and a listed name on the
 // Venue would let Create's (listed_venue_name, admin_area) dedupe merge this
 // place into another same-named Venue in the same admin area.
@@ -808,7 +808,7 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 	}
 
 	// Insert the series image row idempotently. The organizer_id comes from the
-	// verified caller so we never store a series image row for a different tenant.
+	// verified caller so we never store a series image row for a different Organizer.
 	seriesImage := &entity.SeriesImage{
 		ID:          seriesImageID,
 		OrganizerID: callerOrgID,

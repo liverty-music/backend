@@ -37,7 +37,7 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/adapter/organizer/api/rpc/venue "Venue search for an active Organizer"
-	t.Run("return the candidate places for an operator of an active organizer", func(t *testing.T) {
+	t.Run("return the candidate places for a member of an active organizer", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerVenueHandlerDeps(t)
 
@@ -65,7 +65,7 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 	})
 
 	// @spec components/adapter/organizer/api/rpc/venue "Venue search without an Organizer"
-	t.Run("return PERMISSION_DENIED without calling the map catalog when no organizer is linked to the tenant", func(t *testing.T) {
+	t.Run("return PERMISSION_DENIED without calling the map catalog when no organizer is linked to the Organization", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerVenueHandlerDeps(t)
 

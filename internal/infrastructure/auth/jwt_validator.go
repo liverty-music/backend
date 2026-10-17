@@ -170,7 +170,7 @@ func extractAudiences(token jwt.Token) []string {
 //
 // loginScopeOrgID is the single unique inner orgId across all project-scoped
 // role grants — inferred as the login-scope org because Zitadel filters the
-// role grants to the org the operator logged in against. When the set of
+// role grants to the org the member logged in against. When the set of
 // unique inner orgIds is not exactly one, loginScopeOrgID is returned empty;
 // the org-scoped interceptor will reject such tokens with PERMISSION_DENIED.
 //

@@ -35,7 +35,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		wantCode    connect.Code
 	}{
 		{
-			// @spec components/adapter/organizer/api/rpc/artist "Operator lists their own roster"
+			// @spec components/adapter/organizer/api/rpc/artist "Member lists their own roster"
 			name: "return the caller's own roster",
 			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase, a *ucmocks.MockArtistUseCase) {
@@ -48,7 +48,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			wantArtists: 2,
 		},
 		{
-			// @spec components/adapter/organizer/api/rpc/artist "Operator lists their own roster"
+			// @spec components/adapter/organizer/api/rpc/artist "Member lists their own roster"
 			name: "return an empty roster when the Organizer represents no artists",
 			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase, a *ucmocks.MockArtistUseCase) {
@@ -68,7 +68,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			wantCode: connect.CodeFailedPrecondition,
 		},
 		{
-			name: "return PERMISSION_DENIED when no Organizer is linked to the tenant",
+			name: "return PERMISSION_DENIED when no Organizer is linked to the Organization",
 			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase, a *ucmocks.MockArtistUseCase) {
 				m.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).
@@ -77,7 +77,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			wantCode: connect.CodePermissionDenied,
 		},
 		{
-			name:     "return PERMISSION_DENIED when the caller's tenant is absent from the context",
+			name:     "return PERMISSION_DENIED when the caller's Organization is absent from the context",
 			ctx:      noOrgCtx(),
 			setupUC:  func(_ *ucmocks.MockOrganizerUseCase, _ *ucmocks.MockArtistUseCase) {},
 			wantCode: connect.CodePermissionDenied,

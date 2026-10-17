@@ -4,7 +4,6 @@ package zitadel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -25,7 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -46,32 +45,33 @@ const userSearchLimit = 10
 const userNameInUseMsg = "the owner identity's user name is already used outside the organization"
 
 // Compile-time interface compliance check.
-var _ usecase.OrganizerProvisioner = (*OrganizerProvisioner)(nil)
+var _ entity.OrganizationRepository = (*OrganizationRepository)(nil)
 
-// OrganizerProvisioner provisions an Organizer's isolated Zitadel tenant via
-// the Management API using the organizer-provisioner machine user credential.
-// EnsureTenantOrg and ProvisionTenant are idempotent: the saga steps are
-// existence-checked so a retry after a partial failure completes without
-// creating duplicates and never leaves the operator without an owner grant.
-type OrganizerProvisioner struct {
+// OrganizationRepository creates, provisions and removes Organizers'
+// Organizations via the Zitadel Management API using the
+// organizer-provisioner machine user credential. Provision is idempotent: the
+// saga steps are existence-checked so a retry after a partial failure
+// completes without creating duplicates and never leaves the owner without
+// the owner role.
+type OrganizationRepository struct {
 	mgmt                      mgmtpb.ManagementServiceClient
 	userV2                    userv2pb.UserServiceClient
 	orgV2                     orgv2pb.OrganizationServiceClient
 	organizerConsoleProjectID string
 	// consoleBaseURL is the organizer console origin (e.g.
 	// https://organizer.dev.liverty-music.app), derived from the issuer. It is
-	// set as the tenant login policy's default_redirect_uri so the operator is
-	// returned to the console after accepting the invite (see ensureLoginPolicy).
+	// set as the Organization login policy's default_redirect_uri so the owner
+	// is returned to the console after accepting the invite (see ensureLoginPolicy).
 	consoleBaseURL string
 	// inviteURLTemplate is the Zitadel-standard invitation link — a literal with
 	// Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}} placeholders — pointing at
 	// the hosted Login v2 /verify page on the issuer host. Derived once from the
-	// issuer; the same template serves every operator.
+	// issuer; the same template serves every owner identity.
 	inviteURLTemplate string
 	logger            *logging.Logger
 }
 
-// NewOrganizerProvisioner creates an OrganizerProvisioner that authenticates
+// NewOrganizationRepository creates an OrganizationRepository that authenticates
 // to the Zitadel Management API using a machine user's private key JWT — the
 // same pattern as NewEmailVerifier in this package.
 //
@@ -79,11 +79,11 @@ type OrganizerProvisioner struct {
 // provisionerKeyPath is the path to the organizer-provisioner machine key JSON.
 // organizerConsoleProjectID is the Zitadel project id for the organizer-console
 // application, used as the project-grant target and role container.
-func NewOrganizerProvisioner(
+func NewOrganizationRepository(
 	ctx context.Context,
 	issuerURL, provisionerKeyPath, organizerConsoleProjectID string,
 	logger *logging.Logger,
-) (*OrganizerProvisioner, error) {
+) (*OrganizationRepository, error) {
 	apiEndpoint, err := grpcEndpoint(issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse zitadel domain: %w", err)
@@ -114,7 +114,7 @@ func NewOrganizerProvisioner(
 		return nil, fmt.Errorf("create zitadel connection: %w", err)
 	}
 
-	return &OrganizerProvisioner{
+	return &OrganizationRepository{
 		mgmt:                      mgmtpb.NewManagementServiceClient(conn.ClientConn),
 		userV2:                    userv2pb.NewUserServiceClient(conn.ClientConn),
 		orgV2:                     orgv2pb.NewOrganizationServiceClient(conn.ClientConn),
@@ -128,9 +128,9 @@ func NewOrganizerProvisioner(
 // inviteVerifyURLTemplate builds the Zitadel-standard invitation link for
 // CreateInviteCode: it points at the hosted Login v2 /verify page on the issuer
 // host and carries Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}} placeholders,
-// which Zitadel substitutes when it sends the mail. The operator clicks the
+// which Zitadel substitutes when it sends the mail. The owner clicks the
 // "Accept invite" link and the invite code rides on the IdP surface (auth host)
-// — never in a console URL. After passkey setup the tenant login policy's
+// — never in a console URL. After passkey setup the Organization login policy's
 // default_redirect_uri returns them to the console (see ensureLoginPolicy). This
 // is Zitadel's standard invite UX (zitadel/zitadel#8310, zitadel/typescript#166)
 // and mirrors the login app's own buildVerificationUrlTemplate.
@@ -157,46 +157,32 @@ func ConsoleBaseURLFromIssuer(issuerURL string) (string, error) {
 	return fmt.Sprintf("%s://organizer.%s", u.Scheme, host), nil
 }
 
-// EnsureTenantOrg creates the Organizer's Organization, named by its short
-// name, and returns its id. When AddOrg reports AlreadyExists, an earlier
-// attempt created the Organization, so it is resolved by its exact name.
-func (p *OrganizerProvisioner) EnsureTenantOrg(ctx context.Context, shortName string) (string, error) {
+// Create creates the Organizer's Organization, named by its short name, and
+// returns its id. It only creates: when AddOrg reports AlreadyExists, Create
+// fails with AlreadyExists and leaves resolving the existing Organization to
+// the caller (GetByName).
+func (p *OrganizationRepository) Create(ctx context.Context, shortName string) (string, error) {
 	orgName := shortName
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	resp, err := p.mgmt.AddOrg(ctx, &mgmtpb.AddOrgRequest{Name: orgName})
-	if err == nil {
-		p.logger.Info(ctx, "tenant org created",
-			slog.String("short_name", shortName),
-			slog.String("zitadel_org_id", resp.GetId()),
-		)
-		return resp.GetId(), nil
-	}
-	if !isAlreadyExists(err) {
-		return "", apperr.Wrap(err, codes.Internal, "add tenant org")
-	}
-
-	providerOrganizerID, err := p.FindTenantOrg(ctx, shortName)
-	if errors.Is(err, apperr.ErrNotFound) {
-		// AddOrg says the org exists, so NotFound here is an inconsistency
-		// (e.g. a lagging projection), not a missing org; a retry may succeed.
-		return "", apperr.New(codes.Internal, "tenant org already exists but was not found by name",
-			slog.String("org_name", orgName),
-		)
-	}
 	if err != nil {
-		return "", fmt.Errorf("resolve existing tenant org: %w", err)
+		if isAlreadyExists(err) {
+			return "", apperr.Wrap(err, codes.AlreadyExists, "organization name already used",
+				slog.String("org_name", orgName))
+		}
+		return "", apperr.Wrap(err, codes.Internal, "add organization")
 	}
-	p.logger.Info(ctx, "tenant org already existed",
+	p.logger.Info(ctx, "organization created",
 		slog.String("short_name", shortName),
-		slog.String("zitadel_org_id", providerOrganizerID),
+		slog.String("zitadel_org_id", resp.GetId()),
 	)
-	return providerOrganizerID, nil
+	return resp.GetId(), nil
 }
 
-// FindTenantOrg resolves the Organization by its exact name, the Organizer's
+// GetByName resolves the Organization by its exact name, the Organizer's
 // short name, through the v2 organization search, ignoring removed
 // Organizations.
-func (p *OrganizerProvisioner) FindTenantOrg(ctx context.Context, shortName string) (string, error) {
+func (p *OrganizationRepository) GetByName(ctx context.Context, shortName string) (string, error) {
 	orgName := shortName
 	resp, err := p.orgV2.ListOrganizations(ctx, &orgv2pb.ListOrganizationsRequest{
 		Queries: []*orgv2pb.SearchQuery{
@@ -211,18 +197,18 @@ func (p *OrganizerProvisioner) FindTenantOrg(ctx context.Context, shortName stri
 		},
 	})
 	if err != nil {
-		return "", apperr.Wrap(err, codes.Internal, "search tenant org by name")
+		return "", apperr.Wrap(err, codes.Internal, "search organization by name")
 	}
 	for _, o := range resp.GetResult() {
 		if o.GetName() == orgName && o.GetState() != orgv2pb.OrganizationState_ORGANIZATION_STATE_REMOVED {
 			return o.GetId(), nil
 		}
 	}
-	return "", apperr.New(codes.NotFound, "tenant org not found", slog.String("org_name", orgName))
+	return "", apperr.New(codes.NotFound, "organization not found", slog.String("org_name", orgName))
 }
 
-// ProvisionTenant completes the Organization providerOrganizerID, which
-// EnsureTenantOrg created. It is idempotent: each step is existence-checked so
+// Provision completes the Organization providerOrganizerID, which Create
+// created. It is idempotent: each step is existence-checked so
 // a retry after a partial failure completes without creating duplicates.
 //
 // The steps:
@@ -236,7 +222,7 @@ func (p *OrganizerProvisioner) FindTenantOrg(ctx context.Context, shortName stri
 // the user name, or the user name is taken outside the Organization) carry
 // InvalidArgument or AlreadyExists and cannot succeed on retry; every other
 // failure is Internal.
-func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) error {
+func (p *OrganizationRepository) Provision(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) error {
 	if shortName == "" {
 		// Only the Organizer created before short names lacks one; it is
 		// given one by hand, after which a retry succeeds.
@@ -244,8 +230,8 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrga
 			slog.String("zitadel_org_id", providerOrganizerID))
 	}
 
-	// Management API calls for the tenant's own resources are scoped to the
-	// tenant org.
+	// Management API calls for the Organization's own resources are scoped to
+	// the Organization.
 	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
 	if err := p.ensureLoginPolicy(orgCtx, providerOrganizerID); err != nil {
@@ -254,23 +240,23 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrga
 
 	// AddProjectGrant is called from the provisioner's own org context; the
 	// organizer-console project lives in the provisioner's org, so we call
-	// it without the tenant org header.
+	// it without the Organization header.
 	if err := p.ensureProjectGrant(ctx, providerOrganizerID); err != nil {
 		return apperr.Wrap(err, codes.Internal, "ensure project grant")
 	}
 
-	operatorID, err := p.ensureOperatorUser(ctx, providerOrganizerID, shortName, ownerEmail)
+	ownerID, err := p.ensureOwnerIdentity(ctx, providerOrganizerID, shortName, ownerEmail)
 	if err != nil {
-		// ensureOperatorUser already assigns the code (AlreadyExists /
+		// ensureOwnerIdentity already assigns the code (AlreadyExists /
 		// InvalidArgument / Internal); keep it.
-		return fmt.Errorf("ensure operator user: %w", err)
+		return fmt.Errorf("ensure owner identity: %w", err)
 	}
 
-	if err := p.ensureUserGrant(orgCtx, operatorID); err != nil {
-		return apperr.Wrap(err, codes.Internal, "ensure operator user grant")
+	if err := p.ensureUserGrant(orgCtx, ownerID); err != nil {
+		return apperr.Wrap(err, codes.Internal, "ensure owner identity grant")
 	}
 
-	p.logger.Info(ctx, "organizer tenant provisioned",
+	p.logger.Info(ctx, "organization provisioned",
 		slog.String("short_name", shortName),
 		slog.String("zitadel_org_id", providerOrganizerID),
 		slog.String("owner_email", ownerEmail),
@@ -278,15 +264,15 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, providerOrga
 	return nil
 }
 
-// DeactivateOperators lists every human user in the tenant org and turns each
-// one off so it can no longer act. It is idempotent: an already-inactive user
-// is treated as success. Operators still in Zitadel's `initial` state (created
+// DeactivateIdentities lists every human user in the Organization and turns
+// each one off so it can no longer act. It is idempotent: an already-inactive
+// user is treated as success. Identities still in Zitadel's `initial` state (created
 // but never completed first sign-in — e.g. the passkey init link was never
 // used) are DELETED rather than deactivated, because Zitadel rejects
 // deactivating an initial user ("User with state initial can only be deleted
 // not deactivated") — and such a user has no credentials/session to disable
 // anyway, so removing it fully satisfies the off-switch intent.
-func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, providerOrganizerID string) error {
+func (p *OrganizationRepository) DeactivateIdentities(ctx context.Context, providerOrganizerID string) error {
 	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
@@ -302,7 +288,7 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, provider
 		},
 	})
 	if err != nil {
-		return apperr.Wrap(err, codes.Internal, "list users in tenant org")
+		return apperr.Wrap(err, codes.Internal, "list users in organization")
 	}
 
 	for _, u := range resp.GetResult() {
@@ -315,9 +301,9 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, provider
 					// Already gone — idempotent, skip.
 					continue
 				}
-				return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove initial operator %s", u.GetId()))
+				return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove initial identity %s", u.GetId()))
 			}
-			p.logger.Info(ctx, "initial operator removed",
+			p.logger.Info(ctx, "initial identity removed",
 				slog.String("zitadel_org_id", providerOrganizerID),
 				slog.String("user_id", u.GetId()),
 			)
@@ -333,9 +319,9 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, provider
 				// User is already inactive — idempotent, skip.
 				continue
 			}
-			return apperr.Wrap(err, codes.Internal, fmt.Sprintf("deactivate operator %s", u.GetId()))
+			return apperr.Wrap(err, codes.Internal, fmt.Sprintf("deactivate identity %s", u.GetId()))
 		}
-		p.logger.Info(ctx, "operator deactivated",
+		p.logger.Info(ctx, "identity deactivated",
 			slog.String("zitadel_org_id", providerOrganizerID),
 			slog.String("user_id", u.GetId()),
 		)
@@ -343,29 +329,29 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, provider
 	return nil
 }
 
-// DeleteTenant removes the tenant org, which removes every user in it. The org
+// Delete removes the Organization, which removes every user in it. The org
 // is addressed through the x-zitadel-orgid header, as RemoveOrg acts on the
 // org of the request. A NotFound response means the org is already gone and
 // counts as success, so a retry after a partial deletion completes.
-func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, providerOrganizerID string) error {
+func (p *OrganizationRepository) Delete(ctx context.Context, providerOrganizerID string) error {
 	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	if _, err := p.mgmt.RemoveOrg(orgCtx, &mgmtpb.RemoveOrgRequest{}); err != nil {
 		if isNotFound(err) {
-			p.logger.Info(ctx, "tenant org already removed", slog.String("zitadel_org_id", providerOrganizerID))
+			p.logger.Info(ctx, "organization already removed", slog.String("zitadel_org_id", providerOrganizerID))
 			return nil
 		}
-		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove tenant org %s", providerOrganizerID))
+		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove organization %s", providerOrganizerID))
 	}
-	p.logger.Info(ctx, "tenant org removed", slog.String("zitadel_org_id", providerOrganizerID))
+	p.logger.Info(ctx, "organization removed", slog.String("zitadel_org_id", providerOrganizerID))
 	return nil
 }
 
-// Check lifetimes of the tenant login policy, set to Zitadel's instance
+// Check lifetimes of the Organization login policy, set to Zitadel's instance
 // defaults (cmd/defaults.yaml at v4.19.4). Omitting them stores 0, which the
 // Zitadel Console rejects on save ("Form contains invalid value(s).";
-// minValueValidator(1) in login-policy.component.ts), so the tenant policy
+// minValueValidator(1) in login-policy.component.ts), so the Organization policy
 // could no longer be edited from the Console.
 var (
 	loginPolicyPasswordCheckLifetime      = durationpb.New(240 * time.Hour)
@@ -375,8 +361,8 @@ var (
 	loginPolicyMultiFactorCheckLifetime   = durationpb.New(12 * time.Hour)
 )
 
-// ensureLoginPolicy sets a passkey-primary custom login policy on the tenant
-// org, converging an existing policy to the correct shape on retry.
+// ensureLoginPolicy sets a passkey-primary custom login policy on the
+// Organization, converging an existing policy to the correct shape on retry.
 //
 // CRITICAL: allow_username_password MUST be true. Despite its name, this field
 // (the deprecated alias of `allow_local_authentication`) does NOT merely toggle
@@ -387,14 +373,14 @@ var (
 // provider." Setting it false therefore removes the username-entry form from
 // hosted Login v2's loginname page (source: apps/login `loginname/page.tsx`
 // gates `<UsernameForm>` on `allowLocalAuthentication`), and since no external
-// IdP is configured on the tenant org, the operator lands on an empty login
+// IdP is configured on the Organization, the owner lands on an empty login
 // card with no way to proceed — breaking the whole invite onboarding flow.
 //
 // "Passkey-primary" is achieved by PasswordlessType=ALLOWED plus never setting a
-// password on the operator (ensureHumanUser), NOT by disabling local auth. With
+// password on the owner identity (ensureHumanUser), NOT by disabling local auth. With
 // local auth enabled and no password on file, the only usable local method is
 // the passkey — exactly the intended behavior — while the username form still
-// renders so the operator can enter the invite flow.
+// renders so the owner can enter the invite flow.
 //
 // DefaultRedirectUri MUST be the organizer console. The invite is accepted on
 // the hosted login /verify page OUTSIDE any in-flight OIDC request, so after
@@ -402,7 +388,7 @@ var (
 // login policy's default_redirect_uri (source-verified: apps/login
 // `lib/server/passkeys.ts` passes `getLoginSettings().defaultRedirectUri` to
 // `completeFlowOrGetUrl`, and `lib/client.ts` `resolveRedirectUri` uses it).
-// Pointing it at the console returns the operator there to complete sign-in;
+// Pointing it at the console returns the owner there to complete sign-in;
 // without it they would dead-end on a Zitadel page.
 //
 // AddCustomLoginPolicy is create-only. Orgs provisioned before this change carry
@@ -410,11 +396,11 @@ var (
 // allow_username_password=false, ignore_unknown_usernames=true or
 // hide_password_reset=false), so on AlreadyExists we UpdateCustomLoginPolicy
 // to converge them in place (idempotent saga).
-func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, providerOrganizerID string) error {
-	// The default redirect carries this tenant's org id so the console can
+func (p *OrganizationRepository) ensureLoginPolicy(orgCtx context.Context, providerOrganizerID string) error {
+	// The default redirect carries this Organization's id so the console can
 	// enforce, after the post-invite callback, that the authenticated token's
-	// org is THIS tenant — a stale/other-org SSO session in the browser must not
-	// silently onboard the wrong operator. On a mismatch the console forces
+	// org is THIS Organization — a stale/other-org SSO session in the browser
+	// must not silently onboard the wrong member. On a mismatch the console forces
 	// re-authentication (design D-D, Option 2).
 	defaultRedirectURI := fmt.Sprintf("%s/?org_id=%s", p.consoleBaseURL, url.QueryEscape(providerOrganizerID))
 	_, err := p.mgmt.AddCustomLoginPolicy(orgCtx, &mgmtpb.AddCustomLoginPolicyRequest{
@@ -430,7 +416,7 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 		// People sign in by typing their email; the user name is never typed.
 		DisableLoginWithEmail: false,
 		DefaultRedirectUri:    defaultRedirectURI,
-		// Operators never get a password; hiding the reset removes the hosted
+		// Owner identities never get a password; hiding the reset removes the hosted
 		// login's only self-service path to set one while local
 		// authentication must stay enabled for passkeys.
 		HidePasswordReset:          true,
@@ -447,7 +433,7 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 		return fmt.Errorf("add custom login policy: %w", err)
 	}
 
-	// A custom policy already exists — update it in place so tenant orgs created
+	// A custom policy already exists — update it in place so Organizations created
 	// before this change converge to the correct passkey-primary shape and gain
 	// the console default_redirect_uri.
 	if _, err := p.mgmt.UpdateCustomLoginPolicy(orgCtx, &mgmtpb.UpdateCustomLoginPolicyRequest{
@@ -470,15 +456,16 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, provide
 	return nil
 }
 
-// ensureProjectGrant grants the organizer-console project to the tenant org.
-// This call is made from the provisioner's own org context (not the tenant's),
+// ensureProjectGrant grants the organizer-console project to the Organization.
+// This call is made from the provisioner's own org context (not the
+// Organization's),
 // because the project lives in the provisioner's org. On AlreadyExists, the
 // existing grant satisfies the requirement.
-func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrgID string) error {
+func (p *OrganizationRepository) ensureProjectGrant(ctx context.Context, providerOrganizerID string) error {
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	_, err := p.mgmt.AddProjectGrant(ctx, &mgmtpb.AddProjectGrantRequest{
 		ProjectId:    p.organizerConsoleProjectID,
-		GrantedOrgId: tenantOrgID,
+		GrantedOrgId: providerOrganizerID,
 		RoleKeys:     []string{organizerConsoleRoleOwner},
 	})
 	if err != nil && !isAlreadyExists(err) {
@@ -487,24 +474,24 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 	return nil
 }
 
-// ensureOperatorUser ensures the initial operator human user exists in the tenant
-// org and has a pending Zitadel invite (the onboarding email). It returns the
+// ensureOwnerIdentity ensures the owner identity exists in the Organization
+// and has a pending Zitadel invite (the onboarding email). It returns the
 // user id.
 //
 // The invite is (re)created on every call. Its failure is FATAL — a provisioning
-// that cannot deliver the operator's onboarding email must not report success,
-// or the Organizer would go active with an operator who can never sign in — with
-// ONE exception: if the operator has already completed onboarding, Zitadel
+// that cannot deliver the owner's onboarding email must not report success,
+// or the Organizer would go active with an owner who can never sign in — with
+// ONE exception: if the owner has already completed onboarding, Zitadel
 // rejects re-inviting them (they are past the invitable state) and that is
-// benign. An already-onboarded operator can already sign in, so we treat that
+// benign. An already-onboarded owner can already sign in, so we treat that
 // specific rejection as success and let the idempotent saga proceed to the owner
 // grant instead of the reconciler re-failing forever. On any other failure the
 // caller leaves the row `provisioning` and the reconciler retries.
 //
-// ctx carries no org header; the tenant-scoped calls derive their own.
+// ctx carries no org header; the Organization-scoped calls derive their own.
 // Every returned error is an apperr: AlreadyExists or InvalidArgument when the
-// operator email itself is unusable, Internal otherwise.
-func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) (string, error) {
+// owner email itself is unusable, Internal otherwise.
+func (p *OrganizationRepository) ensureOwnerIdentity(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) (string, error) {
 	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 	userID, err := p.ensureHumanUser(ctx, providerOrganizerID, shortName, ownerEmail)
 	if err != nil {
@@ -515,12 +502,12 @@ func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, providerO
 	// one branded "Invitation to Liverty Music Organizer" email via its own SMTP (the
 	// backend has no SMTP of its own) whose "Accept invite" link opens the hosted
 	// Login v2 /verify page directly, with the code carried in the link. The
-	// operator CLICKS the link (never transcribes a code), registers a passkey,
+	// owner CLICKS the link (never transcribes a code), registers a passkey,
 	// and — since the invite is accepted outside any in-flight OIDC request — is
-	// returned to the console via the tenant login policy default_redirect_uri
+	// returned to the console via the Organization login policy default_redirect_uri
 	// (see ensureLoginPolicy). This is the standard UX (zitadel/zitadel#8310,
 	// zitadel/typescript#166) and replaces the earlier console-pointed transport
-	// invite, which routed the operator to /verify WITHOUT the code (an empty
+	// invite, which routed the owner to /verify WITHOUT the code (an empty
 	// "enter code" screen) and triggered a second Login-v2 invite email.
 	//
 	// url_template carries Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}}
@@ -536,25 +523,25 @@ func (p *OrganizerProvisioner) ensureOperatorUser(ctx context.Context, providerO
 			},
 		},
 	}); err != nil {
-		// Idempotency: an operator who already completed onboarding is past the
+		// Idempotency: an owner who already completed onboarding is past the
 		// invitable state, and Zitadel rejects re-inviting them
 		// (FailedPrecondition / AlreadyExists). That is benign for this
-		// compensating saga — the operator can already sign in, and the invite is
+		// compensating saga — the owner can already sign in, and the invite is
 		// only the email transport — so treat it as success and let provisioning
 		// proceed to the owner grant, rather than wedging the row in
 		// `provisioning` on every reconciler sweep. Any other code (a genuine
-		// delivery/transient failure that would leave a not-yet-onboarded operator
+		// delivery/transient failure that would leave a not-yet-onboarded owner
 		// unable to sign in) stays FATAL.
 		if isAlreadyInState(err) || isAlreadyExists(err) {
-			p.logger.Info(orgCtx, "operator already onboarded; skipping re-invite",
+			p.logger.Info(orgCtx, "owner already onboarded; skipping re-invite",
 				slog.String("user_id", userID),
 				slog.String("email", ownerEmail),
 			)
 			return userID, nil
 		}
-		return "", apperr.Wrap(err, codes.Internal, "send operator invite")
+		return "", apperr.Wrap(err, codes.Internal, "send owner invite")
 	}
-	p.logger.Info(orgCtx, "operator invite sent",
+	p.logger.Info(orgCtx, "owner invite sent",
 		slog.String("user_id", userID),
 		slog.String("email", ownerEmail),
 		slog.String("invite_url", inviteURL),
@@ -580,7 +567,7 @@ func ownerUserName(ownerEmail, shortName string) string {
 // Organization: a match is a true retry and is reused. No match means the user
 // name belongs to an identity elsewhere, which no retry fixes, so it fails
 // with AlreadyExists.
-func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) (string, error) {
+func (p *OrganizationRepository) ensureHumanUser(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) (string, error) {
 	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
 	userName := ownerUserName(ownerEmail, shortName)
 	// User v2 AddHumanUser with a verified email and NO password creates a
@@ -599,8 +586,8 @@ func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, providerOrga
 			Org: &objectv2pb.Organization_OrgId{OrgId: providerOrganizerID},
 		},
 		Profile: &userv2pb.SetHumanProfile{
-			GivenName:   "Operator",
-			FamilyName:  "Operator",
+			GivenName:   "Owner",
+			FamilyName:  "Owner",
 			DisplayName: &userName,
 		},
 		Email: &userv2pb.SetHumanEmail{
@@ -632,7 +619,7 @@ func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, providerOrga
 			slog.String("zitadel_org_id", providerOrganizerID),
 		)
 	}
-	p.logger.Info(ctx, "owner already exists in tenant org; reusing",
+	p.logger.Info(ctx, "owner already exists in organization; reusing",
 		slog.String("zitadel_org_id", providerOrganizerID),
 		slog.String("user_id", users[0].GetUserId()),
 	)
@@ -641,7 +628,7 @@ func (p *OrganizerProvisioner) ensureHumanUser(ctx context.Context, providerOrga
 
 // listOrgUsersByEmail returns the users of the Organization orgID whose email
 // equals email, ignoring case. Errors are Internal.
-func (p *OrganizerProvisioner) listOrgUsersByEmail(ctx context.Context, orgID, email string) ([]*userv2pb.User, error) {
+func (p *OrganizationRepository) listOrgUsersByEmail(ctx context.Context, orgID, email string) ([]*userv2pb.User, error) {
 	resp, err := p.userV2.ListUsers(ctx, &userv2pb.ListUsersRequest{
 		Query: &objectv2pb.ListQuery{Limit: userSearchLimit},
 		Queries: []*userv2pb.SearchQuery{
@@ -660,12 +647,12 @@ func (p *OrganizerProvisioner) listOrgUsersByEmail(ctx context.Context, orgID, e
 	return resp.GetResult(), nil
 }
 
-// ensureUserGrant grants the operator the owner role on the organizer-console
+// ensureUserGrant grants the owner identity the owner role on the organizer-console
 // project. On AlreadyExists the existing grant is sufficient.
-func (p *OrganizerProvisioner) ensureUserGrant(orgCtx context.Context, operatorID string) error {
+func (p *OrganizationRepository) ensureUserGrant(orgCtx context.Context, ownerID string) error {
 	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	_, err := p.mgmt.AddUserGrant(orgCtx, &mgmtpb.AddUserGrantRequest{
-		UserId:    operatorID,
+		UserId:    ownerID,
 		ProjectId: p.organizerConsoleProjectID,
 		RoleKeys:  []string{organizerConsoleRoleOwner},
 	})

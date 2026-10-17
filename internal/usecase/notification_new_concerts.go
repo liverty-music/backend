@@ -42,7 +42,7 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 	// Validate that every requested concert exists and that the specified
 	// artist is one of its performers. With M:N performers, "belongs to" is
 	// "is a performer at" — a single concert (e.g. a festival) may legitimately
-	// belong to multiple artists. This protects against operator mistakes on
+	// belong to multiple artists. This protects against admin mistakes on
 	// the debug RPC path and bad publisher state on the event path.
 	hasPerformer := make(map[string]bool, len(concerts))
 	// orphanConcerts records concerts whose Performers slice is empty after

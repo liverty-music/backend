@@ -39,9 +39,9 @@ func TestPayoutAccountHandler_GetScenarios(t *testing.T) {
 		return handler.NewPayoutAccountHandler(uc, organizerUC, logger)
 	}
 
-	t.Run("operator opens payout settings", func(t *testing.T) {
+	t.Run("member opens payout settings", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/payout-account "Operator opens payout settings"
+		// @spec components/adapter/organizer/api/rpc/payout-account "Member opens payout settings"
 		h := newHandler(t, &onboardingUCStub{fn: func(organizerID string) (*entity.PayoutAccount, string, error) {
 			return &entity.PayoutAccount{OrganizerID: organizerID, ProviderAccountID: "acct_1", Status: entity.PayoutOnboardingStatusPending},
 				"https://connect.example/onboarding", nil

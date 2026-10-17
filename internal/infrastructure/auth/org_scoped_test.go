@@ -73,7 +73,7 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 		{
 			// The caller's org comes from the token alone (its single
 			// login-scope org), never from an email domain or a URL hint.
-			// @spec components/infrastructure/organizer/web/global/hosted-login "Org is resolved by org-pinned entry for every operator"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "Organization is resolved by org-pinned entry for every member"
 			name: "allow when aud contains project id, exactly one login-scope org, and role matches",
 			args: args{
 				claims:    happyClaims(),
@@ -113,9 +113,9 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 			wantCode: connect.CodePermissionDenied,
 		},
 		{
-			// Simulates a multi-org operator whose token has roles for two orgs;
+			// Simulates a multi-org member whose token has roles for two orgs;
 			// extractRoleOrgIDs returns an empty LoginScopeOrgID when len > 1.
-			// @spec components/adapter/organizer/api/rpc/payout-account "Roles in several tenants"
+			// @spec components/adapter/organizer/api/rpc/payout-account "Roles in several Organizations"
 			name: "deny when multiple login-scope orgs are present (ambiguous)",
 			args: args{
 				claims:    happyClaims(withLoginScopeOrgID(""), withRoleOrgIDs("org-A", "org-B")),
@@ -127,7 +127,7 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 
 		// ── Role cross-check ─────────────────────────────────────────────────
 		{
-			// @spec components/infrastructure/organizer/web/global/hosted-login "Org is resolved by org-pinned entry for every operator"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "Organization is resolved by org-pinned entry for every member"
 			// LoginScopeOrgID points to org-X but RoleOrgIDs only contains org-Y.
 			// This exercises the explicit cross-check in authorize().
 			name: "deny when login-scope org does not appear in role-claim org ids",

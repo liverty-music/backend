@@ -13,7 +13,8 @@ const (
 	// VerificationMethodUnspecified is the zero value and is never persisted.
 	VerificationMethodUnspecified VerificationMethod = 0
 	// VerificationMethodJPKI indicates マイナンバーカード 公的個人認証 via Pocket Sign.
-	// Yields a stable per-person tenant-scoped key (strong dedupe).
+	// Yields a stable per-person key, scoped to Liverty Music's account at the
+	// verification provider (strong dedupe).
 	VerificationMethodJPKI VerificationMethod = 1
 	// VerificationMethodDriverLicence indicates the 運転免許証 IC (Verify CardInfo)
 	// fallback. Does not yield an equivalent stable per-person key (weak dedupe).
@@ -65,7 +66,8 @@ type IdentityVerification struct {
 	UserID string
 	// Method is how the person proved their identity (JPKI or driver's licence).
 	Method VerificationMethod
-	// ProviderUserID is the Pocket Sign tenant-scoped person key. The only
+	// ProviderUserID is the Pocket Sign person key, scoped to Liverty Music's
+	// account at the verification provider. The only
 	// person-identifying datum stored; never the serial, never the 個人番号.
 	ProviderUserID string
 	// DedupeStrength is derived from Method (STRONG for JPKI, WEAK for licence).

@@ -250,7 +250,7 @@ func (r *OrganizerRepository) ListByStatus(ctx context.Context, status entity.Or
 }
 
 // SetProviderOrganizerID persists the Zitadel org id on the Organizer row after
-// successful tenant provisioning. Returns NotFound when the organizer no
+// successful Organization provisioning. Returns NotFound when the organizer no
 // longer exists.
 func (r *OrganizerRepository) SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error {
 	tag, err := r.db.Pool.Exec(ctx, setOrganizerProviderOrganizerIDQuery, id, providerOrganizerID)

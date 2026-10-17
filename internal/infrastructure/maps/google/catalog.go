@@ -26,12 +26,12 @@ const (
 	defaultDetailsBaseURL = "https://places.googleapis.com/v1/places"
 
 	// catalogLanguageCode asks for Japanese names and addresses: the organizer
-	// console serves operators in Japan.
+	// console serves members in Japan.
 	catalogLanguageCode = "ja"
 	// catalogRegionCode ranks places in Japan before places elsewhere and
 	// formats addresses for Japan. Autocomplete takes a two-letter ccTLD.
 	catalogRegionCode = "jp"
-	// catalogSearchPageSize is the most candidates an operator picks from.
+	// catalogSearchPageSize is the most candidates a member picks from.
 	// Autocomplete returns at most 5 predictions; the cap keeps the contract
 	// if that ever grows.
 	catalogSearchPageSize = 5
@@ -46,7 +46,7 @@ const (
 var _ entity.VenueMapCatalog = (*Client)(nil)
 
 // searchPlacesRequest is the JSON body of an Autocomplete (New) request for
-// operator-facing candidates. It sets no type filter (a live house's primary
+// member-facing candidates. It sets no type filter (a live house's primary
 // type may be bar or night_club), no session token (billing is per request;
 // a session would bill GetPlace's Details call at a higher SKU) and no query
 // predictions, so every suggestion is a place prediction.

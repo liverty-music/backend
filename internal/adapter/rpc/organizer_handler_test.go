@@ -114,7 +114,7 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			wantCode: connect.CodeFailedPrecondition,
 		},
 		{
-			// @spec components/adapter/organizer/api/rpc/organizer "Tenant with no Organizer"
+			// @spec components/adapter/organizer/api/rpc/organizer "Organization with no Organizer"
 			name: "return PERMISSION_DENIED when no organizer linked to zitadel org",
 			args: args{ctx: orgCtx(testProviderOrganizerID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {

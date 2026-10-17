@@ -106,7 +106,7 @@ func TestEventPublishStateRepository_IsEventPublished(t *testing.T) {
 		wantErrCode codes.Code
 	}{
 		{
-			// @spec components/entity/event/is-event-published "Published organizer event"
+			// @spec components/entity/event/is-event-published "Published Organizer event"
 			name: "return true for a PUBLISHED event",
 			setup: func() string {
 				cleanDatabase(t)

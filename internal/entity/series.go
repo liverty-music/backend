@@ -70,7 +70,7 @@ type SeriesImage struct {
 	// ID is the unique series image identifier (UUIDv7, application-generated). It is
 	// the object-key basename and the cache-busting version token.
 	ID string
-	// OrganizerID is the owning organizer. Used as the stable tenant segment
+	// OrganizerID is the owning organizer. Used as the stable per-Organizer segment
 	// of the object key.
 	OrganizerID string
 	// Attributes holds kind-specific metadata (e.g. content_type for IMAGE).

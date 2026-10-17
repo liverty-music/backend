@@ -1,7 +1,7 @@
 // Package google provides a client for the Google Maps Places API (New).
 //
 // This client uses Text Search (New) to find the one place of a discovered
-// concert's venue, Autocomplete (New) to list the places an organizer operator
+// concert's venue, Autocomplete (New) to list the places a member
 // picks a venue from, and Place Details (New) to read one place by its id.
 // It authenticates via OAuth 2.0 using Application Default Credentials (ADC),
 // which integrates with GKE Workload Identity for automatic token management.

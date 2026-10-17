@@ -850,7 +850,7 @@ func TestConcert_PublishStateAndVisibility(t *testing.T) {
 
 	t.Run("hide a concert of an UNLISTED organizer series", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/entity/concert "Concert of an unlisted organizer series"
+		// @spec components/entity/concert "Concert of an unlisted Organizer series"
 		c := concertOf(firstPartySeries(entity.SeriesVisibilityUnlisted), entity.PublishStatePublished)
 		assert.False(t, c.IsVisibleToFans())
 	})

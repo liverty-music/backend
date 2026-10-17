@@ -63,9 +63,9 @@ func signedInAs(sub string) func(context.Context) context.Context {
 	}
 }
 
-// asOperator returns a decorator that signs the request in as an operator of
-// the given Zitadel tenant.
-func asOperator(providerOrganizerID string) func(context.Context) context.Context {
+// asMember returns a decorator that signs the request in as a member of the
+// given Organization.
+func asMember(providerOrganizerID string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
 		return auth.WithCallerOrgID(auth.WithClaims(ctx, &auth.Claims{Sub: "op-sub"}), providerOrganizerID)
 	}
