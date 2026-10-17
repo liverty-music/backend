@@ -483,7 +483,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 			block: func(f *authoredFixture) { f.suppress(authoredFirstDate.AddDate(0, 0, 1), nil) },
 		},
 		{
-			// @spec components/entity/series/publish-events "Another organizer's slot"
+			// @spec components/entity/series/publish-events "Another Organizer's slot"
 			name: "another organizer's event at the slot",
 			block: func(f *authoredFixture) {
 				f.otherSeries(authoredFirstDate.AddDate(0, 0, 1), nil, entity.PublishStatePublished, seedOrganizer(f.t))

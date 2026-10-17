@@ -21,7 +21,7 @@ var _ organizerartistv1connect.ArtistServiceHandler = (*OrganizerArtistHandler)(
 // interface. The organizer-console sign-in checks run in the
 // OrgScopedInterceptor before this handler; the handler then resolves the
 // caller's own Organizer from the context-stored Zitadel org id. No request
-// names an Organizer, so an operator cannot ask for another Organizer's
+// names an Organizer, so a member cannot ask for another Organizer's
 // roster.
 type OrganizerArtistHandler struct {
 	artistUC    usecase.ArtistUseCase

@@ -193,7 +193,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 
 	t.Run("fail with PERMISSION_DENIED for a series of another organizer", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/series/update "Another organizer's series"
+		// @spec components/usecase/series/update "Another Organizer's series"
 		d := newAuthoringDeps(t)
 		other := lifecycleSeries(entity.SeriesVisibilityPublic)
 		other.OrganizerID = new("019a0000-0000-7000-8000-0000000000ff")
@@ -491,7 +491,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 
 	t.Run("fail with PERMISSION_DENIED for a series of another organizer", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/series/publish "Another organizer's series"
+		// @spec components/usecase/series/publish "Another Organizer's series"
 		d := newAuthoringDeps(t)
 		other := lifecycleSeries(entity.SeriesVisibilityPublic)
 		other.OrganizerID = new("019a0000-0000-7000-8000-0000000000ff")

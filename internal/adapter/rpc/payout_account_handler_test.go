@@ -50,8 +50,8 @@ func TestPayoutAccountHandler_Get(t *testing.T) {
 		wantCode connect.Code
 	}{
 		{
-			// @spec components/adapter/organizer/api/rpc/payout-account "Tenant with no Organizer"
-			name:     "return PERMISSION_DENIED unchanged when ResolveCaller finds no organizer for the tenant",
+			// @spec components/adapter/organizer/api/rpc/payout-account "Organization with no Organizer"
+			name:     "return PERMISSION_DENIED unchanged when ResolveCaller finds no organizer for the Organization",
 			args:     args{ctx: orgCtx(testProviderOrganizerID)},
 			dep:      dep{resolveCallerErr: apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")},
 			wantCode: connect.CodePermissionDenied,

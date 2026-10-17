@@ -95,7 +95,7 @@ func (h *AdminOrganizerHandler) Get(
 	return connect.NewResponse(&organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
 }
 
-// Deactivate turns an Organizer off: deactivates its Zitadel operators,
+// Deactivate turns an Organizer off: deactivates its members' identities,
 // releases artist associations, and marks the Organizer deactivated
 // (idempotent). Returns NotFound when no organizer with the given id exists.
 func (h *AdminOrganizerHandler) Deactivate(
@@ -108,8 +108,8 @@ func (h *AdminOrganizerHandler) Deactivate(
 	return connect.NewResponse(&organizerv1.DeactivateResponse{}), nil
 }
 
-// Delete permanently removes a deactivated Organizer with its files, tenant
-// and records. Returns NotFound when no organizer with the given id exists and
+// Delete permanently removes a deactivated Organizer with its files,
+// Organization and records. Returns NotFound when no organizer with the given id exists and
 // FailedPrecondition when it is not deactivated or deletion is blocked.
 func (h *AdminOrganizerHandler) Delete(
 	ctx context.Context,

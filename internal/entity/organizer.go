@@ -17,7 +17,7 @@ type OrganizerStatus int16
 const (
 	// OrganizerStatusUnspecified is the zero value and is never persisted.
 	OrganizerStatusUnspecified OrganizerStatus = 0
-	// OrganizerStatusProvisioning means tenant provisioning is in progress and the
+	// OrganizerStatusProvisioning means Organization provisioning is in progress and the
 	// Organizer is not yet fully usable.
 	OrganizerStatusProvisioning OrganizerStatus = 1
 	// OrganizerStatusActive means provisioning completed and the Organizer is usable.
@@ -44,7 +44,7 @@ type Organizer struct {
 	// creation and persisted so the reconciler can complete provisioning after
 	// a partial failure. It is not exposed on any proto.
 	OwnerEmail          string
-	ProviderOrganizerID string // empty until tenant provisioning persists the tenant link
+	ProviderOrganizerID string // empty until provisioning records the Organization link
 	Status              OrganizerStatus
 	// BusinessDetails is the 特商法 販売業者 disclosure entered by an admin at
 	// vetting; nil until entered.
@@ -213,7 +213,7 @@ type OrganizerRepository interface {
 	Get(ctx context.Context, id string) (*Organizer, error)
 
 	// GetByProviderOrganizerID returns the Organizer whose provider_organizer_id matches the
-	// given Zitadel organization id. The link is established during tenant
+	// given Zitadel organization id. The link is established during
 	// provisioning and is unique (the partial unique index covers non-NULL values).
 	//
 	// # Possible errors
@@ -232,7 +232,7 @@ type OrganizerRepository interface {
 	// by the reconciler to find rows stuck in the provisioning state.
 	ListByStatus(ctx context.Context, status OrganizerStatus) ([]*Organizer, error)
 
-	// SetProviderOrganizerID persists the tenant-org link produced during provisioning.
+	// SetProviderOrganizerID persists the Organization link produced during provisioning.
 	//
 	// # Possible errors
 	//   - NotFound: no organizer with the id exists.

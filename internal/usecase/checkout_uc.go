@@ -65,7 +65,7 @@ type CheckoutUseCase interface {
 
 	// ReleaseExpired makes lapsed Held Checkouts Expired and gives back the
 	// card authorization of every ended Checkout, reporting a captured one on an ended
-	// Checkout as needing an operator. One Checkout's failure never stops
+	// Checkout as needing an admin. One Checkout's failure never stops
 	// the others.
 	//
 	// # Possible errors
@@ -268,7 +268,7 @@ func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
 }
 
 // releaseCardAuthorization releases an ended checkout's card authorization and records it. A
-// captured card authorization is reported as needing an operator.
+// captured card authorization is reported as needing an admin.
 func (uc *checkoutUseCase) releaseCardAuthorization(ctx context.Context, checkout *entity.Checkout, now time.Time) {
 	if err := uc.cardAuthorizations.Release(ctx, checkout.CardAuthorizationID); err != nil {
 		if errors.Is(err, apperr.ErrFailedPrecondition) {

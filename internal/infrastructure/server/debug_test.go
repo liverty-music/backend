@@ -14,7 +14,7 @@ import (
 
 // TestDebugServer_ServesGoroutineLeakProfile confirms the internal pprof
 // listener exposes the Go 1.27 goroutineleak profile (and the pprof index),
-// so operators can pull a full profile with stacks on demand.
+// so admins can pull a full profile with stacks on demand.
 func TestDebugServer_ServesGoroutineLeakProfile(t *testing.T) {
 	t.Parallel()
 

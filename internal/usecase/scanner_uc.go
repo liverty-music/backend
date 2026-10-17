@@ -57,7 +57,7 @@ type OpenScannerResult struct {
 	InsideWindow bool
 }
 
-// ScannerUseCase lets an organizer operator create, list and revoke the
+// ScannerUseCase lets a member create, list and revoke the
 // Scanners of their own events, and lets a scanner device open one.
 type ScannerUseCase interface {
 	// Create creates an Unused Scanner, numbered after the event's earlier

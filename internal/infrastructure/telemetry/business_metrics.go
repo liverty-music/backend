@@ -41,7 +41,7 @@ func NewBusinessMetrics() *BusinessMetrics {
 		metric.WithDescription("Per-notification delivery outcomes by outcome and failure reason"),
 	)
 	organizerProvisioned, _ := meter.Int64Counter("organizer.provisioning.count",
-		metric.WithDescription("Organizer tenant provisioning outcomes by status (success/failed)"),
+		metric.WithDescription("Organizer Organization provisioning outcomes by status (success/failed)"),
 	)
 	return &BusinessMetrics{
 		concertSearch:        concertSearch,

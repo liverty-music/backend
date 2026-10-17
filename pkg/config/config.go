@@ -80,7 +80,7 @@ type ServerConfig struct {
 	// organizer or reception. Every deployment runs the same binary with all
 	// five listeners, so this, not the presence of a credential, decides the
 	// work only one deployment may do: the payment sweepers run on fan, and
-	// organizer tenant provisioning (with its reconciler) runs on admin.
+	// Organization provisioning for Organizers (with its reconciler) runs on admin.
 	// Required outside local; local runs as every workload at once.
 	Workload string `envconfig:"API_WORKLOAD"`
 
@@ -114,15 +114,15 @@ type ServerConfig struct {
 	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
 	// `organizer-provisioner` Zitadel MachineUser's private key JSON, mounted
 	// from GSM secret `zitadel-machine-key-for-organizer-provisioner`. This
-	// credential grants IAM_ORG_MANAGER (tenant org creation + cross-org
+	// credential grants IAM_ORG_MANAGER (Organization creation + cross-org
 	// grants) and is mounted only into the isolated admin workload
 	// (`admin-console-api`), never the consumer surface. Required for the admin
 	// workload outside local; other workloads must not carry it.
 	ZitadelMachineKeyForOrganizerProvisionerPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH"`
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
-	// Project-Granted to each Organizer tenant org and used as the role
-	// container (the `owner` role) when seeding the initial operator.
+	// Project-Granted to each Organizer's Organization and used as the role
+	// container (the `owner` role) when creating the owner identity.
 	OrganizerConsoleProjectID string `envconfig:"ORGANIZER_CONSOLE_PROJECT_ID"`
 
 	// LastFM API Key
@@ -983,8 +983,8 @@ func (c *ServerConfig) RunsPaymentSweepers() bool {
 	return c.Workload == WorkloadFan
 }
 
-// ProvisionsOrganizers reports whether this process provisions organizer
-// tenants (and runs the provisioning reconciler). Outside local only the admin
+// ProvisionsOrganizers reports whether this process provisions Organizers'
+// Organizations (and runs the provisioning reconciler). Outside local only the admin
 // workload does; local does whenever the provisioner credential is mounted.
 func (c *ServerConfig) ProvisionsOrganizers() bool {
 	if c.IsLocal() {

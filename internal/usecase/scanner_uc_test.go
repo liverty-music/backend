@@ -81,7 +81,7 @@ func TestScannerUseCase_Create(t *testing.T) {
 
 	t.Run("another organizer's event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/scanner/create "Another organizer's event"
+		// @spec components/usecase/scanner/create "Another Organizer's event"
 		f := newScannerFixture(t)
 		_, err := f.uc.Create(context.Background(), "org-other", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -144,7 +144,7 @@ func TestScannerUseCase_ListByEvent(t *testing.T) {
 
 	t.Run("another organizer's event", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/scanner/list-by-event "Another organizer's event"
+		// @spec components/usecase/scanner/list-by-event "Another Organizer's event"
 		f := newScannerFixture(t)
 		_, err := f.uc.ListByEvent(context.Background(), "org-other", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -190,7 +190,7 @@ func TestScannerUseCase_Revoke(t *testing.T) {
 
 	t.Run("another organizer's scanner", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/scanner/revoke "Another organizer's scanner"
+		// @spec components/usecase/scanner/revoke "Another Organizer's scanner"
 		f := newScannerFixture(t)
 		scanner := &entity.Scanner{ID: "l1", EventID: f.event.ID, Status: entity.ScannerStatusInUse}
 		f.scanners.EXPECT().Get(mock.Anything, scanner.ID).Return(scanner, nil)

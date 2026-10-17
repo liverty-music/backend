@@ -31,13 +31,14 @@ type EventOrganizerRepository interface {
 }
 
 // unissuedChargeReportAge is how long a charged checkout may stay unissued
-// before every run of the stalled-checkout job reports it to an operator.
+// before every run of the stalled-checkout job reports it to an admin.
 const unissuedChargeReportAge = 10 * time.Minute
 
-// LogKeyNeedsOperator is the log message of a purchase that needs an operator:
-// money was taken without tickets. A log-based alert on it pages the operator;
+// LogKeyNeedsOperator is the log message of a purchase that needs an admin:
+// money was taken without tickets. A log-based alert on it pages the admin;
 // the alert in cloud-provisioning (monitoring.ts) matches this text and reads
-// the checkout_id and card_authorization_id fields.
+// the checkout_id and card_authorization_id fields, so the constant and its
+// text keep their names.
 const LogKeyNeedsOperator = "checkout needs an operator"
 
 // issuanceSource is everything the shared issuance core needs from a source:

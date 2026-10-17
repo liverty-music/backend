@@ -49,7 +49,7 @@ const (
 	// separate ACCOUNT stream.
 	SubjectUserLoggedIn = "USER.logged_in"
 	// SubjectOrganizerCreated is published by OrganizerUseCase.Create after the
-	// Zitadel tenant is provisioned and the organizer row is flipped to active.
+	// Organizer's Organization is provisioned and the organizer row is flipped to active.
 	// It drives the organizer.created analytics event (admin-actor / group event
 	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
 	// org.created) so the ORGANIZER.* stream filter matches with a plain

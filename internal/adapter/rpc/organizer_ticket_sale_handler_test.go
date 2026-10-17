@@ -24,7 +24,7 @@ import (
 )
 
 // organizerTicketSaleFixture serves an OrganizerTicketSaleHandler behind the
-// validation interceptor, signed in as an operator of testProviderOrganizerID.
+// validation interceptor, signed in as a member of testProviderOrganizerID.
 type organizerTicketSaleFixture struct {
 	sales  *ucmocks.MockTicketSaleUseCase
 	orgs   *ucmocks.MockOrganizerUseCase
@@ -82,10 +82,10 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		}
 	}
 
-	t.Run("operator configures a sale", func(t *testing.T) {
+	t.Run("member configures a sale", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/ticket-sale "Operator configures a sale"
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Member configures a sale"
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
 			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStart: start,
@@ -104,7 +104,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 
 	t.Run("optional end time, limit and verification are passed on", func(t *testing.T) {
 		t.Parallel()
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().Create(mock.Anything, "org-1", mock.MatchedBy(func(in usecase.CreateTicketSaleInput) bool {
 			return in.Method == entity.TicketSaleMethodLottery && in.SaleEnd != nil && in.SaleEnd.Equal(end) &&
@@ -122,10 +122,10 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("operator sees how many sold", func(t *testing.T) {
+	t.Run("member sees how many sold", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/ticket-sale "Operator sees how many sold"
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Member sees how many sold"
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		lottery := &usecase.TicketSaleView{
 			Sale: &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000d2", SeriesID: tkSeriesID, Name: "抽選",
@@ -162,7 +162,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 
 	t.Run("purchases per referral code with a direct group", func(t *testing.T) {
 		t.Parallel()
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		memberA := entity.ReferralCode("member-a")
 		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).Return(&usecase.OwnEventSales{
@@ -189,10 +189,10 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		assert.Equal(t, int64(3250), got[1].GetAmount())
 	})
 
-	t.Run("operator moves a window", func(t *testing.T) {
+	t.Run("member moves a window", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/ticket-sale "Operator moves a window"
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Member moves a window"
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().SetWindow(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), start, end).
 			Return(firstComeView(entity.TicketTypeStateNotYetOnSale), nil)
@@ -207,7 +207,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 
 	t.Run("no requirement sets none", func(t *testing.T) {
 		t.Parallel()
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().SetVerificationRequirement(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), entity.VerificationRequirementNone).
 			Return(firstComeView(entity.TicketTypeStateOnSale), nil)
@@ -219,10 +219,10 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("tenant with no organizer", func(t *testing.T) {
+	t.Run("organization with no organizer", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/ticket-sale "Tenant with no Organizer"
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Organization with no Organizer"
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(nil, apperr.New(codes.PermissionDenied, "no organizer"))
 
 		_, err := f.client.Create(context.Background(), connect.NewRequest(createReq()))
@@ -230,7 +230,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 
-	t.Run("caller without a tenant", func(t *testing.T) {
+	t.Run("caller without an organization", func(t *testing.T) {
 		t.Parallel()
 		f := newOrganizerTicketSaleFixture(t, signedInAs("op-sub"))
 
@@ -242,7 +242,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 	t.Run("deactivated organizer", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/ticket-sale "Deactivated Organizer"
-		f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated")).Times(4)
 		ctx := context.Background()
@@ -343,7 +343,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 	for _, tt := range invalid {
 		t.Run(tt.name+" fails with InvalidArgument", func(t *testing.T) {
 			t.Parallel()
-			f := newOrganizerTicketSaleFixture(t, asOperator(testProviderOrganizerID))
+			f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 
 			err := tt.call(context.Background(), f.client)
 

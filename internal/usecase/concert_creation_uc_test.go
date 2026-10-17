@@ -655,7 +655,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		h.suppressed.suppress("venue-1", localDate, &startTime)
-		// Operator removes the suppression entry (the deliberate un-suppress path).
+		// An admin removes the suppression entry (the deliberate un-suppress path).
 		require.NoError(t, h.suppressed.Delete(context.Background(), "venue-1", localDate, &startTime))
 
 		data := entity.ConcertDiscoveredData{

@@ -201,7 +201,7 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			ID:                  otherID,
 			Name:                "Old Label",
 			ShortName:           "old-label",
-			OwnerEmail:          "operator@example.com",
+			OwnerEmail:          "owner@example.com",
 			ProviderOrganizerID: "zitadel-org-1",
 			Status:              entity.OrganizerStatusDeactivated,
 		}, nil).Once()

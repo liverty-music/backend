@@ -123,7 +123,7 @@ type OrderUseCase interface {
 
 	// IssueDueCheckouts runs IssueFromCheckout for every Committed Checkout
 	// committed more than 1 minute ago, and reports each charged one still
-	// unissued 10 minutes after its charge as needing an operator.
+	// unissued 10 minutes after its charge as needing an admin.
 	//
 	// # Possible errors
 	//

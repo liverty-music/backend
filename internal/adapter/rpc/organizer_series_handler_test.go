@@ -70,7 +70,7 @@ func authoredEvent(id, seriesID string, day int) *entity.Event {
 func TestOrganizerSeriesHandler_List(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/adapter/organizer/api/rpc/series "Operator of an active Organizer lists concerts"
+	// @spec components/adapter/organizer/api/rpc/series "Member of an active Organizer lists concerts"
 	t.Run("return the series authored by the caller's own organizer with their concerts", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerSeriesHandlerDeps(t)

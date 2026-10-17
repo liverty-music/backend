@@ -78,7 +78,7 @@ const (
 
 // Organizer lifecycle events emitted from the backend.
 const (
-	// EventOrganizerCreated is recorded after an organizer tenant is fully
+	// EventOrganizerCreated is recorded after an Organizer's Organization is fully
 	// provisioned and the row flips to active. It is an admin-actor / group
 	// event keyed on organizer_id in PostHog; no fan distinct_id is present.
 	// Properties: organizer_id.

@@ -284,23 +284,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	// Organizer tenant provisioner: the real Zitadel Management-API client on the
-	// workload that provisions organizers (the isolated admin workload, which
+	// Organization repository: the real Zitadel Management-API client on the
+	// workload that provisions Organizers (the isolated admin workload, which
 	// mounts the dedicated organizer-provisioner credential). Other workloads
 	// outside local refuse every call, and local dev without the credential uses
 	// a no-op (no live Zitadel).
-	var organizerProvisioner usecase.OrganizerProvisioner
+	var organizationRepo entity.OrganizationRepository
 	switch {
 	case cfg.ProvisionsOrganizers():
-		op, err := infrazitadel.NewOrganizerProvisioner(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
+		repo, err := infrazitadel.NewOrganizationRepository(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
 		if err != nil {
-			return nil, fmt.Errorf("create organizer provisioner: %w", err)
+			return nil, fmt.Errorf("create organization repository: %w", err)
 		}
-		organizerProvisioner = op
+		organizationRepo = repo
 	case cfg.IsLocal():
-		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
+		organizationRepo = infrazitadel.NewNoopOrganizationRepository(logger)
 	default:
-		organizerProvisioner = infrazitadel.NewUnavailableOrganizerProvisioner(cfg.Workload)
+		organizationRepo = infrazitadel.NewUnavailableOrganizationRepository(cfg.Workload)
 	}
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside
@@ -318,7 +318,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizerProvisioner, rdb.NewSeriesImageRepository(db), imageStorer,
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
 		eventPublisher, businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
@@ -327,7 +327,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if cfg.ProvisionsOrganizers() {
 		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
-	// Map catalog (Google Maps Places API) that organizer operators pick event
+	// Map catalog (Google Maps Places API) that members pick event
 	// venues from.
 	mapCatalog, err := newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
 	if err != nil {
@@ -541,7 +541,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// The organizer server gets its own AuthFunc too. Its only public
 	// procedure is OrganizerService.SendSignInLinks; every other organizer
-	// call is a signed-in operator's.
+	// call is a signed-in member's.
 	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, auth.OrganizerPublicProcedures())
 
 	// The reception server's AuthFunc makes only the scanner device's procedures

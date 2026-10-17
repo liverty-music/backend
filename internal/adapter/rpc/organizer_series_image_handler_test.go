@@ -17,8 +17,8 @@ import (
 func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/adapter/organizer/api/rpc/series-image "Operator of an active Organizer asks to upload"
-	t.Run("return an upload URL and a new series image id for an operator of an active organizer", func(t *testing.T) {
+	// @spec components/adapter/organizer/api/rpc/series-image "Member of an active Organizer asks to upload"
+	t.Run("return an upload URL and a new series image id for a member of an active organizer", func(t *testing.T) {
 		t.Parallel()
 		seriesImageUC, organizerUC := ucmocks.NewMockSeriesImageUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
 		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(activeOrganizer(), nil).Once()

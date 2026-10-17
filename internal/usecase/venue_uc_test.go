@@ -33,7 +33,7 @@ func TestVenueUseCase_Search(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/usecase/venue/search "Operator searches a venue"
+			// @spec components/usecase/venue/search "Member searches a venue"
 			name: "return the catalog's candidates unchanged and store no venue",
 			args: args{text: "LIQUIDROOM"},
 			setup: func(d *authoringDeps) {

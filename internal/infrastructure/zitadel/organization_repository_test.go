@@ -2,7 +2,6 @@ package zitadel
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -25,7 +24,7 @@ import (
 )
 
 // stubMgmt is a test double for ManagementServiceClient. It embeds the
-// interface so that only the methods exercised by OrganizerProvisioner need to
+// interface so that only the methods exercised by OrganizationRepository need to
 // be overridden. All un-overridden methods panic if called, which surfaces any
 // unexpected dependency during the test.
 type stubMgmt struct {
@@ -137,7 +136,7 @@ func (s *stubMgmt) RemoveUser(_ context.Context, in *mgmtpb.RemoveUserRequest, _
 }
 
 // stubUserV2 is a test double for the User v2 UserServiceClient. It embeds the
-// interface so only the methods OrganizerProvisioner uses need overriding;
+// interface so only the methods OrganizationRepository uses need overriding;
 // un-overridden methods panic if called, surfacing unexpected dependencies.
 type stubUserV2 struct {
 	userv2pb.UserServiceClient
@@ -207,16 +206,16 @@ func (s *stubUserV2) CreateInviteCode(_ context.Context, req *userv2pb.CreateInv
 	return &userv2pb.CreateInviteCodeResponse{}, s.createInviteErr
 }
 
-// newTestProvisioner builds an OrganizerProvisioner wired to the given stubs
+// newTestRepository builds an OrganizationRepository wired to the given stubs
 // instead of a live Zitadel connection.
-func newTestProvisioner(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) *OrganizerProvisioner {
+func newTestRepository(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) *OrganizationRepository {
 	t.Helper()
-	return newTestProvisionerWithOrgs(t, stub, userV2, nil)
+	return newTestRepositoryWithOrgs(t, stub, userV2, nil)
 }
 
-// newTestProvisionerWithOrgs is newTestProvisioner with an Organization v2
+// newTestRepositoryWithOrgs is newTestRepository with an Organization v2
 // stub for the org-name lookups.
-func newTestProvisionerWithOrgs(t *testing.T, stub *stubMgmt, userV2 *stubUserV2, orgV2 *stubOrgV2) *OrganizerProvisioner {
+func newTestRepositoryWithOrgs(t *testing.T, stub *stubMgmt, userV2 *stubUserV2, orgV2 *stubOrgV2) *OrganizationRepository {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -229,7 +228,7 @@ func newTestProvisionerWithOrgs(t *testing.T, stub *stubMgmt, userV2 *stubUserV2
 	if orgV2 == nil {
 		orgV2 = &stubOrgV2{}
 	}
-	return &OrganizerProvisioner{
+	return &OrganizationRepository{
 		mgmt:                      stub,
 		userV2:                    userV2,
 		orgV2:                     orgV2,
@@ -245,8 +244,8 @@ func alreadyExists(msg string) error { return grpcstatus.Error(grpccodes.Already
 func internalErr(msg string) error   { return grpcstatus.Error(grpccodes.Internal, msg) }
 func invalidArg(msg string) error    { return grpcstatus.Error(grpccodes.InvalidArgument, msg) }
 
-// tenantUsers returns a v2 ListUsers response with one user per id.
-func tenantUsers(ids ...string) *userv2pb.ListUsersResponse {
+// orgUsers returns a v2 ListUsers response with one user per id.
+func orgUsers(ids ...string) *userv2pb.ListUsersResponse {
 	resp := &userv2pb.ListUsersResponse{}
 	for _, id := range ids {
 		resp.Result = append(resp.Result, &userv2pb.User{UserId: id})
@@ -265,7 +264,7 @@ func orgIDFilter(req *userv2pb.ListUsersRequest) string {
 	return ""
 }
 
-func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
+func TestOrganizationRepository_Provision(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -283,18 +282,18 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 		check   func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2)
 	}{
 		{
-			// @spec components/entity/organizer/provision-tenant "Organizer is provisioned"
-			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned tenant org has the passkey-primary policy"
-			// @spec components/infrastructure/organizer/web/global/hosted-login "The policy renders a usable login and returns the operator to the console"
-			// @spec stories/sign-in-as-organizer "Invited operator lands on the console after accepting the invite"
+			// @spec components/entity/organization/provision "Organizer is provisioned"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned Organization has the passkey-primary policy"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "The policy renders a usable login and returns the member to the console"
+			// @spec stories/sign-in-as-organizer "Invited owner lands on the console after accepting the invite"
 			name: "happy path: completes every step on the given Organization and names the owner identity <email> (<short name>)",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
-				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"},
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "owner-user-1"},
 			},
 			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
 				t.Helper()
-				assert.Zero(t, stub.addOrgCalls, "ProvisionTenant must not create an org")
+				assert.Zero(t, stub.addOrgCalls, "Provision must not create an org")
 				// The login policy enables local auth (passkey-primary) and sets
 				// the console as the post-invite default_redirect_uri.
 				require.NotNil(t, stub.addCustomLoginPolicyReq)
@@ -302,14 +301,14 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 					"local authentication must be enabled for the passkey login form")
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.addCustomLoginPolicyReq.GetDefaultRedirectUri(),
-					"invite acceptance must return the operator to the console")
+					"invite acceptance must return the owner to the console")
 				assertLoginPolicyDefaults(t, stub.addCustomLoginPolicyReq)
 
-				// The operator is created without a password, so the passkey is
+				// The owner identity is created without a password, so the passkey is
 				// their only usable local method.
 				require.NotNil(t, userV2.addHumanUserReq)
-				assert.Nil(t, userV2.addHumanUserReq.GetPassword(), "operator must have no password")
-				assert.Nil(t, userV2.addHumanUserReq.GetHashedPassword(), "operator must have no password")
+				assert.Nil(t, userV2.addHumanUserReq.GetPassword(), "the owner identity must have no password")
+				assert.Nil(t, userV2.addHumanUserReq.GetHashedPassword(), "the owner identity must have no password")
 				assert.Equal(t, "band@example.com (xx-records)", userV2.addHumanUserReq.GetUsername())
 				assert.Equal(t, "band@example.com", userV2.addHumanUserReq.GetEmail().GetEmail())
 				assert.True(t, userV2.addHumanUserReq.GetEmail().GetIsVerified())
@@ -323,18 +322,18 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 
 				require.Len(t, stub.addUserGrantReqs, 1)
 				grant := stub.addUserGrantReqs[0]
-				assert.Equal(t, "operator-user-1", grant.GetUserId())
+				assert.Equal(t, "owner-user-1", grant.GetUserId())
 				assert.Equal(t, "proj-1", grant.GetProjectId())
 				assert.Equal(t, []string{"owner"}, grant.GetRoleKeys())
 				assert.Empty(t, userV2.listUsersReqs, "no user search on the happy path")
-				require.NotNil(t, userV2.createInviteReq, "the operator is invited to register a passkey")
-				assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
+				require.NotNil(t, userV2.createInviteReq, "the owner is invited to register a passkey")
+				assert.Equal(t, "owner-user-1", userV2.createInviteReq.GetUserId())
 			},
 		},
 		{
-			// @spec components/entity/organizer/provision-tenant "Repeated call"
-			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned tenant org has the passkey-primary policy"
-			name: "true retry: the operator already exists in the tenant org and is reused; duplicate steps are swallowed",
+			// @spec components/entity/organization/provision "Repeated call"
+			// @spec components/infrastructure/organizer/web/global/hosted-login "A provisioned Organization has the passkey-primary policy"
+			name: "true retry: the owner identity already exists in the Organization and is reused; duplicate steps are swallowed",
 			stub: &stubMgmt{
 				addCustomLoginPolicyErr: alreadyExists("policy exists"),
 				addProjectGrantErr:      alreadyExists("grant exists"),
@@ -342,7 +341,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 			userV2: &stubUserV2{
 				addHumanUserErr: alreadyExists("user exists"),
-				listUsersResp:   tenantUsers("existing-operator-id"),
+				listUsersResp:   orgUsers("existing-owner-id"),
 			},
 			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
 				t.Helper()
@@ -352,15 +351,15 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
 					stub.updateCustomLoginPolicyReq.GetDefaultRedirectUri())
 				assertLoginPolicyDefaults(t, stub.updateCustomLoginPolicyReq)
-				// The existing user is looked up in the tenant org only.
+				// The existing user is looked up in the Organization only.
 				require.Len(t, userV2.listUsersReqs, 1)
 				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
 				require.Len(t, stub.addUserGrantReqs, 1)
-				assert.Equal(t, "existing-operator-id", stub.addUserGrantReqs[0].GetUserId())
+				assert.Equal(t, "existing-owner-id", stub.addUserGrantReqs[0].GetUserId())
 			},
 		},
 		{
-			// @spec components/entity/organizer/provision-tenant "Owner email of a fan account"
+			// @spec components/entity/organization/provision "Owner email of a fan account"
 			name: "fan email: the email of a fan account is accepted; a separate identity is created in the Organization without any instance-wide search",
 			stub: &stubMgmt{},
 			// The fan account's user name is the bare email, so the owner
@@ -380,9 +379,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
 				// AddHumanUser reports the instance-wide user name collision, but
-				// no user with the email exists in the tenant org.
+				// no user with the email exists in the Organization.
 				addHumanUserErr: alreadyExists("user exists"),
-				listUsersResp:   tenantUsers(),
+				listUsersResp:   orgUsers(),
 			},
 			wantErr: apperr.ErrAlreadyExists,
 			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
@@ -394,8 +393,8 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/entity/organizer/provision-tenant "Retry after a partial failure"
-			name: "partial retry: an earlier attempt stopped before the owner grant; the existing operator is reused and granted owner",
+			// @spec components/entity/organization/provision "Retry after a partial failure"
+			name: "partial retry: an earlier attempt stopped before the owner grant; the existing owner identity is reused and granted owner",
 			stub: &stubMgmt{
 				// The policy and project grant were created by the failed attempt;
 				// the owner grant was not.
@@ -404,20 +403,20 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 			userV2: &stubUserV2{
 				addHumanUserErr: alreadyExists("user exists"),
-				listUsersResp:   tenantUsers("existing-operator-id"),
+				listUsersResp:   orgUsers("existing-owner-id"),
 			},
 			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
 				t.Helper()
-				assert.Equal(t, 1, userV2.addHumanUserCalls, "no second operator is created")
+				assert.Equal(t, 1, userV2.addHumanUserCalls, "no second owner identity is created")
 				require.Len(t, userV2.listUsersReqs, 1)
 				assert.Equal(t, providerOrganizerID, orgIDFilter(userV2.listUsersReqs[0]))
 				require.Len(t, stub.addUserGrantReqs, 1)
-				assert.Equal(t, "existing-operator-id", stub.addUserGrantReqs[0].GetUserId())
+				assert.Equal(t, "existing-owner-id", stub.addUserGrantReqs[0].GetUserId())
 				assert.Equal(t, []string{"owner"}, stub.addUserGrantReqs[0].GetRoleKeys())
 			},
 		},
 		{
-			// @spec components/entity/organizer/provision-tenant "Email rejected by the sign-in service"
+			// @spec components/entity/organization/provision "Email rejected by the sign-in service"
 			name: "rejected email: AddHumanUser InvalidArgument fails with InvalidArgument and creates no identity",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
@@ -453,7 +452,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			wantErr: apperr.ErrInternal,
 		},
 		{
-			name: "idempotent: CreateInviteCode FailedPrecondition (operator already onboarded) is benign, saga proceeds to grant",
+			name: "idempotent: CreateInviteCode FailedPrecondition (owner already onboarded) is benign, saga proceeds to grant",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
 				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-onboarded"},
@@ -479,9 +478,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			if tt.userV2 == nil {
 				tt.userV2 = &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-1"}}
 			}
-			p := newTestProvisioner(t, tt.stub, tt.userV2)
+			p := newTestRepository(t, tt.stub, tt.userV2)
 
-			err := p.ProvisionTenant(ctx, providerOrganizerID, shortName, email)
+			err := p.Provision(ctx, providerOrganizerID, shortName, email)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -495,12 +494,12 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_ProvisionTenant_collisionMessageReachesAdmin(t *testing.T) {
+func TestOrganizationRepository_Provision_collisionMessageReachesAdmin(t *testing.T) {
 	t.Parallel()
 
-	p := newTestProvisioner(t, &stubMgmt{}, &stubUserV2{addHumanUserErr: alreadyExists("user exists")})
+	p := newTestRepository(t, &stubMgmt{}, &stubUserV2{addHumanUserErr: alreadyExists("user exists")})
 
-	err := p.ProvisionTenant(context.Background(), "zitadel-org-1", "xx-records", "admin@example.com")
+	err := p.Provision(context.Background(), "zitadel-org-1", "xx-records", "admin@example.com")
 
 	// The Connect error interceptor exposes the innermost AppErr message of a
 	// client error, so that is what the admin sees.
@@ -509,13 +508,13 @@ func TestOrganizerProvisioner_ProvisionTenant_collisionMessageReachesAdmin(t *te
 	assert.Contains(t, appErr.Msg, "user name is already used outside the organization")
 }
 
-func TestOrganizerProvisioner_ProvisionTenant_ownerLookupIsOrgScopedAndIgnoresCase(t *testing.T) {
+func TestOrganizationRepository_Provision_ownerLookupIsOrgScopedAndIgnoresCase(t *testing.T) {
 	t.Parallel()
 
-	userV2 := &stubUserV2{addHumanUserErr: alreadyExists("user exists"), listUsersResp: tenantUsers("existing")}
-	p := newTestProvisioner(t, &stubMgmt{}, userV2)
+	userV2 := &stubUserV2{addHumanUserErr: alreadyExists("user exists"), listUsersResp: orgUsers("existing")}
+	p := newTestRepository(t, &stubMgmt{}, userV2)
 
-	require.NoError(t, p.ProvisionTenant(context.Background(), "zitadel-org-1", "xx-records", "Band@Example.com"))
+	require.NoError(t, p.Provision(context.Background(), "zitadel-org-1", "xx-records", "Band@Example.com"))
 
 	require.Len(t, userV2.listUsersReqs, 1)
 	req := userV2.listUsersReqs[0]
@@ -525,19 +524,19 @@ func TestOrganizerProvisioner_ProvisionTenant_ownerLookupIsOrgScopedAndIgnoresCa
 	assert.Equal(t, objectv2pb.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE, email.GetMethod())
 }
 
-func TestOrganizerProvisioner_ProvisionTenant_withoutShortName(t *testing.T) {
+func TestOrganizationRepository_Provision_withoutShortName(t *testing.T) {
 	t.Parallel()
 
 	userV2 := &stubUserV2{}
-	p := newTestProvisioner(t, &stubMgmt{}, userV2)
+	p := newTestRepository(t, &stubMgmt{}, userV2)
 
-	err := p.ProvisionTenant(context.Background(), "zitadel-org-1", "", "band@example.com")
+	err := p.Provision(context.Background(), "zitadel-org-1", "", "band@example.com")
 
 	assert.ErrorIs(t, err, apperr.ErrInternal, "retryable once the short name is set")
 	assert.Zero(t, userV2.addHumanUserCalls, "no identity named \"<email> ()\" is created")
 }
 
-func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
+func TestOrganizationRepository_Create(t *testing.T) {
 	t.Parallel()
 
 	const shortName = "xx-records"
@@ -546,30 +545,20 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 	tests := []struct {
 		name    string
 		stub    *stubMgmt
-		orgV2   *stubOrgV2
 		want    string
 		wantErr error
 	}{
 		{
-			// @spec components/entity/organizer/ensure-tenant-org "First attempt"
+			// @spec components/entity/organization/create "First attempt"
 			name: "creates the Organization named by the short name",
 			stub: &stubMgmt{addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-new"}},
 			want: "zitadel-org-new",
 		},
 		{
-			// @spec components/entity/organizer/ensure-tenant-org "Earlier attempt created the tenant"
-			name: "resolves an org created by an earlier attempt by its exact name",
-			stub: &stubMgmt{addOrgErr: alreadyExists("org exists")},
-			orgV2: &stubOrgV2{listOrgsResp: &orgv2pb.ListOrganizationsResponse{Result: []*orgv2pb.Organization{
-				{Id: "394277002850336802", Name: orgName, State: orgv2pb.OrganizationState_ORGANIZATION_STATE_ACTIVE},
-			}}},
-			want: "394277002850336802",
-		},
-		{
-			name:    "an existing org that cannot be found by name is Internal, not NotFound",
+			// @spec components/entity/organization/create "Name already used"
+			name:    "an Organization with the name already exists: AlreadyExists, nothing created",
 			stub:    &stubMgmt{addOrgErr: alreadyExists("org exists")},
-			orgV2:   &stubOrgV2{listOrgsResp: &orgv2pb.ListOrganizationsResponse{}},
-			wantErr: apperr.ErrInternal,
+			wantErr: apperr.ErrAlreadyExists,
 		},
 		{
 			name:    "AddOrg failure is Internal",
@@ -580,24 +569,26 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisionerWithOrgs(t, tt.stub, nil, tt.orgV2)
+			orgV2 := &stubOrgV2{}
+			p := newTestRepositoryWithOrgs(t, tt.stub, nil, orgV2)
 
-			got, err := p.EnsureTenantOrg(context.Background(), shortName)
+			got, err := p.Create(context.Background(), shortName)
 
 			assert.Equal(t, orgName, tt.stub.addOrgReq.GetName(), "the Organization is named by the short name")
+			assert.Equal(t, 1, tt.stub.addOrgCalls, "Create calls AddOrg once")
+			assert.Empty(t, orgV2.listOrgsReqs, "Create never searches by name")
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				assert.False(t, errors.Is(err, apperr.ErrNotFound))
+				assert.Empty(t, got)
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
-			assert.Equal(t, 1, tt.stub.addOrgCalls, "no second Organization is created")
 		})
 	}
 }
 
-func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
+func TestOrganizationRepository_GetByName(t *testing.T) {
 	t.Parallel()
 
 	const shortName = "xx-records"
@@ -610,7 +601,7 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/entity/organizer/find-tenant-org "Tenant left by a failed attempt"
+			// @spec components/entity/organization/get-by-name "Organization left by a failed attempt"
 			name: "returns the org whose name matches exactly",
 			orgV2: &stubOrgV2{listOrgsResp: &orgv2pb.ListOrganizationsResponse{Result: []*orgv2pb.Organization{
 				{Id: "394277002850336802", Name: orgName, State: orgv2pb.OrganizationState_ORGANIZATION_STATE_ACTIVE},
@@ -626,7 +617,7 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 			wantErr: apperr.ErrNotFound,
 		},
 		{
-			// @spec components/entity/organizer/find-tenant-org "No tenant"
+			// @spec components/entity/organization/get-by-name "No Organization"
 			name:    "returns NotFound when no org has the name",
 			orgV2:   &stubOrgV2{},
 			wantErr: apperr.ErrNotFound,
@@ -640,9 +631,9 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisionerWithOrgs(t, nil, nil, tt.orgV2)
+			p := newTestRepositoryWithOrgs(t, nil, nil, tt.orgV2)
 
-			got, err := p.FindTenantOrg(context.Background(), shortName)
+			got, err := p.GetByName(context.Background(), shortName)
 
 			require.Len(t, tt.orgV2.listOrgsReqs, 1)
 			nameQuery := tt.orgV2.listOrgsReqs[0].GetQueries()[0].GetNameQuery()
@@ -657,14 +648,14 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testing.T) {
+func TestOrganizationRepository_Provision_sendsStandardVerifyInvite(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubMgmt{}
-	userV2 := &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"}}
-	p := newTestProvisioner(t, stub, userV2)
+	userV2 := &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "owner-user-1"}}
+	p := newTestRepository(t, stub, userV2)
 
-	err := p.ProvisionTenant(context.Background(), "zitadel-org-xyz", "xx-records", "op@acme.com")
+	err := p.Provision(context.Background(), "zitadel-org-xyz", "xx-records", "owner@acme.com")
 	require.NoError(t, err)
 
 	// The onboarding email is Zitadel's STANDARD invite: its "Accept invite" link
@@ -673,7 +664,7 @@ func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testi
 	// placeholders. The code therefore rides on the IdP surface, never in a
 	// console URL.
 	require.NotNil(t, userV2.createInviteReq)
-	assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
+	assert.Equal(t, "owner-user-1", userV2.createInviteReq.GetUserId())
 	send := userV2.createInviteReq.GetSendCode()
 	require.NotNil(t, send, "invite must be SendCode (Zitadel-sent email), not ReturnCode")
 	tmpl := send.GetUrlTemplate()
@@ -729,7 +720,7 @@ func TestConsoleBaseURLFromIssuer(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
+func TestOrganizationRepository_DeactivateIdentities(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -743,7 +734,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 		wantRemoveCount     int
 	}{
 		{
-			name:                "initial-state operator is removed, active operator is deactivated",
+			name:                "initial-state identity is removed, active identity is deactivated",
 			providerOrganizerID: "zitadel-org-mixed",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
@@ -757,7 +748,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			wantRemoveCount: 1, // the initial user is deleted instead
 		},
 		{
-			name:                "RemoveUser NotFound on an initial operator is idempotent",
+			name:                "RemoveUser NotFound on an initial identity is idempotent",
 			providerOrganizerID: "zitadel-org-1",
 			stub: &stubMgmt{
 				listUsersResp: &mgmtpb.ListUsersResponse{
@@ -839,9 +830,9 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisioner(t, tt.stub, nil)
+			p := newTestRepository(t, tt.stub, nil)
 
-			err := p.DeactivateOperators(ctx, tt.providerOrganizerID)
+			err := p.DeactivateIdentities(ctx, tt.providerOrganizerID)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -854,7 +845,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
+func TestOrganizationRepository_Delete(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -863,17 +854,17 @@ func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/entity/organizer/delete-tenant "Tenant with operators"
-			name: "removes the tenant org, which removes its operators",
+			// @spec components/entity/organization/delete "Organization with identities"
+			name: "removes the Organization, which removes its identities",
 			stub: &stubMgmt{},
 		},
 		{
-			// @spec components/entity/organizer/delete-tenant "Already removed"
-			name: "succeeds when the tenant org no longer exists",
+			// @spec components/entity/organization/delete "Already removed"
+			name: "succeeds when the Organization no longer exists",
 			stub: &stubMgmt{removeOrgErr: grpcstatus.Error(grpccodes.NotFound, "org not found")},
 		},
 		{
-			name:    "returns Internal when the tenant org cannot be removed",
+			name:    "returns Internal when the Organization cannot be removed",
 			stub:    &stubMgmt{removeOrgErr: grpcstatus.Error(grpccodes.Unavailable, "zitadel down")},
 			wantErr: apperr.ErrInternal,
 		},
@@ -881,16 +872,16 @@ func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisioner(t, tt.stub, nil)
+			p := newTestRepository(t, tt.stub, nil)
 
-			err := p.DeleteTenant(context.Background(), "zitadel-org-tenant")
+			err := p.Delete(context.Background(), "zitadel-org-1")
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
 				assert.NoError(t, err)
 			}
-			assert.Equal(t, []string{"zitadel-org-tenant"}, tt.stub.removeOrgOrgIDs, "RemoveOrg must target the tenant org")
+			assert.Equal(t, []string{"zitadel-org-1"}, tt.stub.removeOrgOrgIDs, "RemoveOrg must target the Organization")
 		})
 	}
 }
@@ -912,7 +903,7 @@ type loginPolicyDefaults interface {
 	GetMultiFactorCheckLifetime() *durationpb.Duration
 }
 
-// assertLoginPolicyDefaults checks that the tenant policy is passkey-primary
+// assertLoginPolicyDefaults checks that the Organization policy is passkey-primary
 // with local authentication enabled, closed to self-registration, open to
 // federation, reports unknown emails (so a passkey sign-in typed by email
 // completes), allows login with the email, hides the password reset and sets every check
@@ -926,7 +917,7 @@ func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
 	assert.True(t, req.GetAllowExternalIdp(), "federation must be permitted")
 	assert.False(t, req.GetIgnoreUnknownUsernames(), "an unknown email is reported, or a passkey sign-in typed by email fails")
 	assert.False(t, req.GetDisableLoginWithEmail(), "people sign in by typing their email")
-	assert.True(t, req.GetHidePasswordReset(), "operators must not be offered a password reset")
+	assert.True(t, req.GetHidePasswordReset(), "owner identities must not be offered a password reset")
 	assert.Equal(t, 240*time.Hour, req.GetPasswordCheckLifetime().AsDuration())
 	assert.Equal(t, 240*time.Hour, req.GetExternalLoginCheckLifetime().AsDuration())
 	assert.Equal(t, 720*time.Hour, req.GetMfaInitSkipLifetime().AsDuration())

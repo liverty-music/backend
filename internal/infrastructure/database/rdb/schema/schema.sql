@@ -134,8 +134,8 @@ COMMENT ON TYPE event_publish_state IS 'Publish lifecycle of an event of a first
 
 -- Organizers: the vetted business an admin creates to represent artists. Existence
 -- is the vetting (no verified flag). status is the operational lifecycle
--- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
--- tenant to this row and is set once tenant provisioning completes.
+-- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the
+-- Organizer's Organization to this row and is set once provisioning creates it.
 CREATE TABLE IF NOT EXISTS organizers (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
@@ -165,7 +165,7 @@ COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, applica
 COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
 COMMENT ON COLUMN organizers.owner_email IS 'Email of the person who owns the Organizer (at most 165 characters); seeded as the owner identity of the Organizer''s Organization at the identity provider';
 COMMENT ON COLUMN organizers.short_name IS 'The Organizer''s short name: 3-32 lowercase letters, digits and hyphens, starting with a letter, unique, never changed; admin and liverty-music are reserved. Names its Organization at the identity provider';
-COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
+COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (the Zitadel ID of the Organizer''s Organization); NULL until provisioning completes';
 COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
 COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
 COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
@@ -175,7 +175,7 @@ COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email (at most 
 COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_provider_organizer_id ON organizers(provider_organizer_id) WHERE provider_organizer_id IS NOT NULL;
-COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
+COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Organization maps to at most one Organizer; NULL while provisioning';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_short_name ON organizers(short_name);
 COMMENT ON INDEX uq_organizers_short_name IS 'No two Organizers, in any status, share a short name';
 
@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS series_images (
 
 COMMENT ON TABLE series_images IS 'Images uploaded by an organizer for its Series. The row id is the UUIDv7 that forms the object-key basename ({org}/{id} in the internal bucket, cdn/{org}/{id}/ in the served bucket); content_type is stored in attributes.';
 COMMENT ON COLUMN series_images.id IS 'Unique series image identifier (UUIDv7, application-generated). Doubles as the cache-busting version token in the object key; a new upload mints a new id.';
-COMMENT ON COLUMN series_images.organizer_id IS 'Owning organizer. Used as the stable tenant segment of the object key.';
+COMMENT ON COLUMN series_images.organizer_id IS 'Owning Organizer. Used as the stable per-Organizer segment of the object key.';
 COMMENT ON COLUMN series_images.attributes IS 'Upload metadata as JSONB: {"content_type": "image/jpeg"}. May include width/height later.';
 
 -- Series cover images: the one SeriesImage shown as each Series' cover
@@ -474,7 +474,7 @@ COMMENT ON COLUMN rejected_concerts.reviewed_by IS 'Identity (Zitadel subject) o
 COMMENT ON COLUMN rejected_concerts.rejected_at IS 'Timestamp when the concert was rejected.';
 
 -- Suppressed concerts (moderation)
--- Records the natural key of a published concert an operator deleted so a later
+-- Records the natural key of a published concert an admin deleted so a later
 -- discovery run does not auto-publish or re-stage it. Keyed by the event physical
 -- identity (venue, local date, start time) with NULLS NOT DISTINCT so an
 -- unknown-start slot collapses the same way the events unique key does. venue_id
@@ -491,12 +491,12 @@ CREATE TABLE IF NOT EXISTS suppressed_concerts (
     CONSTRAINT chk_suppressed_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE suppressed_concerts IS 'Moderation suppression set: the natural key of each published concert an operator deleted, consulted by discovery so a deleted concert is not auto-published or re-staged again. Distinct from rejected_concerts, which is analysis-only and never suppresses.';
+COMMENT ON TABLE suppressed_concerts IS 'Moderation suppression set: the natural key of each published concert an admin deleted, consulted by discovery so a deleted concert is not auto-published or re-staged again. Distinct from rejected_concerts, which is analysis-only and never suppresses.';
 COMMENT ON COLUMN suppressed_concerts.id IS 'Unique suppression entry identifier (UUIDv7, application-generated).';
 COMMENT ON COLUMN suppressed_concerts.venue_id IS 'Resolved venue of the deleted event. Intentionally not a foreign key so the suppression survives independently of venue lifecycle.';
 COMMENT ON COLUMN suppressed_concerts.local_event_date IS 'Local calendar date of the deleted event.';
 COMMENT ON COLUMN suppressed_concerts.start_at IS 'Start time of the deleted event. NULL when unknown; NULLS NOT DISTINCT collapses an unknown-start slot like the events unique key.';
-COMMENT ON COLUMN suppressed_concerts.suppressed_at IS 'Timestamp when the concert was suppressed (i.e. deleted by an operator).';
+COMMENT ON COLUMN suppressed_concerts.suppressed_at IS 'Timestamp when the concert was suppressed (i.e. deleted by an admin).';
 
 -- ============================================================
 -- Indexes
@@ -601,8 +601,8 @@ COMMENT ON INDEX idx_organizer_artists_organizer_id IS 'Optimizes listing the ar
 -- Identity verifications table
 -- The result of a fan's 本人確認 (identity check): binds one account (users
 -- row) to a verified real person via JPKI or the driver's-licence fallback
--- (Pocket Sign Verify). The person key is the Pocket Sign tenant-scoped
--- User.id (provider_user_id). No 基本4情報, no raw certificate, no 個人番号
+-- (Pocket Sign Verify). The person key is the Pocket Sign User.id
+-- (provider_user_id), scoped to Liverty Music's account at the provider. No 基本4情報, no raw certificate, no 個人番号
 -- is ever stored here — only the result.
 -- The partial unique index (uq_identity_verifications_active_provider_user_id)
 -- enforces the invariant: at most one row with status='ACTIVE' per provider_user_id.
@@ -625,7 +625,7 @@ COMMENT ON TABLE identity_verifications IS 'Account-level 本人確認 (Identity
 COMMENT ON COLUMN identity_verifications.id IS 'Unique IdentityVerification identifier (UUIDv7, application-generated).';
 COMMENT ON COLUMN identity_verifications.user_id IS 'Reference to the user account this IdentityVerification is bound to.';
 COMMENT ON COLUMN identity_verifications.method IS 'Verification method: 1=JPKI, 2=DRIVER_LICENCE.';
-COMMENT ON COLUMN identity_verifications.provider_user_id IS 'The verification provider''s ID for the user (Pocket Sign tenant-scoped person key, User.id). The only person-identifying datum stored; never the serial, never the 個人番号.';
+COMMENT ON COLUMN identity_verifications.provider_user_id IS 'The verification provider''s ID for the user (Pocket Sign person key, User.id, scoped to Liverty Music''s account at the provider). The only person-identifying datum stored; never the serial, never the 個人番号.';
 COMMENT ON COLUMN identity_verifications.dedupe_strength IS 'Dedupe guarantee strength: 1=STRONG (JPKI, stable per-person key), 2=WEAK (driver licence, document-scoped key).';
 COMMENT ON COLUMN identity_verifications.verify_at IS 'Timestamp when the verification was established.';
 COMMENT ON COLUMN identity_verifications.status IS 'Freshness lifecycle: 1=ACTIVE (current), 2=NEEDS_REVERIFICATION (revoked/changed/expired per 現況確認).';
@@ -676,7 +676,7 @@ CREATE TABLE IF NOT EXISTS ticket_sales (
 COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: an allocation method and a window. An Organizer''s sale (discovered_at NULL) also has a name and a verification requirement, and its per-event price, quantity and limit are ticket_types rows. A discovered sale (discovered_at set) belongs to a Series without an Organizer, has no name and no ticket types, and is only reported to fans.';
 COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
-COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and operators (1-100 characters), e.g. ファンクラブ先行 or 一般発売; required on an Organizer''s sale, NULL on a discovered sale';
+COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and Organizers (1-100 characters), e.g. ファンクラブ先行 or 一般発売; required on an Organizer''s sale, NULL on a discovered sale';
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
 COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at. On an Organizer''s sale required, 1 to 14 days after the start for a lottery, and before the start of every event the sale covers (checked by the application). NULL only on a discovered first-come sale that ends when tickets run out';

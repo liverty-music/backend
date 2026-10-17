@@ -38,8 +38,8 @@ type Claims struct {
 	// scope claim "urn:zitadel:iam:org:id:<orgId>".
 	//
 	// Zitadel encodes the login-scope org (the org the user logged in against)
-	// in the roles claim rather than as a separate top-level claim: when an
-	// operator scopes their session to org A with
+	// in the roles claim rather than as a separate top-level claim: when a
+	// member scopes their session to org A with
 	// "urn:zitadel:iam:org:id:<A>", Zitadel filters the role grants to only
 	// those held within org A, so the roles claim contains exactly one unique
 	// inner orgId — the login-scope org. This field captures that org id so the
@@ -56,7 +56,7 @@ type Claims struct {
 	// to read it directly and remove the roles-claim inference.
 	LoginScopeOrgID string
 
-	// RoleOrgIDs is the set of Zitadel org ids under which the operator holds
+	// RoleOrgIDs is the set of Zitadel org ids under which the member holds
 	// at least one role. Populated from the project-scoped roles claim
 	// "urn:zitadel:iam:org:project:{projectId}:roles". The inner orgId values
 	// are preserved here (unlike the flattened Roles slice) so the org-scoped
