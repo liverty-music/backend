@@ -26,7 +26,7 @@ kind: Kustomization
 # `atlas-db-credentials` Secret in the `atlas-operator` namespace (provisioned
 # by Pulumi in `liverty-music-prod`).
 #
-# First-apply safety: per task §4.5 (operator-attended), run
+# First-apply safety: per task §4.5 (attended by an admin), run
 # `atlas migrate diff` against the prod DB before merging this overlay to
 # confirm zero destructive operations. The prod `liverty-music` database
 # is freshly bootstrapped (no pre-existing `app.*` tables) so the full

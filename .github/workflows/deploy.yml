@@ -78,7 +78,7 @@ jobs:
       # fail-fast: false so that one matrix entry's failure (e.g. transient
       # AR error during digest-resolve) does NOT cancel the other 7. Partial
       # success is the expected steady state on release events: per the
-      # retag runbook, the operator can `gh run rerun --job <job-id>` the
+      # retag runbook, an admin can `gh run rerun --job <job-id>` the
       # single failing matrix entry. The 7 successful entries' prod AR
       # writes are idempotent because `crane copy` to an existing
       # immutable tag at the same digest is a no-op.
