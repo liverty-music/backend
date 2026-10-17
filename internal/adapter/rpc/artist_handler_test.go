@@ -134,6 +134,18 @@ func TestArtistHandler_Boundary(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
+	t.Run("similar-artist limit too large", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Similar-artist limit too large"
+		// The mock fails the test if the usecase runs.
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).ListSimilar(context.Background(), connect.NewRequest(&artistv1.ListSimilarRequest{
+			ArtistId: &entityv1.ArtistId{Value: "0190b6a8-6a5e-7c3b-9e1a-2f4d5c6b7a81"},
+			Limit:    51,
+		}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
 	t.Run("malformed MBID", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/artist "Malformed MBID"
