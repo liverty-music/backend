@@ -37,7 +37,7 @@ require (
 	cloud.google.com/go/cloudsqlconn v1.25.4
 	cloud.google.com/go/storage v1.69.0
 	connectrpc.com/authn v0.2.0
-	connectrpc.com/connect v1.21.0
+	connectrpc.com/connect v1.21.1
 	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpchealth v1.5.0
 	connectrpc.com/otelconnect v0.12.0
