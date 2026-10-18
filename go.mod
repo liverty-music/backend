@@ -37,7 +37,8 @@ require (
 	cloud.google.com/go/cloudsqlconn v1.25.4
 	cloud.google.com/go/storage v1.69.0
 	connectrpc.com/authn v0.2.0
-	connectrpc.com/connect v1.21.1
+	connectrpc.com/connect v1.21.0
+	connectrpc.com/connect/v2 v2.0.1
 	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpchealth v1.5.0
 	connectrpc.com/otelconnect v0.12.0
@@ -108,7 +109,6 @@ require (
 	cloud.google.com/go/iam v1.14.0 // indirect
 	cloud.google.com/go/monitoring v1.30.0 // indirect
 	cloud.google.com/go/sql v0.3.0 // indirect
-	connectrpc.com/connect/v2 v2.0.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect
