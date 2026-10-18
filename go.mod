@@ -58,6 +58,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
 	github.com/stripe/stripe-go/v86 v86.4.2
+	github.com/stripe/stripe-go/v87 v87.0.0
 	github.com/voi-oss/watermill-opentelemetry v0.1.3
 	github.com/zitadel/oidc/v3 v3.51.14
 	github.com/zitadel/zitadel-go/v3 v3.30.0
