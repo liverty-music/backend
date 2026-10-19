@@ -185,6 +185,84 @@ func (_c *MockImageStorer_DeleteVariants_Call) RunAndReturn(run func(ctx context
 	return _c
 }
 
+// OriginalExists provides a mock function for the type MockImageStorer
+func (_mock *MockImageStorer) OriginalExists(ctx context.Context, bucket string, organizerID string, seriesImageID string) (bool, error) {
+	ret := _mock.Called(ctx, bucket, organizerID, seriesImageID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for OriginalExists")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) (bool, error)); ok {
+		return returnFunc(ctx, bucket, organizerID, seriesImageID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) bool); ok {
+		r0 = returnFunc(ctx, bucket, organizerID, seriesImageID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = returnFunc(ctx, bucket, organizerID, seriesImageID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockImageStorer_OriginalExists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OriginalExists'
+type MockImageStorer_OriginalExists_Call struct {
+	*mock.Call
+}
+
+// OriginalExists is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - organizerID string
+//   - seriesImageID string
+func (_e *MockImageStorer_Expecter) OriginalExists(ctx any, bucket any, organizerID any, seriesImageID any) *MockImageStorer_OriginalExists_Call {
+	return &MockImageStorer_OriginalExists_Call{Call: _e.mock.On("OriginalExists", ctx, bucket, organizerID, seriesImageID)}
+}
+
+func (_c *MockImageStorer_OriginalExists_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string)) *MockImageStorer_OriginalExists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_OriginalExists_Call) Return(b bool, err error) *MockImageStorer_OriginalExists_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockImageStorer_OriginalExists_Call) RunAndReturn(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string) (bool, error)) *MockImageStorer_OriginalExists_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PutVariant provides a mock function for the type MockImageStorer
 func (_mock *MockImageStorer) PutVariant(ctx context.Context, bucket string, organizerID string, seriesImageID string, variant string, contentType string, data []byte) error {
 	ret := _mock.Called(ctx, bucket, organizerID, seriesImageID, variant, contentType, data)
