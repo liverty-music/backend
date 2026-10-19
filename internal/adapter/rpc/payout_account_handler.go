@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	payoutaccountv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -44,12 +45,14 @@ func NewPayoutAccountHandler(
 	}
 }
 
-// Get returns the caller's own payout-recipient account and
-// its onboarding status, plus an optional provider-hosted URL to start or
-// continue verification when the account is not yet Active.
+// Get returns the caller's own payout-recipient account and its onboarding
+// status. A NotFound from the use case means the Organizer has no payout
+// account yet and is returned unchanged: the caller's Organizer was already
+// resolved, so it reveals nothing about another org.
 //
 // Possible errors:
 //   - FAILED_PRECONDITION: The caller's Organizer has been deactivated.
+//   - NOT_FOUND: The caller's Organizer has no payout account yet.
 //   - PERMISSION_DENIED: Token carries no organizer-console role or Org
 //     resolution failed. Response never reveals whether such an Organizer exists.
 func (h *PayoutAccountHandler) Get(
@@ -61,19 +64,46 @@ func (h *PayoutAccountHandler) Get(
 		return nil, err
 	}
 
-	acct, onboardingURL, err := h.payoutAccountUC.Get(ctx, organizer.ID)
+	acct, err := h.payoutAccountUC.Get(ctx, organizer.ID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			// The organizer was deleted between the resolve call and the
-			// onboarding call. Non-revealing per spec D3.
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-		}
 		return nil, err
 	}
 
 	return connect.NewResponse(&payoutaccountv1.GetResponse{
 		PayoutAccount: mapper.PayoutAccountToProto(acct),
-		OnboardingUrl: onboardingURL,
+	}), nil
+}
+
+// StartOnboarding opens the caller's Organizer's payout account when it has
+// none and returns a fresh provider-hosted onboarding URL.
+//
+// Possible errors:
+//   - FAILED_PRECONDITION: The caller's Organizer has been deactivated.
+//   - PERMISSION_DENIED: Token carries no organizer-console role, Org
+//     resolution failed, or the Organizer was deleted meanwhile. Response never
+//     reveals whether such an Organizer exists.
+//   - UNAVAILABLE: The payment provider cannot be reached.
+func (h *PayoutAccountHandler) StartOnboarding(
+	ctx context.Context,
+	_ *connect.Request[payoutaccountv1.StartOnboardingRequest],
+) (*connect.Response[payoutaccountv1.StartOnboardingResponse], error) {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	onboardingURL, err := h.payoutAccountUC.StartOnboarding(ctx, organizer.ID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			// The organizer was deleted between the resolve call and the
+			// onboarding call. Non-revealing, like the audience gate.
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		}
+		return nil, err
+	}
+
+	return connect.NewResponse(&payoutaccountv1.StartOnboardingResponse{
+		OnboardingUrl: &entityv1.Url{Value: onboardingURL},
 	}), nil
 }
 

@@ -10,21 +10,31 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PayoutAccountUseCase manages Organizer payout-recipient Connect onboarding:
-// creating and persisting a payout account and surfacing its status.
+// PayoutAccountUseCase manages an Organizer's payout-recipient account at the
+// payment provider: reading it with its onboarding status, and opening it and
+// handing out onboarding links when a member asks to start onboarding.
 type PayoutAccountUseCase interface {
-	// Get returns the caller's payout-recipient account and
-	// its current status, creating the payout account if none exists yet.
-	// It also returns a provider-hosted onboarding URL when the account is
-	// not yet Active (payout-blocked), so the Organizer can complete payout account verification.
-	// An already-Active account returns the account with an empty onboarding URL.
+	// Get returns the Organizer's stored payout account with its status
+	// refreshed from the payment provider. It only reads: it never opens an
+	// account and never creates an onboarding link.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the Organizer has no payout account yet.
+	//  - Internal: persistence failure.
+	Get(ctx context.Context, organizerID string) (*entity.PayoutAccount, error)
+
+	// StartOnboarding opens the Organizer's payout account when it has none
+	// (owner email as contact, stored pending) and returns a fresh
+	// provider-hosted onboarding URL on every call, whatever the account's
+	// status. An account opened before a later failure stays stored.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no Organizer with the given id exists.
 	//  - Unavailable: the payment provider is unreachable.
 	//  - Internal: persistence failure.
-	Get(ctx context.Context, organizerID string) (*entity.PayoutAccount, string, error)
+	StartOnboarding(ctx context.Context, organizerID string) (string, error)
 }
 
 // payoutAccountUseCase implements [PayoutAccountUseCase].
@@ -40,8 +50,8 @@ var _ PayoutAccountUseCase = (*payoutAccountUseCase)(nil)
 
 // NewPayoutAccountUseCase constructs an PayoutAccountUseCase with the given
 // dependencies. All parameters are required and must not be nil. returnURL is
-// the provider-redirect URL after the Organizer finishes onboarding (typically
-// the organizer console's payout settings page).
+// the address the provider brings the member back to when they finish
+// onboarding or the link has expired (the organizer console, which opens Home).
 func NewPayoutAccountUseCase(
 	payoutAccountRepo entity.PayoutAccountRepository,
 	organizerRepo entity.OrganizerRepository,
@@ -57,23 +67,10 @@ func NewPayoutAccountUseCase(
 }
 
 // Get implements [PayoutAccountUseCase].
-func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*entity.PayoutAccount, string, error) {
-	// Verify the organizer exists (propagates NotFound if absent). The record is
-	// kept because provisioning needs its contact email — Stripe rejects a
-	// recipient account that has none.
-	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
-	if err != nil {
-		return nil, "", err
-	}
-
-	// Attempt to load an existing payout account.
+func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*entity.PayoutAccount, error) {
 	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, organizerID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			// No account exists yet — provision one.
-			return uc.provisionAndPersist(ctx, organizerID, organizer.OwnerEmail)
-		}
-		return nil, "", err
+		return nil, err
 	}
 
 	// Refresh the status from the provider so the caller sees the latest
@@ -97,31 +94,40 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 		}
 	}
 
-	if acct.Status.IsPayoutEligible() {
-		// Active — no onboarding action required.
-		return acct, "", nil
-	}
-
-	// Not yet active — generate a fresh onboarding link so the Organizer can
-	// continue verification.
-	onboardingURL, err := uc.payoutAccountRepo.CreateOnboardingLink(ctx, acct.ProviderAccountID, uc.returnURL)
-	if err != nil {
-		uc.logger.Warn(ctx, "failed to create onboarding link; returning account without URL",
-			slog.String("organizer_id", organizerID),
-			slog.Any("error", err),
-		)
-		return acct, "", nil
-	}
-
-	return acct, onboardingURL, nil
+	return acct, nil
 }
 
-// provisionAndPersist creates a payout account at the provider, persists it,
-// and returns it together with an onboarding link.
-func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organizerID string, contactEmail string) (*entity.PayoutAccount, string, error) {
+// StartOnboarding implements [PayoutAccountUseCase].
+func (uc *payoutAccountUseCase) StartOnboarding(ctx context.Context, organizerID string) (string, error) {
+	// The Organizer's owner email is the account's contact: Stripe rejects a
+	// recipient account that has none.
+	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return "", err
+	}
+
+	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, organizerID)
+	if err != nil {
+		if !errors.Is(err, apperr.ErrNotFound) {
+			return "", err
+		}
+		acct, err = uc.openAccount(ctx, organizerID, organizer.OwnerEmail)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// A link failure fails the call: the link is what the member asked for.
+	return uc.payoutAccountRepo.CreateOnboardingLink(ctx, acct.ProviderAccountID, uc.returnURL)
+}
+
+// openAccount opens a payout account at the provider and stores it as pending.
+// The provider's idempotency key makes a retry after a storage failure reuse
+// the same provider account.
+func (uc *payoutAccountUseCase) openAccount(ctx context.Context, organizerID string, contactEmail string) (*entity.PayoutAccount, error) {
 	providerAccountID, err := uc.payoutAccountRepo.Create(ctx, organizerID, contactEmail)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	acct := &entity.PayoutAccount{
@@ -130,22 +136,13 @@ func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organiz
 		Status:            entity.PayoutOnboardingStatusPending,
 	}
 	if err := uc.payoutAccountRepo.Upsert(ctx, acct); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
-	uc.logger.Info(ctx, "provisioned Organizer payout account",
+	uc.logger.Info(ctx, "opened Organizer payout account",
 		slog.String("organizer_id", organizerID),
 		slog.String("provider_account_id", providerAccountID),
 	)
 
-	onboardingURL, err := uc.payoutAccountRepo.CreateOnboardingLink(ctx, providerAccountID, uc.returnURL)
-	if err != nil {
-		uc.logger.Warn(ctx, "failed to create initial onboarding link after provisioning; returning account without URL",
-			slog.String("organizer_id", organizerID),
-			slog.Any("error", err),
-		)
-		return acct, "", nil
-	}
-
-	return acct, onboardingURL, nil
+	return acct, nil
 }
