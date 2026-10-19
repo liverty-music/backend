@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/server"
@@ -29,4 +30,20 @@ func TestNewCORSHandler(t *testing.T) {
 
 	corsHandler := server.NewCORSHandler(handler, allowedOrigins)
 	assert.NotNil(t, corsHandler)
+}
+
+func TestNewCORSHandler_PreflightIsCacheable(t *testing.T) {
+	t.Parallel()
+	handler := server.NewCORSHandler(http.NotFoundHandler(), []string{"https://liverty-music.app"})
+	req := httptest.NewRequest(http.MethodOptions, "/liverty_music.rpc.artist.v1.ArtistService/ListSimilar", nil)
+	req.Header.Set("Origin", "https://liverty-music.app")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	// Browsers send the list lowercase and sorted, which rs/cors expects.
+	req.Header.Set("Access-Control-Request-Headers", "authorization,connect-protocol-version,content-type")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, "https://liverty-music.app", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "7200", rec.Header().Get("Access-Control-Max-Age"))
 }
