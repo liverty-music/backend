@@ -42,7 +42,7 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 	}
 	d.uc = usecase.NewSeriesUseCase(
 		d.seriesRepo, entitymocks.NewMockSeriesImageRepository(t), d.venueRepo, d.mapCatalog, d.organizerRepo,
-		d.ticketSales, d.publisher, logger, func() time.Time { return authoringNow },
+		d.ticketSales, nil, usecase.StorageBuckets{}, d.publisher, logger, func() time.Time { return authoringNow },
 	)
 	return d
 }

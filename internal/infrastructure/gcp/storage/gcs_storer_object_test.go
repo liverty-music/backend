@@ -19,8 +19,8 @@ import (
 	"google.golang.org/api/option"
 )
 
-// fakeGCS serves the subset of the GCS JSON API that object deletion uses:
-// listing a bucket by prefix and deleting one object. Objects are kept in
+// fakeGCS serves the subset of the GCS JSON API that the storer uses: reading
+// one object's metadata, listing a bucket by prefix and deleting one object. Objects are kept in
 // memory per bucket. A bucket named in failBuckets answers every request with
 // 403, which the client does not retry.
 type fakeGCS struct {
@@ -73,6 +73,17 @@ func (f *fakeGCS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"kind": "storage#objects", "items": items})
+	case r.Method == http.MethodGet:
+		name, err := url.PathUnescape(strings.TrimPrefix(objectPart, "/"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !f.objects[bucket][name] {
+			writeNoSuchObject(w)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"kind": "storage#object", "bucket": bucket, "name": name})
 	case r.Method == http.MethodDelete:
 		name, err := url.PathUnescape(strings.TrimPrefix(objectPart, "/"))
 		if err != nil {
@@ -80,8 +91,7 @@ func (f *fakeGCS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !f.objects[bucket][name] {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":{"code":404,"message":"No such object"}}`))
+			writeNoSuchObject(w)
 			return
 		}
 		delete(f.objects[bucket], name)
@@ -89,6 +99,11 @@ func (f *fakeGCS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unsupported", http.StatusNotImplemented)
 	}
+}
+
+func writeNoSuchObject(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(`{"error":{"code":404,"message":"No such object"}}`))
 }
 
 func newFakeStorer(t *testing.T, fake *fakeGCS) *storage.GCSStorer {
@@ -209,6 +224,63 @@ func TestGCSStorer_DeleteVariants(t *testing.T) {
 			assert.False(t, fake.exists(testServedBucket, thumb))
 			assert.False(t, fake.exists(testServedBucket, large))
 			assert.True(t, fake.exists(testServedBucket, sibling), "another image's variants must remain")
+		})
+	}
+}
+
+func TestGCSStorer_OriginalExists(t *testing.T) {
+	t.Parallel()
+
+	original := storage.OriginalObjectKey(testOrganizerID, testSeriesImageID)
+	otherOrganizers := storage.OriginalObjectKey("org-2", testSeriesImageID)
+
+	tests := []struct {
+		name    string
+		objects []string
+		fail    bool
+		want    bool
+		wantErr error
+	}{
+		{
+			// @spec components/entity/series-image/original-exists "Uploaded original"
+			name:    "reports true for the organizer that uploaded the original",
+			objects: []string{original},
+			want:    true,
+		},
+		{
+			// @spec components/entity/series-image/original-exists "Another Organizer's upload"
+			name:    "reports false when the original was uploaded under another organizer",
+			objects: []string{otherOrganizers},
+			want:    false,
+		},
+		{
+			// @spec components/entity/series-image/original-exists "Nothing uploaded"
+			name:    "reports false when no original exists",
+			objects: []string{storage.OriginalObjectKey(testOrganizerID, "image-2")},
+			want:    false,
+		},
+		{
+			name:    "returns Internal when storage fails",
+			objects: []string{original},
+			fail:    true,
+			wantErr: apperr.ErrInternal,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fake := newFakeGCS(map[string][]string{testInternalBucket: tt.objects})
+			fake.failBuckets[testInternalBucket] = tt.fail
+			s := newFakeStorer(t, fake)
+
+			got, err := s.OriginalExists(context.Background(), testInternalBucket, testOrganizerID, testSeriesImageID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

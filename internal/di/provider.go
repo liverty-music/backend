@@ -333,7 +333,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo, eventPublisher, logger, time.Now)
+	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
+		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, eventPublisher, logger, time.Now)
 
 	// Identity verification — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are

@@ -60,6 +60,11 @@ func (f *fakeImageStorer) ReadOriginal(_ context.Context, bucket, organizerID, s
 	return data, nil
 }
 
+func (f *fakeImageStorer) OriginalExists(_ context.Context, bucket, organizerID, seriesImageID string) (bool, error) {
+	_, ok := f.objects[bucket+"/"+fakeOriginalKey(organizerID, seriesImageID)]
+	return ok, nil
+}
+
 func (f *fakeImageStorer) DeleteOriginal(_ context.Context, bucket, organizerID, seriesImageID string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
@@ -82,6 +87,15 @@ func (f *fakeImageStorer) DeleteVariants(_ context.Context, bucket, organizerID,
 	}
 	f.deletedPfxs = append(f.deletedPfxs, bucket+"/"+fakeVariantPrefix(organizerID, seriesImageID))
 	return nil
+}
+
+// testOriginalsBucket is the internal bucket SetCoverImage checks uploads in;
+// the Process tests set STORAGE_INTERNAL_BUCKET to the same name.
+const testOriginalsBucket = "originals"
+
+// putOriginal stores an uploaded original for the organizer/series image pair.
+func (f *fakeImageStorer) putOriginal(organizerID, seriesImageID string) {
+	f.objects[testOriginalsBucket+"/"+fakeOriginalKey(organizerID, seriesImageID)] = []byte("raw-image-bytes")
 }
 
 // seriesImageDeps wires up a SeriesImageUseCase with mocks for every dependency.
@@ -108,7 +122,8 @@ func newSeriesImageDeps(t *testing.T) *seriesImageDeps {
 	d.uc = usecase.NewSeriesImageUseCase(
 		d.seriesRepo, d.seriesImageRepo, d.storer, d.processor, d.publisher, logger,
 	)
-	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, nil, d.publisher, logger, time.Now)
+	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, nil,
+		d.storer, usecase.StorageBuckets{Internal: testOriginalsBucket, Served: "served"}, d.publisher, logger, time.Now)
 	return d
 }
 
@@ -155,53 +170,114 @@ func TestSeriesImageUseCase_CreateUploadURL_MissingBucket(t *testing.T) {
 	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
 }
 
-// TestSeriesUseCase_SetCoverImage_InsertsAndPublishes verifies the happy path:
-// ownership check passes, series image row is inserted, event is published.
-func TestSeriesUseCase_SetCoverImage_InsertsAndPublishes(t *testing.T) {
+func TestSeriesUseCase_SetCoverImage(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	d := newSeriesImageDeps(t)
 
 	const (
 		orgID         = "org-1"
+		otherOrgID    = "org-2"
 		seriesID      = "series-1"
 		seriesImageID = "image-1"
 	)
-	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
-		return m.ID == seriesImageID && m.OrganizerID == orgID
-	})).Return(nil)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).Return(nil)
+	ownSeries := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 
-	err := d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID)
-	require.NoError(t, err)
+	type args struct {
+		seriesImageID string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		setup   func(d *seriesImageDeps)
+		wantErr error
+	}{
+		{
+			// @spec components/usecase/series/set-cover-image "Missing series image id"
+			name:    "rejects an empty series image id",
+			args:    args{seriesImageID: ""},
+			setup:   func(*seriesImageDeps) {},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/usecase/series/set-cover-image "Another Organizer's series"
+			name: "denies a series owned by another organizer and records nothing",
+			args: args{seriesImageID: seriesImageID},
+			setup: func(d *seriesImageDeps) {
+				d.storer.putOriginal(orgID, seriesImageID)
+				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).
+					Return(&entity.Series{ID: seriesID, OrganizerID: new(otherOrgID)}, nil)
+			},
+			wantErr: apperr.ErrPermissionDenied,
+		},
+		{
+			// @spec components/usecase/series/set-cover-image "Cover replaced later"
+			name: "records and announces the upload without switching the cover",
+			args: args{seriesImageID: seriesImageID},
+			setup: func(d *seriesImageDeps) {
+				d.storer.putOriginal(orgID, seriesImageID)
+				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(ownSeries, nil)
+				d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
+					return m.ID == seriesImageID && m.OrganizerID == orgID
+				})).Return(nil)
+				d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
+					SeriesImageID: seriesImageID,
+					SeriesID:      seriesID,
+				}).Return(nil)
+				// ReplaceCover is not expected: the cover switches only in Process.
+			},
+		},
+		{
+			// @spec components/usecase/series/set-cover-image "Another Organizer's series image id"
+			name: "denies a series image recorded for another organizer and records nothing",
+			args: args{seriesImageID: seriesImageID},
+			setup: func(d *seriesImageDeps) {
+				d.storer.putOriginal(otherOrgID, seriesImageID)
+				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(ownSeries, nil)
+				d.seriesImageRepo.EXPECT().Get(mock.Anything, seriesImageID).
+					Return(&entity.SeriesImage{ID: seriesImageID, OrganizerID: otherOrgID}, nil)
+			},
+			wantErr: apperr.ErrPermissionDenied,
+		},
+		{
+			// @spec components/usecase/series/set-cover-image "Nothing uploaded"
+			name: "fails when no original was uploaded and records nothing",
+			args: args{seriesImageID: seriesImageID},
+			setup: func(d *seriesImageDeps) {
+				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(ownSeries, nil)
+				d.seriesImageRepo.EXPECT().Get(mock.Anything, seriesImageID).
+					Return(nil, apperr.New(codes.NotFound, "series image not found"))
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/series/set-cover-image "Repeated attach after processing"
+			name: "succeeds without announcing once the original was processed",
+			args: args{seriesImageID: seriesImageID},
+			setup: func(d *seriesImageDeps) {
+				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(ownSeries, nil)
+				d.seriesImageRepo.EXPECT().Get(mock.Anything, seriesImageID).
+					Return(&entity.SeriesImage{ID: seriesImageID, OrganizerID: orgID}, nil)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newSeriesImageDeps(t)
+			tt.setup(d)
+
+			err := d.series.SetCoverImage(context.Background(), orgID, seriesID, tt.args.seriesImageID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }
 
-// TestSeriesUseCase_SetCoverImage_NonOwnerDenied verifies that a caller who does
-// not own the series receives PermissionDenied (non-revealing).
-func TestSeriesUseCase_SetCoverImage_NonOwnerDenied(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := newSeriesImageDeps(t)
-
-	const (
-		orgID         = "org-other"
-		seriesID      = "series-1"
-		seriesImageID = "image-1"
-	)
-	// Series is owned by a different organizer.
-	s := &entity.Series{ID: seriesID, OrganizerID: new("org-owner")}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-
-	err := d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
-}
-
-// TestSeriesUseCase_SetCoverImage_Idempotent verifies that a second SetCoverImage
-// for the same series_image_id succeeds (Create is ON CONFLICT DO NOTHING).
-func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
+// @spec components/usecase/series/set-cover-image "Repeated attach"
+func TestSeriesUseCase_SetCoverImage_RepeatedAttach(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newSeriesImageDeps(t)
@@ -211,13 +287,44 @@ func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
 		seriesID      = "series-1"
 		seriesImageID = "image-dup"
 	)
-	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
-	// Both calls use the same mock stubs — idempotent at the DB layer.
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil).Times(2)
-	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Times(2)
+	d.storer.putOriginal(orgID, seriesImageID)
+	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(&entity.Series{ID: seriesID, OrganizerID: new(orgID)}, nil).Times(2)
+	// Both calls record the same id; Create is ON CONFLICT DO NOTHING, so one
+	// row results.
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
+		return m.ID == seriesImageID
+	})).Return(nil).Times(2)
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).Return(nil).Times(2)
 
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
+	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
+}
+
+// @spec components/usecase/series/set-cover-image "Announcement fails"
+func TestSeriesUseCase_SetCoverImage_AnnouncementFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := newSeriesImageDeps(t)
+
+	const (
+		orgID         = "org-1"
+		seriesID      = "series-1"
+		seriesImageID = "image-1"
+	)
+	d.storer.putOriginal(orgID, seriesImageID)
+	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(&entity.Series{ID: seriesID, OrganizerID: new(orgID)}, nil).Times(2)
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Times(2)
+	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).
+		Return(errors.New("nats: timeout")).Once()
+	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
+		SeriesImageID: seriesImageID,
+		SeriesID:      seriesID,
+	}).Return(nil).Once()
+
+	err := d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID)
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+
+	// The repeat after the failure announces the upload.
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
 }
 

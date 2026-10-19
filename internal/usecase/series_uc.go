@@ -125,16 +125,23 @@ type SeriesUseCase interface {
 	//  - InvalidArgument: The organizerID is empty.
 	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*entity.Concert, error)
 
-	// SetCoverImage verifies that the caller owns the target series, inserts the
-	// series image row idempotently, and publishes SERIES_IMAGE.uploaded{series_image_id, series_id}.
-	// It does NOT re-point series_cover_images — the series-image-consumer does
-	// that after generating variants. Idempotent on re-delivery.
+	// SetCoverImage verifies that the caller owns the target series and uploaded
+	// the series image, inserts the series image row idempotently, and publishes
+	// SERIES_IMAGE.uploaded{series_image_id, series_id}. It does NOT re-point
+	// series_cover_images — the series-image-consumer does that after generating
+	// variants. Repeating it announces again while the original is still
+	// uploaded, and succeeds without announcing once the original was processed.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: if series_id or series_image_id is empty.
-	//  - PermissionDenied: if the series is not owned by the caller (non-revealing).
-	//  - Internal: if the DB insert or event publish fails.
+	//  - PermissionDenied: if the series is not owned by the caller (non-revealing),
+	//    or the series image is recorded for another organizer.
+	//  - FailedPrecondition: if no original was uploaded for the series image
+	//    under the caller's organizer.
+	//  - Unavailable: if SERIES_IMAGE.uploaded cannot be published.
+	//  - Internal: if image storage is not configured, or the storage read or
+	//    the DB insert fails.
 	SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error
 }
 
@@ -146,6 +153,8 @@ type seriesUseCase struct {
 	mapCatalog      entity.VenueMapCatalog
 	organizerRepo   entity.OrganizerRepository
 	ticketSaleRepo  entity.TicketSaleRepository
+	imageStorer     ImageStorer
+	storageBuckets  StorageBuckets
 	publisher       EventPublisher
 	logger          *logging.Logger
 	now             func() time.Time
@@ -154,8 +163,9 @@ type seriesUseCase struct {
 // Compile-time interface check.
 var _ SeriesUseCase = (*seriesUseCase)(nil)
 
-// NewSeriesUseCase creates a new SeriesUseCase. All fields
-// are required. The Series image upload lives in SeriesImageUseCase.
+// NewSeriesUseCase creates a new SeriesUseCase. All fields are required, except
+// that imageStorer may be nil in local development; SetCoverImage then fails
+// with Internal. The Series image upload lives in SeriesImageUseCase.
 func NewSeriesUseCase(
 	seriesRepo entity.SeriesRepository,
 	seriesImageRepo entity.SeriesImageRepository,
@@ -163,6 +173,8 @@ func NewSeriesUseCase(
 	mapCatalog entity.VenueMapCatalog,
 	organizerRepo entity.OrganizerRepository,
 	ticketSaleRepo entity.TicketSaleRepository,
+	imageStorer ImageStorer,
+	storageBuckets StorageBuckets,
 	publisher EventPublisher,
 	logger *logging.Logger,
 	now func() time.Time,
@@ -174,6 +186,8 @@ func NewSeriesUseCase(
 		mapCatalog:      mapCatalog,
 		organizerRepo:   organizerRepo,
 		ticketSaleRepo:  ticketSaleRepo,
+		imageStorer:     imageStorer,
+		storageBuckets:  storageBuckets,
 		publisher:       publisher,
 		logger:          logger,
 		now:             now,
@@ -782,11 +796,11 @@ func eventVenueName(ev *entity.Event) string {
 	return ""
 }
 
-// SetCoverImage verifies ownership, inserts the series image row idempotently, and
-// publishes SERIES_IMAGE.uploaded so the processor can generate variants and cut over
-// series_cover_images. The series_cover_images re-point is intentionally deferred to the
-// consumer so the existing cover continues to serve until variants are ready
-// (no 404 window).
+// SetCoverImage verifies ownership of the series and of the upload, inserts the
+// series image row idempotently, and publishes SERIES_IMAGE.uploaded so the
+// processor can generate variants and cut over series_cover_images. The
+// series_cover_images re-point is intentionally deferred to the consumer so the
+// existing cover continues to serve until variants are ready (no 404 window).
 func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error {
 	if seriesID == "" {
 		return apperr.New(codes.InvalidArgument, "series_id must not be empty")
@@ -807,6 +821,35 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		return apperr.New(codes.PermissionDenied, "permission denied")
 	}
 
+	if uc.imageStorer == nil || uc.storageBuckets.Internal == "" {
+		return apperr.New(codes.Internal, "image storage is not configured")
+	}
+
+	// The upload authorization binds the original's object key to the
+	// Organizer the series image id was minted for, so an original under the
+	// caller's Organizer proves the caller uploaded it.
+	uploaded, err := uc.imageStorer.OriginalExists(ctx, uc.storageBuckets.Internal, callerOrgID, seriesImageID)
+	if err != nil {
+		return fmt.Errorf("check uploaded original: %w", err)
+	}
+	if !uploaded {
+		// The original is gone once processed, so a recorded series image
+		// decides: the caller's own is a repeated attach with nothing left to
+		// announce; another Organizer's is not the caller's to attach.
+		recorded, err := uc.seriesImageRepo.Get(ctx, seriesImageID)
+		if err != nil {
+			if errors.Is(err, apperr.ErrNotFound) {
+				return apperr.New(codes.FailedPrecondition, "no image was uploaded for this series image id",
+					slog.String("series_image_id", seriesImageID))
+			}
+			return fmt.Errorf("get series image: %w", err)
+		}
+		if recorded.OrganizerID != callerOrgID {
+			return apperr.New(codes.PermissionDenied, "permission denied")
+		}
+		return nil
+	}
+
 	// Insert the series image row idempotently. The organizer_id comes from the
 	// verified caller so we never store a series image row for a different Organizer.
 	seriesImage := &entity.SeriesImage{
@@ -821,22 +864,17 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		return fmt.Errorf("insert series image row: %w", err)
 	}
 
-	// Publish SERIES_IMAGE.uploaded so the processor can pick it up. Non-fatal on
-	// publish failure after a successful DB insert: the row persists and the
-	// event can be re-published via a retry or manual trigger.
+	// Publish SERIES_IMAGE.uploaded so the processor can pick it up. A failure
+	// fails the call so the member repeats it: the insert above is idempotent
+	// and the original is still uploaded, so the retry announces again.
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
 		SeriesImageID: seriesImageID,
 		SeriesID:      seriesID,
 	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish SERIES_IMAGE.uploaded event",
+		return apperr.Wrap(err, codes.Unavailable, "announce series image upload",
 			slog.String("series_image_id", seriesImageID),
 			slog.String("series_id", seriesID),
-			slog.Any("error", err),
 		)
-		// Non-fatal: the series image row is persisted; the processor picks it up on
-		// re-delivery. We do NOT return an error so the caller does not retry
-		// the entire RPC (which would insert a duplicate-idempotent row again
-		// and then try to publish again — a harmless but noisy loop).
 	}
 
 	uc.logger.Info(ctx, "series image attached to series",

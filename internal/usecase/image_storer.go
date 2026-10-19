@@ -39,6 +39,17 @@ type ImageStorer interface {
 	//  - Internal: if the read fails.
 	ReadOriginal(ctx context.Context, bucket, organizerID, seriesImageID string) ([]byte, error)
 
+	// OriginalExists reports whether the ORIGINAL object of the given
+	// organizer/series image pair exists in bucket. The object key embeds the
+	// organizer id, so an original uploaded under another organizer counts as
+	// absent. An original already removed after processing also counts as
+	// absent.
+	//
+	// # Possible errors
+	//
+	//  - Internal: if the object metadata cannot be read.
+	OriginalExists(ctx context.Context, bucket, organizerID, seriesImageID string) (bool, error)
+
 	// DeleteOriginal removes the ORIGINAL object for the given organizer/series image
 	// pair from bucket. Deleting an object that does not exist is not an error
 	// (idempotent), so callers can best-effort remove a processed original

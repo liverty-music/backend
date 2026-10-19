@@ -165,6 +165,22 @@ func (s *GCSStorer) ReadOriginal(ctx context.Context, bucket, organizerID, serie
 	return s.ReadObject(ctx, bucket, OriginalObjectKey(organizerID, seriesImageID))
 }
 
+// OriginalExists reports whether the ORIGINAL object for the given
+// organizer/series image pair exists in bucket. It composes the
+// originals-bucket key via OriginalObjectKey and reads only the object
+// metadata; a missing object reports false.
+func (s *GCSStorer) OriginalExists(ctx context.Context, bucket, organizerID, seriesImageID string) (bool, error) {
+	key := OriginalObjectKey(organizerID, seriesImageID)
+	_, err := s.client.Bucket(bucket).Object(key).Attrs(ctx)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, apperr.New(codes.Internal, fmt.Sprintf("read gcs object attrs %s/%s: %v", bucket, key, err))
+	}
+	return true, nil
+}
+
 // DeleteOriginal removes the ORIGINAL object for the given organizer/series image
 // pair from bucket. It composes the originals-bucket key via OriginalObjectKey
 // and delegates to Delete (idempotent: a missing object is not an error).
