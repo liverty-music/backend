@@ -745,6 +745,7 @@ CREATE TABLE IF NOT EXISTS ticket_types (
     quantity          INTEGER NOT NULL,
     per_account_limit INTEGER NOT NULL,
     sold_count        INTEGER NOT NULL DEFAULT 0,
+    resale_open_at    TIMESTAMPTZ,
     CONSTRAINT chk_ticket_types_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_types_price CHECK (price BETWEEN 1 AND 1000000),
     CONSTRAINT chk_ticket_types_quantity CHECK (quantity >= 1),
@@ -761,6 +762,7 @@ COMMENT ON COLUMN ticket_types.price IS 'Price of one ticket in yen, tax-inclusi
 COMMENT ON COLUMN ticket_types.quantity IS 'Tickets offered; for a first-come sale it can shrink only down to sold plus held';
 COMMENT ON COLUMN ticket_types.per_account_limit IS 'Most tickets one account may hold for the event once this sale is done, counting tickets it already holds; 1 to 10 and at most the quantity';
 COMMENT ON COLUMN ticket_types.sold_count IS 'Tickets on Committed and Completed checkouts (first-come only; stays 0 for a lottery); changed together with the checkout status under the ticket type row lock';
+COMMENT ON COLUMN ticket_types.resale_open_at IS 'When official resale opened: the commit time that first made sold_count equal quantity (first-come only). NULL until then; set once and never cleared, even when the quantity is raised or a commit is reverted';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_types_event_id ON ticket_types(event_id);
 COMMENT ON INDEX idx_ticket_types_event_id IS 'Optimizes listing the sales of an event through its ticket types';
@@ -822,6 +824,7 @@ CREATE TABLE IF NOT EXISTS checkouts (
     hold_expire_at            TIMESTAMPTZ NOT NULL,
     commit_at                 TIMESTAMPTZ,
     capture_at                TIMESTAMPTZ,
+    resale                    BOOLEAN     NOT NULL DEFAULT FALSE,
     CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_checkouts_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
     CONSTRAINT chk_checkouts_amount_positive CHECK (amount > 0),
@@ -844,6 +847,7 @@ COMMENT ON COLUMN checkouts.card_authorization_release_at IS 'When the card auth
 COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
 COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
 COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
+COMMENT ON COLUMN checkouts.resale IS 'True for a resale checkout: it holds resale_listings rows of its ticket type instead of the ticket type''s stock, and never changes sold_count. Fixed at creation';
 COMMENT ON COLUMN checkouts.capture_at IS 'When the card authorization (card_authorization_id) was captured; set once, and a row with it is never Expired or Released';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_held ON checkouts(ticket_type_id, user_id) WHERE status = 1;
@@ -975,6 +979,65 @@ COMMENT ON INDEX idx_tickets_user_id IS 'Optimizes a user''s my-tickets view';
 
 CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
 COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (check-in, cancellation)';
+
+-- Resale listings: a fan's offer of one ticket for official resale (公式リセール)
+-- at face value, after the ticket's first-come ticket type sold out. A resale
+-- checkout holds listings by pointing checkout_id at itself; a listing is free
+-- again as soon as that checkout is neither holding nor Committed.
+CREATE TABLE IF NOT EXISTS resale_listings (
+    id                  UUID        PRIMARY KEY,
+    ticket_id           UUID        NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+    user_id             UUID        NOT NULL,
+    ticket_type_id      UUID        NOT NULL REFERENCES ticket_types(id) ON DELETE RESTRICT,
+    price               BIGINT      NOT NULL,
+    status              SMALLINT    NOT NULL,
+    checkout_id         UUID        REFERENCES checkouts(id) ON DELETE RESTRICT,
+    created_at          TIMESTAMPTZ NOT NULL,
+    sold_at             TIMESTAMPTZ,
+    withdraw_at         TIMESTAMPTZ,
+    provider_refund_id  TEXT,
+    refund_at           TIMESTAMPTZ,
+    sold_email_send_at  TIMESTAMPTZ,
+    CONSTRAINT chk_resale_listings_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_resale_listings_price CHECK (price BETWEEN 1 AND 1000000),
+    CONSTRAINT chk_resale_listings_status CHECK (status BETWEEN 1 AND 4),
+    CONSTRAINT chk_resale_listings_sold_time CHECK ((status = 2) = (sold_at IS NOT NULL)),
+    CONSTRAINT chk_resale_listings_withdraw_time CHECK ((status = 3) = (withdraw_at IS NOT NULL)),
+    CONSTRAINT chk_resale_listings_refund_together CHECK ((provider_refund_id IS NULL) = (refund_at IS NULL)),
+    CONSTRAINT chk_resale_listings_refund_when_sold CHECK (refund_at IS NULL OR status = 2),
+    CONSTRAINT chk_resale_listings_sold_email_when_sold CHECK (sold_email_send_at IS NULL OR status = 2),
+    CONSTRAINT chk_resale_listings_provider_refund_id_not_empty CHECK (provider_refund_id IS NULL OR provider_refund_id <> '')
+);
+
+COMMENT ON TABLE resale_listings IS 'A fan''s offer of one ticket for official resale (公式リセール) at face value. Status 1=Listed, 2=Sold, 3=Withdrawn, 4=Cancelled; Expired is derived when read (Listed at or after 3 hours before the event start) and never stored. The resale fee (10% of price, rounded down) and the refund amount (price minus fee) are derived from price.';
+COMMENT ON COLUMN resale_listings.id IS 'Unique listing identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN resale_listings.ticket_id IS 'The ticket offered; its order (tickets.order_id) is the one whose charge the user is refunded from';
+COMMENT ON COLUMN resale_listings.user_id IS 'The fan offering it: the ticket''s user (no FK, as for checkouts.user_id)';
+COMMENT ON COLUMN resale_listings.ticket_type_id IS 'The first-come ticket type the ticket was bought from (order → checkout → ticket type), resolved when listed';
+COMMENT ON COLUMN resale_listings.price IS 'Face value in yen, tax-inclusive (税込): the ticket type''s price when listed';
+COMMENT ON COLUMN resale_listings.status IS 'Lifecycle: 1=Listed, 2=Sold, 3=Withdrawn, 4=Cancelled';
+COMMENT ON COLUMN resale_listings.checkout_id IS 'The resale checkout that last held the listing; NULL until one holds it. The listing is free when that checkout is neither holding nor Committed';
+COMMENT ON COLUMN resale_listings.created_at IS 'When the fan listed the ticket; the oldest Listed listing is held first';
+COMMENT ON COLUMN resale_listings.sold_at IS 'When another fan''s order bought it; set exactly when Sold';
+COMMENT ON COLUMN resale_listings.withdraw_at IS 'When the fan withdrew it; set exactly when Withdrawn';
+COMMENT ON COLUMN resale_listings.provider_refund_id IS 'The payment provider''s ID for the refund of the refund amount to the listing''s user (e.g. Stripe "re_..."); set once together with refund_at';
+COMMENT ON COLUMN resale_listings.refund_at IS 'When the listing''s user was refunded; set once together with provider_refund_id';
+COMMENT ON COLUMN resale_listings.sold_email_send_at IS 'When the email telling the user the ticket sold was sent; set once right after a successful send';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_resale_listings_listed_ticket ON resale_listings(ticket_id) WHERE status = 1;
+COMMENT ON INDEX uq_resale_listings_listed_ticket IS 'At most one Listed listing per ticket: a concurrent second listing loses with a unique violation';
+
+CREATE INDEX IF NOT EXISTS idx_resale_listings_listed_by_ticket_type ON resale_listings(ticket_type_id, created_at) WHERE status = 1;
+COMMENT ON INDEX idx_resale_listings_listed_by_ticket_type IS 'Optimizes the oldest-first pick of free listings and the free resale count of a ticket type';
+
+CREATE INDEX IF NOT EXISTS idx_resale_listings_user_id ON resale_listings(user_id, created_at);
+COMMENT ON INDEX idx_resale_listings_user_id IS 'Optimizes a fan''s listings, newest first';
+
+CREATE INDEX IF NOT EXISTS idx_resale_listings_checkout_id ON resale_listings(checkout_id) WHERE checkout_id IS NOT NULL;
+COMMENT ON INDEX idx_resale_listings_checkout_id IS 'Optimizes reading the listings a resale checkout holds';
+
+CREATE INDEX IF NOT EXISTS idx_resale_listings_sold_unfinished ON resale_listings(sold_at) WHERE status = 2 AND (refund_at IS NULL OR sold_email_send_at IS NULL);
+COMMENT ON INDEX idx_resale_listings_sold_unfinished IS 'Optimizes ListSoldUnrefunded: Sold listings not yet refunded or not yet emailed';
 
 -- ============================================================
 -- Settlement / payout tables (ticket-settlement-and-payout)

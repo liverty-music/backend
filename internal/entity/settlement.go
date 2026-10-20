@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -127,6 +128,29 @@ func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, n
 	}
 }
 
+// GiveUpResoldShare takes the share of k resold tickets off the Held
+// Settlement of an Order that had m Issued Tickets before the resale: each
+// split falls by its amount × k ÷ m, rounded down to the yen, so rounding
+// favours the Organizer. When k equals m nothing is left to pay out for the
+// Order, and the Settlement becomes Reversed instead, keeping its splits. The
+// entity layer returns stdlib errors; callers wrap them with an apperr code.
+func (s *Settlement) GiveUpResoldShare(k, m int) error {
+	if s.Status != SettlementStatusHeld {
+		return fmt.Errorf("only a Held settlement gives up a resold share, not a %s one", s.Status)
+	}
+	if k < 1 || k > m {
+		return fmt.Errorf("resold tickets must be 1 to %d, not %d", m, k)
+	}
+	if k == m {
+		s.Status = SettlementStatusReversed
+		return nil
+	}
+	for i := range s.Splits {
+		s.Splits[i].Amount -= s.Splits[i].Amount * int64(k) / int64(m)
+	}
+	return nil
+}
+
 // SettlementRepository defines the persistence contract for Settlement records.
 // The row is created by [IssuanceRepository.Issue], not by this interface —
 // SettlementRepository only reads and updates settlements after issuance.
@@ -212,13 +236,23 @@ type PayoutParams struct {
 // RefundParams carries the parameters for a platform-balance Refund. The
 // refund is issued against the Charge (ch_) rather than the payment so
 // that the settlement's source_transaction reference remains coherent.
+//
+// A refund has a purpose: the Order's own refund (cancellation), or the
+// refund of one ResaleListing of the Order. Each purpose refunds at most once,
+// and refunds of different purposes are separate refunds of parts of the same
+// charge.
 type RefundParams struct {
-	// OrderID is always present and used to derive a stable, per-order
-	// idempotency key ("order-refund:<orderID>") so retried refunds on the
-	// same order never double-charge the platform. Using OrderID (not
-	// SettlementID) avoids the "no-settlement" placeholder collision where
-	// multiple orders without a settlement row would share the same key.
+	// OrderID is always present. For the Order's own refund it derives a
+	// stable, per-order idempotency key ("order-refund:<orderID>") so retried
+	// refunds on the same order never double-charge the platform. Using
+	// OrderID (not SettlementID) avoids the "no-settlement" placeholder
+	// collision where multiple orders without a settlement row would share
+	// the same key.
 	OrderID OrderID
+	// ResaleListingID names the purpose: empty for the Order's own refund, or
+	// the ResaleListing of the Order whose refund amount this refunds, keyed
+	// "resale-listing-refund:<listingID>".
+	ResaleListingID ResaleListingID
 	// ProviderChargeID is the captured charge reference (ch_...) to refund.
 	ProviderChargeID string
 	// Amount is the refund amount in the Order currency's smallest unit.

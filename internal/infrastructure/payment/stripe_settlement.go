@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -43,7 +44,13 @@ type stripeConnect struct {
 // newStripeConnect returns a stripeConnect whose API calls are bounded by
 // stripeHTTPTimeout. The key is never logged.
 func newStripeConnect(secretKey string, logger *logging.Logger) stripeConnect {
-	return stripeConnect{client: newStripeClient(secretKey, ""), logger: logger}
+	return newStripeConnectAt(secretKey, "", logger)
+}
+
+// newStripeConnectAt is newStripeConnect against the API at apiURL (empty for
+// Stripe's own).
+func newStripeConnectAt(secretKey, apiURL string, logger *logging.Logger) stripeConnect {
+	return stripeConnect{client: newStripeClient(secretKey, apiURL), logger: logger}
 }
 
 // StripeOrderPayments is the Stripe side of the Order's operations:
@@ -304,25 +311,24 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 
 // CreateRefund implements [entity.OrderRepository].
 //
-// It creates a Stripe Refund against the captured Charge (ch_). The refund
-// amount is the Order's captured amount (face + system/発券 fee; processor fee
-// retained as the JP norm — the processor fee is not explicitly subtracted here
-// because we refund against the charge and have no BalanceTransaction expansion
-// at this call site; see the TODO in refund_uc.go for the refinement path).
+// It creates a Stripe Refund of params.Amount against the captured Charge
+// (ch_). The idempotency key names the purpose, so all retries for the same
+// purpose share it (crash-safe replay) and two purposes of one Order are two
+// refunds:
+//   - the Order's own refund: "order-refund:<orderID>";
+//   - the refund of one resale listing: "resale-listing-refund:<listingID>".
 //
-// The idempotency key is derived from the OrderID so that:
-//   - All retries for the same order share the same key (crash-safe replay).
-//   - Pre-sweep refunds (no settlement row) do not collide across distinct
-//     orders — previously a constant "no-settlement" placeholder would share
-//     the key across ALL orders that have not yet been swept.
+// Stripe keeps idempotency keys for 24 hours; the resale refund job retries
+// within a minute, well inside that window.
 func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "refund amount must be positive")
 	}
 
-	// Idempotency key: order-id is always present and unique per Order, so
-	// retries for the same order are idempotent and distinct orders never collide.
 	idempotencyKey := "order-refund:" + string(params.OrderID)
+	if params.ResaleListingID != "" {
+		idempotencyKey = "resale-listing-refund:" + string(params.ResaleListingID)
+	}
 
 	amount := params.Amount
 	refundParams := &stripe.RefundCreateParams{
@@ -334,6 +340,11 @@ func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.Re
 
 	refund, err := p.client.V1Refunds.Create(ctx, refundParams)
 	if err != nil {
+		if stripeErr, ok := errors.AsType[*stripe.Error](err); ok &&
+			(stripeErr.Code == stripe.ErrorCodeChargeAlreadyRefunded || stripeErr.Code == stripe.ErrorCodeAmountTooLarge) {
+			return "", apperr.Wrap(err, codes.FailedPrecondition, "the charge is already refunded or has less left than the amount",
+				slog.String("order_id", string(params.OrderID)), slog.String("resale_listing_id", string(params.ResaleListingID)))
+		}
 		return "", toPaymentAppErr(ctx, err, "failed to create Refund", p.logger)
 	}
 
@@ -342,6 +353,7 @@ func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.Re
 		slog.String("provider_charge_id", params.ProviderChargeID),
 		slog.Int64("amount", refund.Amount),
 		slog.String("order_id", string(params.OrderID)),
+		slog.String("resale_listing_id", string(params.ResaleListingID)),
 	)
 	return refund.ID, nil
 }

@@ -20,20 +20,24 @@ import (
 // card authorizations.
 type CheckoutUseCase interface {
 	// Start holds count tickets of the TicketType for the fan for 15 minutes,
-	// or resumes the fan's holding Checkout with the same count. When the sale
-	// requires verification the fan must hold an Active IdentityVerification.
+	// or resumes the fan's holding Checkout with the same count. While the
+	// TicketType is OnSale or AllHeld it holds stock; otherwise, while its
+	// resale is open, it holds the oldest free resale listings and returns a
+	// resale Checkout. When the sale requires verification the fan must hold
+	// an Active IdentityVerification.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: the TicketType does not exist.
 	//  - FailedPrecondition: the sale's method is not FirstCome, the event is
-	//    not published, the TicketType is not OnSale or AllHeld, the sale
-	//    requires verification and the fan has no Active IdentityVerification, or the
-	//    per-account limit would be exceeded counting the fan's Issued Tickets
-	//    for the event.
+	//    not published, the TicketType is neither OnSale, AllHeld nor open
+	//    for resale, the sale requires verification and the fan has no Active
+	//    IdentityVerification, or the per-account limit would be exceeded
+	//    counting the fan's Issued Tickets for the event.
 	//  - InvalidArgument: count is below 1 or above the TicketType's
 	//    per-account limit.
-	//  - ResourceExhausted: not enough tickets remain.
+	//  - ResourceExhausted: not enough tickets remain, or not enough resale
+	//    listings are free.
 	//  - The error of [entity.ReferralRepository.Record], unchanged; the hold
 	//    stays, so starting again resumes it and records the code again.
 	//
@@ -82,6 +86,7 @@ type checkoutUseCase struct {
 	userRepo                 entity.UserRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	eventState               EventPublishStatePort
+	eventRepo                entity.EventRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    Clock
 	logger                   *logging.Logger
@@ -98,6 +103,7 @@ type CheckoutDeps struct {
 	UserRepo                 entity.UserRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	EventState               EventPublishStatePort
+	EventRepo                entity.EventRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
 	Clock                    Clock
 	Logger                   *logging.Logger
@@ -112,6 +118,7 @@ func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 		userRepo:                 d.UserRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		eventState:               d.EventState,
+		eventRepo:                d.EventRepo,
 		cardAuthorizations:       d.CardAuthorizations,
 		clock:                    d.Clock,
 		logger:                   d.Logger,
@@ -138,8 +145,20 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 	if !published {
 		return nil, apperr.New(codes.FailedPrecondition, "the concert is not published")
 	}
+	// Stock sells first; listings sell only while the stock is not on sale.
+	var resaleDeadline *time.Time
 	if state := ticketType.StateAt(sale, now); state != entity.TicketTypeStateOnSale && state != entity.TicketTypeStateAllHeld {
-		return nil, apperr.New(codes.FailedPrecondition, "the ticket type is not on sale")
+		if ticketType.ResaleOpenTime == nil {
+			return nil, apperr.New(codes.FailedPrecondition, "the ticket type is not on sale and never sold out")
+		}
+		deadline, err := uc.resaleDeadline(ctx, ticketType)
+		if err != nil {
+			return nil, err
+		}
+		if !ticketType.IsResaleOpenAt(now, deadline) {
+			return nil, apperr.New(codes.FailedPrecondition, "the ticket type is not on sale and its resale is not open")
+		}
+		resaleDeadline = &deadline
 	}
 	if err := ticketType.ValidateTicketCount(count); err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
@@ -148,7 +167,7 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 		return nil, err
 	}
 
-	checkout, err := uc.checkoutRepo.GetOrCreateHeld(ctx, ticketTypeID, userID, count, now)
+	checkout, err := uc.checkoutRepo.GetOrCreateHeld(ctx, ticketTypeID, userID, count, now, resaleDeadline)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +177,22 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 		}
 	}
 	return checkout, nil
+}
+
+// resaleDeadline reads the TicketType's event and returns its resale
+// deadline. An event without a start time has none, so its resale is never
+// open: FailedPrecondition.
+func (uc *checkoutUseCase) resaleDeadline(ctx context.Context, ticketType *entity.TicketType) (time.Time, error) {
+	event, err := uc.eventRepo.Get(ctx, ticketType.EventID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	deadline, ok := entity.ResaleDeadlineOf(event)
+	if !ok {
+		return time.Time{}, apperr.New(codes.FailedPrecondition, "the event has no start time, so it has no resale",
+			slog.String("event_id", ticketType.EventID))
+	}
+	return deadline, nil
 }
 
 // verificationGate applies the sale's verification gate: when the sale

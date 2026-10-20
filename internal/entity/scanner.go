@@ -40,8 +40,8 @@ const (
 	// input.
 	ScannerCallDomain = "liverty-music.scanner.v1"
 
-	// admissionWindowLead is how long before the open (or start) time the
-	// admission window opens.
+	// admissionWindowLead is how long before the start time the admission
+	// window opens. It is also the resale deadline's lead.
 	admissionWindowLead = 3 * time.Hour
 	// admissionWindowCloseHour is the hour (Japan time) on the day after the
 	// event's local date at which the admission window closes.
@@ -179,21 +179,17 @@ func (w AdmissionWindow) Contains(t time.Time) bool {
 }
 
 // AdmissionWindowOf derives the admission window from the event's current
-// local date, open time and start time, in Japan time: it opens 3 hours
-// before the open time, or before the start time when the event has no open
-// time, and closes at 04:00 on the day after the local date. ok is false
-// when the event has no start time (then it has no window).
+// local date and start time, in Japan time: it opens 3 hours before the start
+// time and closes at 04:00 on the day after the local date. The open time
+// does not affect it, because an event may have none. ok is false when the
+// event has no start time (then it has no window).
 func AdmissionWindowOf(event *Event) (window AdmissionWindow, ok bool) {
 	if event == nil || event.StartTime == nil {
 		return AdmissionWindow{}, false
 	}
-	anchor := *event.StartTime
-	if event.OpenTime != nil {
-		anchor = *event.OpenTime
-	}
 	y, m, d := event.LocalDate.Date()
 	return AdmissionWindow{
-		OpenTime:  anchor.Add(-admissionWindowLead),
+		OpenTime:  event.StartTime.Add(-admissionWindowLead),
 		CloseTime: time.Date(y, m, d+1, admissionWindowCloseHour, 0, 0, 0, japanTime),
 	}, true
 }

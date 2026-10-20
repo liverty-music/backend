@@ -10,8 +10,9 @@ import (
 
 // TicketTypeToProto maps a TicketType, with where it stood when read, to
 // Protobuf. A view with a state is a FirstCome TicketType (the use case sets
-// the state only for FirstCome); only then are the state, LowStock and, with
-// withCounts, the sold and held counts set. withCounts sets the quantity,
+// the state only for FirstCome); only then are the state, LowStock, whether
+// resale is open and available and, with withCounts, the sold and held counts
+// set. No count of resale listings is ever mapped. withCounts sets the quantity,
 // which only the owning Organizer may see.
 func TicketTypeToProto(v *usecase.TicketTypeView, withCounts bool) *entityv1.TicketType {
 	if v == nil || v.TicketType == nil {
@@ -29,6 +30,8 @@ func TicketTypeToProto(v *usecase.TicketTypeView, withCounts bool) *entityv1.Tic
 	if firstCome {
 		pb.State = ticketTypeStateToProto(v.State)
 		pb.LowStock = v.LowStock
+		pb.ResaleOpen = v.ResaleOpen
+		pb.ResaleAvailable = v.ResaleAvailable
 	}
 	if withCounts {
 		quantity := int32(t.Quantity)

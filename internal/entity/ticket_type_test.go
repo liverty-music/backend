@@ -282,3 +282,57 @@ func TestTicketType_ValidatePriceChange(t *testing.T) {
 		})
 	}
 }
+
+func TestTicketType_Resale(t *testing.T) {
+	t.Parallel()
+
+	opened := nov(10, 20, 15)
+	soldOut := func(free int) *entity.TicketType {
+		tt := stockOf(150, 150, 0)
+		tt.ResaleOpenTime = &opened
+		tt.FreeResaleCount = free
+		return tt
+	}
+	deadline := nov(28, 16, 0)
+
+	t.Run("a week before the event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-type "A week before the event"
+		assert.True(t, soldOut(0).IsResaleOpenAt(deadline.AddDate(0, 0, -7), deadline))
+	})
+
+	t.Run("after the deadline", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-type "After the deadline"
+		assert.False(t, soldOut(1).IsResaleOpenAt(deadline, deadline))
+		assert.False(t, soldOut(1).IsResaleAvailableAt(deadline, deadline))
+	})
+
+	t.Run("sale ended after selling out", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-type "Sale ended after selling out"
+		tt := soldOut(0)
+		afterEnd := nov(21, 12, 0)
+		assert.Equal(t, entity.TicketTypeStateEnded, tt.StateAt(firstComeSale(), afterEnd))
+		assert.True(t, tt.IsResaleOpenAt(afterEnd, deadline))
+	})
+
+	t.Run("never sold out", func(t *testing.T) {
+		t.Parallel()
+		tt := stockOf(150, 149, 0)
+		assert.False(t, tt.IsResaleOpenAt(nov(15, 12, 0), deadline))
+	})
+
+	t.Run("one listing free", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-type "One listing free"
+		assert.True(t, soldOut(1).IsResaleAvailableAt(nov(15, 12, 0), deadline))
+	})
+
+	t.Run("every listing held", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-type "Every listing held"
+		assert.True(t, soldOut(0).IsResaleOpenAt(nov(15, 12, 0), deadline))
+		assert.False(t, soldOut(0).IsResaleAvailableAt(nov(15, 12, 0), deadline))
+	})
+}

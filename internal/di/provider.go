@@ -34,6 +34,7 @@ import (
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
@@ -410,6 +411,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		UserRepo:                 userRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
 		EventState:               eventPublishState,
+		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
 		Clock:                    time.Now,
 		Logger:                   logger,
@@ -433,6 +435,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		IdentityVerificationRepo: identityVerificationRepo,
 		CheckoutRepo:             checkoutRepo,
 		TicketSaleRepo:           ticketSaleRepo,
+		TicketRepo:               ticketRepo,
 		EventState:               eventPublishState,
 		CardAuthorizations:       checkoutCardAuthorizations,
 		Publisher:                eventPublisher,
@@ -440,6 +443,35 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		RefundRepo:               refundRepo,
 		SettlementRepo:           settlementRepo,
 		Logger:                   logger,
+	})
+
+	// Official resale: a fan lists a ticket of a sold-out first-come ticket
+	// type, another fan buys it through the checkout above, and the refund
+	// job pays the listing fan back within a minute and emails them.
+	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
+	if cfg.Postmark.ServerToken != "" {
+		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+	}
+	japanTime, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
+	}
+	resaleListingUC := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Listings:   resaleListingRepo,
+		Tickets:    ticketRepo,
+		Orders:     orderRepo,
+		Checkouts:  checkoutRepo,
+		Sales:      ticketSaleRepo,
+		EventState: eventPublishState,
+		Events:     eventRepo,
+		Users:      userRepo,
+		Concerts:   concertRepo,
+		Mailer:     resaleSoldSender,
+		TimeZone:   japanTime,
+		Clock:      time.Now,
+		Logger:     logger,
 	})
 
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
@@ -491,9 +523,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
-		// The checkout sweepers release lapsed holds and card authorizations, and finish
-		// stalled commits; both reach Stripe, so they run beside the others.
-		startCheckoutSweepers(ctx, checkoutUC, orderUC, logger)
+		// The checkout sweepers release lapsed holds and card authorizations,
+		// finish stalled commits and refund resold listings; all reach Stripe,
+		// so they run beside the others.
+		startCheckoutSweepers(ctx, checkoutUC, orderUC, resaleListingUC, logger)
 	} else {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
@@ -697,7 +730,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Fan-facing ticket sales: TicketSaleService (public reads), the signed-in
-	// fan's first-come CheckoutService and LotteryEntryService.
+	// fan's first-come CheckoutService, LotteryEntryService and official
+	// ResaleListingService.
 	handlers = append(handlers,
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketsalev1connect.NewTicketSaleServiceHandler(
@@ -714,6 +748,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return lotteryentryconnect.NewLotteryEntryServiceHandler(
 				rpc.NewLotteryEntryHandler(lotteryEntryUC, userUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return resalelistingconnect.NewResaleListingServiceHandler(
+				rpc.NewResaleListingHandler(resaleListingUC, userUC, logger),
 				opts...,
 			)
 		},

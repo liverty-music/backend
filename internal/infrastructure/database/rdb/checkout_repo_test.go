@@ -66,7 +66,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 0)
 		setTicketTypeSold(t, tt.ID, 106)
 
-		c, err := repo.GetOrCreateHeld(ctx, tt.ID, nextFan(t), 2, at)
+		c, err := repo.GetOrCreateHeld(ctx, tt.ID, nextFan(t), 2, at, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.CheckoutStatusHeld, c.Status)
@@ -85,7 +85,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		results := make([]*entity.Checkout, 2)
 		errs := make([]error, 2)
 		for i := range 2 {
-			wg.Go(func() { results[i], errs[i] = repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at) })
+			wg.Go(func() { results[i], errs[i] = repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at, nil) })
 		}
 		wg.Wait()
 
@@ -99,10 +99,10 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		// @spec components/entity/checkout/get-or-create-held "Count changed"
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 0)
 		fan := nextFan(t)
-		first, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at)
+		first, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at, nil)
 		require.NoError(t, err)
 
-		second, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 3, at.Add(time.Minute))
+		second, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 3, at.Add(time.Minute), nil)
 
 		require.NoError(t, err)
 		assert.NotEqual(t, first.ID, second.ID)
@@ -117,10 +117,10 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 10, 4)
 		setTicketTypeSold(t, tt.ID, 7)
 		fan := nextFan(t)
-		held, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at)
+		held, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at, nil)
 		require.NoError(t, err)
 
-		_, err = repo.GetOrCreateHeld(ctx, tt.ID, fan, 4, at)
+		_, err = repo.GetOrCreateHeld(ctx, tt.ID, fan, 4, at, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 		still, err := repo.Get(ctx, held.ID)
@@ -137,7 +137,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
 		for i := range 2 {
-			wg.Go(func() { _, errs[i] = repo.GetOrCreateHeld(ctx, tt.ID, fans[i], 1, at) })
+			wg.Go(func() { _, errs[i] = repo.GetOrCreateHeld(ctx, tt.ID, fans[i], 1, at, nil) })
 		}
 		wg.Wait()
 
@@ -159,7 +159,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		fan := nextFan(t)
 		seedIssuedTickets(t, tt.EventID, string(fan), 3)
 
-		_, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at)
+		_, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, 0, heldCount(t, tt.ID, at), "nothing is held")
@@ -172,7 +172,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		// seedIssuedTickets issues them through a lottery sale of the event.
 		seedIssuedTickets(t, tt.EventID, string(fan), 4)
 
-		_, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 1, at)
+		_, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 1, at, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, 0, heldCount(t, tt.ID, at), "nothing is held")
@@ -182,13 +182,13 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		// @spec components/entity/checkout/get-or-create-held "Charge still being issued"
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 4)
 		fan := nextFan(t)
-		bought, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 4, at)
+		bought, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 4, at, nil)
 		require.NoError(t, err)
 		outcome, err := repo.Commit(ctx, bought.ID, at)
 		require.NoError(t, err)
 		require.Equal(t, entity.CommitOutcomeCommitted, outcome)
 
-		_, err = repo.GetOrCreateHeld(ctx, tt.ID, fan, 1, at)
+		_, err = repo.GetOrCreateHeld(ctx, tt.ID, fan, 1, at, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, 0, heldCount(t, tt.ID, at), "nothing is held")
@@ -199,7 +199,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 4)
 		c := completedCheckoutOf(t, repo, rdb.NewIssuanceRepository(testDB), tt, nextFan(t), 2, at)
 
-		_, err := repo.GetOrCreateHeld(ctx, tt.ID, c.UserID, 2, at)
+		_, err := repo.GetOrCreateHeld(ctx, tt.ID, c.UserID, 2, at, nil)
 
 		assert.NoError(t, err)
 	})
@@ -207,10 +207,10 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 	t.Run("a lapsed hold is expired when the fan starts again", func(t *testing.T) {
 		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 0)
 		fan := nextFan(t)
-		lapsed, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at)
+		lapsed, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at, nil)
 		require.NoError(t, err)
 
-		fresh, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at.Add(16*time.Minute))
+		fresh, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, 2, at.Add(16*time.Minute), nil)
 
 		require.NoError(t, err)
 		assert.NotEqual(t, lapsed.ID, fresh.ID)
@@ -221,7 +221,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 
 	t.Run("unknown ticket type", func(t *testing.T) {
 		// @spec components/entity/checkout/get-or-create-held "Unknown ticket type"
-		_, err := repo.GetOrCreateHeld(ctx, entity.TicketTypeID(entity.NewID()), nextFan(t), 1, at)
+		_, err := repo.GetOrCreateHeld(ctx, entity.TicketTypeID(entity.NewID()), nextFan(t), 1, at, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -231,7 +231,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 func heldCheckout(t *testing.T, repo *rdb.CheckoutRepository, count int, at time.Time) *entity.Checkout {
 	t.Helper()
 	tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 150, 10)
-	c, err := repo.GetOrCreateHeld(context.Background(), tt.ID, nextFan(t), count, at)
+	c, err := repo.GetOrCreateHeld(context.Background(), tt.ID, nextFan(t), count, at, nil)
 	require.NoError(t, err)
 	return c
 }
@@ -538,7 +538,7 @@ func completedCheckout(t *testing.T, repo *rdb.CheckoutRepository, issuance *rdb
 func completedCheckoutOf(t *testing.T, repo *rdb.CheckoutRepository, issuance *rdb.IssuanceRepository, tt *entity.TicketType, fan entity.UserID, count int, start time.Time) *entity.Checkout {
 	t.Helper()
 	ctx := context.Background()
-	c, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, count, start)
+	c, err := repo.GetOrCreateHeld(ctx, tt.ID, fan, count, start, nil)
 	require.NoError(t, err)
 	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
 	_, err = repo.Commit(ctx, c.ID, start.Add(time.Minute))

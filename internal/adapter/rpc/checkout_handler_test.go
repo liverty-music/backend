@@ -78,6 +78,27 @@ func TestCheckoutHandler(t *testing.T) {
 		assert.Equal(t, tkTicketTypeID, resp.Msg.GetCheckout().GetTicketTypeId().GetValue())
 	})
 
+	t.Run("resale checkout started", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/checkout "Resale checkout started"
+		f := newCheckoutFixture(t, signedInAs(tkFanSub))
+		expectFan(f.users)
+		resale := *held
+		resale.TicketCount, resale.Amount, resale.Resale = 1, 3000, true
+		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 1, (*entity.ReferralCode)(nil)).Return(&resale, nil)
+		req := startReq()
+		req.TicketCount = 1
+
+		resp, err := f.client.Start(ctx, connect.NewRequest(req))
+
+		require.NoError(t, err)
+		assert.True(t, resp.Msg.GetCheckout().GetResale())
+		// The Checkout has no field naming the listings it holds or their fans.
+		fields := resp.Msg.GetCheckout().ProtoReflect().Descriptor().Fields()
+		assert.Nil(t, fields.ByName("user_id"))
+		assert.Nil(t, fields.ByName("resale_listing_ids"))
+	})
+
 	t.Run("referral code passed on", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/checkout "Referral code passed on"

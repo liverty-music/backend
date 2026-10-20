@@ -70,10 +70,21 @@ type TicketType struct {
 	// Completed Checkouts. FirstCome only; always 0 for a Lottery TicketType.
 	SoldCount int
 
-	// HeldCount is the number of tickets on the TicketType's Checkouts that
-	// are holding at the time it was read. FirstCome only. It is computed by
-	// the repository on every read, never stored.
+	// HeldCount is the number of tickets on the TicketType's stock
+	// Checkouts that are holding at the time it was read; resale Checkouts
+	// are not counted. FirstCome only. It is computed by the repository on
+	// every read, never stored.
 	HeldCount int
+
+	// ResaleOpenTime is when the sold count first equalled the quantity, so
+	// official resale opened. FirstCome only; nil until then, set once and
+	// never cleared.
+	ResaleOpenTime *time.Time
+	// FreeResaleCount is the number of the TicketType's ResaleListings that
+	// are free at the time it was read, deadline aside. FirstCome only. It is
+	// computed by the repository on every read, never stored, and never
+	// shown to a fan.
+	FreeResaleCount int
 }
 
 // NewTicketType returns a TicketType of sale for the event, with a generated
@@ -182,4 +193,18 @@ func (t *TicketType) ValidatePriceChange(newPrice int64) error {
 		return errors.New("the price cannot change while tickets are sold or held")
 	}
 	return nil
+}
+
+// IsResaleOpenAt reports whether the TicketType's official resale is open at
+// time at, given its event's resale deadline: it has a resale open time and
+// at is before the deadline.
+func (t *TicketType) IsResaleOpenAt(at, deadline time.Time) bool {
+	return t.ResaleOpenTime != nil && at.Before(deadline)
+}
+
+// IsResaleAvailableAt reports whether a fan can buy a resale ticket of the
+// TicketType at time at: its resale is open and at least one of its listings
+// is free.
+func (t *TicketType) IsResaleAvailableAt(at, deadline time.Time) bool {
+	return t.IsResaleOpenAt(at, deadline) && t.FreeResaleCount > 0
 }

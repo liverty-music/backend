@@ -71,6 +71,11 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return nil, err
 	}
+	// A settlement given up because every ticket was resold has nothing left
+	// to claw back or reverse.
+	if settlement != nil && settlement.Status == entity.SettlementStatusReversed {
+		settlement = nil
+	}
 
 	// ── STRIPE MONEY MOVEMENT ──────────────────────────────────────────────
 	// Both calls carry stable idempotency keys so retries are safe:
@@ -92,8 +97,10 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// refunded.
 	//
 	// Design decision on the refund amount (non-DISPUTE paths):
-	//   We refund the full Order.Amount (face + system/発券 fee), making the fan
-	//   whole. The processor fee (Stripe's cut) is NOT subtracted — doing so would
+	//   We refund the price of the Order's Tickets still Issued (the full
+	//   Order.Amount when none was resold), making the fan whole. A ticket
+	//   resold through official resale was already refunded less the resale
+	//   fee. The processor fee (Stripe's cut) is NOT subtracted — doing so would
 	//   short the fan by an amount they never agreed to forfeit. Stripe does not
 	//   return the processor fee on refunds; the platform absorbs it, which is the
 	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
@@ -109,21 +116,27 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 			return nil, apperr.New(codes.FailedPrecondition,
 				"order has no provider payment ID; cannot resolve charge for refund")
 		}
-
-		// Resolve the provider charge ID: prefer the value cached on the settlement row
-		// (set by the payout sweep), fall back to a live lookup at the payment provider.
-		providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
+		refundAmount, err := uc.unresoldAmount(ctx, order)
 		if err != nil {
 			return nil, err
 		}
+		// Every ticket resold: nothing is left to refund.
+		if refundAmount > 0 {
+			// Resolve the provider charge ID: prefer the value cached on the settlement row
+			// (set by the payout sweep), fall back to a live lookup at the payment provider.
+			providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
+			if err != nil {
+				return nil, err
+			}
 
-		providerRefundID, err = uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
-			OrderID:          orderID,
-			ProviderChargeID: providerChargeID,
-			Amount:           order.Amount,
-		})
-		if err != nil {
-			return nil, err
+			providerRefundID, err = uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
+				OrderID:          orderID,
+				ProviderChargeID: providerChargeID,
+				Amount:           refundAmount,
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -180,6 +193,30 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		slog.String("provider_refund_id", providerRefundID), // empty for DISPUTE (no CreateRefund call)
 	)
 	return order, nil
+}
+
+// unresoldAmount returns the price of the Order's Tickets that are still
+// Issued: the Order's amount divided by its number of Tickets, times the
+// number still Issued. It is 0 when every Ticket was resold (or voided).
+func (uc *orderUseCase) unresoldAmount(ctx context.Context, order *entity.Order) (int64, error) {
+	tickets, err := uc.ticketRepo.ListByUser(ctx, order.UserID)
+	if err != nil {
+		return 0, err
+	}
+	var total, issued int64
+	for _, t := range tickets {
+		if t.OrderID != order.ID {
+			continue
+		}
+		total++
+		if t.Status == entity.TicketStatusIssued {
+			issued++
+		}
+	}
+	if issued == 0 {
+		return 0, nil
+	}
+	return order.Amount / total * issued, nil
 }
 
 // resolveProviderChargeID returns the charge ref. Prefers the value already stored on

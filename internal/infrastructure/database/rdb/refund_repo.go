@@ -41,8 +41,17 @@ const upsertSplitReversalRefTxQuery = `
 	WHERE settlement_id = $1 AND payee_organizer_id = $2
 `
 
+// voidTicketsByOrderTxQuery voids the order's Issued tickets; one already
+// Voided by a resale stays as it is.
 const voidTicketsByOrderTxQuery = `
-	UPDATE tickets SET status = $2 WHERE order_id = $1
+	UPDATE tickets SET status = $2 WHERE order_id = $1 AND status = 1
+`
+
+// cancelListingsByOrderTxQuery ends the Listed resale listings of the order's
+// tickets; a Sold listing stays as it is.
+const cancelListingsByOrderTxQuery = `
+	UPDATE resale_listings SET status = 4
+	WHERE status = 1 AND ticket_id IN (SELECT id FROM tickets WHERE order_id = $1)
 `
 
 // updateOrderRefundTxQuery flips the order to Refunded and records the opaque
@@ -57,7 +66,8 @@ const updateOrderRefundTxQuery = `
 // All four mutations run inside one pgx transaction:
 //  1. UPDATE settlements → Reversed (if SettlementID is set)
 //  2. UPDATE settlement_splits with provider_payout_reversal_id (per split)
-//  3. UPDATE tickets → Voided
+//  3. UPDATE resale_listings → Cancelled (Listed ones) and tickets → Voided
+//     (Issued ones)
 //  4. UPDATE orders → Refunded
 //
 // Idempotency: the settlement UPDATE is guarded by status IN (1, 2). If the
@@ -102,7 +112,13 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 		}
 	}
 
-	// 3. Void all tickets for the order. Idempotent: already-voided rows stay voided.
+	// 3. Cancel the order's Listed listings and void its Issued tickets.
+	// Idempotent: already-voided rows stay voided, and a resold ticket's Sold
+	// listing is untouched.
+	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID)); err != nil {
+		return toAppErr(err, "failed to cancel resale listings in refund tx",
+			slog.String("order_id", string(commit.OrderID)))
+	}
 	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
 		string(commit.OrderID), int16(entity.TicketStatusVoided),
 	); err != nil {

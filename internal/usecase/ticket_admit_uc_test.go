@@ -20,7 +20,7 @@ import (
 const admitProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Admit"
 
 // evening returns 2026-11-20 hh:mm:ss in Japan time; the test event opens at
-// 18:00 and starts at 19:00, so its admission window is 15:00 to 04:00 the
+// 18:00 and starts at 19:00, so its admission window is 16:00 to 04:00 the
 // next day.
 func evening(hh, mm, ss int) time.Time {
 	return time.Date(2026, 11, 20, hh, mm, ss, 0, jst)

@@ -27,7 +27,7 @@ var _ entity.CheckoutRepository = (*CheckoutRepository)(nil)
 const checkoutColumns = `
 	id, ticket_type_id, user_id, ticket_count, amount,
 	card_authorization_id, card_authorization_release_at, status, hold_expire_at,
-	commit_at, capture_at
+	commit_at, capture_at, resale
 `
 
 const (
@@ -58,9 +58,26 @@ const (
 	checkoutEndHeldQuery = `UPDATE checkouts SET status = $2 WHERE id = $1 AND status = 1`
 	checkoutInsertQuery  = `
 		INSERT INTO checkouts (
-			id, ticket_type_id, user_id, ticket_count, amount, status, hold_expire_at
-		) VALUES ($1, $2, $3, $4, $5, 1, $6)
+			id, ticket_type_id, user_id, ticket_count, amount, status, hold_expire_at, resale
+		) VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
 	`
+	// checkoutFreeListingsQuery locks, oldest first, up to $4 Listed listings
+	// of the ticket type ($1) that are free at $3 for the user ($2): not the
+	// user's own, and not held by a Checkout that is holding at $3 or
+	// Committed, except the user's own holding Checkout ($5), which is
+	// replaced. The caller holds the ticket type's row lock, which every hold
+	// and withdrawal of its listings takes first.
+	checkoutFreeListingsQuery = `
+		SELECT rl.id, rl.user_id FROM resale_listings rl
+		LEFT JOIN checkouts c ON c.id = rl.checkout_id
+		WHERE rl.ticket_type_id = $1 AND rl.status = 1 AND rl.user_id <> $2
+		  AND (c.id IS NULL OR c.id = $5
+		       OR NOT ((c.status = 1 AND c.hold_expire_at > $3) OR c.status = 2))
+		ORDER BY rl.created_at, rl.id
+		LIMIT $4
+		FOR UPDATE OF rl
+	`
+	checkoutHoldListingsQuery         = `UPDATE resale_listings SET checkout_id = $2 WHERE id = ANY($1::uuid[])`
 	checkoutSetCardAuthorizationQuery = `
 		UPDATE checkouts SET card_authorization_id = $2
 		WHERE id = $1 AND status = 1 AND (card_authorization_id IS NULL OR card_authorization_id = $2)
@@ -70,6 +87,18 @@ const (
 		WHERE id = $1 AND status = 1 AND hold_expire_at > $2
 	`
 	checkoutAddSoldQuery = `UPDATE ticket_types SET sold_count = sold_count + $2 WHERE id = $1`
+	// checkoutCommitSoldQuery adds a stock checkout's count ($2) to the sold
+	// count and, when that sells the ticket type out for the first time, sets
+	// its resale open time to the commit time ($3).
+	checkoutCommitSoldQuery = `
+		UPDATE ticket_types SET
+			sold_count = sold_count + $2,
+			resale_open_at = CASE
+				WHEN resale_open_at IS NULL AND sold_count + $2 = quantity THEN $3
+				ELSE resale_open_at
+			END
+		WHERE id = $1
+	`
 	// checkoutLockTicketTypeQuery takes the ticket type's row lock before a
 	// checkout's sold count change.
 	checkoutLockTicketTypeQuery = `SELECT 1 FROM ticket_types WHERE id = $1 FOR UPDATE`
@@ -107,10 +136,13 @@ func NewCheckoutRepository(db *Database) *CheckoutRepository {
 	return &CheckoutRepository{db: db}
 }
 
-// GetOrCreateHeld returns the user's holding checkout with the same count,
-// or creates a new Held one under the ticket type's row lock.
-func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time) (*entity.Checkout, error) {
-	attrs := []slog.Attr{slog.String("ticket_type_id", string(ticketTypeID)), slog.String("user_id", string(userID))}
+// GetOrCreateHeld returns the user's holding checkout of the same kind with
+// the same count, or creates a new Held one under the ticket type's row lock:
+// a stock checkout when resaleDeadline is nil, otherwise a resale checkout
+// that holds the oldest free listings.
+func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error) {
+	resale := resaleDeadline != nil
+	attrs := []slog.Attr{slog.String("ticket_type_id", string(ticketTypeID)), slog.String("user_id", string(userID)), slog.Bool("resale", resale)}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, toAppErr(err, "failed to begin checkout start", attrs...)
@@ -128,17 +160,33 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID e
 		return nil, toAppErr(err, "failed to read the user's held checkout", attrs...)
 	}
 	holding := existing != nil && existing.IsHoldingAt(now)
-	if holding && existing.TicketCount == count {
+	if holding && existing.Resale == resale && existing.TicketCount == count {
 		return existing, nil
 	}
 
-	// The user's own holding checkout counts as free: it is replaced.
-	free := ticketType.Remaining()
-	if holding {
-		free += existing.TicketCount
-	}
-	if free < count {
-		return nil, apperr.New(codes.ResourceExhausted, "not enough tickets remain", attrs...)
+	var listings []*entity.ResaleListing
+	if resale {
+		// The user's own holding checkout counts as free: it is replaced.
+		var replaced any
+		if holding {
+			replaced = string(existing.ID)
+		}
+		listings, err = r.freeListings(ctx, tx, ticketTypeID, userID, count, now, replaced)
+		if err != nil {
+			return nil, toAppErr(err, "failed to pick free listings", attrs...)
+		}
+		if len(listings) < count {
+			return nil, apperr.New(codes.ResourceExhausted, "not enough free resale listings", attrs...)
+		}
+	} else {
+		// The user's own holding stock checkout counts as free: it is replaced.
+		free := ticketType.Remaining()
+		if holding && !existing.Resale {
+			free += existing.TicketCount
+		}
+		if free < count {
+			return nil, apperr.New(codes.ResourceExhausted, "not enough tickets remain", attrs...)
+		}
 	}
 	var held int
 	if err := tx.QueryRow(ctx, checkoutUserTicketsQuery, string(ticketTypeID), string(userID)).Scan(&held); err != nil {
@@ -159,16 +207,48 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID e
 	}
 
 	c := entity.NewCheckout(ticketType, userID, count, now)
+	if resale {
+		c = entity.NewResaleCheckout(ticketType, userID, count, now, *resaleDeadline)
+	}
+	if err := c.ValidateResaleListings(listings); err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "picked listings break the resale checkout rule", attrs...)
+	}
 	if _, err := tx.Exec(ctx, checkoutInsertQuery,
 		string(c.ID), string(c.TicketTypeID), string(c.UserID), c.TicketCount, c.Amount,
-		c.HoldExpireTime,
+		c.HoldExpireTime, c.Resale,
 	); err != nil {
 		return nil, toAppErr(err, "failed to insert checkout", attrs...)
+	}
+	if resale {
+		ids := make([]string, len(listings))
+		for i, l := range listings {
+			ids[i] = string(l.ID)
+		}
+		if _, err := tx.Exec(ctx, checkoutHoldListingsQuery, ids, string(c.ID)); err != nil {
+			return nil, toAppErr(err, "failed to hold resale listings", attrs...)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit checkout start", attrs...)
 	}
 	return c, nil
+}
+
+// freeListings locks and returns, oldest first, up to count listings of the
+// ticket type that are free at now for the user, counting those held by the
+// user's own holding checkout (replaced, nil when none) as free.
+func (r *CheckoutRepository) freeListings(ctx context.Context, tx pgx.Tx, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, replaced any) ([]*entity.ResaleListing, error) {
+	rows, err := tx.Query(ctx, checkoutFreeListingsQuery, string(ticketTypeID), string(userID), now, count, replaced)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.ResaleListing, error) {
+		var id, owner string
+		if err := row.Scan(&id, &owner); err != nil {
+			return nil, err
+		}
+		return &entity.ResaleListing{ID: entity.ResaleListingID(id), TicketTypeID: ticketTypeID, UserID: entity.UserID(owner)}, nil
+	})
 }
 
 // Get returns the checkout with the given id.
@@ -207,8 +287,9 @@ func (r *CheckoutRepository) SetCardAuthorization(ctx context.Context, id entity
 		slog.String("checkout_id", string(id)))
 }
 
-// Commit makes a holding checkout Committed and adds its tickets to the
-// ticket type's sold count, under the ticket type's row lock.
+// Commit makes a holding checkout Committed and, for a stock checkout, adds
+// its tickets to the ticket type's sold count and opens resale when that
+// sells it out, under the ticket type's row lock.
 func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, now time.Time) (entity.CommitOutcome, error) {
 	attrs := slog.String("checkout_id", string(id))
 	current, err := r.Get(ctx, id)
@@ -249,8 +330,12 @@ func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, n
 		}
 		return entity.CommitOutcomeNotHeld, nil
 	}
-	if _, err := tx.Exec(ctx, checkoutAddSoldQuery, string(current.TicketTypeID), current.TicketCount); err != nil {
-		return 0, toAppErr(err, "failed to add sold tickets", attrs)
+	// A resale checkout's listings stay held by it; the sold count is the
+	// stock's only.
+	if !current.Resale {
+		if _, err := tx.Exec(ctx, checkoutCommitSoldQuery, string(current.TicketTypeID), current.TicketCount, now); err != nil {
+			return 0, toAppErr(err, "failed to add sold tickets", attrs)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, toAppErr(err, "failed to commit checkout commit", attrs)
@@ -274,8 +359,9 @@ func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, 
 	return false, nil
 }
 
-// RevertCommit makes a Committed, uncharged checkout Released and takes
-// its tickets off the ticket type's sold count, under the ticket type's row lock.
+// RevertCommit makes a Committed, uncharged checkout Released and, for a stock
+// checkout, takes its tickets off the ticket type's sold count, under the
+// ticket type's row lock.
 func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.CheckoutID) error {
 	attrs := slog.String("checkout_id", string(id))
 	current, err := r.Get(ctx, id)
@@ -315,8 +401,12 @@ func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.Checkou
 		}
 		return nil
 	}
-	if _, err := tx.Exec(ctx, checkoutAddSoldQuery, string(current.TicketTypeID), -current.TicketCount); err != nil {
-		return toAppErr(err, "failed to take sold tickets back", attrs)
+	// A resale checkout's listings are free again once it is Released; the
+	// resale open time stays as it is.
+	if !current.Resale {
+		if _, err := tx.Exec(ctx, checkoutAddSoldQuery, string(current.TicketTypeID), -current.TicketCount); err != nil {
+			return toAppErr(err, "failed to take sold tickets back", attrs)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit checkout revert", attrs)
@@ -418,7 +508,7 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	if err := row.Scan(
 		&id, &ticketTypeID, &userID, &c.TicketCount, &c.Amount,
 		&cardAuthorizationID, &authReleasedAt, &status, &c.HoldExpireTime,
-		&committedAt, &captureAt,
+		&committedAt, &captureAt, &c.Resale,
 	); err != nil {
 		return nil, err
 	}

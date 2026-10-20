@@ -2,6 +2,8 @@ package entity
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -99,6 +101,9 @@ type Checkout struct {
 	// CaptureTime is when the card authorization (CardAuthorizationID) was charged; nil
 	// until charged. Set once.
 	CaptureTime *time.Time
+	// Resale is true for a resale Checkout: it holds ResaleListings of its
+	// TicketType instead of the TicketType's stock. Fixed at creation.
+	Resale bool
 }
 
 // NewCheckout returns a Held Checkout for count tickets of ticketType, with a
@@ -114,6 +119,45 @@ func NewCheckout(ticketType *TicketType, userID UserID, count int, now time.Time
 		Status:         CheckoutStatusHeld,
 		HoldExpireTime: now.Add(CheckoutHoldDuration),
 	}
+}
+
+// NewResaleCheckout returns a Held resale Checkout for count tickets of
+// ticketType, like [NewCheckout], except that its hold expires at the resale
+// deadline when that is earlier than 15 minutes after now, so no resale hold
+// lasts into admission.
+func NewResaleCheckout(ticketType *TicketType, userID UserID, count int, now, deadline time.Time) *Checkout {
+	c := NewCheckout(ticketType, userID, count, now)
+	c.Resale = true
+	if deadline.Before(c.HoldExpireTime) {
+		c.HoldExpireTime = deadline
+	}
+	return c
+}
+
+// ValidateResaleListings reports whether the listings can be the ones a
+// resale Checkout holds: exactly as many as its ticket count, all of its
+// TicketType and none whose user is the Checkout's user. A Checkout that
+// holds stock holds no listing. The entity layer returns stdlib errors;
+// callers wrap them with an apperr code.
+func (r *Checkout) ValidateResaleListings(listings []*ResaleListing) error {
+	if !r.Resale {
+		if len(listings) > 0 {
+			return errors.New("a checkout that holds stock holds no listing")
+		}
+		return nil
+	}
+	if len(listings) != r.TicketCount {
+		return fmt.Errorf("a resale checkout for %d tickets must hold %d listings, not %d", r.TicketCount, r.TicketCount, len(listings))
+	}
+	for _, l := range listings {
+		if l.TicketTypeID != r.TicketTypeID {
+			return errors.New("a resale checkout holds only listings of its ticket type")
+		}
+		if l.UserID == r.UserID {
+			return errors.New("a resale checkout never holds its own user's listing")
+		}
+	}
+	return nil
 }
 
 // IsHoldingAt reports whether the Checkout is Held and t is before its hold
@@ -183,13 +227,24 @@ type CheckoutRepository interface {
 	// Checkout for the ticket type becomes Released and a lapsed Held one
 	// becomes Expired. On failure nothing changes.
 	//
+	// With a resaleDeadline it holds resale listings instead of stock: it
+	// returns the user's holding resale Checkout with the same count
+	// unchanged, and otherwise creates a resale Checkout (hold expiry at the
+	// deadline at the latest) only when at least count of the ticket type's
+	// listings are free at now, not counting the user's own listings and
+	// counting those of the user's own holding Checkout as free. The new
+	// Checkout holds the free listings with the oldest create times. Picking
+	// and holding them is one indivisible step with every other hold and
+	// withdrawal of them.
+	//
 	// # Possible errors
 	//
-	//  - ResourceExhausted: not enough tickets remain.
+	//  - ResourceExhausted: not enough tickets remain, or not enough listings
+	//    are free.
 	//  - FailedPrecondition: the per-account limit would be exceeded.
 	//  - NotFound: no TicketType has the id.
 	//  - Internal: database failure.
-	GetOrCreateHeld(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int, now time.Time) (*Checkout, error)
+	GetOrCreateHeld(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int, now time.Time, resaleDeadline *time.Time) (*Checkout, error)
 
 	// Get returns the Checkout with the given id, whatever its status.
 	//
@@ -219,8 +274,11 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	SetCardAuthorization(ctx context.Context, id CheckoutID, cardAuthorizationID string) error
 
-	// Commit makes a holding Checkout Committed at now and adds its count to
-	// the ticket type's sold count, in one indivisible step that succeeds only while
+	// Commit makes a holding Checkout Committed at now and, for a Checkout
+	// that holds stock, adds its count to the ticket type's sold count and sets
+	// the ticket type's resale open time to now when that first makes the sold
+	// count equal the quantity. A resale Checkout leaves the sold count alone.
+	// It is one indivisible step that succeeds only while
 	// the Checkout is Held and before its hold expiry. A Committed or
 	// Completed Checkout reports Committed without a change; any other
 	// reports NotHeld.
@@ -241,9 +299,11 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	Release(ctx context.Context, id CheckoutID, now time.Time) (bool, error)
 
-	// RevertCommit makes a Committed, uncharged Checkout Released and takes
-	// its count off the ticket type's sold count, in one indivisible step, keeping its
-	// committed time. A Checkout that is not Committed is left unchanged.
+	// RevertCommit makes a Committed, uncharged Checkout Released and, for a
+	// Checkout that holds stock, takes its count off the ticket type's sold
+	// count, in one indivisible step, keeping its committed time and the resale
+	// open time. A resale Checkout's listings become free again. A Checkout
+	// that is not Committed is left unchanged.
 	//
 	// # Possible errors
 	//

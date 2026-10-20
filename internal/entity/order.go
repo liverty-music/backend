@@ -203,7 +203,10 @@ type RefundRepository interface {
 	//
 	//  1. UPDATE settlements SET status = Reversed (if SettlementID is set).
 	//  2. UPDATE settlement_splits SET provider_payout_reversal_id (for each split).
-	//  3. UPDATE tickets SET status = Voided for all tickets of the Order.
+	//  3. UPDATE resale_listings SET status = Cancelled for the Listed
+	//     listings of the Order's Tickets, and tickets SET status = Voided for
+	//     its Issued Tickets; a Ticket Voided by a resale and its Sold listing
+	//     stay as they are.
 	//  4. UPDATE orders SET status = Refunded, provider_refund_id = ProviderRefundID.
 	//
 	// All mutations are committed in a single pgx transaction so a crash between
@@ -233,7 +236,11 @@ type IssuanceRepository interface {
 	// Issue atomically inserts the Order, its N account-bound tickets and the
 	// Held settlement (with its splits) that pays out the Order's event
 	// Organizer, and makes a source Checkout Completed, all in one
-	// transaction. One Order per source is enforced by
+	// transaction. For a resale Checkout it also, in the same transaction,
+	// makes each ResaleListing the Checkout holds Sold at the Order's pay
+	// time, Voids its Ticket, and takes the share of the resold Tickets off
+	// the Held Settlement of each Order they came from
+	// ([Settlement.GiveUpResoldShare]). One Order per source is enforced by
 	// unique indexes on orders.lottery_entry_id and orders.checkout_id; a
 	// duplicate surfaces as AlreadyExists so a replay re-reads the existing
 	// Order rather than double-issuing.
@@ -243,7 +250,8 @@ type IssuanceRepository interface {
 	//  - AlreadyExists: an Order already exists for the same source (the caller
 	//    re-reads it).
 	//  - FailedPrecondition: the source Checkout is not Committed with a
-	//    capture time; nothing is stored.
+	//    capture time, or a resale Checkout no longer holds a Listed listing
+	//    for every ticket; nothing is stored.
 	//  - InvalidArgument: the Order does not name exactly one source.
 	//  - Internal: database transaction or query failure.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
@@ -318,16 +326,18 @@ type OrderRepository interface {
 	//  - Internal: database execution failure.
 	MarkConfirmationSent(ctx context.Context, id OrderID, at time.Time) error
 
-	// CreateRefund issues a platform-balance Refund against the captured
-	// Charge. The refund amount is the full Order amount minus the processor
-	// fee (retained as the JP norm). Returns the payment provider's ID for the
-	// refund ("re_..."). Idempotency is keyed on the SettlementID so a replay never
-	// double-refunds.
+	// CreateRefund refunds params.Amount of the captured Charge to the fan for
+	// the purpose params names (the Order's own refund, or one ResaleListing
+	// of the Order) and returns the payment provider's ID for the refund
+	// ("re_..."). A repeated call for the same Order and purpose refunds only
+	// once and returns the same ID; refunds for different purposes are
+	// separate refunds, each of part of the charge.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: amount is zero or negative.
-	//  - FailedPrecondition: the charge has already been fully refunded.
+	//  - FailedPrecondition: the charge has already been fully refunded, or
+	//    the amount exceeds what is left of it.
 	//  - Unavailable: the payment provider is unreachable.
 	CreateRefund(ctx context.Context, params RefundParams) (providerRefundID string, err error)
 
