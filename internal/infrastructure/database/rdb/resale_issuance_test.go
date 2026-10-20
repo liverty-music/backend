@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -114,6 +115,59 @@ func TestIssuanceRepository_IssueFromResaleCheckout(t *testing.T) {
 
 		// floor(9200 × 2 ÷ 3) = 6133 taken off.
 		assert.Equal(t, int64(3067), sellerSettlement(t, s).Splits[0].Amount)
+	})
+
+	t.Run("both tickets of one order resold at the same time", func(t *testing.T) {
+		for range 5 {
+			s := seedSoldOutType(t, 2)
+			setSellerSplit(t, s, 9500)
+			s.list(t, 0, at)
+			s.list(t, 1, at.Add(time.Minute))
+			first := chargedResaleCheckout(t, s, 1, at.Add(time.Hour))
+			second := chargedResaleCheckout(t, s, 1, at.Add(time.Hour))
+			o1, t1, st1 := checkoutOrder(t, first, at.Add(time.Hour+3*time.Minute))
+			o2, t2, st2 := checkoutOrder(t, second, at.Add(time.Hour+3*time.Minute))
+
+			var wg sync.WaitGroup
+			var err1, err2 error
+			wg.Go(func() { err1 = issuance.Issue(ctx, o1, t1, st1) })
+			wg.Go(func() { err2 = issuance.Issue(ctx, o2, t2, st2) })
+			wg.Wait()
+
+			require.NoError(t, err1)
+			require.NoError(t, err2)
+			assert.Equal(t, entity.SettlementStatusReversed, sellerSettlement(t, s).Status,
+				"nothing is left to pay out once both tickets are resold")
+		}
+	})
+
+	t.Run("refund and resale issuance of one order at the same time", func(t *testing.T) {
+		refunds := rdb.NewRefundRepository(testDB)
+		for range 5 {
+			s := seedSoldOutType(t, 2)
+			s.list(t, 0, at)
+			c := chargedResaleCheckout(t, s, 1, at.Add(time.Hour))
+			order, tickets, settlement := checkoutOrder(t, c, at.Add(time.Hour+3*time.Minute))
+			sellerSettlementID := sellerSettlement(t, s).ID
+
+			var wg sync.WaitGroup
+			var issueErr, refundErr error
+			wg.Go(func() { issueErr = issuance.Issue(ctx, order, tickets, settlement) })
+			wg.Go(func() {
+				refundErr = refunds.CommitRefund(ctx, entity.RefundCommit{
+					OrderID: s.tickets[0].OrderID, ProviderRefundID: "re_x", SettlementID: sellerSettlementID,
+				})
+			})
+			wg.Wait()
+
+			// Whichever runs second sees the other's result; neither deadlocks.
+			for _, err := range []error{issueErr, refundErr} {
+				if err != nil {
+					assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+				}
+			}
+			assert.False(t, issueErr != nil && refundErr != nil, "one of them succeeds")
+		}
 	})
 
 	t.Run("failure stores nothing", func(t *testing.T) {

@@ -41,6 +41,15 @@ const upsertSplitReversalRefTxQuery = `
 	WHERE settlement_id = $1 AND payee_organizer_id = $2
 `
 
+// lockTicketsByOrderTxQuery locks the order's tickets in id order. Rows are
+// locked tickets first, then listings, then the settlement, as a resale
+// issuance does, so the two never deadlock; and a listing being created for
+// one of the tickets either commits before the cancellation below or sees the
+// ticket Voided.
+const lockTicketsByOrderTxQuery = `
+	SELECT id FROM tickets WHERE order_id = $1 ORDER BY id FOR UPDATE
+`
+
 // voidTicketsByOrderTxQuery voids the order's Issued tickets; one already
 // Voided by a resale stays as it is.
 const voidTicketsByOrderTxQuery = `
@@ -64,11 +73,14 @@ const updateOrderRefundTxQuery = `
 // CommitRefund implements [entity.RefundRepository].
 //
 // All four mutations run inside one pgx transaction:
-//  1. UPDATE settlements → Reversed (if SettlementID is set)
-//  2. UPDATE settlement_splits with provider_payout_reversal_id (per split)
-//  3. UPDATE resale_listings → Cancelled (Listed ones) and tickets → Voided
-//     (Issued ones)
+//  1. lock the order's tickets; UPDATE tickets → Voided (Issued ones) and
+//     resale_listings → Cancelled (Listed ones)
+//  2. UPDATE settlements → Reversed (if SettlementID is set)
+//  3. UPDATE settlement_splits with provider_payout_reversal_id (per split)
 //  4. UPDATE orders → Refunded
+//
+// Rows are locked tickets, listings, settlement, in the order a resale
+// issuance locks them, so the two never deadlock.
 //
 // Idempotency: the settlement UPDATE is guarded by status IN (1, 2). If the
 // settlement is already Reversed (status = 3), the UPDATE affects 0 rows and
@@ -83,7 +95,25 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 1. Flip settlement → Reversed (only if a settlement row exists).
+	// 1. Lock the order's tickets, void the Issued ones and cancel their
+	// Listed listings. Idempotent: already-voided rows stay voided, and a
+	// resold ticket's Sold listing is untouched.
+	if _, err := tx.Exec(ctx, lockTicketsByOrderTxQuery, string(commit.OrderID)); err != nil {
+		return toAppErr(err, "failed to lock tickets in refund tx",
+			slog.String("order_id", string(commit.OrderID)))
+	}
+	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
+		string(commit.OrderID), int16(entity.TicketStatusVoided),
+	); err != nil {
+		return toAppErr(err, "failed to void tickets in refund tx",
+			slog.String("order_id", string(commit.OrderID)))
+	}
+	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID)); err != nil {
+		return toAppErr(err, "failed to cancel resale listings in refund tx",
+			slog.String("order_id", string(commit.OrderID)))
+	}
+
+	// 2. Flip settlement → Reversed (only if a settlement row exists).
 	if commit.SettlementID != "" {
 		tag, err := tx.Exec(ctx, markReversedTxQuery, string(commit.SettlementID))
 		if err != nil {
@@ -97,7 +127,7 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 				"settlement is already reversed; refund was applied concurrently")
 		}
 
-		// 2. Persist provider_payout_reversal_id on each split that was reversed.
+		// 3. Persist provider_payout_reversal_id on each split that was reversed.
 		for _, split := range commit.ReversedSplits {
 			if split.ProviderPayoutReversalID == "" {
 				continue
@@ -110,20 +140,6 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 					slog.String("payee_organizer_id", split.PayeeOrganizerID))
 			}
 		}
-	}
-
-	// 3. Cancel the order's Listed listings and void its Issued tickets.
-	// Idempotent: already-voided rows stay voided, and a resold ticket's Sold
-	// listing is untouched.
-	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID)); err != nil {
-		return toAppErr(err, "failed to cancel resale listings in refund tx",
-			slog.String("order_id", string(commit.OrderID)))
-	}
-	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
-		string(commit.OrderID), int16(entity.TicketStatusVoided),
-	); err != nil {
-		return toAppErr(err, "failed to void tickets in refund tx",
-			slog.String("order_id", string(commit.OrderID)))
 	}
 
 	// 4. Flip the order → Refunded and record the provider Refund ref.
