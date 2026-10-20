@@ -447,17 +447,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Official resale: a fan lists a ticket of a sold-out first-come ticket
 	// type, another fan buys it through the checkout above, and the refund
-	// job pays the listing fan back within a minute and emails them.
+	// job pays the listing fan back within a minute and announces it; the
+	// event consumer sends the sold email.
 	resaleListingRepo := rdb.NewResaleListingRepository(db)
-	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
-	if cfg.Postmark.ServerToken != "" {
-		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
-			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
-	}
-	japanTime, err := time.LoadLocation("Asia/Tokyo")
-	if err != nil {
-		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
-	}
 	resaleListingUC := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings:   resaleListingRepo,
 		Tickets:    ticketRepo,
@@ -466,10 +458,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Sales:      ticketSaleRepo,
 		EventState: eventPublishState,
 		Events:     eventRepo,
-		Users:      userRepo,
-		Concerts:   concertRepo,
-		Mailer:     resaleSoldSender,
-		TimeZone:   japanTime,
+		Publisher:  eventPublisher,
 		Clock:      time.Now,
 		Logger:     logger,
 	})

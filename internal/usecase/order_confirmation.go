@@ -21,7 +21,8 @@ type ConcertsByIDsReader interface {
 }
 
 // OrderConfirmationDeps are what NotificationUseCase.SendOrderConfirmation
-// reads and sends with. All are required.
+// and SendResaleSold read and send with. All are required in the process that
+// sends them (the event consumer).
 type OrderConfirmationDeps struct {
 	Orders         entity.OrderRepository
 	Users          entity.UserRepository
@@ -29,6 +30,10 @@ type OrderConfirmationDeps struct {
 	EventOrganizer EventOrganizerRepository
 	Organizers     entity.OrganizerRepository
 	Mailer         entity.OrderConfirmationSender
+	// ResaleListings reads a refunded listing for its sold email.
+	ResaleListings ResaleListingReader
+	// ResaleMailer sends a listing's sold email at most once.
+	ResaleMailer entity.ResaleListingSoldEmailSender
 	// TimeZone renders the concert and payment times (Asia/Tokyo).
 	TimeZone *time.Location
 }

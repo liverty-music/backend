@@ -38,8 +38,7 @@ type resaleFixture struct {
 	sales     *entitymocks.MockTicketSaleRepository
 	state     *ucmocks.MockEventPublishStatePort
 	events    *entitymocks.MockEventRepository
-	users     *entitymocks.MockUserRepository
-	mailer    *entitymocks.MockResaleListingSoldEmailSender
+	publisher *ucmocks.MockEventPublisher
 	uc        usecase.ResaleListingUseCase
 }
 
@@ -53,20 +52,12 @@ func newResaleFixture(t *testing.T, now time.Time) *resaleFixture {
 		sales:     entitymocks.NewMockTicketSaleRepository(t),
 		state:     ucmocks.NewMockEventPublishStatePort(t),
 		events:    entitymocks.NewMockEventRepository(t),
-		users:     entitymocks.NewMockUserRepository(t),
-		mailer:    entitymocks.NewMockResaleListingSoldEmailSender(t),
-	}
-	start := resaleEventStart
-	concert := &entity.Concert{
-		ID: "event-1", LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		StartTime: &start, Venue: &entity.Venue{Name: "Zepp Shinjuku"},
-		Series: &entity.Series{Title: "Liverty Live 2026"},
+		publisher: ucmocks.NewMockEventPublisher(t),
 	}
 	f.uc = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings: f.listings, Tickets: f.tickets, Orders: f.orders, Checkouts: f.checkouts,
-		Sales: f.sales, EventState: f.state, Events: f.events, Users: f.users,
-		Concerts: stubConcerts{concert: concert}, Mailer: f.mailer,
-		TimeZone: tsJST, Clock: fixedClock(now), Logger: newTestLogger(t),
+		Sales: f.sales, EventState: f.state, Events: f.events, Publisher: f.publisher,
+		Clock: fixedClock(now), Logger: newTestLogger(t),
 	})
 	return f
 }
@@ -356,9 +347,15 @@ func soldListing(id entity.ResaleListingID, soldAt time.Time) *entity.ResaleList
 // expectOrderCharge makes order-1 and its charge ch_1 readable.
 func (f *resaleFixture) expectOrderCharge() {
 	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{
-		ID: "order-1", Payment: entity.Payment{ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"},
+		ID: "order-1", Payment: entity.Payment{ProviderPaymentID: "pi_1"},
 	}, nil).Maybe()
 	f.orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil).Maybe()
+}
+
+// expectAnnounced expects the refund of listing id to be announced once.
+func (f *resaleFixture) expectAnnounced(id entity.ResaleListingID) *ucmocks.MockEventPublisher_PublishEventWithID_Call {
+	return f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectResaleListingRefunded, string(id),
+		entity.ResaleListingRefundedData{ResaleListingID: string(id), UserID: "fan-1", OrderID: "order-1", EventID: "event-1"})
 }
 
 func TestResaleListingUseCase_RefundSold(t *testing.T) {
@@ -369,6 +366,7 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 	t.Run("ticket resold", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/refund-sold "Ticket resold"
+		// @spec components/usecase/resale-listing/refund-sold "Refund announced"
 		now := soldAt.Add(time.Minute)
 		f := newResaleFixture(t, now)
 		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil)
@@ -377,8 +375,7 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 			OrderID: "order-1", ResaleListingID: "l-1", ProviderChargeID: "ch_1", Amount: 4500,
 		}).Return("re_1", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).Return(nil)
+		f.expectAnnounced("l-1").Return(nil).Once()
 
 		require.NoError(t, f.uc.RefundSold(ctx))
 	})
@@ -397,8 +394,7 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 		f.orders.EXPECT().CreateRefund(mock.Anything, mock.MatchedBy(func(p entity.RefundParams) bool { return p.ResaleListingID == "l-2" })).
 			Return("re_2", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-2"), "re_2", now).Return(nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-2"), "fan@example.com", mock.Anything).Return(nil)
+		f.expectAnnounced("l-2").Return(nil).Once()
 
 		require.NoError(t, f.uc.RefundSold(ctx))
 	})
@@ -415,76 +411,40 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 			OrderID: "order-1", ResaleListingID: "l-1", ProviderChargeID: "ch_1", Amount: 4500,
 		}).Return("re_1", nil).Once()
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).Return(nil)
+		f.expectAnnounced("l-1").Return(nil)
 
 		require.NoError(t, f.uc.RefundSold(ctx))
 	})
 
-	t.Run("sold email", func(t *testing.T) {
+	t.Run("announcement fails", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/resale-listing/refund-sold "Sold email"
+		// @spec components/usecase/resale-listing/refund-sold "Announcement fails"
 		now := soldAt.Add(time.Minute)
 		f := newResaleFixture(t, now)
 		refunded := soldListing("l-1", soldAt)
 		refundAt := soldAt.Add(30 * time.Second)
 		refunded.RefundTime = &refundAt
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{refunded}, nil)
-		f.expectOrderCharge()
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		var sent entity.ResaleListingSoldEmail
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).
-			RunAndReturn(func(_ context.Context, _ entity.ResaleListingID, _ string, msg entity.ResaleListingSoldEmail) error {
-				sent = msg
-				return nil
-			}).Once()
+		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{refunded}, nil).Twice()
+		f.expectAnnounced("l-1").Return(errors.New("nats down")).Once()
+		f.expectAnnounced("l-1").Return(nil).Once()
 
+		// The next run announces it again and refunds nothing.
 		require.NoError(t, f.uc.RefundSold(ctx))
-
-		assert.Contains(t, sent.TextBody, "Liverty Live 2026")
-		assert.Contains(t, sent.TextBody, "2026/11/20")
-		assert.Contains(t, sent.TextBody, "Zepp Shinjuku")
-		assert.Contains(t, sent.TextBody, "価格: 5,000円（税込）")
-		assert.Contains(t, sent.TextBody, "リセール手数料: 500円（税込）")
-		assert.Contains(t, sent.TextBody, "返金額: 4,500円（税込）")
-		assert.Contains(t, sent.TextBody, "VISA 末尾4242")
-		assert.Contains(t, sent.TextBody, "入場に使えなくなりました")
-	})
-
-	t.Run("sold email in English", func(t *testing.T) {
-		t.Parallel()
-		now := soldAt.Add(time.Minute)
-		f := newResaleFixture(t, now)
-		refunded := soldListing("l-1", soldAt)
-		refundAt := soldAt.Add(30 * time.Second)
-		refunded.RefundTime = &refundAt
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{refunded}, nil)
-		f.expectOrderCharge()
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: "en"}, nil)
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com",
-			mock.MatchedBy(func(msg entity.ResaleListingSoldEmail) bool {
-				return msg.Subject == "[Liverty Music] Your ticket was resold"
-			})).Return(nil)
-
-		require.NoError(t, f.uc.RefundSold(ctx))
-	})
-
-	t.Run("mail unavailable", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/resale-listing/refund-sold "Mail unavailable"
-		now := soldAt.Add(time.Minute)
-		f := newResaleFixture(t, now)
-		refunded := soldListing("l-1", soldAt)
-		refundAt := soldAt.Add(30 * time.Second)
-		refunded.RefundTime = &refundAt
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{refunded}, nil)
-		f.expectOrderCharge()
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).
-			Return(apperr.New(codes.Unavailable, "postmark down"))
-
 		require.NoError(t, f.uc.RefundSold(ctx))
 		f.orders.AssertNotCalled(t, "CreateRefund", mock.Anything, mock.Anything)
+	})
+
+	t.Run("email already sent", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-listing/refund-sold "Email already sent"
+		f := newResaleFixture(t, soldAt.Add(time.Minute))
+		done := soldListing("l-1", soldAt)
+		refundAt, sentAt := soldAt.Add(30*time.Second), soldAt.Add(40*time.Second)
+		done.RefundTime, done.SoldEmailSendTime = &refundAt, &sentAt
+		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{done}, nil)
+
+		require.NoError(t, f.uc.RefundSold(ctx))
+		f.publisher.AssertNotCalled(t, "PublishEventWithID", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("charge cannot be refunded", func(t *testing.T) {

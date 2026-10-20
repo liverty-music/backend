@@ -152,6 +152,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	} else {
 		confirmationSender = mail.NewNoopConfirmationSender(logger)
 	}
+	// The sold email of a resold listing goes the same way.
+	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
+	if cfg.Postmark.ServerToken != "" {
+		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+	}
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
@@ -164,6 +171,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			EventOrganizer: rdb.NewEventOrganizerRepository(db),
 			Organizers:     rdb.NewOrganizerRepository(db),
 			Mailer:         confirmationSender,
+			ResaleListings: resaleListingRepo,
+			ResaleMailer:   resaleSoldSender,
 			TimeZone:       japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
@@ -282,6 +291,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
+	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -312,6 +322,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
+		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
 	}
 
 	// Router

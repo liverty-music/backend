@@ -3,9 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -60,7 +58,8 @@ type ResaleListingUseCase interface {
 	List(ctx context.Context, userID entity.UserID) ([]*ResaleListingAt, error)
 
 	// RefundSold refunds the user of every Sold listing its refund amount and
-	// then sends them the sold email. One listing's failure never stops the
+	// then announces the refund (ORDER.resale_listing_refunded), again on
+	// every run while the sold email is unsent. One listing's failure never stops the
 	// others; it is tried again on the next run. A listing left unrefunded
 	// for more than 10 minutes after its sale is reported as needing an admin
 	// on every run.
@@ -81,13 +80,11 @@ type ResaleListingDeps struct {
 	Sales      entity.TicketSaleRepository
 	EventState EventPublishStatePort
 	Events     entity.EventRepository
-	Users      entity.UserRepository
-	Concerts   ConcertsByIDsReader
-	Mailer     entity.ResaleListingSoldEmailSender
-	// TimeZone renders the concert date in the sold email (Asia/Tokyo).
-	TimeZone *time.Location
-	Clock    Clock
-	Logger   *logging.Logger
+	// Publisher announces each refund (ORDER.resale_listing_refunded); the
+	// event consumer sends the sold email from it.
+	Publisher EventPublisher
+	Clock     Clock
+	Logger    *logging.Logger
 }
 
 // resaleListingUseCase implements [ResaleListingUseCase].
@@ -230,8 +227,12 @@ func (uc *resaleListingUseCase) RefundSold(ctx context.Context) error {
 				continue
 			}
 		}
-		if err := uc.sendSoldEmail(ctx, l); err != nil {
-			uc.Logger.Warn(ctx, "resale refund: failed to send the sold email; skipping", append(attrs, slog.Any("error", err))...)
+		if l.SoldEmailSendTime != nil {
+			continue
+		}
+		if err := uc.announceRefund(ctx, l); err != nil {
+			// Announced again on the next run while the email is unsent.
+			uc.Logger.Warn(ctx, "resale refund: failed to announce the refund; skipping", append(attrs, slog.Any("error", err))...)
 		}
 	}
 	return nil
@@ -264,32 +265,15 @@ func (uc *resaleListingUseCase) refund(ctx context.Context, l *entity.ResaleList
 	return nil
 }
 
-// sendSoldEmail sends the listing's user the sold email, in their preferred
-// language, once the listing is refunded.
-func (uc *resaleListingUseCase) sendSoldEmail(ctx context.Context, l *entity.ResaleListing) error {
-	if l.RefundTime == nil || l.SoldEmailSendTime != nil {
-		return nil
-	}
-	user, err := uc.Users.Get(ctx, string(l.UserID))
-	if err != nil {
-		return err
-	}
-	order, err := uc.Orders.Get(ctx, l.OrderID)
-	if err != nil {
-		return err
-	}
-	concerts, err := uc.Concerts.ListByIDs(ctx, []string{l.EventID})
-	if err != nil {
-		return err
-	}
-	if len(concerts) == 0 {
-		return apperr.New(codes.NotFound, "the listing's concert was not found")
-	}
-	content := resaleSoldContent{
-		order: order, concert: concerts[0], tz: uc.TimeZone,
-		listing: l,
-	}
-	return uc.Mailer.SendSoldEmail(ctx, l.ID, user.Email, content.email(emailLanguage(user.PreferredLanguage)))
+// announceRefund announces that the listing's user was refunded, with the
+// listing id as the message id, so the event consumer sends the sold email.
+func (uc *resaleListingUseCase) announceRefund(ctx context.Context, l *entity.ResaleListing) error {
+	return uc.Publisher.PublishEventWithID(ctx, entity.SubjectResaleListingRefunded, string(l.ID), entity.ResaleListingRefundedData{
+		ResaleListingID: string(l.ID),
+		UserID:          string(l.UserID),
+		OrderID:         string(l.OrderID),
+		EventID:         l.EventID,
+	})
 }
 
 // deadline reads the event and returns its resale deadline. An event without
@@ -310,46 +294,4 @@ func (uc *resaleListingUseCase) deadline(ctx context.Context, eventID string) (t
 // listingAt returns the listing with its deadline and its status at now.
 func listingAt(l *entity.ResaleListing, deadline, now time.Time) *ResaleListingAt {
 	return &ResaleListingAt{Listing: l, Deadline: deadline, Status: l.StatusAt(now, deadline)}
-}
-
-// resaleSoldContent is everything the sold email shows.
-type resaleSoldContent struct {
-	orderConfirmationContent
-	listing *entity.ResaleListing
-}
-
-// email renders the sold email in lang ("ja" or "en").
-func (c resaleSoldContent) email(lang string) entity.ResaleListingSoldEmail {
-	date := c.concert.LocalDate
-	card := strings.ToUpper(c.order.Payment.CardBrand)
-	var b strings.Builder
-	if lang == "en" {
-		fmt.Fprintf(&b, "Your ticket was resold through official resale.\n\n")
-		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s  Doors %s / Start %s\nVenue: %s\n\n",
-			c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"),
-			c.clock(c.concert.OpenTime, "TBA"), c.clock(c.concert.StartTime, "TBA"), c.venueName())
-		fmt.Fprintf(&b, "[Resale]\nTickets resold: 1\nPrice: JPY %s (tax included)\nResale fee: JPY %s (tax included)\nRefund: JPY %s (tax included)\n\n",
-			yen(c.listing.Price), yen(c.listing.Fee()), yen(c.listing.RefundAmount()))
-		fmt.Fprintf(&b, "[Refund]\nThe refund goes to the card you paid with (%s ending in %s). When it appears on your statement depends on your card issuer.\n\n",
-			card, c.order.Payment.CardLast4)
-		fmt.Fprintf(&b, "[Please note]\nThe resold ticket is no longer valid for entry.\n")
-		return entity.ResaleListingSoldEmail{
-			Subject:  "[Liverty Music] Your ticket was resold",
-			TextBody: b.String(),
-		}
-	}
-
-	fmt.Fprintf(&b, "公式リセールに出品したチケットが売れました。\n\n")
-	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s) 開場 %s / 開演 %s\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()],
-		c.clock(c.concert.OpenTime, "未定"), c.clock(c.concert.StartTime, "未定"), c.venueName())
-	fmt.Fprintf(&b, "■ リセール内容\n枚数: 1枚\n価格: %s円（税込）\nリセール手数料: %s円（税込）\n返金額: %s円（税込）\n\n",
-		yen(c.listing.Price), yen(c.listing.Fee()), yen(c.listing.RefundAmount()))
-	fmt.Fprintf(&b, "■ 返金について\nご購入時のカード（%s 末尾%s）に返金します。明細に反映される時期はカード会社によって異なります。\n\n",
-		card, c.order.Payment.CardLast4)
-	fmt.Fprintf(&b, "■ ご注意\nリセールされたチケットは入場に使えなくなりました。\n")
-	return entity.ResaleListingSoldEmail{
-		Subject:  "【Liverty Music】公式リセールでチケットが売れました",
-		TextBody: b.String(),
-	}
 }
