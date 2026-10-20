@@ -121,6 +121,32 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 		assert.Nil(t, tt.HeldCount, "the held count is never shown to fans")
 	})
 
+	t.Run("resale without a count", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket-sale "Resale without a count"
+		views := onSale()
+		ttv := views[0].TicketTypes[0]
+		opened := start.Add(24 * time.Hour)
+		ttv.TicketType.SoldCount, ttv.TicketType.HeldCount = 150, 0
+		ttv.TicketType.ResaleOpenTime, ttv.TicketType.FreeResaleCount = &opened, 3
+		ttv.State, ttv.LowStock = entity.TicketTypeStateSoldOut, false
+		ttv.ResaleOpen, ttv.ResaleAvailable = true, true
+		uc := usecasemocks.NewMockTicketSaleUseCase(t)
+		uc.EXPECT().ListByEvent(mock.Anything, saleEventID).Return(views, nil)
+		ts := newTestFanTicketSaleServer(t, uc)
+
+		resp, err := listByEvent(ts, &ticketsalev1.ListByEventRequest{EventId: &entityv1.EventId{Value: saleEventID}})
+
+		require.NoError(t, err)
+		tt := resp.Msg.GetTicketSales()[0].GetTicketTypes()[0]
+		assert.Equal(t, entityv1.TicketTypeState_TICKET_TYPE_STATE_SOLD_OUT, tt.GetState())
+		assert.True(t, tt.GetResaleOpen())
+		assert.True(t, tt.GetResaleAvailable())
+		assert.Nil(t, tt.Quantity)
+		assert.Nil(t, tt.SoldCount)
+		assert.Nil(t, tt.HeldCount)
+	})
+
 	t.Run("missing event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-sale "Missing event"

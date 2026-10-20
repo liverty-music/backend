@@ -39,6 +39,8 @@ packages:
       ReferralRepository: {}
       RejectedConcertRepository: {}
       RejectedScanRepository: {}
+      ResaleListingRepository: {}
+      ResaleListingSoldEmailSender: {}
       ScannerRepository: {}
       SeriesImageProcessor: {}
       SeriesImageRepository: {}
@@ -85,6 +87,7 @@ packages:
       OrganizerMetrics: {}
       OrganizerUseCase: {}
       PushSubscriptionUseCase: {}
+      ResaleListingUseCase: {}
       ScannerUseCase: {}
       SeriesImageUseCase: {}
       SeriesUseCase: {}

@@ -154,6 +154,7 @@ type orderUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	checkoutRepo             entity.CheckoutRepository
 	ticketSaleRepo           entity.TicketSaleRepository
+	ticketRepo               entity.TicketRepository
 	eventState               EventPublishStatePort
 	cardAuthorizations       entity.CardAuthorizationRepository
 	publisher                EventPublisher
@@ -176,7 +177,9 @@ type OrderDeps struct {
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	CheckoutRepo             entity.CheckoutRepository
 	TicketSaleRepo           entity.TicketSaleRepository
-	EventState               EventPublishStatePort
+	// TicketRepo reads an Order's Tickets to refund only those still Issued.
+	TicketRepo entity.TicketRepository
+	EventState EventPublishStatePort
 	// CardAuthorizations is the checkout's card authorization repository; it
 	// also reads a lottery entry's captured payment.
 	CardAuthorizations entity.CardAuthorizationRepository
@@ -198,6 +201,7 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		checkoutRepo:             d.CheckoutRepo,
 		ticketSaleRepo:           d.TicketSaleRepo,
+		ticketRepo:               d.TicketRepo,
 		eventState:               d.EventState,
 		cardAuthorizations:       d.CardAuthorizations,
 		publisher:                d.Publisher,

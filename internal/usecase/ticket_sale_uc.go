@@ -23,6 +23,12 @@ type TicketTypeView struct {
 	// LowStock reports whether the TicketType is OnSale with at most a tenth
 	// of its quantity left. FirstCome only.
 	LowStock bool
+	// ResaleOpen reports whether the TicketType's official resale is open.
+	// FirstCome only; set by [TicketSaleUseCase.ListByEvent].
+	ResaleOpen bool
+	// ResaleAvailable reports whether resale is open and a listing is free.
+	// FirstCome only; set by [TicketSaleUseCase.ListByEvent].
+	ResaleAvailable bool
 	// Stats are the entry stats of the TicketType. Set only for a Lottery
 	// sale read by its Organizer ([TicketSaleUseCase.ListOwnByEvent]).
 	Stats *entity.LotteryEntryStats
@@ -120,8 +126,10 @@ type TicketSaleUseCase interface {
 
 	// ListByEvent returns, for anyone, the sales of a published event in start
 	// order, each with only its TicketType for the event; a FirstCome
-	// TicketType with its state and LowStock now. It returns an empty slice
-	// when the event has no sale, is not published, or does not exist.
+	// TicketType with its state, LowStock, whether its resale is open and
+	// whether resale is available now, against the event's resale deadline.
+	// It returns an empty slice when the event has no sale, is not published,
+	// or does not exist.
 	ListByEvent(ctx context.Context, eventID string) ([]*TicketSaleView, error)
 
 	// SetWindow moves the window of one of the Organizer's sales and returns
@@ -428,6 +436,10 @@ func (uc *ticketSaleUseCase) ListByEvent(ctx context.Context, eventID string) ([
 	if err != nil {
 		return nil, err
 	}
+	deadline, err := uc.resaleDeadline(ctx, eventID, sales)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]*TicketSaleView, 0, len(sales))
 	for _, sale := range sales {
 		var forEvent []*entity.TicketType
@@ -436,9 +448,43 @@ func (uc *ticketSaleUseCase) ListByEvent(ctx context.Context, eventID string) ([
 				forEvent = append(forEvent, tt)
 			}
 		}
-		views = append(views, saleViewAt(sale, forEvent, now))
+		view := saleViewAt(sale, forEvent, now)
+		if deadline != nil && sale.Method == entity.TicketSaleMethodFirstCome {
+			for _, ttv := range view.TicketTypes {
+				ttv.ResaleOpen = ttv.TicketType.IsResaleOpenAt(now, *deadline)
+				ttv.ResaleAvailable = ttv.TicketType.IsResaleAvailableAt(now, *deadline)
+			}
+		}
+		views = append(views, view)
 	}
 	return views, nil
+}
+
+// resaleDeadline returns the event's resale deadline, 3 hours before its
+// start time, when one of the event's sales has a TicketType whose resale
+// opened; nil otherwise, or when the event has no start time (then it has no
+// resale).
+func (uc *ticketSaleUseCase) resaleDeadline(ctx context.Context, eventID string, sales []*entity.TicketSale) (*time.Time, error) {
+	opened := false
+	for _, sale := range sales {
+		for _, tt := range sale.TicketTypes {
+			if tt.EventID == eventID && tt.ResaleOpenTime != nil {
+				opened = true
+			}
+		}
+	}
+	if !opened {
+		return nil, nil
+	}
+	start, err := uc.eventStart.GetEventStartTime(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{StartTime: start})
+	if !ok {
+		return nil, nil
+	}
+	return &deadline, nil
 }
 
 // ownSale reads the sale and fails with PermissionDenied unless its Series is

@@ -10,6 +10,7 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,7 @@ type checkoutFixture struct {
 	users                 *entitymocks.MockUserRepository
 	identityVerifications *entitymocks.MockIdentityVerificationRepository
 	events                *ucmocks.MockEventPublishStatePort
+	eventRepo             *entitymocks.MockEventRepository
 	auth                  *entitymocks.MockCardAuthorizationRepository
 	uc                    usecase.CheckoutUseCase
 }
@@ -36,6 +38,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		users:                 entitymocks.NewMockUserRepository(t),
 		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
 		events:                ucmocks.NewMockEventPublishStatePort(t),
+		eventRepo:             entitymocks.NewMockEventRepository(t),
 		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
@@ -45,6 +48,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		UserRepo:                 f.users,
 		IdentityVerificationRepo: f.identityVerifications,
 		EventState:               f.events,
+		EventRepo:                f.eventRepo,
 		CardAuthorizations:       f.auth,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
@@ -101,7 +105,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		checkout := fanCheckout(now)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now).Return(checkout, nil)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now, (*time.Time)(nil)).Return(checkout, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
 
@@ -117,7 +121,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		original := fanCheckout(now)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, mock.Anything).Return(original, nil)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, mock.Anything, (*time.Time)(nil)).Return(original, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
 
@@ -158,7 +162,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		sale, _ := firstComeTicketType(150, 147, 3)
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, (*time.Time)(nil)).
 			Return(nil, apperr.New(apperr.ErrResourceExhausted.Code, "not enough tickets remain"))
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
@@ -212,7 +216,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		sale, _ := firstComeTicketType(150, 0, 0)
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 1, now).
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 1, now, (*time.Time)(nil)).
 			Return(nil, apperr.New(apperr.ErrFailedPrecondition.Code, "the per-account limit would be exceeded"))
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
@@ -261,7 +265,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").
 			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		checkout := fanCheckout(now)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now).Return(checkout, nil)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now, (*time.Time)(nil)).Return(checkout, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
 
@@ -580,7 +584,7 @@ func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
 		sale, _ := firstComeTicketType(150, 0, 0)
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now).Return(checkout, nil)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now, (*time.Time)(nil)).Return(checkout, nil)
 	}
 
 	t.Run("checkout from a referral link", func(t *testing.T) {
@@ -662,5 +666,110 @@ func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, code("member-a"))
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+}
+
+func TestCheckoutUseCase_Start_Resale(t *testing.T) {
+	t.Parallel()
+	// event-1 starts on 2026-11-20 at 19:00, so its resale deadline is 16:00.
+	eventStart := time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
+	deadline := time.Date(2026, 11, 20, 16, 0, 0, 0, tsJST)
+	soldOutAt := time.Date(2026, 11, 3, 20, 15, 0, 0, tsJST)
+	soldOut := func(f *checkoutFixture, opened bool) {
+		sale, tt := firstComeTicketType(150, 150, 0)
+		if opened {
+			tt.ResaleOpenTime = &soldOutAt
+		}
+		expectTicketType(f.sales, sale)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+	}
+	expectEvent := func(f *checkoutFixture) {
+		start := eventStart
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start}, nil)
+	}
+	resaleCheckout := func(now time.Time) *entity.Checkout {
+		c := fanCheckout(now)
+		c.TicketCount, c.Amount, c.Resale = 1, 3000, true
+		return c
+	}
+
+	t.Run("sold out with a free listing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "Sold out with a free listing"
+		now := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
+		f := newCheckoutFixture(t, now)
+		soldOut(f, true)
+		expectEvent(f)
+		checkout := resaleCheckout(now)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 1, now,
+			mock.MatchedBy(func(d *time.Time) bool { return d != nil && d.Equal(deadline) })).Return(checkout, nil)
+
+		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
+
+		require.NoError(t, err)
+		assert.True(t, got.Resale)
+	})
+
+	t.Run("sale ended, resale still open", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "Sale ended, resale still open"
+		now := time.Date(2026, 11, 20, 12, 0, 0, 0, tsJST)
+		f := newCheckoutFixture(t, now)
+		sale, tt := firstComeTicketType(150, 150, 0)
+		sale.SaleEndTime = time.Date(2026, 11, 19, 23, 59, 0, 0, tsJST)
+		tt.ResaleOpenTime = &soldOutAt
+		expectTicketType(f.sales, sale)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		expectEvent(f)
+		checkout := resaleCheckout(now)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 1, now, mock.Anything).Return(checkout, nil)
+
+		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.TicketTypeStateEnded, tt.StateAt(sale, now))
+		assert.True(t, got.Resale)
+	})
+
+	t.Run("sold out, no free listing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "Sold out, no free listing"
+		now := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
+		f := newCheckoutFixture(t, now)
+		soldOut(f, true)
+		expectEvent(f)
+		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 1, now, mock.Anything).
+			Return(nil, apperr.New(codes.ResourceExhausted, "no free listing"))
+
+		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
+
+		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
+	})
+
+	t.Run("ended without selling out", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "Ended without selling out"
+		now := time.Date(2026, 11, 20, 12, 0, 0, 0, tsJST)
+		f := newCheckoutFixture(t, now)
+		sale, _ := firstComeTicketType(150, 149, 0)
+		sale.SaleEndTime = time.Date(2026, 11, 19, 23, 59, 0, 0, tsJST)
+		expectTicketType(f.sales, sale)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+
+		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("after the resale deadline", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "After the resale deadline"
+		f := newCheckoutFixture(t, deadline)
+		soldOut(f, true)
+		expectEvent(f)
+
+		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 1, nil)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 }

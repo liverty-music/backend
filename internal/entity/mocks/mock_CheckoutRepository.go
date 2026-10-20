@@ -257,8 +257,8 @@ func (_c *MockCheckoutRepository_GetByCardAuthorizationID_Call) RunAndReturn(run
 }
 
 // GetOrCreateHeld provides a mock function for the type MockCheckoutRepository
-func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time) (*entity.Checkout, error) {
-	ret := _mock.Called(ctx, ticketTypeID, userID, count, now)
+func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error) {
+	ret := _mock.Called(ctx, ticketTypeID, userID, count, now, resaleDeadline)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOrCreateHeld")
@@ -266,18 +266,18 @@ func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, ticket
 
 	var r0 *entity.Checkout
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time) (*entity.Checkout, error)); ok {
-		return returnFunc(ctx, ticketTypeID, userID, count, now)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) (*entity.Checkout, error)); ok {
+		return returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time) *entity.Checkout); ok {
-		r0 = returnFunc(ctx, ticketTypeID, userID, count, now)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) *entity.Checkout); ok {
+		r0 = returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Checkout)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time) error); ok {
-		r1 = returnFunc(ctx, ticketTypeID, userID, count, now)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) error); ok {
+		r1 = returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -295,11 +295,12 @@ type MockCheckoutRepository_GetOrCreateHeld_Call struct {
 //   - userID entity.UserID
 //   - count int
 //   - now time.Time
-func (_e *MockCheckoutRepository_Expecter) GetOrCreateHeld(ctx any, ticketTypeID any, userID any, count any, now any) *MockCheckoutRepository_GetOrCreateHeld_Call {
-	return &MockCheckoutRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, ticketTypeID, userID, count, now)}
+//   - resaleDeadline *time.Time
+func (_e *MockCheckoutRepository_Expecter) GetOrCreateHeld(ctx any, ticketTypeID any, userID any, count any, now any, resaleDeadline any) *MockCheckoutRepository_GetOrCreateHeld_Call {
+	return &MockCheckoutRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, ticketTypeID, userID, count, now, resaleDeadline)}
 }
 
-func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time)) *MockCheckoutRepository_GetOrCreateHeld_Call {
+func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time)) *MockCheckoutRepository_GetOrCreateHeld_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -321,12 +322,17 @@ func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.
 		if args[4] != nil {
 			arg4 = args[4].(time.Time)
 		}
+		var arg5 *time.Time
+		if args[5] != nil {
+			arg5 = args[5].(*time.Time)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
 			arg4,
+			arg5,
 		)
 	})
 	return _c
@@ -337,7 +343,7 @@ func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Return(checkout *entity.C
 	return _c
 }
 
-func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time) (*entity.Checkout, error)) *MockCheckoutRepository_GetOrCreateHeld_Call {
+func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error)) *MockCheckoutRepository_GetOrCreateHeld_Call {
 	_c.Call.Return(run)
 	return _c
 }

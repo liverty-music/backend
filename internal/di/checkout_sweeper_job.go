@@ -12,12 +12,14 @@ import (
 // checkoutSweepInterval is how often the checkout sweepers run.
 const checkoutSweepInterval = 1 * time.Minute
 
-// startCheckoutSweepers launches the two 1-minute checkout jobs:
+// startCheckoutSweepers launches the three 1-minute checkout jobs:
 // ReleaseExpired ends lapsed holds and gives back the card authorizations of ended
-// checkouts, and IssueDueCheckouts finishes checkouts committed more than a
-// minute ago. Both are idempotent across pods (conditional updates, the
-// per-Checkout lock), so an interrupted run is retried on the next tick.
-func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCase, orderUC usecase.OrderUseCase, logger *logging.Logger) {
+// checkouts, IssueDueCheckouts finishes checkouts committed more than a
+// minute ago, and RefundSold refunds and emails the fans whose resale
+// listings sold. All are idempotent across pods (conditional updates, the
+// per-Checkout lock, per-purpose refund keys), so an interrupted run is
+// retried on the next tick.
+func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCase, orderUC usecase.OrderUseCase, resaleListingUC usecase.ResaleListingUseCase, logger *logging.Logger) {
 	go func() {
 		ticker := time.NewTicker(checkoutSweepInterval)
 		defer ticker.Stop()
@@ -34,6 +36,9 @@ func startCheckoutSweepers(ctx context.Context, checkoutUC usecase.CheckoutUseCa
 				}
 				if err := orderUC.IssueDueCheckouts(ctx); err != nil {
 					logger.Warn(ctx, "stalled-checkout sweep failed", slog.Any("error", err))
+				}
+				if err := resaleListingUC.RefundSold(ctx); err != nil {
+					logger.Warn(ctx, "resale refund sweep failed", slog.Any("error", err))
 				}
 			}
 		}

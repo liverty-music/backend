@@ -101,6 +101,12 @@ const (
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
 	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
 	SubjectOrderPaid = "ORDER.paid"
+	// SubjectResaleListingRefunded announces that the user of a resold
+	// ResaleListing was refunded from the listing's Order's charge.
+	// ResaleListingUseCase.RefundSold publishes it with the listing id as the
+	// message id, and again on later runs while the sold email is unsent. The
+	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
+	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -131,6 +137,7 @@ var AllSubjects = []string{
 	SubjectSeriesImageUploaded,
 	SubjectNotificationRequested,
 	SubjectOrderPaid,
+	SubjectResaleListingRefunded,
 }
 
 // OrderPaidData is the payload for ORDER.paid events. It carries ids and
@@ -155,6 +162,22 @@ type OrderPaidData struct {
 	LotteryEntryID string `json:"lottery_entry_id,omitempty"`
 	// CheckoutID is the completed checkout, when that is the source.
 	CheckoutID string `json:"checkout_id,omitempty"`
+}
+
+// ResaleListingRefundedData is the payload for ORDER.resale_listing_refunded
+// events. It carries ids only, never personal data; consumers read the rest
+// by id.
+type ResaleListingRefundedData struct {
+	// ResaleListingID is the refunded listing; also the event's message id,
+	// so a republished announcement is deduplicated and consumers are
+	// idempotent by it.
+	ResaleListingID string `json:"resale_listing_id"`
+	// UserID is the platform-internal id of the listing's user.
+	UserID string `json:"user_id"`
+	// OrderID is the Order whose charge the user was refunded from.
+	OrderID string `json:"order_id"`
+	// EventID is the event the listed Ticket admitted to.
+	EventID string `json:"event_id"`
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.

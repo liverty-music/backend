@@ -7,7 +7,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// CheckoutToProto maps a domain Checkout to Protobuf.
+// CheckoutToProto maps a domain Checkout to Protobuf. A resale Checkout says
+// so; the listings it holds and their users are never mapped.
 func CheckoutToProto(c *entity.Checkout) *entityv1.Checkout {
 	if c == nil {
 		return nil
@@ -19,6 +20,7 @@ func CheckoutToProto(c *entity.Checkout) *entityv1.Checkout {
 		Amount:         c.Amount,
 		Status:         checkoutStatusToProto(c.Status),
 		HoldExpireTime: timestamppb.New(c.HoldExpireTime),
+		Resale:         c.Resale,
 	}
 	if c.CommitTime != nil {
 		pb.CommitTime = timestamppb.New(*c.CommitTime)

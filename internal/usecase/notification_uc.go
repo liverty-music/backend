@@ -72,6 +72,16 @@ type NotificationUseCase interface {
 	//   - Any read or send failure, unchanged; the announcement is redelivered.
 	SendOrderConfirmation(ctx context.Context, paid entity.OrderPaidData) error
 
+	// SendResaleSold tells the user of a resold listing that their ticket
+	// sold and how much is refunded: the sold email, at most once per listing,
+	// in the user's language. It runs for each ORDER.resale_listing_refunded
+	// announcement.
+	//
+	// # Possible errors
+	//
+	//   - Any read or send failure, unchanged; the announcement is redelivered.
+	SendResaleSold(ctx context.Context, refunded entity.ResaleListingRefundedData) error
+
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist for the specified newly created concerts. The delivery pipeline
 	// hydrates the artist and concert entities internally, applies hype-level

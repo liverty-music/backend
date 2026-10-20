@@ -186,7 +186,7 @@ func TestAdmissionWindowOf(t *testing.T) {
 		// @spec components/entity/scanner "Usual evening show"
 		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, OpenTime: ptr(at(18, 0, 0)), StartTime: ptr(at(19, 0, 0))})
 		require.True(t, ok)
-		assert.True(t, w.OpenTime.Equal(at(15, 0, 0)))
+		assert.True(t, w.OpenTime.Equal(at(16, 0, 0)))
 		assert.True(t, w.CloseTime.Equal(time.Date(2026, 11, 21, 4, 0, 0, 0, jst)))
 	})
 
@@ -212,15 +212,15 @@ func TestAdmissionWindowOf(t *testing.T) {
 		assert.True(t, w.CloseTime.Equal(time.Date(2026, 11, 20, 19, 0, 0, 0, time.UTC)))
 	})
 
-	window := entity.AdmissionWindow{OpenTime: at(15, 0, 0), CloseTime: time.Date(2026, 11, 21, 4, 0, 0, 0, jst)}
+	window := entity.AdmissionWindow{OpenTime: at(16, 0, 0), CloseTime: time.Date(2026, 11, 21, 4, 0, 0, 0, jst)}
 	contains := []struct {
 		name string
 		at   time.Time
 		want bool
 	}{
 		// @spec components/entity/scanner "Before the window"
-		{name: "14:59 before the opening", at: at(14, 59, 0), want: false},
-		{name: "at the opening", at: at(15, 0, 0), want: true},
+		{name: "15:59 before the opening", at: at(15, 59, 0), want: false},
+		{name: "at the opening", at: at(16, 0, 0), want: true},
 		{name: "during the show", at: at(20, 0, 0), want: true},
 		// @spec components/entity/scanner "Window closed"
 		{name: "at the closing", at: time.Date(2026, 11, 21, 4, 0, 0, 0, jst), want: false},

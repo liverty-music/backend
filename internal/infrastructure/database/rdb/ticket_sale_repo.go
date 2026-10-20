@@ -113,12 +113,21 @@ const (
 		WHERE tt.id = $1
 	`
 	// ticketTypesOfSalesQuery returns the ticket types of the sales in $1,
-	// each with the tickets of its Checkouts that are Held and holding at $2.
+	// each with the tickets of its stock Checkouts that are Held and holding
+	// at $2, its resale open time, and its Listed listings that are free at $2:
+	// held by no Checkout, or by one that is neither holding at $2 nor
+	// Committed. The resale deadline is checked by the caller.
 	ticketTypesOfSalesQuery = `
 		SELECT tt.id, tt.ticket_sale_id, tt.event_id, tt.price, tt.quantity,
 		       tt.per_account_limit, tt.sold_count,
 		       (SELECT COALESCE(SUM(c.ticket_count), 0)::int FROM checkouts c
-		        WHERE c.ticket_type_id = tt.id AND c.status = 1 AND c.hold_expire_at > $2)
+		        WHERE c.ticket_type_id = tt.id AND c.status = 1 AND c.hold_expire_at > $2
+		          AND NOT c.resale),
+		       tt.resale_open_at,
+		       (SELECT count(*)::int FROM resale_listings rl
+		        LEFT JOIN checkouts c ON c.id = rl.checkout_id
+		        WHERE rl.ticket_type_id = tt.id AND rl.status = 1
+		          AND (c.id IS NULL OR NOT ((c.status = 1 AND c.hold_expire_at > $2) OR c.status = 2)))
 		FROM ticket_types tt
 		WHERE tt.ticket_sale_id = ANY($1::uuid[])
 		ORDER BY tt.id
@@ -543,18 +552,21 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 // scanTicketType maps one row selected by ticketTypesOfSalesQuery.
 func scanTicketType(row pgx.Row) (*entity.TicketType, error) {
 	var (
-		tt     entity.TicketType
-		id     string
-		saleID string
+		tt           entity.TicketType
+		id           string
+		saleID       string
+		resaleOpenAt sql.NullTime
 	)
 	if err := row.Scan(
 		&id, &saleID, &tt.EventID, &tt.Price, &tt.Quantity,
 		&tt.PerAccountLimit, &tt.SoldCount, &tt.HeldCount,
+		&resaleOpenAt, &tt.FreeResaleCount,
 	); err != nil {
 		return nil, err
 	}
 	tt.ID = entity.TicketTypeID(id)
 	tt.TicketSaleID = entity.TicketSaleID(saleID)
+	tt.ResaleOpenTime = optionalTime(resaleOpenAt)
 	return &tt, nil
 }
 

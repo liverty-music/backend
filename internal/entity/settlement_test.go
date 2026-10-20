@@ -6,6 +6,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPlatformFee verifies the fee at the Organizer's rate in basis points
@@ -87,4 +88,53 @@ func TestNewHeldSettlement(t *testing.T) {
 	assert.Equal(t, int64(9500), s.Splits[0].Amount, "the split stays at the 5% fee")
 	assert.Equal(t, entity.SettlementStatusHeld, s.Status)
 	assert.Equal(t, order.ID, s.OrderID)
+}
+
+func TestSettlement_GiveUpResoldShare(t *testing.T) {
+	t.Parallel()
+
+	held := func(split int64) *entity.Settlement {
+		return &entity.Settlement{
+			Status: entity.SettlementStatusHeld,
+			Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: split}},
+		}
+	}
+
+	t.Run("one of two tickets resold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/settlement "One of two tickets resold"
+		s := held(9500)
+		require.NoError(t, s.GiveUpResoldShare(1, 2))
+		assert.Equal(t, int64(4750), s.Splits[0].Amount)
+		assert.Equal(t, entity.SettlementStatusHeld, s.Status)
+	})
+
+	t.Run("one of three tickets resold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/settlement "One of three tickets resold"
+		s := held(9200)
+		require.NoError(t, s.GiveUpResoldShare(1, 3))
+		assert.Equal(t, int64(6134), s.Splits[0].Amount)
+	})
+
+	t.Run("last ticket resold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/settlement "Last ticket resold"
+		s := held(4750)
+		require.NoError(t, s.GiveUpResoldShare(1, 1))
+		assert.Equal(t, entity.SettlementStatusReversed, s.Status)
+		assert.Equal(t, int64(4750), s.Splits[0].Amount, "a Reversed settlement keeps its split")
+	})
+
+	t.Run("not held", func(t *testing.T) {
+		t.Parallel()
+		s := held(9500)
+		s.Status = entity.SettlementStatusReleased
+		assert.Error(t, s.GiveUpResoldShare(1, 2))
+	})
+
+	t.Run("more resold than issued", func(t *testing.T) {
+		t.Parallel()
+		assert.Error(t, held(9500).GiveUpResoldShare(3, 2))
+	})
 }

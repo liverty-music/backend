@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,9 +60,36 @@ func (s *stubRefundSettlementPayouts) ReversePayout(ctx context.Context, params 
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+// stubOrderTickets implements the TicketRepository read of the refund use
+// case: the user "user-<order id>" of a paidOrder holds issued Issued and
+// voided Voided tickets of that order (2 Issued by default).
+type stubOrderTickets struct {
+	entity.TicketRepository
+	issued, voided int
+}
+
+func (s stubOrderTickets) ListByUser(_ context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+	orderID := entity.OrderID(strings.TrimPrefix(string(userID), "user-"))
+	issued := s.issued
+	if issued == 0 && s.voided == 0 {
+		issued = 2
+	}
+	var out []*entity.Ticket
+	for range issued {
+		out = append(out, &entity.Ticket{OrderID: orderID, UserID: userID, Status: entity.TicketStatusIssued})
+	}
+	for range s.voided {
+		out = append(out, &entity.Ticket{OrderID: orderID, UserID: userID, Status: entity.TicketStatusVoided})
+	}
+	// Another order of the same user is never counted.
+	out = append(out, &entity.Ticket{OrderID: "other-order", UserID: userID, Status: entity.TicketStatusIssued})
+	return out, nil
+}
+
 func paidOrder(id entity.OrderID, amount int64, providerPaymentID string, paidAt time.Time) *entity.Order {
 	return &entity.Order{
 		ID:       id,
+		UserID:   entity.UserID("user-" + string(id)),
 		Status:   entity.OrderStatusPaid,
 		Amount:   amount,
 		Currency: "JPY",
@@ -79,8 +107,14 @@ func newRefundUCWithLogger(
 	settlementRepo entity.SettlementRepository,
 	port paymentProviderStub,
 	t *testing.T,
+	tickets ...stubOrderTickets,
 ) usecase.OrderUseCase {
+	ticketRepo := stubOrderTickets{}
+	if len(tickets) > 0 {
+		ticketRepo = tickets[0]
+	}
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
+		TicketRepo:     ticketRepo,
 		OrderRepo:      withOrderPayments(orderRepo, port),
 		RefundRepo:     refundRepo,
 		SettlementRepo: withSettlementPayouts(settlementRepo, port),
@@ -657,4 +691,89 @@ func TestOrderUseCase_Refund_ConcurrentRefund_IdempotentViaCommitFailedPrecondit
 	require.NoError(t, err)
 	// Returns the current (post-concurrent-refund) state.
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CANCELLATION after official resale — only the tickets still Issued
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestOrderUseCase_Refund_AfterResale(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+
+	t.Run("cancellation after a resale", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Cancellation after a resale"
+		const orderID = entity.OrderID("order-half-resold")
+		order := paidOrder(orderID, 10000, "pi_half", now.Add(-30*24*time.Hour))
+		settleRepo := &stubSettlementRepo{
+			getByOrderIDFn: func(context.Context, entity.OrderID) (*entity.Settlement, error) {
+				return &entity.Settlement{ID: "settle-half", OrderID: orderID, Status: entity.SettlementStatusHeld,
+					Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 4750}}}, nil
+			},
+		}
+		var refunded int64
+		port := &stubRefundSettlementPayouts{
+			resolveProviderChargeIDFn: func(context.Context, string) (string, error) { return "ch_half", nil },
+			createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
+				assert.Empty(t, params.ResaleListingID, "the Order's own refund")
+				refunded = params.Amount
+				return "re_half", nil
+			},
+		}
+		var commit entity.RefundCommit
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error { commit = c; return nil }}
+		orderRepo := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) { return order, nil }}
+		uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t, stubOrderTickets{issued: 1, voided: 1})
+
+		got, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+		assert.Equal(t, int64(5000), refunded)
+		assert.Equal(t, entity.SettlementID("settle-half"), commit.SettlementID)
+		assert.Equal(t, "re_half", commit.ProviderRefundID)
+	})
+
+	t.Run("every ticket resold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Every ticket resold"
+		// @spec components/usecase/order/refund "Settlement given up by resales"
+		const orderID = entity.OrderID("order-all-resold")
+		order := paidOrder(orderID, 10000, "pi_all", now.Add(-30*24*time.Hour))
+		settleRepo := &stubSettlementRepo{
+			getByOrderIDFn: func(context.Context, entity.OrderID) (*entity.Settlement, error) {
+				return &entity.Settlement{ID: "settle-all", OrderID: orderID, Status: entity.SettlementStatusReversed,
+					Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 9500, ProviderPayoutID: "tr_never"}}}, nil
+			},
+		}
+		port := &stubRefundSettlementPayouts{
+			createRefundFn: func(context.Context, entity.RefundParams) (string, error) {
+				assert.Fail(t, "no refund is issued when every ticket was resold")
+				return "", nil
+			},
+			reverseTransferFn: func(context.Context, entity.ReversePayoutParams) (string, error) {
+				assert.Fail(t, "nothing is clawed back from a settlement given up by resales")
+				return "", nil
+			},
+		}
+		var commit entity.RefundCommit
+		committed := false
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error {
+			commit, committed = c, true
+			return nil
+		}}
+		orderRepo := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) { return order, nil }}
+		uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t, stubOrderTickets{voided: 2})
+
+		got, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+		require.True(t, committed)
+		assert.Empty(t, commit.SettlementID, "no Settlement is given to CommitRefund")
+		assert.Empty(t, commit.ProviderRefundID)
+	})
 }

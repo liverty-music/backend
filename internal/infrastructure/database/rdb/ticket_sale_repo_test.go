@@ -530,7 +530,7 @@ func TestTicketSaleRepository_UpdateTicketType(t *testing.T) {
 
 		holdErr, updErr := make(chan error, 1), make(chan error, 1)
 		go func() {
-			_, err := checkouts.GetOrCreateHeld(ctx, tt.ID, userID, 5, at)
+			_, err := checkouts.GetOrCreateHeld(ctx, tt.ID, userID, 5, at, nil)
 			holdErr <- err
 		}()
 		go func() {

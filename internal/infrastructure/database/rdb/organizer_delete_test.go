@@ -290,7 +290,7 @@ func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 	t.Run("removes the sale and its ended checkouts", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		tt := seedType(t, o)
-		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start)
+		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start, nil)
 		require.NoError(t, err)
 		_, err = checkouts.Release(ctx, c.ID, start.Add(time.Hour))
 		require.NoError(t, err)
@@ -306,7 +306,7 @@ func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 	t.Run("refuses a charged checkout without an order", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		tt := seedType(t, o)
-		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start)
+		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start, nil)
 		require.NoError(t, err)
 		_, err = checkouts.Commit(ctx, c.ID, start.Add(time.Minute))
 		require.NoError(t, err)

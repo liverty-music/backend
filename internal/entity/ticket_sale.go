@@ -322,8 +322,9 @@ type TicketSaleRepository interface {
 	Get(ctx context.Context, id TicketSaleID, at time.Time) (*TicketSale, error)
 
 	// ListByEvent returns every sale that has a TicketType for the event, each
-	// with all of its TicketTypes, ordered by start time. It returns an empty
-	// slice when the event has none.
+	// with all of its TicketTypes, ordered by start time; a TicketType of a
+	// FirstCome sale carries its held count, its resale open time and its free
+	// resale count at `at`. It returns an empty slice when the event has none.
 	//
 	// # Possible errors
 	//
@@ -408,7 +409,8 @@ type TicketSaleRepository interface {
 
 	// GetTicketType returns the sale that offers the TicketType with the given
 	// id, with all of its TicketTypes as Get returns them, and that TicketType
-	// (the element of sale.TicketTypes with the id).
+	// (the element of sale.TicketTypes with the id), with its held count, its
+	// resale open time and its free resale count at `at`.
 	//
 	// # Possible errors
 	//

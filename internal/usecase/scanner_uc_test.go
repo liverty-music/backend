@@ -21,7 +21,7 @@ const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
 // scannerFixture wires ScannerUseCase to mocks for one event
 // owned by "org-owner", published, on 2026-11-20 opening 18:00 and starting
-// 19:00 (window 15:00 to 04:00 the next day).
+// 19:00 (window 16:00 to 04:00 the next day).
 type scannerFixture struct {
 	uc         usecase.ScannerUseCase
 	scanners   *entitymocks.MockScannerRepository
@@ -252,7 +252,7 @@ func TestScannerUseCase_Open(t *testing.T) {
 		assert.Equal(t, entity.ScannerStatusInUse, got.Scanner.Status)
 		assert.Empty(t, got.Scanner.LinkToken, "the link token is never returned to the device")
 		require.NotNil(t, got.Window)
-		assert.True(t, got.Window.OpenTime.Equal(evening(15, 0, 0)))
+		assert.True(t, got.Window.OpenTime.Equal(evening(16, 0, 0)))
 		assert.True(t, got.InsideWindow)
 	})
 
@@ -271,7 +271,7 @@ func TestScannerUseCase_Open(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, got.InsideWindow)
 		require.NotNil(t, got.Window)
-		assert.True(t, got.Window.OpenTime.Equal(evening(15, 0, 0)))
+		assert.True(t, got.Window.OpenTime.Equal(evening(16, 0, 0)))
 	})
 
 	t.Run("event without a start time has no window", func(t *testing.T) {

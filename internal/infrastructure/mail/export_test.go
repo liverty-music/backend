@@ -15,3 +15,8 @@ func NewPostmarkConfirmationSenderForTest(orders OrderStore, apiURL, serverToken
 func NewPostmarkSignInLinkSenderForTest(consoleBaseURL, apiURL, serverToken string, logger *logging.Logger) *PostmarkSignInLinkSender {
 	return newPostmarkSignInLinkSender(consoleBaseURL, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
+
+// NewPostmarkResaleSoldSenderForTest points the sender at a stub Postmark API.
+func NewPostmarkResaleSoldSenderForTest(listings ResaleListingStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleSoldSender {
+	return newPostmarkResaleSoldSender(listings, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+}

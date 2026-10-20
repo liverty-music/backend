@@ -586,6 +586,60 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 		assert.Equal(t, entity.TicketTypeStateAllHeld, views[0].TicketTypes[0].State)
 	})
 
+	soldOutWithListings := func(free int) *entity.TicketSale {
+		sale := firstCome(150, 0)
+		opened := saleTime(11, 3, 20, 15)
+		sale.TicketTypes[0].ResaleOpenTime = &opened
+		sale.TicketTypes[0].FreeResaleCount = free
+		return sale
+	}
+
+	t.Run("sold out with a resale ticket", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/list-by-event "Sold out with a resale ticket"
+		f := newTicketSaleFixture(t, now)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{soldOutWithListings(1)}, nil)
+
+		views, err := f.uc.ListByEvent(ctx, "event-1")
+
+		require.NoError(t, err)
+		got := views[0].TicketTypes[0]
+		assert.Equal(t, entity.TicketTypeStateSoldOut, got.State)
+		assert.True(t, got.ResaleOpen)
+		assert.True(t, got.ResaleAvailable)
+	})
+
+	t.Run("sold out, every listing held", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/list-by-event "Sold out, every listing held"
+		f := newTicketSaleFixture(t, now)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{soldOutWithListings(0)}, nil)
+
+		views, err := f.uc.ListByEvent(ctx, "event-1")
+
+		require.NoError(t, err)
+		got := views[0].TicketTypes[0]
+		assert.Equal(t, entity.TicketTypeStateSoldOut, got.State)
+		assert.True(t, got.ResaleOpen)
+		assert.False(t, got.ResaleAvailable)
+	})
+
+	t.Run("resale closed at the deadline", func(t *testing.T) {
+		t.Parallel()
+		at := saleTime(11, 20, 16, 0) // 3 hours before the 19:00 start
+		f := newTicketSaleFixture(t, at)
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", at).Return([]*entity.TicketSale{soldOutWithListings(1)}, nil)
+
+		views, err := f.uc.ListByEvent(ctx, "event-1")
+
+		require.NoError(t, err)
+		assert.False(t, views[0].TicketTypes[0].ResaleOpen)
+		assert.False(t, views[0].TicketTypes[0].ResaleAvailable)
+	})
+
 	t.Run("tour presale seen from one date", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-by-event "Tour presale seen from one date"
