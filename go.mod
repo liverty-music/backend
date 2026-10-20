@@ -46,6 +46,7 @@ require (
 	github.com/ThreeDotsLabs/watermill v1.5.3
 	github.com/ThreeDotsLabs/watermill-nats/v2 v2.2.0
 	github.com/cenkalti/backoff/v5 v5.0.3
+	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/davidbyttow/govips/v2 v2.19.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/kelseyhightower/envconfig v1.4.0
