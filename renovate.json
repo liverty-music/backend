@@ -57,10 +57,10 @@
       "datasourceTemplate": "github-releases"
     },
     {
-      "description": "govulncheck is installed with `go install golang.org/x/vuln/cmd/govulncheck@<version>` in the test workflow. A pin left behind crashed CI on 2026-10-21: v1.3.0 panics on generics once a vulnerability is found. No built-in manager reads a `go install` line, so this regex is how the pin gets update proposals.",
+      "description": "govulncheck is installed with `go install golang.org/x/vuln/cmd/govulncheck@<version>` in the CI workflow. A pin left behind crashed CI on 2026-10-21: v1.3.0 panics on generics once a vulnerability is found. No built-in manager reads a `go install` line, so this regex is how the pin gets update proposals.",
       "customType": "regex",
       "managerFilePatterns": [
-        "/^\\.github/workflows/test\\.yml$/"
+        "/^\\.github/workflows/ci\\.yml$/"
       ],
       "matchStrings": [
         "golang\\.org/x/vuln/cmd/govulncheck@(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)"
