@@ -942,7 +942,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// then cache cleanup goroutine stops.
 	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, receptionSrv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
-	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient)
+	// jwtValidator owns the JWKS cache's refresh goroutines.
+	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient, jwtValidator)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

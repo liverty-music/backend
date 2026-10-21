@@ -96,10 +96,11 @@ func (h *PreAccessTokenHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Private claims carry the Actions v2 payload. Round-trip through JSON
-	// so we can target nested `user.human.email` without walking the claim
-	// map manually.
-	rawClaims, err := json.Marshal(token.PrivateClaims())
+	// Private claims carry the Actions v2 payload. Round-trip the claim set
+	// through JSON so we can target nested `user.human.email` without walking
+	// the claim map manually; the registered claims it also carries (exp,
+	// iat, …) are ignored by the payload struct.
+	rawClaims, err := json.Marshal(token)
 	if err != nil {
 		h.logger.Error(ctx, "pre-access-token: failed to marshal private claims", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
