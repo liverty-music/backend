@@ -129,6 +129,7 @@ func newRefundUCWithLogger(
 func TestOrderUseCase_Refund_Cancellation_HappyPath(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Cancellation refund"
+	// @spec components/usecase/order/refund "Payout already released"
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -491,6 +492,7 @@ func TestOrderUseCase_Refund_OrderNotFound(t *testing.T) {
 
 func TestOrderUseCase_Refund_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 	t.Parallel()
+	// @spec components/usecase/order/refund "Payout not yet released"
 
 	ctx := context.Background()
 	now := time.Now()

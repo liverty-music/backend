@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,6 +159,63 @@ func TestClient_ResolveImages(t *testing.T) {
 				assert.Equal(t, tt.want.logo0URL, result.HDMusicLogo[0].URL)
 			}
 			assert.Empty(t, result.MusicBanner)
+		})
+	}
+}
+
+func TestClient_ResolveImages_ContextEnd(t *testing.T) {
+	t.Parallel()
+
+	// Both cases end the caller's context, once before the first attempt and
+	// once while backoff.Retry waits out a Retry-After. backoff v6+ wraps the
+	// context error in a *backoff.RetryError; the client must still report the
+	// context's own code instead of Unavailable.
+	tests := []struct {
+		name    string
+		newCtx  func(t *testing.T) context.Context
+		wantErr error
+	}{
+		{
+			name: "cancelled before the request maps to Canceled",
+			newCtx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return ctx
+			},
+			wantErr: apperr.ErrCanceled,
+		},
+		{
+			name: "deadline during the Retry-After wait maps to DeadlineExceeded",
+			newCtx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			wantErr: apperr.ErrDeadlineExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				// A long Retry-After keeps the retry loop waiting until the
+				// context ends.
+				w.Header().Set("Retry-After", "3600")
+				w.WriteHeader(http.StatusTooManyRequests)
+			}))
+			defer server.Close()
+
+			client := fanarttv.NewClient(testAPIKey, server.Client(), newTestLogger(t))
+			client.SetBaseURL(server.URL + "/")
+
+			got, err := client.ResolveImages(tt.newCtx(t), "test-mbid")
+
+			assert.Nil(t, got)
+			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }

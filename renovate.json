@@ -1,12 +1,27 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "`gomodUpdateImportPaths` rewrites import paths on a major Go module update. Without it Renovate only added the new major as an extra `require` line and left every import on the old path, so no new code was compiled and CI passed on a change that upgraded nothing: #643 to #647 (connect v2, grpchealth v2, backoff v7, jwx v4, stripe-go v87) were all go.mod-only, and #643 also downgraded connect v1.21.1 to v1.21.0. With the option a major update fails CI honestly where the new API differs."
+  ],
   "extends": [
     "local>liverty-music/.github:renovate-config"
   ],
   "postUpdateOptions": [
-    "gomodTidy"
+    "gomodTidy",
+    "gomodUpdateImportPaths"
   ],
   "packageRules": [
+    {
+      "description": "HOLD the connect-go v2 family. connect v2 cannot be moved by Renovate: the BSR-generated handlers (`buf.build/gen/go/**`, disabled above) must be regenerated with the v2 plugin, and `pannpers/go-apperr` and `pannpers/go-logging` (both on connect v1.16) must ship v2-compatible interceptors first. grpchealth v2 requires connect v2. The migration is planned as its own change; connect v1 is supported indefinitely upstream (connect-go v2.0.0 release notes: \"There is no deadline to migrate\"). `enabled: false` keeps the majors visible on the dashboard. REMOVE THIS RULE when that change starts.",
+      "matchPackageNames": [
+        "connectrpc.com/connect",
+        "connectrpc.com/grpchealth"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    },
     {
       "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
       "matchManagers": [
@@ -40,6 +55,18 @@
       ],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "govulncheck is installed with `go install golang.org/x/vuln/cmd/govulncheck@<version>` in the test workflow. A pin left behind crashed CI on 2026-10-21: v1.3.0 panics on generics once a vulnerability is found. No built-in manager reads a `go install` line, so this regex is how the pin gets update proposals.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/test\\.yml$/"
+      ],
+      "matchStrings": [
+        "golang\\.org/x/vuln/cmd/govulncheck@(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "depNameTemplate": "golang.org/x/vuln",
+      "datasourceTemplate": "go"
     }
   ]
 }

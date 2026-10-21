@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -19,11 +20,13 @@ import (
 // If both are nil or resp is 2xx, it returns nil.
 func FromHTTP(err error, resp *http.Response, msg string, attrs ...slog.Attr) error {
 	if err != nil {
-		// Narrow down context errors
-		switch err {
-		case context.Canceled:
+		// Narrow down context errors. errors.Is, not ==, because callers pass
+		// errors that wrap the context error: backoff.Retry returns a
+		// *backoff.RetryError and http.Client returns a *url.Error.
+		switch {
+		case errors.Is(err, context.Canceled):
 			return apperr.Wrap(err, codes.Canceled, msg, attrs...)
-		case context.DeadlineExceeded:
+		case errors.Is(err, context.DeadlineExceeded):
 			return apperr.Wrap(err, codes.DeadlineExceeded, msg, attrs...)
 		}
 		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)

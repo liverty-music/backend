@@ -4,41 +4,117 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/jwx-go/jwkfetch/v4"
+	"github.com/lestrrat-go/httprc/v3"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
 // JWTValidator validates JWT tokens using JWKS.
 type JWTValidator struct {
-	jwks            *jwk.Cache
+	jwks            *jwksSource
 	issuer          string
 	acceptedIssuers []string
-	jwksURL         string
+}
+
+// jwksSource serves the sign-in service's JWK Set from a background-refreshed
+// cache that is registered on first use.
+//
+// The cache is shared by every copy of a JWTValidator and by the
+// WebhookValidators derived from it, so there is one refresh schedule per
+// process.
+type jwksSource struct {
+	cache           *jwkfetch.Cache
+	url             string
+	refreshInterval time.Duration
+
+	mu         sync.Mutex
+	registered bool
 }
 
 // NewJWTValidator creates a new JWT validator.
-// It registers the JWKS URL with a cache that refreshes it in the background.
-// Construction makes no network request: the keys are fetched on the first
-// validation, so a sign-in service that is down at startup does not stop the
-// process. Until a fetch succeeds, validation fails and every validation
-// fetches again; once fetched, the cached keys keep serving through later
-// outages.
+// It prepares a cache that refreshes the JWKS URL in the background.
+// Construction makes no network request: the URL is registered with the
+// cache, and the keys are fetched, on the first validation, so a sign-in
+// service that is down at startup does not stop the process. Until a fetch
+// succeeds, validation fails and every validation fetches again; once
+// fetched, the cached keys keep serving through later outages.
 // issuer is the primary (and only) accepted issuer. Use WithAcceptedIssuers to add
 // additional accepted issuers for multi-provider scenarios (e.g., Option C migration).
+//
+// The cache runs background goroutines until Close is called.
 func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JWTValidator, error) {
-	cache := jwk.NewCache(context.Background())
-	if err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(refreshInterval)); err != nil {
-		return nil, fmt.Errorf("failed to register JWKS URL: %w", err)
+	cache, err := jwkfetch.NewCache(context.Background(), httprc.NewClient())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JWKS cache: %w", err)
 	}
 
 	return &JWTValidator{
-		jwks:            cache,
+		jwks: &jwksSource{
+			cache:           cache,
+			url:             jwksURL,
+			refreshInterval: refreshInterval,
+		},
 		issuer:          issuer,
 		acceptedIssuers: []string{issuer},
-		jwksURL:         jwksURL,
 	}, nil
+}
+
+// Close stops the JWKS cache's background goroutines.
+// Every copy made by WithAcceptedIssuers and every WebhookValidator derived
+// from v share the cache, so call Close once, after all of them stop
+// validating.
+func (v *JWTValidator) Close() error {
+	return v.jwks.cache.Shutdown(context.Background())
+}
+
+// keySet returns the cached JWK Set, registering the JWKS URL with the cache
+// on the first call.
+//
+// Registration does not wait for the first fetch: the cache fetches in the
+// background, and when no keys are cached yet keySet fetches synchronously
+// instead. A failed fetch leaves the cache empty until its next scheduled
+// refresh (JWKS_REFRESH_INTERVAL, 15 min by default), so while it is empty,
+// every call fetches again: the first call after the sign-in service
+// recovers succeeds. Once fetched, the cached keys keep serving even if a
+// later refresh fails.
+func (s *jwksSource) keySet(ctx context.Context) (jwk.Set, error) {
+	if err := s.register(ctx); err != nil {
+		return nil, err
+	}
+
+	keySet, err := s.cache.Lookup(ctx, s.url)
+	if err != nil {
+		keySet, err = s.cache.Refresh(ctx, s.url)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return keySet, nil
+}
+
+// register adds the JWKS URL to the cache once.
+func (s *jwksSource) register(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.registered {
+		return nil
+	}
+
+	err := s.cache.Register(ctx, s.url,
+		jwkfetch.WithMinInterval(s.refreshInterval),
+		jwkfetch.WithWaitReady(false),
+	)
+	// A cancelled ctx can lose the reply of a registration that took
+	// effect; the URL is then registered and must not be registered again.
+	if err != nil && !s.cache.IsRegistered(context.WithoutCancel(ctx), s.url) {
+		return fmt.Errorf("failed to register JWKS URL: %w", err)
+	}
+	s.registered = true
+	return nil
 }
 
 // WithAcceptedIssuers returns a copy of the validator that accepts tokens from any of
@@ -52,15 +128,7 @@ func (v *JWTValidator) WithAcceptedIssuers(issuers []string) *JWTValidator {
 
 // ValidateToken validates a JWT token and returns the claims.
 func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
-	// Get the JWKS for validation. A failed fetch leaves the cache empty
-	// until its next scheduled refresh (JWKS_REFRESH_INTERVAL, 15 min by
-	// default), so while it is empty, fetch again on every call: the first
-	// call after the sign-in service recovers succeeds. Once fetched, the
-	// cached keys keep serving even if a later refresh fails.
-	keySet, err := v.jwks.Get(ctx, v.jwksURL)
-	if err != nil {
-		keySet, err = v.jwks.Refresh(ctx, v.jwksURL)
-	}
+	keySet, err := v.jwks.keySet(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS: %w", err)
 	}
@@ -79,20 +147,20 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	}
 
 	// Verify the issuer against the accepted list.
-	tokenIssuer := token.Issuer()
+	tokenIssuer, _ := token.Issuer()
 	issuerOK := slices.Contains(v.acceptedIssuers, tokenIssuer)
 	if !issuerOK {
 		return nil, fmt.Errorf("token issuer %q is not in the accepted issuers list", tokenIssuer)
 	}
 
 	// Extract claims from the token
-	sub := token.Subject()
+	sub, _ := token.Subject()
 	if sub == "" {
 		return nil, fmt.Errorf("token missing subject claim")
 	}
 
 	// Extract email from private claims
-	email, ok := token.Get("email")
+	email, ok := token.Field("email")
 	if !ok {
 		return nil, fmt.Errorf("token missing email claim")
 	}
@@ -103,7 +171,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 
 	// Extract name from private claims (optional - may be empty)
 	name := ""
-	if nameVal, ok := token.Get("name"); ok {
+	if nameVal, ok := token.Field("name"); ok {
 		if nameStr, ok := nameVal.(string); ok {
 			name = nameStr
 		}
@@ -112,7 +180,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	// Extract email_verified from private claims (set by a Zitadel Action).
 	// Defaults to false when the claim is absent (fail-closed).
 	emailVerified := false
-	if evVal, ok := token.Get("email_verified"); ok {
+	if evVal, ok := token.Field("email_verified"); ok {
 		if evBool, ok := evVal.(bool); ok {
 			emailVerified = evBool
 		}
@@ -153,9 +221,9 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 
 // extractAudiences returns the audience ("aud") claim values from the token.
 // The JWT spec allows "aud" to be either a single string or an array of
-// strings; jwx normalises it to []string via Audiences().
+// strings; jwx normalises it to []string via Audience().
 func extractAudiences(token jwt.Token) []string {
-	auds := token.Audience()
+	auds, _ := token.Audience()
 	if len(auds) == 0 {
 		return nil
 	}
@@ -188,7 +256,7 @@ func extractRoleOrgIDs(token jwt.Token) (roleOrgIDs map[string]struct{}, loginSc
 
 	roleOrgIDs = make(map[string]struct{})
 
-	for key, val := range token.PrivateClaims() {
+	for key, val := range token.Claims() {
 		isProjectScoped := len(key) > len(projectRolePrefix)+len(projectRoleSuffix) &&
 			key[:len(projectRolePrefix)] == projectRolePrefix &&
 			key[len(key)-len(projectRoleSuffix):] == projectRoleSuffix
@@ -240,8 +308,8 @@ func extractZitadelRoles(token jwt.Token) []string {
 
 	seen := make(map[string]struct{})
 
-	// PrivateClaims returns all non-standard claims as a map keyed by claim name.
-	for key, val := range token.PrivateClaims() {
+	// Claims yields every claim; the key checks below skip the registered ones.
+	for key, val := range token.Claims() {
 		isGlobal := key == globalRoleClaim
 		isProjectScoped := !isGlobal &&
 			len(key) > len(projectRolePrefix)+len(projectRoleSuffix) &&

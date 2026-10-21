@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -376,27 +377,61 @@ func TestClient_ListTop(t *testing.T) {
 	}
 }
 
-func TestClient_ContextTimeout(t *testing.T) {
+func TestClient_Search_ContextEnd(t *testing.T) {
 	t.Parallel()
 
-	t.Run("context cancelled - returns deadline exceeded error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Simulate slow response
-			<-r.Context().Done()
-		}))
-		defer server.Close()
+	// Both cases end the caller's context, once before the first attempt and
+	// once while backoff.Retry waits out a Retry-After. backoff v6+ wraps the
+	// context error in a *backoff.RetryError; the client must still report the
+	// context's own code instead of Unavailable.
+	tests := []struct {
+		name    string
+		newCtx  func(t *testing.T) context.Context
+		wantErr error
+	}{
+		{
+			name: "cancelled before the request maps to Canceled",
+			newCtx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return ctx
+			},
+			wantErr: apperr.ErrCanceled,
+		},
+		{
+			name: "deadline during the Retry-After wait maps to DeadlineExceeded",
+			newCtx: func(t *testing.T) context.Context {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			wantErr: apperr.ErrDeadlineExceeded,
+		},
+	}
 
-		client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
-		client.SetBaseURL(server.URL + "/")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				// A long Retry-After keeps the retry loop waiting until the
+				// context ends.
+				w.Header().Set("Retry-After", "3600")
+				w.WriteHeader(http.StatusTooManyRequests)
+			}))
+			defer server.Close()
 
-		artists, err := client.Search(ctx, "Test")
+			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
+			client.SetBaseURL(server.URL + "/")
 
-		assert.Error(t, err)
-		assert.Nil(t, artists)
-	})
+			got, err := client.Search(tt.newCtx(t), "Test")
+
+			assert.Nil(t, got)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestClient_RetryOnRateLimit(t *testing.T) {
