@@ -106,7 +106,9 @@ func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 	got, err := s.Search(ctx, artist, officialSite, from)
 
 	assert.Nil(t, got)
-	assert.Error(t, err)
+	// backoff.Retry wraps the deadline in a *backoff.RetryError whose last
+	// error is the 503; the caller's deadline must still decide the code.
+	assert.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
 	assert.Less(t, calls.Load(), int32(3), "should not exhaust all retries when context is cancelled")
 }
 

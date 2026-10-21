@@ -172,7 +172,8 @@ func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace
 
 // doCatalogRequest authenticates req, sends it with the given field mask and
 // decodes a 2xx JSON body into out. Network failures and 5xx responses are
-// Unavailable; other statuses map through api.FromHTTP.
+// Unavailable, a cancelled or timed-out request is Canceled or
+// DeadlineExceeded, and other statuses map through api.FromHTTP.
 func (c *Client) doCatalogRequest(ctx context.Context, req *http.Request, fieldMask, failMsg string, out any) error {
 	token, err := c.tokenSource.Token()
 	if err != nil {
