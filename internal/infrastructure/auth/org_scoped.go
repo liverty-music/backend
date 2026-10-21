@@ -2,10 +2,9 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"slices"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // callerOrgIDKey is the context key under which the resolved caller Zitadel
@@ -26,8 +25,8 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 	return v, ok && v != ""
 }
 
-// OrgScopedInterceptor enforces org-scoped authorization for the organizer
-// Connect server. It runs as an extraInterceptor (after ClaimsBridgeInterceptor,
+// NewOrgScopedInterceptor returns a server interceptor that enforces org-scoped authorization for the organizer
+// Connect server. It runs as an extraInterceptor (after the claims bridge from NewClaimsBridgeInterceptor,
 // before the validation interceptor) and performs the following TOKEN-LEVEL
 // checks:
 //
@@ -48,6 +47,9 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 // UNAUTHENTICATED case is already handled by the upstream authn middleware
 // before this interceptor runs.
 //
+// It applies to every RPC type (unary and streaming), as the v1 interceptor
+// did through its WrapUnary and WrapStreamingHandler methods.
+//
 // # Login-scope org assumption
 //
 // Zitadel does not expose a dedicated top-level claim for the login-scope org.
@@ -63,7 +65,25 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 // app. If Zitadel introduces a dedicated token claim for the login-scope org
 // in a future version, update Claims.LoginScopeOrgID (jwt_validator.go
 // extractRoleOrgIDs) to read it directly and add a test against the new shape.
-type OrgScopedInterceptor struct {
+func NewOrgScopedInterceptor(organizerConsoleProjectID string, publicProcedures map[string]bool) connect.ServerInterceptor {
+	a := orgScopedAuthorizer{organizerConsoleProjectID: organizerConsoleProjectID, publicProcedures: publicProcedures}
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			if len(a.publicProcedures) > 0 && a.publicProcedures[spec.Procedure] {
+				return next(ctx, spec, stream)
+			}
+			ctx, err := a.authorize(ctx)
+			if err != nil {
+				return err
+			}
+			return next(ctx, spec, stream)
+		}
+	}
+}
+
+// orgScopedAuthorizer holds the configuration of the org-scoped checks
+// performed by the interceptor that NewOrgScopedInterceptor returns.
+type orgScopedAuthorizer struct {
 	// organizerConsoleProjectID is the Zitadel project id for the
 	// organizer-console application. It must be present in the token's "aud"
 	// claim for every request that reaches this interceptor.
@@ -74,51 +94,11 @@ type OrgScopedInterceptor struct {
 	publicProcedures map[string]bool
 }
 
-// NewOrgScopedInterceptor creates an OrgScopedInterceptor that requires the
-// given organizerConsoleProjectID in the token's audience claim for every
-// procedure except publicProcedures.
-func NewOrgScopedInterceptor(organizerConsoleProjectID string, publicProcedures map[string]bool) OrgScopedInterceptor {
-	return OrgScopedInterceptor{organizerConsoleProjectID: organizerConsoleProjectID, publicProcedures: publicProcedures}
-}
-
-// WrapUnary enforces org-scoped authorization for unary RPCs.
-func (i OrgScopedInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		if len(i.publicProcedures) > 0 && i.publicProcedures[req.Spec().Procedure] {
-			return next(ctx, req)
-		}
-		ctx, err := i.authorize(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return next(ctx, req)
-	}
-}
-
-// WrapStreamingClient is a no-op: the organizer server has no client-streaming RPCs.
-func (i OrgScopedInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-// WrapStreamingHandler enforces org-scoped authorization for streaming RPCs.
-func (i OrgScopedInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		if len(i.publicProcedures) > 0 && i.publicProcedures[conn.Spec().Procedure] {
-			return next(ctx, conn)
-		}
-		ctx, err := i.authorize(ctx)
-		if err != nil {
-			return err
-		}
-		return next(ctx, conn)
-	}
-}
-
 // authorize performs the token-level org-scoped checks and, on success,
 // returns a context enriched with the caller's Zitadel org id.
-func (i OrgScopedInterceptor) authorize(ctx context.Context) (context.Context, error) {
+func (i orgScopedAuthorizer) authorize(ctx context.Context) (context.Context, error) {
 	denied := func() (context.Context, error) {
-		return ctx, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return ctx, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 
 	claims, ok := GetClaims(ctx)

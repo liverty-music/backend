@@ -12,17 +12,6 @@
   ],
   "packageRules": [
     {
-      "description": "HOLD the connect-go v2 family. connect v2 cannot be moved by Renovate: the BSR-generated handlers (`buf.build/gen/go/**`, disabled above) must be regenerated with the v2 plugin, and `pannpers/go-apperr` and `pannpers/go-logging` (both on connect v1.16) must ship v2-compatible interceptors first. grpchealth v2 requires connect v2. The migration is planned as its own change; connect v1 is supported indefinitely upstream (connect-go v2.0.0 release notes: \"There is no deadline to migrate\"). `enabled: false` keeps the majors visible on the dashboard. REMOVE THIS RULE when that change starts.",
-      "matchPackageNames": [
-        "connectrpc.com/connect",
-        "connectrpc.com/grpchealth"
-      ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "enabled": false
-    },
-    {
       "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
       "matchManagers": [
         "gomod"

@@ -2,17 +2,17 @@ package server_test
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
-	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
+	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series/v1/seriesv1connect"
+	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
@@ -38,34 +38,33 @@ func newOrganizerSignInTestServer(t *testing.T) (organizerv1connect.OrganizerSer
 
 	public := auth.OrganizerPublicProcedures()
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), public)
-	interceptors := []connect.Interceptor{
+	interceptors := []connect.ServerInterceptor{
 		ratelimit.NewClientQuotaInterceptor(ratelimit.NewClientThrottle(10, 60*time.Minute, time.Now), public),
 		auth.NewOrgScopedInterceptor("organizer-console-project", public),
 	}
 	organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
 	seriesUC := usecasemocks.NewMockSeriesUseCase(t)
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerv1connect.NewOrganizerServiceHandler(rpc.NewOrganizerHandler(organizerUC, logger), opts...)
+		func(s *connect.Server) {
+			organizerv1connect.RegisterOrganizerServiceHandler(s, rpc.NewOrganizerHandler(organizerUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerseriesv1connect.NewSeriesServiceHandler(rpc.NewOrganizerSeriesHandler(seriesUC, organizerUC, nil, logger), opts...)
+		func(s *connect.Server) {
+			organizerseriesv1connect.RegisterSeriesServiceHandler(s, rpc.NewOrganizerSeriesHandler(seriesUC, organizerUC, nil, logger))
 		},
 	}
 	srv := server.NewConnectServer(testServerSettings(organizerOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return organizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL),
-		organizerseriesv1connect.NewSeriesServiceClient(ts.Client(), ts.URL),
+	return organizerv1connect.NewOrganizerServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))),
+		organizerseriesv1connect.NewSeriesServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))),
 		organizerUC
 }
 
-// signInLinksRequest is a SendSignInLinks request without a sign-in from the
-// client at ip.
-func signInLinksRequest(email, ip string) *connect.Request[organizerv1.SendSignInLinksRequest] {
-	req := connect.NewRequest(&organizerv1.SendSignInLinksRequest{Email: &entityv1.Email{Value: email}})
-	req.Header().Set("X-Forwarded-For", ip)
-	return req
+// signInLinksRequest is the context and SendSignInLinks request of a call
+// without a sign-in from the client at ip.
+func signInLinksRequest(email, ip string) (context.Context, *organizerv1.SendSignInLinksRequest) {
+	return withHeader(context.Background(), "X-Forwarded-For", ip),
+		&organizerv1.SendSignInLinksRequest{Email: &entityv1.Email{Value: email}}
 }
 
 func TestOrganizerServer_SendSignInLinks(t *testing.T) {
@@ -77,10 +76,10 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 		client, _, organizerUC := newOrganizerSignInTestServer(t)
 		organizerUC.EXPECT().SendSignInLinks(mock.Anything, "band@example.com").Return().Once()
 
-		resp, err := client.SendSignInLinks(context.Background(), signInLinksRequest("band@example.com", "203.0.113.1"))
+		resp, err := client.SendSignInLinks(signInLinksRequest("band@example.com", "203.0.113.1"))
 
 		require.NoError(t, err)
-		assert.True(t, proto.Equal(&organizerv1.SendSignInLinksResponse{}, resp.Msg))
+		assert.True(t, proto.Equal(&organizerv1.SendSignInLinksResponse{}, resp))
 	})
 
 	// @spec components/adapter/organizer/api/rpc/organizer "Unknown address"
@@ -89,10 +88,10 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 		client, _, organizerUC := newOrganizerSignInTestServer(t)
 		organizerUC.EXPECT().SendSignInLinks(mock.Anything, "nobody@example.com").Return().Once()
 
-		resp, err := client.SendSignInLinks(context.Background(), signInLinksRequest("nobody@example.com", "203.0.113.2"))
+		resp, err := client.SendSignInLinks(signInLinksRequest("nobody@example.com", "203.0.113.2"))
 
 		require.NoError(t, err)
-		assert.True(t, proto.Equal(&organizerv1.SendSignInLinksResponse{}, resp.Msg))
+		assert.True(t, proto.Equal(&organizerv1.SendSignInLinksResponse{}, resp))
 	})
 
 	// @spec components/adapter/organizer/api/rpc/organizer "Malformed address"
@@ -101,7 +100,7 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 		// The strict usecase mock fails the test if SendSignInLinks runs.
 		client, _, _ := newOrganizerSignInTestServer(t)
 
-		_, err := client.SendSignInLinks(context.Background(), signInLinksRequest("band@", "203.0.113.3"))
+		_, err := client.SendSignInLinks(signInLinksRequest("band@", "203.0.113.3"))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -109,10 +108,9 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 	t.Run("fails with InvalidArgument without an address", func(t *testing.T) {
 		t.Parallel()
 		client, _, _ := newOrganizerSignInTestServer(t)
-		req := connect.NewRequest(&organizerv1.SendSignInLinksRequest{})
-		req.Header().Set("X-Forwarded-For", "203.0.113.4")
+		req := &organizerv1.SendSignInLinksRequest{}
 
-		_, err := client.SendSignInLinks(context.Background(), req)
+		_, err := client.SendSignInLinks(withHeader(context.Background(), "X-Forwarded-For", "203.0.113.4"), req)
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -125,14 +123,14 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 		organizerUC.EXPECT().SendSignInLinks(mock.Anything, mock.Anything).Return().Times(11)
 
 		for i := range 10 {
-			_, err := client.SendSignInLinks(context.Background(), signInLinksRequest("band@example.com", "203.0.113.5"))
+			_, err := client.SendSignInLinks(signInLinksRequest("band@example.com", "203.0.113.5"))
 			require.NoError(t, err, "request %d", i+1)
 		}
-		_, err := client.SendSignInLinks(context.Background(), signInLinksRequest("other@example.com", "203.0.113.5"))
+		_, err := client.SendSignInLinks(signInLinksRequest("other@example.com", "203.0.113.5"))
 		assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 
 		// Another client is not limited by the first one's requests.
-		_, err = client.SendSignInLinks(context.Background(), signInLinksRequest("band@example.com", "198.51.100.7"))
+		_, err = client.SendSignInLinks(signInLinksRequest("band@example.com", "198.51.100.7"))
 		assert.NoError(t, err)
 	})
 
@@ -140,10 +138,10 @@ func TestOrganizerServer_SendSignInLinks(t *testing.T) {
 		t.Parallel()
 		client, seriesClient, _ := newOrganizerSignInTestServer(t)
 
-		_, err := client.Get(context.Background(), connect.NewRequest(&organizerv1.GetRequest{}))
+		_, err := client.Get(context.Background(), &organizerv1.GetRequest{})
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err), "OrganizerService.Get")
 
-		_, err = seriesClient.List(context.Background(), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		_, err = seriesClient.List(context.Background(), &organizerseriesv1.ListRequest{})
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err), "SeriesService.List")
 	})
 }

@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
-	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
+	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
 	adminorganizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
-	"connectrpc.com/connect"
-
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/entity"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -28,7 +28,7 @@ import (
 func newAdminOrganizerClient(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase) adminorganizerv1connect.OrganizerServiceClient {
 	t.Helper()
 	ts := newTestAdminDeleteServer(t, organizerUC, usecasemocks.NewMockUserUseCase(t))
-	return adminorganizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL)
+	return adminorganizerv1connect.NewOrganizerServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 }
 
 // newAdminArtistClient builds an admin ArtistService client against the same
@@ -36,14 +36,13 @@ func newAdminOrganizerClient(t *testing.T, organizerUC *usecasemocks.MockOrganiz
 func newAdminArtistClient(t *testing.T, artistUC *usecasemocks.MockArtistUseCase) adminartistv1connect.ArtistServiceClient {
 	t.Helper()
 	ts := newTestAdminDeleteServer(t, usecasemocks.NewMockOrganizerUseCase(t), usecasemocks.NewMockUserUseCase(t), artistUC)
-	return adminartistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)
+	return adminartistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 }
 
-// asAdmin wraps msg in a request carrying the admin bearer token.
-func asAdmin[T any](msg *T) *connect.Request[T] {
-	req := connect.NewRequest(msg)
-	req.Header().Set("Authorization", "Bearer "+deleteAdminToken)
-	return req
+// asAdmin returns the context and request of a call carrying the admin bearer
+// token.
+func asAdmin[T any](msg *T) (context.Context, *T) {
+	return withBearer(context.Background(), deleteAdminToken), msg
 }
 
 func TestAdminServer_OrganizerCreateValidation(t *testing.T) {
@@ -108,7 +107,7 @@ func TestAdminServer_OrganizerCreateValidation(t *testing.T) {
 			// The strict mock fails the test if OrganizerUseCase.Create runs.
 			client := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t))
 
-			_, err := client.Create(context.Background(), asAdmin(tt.req))
+			_, err := client.Create(asAdmin(tt.req))
 
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})
@@ -132,10 +131,10 @@ func TestAdminServer_OrganizerCreate(t *testing.T) {
 			OwnerEmail: "band@example.com", Status: entity.OrganizerStatusActive, PlatformFeeRateBps: 800,
 		}, nil).Once()
 
-		resp, err := newAdminOrganizerClient(t, organizerUC).Create(context.Background(), asAdmin(req))
+		resp, err := newAdminOrganizerClient(t, organizerUC).Create(asAdmin(req))
 
 		require.NoError(t, err)
-		assert.Equal(t, "xx-records", resp.Msg.GetOrganizer().GetShortName().GetValue())
+		assert.Equal(t, "xx-records", resp.GetOrganizer().GetShortName().GetValue())
 	})
 
 	// @spec components/adapter/admin/api/rpc/organizer "Short name already used"
@@ -145,7 +144,7 @@ func TestAdminServer_OrganizerCreate(t *testing.T) {
 		organizerUC.EXPECT().Create(mock.Anything, "XX Records", "xx-records", "band@example.com").
 			Return(nil, apperr.New(codes.AlreadyExists, "short name already used")).Once()
 
-		_, err := newAdminOrganizerClient(t, organizerUC).Create(context.Background(), asAdmin(req))
+		_, err := newAdminOrganizerClient(t, organizerUC).Create(asAdmin(req))
 
 		assert.Equal(t, connect.CodeAlreadyExists, connect.CodeOf(err))
 	})
@@ -173,11 +172,11 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			Return([]*entity.Artist{{ID: artistID, Name: "The Band"}}, nil).Once()
 		client := newAdminOrganizerClient(t, organizerUC)
 
-		list, err := client.List(context.Background(), asAdmin(&adminorganizerv1.ListRequest{}))
+		list, err := client.List(asAdmin(&adminorganizerv1.ListRequest{}))
 		require.NoError(t, err)
-		ids := make([]string, 0, len(list.Msg.GetOrganizers()))
-		shortNames := make([]string, 0, len(list.Msg.GetOrganizers()))
-		for _, o := range list.Msg.GetOrganizers() {
+		ids := make([]string, 0, len(list.GetOrganizers()))
+		shortNames := make([]string, 0, len(list.GetOrganizers()))
+		for _, o := range list.GetOrganizers() {
 			ids = append(ids, o.GetId().GetValue())
 			shortNames = append(shortNames, o.GetShortName().GetValue())
 		}
@@ -185,12 +184,12 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		assert.Equal(t, []string{"acme-music", "old-label"}, shortNames)
 
 		// The roster comes from the admin ArtistService, not the Organizer service.
-		roster, err := newAdminArtistClient(t, artistUC).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
+		roster, err := newAdminArtistClient(t, artistUC).ListByOrganizer(asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
 		}))
 		require.NoError(t, err)
-		require.Len(t, roster.Msg.GetArtists(), 1)
-		assert.Equal(t, artistID, roster.Msg.GetArtists()[0].GetId().GetValue())
+		require.Len(t, roster.GetArtists(), 1)
+		assert.Equal(t, artistID, roster.GetArtists()[0].GetId().GetValue())
 	})
 
 	// @spec components/adapter/admin/api/rpc/organizer "Admin lists Organizers in every status"
@@ -204,11 +203,11 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			{ID: otherID, Name: "Old Label", ShortName: "old-label", Status: entity.OrganizerStatusDeactivated},
 		}, nil).Once()
 
-		list, err := newAdminOrganizerClient(t, organizerUC).List(context.Background(), asAdmin(&adminorganizerv1.ListRequest{}))
+		list, err := newAdminOrganizerClient(t, organizerUC).List(asAdmin(&adminorganizerv1.ListRequest{}))
 
 		require.NoError(t, err)
-		got := make(map[string]entityv1.OrganizerStatus, len(list.Msg.GetOrganizers()))
-		for _, o := range list.Msg.GetOrganizers() {
+		got := make(map[string]entityv1.OrganizerStatus, len(list.GetOrganizers()))
+		for _, o := range list.GetOrganizers() {
 			got[o.GetId().GetValue()] = o.GetStatus()
 		}
 		assert.Equal(t, map[string]entityv1.OrganizerStatus{
@@ -240,7 +239,7 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		}, nil).Once()
 		client := newAdminOrganizerClient(t, organizerUC)
 
-		got, err := client.Get(context.Background(), asAdmin(&adminorganizerv1.GetRequest{
+		got, err := client.Get(asAdmin(&adminorganizerv1.GetRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: otherID},
 		}))
 
@@ -257,6 +256,6 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			ContactEmail:        &entityv1.Email{Value: "contact@example.com"},
 			PlatformFeeRateBps:  500,
 		}
-		assert.True(t, proto.Equal(want, got.Msg.GetOrganizer()), "got %v", got.Msg.GetOrganizer())
+		assert.True(t, proto.Equal(want, got.GetOrganizer()), "got %v", got.GetOrganizer())
 	})
 }

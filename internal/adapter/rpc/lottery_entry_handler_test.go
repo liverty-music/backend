@@ -2,14 +2,14 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"testing"
 
-	lotteryentryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
+	lotteryentryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	lotteryentryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/lottery_entry/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -35,10 +35,10 @@ func newLotteryEntryFixture(t *testing.T, decorate func(context.Context) context
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewLotteryEntryHandler(f.lottery, f.users, logger)
-	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return lotteryentryv1connect.NewLotteryEntryServiceHandler(h, opts...)
+	srv := serveValidated(t, func(s *connect.Server) {
+		lotteryentryv1connect.RegisterLotteryEntryServiceHandler(s, h)
 	}, decorate)
-	f.client = lotteryentryv1connect.NewLotteryEntryServiceClient(srv.Client(), srv.URL)
+	f.client = lotteryentryv1connect.NewLotteryEntryServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	return f
 }
 
@@ -66,11 +66,11 @@ func TestLotteryEntryHandler(t *testing.T) {
 		expectFan(f.users)
 		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2, (*entity.ReferralCode)(nil)).Return(draft, nil)
 
-		resp, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		resp, err := f.client.Start(ctx, startReq())
 
 		require.NoError(t, err)
-		assert.Equal(t, tkFanUserID, resp.Msg.GetLotteryEntry().GetUserId().GetValue(), "the Draft's user is the signed-in fan")
-		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_DRAFT, resp.Msg.GetLotteryEntry().GetState())
+		assert.Equal(t, tkFanUserID, resp.GetLotteryEntry().GetUserId().GetValue(), "the Draft's user is the signed-in fan")
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_DRAFT, resp.GetLotteryEntry().GetState())
 	})
 
 	t.Run("referral code passed on", func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		req := startReq()
 		req.ReferralCode = &entityv1.ReferralCode{Value: "member-a"}
 
-		_, err := f.client.Start(ctx, connect.NewRequest(req))
+		_, err := f.client.Start(ctx, req)
 
 		require.NoError(t, err)
 	})
@@ -93,9 +93,9 @@ func TestLotteryEntryHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/lottery-entry "Not signed in"
 		f := newLotteryEntryFixture(t, func(c context.Context) context.Context { return c })
 
-		_, err := f.client.ListByTicketType(ctx, connect.NewRequest(&lotteryentryv1.ListByTicketTypeRequest{
+		_, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
 			TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -106,7 +106,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f := newLotteryEntryFixture(t, signedInAs("ext-new"))
 		expectNoAccount(f.users, "ext-new")
 
-		_, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		_, err := f.client.Start(ctx, startReq())
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
@@ -118,9 +118,9 @@ func TestLotteryEntryHandler(t *testing.T) {
 		expectFan(f.users)
 		f.lottery.EXPECT().Withdraw(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID)).Return(nil)
 
-		_, err := f.client.Withdraw(ctx, connect.NewRequest(&lotteryentryv1.WithdrawRequest{
+		_, err := f.client.Withdraw(ctx, &lotteryentryv1.WithdrawRequest{
 			LotteryEntryId: &entityv1.LotteryEntryId{Value: tkEntryID},
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -133,10 +133,10 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
-		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))
+		resp, err := f.client.AuthorizeCard(ctx, authorizeReq("+819012345678"))
 
 		require.NoError(t, err)
-		assert.Equal(t, "pi_secret", resp.Msg.GetCardAuthorizationSecret().GetValue())
+		assert.Equal(t, "pi_secret", resp.GetCardAuthorizationSecret().GetValue())
 	})
 
 	t.Run("confirm makes the entry entered", func(t *testing.T) {
@@ -148,13 +148,13 @@ func TestLotteryEntryHandler(t *testing.T) {
 		entered.CardAuthorizationID = "pi_1"
 		f.lottery.EXPECT().Confirm(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID)).Return(&entered, nil)
 
-		resp, err := f.client.Confirm(ctx, connect.NewRequest(&lotteryentryv1.ConfirmRequest{
+		resp, err := f.client.Confirm(ctx, &lotteryentryv1.ConfirmRequest{
 			LotteryEntryId: &entityv1.LotteryEntryId{Value: tkEntryID},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_ENTERED, resp.Msg.GetLotteryEntry().GetState())
-		assert.Equal(t, "pi_1", resp.Msg.GetLotteryEntry().GetCardAuthorizationId().GetValue())
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_ENTERED, resp.GetLotteryEntry().GetState())
+		assert.Equal(t, "pi_1", resp.GetLotteryEntry().GetCardAuthorizationId().GetValue())
 	})
 
 	t.Run("list by ticket type returns the caller's entries", func(t *testing.T) {
@@ -166,13 +166,13 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f.lottery.EXPECT().ListByTicketType(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID)).
 			Return([]*entity.LotteryEntry{draft, &withdrawn}, nil)
 
-		resp, err := f.client.ListByTicketType(ctx, connect.NewRequest(&lotteryentryv1.ListByTicketTypeRequest{
+		resp, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
 			TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID},
-		}))
+		})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetLotteryEntries(), 2)
-		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WITHDRAWN, resp.Msg.GetLotteryEntries()[1].GetState())
+		require.Len(t, resp.GetLotteryEntries(), 2)
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WITHDRAWN, resp.GetLotteryEntries()[1].GetState())
 	})
 
 	t.Run("usecase errors are returned unchanged", func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f.lottery.EXPECT().Start(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2, (*entity.ReferralCode)(nil)).
 			Return(nil, apperr.New(codes.FailedPrecondition, "window closed"))
 
-		_, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		_, err := f.client.Start(ctx, startReq())
 
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	})
@@ -197,7 +197,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := startReq()
 				req.TicketCount = 0
-				_, err := c.Start(ctx, connect.NewRequest(req))
+				_, err := c.Start(ctx, req)
 				return err
 			},
 		},
@@ -207,7 +207,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := startReq()
 				req.ReferralCode = &entityv1.ReferralCode{Value: strings.Repeat("a", 33)}
-				_, err := c.Start(ctx, connect.NewRequest(req))
+				_, err := c.Start(ctx, req)
 				return err
 			},
 		},
@@ -215,7 +215,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 			// @spec components/adapter/fan/api/rpc/lottery-entry "Domestic-format phone number"
 			name: "domestic-format phone number",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
+				_, err := c.AuthorizeCard(ctx, authorizeReq("090-1234-5678"))
 				return err
 			},
 		},
@@ -224,37 +224,37 @@ func TestLotteryEntryHandler(t *testing.T) {
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := authorizeReq("+819012345678")
 				req.FullName = nil
-				_, err := c.AuthorizeCard(ctx, connect.NewRequest(req))
+				_, err := c.AuthorizeCard(ctx, req)
 				return err
 			},
 		},
 		{
 			name: "start without a ticket type",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.Start(ctx, connect.NewRequest(&lotteryentryv1.StartRequest{TicketCount: 1}))
+				_, err := c.Start(ctx, &lotteryentryv1.StartRequest{TicketCount: 1})
 				return err
 			},
 		},
 		{
 			name: "list without a ticket type",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.ListByTicketType(ctx, connect.NewRequest(&lotteryentryv1.ListByTicketTypeRequest{}))
+				_, err := c.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{})
 				return err
 			},
 		},
 		{
 			name: "confirm without an entry",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.Confirm(ctx, connect.NewRequest(&lotteryentryv1.ConfirmRequest{}))
+				_, err := c.Confirm(ctx, &lotteryentryv1.ConfirmRequest{})
 				return err
 			},
 		},
 		{
 			name: "withdraw with a malformed entry",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.Withdraw(ctx, connect.NewRequest(&lotteryentryv1.WithdrawRequest{
+				_, err := c.Withdraw(ctx, &lotteryentryv1.WithdrawRequest{
 					LotteryEntryId: &entityv1.LotteryEntryId{Value: "not-a-uuid"},
-				}))
+				})
 				return err
 			},
 		},

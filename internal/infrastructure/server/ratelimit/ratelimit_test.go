@@ -1,12 +1,11 @@
 package ratelimit_test
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -167,32 +166,67 @@ func TestClientIPFromAddr(t *testing.T) {
 	}
 }
 
-func TestInterceptor_RetryAfterHeader(t *testing.T) {
+func TestInterceptor(t *testing.T) {
 	t.Parallel()
 
-	l := newTestLimiter()
-	defer func() { _ = l.Close() }()
+	t.Run("reject an anonymous unary call over the burst with ResourceExhausted and Retry-After", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter()
+		defer func() { _ = l.Close() }()
+		srv := newTestRPCServer(t, nil, ratelimit.NewInterceptor(l))
+		opts := callOptions{forwardedFor: "203.0.113.1"}
 
-	interceptor := ratelimit.NewInterceptor(l)
+		// The anon burst is 1: the first call passes, the second is refused.
+		_, err := srv.callUnary(t, opts)
+		require.NoError(t, err)
 
-	// Exhaust the anon burst (1) for a fixed IP key.
-	handler := interceptor(func(_ context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		return nil, nil
+		header, err := srv.callUnary(t, opts)
+		assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+		assert.Equal(t, "1", header.Get("Retry-After"))
 	})
 
-	req := connect.NewRequest(&struct{}{})
-	req.Header().Set("X-Forwarded-For", "203.0.113.1")
+	t.Run("key anonymous callers by client IP", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter()
+		defer func() { _ = l.Close() }()
+		srv := newTestRPCServer(t, nil, ratelimit.NewInterceptor(l))
 
-	// First request is within burst — must succeed.
-	_, err := handler(context.Background(), req)
-	require.NoError(t, err)
+		_, err := srv.callUnary(t, callOptions{forwardedFor: "203.0.113.1"})
+		require.NoError(t, err)
+		_, err = srv.callUnary(t, callOptions{forwardedFor: "203.0.113.2"})
+		assert.NoError(t, err, "another IP has its own bucket")
+	})
 
-	// Second request exceeds burst — must return ResourceExhausted with Retry-After.
-	_, err = handler(context.Background(), req)
-	require.Error(t, err)
+	t.Run("key authenticated callers by subject with the authenticated burst", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter()
+		defer func() { _ = l.Close() }()
+		srv := newTestRPCServer(t, nil, ratelimit.NewInterceptor(l))
+		opts := callOptions{forwardedFor: "203.0.113.1", subject: "user-1"}
 
-	var connectErr *connect.Error
-	require.ErrorAs(t, err, &connectErr)
-	assert.Equal(t, connect.CodeResourceExhausted, connectErr.Code())
-	assert.Equal(t, "1", connectErr.Meta().Get("Retry-After"))
+		// The auth burst is 2.
+		for i := range 2 {
+			_, err := srv.callUnary(t, opts)
+			require.NoError(t, err, "call %d", i+1)
+		}
+		_, err := srv.callUnary(t, opts)
+		assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+
+		_, err = srv.callUnary(t, callOptions{forwardedFor: "203.0.113.1", subject: "user-2"})
+		assert.NoError(t, err, "another subject has its own bucket")
+	})
+
+	t.Run("pass streaming calls through without counting them, as the v1 unary interceptor did", func(t *testing.T) {
+		t.Parallel()
+		l := newTestLimiter()
+		defer func() { _ = l.Close() }()
+		srv := newTestRPCServer(t, nil, ratelimit.NewInterceptor(l))
+		opts := callOptions{forwardedFor: "203.0.113.1"}
+
+		for i := range 3 {
+			require.NoError(t, srv.callServerStream(t, opts), "stream %d", i+1)
+		}
+		_, err := srv.callUnary(t, opts)
+		assert.NoError(t, err, "streams did not use the unary burst")
+	})
 }

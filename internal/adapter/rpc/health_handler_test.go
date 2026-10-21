@@ -9,7 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"

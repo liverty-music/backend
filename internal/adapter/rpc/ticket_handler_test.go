@@ -6,7 +6,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -45,14 +45,14 @@ func TestTicketHandler_List(t *testing.T) {
 			{ID: "t-2", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 		}, nil)
 
-		resp, err := h.List(fanCtx(tkFanSub), connect.NewRequest(&ticketv1.ListRequest{}))
+		resp, err := h.List(fanCtx(tkFanSub), &ticketv1.ListRequest{})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetTickets(), 2)
-		assert.Equal(t, tkFanUserID, resp.Msg.GetTickets()[0].GetUserId().GetValue())
-		assert.Equal(t, "identity verification-1", resp.Msg.GetTickets()[0].GetIdentityVerificationId().GetValue())
-		assert.Nil(t, resp.Msg.GetTickets()[1].GetIdentityVerificationId(), "no identity verification binding without a verification requirement")
-		assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.Msg.GetTickets()[1].GetStatus())
+		require.Len(t, resp.GetTickets(), 2)
+		assert.Equal(t, tkFanUserID, resp.GetTickets()[0].GetUserId().GetValue())
+		assert.Equal(t, "identity verification-1", resp.GetTickets()[0].GetIdentityVerificationId().GetValue())
+		assert.Nil(t, resp.GetTickets()[1].GetIdentityVerificationId(), "no identity verification binding without a verification requirement")
+		assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.GetTickets()[1].GetStatus())
 	})
 
 	t.Run("not signed in lists tickets", func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestTicketHandler_List(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/ticket "Not signed in lists tickets"
 		h, _, _ := newTicketHandler(t)
 
-		_, err := h.List(context.Background(), connect.NewRequest(&ticketv1.ListRequest{}))
+		_, err := h.List(context.Background(), &ticketv1.ListRequest{})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -70,7 +70,7 @@ func TestTicketHandler_List(t *testing.T) {
 		h, _, users := newTicketHandler(t)
 		expectNoAccount(users, "ext-new")
 
-		_, err := h.List(fanCtx("ext-new"), connect.NewRequest(&ticketv1.ListRequest{}))
+		_, err := h.List(fanCtx("ext-new"), &ticketv1.ListRequest{})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

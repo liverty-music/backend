@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
+	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
 	adminuserv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/user/v1"
-	"connectrpc.com/connect"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -34,10 +33,10 @@ func NewAdminUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger
 // the user holds an issued ticket or has an order that is not refunded.
 func (h *AdminUserHandler) Delete(
 	ctx context.Context,
-	req *connect.Request[adminuserv1.DeleteRequest],
-) (*connect.Response[adminuserv1.DeleteResponse], error) {
-	if err := h.userUseCase.Delete(ctx, req.Msg.GetUserId().GetValue()); err != nil {
+	req *adminuserv1.DeleteRequest,
+) (*adminuserv1.DeleteResponse, error) {
+	if err := h.userUseCase.Delete(ctx, req.GetUserId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&adminuserv1.DeleteResponse{}), nil
+	return &adminuserv1.DeleteResponse{}, nil
 }

@@ -2,12 +2,11 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"time"
 
-	walletpublickeyv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
+	walletpublickeyv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	walletpublickeyv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/wallet_public_key/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -49,35 +48,35 @@ func (h *WalletPublicKeyHandler) storedUserID(ctx context.Context, providerUserI
 // WalletPublicKey, replacing any other device's key.
 func (h *WalletPublicKeyHandler) Register(
 	ctx context.Context,
-	req *connect.Request[walletpublickeyv1.RegisterRequest],
-) (*connect.Response[walletpublickeyv1.RegisterResponse], error) {
+	req *walletpublickeyv1.RegisterRequest,
+) (*walletpublickeyv1.RegisterResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(req.Msg.GetPublicKey().GetValue()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("public_key is required"))
+	if len(req.GetPublicKey().GetValue()) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "public_key is required")
 	}
 	userID, err := h.storedUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := h.walletUC.Register(ctx, userID, entity.PublicKey(req.Msg.GetPublicKey().GetValue()), time.Now())
+	result, err := h.walletUC.Register(ctx, userID, entity.PublicKey(req.GetPublicKey().GetValue()), time.Now())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&walletpublickeyv1.RegisterResponse{
+	return &walletpublickeyv1.RegisterResponse{
 		WalletPublicKey:  mapper.WalletPublicKeyToProto(result.Key),
 		ReplacedOtherKey: result.ReplacedOtherKey,
-	}), nil
+	}, nil
 }
 
 // Get returns the caller's current WalletPublicKey.
 func (h *WalletPublicKeyHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[walletpublickeyv1.GetRequest],
-) (*connect.Response[walletpublickeyv1.GetResponse], error) {
+	_ *walletpublickeyv1.GetRequest,
+) (*walletpublickeyv1.GetResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -90,7 +89,7 @@ func (h *WalletPublicKeyHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&walletpublickeyv1.GetResponse{
+	return &walletpublickeyv1.GetResponse{
 		WalletPublicKey: mapper.WalletPublicKeyToProto(key),
-	}), nil
+	}, nil
 }

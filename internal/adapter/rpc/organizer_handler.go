@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
+	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -48,15 +47,15 @@ func NewOrganizerHandler(organizerUC usecase.OrganizerUseCase, logger *logging.L
 //   - FAILED_PRECONDITION: the resolved Organizer is deactivated.
 func (h *OrganizerHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[organizerv1.GetRequest],
-) (*connect.Response[organizerv1.GetResponse], error) {
+	_ *organizerv1.GetRequest,
+) (*organizerv1.GetResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.GetResponse{
+	return &organizerv1.GetResponse{
 		Organizer: mapper.OrganizerToProto(organizer),
-	}), nil
+	}, nil
 }
 
 // SendSignInLinks asks for an email with a sign-in link for each active
@@ -67,10 +66,10 @@ func (h *OrganizerHandler) Get(
 // keyed by the client's network address, before this handler runs.
 func (h *OrganizerHandler) SendSignInLinks(
 	ctx context.Context,
-	req *connect.Request[organizerv1.SendSignInLinksRequest],
-) (*connect.Response[organizerv1.SendSignInLinksResponse], error) {
-	h.organizerUC.SendSignInLinks(ctx, req.Msg.GetEmail().GetValue())
-	return connect.NewResponse(&organizerv1.SendSignInLinksResponse{}), nil
+	req *organizerv1.SendSignInLinksRequest,
+) (*organizerv1.SendSignInLinksResponse, error) {
+	h.organizerUC.SendSignInLinks(ctx, req.GetEmail().GetValue())
+	return &organizerv1.SendSignInLinksResponse{}, nil
 }
 
 // resolveCallerOrganizer reads the caller's Zitadel org id from the context
@@ -82,7 +81,7 @@ func (h *OrganizerHandler) resolveCallerOrganizer(ctx context.Context) (*entity.
 	if !ok {
 		// Defence-in-depth: the interceptor should have populated this; if it
 		// did not, we must not proceed.
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 
 	return h.organizerUC.ResolveCaller(ctx, callerOrgID)

@@ -12,14 +12,17 @@ import (
 	"log/slog"
 
 	"connectrpc.com/authn"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpchealth/v2"
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	"github.com/liverty-music/backend/pkg/config"
-	apperr_connect "github.com/pannpers/go-apperr/apperr/connect"
+	apperrconnect "github.com/pannpers/go-apperr/apperr/connectv2"
 	"github.com/pannpers/go-logging/logging"
+	loggingconnect "github.com/pannpers/go-logging/logging/connectv2"
 )
 
 // ConnectServer represents the Connect server.
@@ -29,11 +32,16 @@ type ConnectServer struct {
 	address string
 }
 
-// RPCHandlerFunc is a function that returns a path and a handler for a Connect RPC service.
-type RPCHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
+// RPCHandlerFunc registers one Connect RPC service on a [connect.Server].
+type RPCHandlerFunc func(server *connect.Server)
 
-// HealthHandlerFunc is a function that returns a path and handler for the health check endpoint.
-type HealthHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
+// HealthHandlerFunc registers the gRPC health check service on a
+// [connect.Server].
+type HealthHandlerFunc func(server *connect.Server)
+
+// healthServicePath is the URL path prefix of the gRPC health check service
+// that HealthHandlerFunc registers.
+const healthServicePath = "/" + grpchealth.HealthV1ServiceName + "/"
 
 // PublicHTTPRoute is a plain HTTP handler served on the Connect server's root
 // mux, beside the health check and outside the authn middleware and the
@@ -65,25 +73,32 @@ func NewConnectServer(
 	authFunc authn.AuthFunc,
 	rateLimiter *ratelimit.Limiter,
 	healthHandler HealthHandlerFunc,
-	extraInterceptors []connect.Interceptor,
+	extraInterceptors []connect.ServerInterceptor,
 	publicRoutes []PublicHTTPRoute,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
-	// Create interceptors
-	tracingInterceptor, _ := otelconnect.NewInterceptor()
-	accessLogInterceptor := logging.NewAccessLogInterceptor(logger)
-	validationInterceptor := validate.NewInterceptor()
+	// Create interceptors. otelconnect only fails on invalid options, and none
+	// are passed; on failure the server runs without tracing rather than not
+	// at all, as the v1 code (which discarded the error) did.
+	tracingInterceptor, err := otelconnect.NewServerInterceptor()
+	if err != nil {
+		logger.Error(context.Background(), "failed to create the tracing interceptor; serving without tracing", err)
+		tracingInterceptor = passThroughInterceptor
+	}
+	accessLogInterceptor := loggingconnect.NewAccessLogInterceptor(logger)
+	validationInterceptor := validate.NewServerInterceptor()
 
 	// Interceptor chain — execution order matters.
 	//
-	// Connect-RPC applies HandlerOptions in registration order. Within a single
-	// WithInterceptors() call, the first interceptor listed becomes the outermost
-	// layer. When multiple HandlerOptions are registered, each subsequent option's
-	// interceptors are appended inside the previous ones via chainWith().
+	// connect.NewServer applies its interceptors in argument order: the first
+	// interceptor listed is the outermost layer. Each interceptor wraps every
+	// RPC type (unary and streaming) through the same connect.ServerFunc;
+	// interceptors that were unary-only in v1 (the rate limiters) check
+	// spec.StreamType themselves and pass streams through.
 	//
 	// The enriched ctx created by an outer interceptor flows inward as a function
-	// argument to next(ctx, req), so all inner interceptors automatically receive
-	// context values (e.g., OTel span) set by outer ones.
+	// argument to next(ctx, spec, stream), so all inner interceptors automatically
+	// receive context values (e.g., OTel span) set by outer ones.
 	//
 	// Execution order (outermost → innermost):
 	//
@@ -95,7 +110,7 @@ func NewConnectServer(
 	//                                   by [4]) for correct status codes. Outside [5] so it is NOT
 	//                                   bypassed when a panic unwinds the stack.
 	//   [4] errorHandlingInterceptor  — Converts AppErr → *connect.Error. Has trace context from [1].
-	//   [5] recoverHandler            — defer recover(). Returns *connect.Error on panic. Has trace
+	//   [5] recoverInterceptor        — defer recover(). Returns *connect.Error on panic. Has trace
 	//                                   context from [1]. Inside [3] so access log still fires.
 	//   [6] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
 	//                                        and writes auth.claimsKey for handlers.
@@ -110,51 +125,46 @@ func NewConnectServer(
 	//
 	// The claims bridge runs first so the bridged claims are visible to any
 	// extraInterceptors; validation runs last so it is innermost.
-	innerInterceptors := []connect.Interceptor{auth.ClaimsBridgeInterceptor{}}
-	innerInterceptors = append(innerInterceptors, extraInterceptors...)
-	innerInterceptors = append(innerInterceptors, validationInterceptor)
-
-	handlerOpts := []connect.HandlerOption{
-		connect.WithInterceptors(
-			tracingInterceptor,
-			ratelimit.NewInterceptor(rateLimiter),
-			accessLogInterceptor,
-			apperr_connect.NewErrorHandlingInterceptor(logger),
-		),
-		newRecoverHandler(logger),
-		connect.WithInterceptors(innerInterceptors...),
+	interceptors := []connect.ServerInterceptor{
+		tracingInterceptor,
+		ratelimit.NewInterceptor(rateLimiter),
+		accessLogInterceptor,
+		apperrconnect.NewErrorHandlingInterceptor(logger),
+		newRecoverInterceptor(logger),
+		auth.NewClaimsBridgeInterceptor(),
 	}
+	interceptors = append(interceptors, extraInterceptors...)
+	interceptors = append(interceptors, validationInterceptor)
 
-	// Health check opts — minimal chain for Kubernetes probes.
+	// RPC services share one connect.Server, mounted on the protected mux.
+	// connecthttp.Mount keeps v2's default 4 MiB per-message read limit.
+	rpcServer := connect.NewServer(interceptors...)
+	for _, handlerFunc := range handlerFuncs {
+		handlerFunc(rpcServer)
+	}
+	protectedMux := http.NewServeMux()
+	connecthttp.Mount(protectedMux, rpcServer)
+
+	// Health check server — minimal chain for Kubernetes probes.
 	// No access log, tracing, error-handling, auth bridge, or validation;
 	// health checks are called every few seconds and those layers add
 	// noise without operational value.
-	healthOpts := []connect.HandlerOption{
-		newRecoverHandler(logger),
-	}
-
-	// Protected mux — all RPC services
-	protectedMux := http.NewServeMux()
-
-	// RPC handlers — each wrapped with the standard HandlerTimeout.
-	for _, handlerFunc := range handlerFuncs {
-		path, handler := handlerFunc(handlerOpts...)
-		protectedMux.Handle(path, http.TimeoutHandler(handler, serverCfg.HandlerTimeout, ""))
-	}
-
-	// Health check handler (no auth required for K8s probes)
-	healthPath, healthH := healthHandler(healthOpts...)
+	healthServer := connect.NewServer(newRecoverInterceptor(logger))
+	healthHandler(healthServer)
+	healthMux := http.NewServeMux()
+	connecthttp.Mount(healthMux, healthServer)
 
 	// Wrap protected mux with authn middleware (default-deny)
 	authMiddleware := authn.NewMiddleware(authFunc)
 
 	// Root mux: health check is public, everything else requires auth
 	rootMux := http.NewServeMux()
-	rootMux.Handle(healthPath, http.TimeoutHandler(healthH, serverCfg.HandlerTimeout, ""))
+	rootMux.Handle(healthServicePath, http.TimeoutHandler(healthMux, serverCfg.HandlerTimeout, ""))
 	for _, route := range publicRoutes {
 		rootMux.Handle(route.Pattern, http.TimeoutHandler(route.Handler, serverCfg.HandlerTimeout, ""))
 	}
-	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
+	// Every RPC is wrapped with the standard HandlerTimeout.
+	rootMux.Handle("/", authMiddleware.Wrap(http.TimeoutHandler(protectedMux, serverCfg.HandlerTimeout, "")))
 
 	address := net.JoinHostPort(serverCfg.Host, strconv.Itoa(serverCfg.Port))
 
@@ -219,12 +229,35 @@ func (s *ConnectServer) Close() error {
 	return nil
 }
 
-func newRecoverHandler(logger *logging.Logger) connect.HandlerOption {
-	return connect.WithRecover(func(ctx context.Context, spec connect.Spec, _ http.Header, p any) error {
-		logger.Error(ctx, "Panic recovered in Connect handler", fmt.Errorf("panic: %v", p),
-			slog.String("procedure", spec.Procedure),
-		)
+// newRecoverInterceptor returns a server interceptor that recovers a panic in
+// any inner layer or handler, logs it, and fails the RPC with CodeInternal and
+// the message "internal server error". It replaces v1's connect.WithRecover,
+// which connect-go v2 does not have.
+//
+// It re-panics http.ErrAbortHandler, as v1's WithRecover did, so the HTTP
+// server still aborts the response.
+func newRecoverInterceptor(logger *logging.Logger) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) (err error) {
+			defer func() {
+				p := recover()
+				if p == nil {
+					return
+				}
+				if p == http.ErrAbortHandler { //nolint:errorlint // the sentinel is panicked as is, never wrapped
+					panic(p)
+				}
+				logger.Error(ctx, "Panic recovered in Connect handler", fmt.Errorf("panic: %v", p),
+					slog.String("procedure", spec.Procedure),
+				)
+				err = connect.NewError(connect.CodeInternal, "internal server error")
+			}()
+			return next(ctx, spec, stream)
+		}
+	}
+}
 
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error"))
-	})
+// passThroughInterceptor is a server interceptor that does nothing.
+func passThroughInterceptor(next connect.ServerFunc) connect.ServerFunc {
+	return next
 }

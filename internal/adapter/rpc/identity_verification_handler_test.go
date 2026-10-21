@@ -6,7 +6,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	identityverificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity_verification/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -60,22 +60,22 @@ func TestIdentityVerificationHandler_Start(t *testing.T) {
 		identityVerificationUC.EXPECT().Start(mock.Anything, testCallerUserID, entity.VerificationMethodJPKI).
 			Return("sess-abc", "https://stamp.p8n.app/redirect/sess-abc", nil).Once()
 
-		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{
+		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), &identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "sess-abc", resp.Msg.GetSessionId())
-		assert.Equal(t, "https://stamp.p8n.app/redirect/sess-abc", resp.Msg.GetRedirectUrl().GetValue())
+		assert.Equal(t, "sess-abc", resp.GetSessionId())
+		assert.Equal(t, "https://stamp.p8n.app/redirect/sess-abc", resp.GetRedirectUrl().GetValue())
 	})
 
 	t.Run("return UNAUTHENTICATED without a sign-in", func(t *testing.T) {
 		t.Parallel()
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(context.Background(), connect.NewRequest(&identityverificationv1.StartRequest{
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(context.Background(), &identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -85,9 +85,9 @@ func TestIdentityVerificationHandler_Start(t *testing.T) {
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, false)
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), &identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -97,7 +97,7 @@ func TestIdentityVerificationHandler_Start(t *testing.T) {
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{}))
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Start(authedCtx(testCallerExtID), &identityverificationv1.StartRequest{})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -113,13 +113,13 @@ func TestIdentityVerificationHandler_Create(t *testing.T) {
 		identityVerificationUC.EXPECT().Create(mock.Anything, testCallerUserID, "sess-abc").
 			Return(sampleIdentityVerification(entity.VerificationStatusActive), nil).Once()
 
-		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.CreateRequest{
+		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Create(authedCtx(testCallerExtID), &identityverificationv1.CreateRequest{
 			SessionId: "sess-abc",
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "identity verification-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
-		assert.Equal(t, testCallerUserID, resp.Msg.GetIdentityVerification().GetUserId().GetValue())
+		assert.Equal(t, "identity verification-1", resp.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.GetIdentityVerification().GetUserId().GetValue())
 	})
 
 	t.Run("return the usecase failure unchanged", func(t *testing.T) {
@@ -129,9 +129,9 @@ func TestIdentityVerificationHandler_Create(t *testing.T) {
 		identityVerificationUC.EXPECT().Create(mock.Anything, testCallerUserID, "sess-abc").
 			Return(nil, apperr.New(codes.AlreadyExists, "bound to another account")).Once()
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.CreateRequest{
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Create(authedCtx(testCallerExtID), &identityverificationv1.CreateRequest{
 			SessionId: "sess-abc",
-		}))
+		})
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
@@ -163,10 +163,10 @@ func TestIdentityVerificationHandler_Recheck(t *testing.T) {
 			expectCaller(userUC, true)
 			identityVerificationUC.EXPECT().Recheck(mock.Anything, testCallerUserID).Return(sampleIdentityVerification(tt.status), nil).Once()
 
-			resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.RecheckRequest{}))
+			resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Recheck(authedCtx(testCallerExtID), &identityverificationv1.RecheckRequest{})
 
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantStatus, resp.Msg.GetStatus())
+			assert.Equal(t, tt.wantStatus, resp.GetStatus())
 		})
 	}
 
@@ -176,7 +176,7 @@ func TestIdentityVerificationHandler_Recheck(t *testing.T) {
 		expectCaller(userUC, true)
 		identityVerificationUC.EXPECT().Recheck(mock.Anything, testCallerUserID).Return(nil, nil).Once()
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.RecheckRequest{}))
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Recheck(authedCtx(testCallerExtID), &identityverificationv1.RecheckRequest{})
 
 		assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 	})
@@ -192,11 +192,11 @@ func TestIdentityVerificationHandler_Get(t *testing.T) {
 		identityVerificationUC.EXPECT().Get(mock.Anything, testCallerUserID).
 			Return(sampleIdentityVerification(entity.VerificationStatusNeedsReverification), nil).Once()
 
-		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
+		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), &identityverificationv1.GetRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, "identity verification-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
-		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.Msg.GetIdentityVerification().GetStatus())
+		assert.Equal(t, "identity verification-1", resp.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.GetIdentityVerification().GetStatus())
 	})
 
 	t.Run("return NOT_FOUND for a fan who never verified their identity", func(t *testing.T) {
@@ -206,7 +206,7 @@ func TestIdentityVerificationHandler_Get(t *testing.T) {
 		identityVerificationUC.EXPECT().Get(mock.Anything, testCallerUserID).
 			Return(nil, apperr.New(codes.NotFound, "no identity verification")).Once()
 
-		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
+		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), &identityverificationv1.GetRequest{})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

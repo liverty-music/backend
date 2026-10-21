@@ -7,7 +7,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	walletpublickeyv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/wallet_public_key/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
@@ -48,30 +48,30 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 				ReplacedOtherKey: true,
 			}, nil)
 
-		resp, err := h.Register(ctx, connect.NewRequest(&walletpublickeyv1.RegisterRequest{
+		resp, err := h.Register(ctx, &walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: key},
-		}))
+		})
 		require.NoError(t, err)
-		assert.Equal(t, "user-1", resp.Msg.WalletPublicKey.UserId.Value)
-		assert.Equal(t, []byte(key), resp.Msg.WalletPublicKey.PublicKey.Value)
-		assert.True(t, resp.Msg.WalletPublicKey.RegisterTime.AsTime().Equal(registered))
-		assert.True(t, resp.Msg.ReplacedOtherKey)
+		assert.Equal(t, "user-1", resp.WalletPublicKey.UserId.Value)
+		assert.Equal(t, []byte(key), resp.WalletPublicKey.PublicKey.Value)
+		assert.True(t, resp.WalletPublicKey.RegisterTime.AsTime().Equal(registered))
+		assert.True(t, resp.ReplacedOtherKey)
 	})
 
 	t.Run("missing key", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/wallet-public-key "Missing key"
 		h, _, _ := newWalletPublicKeyHandler(t)
-		_, err := h.Register(ticketAuthedCtx("ext-1"), connect.NewRequest(&walletpublickeyv1.RegisterRequest{}))
+		_, err := h.Register(ticketAuthedCtx("ext-1"), &walletpublickeyv1.RegisterRequest{})
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
 	t.Run("not signed in", func(t *testing.T) {
 		t.Parallel()
 		h, _, _ := newWalletPublicKeyHandler(t)
-		_, err := h.Register(context.Background(), connect.NewRequest(&walletpublickeyv1.RegisterRequest{
+		_, err := h.Register(context.Background(), &walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
-		}))
+		})
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
@@ -80,9 +80,9 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		ctx := ticketAuthedCtx("ext-1")
 		h, _, users := newWalletPublicKeyHandler(t)
 		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(nil, apperr.New(codes.NotFound, "no user"))
-		_, err := h.Register(ctx, connect.NewRequest(&walletpublickeyv1.RegisterRequest{
+		_, err := h.Register(ctx, &walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
-		}))
+		})
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
@@ -93,9 +93,9 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), mock.Anything, mock.Anything).
 			Return(nil, apperr.New(codes.InvalidArgument, "not a P-256 point"))
-		_, err := h.Register(ctx, connect.NewRequest(&walletpublickeyv1.RegisterRequest{
+		_, err := h.Register(ctx, &walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: append([]byte{0x04}, make([]byte, 64)...)},
-		}))
+		})
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -114,17 +114,17 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).
 			Return(&entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered}, nil)
 
-		resp, err := h.Get(ctx, connect.NewRequest(&walletpublickeyv1.GetRequest{}))
+		resp, err := h.Get(ctx, &walletpublickeyv1.GetRequest{})
 		require.NoError(t, err)
-		assert.Equal(t, []byte(key), resp.Msg.WalletPublicKey.PublicKey.Value)
-		assert.True(t, resp.Msg.WalletPublicKey.RegisterTime.AsTime().Equal(registered))
+		assert.Equal(t, []byte(key), resp.WalletPublicKey.PublicKey.Value)
+		assert.True(t, resp.WalletPublicKey.RegisterTime.AsTime().Equal(registered))
 	})
 
 	t.Run("not signed in", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/wallet-public-key "Not signed in"
 		h, _, _ := newWalletPublicKeyHandler(t)
-		_, err := h.Get(context.Background(), connect.NewRequest(&walletpublickeyv1.GetRequest{}))
+		_, err := h.Get(context.Background(), &walletpublickeyv1.GetRequest{})
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
@@ -135,7 +135,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).Return(nil, apperr.New(codes.NotFound, "no key"))
 
-		_, err := h.Get(ctx, connect.NewRequest(&walletpublickeyv1.GetRequest{}))
+		_, err := h.Get(ctx, &walletpublickeyv1.GetRequest{})
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }

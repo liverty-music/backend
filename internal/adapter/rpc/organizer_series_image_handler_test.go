@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	seriesimagev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series_image/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -28,12 +28,12 @@ func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 			Once()
 
 		resp, err := rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC).CreateUploadUrl(orgCtx(testProviderOrganizerID),
-			connect.NewRequest(&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"}))
+			&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"})
 
 		require.NoError(t, err)
-		assert.Equal(t, "https://storage.example.com/upload", resp.Msg.GetUploadUrl().GetValue())
-		assert.Equal(t, "img-1", resp.Msg.GetSeriesImageId().GetValue())
-		assert.Equal(t, int64(1024), resp.Msg.GetMaxBytes())
+		assert.Equal(t, "https://storage.example.com/upload", resp.GetUploadUrl().GetValue())
+		assert.Equal(t, "img-1", resp.GetSeriesImageId().GetValue())
+		assert.Equal(t, int64(1024), resp.GetMaxBytes())
 	})
 
 	// @spec components/adapter/organizer/api/rpc/series-image "Deactivated Organizer"
@@ -44,7 +44,7 @@ func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(nil, resolveErr).Once()
 
 		_, err := rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC).CreateUploadUrl(orgCtx(testProviderOrganizerID),
-			connect.NewRequest(&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"}))
+			&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"})
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, resolveErr)

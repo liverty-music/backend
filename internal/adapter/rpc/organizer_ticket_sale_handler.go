@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
+	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_sale/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -45,7 +44,7 @@ func NewOrganizerTicketSaleHandler(
 func resolveCallerOrganizer(ctx context.Context, organizerUC usecase.OrganizerUseCase) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 	return organizerUC.ResolveCaller(ctx, callerOrgID)
 }
@@ -54,18 +53,18 @@ func resolveCallerOrganizer(ctx context.Context, organizerUC usecase.OrganizerUs
 // caller's Series.
 func (h *OrganizerTicketSaleHandler) Create(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.CreateRequest],
-) (*connect.Response[ticketsalev1.CreateResponse], error) {
+	req *ticketsalev1.CreateRequest,
+) (*ticketsalev1.CreateResponse, error) {
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
-	view, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req.Msg))
+	view, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+	return &ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
 }
 
 // ListByEvent returns the sales of one of the caller's events with their
@@ -73,59 +72,59 @@ func (h *OrganizerTicketSaleHandler) Create(
 // referral code.
 func (h *OrganizerTicketSaleHandler) ListByEvent(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.ListByEventRequest],
-) (*connect.Response[ticketsalev1.ListByEventResponse], error) {
+	req *ticketsalev1.ListByEventRequest,
+) (*ticketsalev1.ListByEventResponse, error) {
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
-	sales, err := h.ticketSaleUC.ListOwnByEvent(ctx, organizer.ID, req.Msg.GetEventId().GetValue())
+	sales, err := h.ticketSaleUC.ListOwnByEvent(ctx, organizer.ID, req.GetEventId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.ListByEventResponse{
+	return &ticketsalev1.ListByEventResponse{
 		TicketSales:       mapper.TicketSalesToProto(sales.Sales, true),
 		LotteryEntryStats: mapper.LotteryEntryStatsToProto(sales.Sales),
 		ReferralCodeStats: mapper.ReferralCodeStatsToProto(sales.ReferralCodeStats),
-	}), nil
+	}, nil
 }
 
 // SetWindow moves the window of one of the caller's sales.
 func (h *OrganizerTicketSaleHandler) SetWindow(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.SetWindowRequest],
-) (*connect.Response[ticketsalev1.SetWindowResponse], error) {
+	req *ticketsalev1.SetWindowRequest,
+) (*ticketsalev1.SetWindowResponse, error) {
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
 	view, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
-		entity.TicketSaleID(req.Msg.GetTicketSaleId().GetValue()),
-		req.Msg.GetSaleStartTime().AsTime(), req.Msg.GetSaleEndTime().AsTime())
+		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
+		req.GetSaleStartTime().AsTime(), req.GetSaleEndTime().AsTime())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+	return &ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
 }
 
 // SetVerificationRequirement changes whether fans taking part in one of the
 // caller's sales must hold an Active IdentityVerification; a request without one sets None.
 func (h *OrganizerTicketSaleHandler) SetVerificationRequirement(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.SetVerificationRequirementRequest],
-) (*connect.Response[ticketsalev1.SetVerificationRequirementResponse], error) {
+	req *ticketsalev1.SetVerificationRequirementRequest,
+) (*ticketsalev1.SetVerificationRequirementResponse, error) {
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
 	view, err := h.ticketSaleUC.SetVerificationRequirement(ctx, organizer.ID,
-		entity.TicketSaleID(req.Msg.GetTicketSaleId().GetValue()),
-		mapper.VerificationRequirementFromProto(req.Msg.GetVerificationRequirement()))
+		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
+		mapper.VerificationRequirementFromProto(req.GetVerificationRequirement()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+	return &ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
 }

@@ -5,7 +5,6 @@ import (
 
 	pb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -30,7 +29,7 @@ func NewArtistHandler(
 }
 
 // List retrieves a collection of all registered artists in the database.
-func (h *ArtistHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
+func (h *ArtistHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.ListResponse, error) {
 	artists, err := h.artistUseCase.List(ctx)
 	if err != nil {
 		return nil, err
@@ -41,61 +40,61 @@ func (h *ArtistHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 		protoArtists = append(protoArtists, mapper.ArtistToProto(a))
 	}
 
-	return connect.NewResponse(&rpc.ListResponse{
+	return &rpc.ListResponse{
 		Artists: protoArtists,
-	}), nil
+	}, nil
 }
 
 // Create registers a new musical performer or band in the system.
-func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
+func (h *ArtistHandler) Create(ctx context.Context, req *rpc.CreateRequest) (*rpc.CreateResponse, error) {
 	var mbid string
-	if req.Msg.Mbid != nil {
-		mbid = req.Msg.Mbid.Value
+	if req.Mbid != nil {
+		mbid = req.Mbid.Value
 	}
-	artist := entity.NewArtist(req.Msg.Name.Value, mbid)
+	artist := entity.NewArtist(req.Name.Value, mbid)
 
 	created, err := h.artistUseCase.Create(ctx, artist)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.CreateResponse{
+	return &rpc.CreateResponse{
 		Artist: mapper.ArtistToProto(created),
-	}), nil
+	}, nil
 }
 
 // Search performs an incremental search for artists by name.
-func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[rpc.SearchRequest]) (*connect.Response[rpc.SearchResponse], error) {
-	artists, err := h.artistUseCase.Search(ctx, req.Msg.Query)
+func (h *ArtistHandler) Search(ctx context.Context, req *rpc.SearchRequest) (*rpc.SearchResponse, error) {
+	artists, err := h.artistUseCase.Search(ctx, req.Query)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.SearchResponse{
+	return &rpc.SearchResponse{
 		Artists: mapper.ArtistsToProto(artists),
-	}), nil
+	}, nil
 }
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.
-func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rpc.ListSimilarRequest]) (*connect.Response[rpc.ListSimilarResponse], error) {
-	artists, err := h.artistUseCase.ListSimilar(ctx, req.Msg.ArtistId.Value, req.Msg.GetLimit())
+func (h *ArtistHandler) ListSimilar(ctx context.Context, req *rpc.ListSimilarRequest) (*rpc.ListSimilarResponse, error) {
+	artists, err := h.artistUseCase.ListSimilar(ctx, req.ArtistId.Value, req.GetLimit())
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.ListSimilarResponse{
+	return &rpc.ListSimilarResponse{
 		Artists: mapper.ArtistsToProto(artists),
-	}), nil
+	}, nil
 }
 
 // ListTop retrieves a collection of trending or popular artists, optionally filtered by country or genre tag.
-func (h *ArtistHandler) ListTop(ctx context.Context, req *connect.Request[rpc.ListTopRequest]) (*connect.Response[rpc.ListTopResponse], error) {
-	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry(), req.Msg.GetTag(), req.Msg.GetLimit())
+func (h *ArtistHandler) ListTop(ctx context.Context, req *rpc.ListTopRequest) (*rpc.ListTopResponse, error) {
+	artists, err := h.artistUseCase.ListTop(ctx, req.GetCountry(), req.GetTag(), req.GetLimit())
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.ListTopResponse{
+	return &rpc.ListTopResponse{
 		Artists: mapper.ArtistsToProto(artists),
-	}), nil
+	}, nil
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -39,7 +39,7 @@ func TestGetExternalUserID(t *testing.T) {
 				ctx: context.Background(),
 			},
 			want:    "",
-			wantErr: connect.NewError(connect.CodeUnauthenticated, nil),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, ""),
 		},
 		{
 			name: "nil claims in context",
@@ -47,7 +47,7 @@ func TestGetExternalUserID(t *testing.T) {
 				ctx: auth.WithClaims(context.Background(), nil),
 			},
 			want:    "",
-			wantErr: connect.NewError(connect.CodeUnauthenticated, nil),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, ""),
 		},
 		{
 			name: "empty Sub claim",
@@ -55,7 +55,7 @@ func TestGetExternalUserID(t *testing.T) {
 				ctx: auth.WithClaims(context.Background(), &auth.Claims{Sub: "", Email: "test@example.com"}),
 			},
 			want:    "",
-			wantErr: connect.NewError(connect.CodeUnauthenticated, nil),
+			wantErr: connect.NewError(connect.CodeUnauthenticated, ""),
 		},
 	}
 

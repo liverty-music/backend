@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
+	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_sale/v1"
-	"connectrpc.com/connect"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -33,11 +32,11 @@ func NewTicketSaleHandler(ticketSaleUC usecase.TicketSaleUseCase, logger *loggin
 // TicketType for the event and, for a first-come one, its state now.
 func (h *TicketSaleHandler) ListByEvent(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.ListByEventRequest],
-) (*connect.Response[ticketsalev1.ListByEventResponse], error) {
-	views, err := h.ticketSaleUC.ListByEvent(ctx, req.Msg.GetEventId().GetValue())
+	req *ticketsalev1.ListByEventRequest,
+) (*ticketsalev1.ListByEventResponse, error) {
+	views, err := h.ticketSaleUC.ListByEvent(ctx, req.GetEventId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.ListByEventResponse{TicketSales: mapper.TicketSalesToProto(views, false)}), nil
+	return &ticketsalev1.ListByEventResponse{TicketSales: mapper.TicketSalesToProto(views, false)}, nil
 }

@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	resalelistingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
+	resalelistingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	resalelistingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/resale_listing/v1"
-	"connectrpc.com/connect"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -36,42 +35,42 @@ func NewResaleListingHandler(resaleListingUC usecase.ResaleListingUseCase, userU
 // Create lists one of the caller's tickets for official resale.
 func (h *ResaleListingHandler) Create(
 	ctx context.Context,
-	req *connect.Request[resalelistingv1.CreateRequest],
-) (*connect.Response[resalelistingv1.CreateResponse], error) {
+	req *resalelistingv1.CreateRequest,
+) (*resalelistingv1.CreateResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	listing, err := h.resaleListingUC.Create(ctx, userID, entity.TicketID(req.Msg.GetTicketId().GetValue()))
+	listing, err := h.resaleListingUC.Create(ctx, userID, entity.TicketID(req.GetTicketId().GetValue()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&resalelistingv1.CreateResponse{ResaleListing: mapper.ResaleListingToProto(listing)}), nil
+	return &resalelistingv1.CreateResponse{ResaleListing: mapper.ResaleListingToProto(listing)}, nil
 }
 
 // Withdraw takes back one of the caller's listings.
 func (h *ResaleListingHandler) Withdraw(
 	ctx context.Context,
-	req *connect.Request[resalelistingv1.WithdrawRequest],
-) (*connect.Response[resalelistingv1.WithdrawResponse], error) {
+	req *resalelistingv1.WithdrawRequest,
+) (*resalelistingv1.WithdrawResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	listing, err := h.resaleListingUC.Withdraw(ctx, userID, entity.ResaleListingID(req.Msg.GetResaleListingId().GetValue()))
+	listing, err := h.resaleListingUC.Withdraw(ctx, userID, entity.ResaleListingID(req.GetResaleListingId().GetValue()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&resalelistingv1.WithdrawResponse{ResaleListing: mapper.ResaleListingToProto(listing)}), nil
+	return &resalelistingv1.WithdrawResponse{ResaleListing: mapper.ResaleListingToProto(listing)}, nil
 }
 
 // List returns all of the caller's listings.
 func (h *ResaleListingHandler) List(
 	ctx context.Context,
-	_ *connect.Request[resalelistingv1.ListRequest],
-) (*connect.Response[resalelistingv1.ListResponse], error) {
+	_ *resalelistingv1.ListRequest,
+) (*resalelistingv1.ListResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
@@ -81,5 +80,5 @@ func (h *ResaleListingHandler) List(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&resalelistingv1.ListResponse{ResaleListings: mapper.ResaleListingsToProto(listings)}), nil
+	return &resalelistingv1.ListResponse{ResaleListings: mapper.ResaleListingsToProto(listings)}, nil
 }

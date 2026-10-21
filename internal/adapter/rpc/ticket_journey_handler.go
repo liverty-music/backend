@@ -4,7 +4,6 @@ import (
 	"context"
 
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_journey/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -32,13 +31,13 @@ func NewTicketJourneyHandler(
 }
 
 // SetStatus creates or updates the fan's ticket journey status for a specific event.
-func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Request[rpc.SetStatusRequest]) (*connect.Response[rpc.SetStatusResponse], error) {
+func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *rpc.SetStatusRequest) (*rpc.SetStatusResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	status := mapper.TicketJourneyStatusFromProto[req.Msg.Status]
+	status := mapper.TicketJourneyStatusFromProto[req.Status]
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
@@ -48,15 +47,15 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 
-	if err := h.ticketJourneyUC.SetStatus(ctx, user.ID, req.Msg.EventId.Value, status); err != nil {
+	if err := h.ticketJourneyUC.SetStatus(ctx, user.ID, req.EventId.Value, status); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.SetStatusResponse{}), nil
+	return &rpc.SetStatusResponse{}, nil
 }
 
 // Delete removes the fan's ticket journey for a specific event.
-func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[rpc.DeleteRequest]) (*connect.Response[rpc.DeleteResponse], error) {
+func (h *TicketJourneyHandler) Delete(ctx context.Context, req *rpc.DeleteRequest) (*rpc.DeleteResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -70,16 +69,16 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 
-	if err := h.ticketJourneyUC.Delete(ctx, user.ID, req.Msg.EventId.Value); err != nil {
+	if err := h.ticketJourneyUC.Delete(ctx, user.ID, req.EventId.Value); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.DeleteResponse{}), nil
+	return &rpc.DeleteResponse{}, nil
 }
 
 // List returns every ticket journey of the signed-in fan, empty when there is
 // none.
-func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
+func (h *TicketJourneyHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.ListResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -98,7 +97,7 @@ func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.ListResponse{
+	return &rpc.ListResponse{
 		Journeys: mapper.TicketJourneysToProto(journeys),
-	}), nil
+	}, nil
 }

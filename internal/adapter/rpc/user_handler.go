@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -40,7 +39,7 @@ func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *Us
 }
 
 // Get returns the signed-in caller's own User.
-func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
+func (h *UserHandler) Get(ctx context.Context, _ *userv1.GetRequest) (*userv1.GetResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -51,15 +50,15 @@ func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequ
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.GetResponse{
+	return &userv1.GetResponse{
 		User: mapper.UserToProto(user),
-	}), nil
+	}, nil
 }
 
 // Create creates a new user.
 // The optional home field allows persisting the user's home area atomically
 // with account creation (selected during onboarding before sign-up).
-func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
+func (h *UserHandler) Create(ctx context.Context, req *userv1.CreateRequest) (*userv1.CreateResponse, error) {
 	// Extract JWT claims from authenticated context (set by auth interceptor).
 	// This is critical for security — we extract all identity fields from validated JWT claims
 	// (provider_user_id, email, name) and never trust client-provided identity data.
@@ -74,16 +73,16 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	// layers stay symmetric with SetPreferredLanguage. preferred_language
 	// is optional at Create (old clients omit it → stored as NULL), so
 	// only the non-empty case is checked here.
-	lang := req.Msg.GetPreferredLanguage()
+	lang := req.GetPreferredLanguage()
 	if lang != "" && !entity.IsValidLanguageCode(lang) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$) when present"))
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$) when present")
 	}
 
 	// Convert JWT claims and request to domain DTO. preferred_language is optional;
 	// GetPreferredLanguage() returns "" when the field is absent, which is stored
 	// as NULL in the database.
-	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg)
+	newUser := mapper.NewUserFromCreateRequest(claims, req)
 
 	// Use the use case layer for business logic.
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
@@ -91,9 +90,9 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.CreateResponse{
+	return &userv1.CreateResponse{
 		User: mapper.UserToProto(createdUser),
-	}), nil
+	}, nil
 }
 
 // Update changes the signed-in caller's full name, phone number or both and
@@ -101,10 +100,10 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 // checked before the usecase runs: at least one value must be given, and each
 // given value must follow the User's personal details rule (a full name of 1
 // to 200 characters, a phone number in E.164 form).
-func (h *UserHandler) Update(ctx context.Context, req *connect.Request[userv1.UpdateRequest]) (*connect.Response[userv1.UpdateResponse], error) {
-	fullName, phoneNumber, err := mapper.PersonalDetailsFromUpdateRequest(req.Msg)
+func (h *UserHandler) Update(ctx context.Context, req *userv1.UpdateRequest) (*userv1.UpdateResponse, error) {
+	fullName, phoneNumber, err := mapper.PersonalDetailsFromUpdateRequest(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
 	providerUserID, err := mapper.GetExternalUserID(ctx)
@@ -119,14 +118,14 @@ func (h *UserHandler) Update(ctx context.Context, req *connect.Request[userv1.Up
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.UpdateResponse{
+	return &userv1.UpdateResponse{
 		User: mapper.UserToProto(user),
-	}), nil
+	}, nil
 }
 
 // SetPreferredLanguage sets or changes the signed-in caller's preferred
 // display language.
-func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Request[userv1.SetPreferredLanguageRequest]) (*connect.Response[userv1.SetPreferredLanguageResponse], error) {
+func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *userv1.SetPreferredLanguageRequest) (*userv1.SetPreferredLanguageResponse, error) {
 	// Defense in depth: protovalidate enforces the same regex at the wire
 	// layer and the use case has the authoritative guard. Re-checking
 	// here at the RPC seam keeps the contract explicit and consistent so
@@ -143,10 +142,10 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Req
 	//
 	// `entity.IsValidLanguageCode` is the single source of truth (also
 	// used by the use case), so a future format change is one edit.
-	lang := req.Msg.GetPreferredLanguage()
+	lang := req.GetPreferredLanguage()
 	if !entity.IsValidLanguageCode(lang) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$)")
 	}
 
 	providerUserID, err := mapper.GetExternalUserID(ctx)
@@ -164,13 +163,13 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Req
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.SetPreferredLanguageResponse{
+	return &userv1.SetPreferredLanguageResponse{
 		User: mapper.UserToProto(user),
-	}), nil
+	}, nil
 }
 
 // SetHome sets or changes the signed-in caller's home area.
-func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.SetHomeRequest]) (*connect.Response[userv1.SetHomeResponse], error) {
+func (h *UserHandler) SetHome(ctx context.Context, req *userv1.SetHomeRequest) (*userv1.SetHomeResponse, error) {
 	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -181,15 +180,15 @@ func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.S
 		return nil, err
 	}
 
-	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
+	home := mapper.ProtoHomeToEntity(req.GetHome())
 	updatedUser, err := h.userUseCase.SetHome(ctx, user.ID, home)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.SetHomeResponse{
+	return &userv1.SetHomeResponse{
 		User: mapper.UserToProto(updatedUser),
-	}), nil
+	}, nil
 }
 
 // ResendEmailVerification triggers a new email verification message for the
@@ -198,7 +197,7 @@ func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.S
 // The handler only resolves the caller's provider user ID from the JWT and
 // delegates to the use case, which resolves the caller and enforces the resend
 // rate limit before calling the identity provider.
-func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {
+func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *userv1.ResendEmailVerificationRequest) (*userv1.ResendEmailVerificationResponse, error) {
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -208,5 +207,5 @@ func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *connect.Re
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.ResendEmailVerificationResponse{}), nil
+	return &userv1.ResendEmailVerificationResponse{}, nil
 }

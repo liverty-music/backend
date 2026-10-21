@@ -6,7 +6,7 @@ import (
 
 	proto "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 )
@@ -82,7 +82,7 @@ func ProtoHomeToEntity(pbHome *proto.Home) *entity.Home {
 func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
 	claims, ok := auth.GetClaims(ctx)
 	if !ok || claims == nil {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, "authentication required")
 	}
 	return claims, nil
 }
@@ -96,7 +96,7 @@ func GetExternalUserID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if claims.Sub == "" {
-		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("token missing subject claim"))
+		return "", connect.NewError(connect.CodeUnauthenticated, "token missing subject claim")
 	}
 	return claims.Sub, nil
 }

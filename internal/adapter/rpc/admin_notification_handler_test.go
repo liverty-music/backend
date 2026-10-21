@@ -7,7 +7,7 @@ import (
 
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminnotificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/notification/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -89,7 +89,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 			h := newAdminNotificationHandler(t, ucmocks.NewMockNotificationUseCase(t), cfg)
 
 			_, viaPipeline := callThroughAdminPipeline(t, context.Background(), notifyRequest(2), h.NotifyNewConcerts)
-			_, direct := h.NotifyNewConcerts(context.Background(), connect.NewRequest(notifyRequest(2)))
+			_, direct := h.NotifyNewConcerts(context.Background(), notifyRequest(2))
 
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(viaPipeline), "environment %q", cfg.Environment)
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(direct), "the handler itself checks sign-in before the environment (%q)", cfg.Environment)
@@ -112,7 +112,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 		h := newAdminNotificationHandler(t, ucmocks.NewMockNotificationUseCase(t), devConfig())
 
 		_, viaPipeline := callThroughAdminPipeline(t, adminCtx(), notifyRequest(0), h.NotifyNewConcerts)
-		_, direct := h.NotifyNewConcerts(adminCtx(), connect.NewRequest(notifyRequest(0)))
+		_, direct := h.NotifyNewConcerts(adminCtx(), notifyRequest(0))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(viaPipeline))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(direct))
@@ -149,7 +149,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 			t.Parallel()
 			h := newAdminNotificationHandler(t, ucmocks.NewMockNotificationUseCase(t), devConfig())
 
-			_, err := h.NotifyNewConcerts(adminCtx(), connect.NewRequest(tt.req))
+			_, err := h.NotifyNewConcerts(adminCtx(), tt.req)
 
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})
@@ -162,7 +162,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 			Return(apperr.New(apperrcodes.InvalidArgument, "ownership violation")).Once()
 		h := newAdminNotificationHandler(t, uc, devConfig())
 
-		_, err := h.NotifyNewConcerts(adminCtx(), connect.NewRequest(notifyRequest(2)))
+		_, err := h.NotifyNewConcerts(adminCtx(), notifyRequest(2))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})

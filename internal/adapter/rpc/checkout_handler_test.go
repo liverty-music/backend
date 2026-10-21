@@ -2,14 +2,14 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
-	checkoutv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
+	checkoutv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/checkout/v1/checkoutv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	checkoutv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/checkout/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -38,10 +38,10 @@ func newCheckoutFixture(t *testing.T, decorate func(context.Context) context.Con
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewCheckoutHandler(f.checkouts, f.issuance, f.users, logger)
-	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return checkoutv1connect.NewCheckoutServiceHandler(h, opts...)
+	srv := serveValidated(t, func(s *connect.Server) {
+		checkoutv1connect.RegisterCheckoutServiceHandler(s, h)
 	}, decorate)
-	f.client = checkoutv1connect.NewCheckoutServiceClient(srv.Client(), srv.URL)
+	f.client = checkoutv1connect.NewCheckoutServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	return f
 }
 
@@ -70,12 +70,12 @@ func TestCheckoutHandler(t *testing.T) {
 		expectFan(f.users)
 		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2, (*entity.ReferralCode)(nil)).Return(held, nil)
 
-		resp, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		resp, err := f.client.Start(ctx, startReq())
 
 		require.NoError(t, err)
-		assert.Equal(t, tkCheckoutID, resp.Msg.GetCheckout().GetId().GetValue())
-		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_HELD, resp.Msg.GetCheckout().GetStatus())
-		assert.Equal(t, tkTicketTypeID, resp.Msg.GetCheckout().GetTicketTypeId().GetValue())
+		assert.Equal(t, tkCheckoutID, resp.GetCheckout().GetId().GetValue())
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_HELD, resp.GetCheckout().GetStatus())
+		assert.Equal(t, tkTicketTypeID, resp.GetCheckout().GetTicketTypeId().GetValue())
 	})
 
 	t.Run("resale checkout started", func(t *testing.T) {
@@ -89,12 +89,12 @@ func TestCheckoutHandler(t *testing.T) {
 		req := startReq()
 		req.TicketCount = 1
 
-		resp, err := f.client.Start(ctx, connect.NewRequest(req))
+		resp, err := f.client.Start(ctx, req)
 
 		require.NoError(t, err)
-		assert.True(t, resp.Msg.GetCheckout().GetResale())
+		assert.True(t, resp.GetCheckout().GetResale())
 		// The Checkout has no field naming the listings it holds or their fans.
-		fields := resp.Msg.GetCheckout().ProtoReflect().Descriptor().Fields()
+		fields := resp.GetCheckout().ProtoReflect().Descriptor().Fields()
 		assert.Nil(t, fields.ByName("user_id"))
 		assert.Nil(t, fields.ByName("resale_listing_ids"))
 	})
@@ -109,7 +109,7 @@ func TestCheckoutHandler(t *testing.T) {
 		req := startReq()
 		req.ReferralCode = &entityv1.ReferralCode{Value: "member-a"}
 
-		_, err := f.client.Start(ctx, connect.NewRequest(req))
+		_, err := f.client.Start(ctx, req)
 
 		require.NoError(t, err)
 	})
@@ -119,7 +119,7 @@ func TestCheckoutHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/checkout "Guest tries to buy"
 		f := newCheckoutFixture(t, func(c context.Context) context.Context { return c })
 
-		_, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		_, err := f.client.Start(ctx, startReq())
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -130,7 +130,7 @@ func TestCheckoutHandler(t *testing.T) {
 		f := newCheckoutFixture(t, signedInAs("ext-new"))
 		expectNoAccount(f.users, "ext-new")
 
-		_, err := f.client.Start(ctx, connect.NewRequest(startReq()))
+		_, err := f.client.Start(ctx, startReq())
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
@@ -141,10 +141,10 @@ func TestCheckoutHandler(t *testing.T) {
 		expectFan(f.users)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID)).Return(held, nil)
 
-		resp, err := f.client.Get(ctx, connect.NewRequest(&checkoutv1.GetRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}}))
+		resp, err := f.client.Get(ctx, &checkoutv1.GetRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}})
 
 		require.NoError(t, err)
-		assert.Equal(t, int64(6000), resp.Msg.GetCheckout().GetAmount())
+		assert.Equal(t, int64(6000), resp.GetCheckout().GetAmount())
 	})
 
 	t.Run("fan authorizes", func(t *testing.T) {
@@ -154,10 +154,10 @@ func TestCheckoutHandler(t *testing.T) {
 		f.checkouts.EXPECT().AuthorizeCard(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
-		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))
+		resp, err := f.client.AuthorizeCard(ctx, authorizeReq("+819012345678"))
 
 		require.NoError(t, err)
-		assert.Equal(t, "pi_secret", resp.Msg.GetCardAuthorizationSecret().GetValue())
+		assert.Equal(t, "pi_secret", resp.GetCardAuthorizationSecret().GetValue())
 	})
 
 	t.Run("fan confirms", func(t *testing.T) {
@@ -170,11 +170,11 @@ func TestCheckoutHandler(t *testing.T) {
 			ID: tkOrderID, UserID: caller, CheckoutID: tkCheckoutID, Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY",
 		}, nil)
 
-		resp, err := f.client.Confirm(ctx, connect.NewRequest(&checkoutv1.ConfirmRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}}))
+		resp, err := f.client.Confirm(ctx, &checkoutv1.ConfirmRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}})
 
 		require.NoError(t, err)
-		assert.Equal(t, tkOrderID, resp.Msg.GetOrder().GetId().GetValue())
-		assert.Equal(t, tkCheckoutID, resp.Msg.GetOrder().GetCheckoutId().GetValue())
+		assert.Equal(t, tkOrderID, resp.GetOrder().GetId().GetValue())
+		assert.Equal(t, tkCheckoutID, resp.GetOrder().GetCheckoutId().GetValue())
 	})
 
 	invalid := []struct {
@@ -187,7 +187,7 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := authorizeReq("+819012345678")
 				req.FullName = nil
-				_, err := c.AuthorizeCard(ctx, connect.NewRequest(req))
+				_, err := c.AuthorizeCard(ctx, req)
 				return err
 			},
 		},
@@ -197,7 +197,7 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := startReq()
 				req.TicketCount = 0
-				_, err := c.Start(ctx, connect.NewRequest(req))
+				_, err := c.Start(ctx, req)
 				return err
 			},
 		},
@@ -207,7 +207,7 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := startReq()
 				req.ReferralCode = &entityv1.ReferralCode{Value: "member_a"}
-				_, err := c.Start(ctx, connect.NewRequest(req))
+				_, err := c.Start(ctx, req)
 				return err
 			},
 		},
@@ -216,7 +216,7 @@ func TestCheckoutHandler(t *testing.T) {
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				req := startReq()
 				req.ReferralCode = &entityv1.ReferralCode{Value: "Member-A"}
-				_, err := c.Start(ctx, connect.NewRequest(req))
+				_, err := c.Start(ctx, req)
 				return err
 			},
 		},
@@ -224,30 +224,30 @@ func TestCheckoutHandler(t *testing.T) {
 			// @spec components/adapter/fan/api/rpc/checkout "Domestic-format phone number"
 			name: "domestic-format phone number",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
-				_, err := c.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
+				_, err := c.AuthorizeCard(ctx, authorizeReq("090-1234-5678"))
 				return err
 			},
 		},
 		{
 			name: "start with a malformed ticket type",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
-				_, err := c.Start(ctx, connect.NewRequest(&checkoutv1.StartRequest{
+				_, err := c.Start(ctx, &checkoutv1.StartRequest{
 					TicketTypeId: &entityv1.TicketTypeId{Value: "not-a-uuid"}, TicketCount: 1,
-				}))
+				})
 				return err
 			},
 		},
 		{
 			name: "get without a checkout",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
-				_, err := c.Get(ctx, connect.NewRequest(&checkoutv1.GetRequest{}))
+				_, err := c.Get(ctx, &checkoutv1.GetRequest{})
 				return err
 			},
 		},
 		{
 			name: "confirm without a checkout",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
-				_, err := c.Confirm(ctx, connect.NewRequest(&checkoutv1.ConfirmRequest{}))
+				_, err := c.Confirm(ctx, &checkoutv1.ConfirmRequest{})
 				return err
 			},
 		},

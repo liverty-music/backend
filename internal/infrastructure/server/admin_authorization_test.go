@@ -2,17 +2,16 @@ package server_test
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/artist/v1/artistv1connect"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
-	"connectrpc.com/connect"
-
-	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
-	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -54,18 +53,14 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 	}, time.Minute)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 
-	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
-		return "/unused-health-check/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-	}
+	healthHandler := func(*connect.Server) {}
 
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return artistv1connect.NewArtistServiceHandler(rpc.NewArtistHandler(artistUC, logger), opts...)
+		func(s *connect.Server) {
+			artistv1connect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, mapper.NewSeriesImageURLBuilder(""), logger), opts...)
+		func(s *connect.Server) {
+			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, mapper.NewSeriesImageURLBuilder(""), logger))
 		},
 	}
 
@@ -76,7 +71,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 		ReadTimeout:       2 * time.Second,
 		IdleTimeout:       5 * time.Second,
 	}
-	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
+	adminInterceptors := []connect.ServerInterceptor{auth.NewRequireRoleInterceptor("admin")}
 	adminSrv := server.NewConnectServer(cfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, handlers...)
 
 	ts := httptest.NewServer(adminSrv.Handler())
@@ -120,28 +115,31 @@ func TestAdminServer_Authorization(t *testing.T) {
 	type call func(ctx context.Context, token string) error
 
 	callArtistListTop := func(ctx context.Context, token string) error {
-		client := artistv1connect.NewArtistServiceClient(httpClient, ts.URL)
-		req := connect.NewRequest(&artistv1.ListTopRequest{})
+		client := artistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ts.URL)))
+		req := &artistv1.ListTopRequest{}
+		ctx, info := connect.NewClientContext(ctx)
 		if token != "" {
-			req.Header().Set("Authorization", "Bearer "+token)
+			info.RequestHeader().Set("Authorization", "Bearer "+token)
 		}
 		_, err := client.ListTop(ctx, req)
 		return err
 	}
 	callArtistSearch := func(ctx context.Context, token string) error {
-		client := artistv1connect.NewArtistServiceClient(httpClient, ts.URL)
-		req := connect.NewRequest(&artistv1.SearchRequest{Query: "query"})
+		client := artistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ts.URL)))
+		req := &artistv1.SearchRequest{Query: "query"}
+		ctx, info := connect.NewClientContext(ctx)
 		if token != "" {
-			req.Header().Set("Authorization", "Bearer "+token)
+			info.RequestHeader().Set("Authorization", "Bearer "+token)
 		}
 		_, err := client.Search(ctx, req)
 		return err
 	}
 	callConcertList := func(ctx context.Context, token string) error {
-		client := adminconcertv1connect.NewConcertServiceClient(httpClient, ts.URL)
-		req := connect.NewRequest(&adminconcertv1.ListRequest{})
+		client := adminconcertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ts.URL)))
+		req := &adminconcertv1.ListRequest{}
+		ctx, info := connect.NewClientContext(ctx)
 		if token != "" {
-			req.Header().Set("Authorization", "Bearer "+token)
+			info.RequestHeader().Set("Authorization", "Bearer "+token)
 		}
 		_, err := client.List(ctx, req)
 		return err
@@ -205,18 +203,17 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 	concertUC := usecasemocks.NewMockConcertUseCase(t)
 
 	ts := newTestAdminServer(t, validator, artistUC, concertUC)
-	client := artistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)
+	client := artistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 	t.Run("Admin searches for an artist", func(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/artist "Admin searches for an artist"
 		t.Parallel()
 
-		req := connect.NewRequest(&artistv1.SearchRequest{Query: "queen"})
-		req.Header().Set("Authorization", "Bearer "+adminToken)
+		req := &artistv1.SearchRequest{Query: "queen"}
 
-		resp, err := client.Search(context.Background(), req)
+		resp, err := client.Search(withBearer(context.Background(), adminToken), req)
 		require.NoError(t, err)
-		assert.Len(t, resp.Msg.GetArtists(), 1, "ArtistUseCase.Search should have run and returned the matching artist")
+		assert.Len(t, resp.GetArtists(), 1, "ArtistUseCase.Search should have run and returned the matching artist")
 	})
 
 	t.Run("Empty query", func(t *testing.T) {
@@ -225,10 +222,9 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 
 		// The strict mock fails the test if ArtistUseCase.Search runs with
 		// an empty query.
-		req := connect.NewRequest(&artistv1.SearchRequest{})
-		req.Header().Set("Authorization", "Bearer "+adminToken)
+		req := &artistv1.SearchRequest{}
 
-		_, err := client.Search(context.Background(), req)
+		_, err := client.Search(withBearer(context.Background(), adminToken), req)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
@@ -236,10 +232,9 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/artist "Signed-in caller without the admin role"
 		t.Parallel()
 
-		req := connect.NewRequest(&artistv1.SearchRequest{Query: "queen"})
-		req.Header().Set("Authorization", "Bearer "+nonAdminToken)
+		req := &artistv1.SearchRequest{Query: "queen"}
 
-		_, err := client.Search(context.Background(), req)
+		_, err := client.Search(withBearer(context.Background(), nonAdminToken), req)
 		require.Error(t, err)
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
@@ -248,7 +243,7 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/artist "Guest browses"
 		t.Parallel()
 
-		_, err := client.ListTop(context.Background(), connect.NewRequest(&artistv1.ListTopRequest{}))
+		_, err := client.ListTop(context.Background(), &artistv1.ListTopRequest{})
 		require.Error(t, err)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -260,7 +255,7 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 		// RequireRoleInterceptor runs before request validation, so an empty
 		// (otherwise-invalid) CreateRequest still exercises the auth check
 		// this scenario verifies, without needing a valid Name/Mbid.
-		_, err := client.Create(context.Background(), connect.NewRequest(&artistv1.CreateRequest{}))
+		_, err := client.Create(context.Background(), &artistv1.CreateRequest{})
 		require.Error(t, err)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})

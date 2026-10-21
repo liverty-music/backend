@@ -6,7 +6,7 @@ import (
 
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpcv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/push_subscription/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
@@ -58,14 +58,14 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 				ID: "sub-uuid-1", UserID: pushTestUserID, Endpoint: pushTestEndpoint, P256dh: "key", Auth: "authSecret",
 			}, nil).Once()
 
-		resp, err := h.Create(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.CreateRequest{
+		resp, err := h.Create(authedCtx(pushTestExtID), &rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
 			Keys:     &entitypb.PushKeys{P256Dh: "key", Auth: "authSecret"},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "sub-uuid-1", resp.Msg.GetSubscription().GetId().GetValue())
-		assert.Equal(t, pushTestUserID, resp.Msg.GetSubscription().GetUserId().GetValue())
+		assert.Equal(t, "sub-uuid-1", resp.GetSubscription().GetId().GetValue())
+		assert.Equal(t, pushTestUserID, resp.GetSubscription().GetUserId().GetValue())
 	})
 
 	t.Run("missing keys", func(t *testing.T) {
@@ -74,9 +74,9 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 		h, _, ur := newPushSubscriptionHandler(t)
 		expectPushCaller(ur)
 
-		_, err := h.Create(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.CreateRequest{
+		_, err := h.Create(authedCtx(pushTestExtID), &rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -86,10 +86,10 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/push-subscription "Not signed in"
 		h, _, _ := newPushSubscriptionHandler(t)
 
-		_, err := h.Create(context.Background(), connect.NewRequest(&rpcv1.CreateRequest{
+		_, err := h.Create(context.Background(), &rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
 			Keys:     &entitypb.PushKeys{P256Dh: "k", Auth: "a"},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -99,10 +99,10 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 		h, _, ur := newPushSubscriptionHandler(t)
 		ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).Return(nil, apperr.ErrNotFound).Once()
 
-		_, err := h.Create(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.CreateRequest{
+		_, err := h.Create(authedCtx(pushTestExtID), &rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
 			Keys:     &entitypb.PushKeys{P256Dh: "k", Auth: "a"},
-		}))
+		})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -119,12 +119,12 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		uc.EXPECT().Get(mock.Anything, pushTestUserID, pushTestEndpoint).
 			Return(&entity.PushSubscription{ID: "sub-uuid-1", UserID: pushTestUserID, Endpoint: pushTestEndpoint}, nil).Once()
 
-		resp, err := h.Get(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.GetRequest{
+		resp, err := h.Get(authedCtx(pushTestExtID), &rpcv1.GetRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "sub-uuid-1", resp.Msg.GetSubscription().GetId().GetValue())
+		assert.Equal(t, "sub-uuid-1", resp.GetSubscription().GetId().GetValue())
 	})
 
 	t.Run("push address of another fan", func(t *testing.T) {
@@ -139,12 +139,12 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		uc.EXPECT().Get(mock.Anything, pushTestUserID, othersEndpoint).Return(nil, apperr.ErrNotFound).Once()
 		uc.EXPECT().Delete(mock.Anything, pushTestUserID, othersEndpoint, "other").Return(nil).Once()
 
-		_, getErr := h.Get(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.GetRequest{
+		_, getErr := h.Get(authedCtx(pushTestExtID), &rpcv1.GetRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: othersEndpoint},
-		}))
-		_, delErr := h.Delete(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.DeleteRequest{
+		})
+		_, delErr := h.Delete(authedCtx(pushTestExtID), &rpcv1.DeleteRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: othersEndpoint},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(getErr))
 		assert.NoError(t, delErr)
@@ -156,7 +156,7 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		h, _, ur := newPushSubscriptionHandler(t)
 		expectPushCaller(ur)
 
-		_, err := h.Delete(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.DeleteRequest{}))
+		_, err := h.Delete(authedCtx(pushTestExtID), &rpcv1.DeleteRequest{})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -165,12 +165,12 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		t.Parallel()
 		h, _, _ := newPushSubscriptionHandler(t)
 
-		_, getErr := h.Get(context.Background(), connect.NewRequest(&rpcv1.GetRequest{
+		_, getErr := h.Get(context.Background(), &rpcv1.GetRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
-		}))
-		_, delErr := h.Delete(context.Background(), connect.NewRequest(&rpcv1.DeleteRequest{
+		})
+		_, delErr := h.Delete(context.Background(), &rpcv1.DeleteRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(getErr))
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(delErr))
@@ -182,9 +182,9 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		expectPushCaller(ur)
 		uc.EXPECT().Delete(mock.Anything, pushTestUserID, pushTestEndpoint, "other").Return(nil).Once()
 
-		resp, err := h.Delete(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.DeleteRequest{
+		resp, err := h.Delete(authedCtx(pushTestExtID), &rpcv1.DeleteRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
-		}))
+		})
 
 		require.NoError(t, err)
 		assert.NotNil(t, resp)

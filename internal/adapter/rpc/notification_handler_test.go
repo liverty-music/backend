@@ -2,13 +2,13 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	notificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
+	notificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	notificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/notification/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
@@ -53,9 +53,9 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		expectCaller(ur)
 		uc.EXPECT().MarkRead(mock.Anything, userID, notifID).Return(nil).Once()
 
-		_, err := h.MarkRead(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.MarkReadRequest{
+		_, err := h.MarkRead(notificationAuthedCtx(extID), &notificationv1.MarkReadRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -67,9 +67,9 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		expectCaller(ur)
 		uc.EXPECT().Dismiss(mock.Anything, userID, notifID).Return(nil).Once()
 
-		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
+		_, err := h.Dismiss(notificationAuthedCtx(extID), &notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -79,12 +79,12 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/notification "Not signed in"
 		h, _, _ := newTestNotificationHandler(t)
 
-		_, readErr := h.MarkRead(context.Background(), connect.NewRequest(&notificationv1.MarkReadRequest{
+		_, readErr := h.MarkRead(context.Background(), &notificationv1.MarkReadRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
-		}))
-		_, dismissErr := h.Dismiss(context.Background(), connect.NewRequest(&notificationv1.DismissRequest{
+		})
+		_, dismissErr := h.Dismiss(context.Background(), &notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(readErr))
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(dismissErr))
@@ -95,13 +95,13 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/notification "Missing notification"
 		// The mocks fail the test if a Notification changes.
 		h, _, _ := newTestNotificationHandler(t)
-		srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return notificationv1connect.NewNotificationServiceHandler(h, opts...)
+		srv := newFanBoundaryServer(t, func(s *connect.Server) {
+			notificationv1connect.RegisterNotificationServiceHandler(s, h)
 		})
-		client := notificationv1connect.NewNotificationServiceClient(srv.Client(), srv.URL)
+		client := notificationv1connect.NewNotificationServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
-		_, readErr := client.MarkRead(context.Background(), withFanToken(connect.NewRequest(&notificationv1.MarkReadRequest{})))
-		_, dismissErr := client.Dismiss(context.Background(), withFanToken(connect.NewRequest(&notificationv1.DismissRequest{})))
+		_, readErr := client.MarkRead(withFanToken(&notificationv1.MarkReadRequest{}))
+		_, dismissErr := client.Dismiss(withFanToken(&notificationv1.DismissRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(readErr))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(dismissErr))
@@ -112,9 +112,9 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		h, _, ur := newTestNotificationHandler(t)
 		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
 
-		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
+		_, err := h.Dismiss(notificationAuthedCtx(extID), &notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
-		}))
+		})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

@@ -7,7 +7,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -47,16 +47,16 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 			},
 		}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListByArtistRequest{
+		req := &concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
-		})
+		}
 
 		resp, err := h.ListByArtist(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Len(t, resp.Msg.Concerts, 1)
-		concert := resp.Msg.Concerts[0]
+		assert.Len(t, resp.Concerts, 1)
+		concert := resp.Concerts[0]
 		assert.Equal(t, "concert-1", concert.GetEvent().GetId().GetValue())
 		assert.Equal(t, "series-1", concert.GetEvent().GetSeriesId().GetValue())
 		assert.Equal(t, int32(2025), concert.GetEvent().GetLocalDate().GetValue().GetYear())
@@ -64,13 +64,13 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		assert.Equal(t, int32(15), concert.GetEvent().GetLocalDate().GetValue().GetDay())
 		// Title / source URL come with the Series in the side list, the
 		// performers as ids on the Concert and Artists in the side list.
-		require.Len(t, resp.Msg.Series, 1)
-		assert.Equal(t, "Summer Tour", resp.Msg.Series[0].GetTitle().GetValue())
-		assert.Equal(t, "https://example.com/tour", resp.Msg.Series[0].GetSourceUrl().GetValue())
+		require.Len(t, resp.Series, 1)
+		assert.Equal(t, "Summer Tour", resp.Series[0].GetTitle().GetValue())
+		assert.Equal(t, "https://example.com/tour", resp.Series[0].GetSourceUrl().GetValue())
 		require.Len(t, concert.GetArtistIds(), 2, "multi-performer concert must round-trip both performers")
 		assert.Equal(t, artistID, concert.GetArtistIds()[0].GetValue())
 		assert.Equal(t, supportID, concert.GetArtistIds()[1].GetValue())
-		require.Len(t, resp.Msg.Artists, 2)
+		require.Len(t, resp.Artists, 2)
 	})
 
 	t.Run("returns empty slice when no concerts exist", func(t *testing.T) {
@@ -84,15 +84,15 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-999").Return([]*entity.Concert{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListByArtistRequest{
+		req := &concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "artist-999"},
-		})
+		}
 
 		resp, err := h.ListByArtist(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Empty(t, resp.Msg.Concerts)
+		assert.Empty(t, resp.Concerts)
 	})
 
 	t.Run("propagates use case error", func(t *testing.T) {
@@ -105,9 +105,9 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-123").Return(nil, assert.AnError).Once()
 
-		req := connect.NewRequest(&concertv1.ListByArtistRequest{
+		req := &concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "artist-123"},
-		})
+		}
 
 		resp, err := h.ListByArtist(context.Background(), req)
 
@@ -133,7 +133,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
 
 		// No auth context → GetExternalUserID returns CodeUnauthenticated.
-		req := connect.NewRequest(&concertv1.ListFollowedRequest{})
+		req := &concertv1.ListFollowedRequest{}
 
 		resp, err := h.ListFollowed(context.Background(), req)
 
@@ -160,7 +160,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 			mock.MatchedBy(func(h *entity.Home) bool { return h != nil && h.Level1 == "JP-13" }), mock.Anything).
 			Return([]*entity.ProximityGroup{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListFollowedRequest{})
+		req := &concertv1.ListFollowedRequest{}
 
 		resp, err := h.ListFollowed(ctx, req)
 
@@ -192,9 +192,9 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 				})).
 			Return([]*entity.ProximityGroup{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListFollowedRequest{
+		req := &concertv1.ListFollowedRequest{
 			From: &entityv1.LocalDate{Value: &date.Date{Year: 2020, Month: 1, Day: 1}},
-		})
+		}
 
 		resp, err := h.ListFollowed(ctx, req)
 
@@ -216,7 +216,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
 
-		_, err = h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
+		_, err = h.ListFollowed(ctx, &concertv1.ListFollowedRequest{})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

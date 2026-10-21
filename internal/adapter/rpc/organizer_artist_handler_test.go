@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	organizerartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/artist/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -90,7 +90,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			uc, artistUC := ucmocks.NewMockOrganizerUseCase(t), ucmocks.NewMockArtistUseCase(t)
 			tt.setupUC(uc, artistUC)
 
-			resp, err := newOrganizerArtistHandler(t, uc, artistUC).List(tt.ctx, connect.NewRequest(&organizerartistv1.ListRequest{}))
+			resp, err := newOrganizerArtistHandler(t, uc, artistUC).List(tt.ctx, &organizerartistv1.ListRequest{})
 
 			if tt.wantCode != 0 {
 				assert.Equal(t, tt.wantCode, connectCodeOf(err))
@@ -98,7 +98,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Len(t, resp.Msg.GetArtists(), tt.wantArtists)
+			assert.Len(t, resp.GetArtists(), tt.wantArtists)
 		})
 	}
 
@@ -109,8 +109,9 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		// audience is not the organizer console before the handler runs; the
 		// mock fails the test if the usecase is reached.
 		h := newOrganizerArtistHandler(t, ucmocks.NewMockOrganizerUseCase(t), ucmocks.NewMockArtistUseCase(t))
-		next := connect.UnaryFunc(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return h.List(ctx, req.(*connect.Request[organizerartistv1.ListRequest]))
+		next := connect.ServerFunc(func(ctx context.Context, _ connect.Spec, _ connect.ServerStream) error {
+			_, err := h.List(ctx, &organizerartistv1.ListRequest{})
+			return err
 		})
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{
 			Sub:             "op-sub",
@@ -119,7 +120,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			RoleOrgIDs:      map[string]struct{}{testProviderOrganizerID: {}},
 		})
 
-		_, err := auth.NewOrgScopedInterceptor("organizer-console-project", nil).WrapUnary(next)(ctx, connect.NewRequest(&organizerartistv1.ListRequest{}))
+		err := auth.NewOrgScopedInterceptor("organizer-console-project", nil)(next)(ctx, connect.Spec{StreamType: connect.StreamTypeUnary}, nil)
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})

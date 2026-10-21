@@ -7,7 +7,6 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -77,18 +76,18 @@ func TestConcertHandler_Get(t *testing.T) {
 		concertUC.EXPECT().Get(mock.Anything, eventID).Return(firstPartyConcert(eventID, date), nil).Once()
 
 		// No auth claims: the caller is a guest.
-		resp, err := h.Get(context.Background(), connect.NewRequest(&concertv1.GetRequest{
+		resp, err := h.Get(context.Background(), &concertv1.GetRequest{
 			EventId: &entityv1.EventId{Value: eventID},
-		}))
+		})
 
 		require.NoError(t, err)
-		got := resp.Msg.Concert
+		got := resp.Concert
 		require.NotNil(t, got)
 		assert.Equal(t, eventID, got.GetEvent().GetId().GetValue())
 		assert.Equal(t, eventPageSeriesID, got.GetEvent().GetSeriesId().GetValue())
-		require.Len(t, resp.Msg.Series, 1)
-		require.Len(t, resp.Msg.Artists, 1)
-		s := resp.Msg.Series[0]
+		require.Len(t, resp.Series, 1)
+		require.Len(t, resp.Artists, 1)
+		s := resp.Series[0]
 		assert.Equal(t, eventPageOrganizerID, s.GetOrganizerId().GetValue())
 		assert.Equal(t, "Two nights at Shibuya WWW.", s.GetDescription().GetValue())
 		assert.Equal(t, entityv1.Visibility_VISIBILITY_PUBLIC, s.GetVisibility())
@@ -113,13 +112,13 @@ func TestConcertHandler_Get(t *testing.T) {
 		}
 		concertUC.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 
-		resp, err := h.Get(context.Background(), connect.NewRequest(&concertv1.GetRequest{
+		resp, err := h.Get(context.Background(), &concertv1.GetRequest{
 			EventId: &entityv1.EventId{Value: eventID},
-		}))
+		})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.Series, 1)
-		o := resp.Msg.Series[0].GetOrganizer()
+		require.Len(t, resp.Series, 1)
+		o := resp.Series[0].GetOrganizer()
 		require.NotNil(t, o)
 		assert.Equal(t, eventPageOrganizerID, o.GetId().GetValue())
 		assert.Equal(t, "Liverty Records", o.GetName().GetValue())
@@ -136,9 +135,9 @@ func TestConcertHandler_Get(t *testing.T) {
 		h, concertUC, _ := newEventPageHandler(t)
 		concertUC.EXPECT().Get(mock.Anything, eventID).Return(nil, apperr.New(codes.NotFound, "event page not found")).Once()
 
-		resp, err := h.Get(context.Background(), connect.NewRequest(&concertv1.GetRequest{
+		resp, err := h.Get(context.Background(), &concertv1.GetRequest{
 			EventId: &entityv1.EventId{Value: eventID},
-		}))
+		})
 
 		assert.Nil(t, resp)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -161,16 +160,16 @@ func TestConcertHandler_ListBySeries(t *testing.T) {
 			firstPartyConcert(day2, time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)),
 		}, nil).Once()
 
-		resp, err := h.ListBySeries(context.Background(), connect.NewRequest(&concertv1.ListBySeriesRequest{
+		resp, err := h.ListBySeries(context.Background(), &concertv1.ListBySeriesRequest{
 			SeriesId: &entityv1.SeriesId{Value: eventPageSeriesID},
-		}))
+		})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.Concerts, 2)
-		assert.Equal(t, day1, resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
-		assert.Equal(t, day2, resp.Msg.Concerts[1].GetEvent().GetId().GetValue())
-		require.Len(t, resp.Msg.Series, 1, "the series is returned once for both dates")
-		assert.Equal(t, eventPageOrganizerID, resp.Msg.Series[0].GetOrganizerId().GetValue())
+		require.Len(t, resp.Concerts, 2)
+		assert.Equal(t, day1, resp.Concerts[0].GetEvent().GetId().GetValue())
+		assert.Equal(t, day2, resp.Concerts[1].GetEvent().GetId().GetValue())
+		require.Len(t, resp.Series, 1, "the series is returned once for both dates")
+		assert.Equal(t, eventPageOrganizerID, resp.Series[0].GetOrganizerId().GetValue())
 	})
 }
 
@@ -216,14 +215,14 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 			concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
-			resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
+			resp, err := h.ListFollowed(ctx, &concertv1.ListFollowedRequest{})
 
 			require.NoError(t, err)
-			require.Len(t, resp.Msg.Groups, 1)
-			require.Len(t, resp.Msg.Groups[0].Away, 1)
-			require.Len(t, resp.Msg.Series, 1)
-			series := resp.Msg.Series[0]
-			assert.Equal(t, resp.Msg.Groups[0].Away[0].GetEvent().GetSeriesId().GetValue(), series.GetId().GetValue())
+			require.Len(t, resp.Groups, 1)
+			require.Len(t, resp.Groups[0].Away, 1)
+			require.Len(t, resp.Series, 1)
+			series := resp.Series[0]
+			assert.Equal(t, resp.Groups[0].Away[0].GetEvent().GetSeriesId().GetValue(), series.GetId().GetValue())
 			assert.Equal(t, tt.wantOrganizer, series.GetOrganizerId().GetValue())
 			assert.Equal(t, tt.wantOrganizer != "", series.GetOrganizerId() != nil)
 		})
@@ -248,14 +247,14 @@ func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 			{Date: day(22), Away: []*entity.Concert{c3}},
 		}, nil).Once()
 
-	resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
+	resp, err := h.ListFollowed(ctx, &concertv1.ListFollowedRequest{})
 
 	require.NoError(t, err)
-	require.Len(t, resp.Msg.Groups, 3)
-	require.Len(t, resp.Msg.Series, 1, "the tour's series is returned once")
-	assert.Equal(t, eventPageSeriesID, resp.Msg.Series[0].GetId().GetValue())
-	require.Len(t, resp.Msg.Artists, 1, "the tour's artist is returned once")
-	assert.Equal(t, "019a0000-0000-7000-8000-0000000000b1", resp.Msg.Artists[0].GetId().GetValue())
+	require.Len(t, resp.Groups, 3)
+	require.Len(t, resp.Series, 1, "the tour's series is returned once")
+	assert.Equal(t, eventPageSeriesID, resp.Series[0].GetId().GetValue())
+	require.Len(t, resp.Artists, 1, "the tour's artist is returned once")
+	assert.Equal(t, "019a0000-0000-7000-8000-0000000000b1", resp.Artists[0].GetId().GetValue())
 }
 
 func TestConcertHandler_ListByArtists_CoverImage(t *testing.T) {
@@ -268,15 +267,15 @@ func TestConcertHandler_ListByArtists_CoverImage(t *testing.T) {
 			{Date: date, Home: []*entity.Concert{firstPartyConcert("019a0000-0000-7000-8000-0000000000e1", date)}},
 		}, nil).Once()
 
-	resp, err := h.ListByArtists(context.Background(), connect.NewRequest(&concertv1.ListByArtistsRequest{
+	resp, err := h.ListByArtists(context.Background(), &concertv1.ListByArtistsRequest{
 		ArtistIds: []*entityv1.ArtistId{{Value: "019a0000-0000-7000-8000-0000000000b1"}},
 		Home:      &entityv1.Home{CountryCode: "JP", Level_1: "JP-13"},
-	}))
+	})
 
 	require.NoError(t, err)
-	require.Len(t, resp.Msg.Series, 1)
-	seriesImage := resp.Msg.Series[0].GetCoverImage()
+	require.Len(t, resp.Series, 1)
+	seriesImage := resp.Series[0].GetCoverImage()
 	assert.Equal(t, eventPageSeriesImageID, seriesImage.GetId().GetValue())
 	assert.Contains(t, seriesImage.GetLarge().GetValue(), "https://cdn.example.com/")
-	assert.NotContains(t, resp.Msg.Series[0].String(), "secret-share-token", "the share token is never returned")
+	assert.NotContains(t, resp.Series[0].String(), "secret-share-token", "the share token is never returned")
 }

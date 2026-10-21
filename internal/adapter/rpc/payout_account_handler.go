@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	payoutaccountv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
+	payoutaccountv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -57,8 +57,8 @@ func NewPayoutAccountHandler(
 //     resolution failed. Response never reveals whether such an Organizer exists.
 func (h *PayoutAccountHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[payoutaccountv1.GetRequest],
-) (*connect.Response[payoutaccountv1.GetResponse], error) {
+	_ *payoutaccountv1.GetRequest,
+) (*payoutaccountv1.GetResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -69,9 +69,9 @@ func (h *PayoutAccountHandler) Get(
 		return nil, err
 	}
 
-	return connect.NewResponse(&payoutaccountv1.GetResponse{
+	return &payoutaccountv1.GetResponse{
 		PayoutAccount: mapper.PayoutAccountToProto(acct),
-	}), nil
+	}, nil
 }
 
 // StartOnboarding opens the caller's Organizer's payout account when it has
@@ -85,8 +85,8 @@ func (h *PayoutAccountHandler) Get(
 //   - UNAVAILABLE: The payment provider cannot be reached.
 func (h *PayoutAccountHandler) StartOnboarding(
 	ctx context.Context,
-	_ *connect.Request[payoutaccountv1.StartOnboardingRequest],
-) (*connect.Response[payoutaccountv1.StartOnboardingResponse], error) {
+	_ *payoutaccountv1.StartOnboardingRequest,
+) (*payoutaccountv1.StartOnboardingResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -97,14 +97,14 @@ func (h *PayoutAccountHandler) StartOnboarding(
 		if errors.Is(err, apperr.ErrNotFound) {
 			// The organizer was deleted between the resolve call and the
 			// onboarding call. Non-revealing, like the audience gate.
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+			return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 		}
 		return nil, err
 	}
 
-	return connect.NewResponse(&payoutaccountv1.StartOnboardingResponse{
+	return &payoutaccountv1.StartOnboardingResponse{
 		OnboardingUrl: &entityv1.Url{Value: onboardingURL},
-	}), nil
+	}, nil
 }
 
 // resolveCallerOrganizer reads the caller's Zitadel org id from the context
@@ -114,7 +114,7 @@ func (h *PayoutAccountHandler) StartOnboarding(
 func (h *PayoutAccountHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 
 	return h.organizerUC.ResolveCaller(ctx, callerOrgID)

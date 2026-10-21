@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/pannpers/go-logging/logging"
 	"golang.org/x/sync/singleflight"
 )

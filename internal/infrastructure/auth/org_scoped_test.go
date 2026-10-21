@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +55,7 @@ func contextWithClaims(claims *auth.Claims) context.Context {
 	return auth.WithClaims(context.Background(), claims)
 }
 
-func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
+func TestOrgScopedInterceptor(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -163,84 +163,91 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// The v1 interceptor applied the same checks to unary and streaming
+	// handlers; the v2 interceptor must keep doing so for every stream type.
+	for _, streamType := range allStreamTypes {
+		for _, tt := range tests {
+			t.Run(streamTypeName(streamType)+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
 
-			var ctx context.Context
-			if tt.args.claims != nil {
-				ctx = contextWithClaims(tt.args.claims)
-			} else {
-				ctx = context.Background()
-			}
+				var ctx context.Context
+				if tt.args.claims != nil {
+					ctx = contextWithClaims(tt.args.claims)
+				} else {
+					ctx = context.Background()
+				}
 
-			interceptor := auth.NewOrgScopedInterceptor(tt.args.projectID, nil)
+				interceptor := auth.NewOrgScopedInterceptor(tt.args.projectID, nil)
 
-			var capturedCallerOrgID string
-			next := connect.UnaryFunc(func(innerCtx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-				capturedCallerOrgID, _ = auth.GetCallerOrgID(innerCtx)
-				return connect.NewResponse(&struct{}{}), nil
+				var capturedCallerOrgID string
+				next := connect.ServerFunc(func(innerCtx context.Context, _ connect.Spec, _ connect.ServerStream) error {
+					capturedCallerOrgID, _ = auth.GetCallerOrgID(innerCtx)
+					return nil
+				})
+
+				err := interceptor(next)(ctx, connect.Spec{Procedure: "/test.v1.Service/Method", StreamType: streamType}, nil)
+
+				if tt.wantErr {
+					require.Error(t, err)
+					var connErr *connect.Error
+					require.ErrorAs(t, err, &connErr)
+					assert.Equal(t, tt.wantCode, connErr.Code(), "unexpected connect code")
+					assert.Empty(t, capturedCallerOrgID, "handler must not run when authorization fails")
+					return
+				}
+
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantCallerOrgID, capturedCallerOrgID,
+					"caller org id must be propagated to handler context")
 			})
-
-			_, err := interceptor.WrapUnary(next)(ctx, connect.NewRequest(&struct{}{}))
-
-			if tt.wantErr {
-				require.Error(t, err)
-				var connErr *connect.Error
-				require.ErrorAs(t, err, &connErr)
-				assert.Equal(t, tt.wantCode, connErr.Code(), "unexpected connect code")
-				assert.Empty(t, capturedCallerOrgID, "handler must not run when authorization fails")
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantCallerOrgID, capturedCallerOrgID,
-				"caller org id must be propagated to handler context")
-		})
+		}
 	}
 }
 
-// TestOrgScopedInterceptor_WrapStreamingHandler verifies the streaming path
-// uses the same authorization logic as the unary path.
-func TestOrgScopedInterceptor_WrapStreamingHandler(t *testing.T) {
+// TestOrgScopedInterceptor_PublicProcedures verifies that a public procedure
+// passes through without claims and carries no caller org id, while any other
+// procedure is still checked.
+func TestOrgScopedInterceptor_PublicProcedures(t *testing.T) {
 	t.Parallel()
 
-	t.Run("deny when aud missing project id (streaming)", func(t *testing.T) {
-		t.Parallel()
+	const publicProcedure = "/test.v1.Service/Public"
+	tests := []struct {
+		name      string
+		procedure string
+		wantNext  bool
+		wantCode  connect.Code
+	}{
+		{name: "pass a public procedure through without claims", procedure: publicProcedure, wantNext: true},
+		{name: "deny a non-public procedure without claims", procedure: "/test.v1.Service/Private", wantCode: connect.CodePermissionDenied},
+	}
 
-		ctx := contextWithClaims(happyClaims(withAudiences("wrong")))
-		interceptor := auth.NewOrgScopedInterceptor(projectID, nil)
+	for _, streamType := range allStreamTypes {
+		for _, tt := range tests {
+			t.Run(streamTypeName(streamType)+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
 
-		nextCalled := false
-		next := connect.StreamingHandlerFunc(func(_ context.Context, _ connect.StreamingHandlerConn) error {
-			nextCalled = true
-			return nil
-		})
+				interceptor := auth.NewOrgScopedInterceptor(projectID, map[string]bool{publicProcedure: true})
 
-		err := interceptor.WrapStreamingHandler(next)(ctx, nil)
-		require.Error(t, err)
-		var connErr *connect.Error
-		require.ErrorAs(t, err, &connErr)
-		assert.Equal(t, connect.CodePermissionDenied, connErr.Code())
-		assert.False(t, nextCalled)
-	})
+				nextCalled := false
+				var hasCallerOrgID bool
+				next := connect.ServerFunc(func(innerCtx context.Context, _ connect.Spec, _ connect.ServerStream) error {
+					nextCalled = true
+					_, hasCallerOrgID = auth.GetCallerOrgID(innerCtx)
+					return nil
+				})
 
-	t.Run("allow valid streaming request", func(t *testing.T) {
-		t.Parallel()
+				err := interceptor(next)(context.Background(), connect.Spec{Procedure: tt.procedure, StreamType: streamType}, nil)
 
-		ctx := contextWithClaims(happyClaims())
-		interceptor := auth.NewOrgScopedInterceptor(projectID, nil)
-
-		nextCalled := false
-		next := connect.StreamingHandlerFunc(func(_ context.Context, _ connect.StreamingHandlerConn) error {
-			nextCalled = true
-			return nil
-		})
-
-		err := interceptor.WrapStreamingHandler(next)(ctx, nil)
-		require.NoError(t, err)
-		assert.True(t, nextCalled)
-	})
+				assert.Equal(t, tt.wantNext, nextCalled)
+				if !tt.wantNext {
+					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+					return
+				}
+				require.NoError(t, err)
+				assert.False(t, hasCallerOrgID, "a public procedure must carry no caller org id")
+			})
+		}
+	}
 }
 
 // TestGetCallerOrgID verifies that WithCallerOrgID / GetCallerOrgID round-trip correctly.
