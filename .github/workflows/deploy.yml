@@ -506,6 +506,8 @@ jobs:
     needs: [build-and-push]
     if: github.event_name == 'release' && needs.build-and-push.result == 'success'
     runs-on: ubuntu-latest
+    # The dispatch uses the GitHub App token minted below, not GITHUB_TOKEN.
+    permissions: {}
     # `prod` environment so the dispatch-credential secrets resolve. On a
     # release event the ref is the `vX.Y.Z` tag, which matches the prod
     # environment's `v*` deployment-tag policy.
