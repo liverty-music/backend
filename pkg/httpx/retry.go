@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
+	"github.com/cenkalti/backoff/v7"
 )
 
 // retryableStatusCodes contains HTTP status codes that are considered transient
@@ -122,19 +122,22 @@ func IsRetryableStatus(statusCode int) bool {
 
 // RetryAfterFromResponse parses the Retry-After header from resp and returns
 // a backoff.RetryAfterError if present, or a plain retryableError otherwise.
+// The RetryAfterError carries the retryableError as its cause, so when retrying
+// stops the returned backoff.RetryError still names the HTTP status.
 // The caller should close the response body before calling this function.
 func RetryAfterFromResponse(resp *http.Response) error {
+	cause := retryableError{statusCode: resp.StatusCode}
 	if ra := resp.Header.Get("Retry-After"); ra != "" {
 		if seconds, err := strconv.Atoi(ra); err == nil {
-			return backoff.RetryAfter(seconds)
+			return backoff.RetryAfter(time.Duration(seconds)*time.Second, cause)
 		}
 		if t, err := http.ParseTime(ra); err == nil {
 			if wait := time.Until(t); wait > 0 {
-				return &backoff.RetryAfterError{Duration: wait}
+				return backoff.RetryAfter(wait, cause)
 			}
 		}
 	}
-	return retryableError{statusCode: resp.StatusCode}
+	return cause
 }
 
 // retryableError is a transient error returned during retry to trigger the next attempt.

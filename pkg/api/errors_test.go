@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
+	"github.com/cenkalti/backoff/v7"
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
@@ -109,4 +112,125 @@ func TestFromHTTP_NetworkAndContextErrors(t *testing.T) {
 		err := api.FromHTTP(errors.New("dial tcp: connection refused"), nil, "op")
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
+}
+
+// retryErr runs backoff.Retry with an operation that always fails with opErr
+// (assert.AnError stands for a retryable failure such as a 503)
+// and returns the error Retry produces.
+func retryErr(t *testing.T, ctx context.Context, opErr error, opts ...backoff.RetryOption) error {
+	t.Helper()
+	_, err := backoff.Retry(ctx, func() (struct{}, error) { return struct{}{}, opErr }, opts...)
+	require.Error(t, err)
+	return err
+}
+
+// TestFromHTTP_RetryErrors pins the codes FromHTTP gives errors that come out
+// of backoff.Retry. Since backoff v6, Retry wraps every failure in a
+// *backoff.RetryError, so a context error is no longer returned bare; the
+// codes below are the ones the bare errors mapped to under backoff v5.
+func TestFromHTTP_RetryErrors(t *testing.T) {
+	t.Parallel()
+
+	cancelled := func(t *testing.T) context.Context {
+		t.Helper()
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		return ctx
+	}
+	expired := func(t *testing.T) context.Context {
+		t.Helper()
+		ctx, cancel := context.WithDeadline(t.Context(), time.Unix(0, 0))
+		t.Cleanup(cancel)
+		return ctx
+	}
+
+	tests := []struct {
+		name    string
+		err     func(t *testing.T) error
+		wantErr error
+	}{
+		{
+			name: "caller cancellation between attempts → Canceled",
+			err: func(t *testing.T) error {
+				t.Helper()
+				return retryErr(t, cancelled(t), assert.AnError)
+			},
+			wantErr: apperr.ErrCanceled,
+		},
+		{
+			name: "caller deadline between attempts → DeadlineExceeded",
+			err: func(t *testing.T) error {
+				t.Helper()
+				return retryErr(t, expired(t), assert.AnError)
+			},
+			wantErr: apperr.ErrDeadlineExceeded,
+		},
+		{
+			name: "permanent context.Canceled (throttler wait) → Canceled",
+			err: func(t *testing.T) error {
+				t.Helper()
+				return retryErr(t, t.Context(), backoff.Permanent(context.Canceled))
+			},
+			wantErr: apperr.ErrCanceled,
+		},
+		{
+			name: "max elapsed time reached → Unavailable, not DeadlineExceeded",
+			err: func(t *testing.T) error {
+				t.Helper()
+				return retryErr(t, t.Context(), assert.AnError,
+					backoff.WithBackOff(backoff.NewConstantBackOff(time.Hour)),
+					backoff.WithMaxElapsedTime(time.Minute))
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
+		{
+			name: "max tries exhausted → Unavailable",
+			err: func(t *testing.T) error {
+				t.Helper()
+				return retryErr(t, t.Context(), assert.AnError, backoff.WithMaxTries(1))
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := api.FromHTTP(tt.err(t), nil, "op")
+
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestFromHTTP_ContextErrorWrappedByHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	// http.Client returns a *url.Error around the context error; it maps to
+	// the context's code like a bare context error does.
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{
+			name:    "url.Error around Canceled → Canceled",
+			err:     &url.Error{Op: "Get", URL: "http://example.test", Err: context.Canceled},
+			wantErr: apperr.ErrCanceled,
+		},
+		{
+			name:    "url.Error around DeadlineExceeded → DeadlineExceeded",
+			err:     &url.Error{Op: "Get", URL: "http://example.test", Err: context.DeadlineExceeded},
+			wantErr: apperr.ErrDeadlineExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.ErrorIs(t, api.FromHTTP(tt.err, nil, "op"), tt.wantErr)
+		})
+	}
 }
