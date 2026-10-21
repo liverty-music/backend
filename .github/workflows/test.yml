@@ -120,11 +120,11 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          # Pinned: govulncheck@latest (v1.4.0, x/tools v0.46.0) panics on
-          # generics — "ForEachElement called on type containing *types.TypeParam".
-          # v1.3.0 (x/tools v0.44.0) predates that crash. Bump deliberately once
-          # upstream fixes the panic.
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          # Pinned so a new release cannot break CI unseen. v1.3.0 (x/tools
+          # v0.44.0) and v1.4.0 panic on generics ("ForEachElement called on
+          # type containing *types.TypeParam") as soon as a vulnerability is
+          # found and the call graph is built; v1.9.0 does not. Renovate bumps it.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
   vulnerability-check-skip:
