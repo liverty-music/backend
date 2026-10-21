@@ -10,11 +10,18 @@ name: CI
 # Path-filtered jobs are skipped, not replaced by placeholder `*-skip` jobs:
 # only `CI Success` is required, and `alls-green` treats the jobs listed in
 # `allowed-skips` as passing when skipped.
+#
+# Pull requests are the gate. `main` is not re-checked on every push: from
+# 2026-08-21 to 2026-10-21 those runs found no merge that broke `main`, and
+# nobody was told when one failed (cloud-provisioning#666). Instead a daily
+# run checks `main` with every job, Benchmark included, and opens or updates
+# an Issue labelled `ci` when it fails.
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 19 * * *" # 04:00 JST
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,18 +33,27 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    # Path filters apply to pull requests only. A scheduled or manual run checks
+    # the whole of `main`, so every output is true for it.
     outputs:
-      src: ${{ steps.filter.outputs.src }}
-      series_image: ${{ steps.filter.outputs.series_image }}
-      go: ${{ steps.filter.outputs.go }}
-      schema: ${{ steps.filter.outputs.schema }}
-      atlas: ${{ steps.filter.outputs.atlas }}
+      src: ${{ github.event_name != 'pull_request' || steps.filter.outputs.src == 'true' }}
+      series_image: ${{ github.event_name != 'pull_request' || steps.filter.outputs.series_image == 'true' }}
+      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
+      schema: ${{ github.event_name != 'pull_request' || steps.filter.outputs.schema == 'true' }}
+      atlas: ${{ github.event_name != 'pull_request' || steps.filter.outputs.atlas == 'true' }}
+      deps: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deps == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
+            deps:
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/ci.yml'
             src:
               - '**/*.go'
               - 'go.mod'
@@ -164,9 +180,14 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # Runs on pull requests that change dependencies and in the daily run. A new
+  # advisory can fail any commit, and govulncheck reports only reachable
+  # symbols, so new code calling a vulnerable function of an existing
+  # dependency is also left to the daily run: at most a day late, for about
+  # 1.5 minutes saved on every other pull request.
   vulnerability-check:
     needs: changes
-    if: needs.changes.outputs.src == 'true'
+    if: needs.changes.outputs.deps == 'true'
     name: Vulnerability Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -227,7 +248,7 @@ jobs:
 
   benchmark:
     needs: changes
-    if: needs.changes.outputs.src == 'true' && github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     name: Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -330,3 +351,28 @@ jobs:
         with:
           allowed-skips: lint, schema-lint, test, vulnerability-check, series-image-consumer-test, benchmark, atlas-ci
           jobs: ${{ toJSON(needs) }}
+
+  # Without this a failure on `main` reaches nobody: Benchmark failed on every
+  # `main` push for 11 days before #669.
+  report-main-failure:
+    name: Report main failure
+    needs: ci-success
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the main CI failure Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="CI failing on main"
+          body="The daily CI run on \`main\` (${GITHUB_SHA::8}) failed: ${RUN_URL}"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label ci --state open \
+            --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label ci --label bug --title "$title" --body "$body"
+          fi
