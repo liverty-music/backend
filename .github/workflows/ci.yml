@@ -1,4 +1,15 @@
-name: Test
+name: CI
+
+# One workflow, one `changes` job and one `CI Success` aggregate. Branch
+# protection requires the check named `CI Success`, and it matches by name
+# only: when Test, Lint and Atlas CI were three workflows that each published
+# a `CI Success`, any one green run satisfied it, and Renovate automerged
+# #639 and #641 with failing Lint and Test (#669). Keep exactly one job named
+# `CI Success` in this repository.
+#
+# Path-filtered jobs are skipped, not replaced by placeholder `*-skip` jobs:
+# only `CI Success` is required, and `alls-green` treats the jobs listed in
+# `allowed-skips` as passing when skipped.
 
 on:
   push:
@@ -18,6 +29,9 @@ jobs:
     outputs:
       src: ${{ steps.filter.outputs.src }}
       series_image: ${{ steps.filter.outputs.series_image }}
+      go: ${{ steps.filter.outputs.go }}
+      schema: ${{ steps.filter.outputs.schema }}
+      atlas: ${{ steps.filter.outputs.atlas }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
@@ -36,7 +50,62 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Dockerfile'
-              - '.github/workflows/test.yml'
+              - '.github/workflows/ci.yml'
+            go:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - '.golangci.yml'
+              - 'Makefile'
+              - '.github/workflows/**'
+            schema:
+              - 'internal/infrastructure/database/rdb/schema/schema.sql'
+              - 'scripts/lint-schema.sh'
+              - '.github/workflows/**'
+            atlas:
+              - 'k8s/atlas/base/migrations/**'
+              - 'k8s/atlas/base/kustomization.yaml'
+              - 'scripts/check-migration-drift.sh'
+              - 'internal/infrastructure/database/rdb/model.go'
+              - 'atlas.hcl'
+              - '.github/workflows/**'
+
+  lint:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The Connect and protocolbuffers schema SDKs are separate modules that
+      # Renovate does not manage; fail when they are on different schema builds.
+      - name: Check schema SDK modules share one schema commit
+        run: scripts/check-schema-sdk-commit.sh
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      # `make lint` installs the golangci-lint version pinned in the Makefile,
+      # the same binary local runs and the pre-commit hook use.
+      - name: Run make lint
+        run: make lint
+      # `make check` runs the go fix modernizers, but neither the pre-commit
+      # hook nor any other CI job did, so code that `make check` rejects could
+      # still merge.
+      - name: Check go fix modernizers
+        run: make modernize
+
+  schema-lint:
+    needs: changes
+    if: needs.changes.outputs.schema == 'true'
+    name: Schema Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Run make lint-schema
+        run: make lint-schema
 
   test:
     needs: changes
@@ -95,14 +164,6 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  test-skip:
-    needs: changes
-    if: needs.changes.outputs.src == 'false'
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "No relevant changes, skipping tests"
-
   vulnerability-check:
     needs: changes
     if: needs.changes.outputs.src == 'true'
@@ -126,14 +187,6 @@ jobs:
           # found and the call graph is built; v1.9.0 does not. Renovate bumps it.
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
-
-  vulnerability-check-skip:
-    needs: changes
-    if: needs.changes.outputs.src == 'false'
-    name: Vulnerability Check
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "No relevant changes, skipping vulnerability check"
 
   # Compiles and tests the libvips-tagged series image processor
   # (internal/adapter/event/*_vips*.go, `//go:build vips`) through the
@@ -171,14 +224,6 @@ jobs:
           push: false
           cache-from: type=gha,scope=series-image-consumer-test
           cache-to: type=gha,mode=max,scope=series-image-consumer-test
-
-  series-image-consumer-test-skip:
-    needs: changes
-    if: needs.changes.outputs.series_image == 'false'
-    name: Series Image Consumer Test (vips)
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "No relevant changes, skipping series-image-consumer vips tests"
 
   benchmark:
     needs: changes
@@ -219,16 +264,51 @@ jobs:
       - name: Apply database migrations
         run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
 
+      # The Makefile and Dockerfile set the same variable; without it
+      # `internal/di` panics at init on the zitadel-go / pocketsign
+      # extension-number conflict (#669).
       - name: Run benchmarks
         run: go test -bench=. -benchmem -run=^$ ./...
+        env:
+          GOLANG_PROTOBUF_REGISTRATION_CONFLICT: ignore
 
-  benchmark-skip:
+  atlas-ci:
     needs: changes
-    if: needs.changes.outputs.src == 'false' || github.event_name != 'push'
-    name: Benchmark
+    if: needs.changes.outputs.atlas == 'true' && github.event_name == 'pull_request'
+    name: Atlas CI
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgres://postgres:password@localhost:15432/postgres?sslmode=disable"
+    services:
+      postgres:
+        image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 15432:5432
+
     steps:
-      - run: echo "Skipping benchmarks"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Atlas
+        uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
+
+      - name: Check Migration Ordering
+        run: bash scripts/check-migration-drift.sh --check-ordering
+
+      - name: Atlas Migrate Validate
+        run: |
+          atlas migrate validate \
+            --dev-url "${{ env.DATABASE_URL }}" \
+            --dir "file://k8s/atlas/base/migrations"
 
   ci-success:
     name: CI Success
@@ -236,18 +316,17 @@ jobs:
     needs:
       [
         changes,
+        lint,
+        schema-lint,
         test,
-        test-skip,
         vulnerability-check,
-        vulnerability-check-skip,
         series-image-consumer-test,
-        series-image-consumer-test-skip,
         benchmark,
-        benchmark-skip,
+        atlas-ci,
       ]
     if: always()
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
         with:
-          allowed-skips: test, test-skip, vulnerability-check, vulnerability-check-skip, series-image-consumer-test, series-image-consumer-test-skip, benchmark, benchmark-skip
+          allowed-skips: lint, schema-lint, test, vulnerability-check, series-image-consumer-test, benchmark, atlas-ci
           jobs: ${{ toJSON(needs) }}
