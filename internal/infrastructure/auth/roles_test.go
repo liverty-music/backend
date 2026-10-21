@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,11 +46,11 @@ func createTokenWithRoles(t *testing.T, privateKey *rsa.PrivateKey, issuer strin
 		require.NoError(t, token.Set(claim, roleMap))
 	}
 
-	key, err := jwk.FromRaw(privateKey)
+	key, err := jwk.Import[jwk.Key](privateKey)
 	require.NoError(t, err)
 	require.NoError(t, key.Set(jwk.KeyIDKey, "test-key-id"))
 
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.RS256, key))
+	signed, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), key))
 	require.NoError(t, err)
 	return string(signed)
 }

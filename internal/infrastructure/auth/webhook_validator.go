@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
 // WebhookValidator validates Zitadel Actions v2 webhook JWT bodies.
@@ -35,8 +34,7 @@ import (
 // The JWKS cache is shared with the end-user JWTValidator rather than
 // duplicated, so there is exactly one refresh goroutine per instance.
 type WebhookValidator struct {
-	jwks    *jwk.Cache
-	jwksURL string
+	jwks *jwksSource
 }
 
 // NewWebhookValidator returns a validator that shares the receiver's
@@ -48,10 +46,7 @@ type WebhookValidator struct {
 // audience-shaped identifier (e.g. "urn:liverty-music:webhook:...")
 // for documentation purposes, but it is not enforced.
 func (v *JWTValidator) NewWebhookValidator(_ string) *WebhookValidator {
-	return &WebhookValidator{
-		jwks:    v.jwks,
-		jwksURL: v.jwksURL,
-	}
+	return &WebhookValidator{jwks: v.jwks}
 }
 
 // ValidateWebhookToken verifies the JWT signature against the JWKS and
@@ -67,7 +62,7 @@ func (v *WebhookValidator) ValidateWebhookToken(
 	ctx context.Context,
 	tokenString string,
 ) (jwt.Token, error) {
-	keySet, err := v.jwks.Get(ctx, v.jwksURL)
+	keySet, err := v.jwks.keySet(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS: %w", err)
 	}

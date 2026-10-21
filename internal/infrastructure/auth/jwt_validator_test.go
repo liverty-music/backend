@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,11 +28,11 @@ func setupTestJWKS(t *testing.T) (*httptest.Server, *rsa.PrivateKey, jwk.Set) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err, "failed to generate RSA key")
 
-	publicKey, err := jwk.FromRaw(privateKey.PublicKey)
+	publicKey, err := jwk.Import[jwk.Key](privateKey.PublicKey)
 	require.NoError(t, err, "failed to create JWK from public key")
 
 	require.NoError(t, publicKey.Set(jwk.KeyIDKey, "test-key-id"), "failed to set key ID")
-	require.NoError(t, publicKey.Set(jwk.AlgorithmKey, jwa.RS256), "failed to set algorithm")
+	require.NoError(t, publicKey.Set(jwk.AlgorithmKey, jwa.RS256()), "failed to set algorithm")
 
 	keySet := jwk.NewSet()
 	require.NoError(t, keySet.AddKey(publicKey), "failed to add key to set")
@@ -50,11 +50,18 @@ type testTokenOptions struct {
 	// emailVerified, when non-nil, sets the email_verified private claim.
 	// When nil the claim is omitted entirely (tests the missing-claim case).
 	emailVerified *bool
+	// keyID, when non-empty, replaces the default "test-key-id" kid header.
+	keyID string
 }
 
 // withEmailVerified returns a testTokenOptions with EmailVerified set to v.
 func withEmailVerified(v bool) testTokenOptions {
 	return testTokenOptions{emailVerified: &v}
+}
+
+// withKeyID returns a testTokenOptions that signs with the given kid header.
+func withKeyID(kid string) testTokenOptions {
+	return testTokenOptions{keyID: kid}
 }
 
 // createTestToken creates a signed JWT token for testing.
@@ -70,7 +77,11 @@ func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, 
 		require.NoError(t, token.Set("name", name), "failed to set name")
 	}
 
+	keyID := "test-key-id"
 	for _, opt := range opts {
+		if opt.keyID != "" {
+			keyID = opt.keyID
+		}
 		if opt.emailVerified != nil {
 			require.NoError(t, token.Set("email_verified", *opt.emailVerified), "failed to set email_verified")
 		}
@@ -79,11 +90,11 @@ func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, 
 	require.NoError(t, token.Set(jwt.IssuedAtKey, time.Now()), "failed to set issued at")
 	require.NoError(t, token.Set(jwt.ExpirationKey, time.Now().Add(expiry)), "failed to set expiration")
 
-	key, err := jwk.FromRaw(privateKey)
+	key, err := jwk.Import[jwk.Key](privateKey)
 	require.NoError(t, err, "failed to create JWK")
-	require.NoError(t, key.Set(jwk.KeyIDKey, "test-key-id"), "failed to set key ID")
+	require.NoError(t, key.Set(jwk.KeyIDKey, keyID), "failed to set key ID")
 
-	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.RS256, key))
+	signedToken, err := jwt.Sign(token, jwt.WithKey(jwa.RS256(), key))
 	require.NoError(t, err, "failed to sign token")
 
 	return string(signedToken)
@@ -111,10 +122,10 @@ func newKeySet(t *testing.T) (*rsa.PrivateKey, jwk.Set) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	publicKey, err := jwk.FromRaw(privateKey.PublicKey)
+	publicKey, err := jwk.Import[jwk.Key](privateKey.PublicKey)
 	require.NoError(t, err)
 	require.NoError(t, publicKey.Set(jwk.KeyIDKey, "test-key-id"))
-	require.NoError(t, publicKey.Set(jwk.AlgorithmKey, jwa.RS256))
+	require.NoError(t, publicKey.Set(jwk.AlgorithmKey, jwa.RS256()))
 	keySet := jwk.NewSet()
 	require.NoError(t, keySet.AddKey(publicKey))
 	return privateKey, keySet
@@ -162,6 +173,39 @@ func TestValidateToken_RecoversWhenSignInServiceReturns(t *testing.T) {
 	_, err = validator.ValidateToken(context.Background(), token)
 	require.NoError(t, err)
 	assert.Equal(t, requests, jwks.requests.Load(), "fetched keys are served from the cache")
+}
+
+func TestValidateToken_UnknownKeyID(t *testing.T) {
+	t.Parallel()
+	privateKey, keySet := newKeySet(t)
+	jwks := &flakyJWKS{keySet: keySet}
+	server := httptest.NewServer(jwks)
+	t.Cleanup(server.Close)
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, validator.Close()) })
+	// Warm the cache with a token the JWKS can verify.
+	valid := createTestToken(t, privateKey, server.URL, "user-1", "fan@example.com", "", time.Hour)
+	_, err = validator.ValidateToken(context.Background(), valid)
+	require.NoError(t, err)
+	requests := jwks.requests.Load()
+
+	unknown := createTestToken(t, newSigningKey(t), server.URL, "user-1", "fan@example.com", "", time.Hour, withKeyID("rotated-key-id"))
+	_, err = validator.ValidateToken(context.Background(), unknown)
+
+	require.Error(t, err, "a key absent from the JWKS must not verify")
+	// An unknown kid does not trigger a JWKS fetch: the cached set is used
+	// until its scheduled refresh, so a caller cannot make the server hit
+	// the sign-in service once per request by sending made-up key ids.
+	assert.Equal(t, requests, jwks.requests.Load(), "an unknown kid is served from the cache")
+}
+
+// newSigningKey returns an RSA key that no test JWKS publishes.
+func newSigningKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	return key
 }
 
 func TestValidateToken(t *testing.T) {

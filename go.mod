@@ -48,8 +48,10 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/davidbyttow/govips/v2 v2.19.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jwx-go/jwkfetch/v4 v4.0.4
 	github.com/kelseyhightower/envconfig v1.4.0
-	github.com/lestrrat-go/jwx/v2 v2.1.7
+	github.com/lestrrat-go/httprc/v3 v3.0.6
+	github.com/lestrrat-go/jwx/v4 v4.5.0
 	github.com/nats-io/nats-server/v2 v2.15.1
 	github.com/nats-io/nats.go v1.54.0
 	github.com/pannpers/go-apperr v1.1.0
@@ -129,7 +131,6 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cosiner/argv v0.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/derekparker/trie/v3 v3.2.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v29.9.0+incompatible // indirect
@@ -180,10 +181,10 @@ require (
 	github.com/knadh/koanf/providers/structs v1.0.0 // indirect
 	github.com/knadh/koanf/v2 v2.3.2 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
+	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
-	github.com/lestrrat-go/httprc v1.0.6 // indirect
-	github.com/lestrrat-go/iter v1.0.2 // indirect
-	github.com/lestrrat-go/option v1.0.1 // indirect
+	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
+	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -219,6 +220,7 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/btree v1.8.2 // indirect
+	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/vektra/mockery/v3 v3.8.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jws"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/jwx/v4/jwa"
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jws"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,10 +42,10 @@ func newJWKSFixture(t *testing.T) *jwksFixture {
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	public, err := jwk.FromRaw(privateKey.PublicKey)
+	public, err := jwk.Import[jwk.Key](privateKey.PublicKey)
 	require.NoError(t, err)
 	require.NoError(t, public.Set(jwk.KeyIDKey, "test-key-id"))
-	require.NoError(t, public.Set(jwk.AlgorithmKey, jwa.RS256))
+	require.NoError(t, public.Set(jwk.AlgorithmKey, jwa.RS256()))
 
 	set := jwk.NewSet()
 	require.NoError(t, set.AddKey(public))
@@ -88,7 +88,7 @@ func (f *jwksFixture) signWebhookJWT(
 	// look up the matching public key from the set.
 	protected := jws.NewHeaders()
 	require.NoError(t, protected.Set(jws.KeyIDKey, "test-key-id"))
-	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.RS256, f.privateKey, jws.WithProtectedHeaders(protected)))
+	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.RS256(), f.privateKey, jws.WithProtectedHeaders(protected)))
 	require.NoError(t, err)
 	return string(signed)
 }
