@@ -14,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v86"
-	stripewh "github.com/stripe/stripe-go/v86/webhook"
+	stripe "github.com/stripe/stripe-go/v87"
+	stripewh "github.com/stripe/stripe-go/v87/webhook"
 
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/usecase"

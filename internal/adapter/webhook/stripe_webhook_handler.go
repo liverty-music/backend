@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	stripe "github.com/stripe/stripe-go/v86"
-	stripewh "github.com/stripe/stripe-go/v86/webhook"
+	stripe "github.com/stripe/stripe-go/v87"
+	stripewh "github.com/stripe/stripe-go/v87/webhook"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"

@@ -15,7 +15,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v86"
+	stripe "github.com/stripe/stripe-go/v87"
 	"uuid"
 )
 

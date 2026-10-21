@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v86"
+	stripe "github.com/stripe/stripe-go/v87"
 )
 
 // TestStripeConnect_Settlement_PoC is a PROOF-OF-CONCEPT for the money-out layer
 // that the `ticket-settlement-and-payout` capability will own (NOT ⑤). It
 // exercises the Stripe Connect **separate charges & transfers** loop against a
-// Stripe Sandbox (test mode), validating that the latest stripe-go (v86, unified
+// Stripe Sandbox (test mode), validating that the latest stripe-go (v87, unified
 // stripe.Client) does what the settlement design (#940) needs:
 //
 //	platform charge (funds land on the platform balance)

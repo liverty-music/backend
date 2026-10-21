@@ -11,7 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v86"
+	stripe "github.com/stripe/stripe-go/v87"
 )
 
 // TestStripeSettlementPort_CreateConnectedAccount_Integration provisions a real
