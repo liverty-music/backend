@@ -6,13 +6,12 @@ package ratelimit
 import (
 	"context"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"connectrpc.com/authn"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -102,21 +101,47 @@ func (l *Limiter) Allow(key string, authenticated bool) bool {
 	return e.limiter.Allow()
 }
 
-// NewInterceptor returns a Connect-RPC unary interceptor that rate-limits
-// requests. Authenticated callers are keyed by JWT subject; unauthenticated
-// callers are keyed by client IP.
-func NewInterceptor(limiter *Limiter) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			key, authenticated := extractKey(ctx, req.Header())
-			if !limiter.Allow(key, authenticated) {
-				err := connect.NewError(connect.CodeResourceExhausted, nil)
-				err.Meta().Set("Retry-After", "1")
-				return nil, err
+// NewInterceptor returns a Connect-RPC server interceptor that rate-limits
+// unary requests. Authenticated callers are keyed by JWT subject;
+// unauthenticated callers are keyed by client IP.
+//
+// A rejected call fails with CodeResourceExhausted and a "Retry-After: 1"
+// response header.
+//
+// It applies to unary RPCs only and passes streaming RPCs through unchanged,
+// as the v1 unary interceptor did (a v1 UnaryInterceptorFunc does not wrap
+// streaming handlers).
+func NewInterceptor(limiter *Limiter) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			if spec.StreamType != connect.StreamTypeUnary {
+				return next(ctx, spec, stream)
 			}
-			return next(ctx, req)
+			key, authenticated := extractKey(ctx, requestHeader(ctx))
+			if !limiter.Allow(key, authenticated) {
+				if info, ok := connect.CallInfoForServerContext(ctx); ok {
+					info.ResponseHeader().Set("Retry-After", "1")
+				}
+				return connect.NewError(connect.CodeResourceExhausted, "")
+			}
+			return next(ctx, spec, stream)
 		}
 	}
+}
+
+// HeaderGetter reads a header value by key. Both [http.Header] and
+// [*connect.Header] satisfy it.
+type HeaderGetter interface {
+	Get(key string) string
+}
+
+// requestHeader returns the request headers of the RPC served with ctx, or an
+// empty header when ctx carries no server call info.
+func requestHeader(ctx context.Context) HeaderGetter {
+	if info, ok := connect.CallInfoForServerContext(ctx); ok {
+		return info.RequestHeader()
+	}
+	return &connect.Header{}
 }
 
 // SubjectProvider is satisfied by any claims type that has a Sub field accessor.
@@ -133,7 +158,7 @@ type SubjectProvider interface {
 // GCP load balancer always injects X-Forwarded-For, so RemoteAddr fallback is
 // not needed in production. In local development without a proxy, unauthenticated
 // requests will be keyed as "ip:" (empty suffix) and share a single bucket.
-func extractKey(ctx context.Context, headers http.Header) (string, bool) {
+func extractKey(ctx context.Context, headers HeaderGetter) (string, bool) {
 	if info := authn.GetInfo(ctx); info != nil {
 		if sp, ok := info.(SubjectProvider); ok {
 			if sub := sp.Subject(); sub != "" {
@@ -152,7 +177,7 @@ func extractKey(ctx context.Context, headers http.Header) (string, bool) {
 // It uses the rightmost entry of X-Forwarded-For, which is the address
 // appended by the GCP external load balancer and cannot be spoofed by the
 // client. Falls back to X-Real-Ip, then an empty string.
-func ClientIP(headers http.Header) string {
+func ClientIP(headers HeaderGetter) string {
 	if xff := headers.Get("X-Forwarded-For"); xff != "" {
 		// Rightmost entry is appended by the trusted GCP LB; all entries to
 		// the left are client-supplied and must not be trusted for rate limiting.

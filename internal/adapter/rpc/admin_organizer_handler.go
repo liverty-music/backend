@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -35,14 +34,14 @@ func NewAdminOrganizerHandler(organizerUseCase usecase.OrganizerUseCase, logger 
 // persisted record.
 func (h *AdminOrganizerHandler) Create(
 	ctx context.Context,
-	req *connect.Request[organizerv1.CreateRequest],
-) (*connect.Response[organizerv1.CreateResponse], error) {
+	req *organizerv1.CreateRequest,
+) (*organizerv1.CreateResponse, error) {
 	organizer, err := h.organizerUseCase.Create(ctx,
-		req.Msg.GetName().GetValue(), req.Msg.GetShortName().GetValue(), req.Msg.GetOwnerEmail().GetValue())
+		req.GetName().GetValue(), req.GetShortName().GetValue(), req.GetOwnerEmail().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.CreateResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+	return &organizerv1.CreateResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
 }
 
 // AssociateArtist links an existing artist to an Organizer. Returns
@@ -50,49 +49,49 @@ func (h *AdminOrganizerHandler) Create(
 // NotFound if either the organizer or the artist does not exist.
 func (h *AdminOrganizerHandler) AssociateArtist(
 	ctx context.Context,
-	req *connect.Request[organizerv1.AssociateArtistRequest],
-) (*connect.Response[organizerv1.AssociateArtistResponse], error) {
-	if err := h.organizerUseCase.AssociateArtist(ctx, req.Msg.GetOrganizerId().GetValue(), req.Msg.GetArtistId().GetValue()); err != nil {
+	req *organizerv1.AssociateArtistRequest,
+) (*organizerv1.AssociateArtistResponse, error) {
+	if err := h.organizerUseCase.AssociateArtist(ctx, req.GetOrganizerId().GetValue(), req.GetArtistId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.AssociateArtistResponse{}), nil
+	return &organizerv1.AssociateArtistResponse{}, nil
 }
 
 // DisassociateArtist removes the link between an Organizer and an artist
 // (idempotent). Returns NotFound if the organizer does not exist.
 func (h *AdminOrganizerHandler) DisassociateArtist(
 	ctx context.Context,
-	req *connect.Request[organizerv1.DisassociateArtistRequest],
-) (*connect.Response[organizerv1.DisassociateArtistResponse], error) {
-	if err := h.organizerUseCase.DisassociateArtist(ctx, req.Msg.GetOrganizerId().GetValue(), req.Msg.GetArtistId().GetValue()); err != nil {
+	req *organizerv1.DisassociateArtistRequest,
+) (*organizerv1.DisassociateArtistResponse, error) {
+	if err := h.organizerUseCase.DisassociateArtist(ctx, req.GetOrganizerId().GetValue(), req.GetArtistId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.DisassociateArtistResponse{}), nil
+	return &organizerv1.DisassociateArtistResponse{}, nil
 }
 
 // List returns every Organizer regardless of status.
 func (h *AdminOrganizerHandler) List(
 	ctx context.Context,
-	_ *connect.Request[organizerv1.ListRequest],
-) (*connect.Response[organizerv1.ListResponse], error) {
+	_ *organizerv1.ListRequest,
+) (*organizerv1.ListResponse, error) {
 	organizers, err := h.organizerUseCase.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.ListResponse{Organizers: mapper.OrganizersToProto(organizers)}), nil
+	return &organizerv1.ListResponse{Organizers: mapper.OrganizersToProto(organizers)}, nil
 }
 
 // Get returns a single Organizer by id. Returns NotFound when no organizer
 // with the given id exists.
 func (h *AdminOrganizerHandler) Get(
 	ctx context.Context,
-	req *connect.Request[organizerv1.GetRequest],
-) (*connect.Response[organizerv1.GetResponse], error) {
-	organizer, err := h.organizerUseCase.Get(ctx, req.Msg.GetOrganizerId().GetValue())
+	req *organizerv1.GetRequest,
+) (*organizerv1.GetResponse, error) {
+	organizer, err := h.organizerUseCase.Get(ctx, req.GetOrganizerId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+	return &organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
 }
 
 // Deactivate turns an Organizer off: deactivates its members' identities,
@@ -100,12 +99,12 @@ func (h *AdminOrganizerHandler) Get(
 // (idempotent). Returns NotFound when no organizer with the given id exists.
 func (h *AdminOrganizerHandler) Deactivate(
 	ctx context.Context,
-	req *connect.Request[organizerv1.DeactivateRequest],
-) (*connect.Response[organizerv1.DeactivateResponse], error) {
-	if err := h.organizerUseCase.Deactivate(ctx, req.Msg.GetOrganizerId().GetValue()); err != nil {
+	req *organizerv1.DeactivateRequest,
+) (*organizerv1.DeactivateResponse, error) {
+	if err := h.organizerUseCase.Deactivate(ctx, req.GetOrganizerId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.DeactivateResponse{}), nil
+	return &organizerv1.DeactivateResponse{}, nil
 }
 
 // Delete permanently removes a deactivated Organizer with its files,
@@ -113,12 +112,12 @@ func (h *AdminOrganizerHandler) Deactivate(
 // FailedPrecondition when it is not deactivated or deletion is blocked.
 func (h *AdminOrganizerHandler) Delete(
 	ctx context.Context,
-	req *connect.Request[organizerv1.DeleteRequest],
-) (*connect.Response[organizerv1.DeleteResponse], error) {
-	if err := h.organizerUseCase.Delete(ctx, req.Msg.GetOrganizerId().GetValue()); err != nil {
+	req *organizerv1.DeleteRequest,
+) (*organizerv1.DeleteResponse, error) {
+	if err := h.organizerUseCase.Delete(ctx, req.GetOrganizerId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.DeleteResponse{}), nil
+	return &organizerv1.DeleteResponse{}, nil
 }
 
 // SetBusinessDetails records an Organizer's five business details (the 特商法
@@ -126,27 +125,27 @@ func (h *AdminOrganizerHandler) Delete(
 // the server's protovalidate interceptor before this runs.
 func (h *AdminOrganizerHandler) SetBusinessDetails(
 	ctx context.Context,
-	req *connect.Request[organizerv1.SetBusinessDetailsRequest],
-) (*connect.Response[organizerv1.SetBusinessDetailsResponse], error) {
-	m := req.Msg
+	req *organizerv1.SetBusinessDetailsRequest,
+) (*organizerv1.SetBusinessDetailsResponse, error) {
+	m := req
 	organizer, err := h.organizerUseCase.SetBusinessDetails(ctx, m.GetOrganizerId().GetValue(),
 		mapper.BusinessDetailsFromSetRequest(m.GetLegalName(), m.GetRepresentativeName(), m.GetBusinessAddress(), m.GetBusinessPhoneNumber(), m.GetContactEmail()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.SetBusinessDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+	return &organizerv1.SetBusinessDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
 }
 
 // SetPlatformFeeRate sets the platform fee rate of an Organizer's future
 // Orders and returns the Organizer with it.
 func (h *AdminOrganizerHandler) SetPlatformFeeRate(
 	ctx context.Context,
-	req *connect.Request[organizerv1.SetPlatformFeeRateRequest],
-) (*connect.Response[organizerv1.SetPlatformFeeRateResponse], error) {
+	req *organizerv1.SetPlatformFeeRateRequest,
+) (*organizerv1.SetPlatformFeeRateResponse, error) {
 	organizer, err := h.organizerUseCase.SetPlatformFeeRate(ctx,
-		req.Msg.GetOrganizerId().GetValue(), int(req.Msg.GetPlatformFeeRateBps()))
+		req.GetOrganizerId().GetValue(), int(req.GetPlatformFeeRateBps()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.SetPlatformFeeRateResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+	return &organizerv1.SetPlatformFeeRateResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
 }

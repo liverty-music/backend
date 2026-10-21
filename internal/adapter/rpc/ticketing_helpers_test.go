@@ -6,7 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -14,7 +15,7 @@ import (
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
-	apperrconnect "github.com/pannpers/go-apperr/apperr/connect"
+	apperrconnect "github.com/pannpers/go-apperr/apperr/connectv2"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -37,20 +38,21 @@ const (
 // the authn middleware that applies decorate to the request context.
 func serveValidated(
 	t *testing.T,
-	mount func(opts ...connect.HandlerOption) (string, http.Handler),
+	mount func(*connect.Server),
 	decorate func(context.Context) context.Context,
 ) *httptest.Server {
 	t.Helper()
-	withCtx := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(decorate(ctx), req)
+	withCtx := func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			return next(decorate(ctx), spec, stream)
 		}
-	})
+	}
 	logger, err := logging.New()
 	require.NoError(t, err)
-	path, svc := mount(connect.WithInterceptors(apperrconnect.NewErrorHandlingInterceptor(logger), withCtx, validate.NewInterceptor()))
+	server := connect.NewServer(apperrconnect.NewErrorHandlingInterceptor(logger), withCtx, validate.NewServerInterceptor())
+	mount(server)
 	mux := http.NewServeMux()
-	mux.Handle(path, svc)
+	connecthttp.Mount(mux, server)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

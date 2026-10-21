@@ -3,51 +3,31 @@ package auth
 import (
 	"context"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
-// RequireRoleInterceptor enforces, at the server boundary, that every RPC caller
-// holds the named Zitadel project role. It reads the bridged claims (see
-// ClaimsBridgeInterceptor) and rejects, before any handler runs, an
-// unauthenticated caller with CodeUnauthenticated and an authenticated caller
-// missing the role with CodePermissionDenied (see RequireRole).
+// NewRequireRoleInterceptor returns a server interceptor that enforces, at the
+// server boundary, that every RPC caller holds the named Zitadel project role.
+// It reads the bridged claims (see NewClaimsBridgeInterceptor) and rejects,
+// before any handler runs, an unauthenticated caller with CodeUnauthenticated
+// and an authenticated caller missing the role with CodePermissionDenied (see
+// RequireRole).
 //
 // It is applied server-wide on the admin Connect server so that admin RPCs are
 // gated structurally rather than by per-method discipline: because the admin
 // server hosts only admin services and this layer is server-wide, it is
 // impossible to register an un-gated admin RPC. It must be ordered after the
 // claims bridge (so the bridged claims are present) and before validation.
-type RequireRoleInterceptor struct {
-	role string
-}
-
-// NewRequireRoleInterceptor creates an interceptor that requires every caller to
-// hold the given role.
-func NewRequireRoleInterceptor(role string) RequireRoleInterceptor {
-	return RequireRoleInterceptor{role: role}
-}
-
-// WrapUnary enforces the required role for unary RPCs.
-func (i RequireRoleInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		if err := RequireRole(ctx, i.role); err != nil {
-			return nil, err
+//
+// It applies to every RPC type (unary and streaming), as the v1 interceptor
+// did through its WrapUnary and WrapStreamingHandler methods.
+func NewRequireRoleInterceptor(role string) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			if err := RequireRole(ctx, role); err != nil {
+				return err
+			}
+			return next(ctx, spec, stream)
 		}
-		return next(ctx, req)
-	}
-}
-
-// WrapStreamingClient is a no-op for client streaming.
-func (i RequireRoleInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-// WrapStreamingHandler enforces the required role for streaming RPCs.
-func (i RequireRoleInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		if err := RequireRole(ctx, i.role); err != nil {
-			return err
-		}
-		return next(ctx, conn)
 	}
 }

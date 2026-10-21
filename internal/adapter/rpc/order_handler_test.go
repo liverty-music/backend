@@ -2,14 +2,14 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
-	orderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/order/v1/orderv1connect"
+	orderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/order/v1/orderv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	orderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/order/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -28,10 +28,10 @@ func newOrderClient(t *testing.T, decorate func(context.Context) context.Context
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewOrderHandler(uc, users, logger)
-	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return orderv1connect.NewOrderServiceHandler(h, opts...)
+	srv := serveValidated(t, func(s *connect.Server) {
+		orderv1connect.RegisterOrderServiceHandler(s, h)
 	}, decorate)
-	return orderv1connect.NewOrderServiceClient(srv.Client(), srv.URL), uc, users
+	return orderv1connect.NewOrderServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL))), uc, users
 }
 
 func TestOrderHandler_Get(t *testing.T) {
@@ -51,13 +51,13 @@ func TestOrderHandler_Get(t *testing.T) {
 			Amount: 10000, Currency: "JPY", PayTime: time.Unix(1_700_000_000, 0),
 		}, nil)
 
-		resp, err := client.Get(ctx, connect.NewRequest(getReq()))
+		resp, err := client.Get(ctx, getReq())
 
 		require.NoError(t, err)
-		assert.Equal(t, tkOrderID, resp.Msg.GetOrder().GetId().GetValue())
-		assert.Equal(t, tkFanUserID, resp.Msg.GetOrder().GetUserId().GetValue())
-		assert.Equal(t, tkEntryID, resp.Msg.GetOrder().GetLotteryEntryId().GetValue())
-		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, resp.Msg.GetOrder().GetStatus())
+		assert.Equal(t, tkOrderID, resp.GetOrder().GetId().GetValue())
+		assert.Equal(t, tkFanUserID, resp.GetOrder().GetUserId().GetValue())
+		assert.Equal(t, tkEntryID, resp.GetOrder().GetLotteryEntryId().GetValue())
+		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, resp.GetOrder().GetStatus())
 	})
 
 	t.Run("another fan's order is not found", func(t *testing.T) {
@@ -67,7 +67,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		uc.EXPECT().Get(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).
 			Return(nil, apperr.New(codes.NotFound, "order not found"))
 
-		_, err := client.Get(ctx, connect.NewRequest(getReq()))
+		_, err := client.Get(ctx, getReq())
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
@@ -77,7 +77,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/order "Not signed in"
 		client, _, _ := newOrderClient(t, func(c context.Context) context.Context { return c })
 
-		_, err := client.Get(ctx, connect.NewRequest(getReq()))
+		_, err := client.Get(ctx, getReq())
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -87,7 +87,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		client, _, users := newOrderClient(t, signedInAs("ext-new"))
 		expectNoAccount(users, "ext-new")
 
-		_, err := client.Get(ctx, connect.NewRequest(getReq()))
+		_, err := client.Get(ctx, getReq())
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
@@ -97,7 +97,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/order "Missing order"
 		client, _, _ := newOrderClient(t, signedInAs(tkFanSub))
 
-		_, err := client.Get(ctx, connect.NewRequest(&orderv1.GetRequest{}))
+		_, err := client.Get(ctx, &orderv1.GetRequest{})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

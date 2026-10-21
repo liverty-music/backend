@@ -2,17 +2,17 @@ package server_test
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
-	followv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
+	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/concert/v1/concertv1connect"
+	followv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/follow/v1/followv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	followv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -58,13 +58,11 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 		}).Maybe()
 
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return concertv1connect.NewConcertServiceHandler(
-				rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger), opts...)
+		func(s *connect.Server) {
+			concertv1connect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return followv1connect.NewFollowServiceHandler(
-				rpc.NewFollowHandler(usecasemocks.NewMockFollowUseCase(t), userRepo, logger), opts...)
+		func(s *connect.Server) {
+			followv1connect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(usecasemocks.NewMockFollowUseCase(t), userRepo, logger))
 		},
 	}
 	cfg := config.ServerSettings{
@@ -88,12 +86,12 @@ func TestConnectServer_RequestTimeout(t *testing.T) {
 		// @spec components/infrastructure/fan/api/server/request-timeout "Concert call over the limit"
 		t.Parallel()
 		ts := newTimeoutTestServer(t)
-		client := concertv1connect.NewConcertServiceClient(ts.Client(), ts.URL)
+		client := concertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		start := time.Now()
-		resp, err := client.ListByArtist(context.Background(), connect.NewRequest(&concertv1.ListByArtistRequest{
+		resp, err := client.ListByArtist(context.Background(), &concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "019a0000-0000-7000-8000-0000000000b1"},
-		}))
+		})
 
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
@@ -104,11 +102,10 @@ func TestConnectServer_RequestTimeout(t *testing.T) {
 		// @spec components/infrastructure/fan/api/server/request-timeout "Other call over the limit"
 		t.Parallel()
 		ts := newTimeoutTestServer(t)
-		client := followv1connect.NewFollowServiceClient(ts.Client(), ts.URL)
-		req := connect.NewRequest(&followv1.ListRequest{})
-		req.Header().Set("Authorization", "Bearer fan-token")
+		client := followv1connect.NewFollowServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+		req := &followv1.ListRequest{}
 
-		resp, err := client.List(context.Background(), req)
+		resp, err := client.List(withHeader(context.Background(), "Authorization", "Bearer fan-token"), req)
 
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))

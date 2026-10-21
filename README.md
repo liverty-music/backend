@@ -344,7 +344,7 @@ This scaffold follows clean architecture principles:
 
 ## Dependencies
 
-- **Connect-RPC**: `connectrpc.com/connect` for HTTP/gRPC-compatible APIs
+- **Connect-RPC**: `connectrpc.com/connect/v2` for HTTP/gRPC-compatible APIs
 - **Atlas**: Database migration tool with versioned migrations
 - **SQL Support**: `github.com/jackc/pgx/v5` for PostgreSQL database access with raw SQL support
 - **Wire**: `github.com/google/wire` for dependency injection

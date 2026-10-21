@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
+	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -90,15 +91,15 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), &organizerseriesv1.ListRequest{})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.Series, 2)
-		assert.Equal(t, "series-1", resp.Msg.Series[0].GetId().GetValue())
-		assert.Equal(t, "series-2", resp.Msg.Series[1].GetId().GetValue())
-		require.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "event-1", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
-		assert.Equal(t, "series-1", resp.Msg.Concerts[0].GetEvent().GetSeriesId().GetValue())
+		require.Len(t, resp.Series, 2)
+		assert.Equal(t, "series-1", resp.Series[0].GetId().GetValue())
+		assert.Equal(t, "series-2", resp.Series[1].GetId().GetValue())
+		require.Len(t, resp.Concerts, 1)
+		assert.Equal(t, "event-1", resp.Concerts[0].GetEvent().GetId().GetValue())
+		assert.Equal(t, "series-1", resp.Concerts[0].GetEvent().GetSeriesId().GetValue())
 	})
 
 	// @spec components/adapter/organizer/api/rpc/series "Tour with one performer"
@@ -125,14 +126,14 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), &organizerseriesv1.ListRequest{})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.Series, 1)
-		require.Len(t, resp.Msg.Concerts, 3)
-		require.Len(t, resp.Msg.Artists, 1)
-		assert.Equal(t, "artist-1", resp.Msg.Artists[0].GetId().GetValue())
-		for _, c := range resp.Msg.Concerts {
+		require.Len(t, resp.Series, 1)
+		require.Len(t, resp.Concerts, 3)
+		require.Len(t, resp.Artists, 1)
+		assert.Equal(t, "artist-1", resp.Artists[0].GetId().GetValue())
+		for _, c := range resp.Concerts {
 			assert.Equal(t, "series-1", c.GetEvent().GetSeriesId().GetValue())
 			require.Len(t, c.GetArtistIds(), 1)
 			assert.Equal(t, "artist-1", c.GetArtistIds()[0].GetValue())
@@ -171,17 +172,17 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		).
 		Once()
 
-	resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+	resp, err := d.handler.List(orgCtx(testProviderOrganizerID), &organizerseriesv1.ListRequest{})
 
 	require.NoError(t, err)
-	require.Len(t, resp.Msg.Concerts, 1)
-	venue := resp.Msg.Concerts[0].GetEvent().GetVenue()
+	require.Len(t, resp.Concerts, 1)
+	venue := resp.Concerts[0].GetEvent().GetVenue()
 	require.NotNil(t, venue)
 	assert.Equal(t, "venue-1", venue.GetId().GetValue())
 	assert.Equal(t, "Zepp Haneda (TOKYO)", venue.GetName().GetValue())
 	assert.Equal(t, "JP-13", venue.GetAdminArea().GetValue())
 	assert.Equal(t, "ChIJeVmAOuphGGARoWY4-GPmhhA", venue.GetPlaceId().GetValue())
-	assert.Equal(t, "Zepp Haneda", resp.Msg.Concerts[0].GetEvent().GetListedVenueName().GetValue())
+	assert.Equal(t, "Zepp Haneda", resp.Concerts[0].GetEvent().GetListedVenueName().GetValue())
 }
 
 func TestOrganizerSeriesHandler_Create(t *testing.T) {
@@ -205,7 +206,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 			Return(series, concertsOf(events, artists), nil).
 			Once()
 
-		resp, err := d.handler.Create(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.CreateRequest{
+		resp, err := d.handler.Create(orgCtx(testProviderOrganizerID), &organizerseriesv1.CreateRequest{
 			Draft: &organizerseriesv1.SeriesDraft{
 				Title:      &entityv1.Title{Value: "ONE MAN LIVE"},
 				Type:       entityv1.SeriesType_SERIES_TYPE_SINGLE,
@@ -216,19 +217,19 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 					{VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 2}}},
 				},
 			},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_DRAFT, resp.Msg.GetSeries().GetPublishState())
-		require.Len(t, resp.Msg.Concerts, 2)
-		assert.Equal(t, "draft-event-1", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
-		assert.Equal(t, "draft-event-2", resp.Msg.Concerts[1].GetEvent().GetId().GetValue())
-		for _, c := range resp.Msg.Concerts {
+		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_DRAFT, resp.GetSeries().GetPublishState())
+		require.Len(t, resp.Concerts, 2)
+		assert.Equal(t, "draft-event-1", resp.Concerts[0].GetEvent().GetId().GetValue())
+		assert.Equal(t, "draft-event-2", resp.Concerts[1].GetEvent().GetId().GetValue())
+		for _, c := range resp.Concerts {
 			require.Len(t, c.GetArtistIds(), 1)
 			assert.Equal(t, "artist-1", c.GetArtistIds()[0].GetValue())
 		}
-		require.Len(t, resp.Msg.Artists, 1)
-		assert.Equal(t, "artist-1", resp.Msg.Artists[0].GetId().GetValue())
+		require.Len(t, resp.Artists, 1)
+		assert.Equal(t, "artist-1", resp.Artists[0].GetId().GetValue())
 	})
 
 	// @spec components/adapter/organizer/api/rpc/series "Draft without events"
@@ -236,21 +237,22 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerSeriesHandlerDeps(t)
 		// No usecase has an expectation: reaching one fails the test.
-		path, svc := organizerseriesv1connect.NewSeriesServiceHandler(d.handler, connect.WithInterceptors(validate.NewInterceptor()))
+		server := connect.NewServer(validate.NewServerInterceptor())
+		organizerseriesv1connect.RegisterSeriesServiceHandler(server, d.handler)
 		mux := http.NewServeMux()
-		mux.Handle(path, svc)
+		connecthttp.Mount(mux, server)
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
-		client := organizerseriesv1connect.NewSeriesServiceClient(srv.Client(), srv.URL)
+		client := organizerseriesv1connect.NewSeriesServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
-		_, err := client.Create(context.Background(), connect.NewRequest(&organizerseriesv1.CreateRequest{
+		_, err := client.Create(context.Background(), &organizerseriesv1.CreateRequest{
 			Draft: &organizerseriesv1.SeriesDraft{
 				Title:      &entityv1.Title{Value: "ONE MAN LIVE"},
 				Type:       entityv1.SeriesType_SERIES_TYPE_SINGLE,
 				Visibility: entityv1.Visibility_VISIBILITY_PUBLIC,
 				ArtistIds:  []*entityv1.ArtistId{{Value: "019a0000-0000-7000-8000-0000000000b1"}},
 			},
-		}))
+		})
 
 		require.Error(t, err)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -274,12 +276,12 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 			Return("new-token", nil).
 			Once()
 
-		resp, err := d.handler.RegenerateShareUrl(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
+		resp, err := d.handler.RegenerateShareUrl(orgCtx(testProviderOrganizerID), &organizerseriesv1.RegenerateShareUrlRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "new-token", resp.Msg.GetShareUrl().GetValue())
+		assert.Equal(t, "new-token", resp.GetShareUrl().GetValue())
 	})
 }
 
@@ -295,31 +297,31 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 		call func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error
 	}{
 		{"Create", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.Create(ctx, connect.NewRequest(&organizerseriesv1.CreateRequest{}))
+			_, err := h.Create(ctx, &organizerseriesv1.CreateRequest{})
 			return err
 		}},
 		{"Update", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.Update(ctx, connect.NewRequest(&organizerseriesv1.UpdateRequest{}))
+			_, err := h.Update(ctx, &organizerseriesv1.UpdateRequest{})
 			return err
 		}},
 		{"Publish", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.Publish(ctx, connect.NewRequest(&organizerseriesv1.PublishRequest{}))
+			_, err := h.Publish(ctx, &organizerseriesv1.PublishRequest{})
 			return err
 		}},
 		{"Cancel", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.Cancel(ctx, connect.NewRequest(&organizerseriesv1.CancelRequest{}))
+			_, err := h.Cancel(ctx, &organizerseriesv1.CancelRequest{})
 			return err
 		}},
 		{"List", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.List(ctx, connect.NewRequest(&organizerseriesv1.ListRequest{}))
+			_, err := h.List(ctx, &organizerseriesv1.ListRequest{})
 			return err
 		}},
 		{"RegenerateShareUrl", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.RegenerateShareUrl(ctx, connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{}))
+			_, err := h.RegenerateShareUrl(ctx, &organizerseriesv1.RegenerateShareUrlRequest{})
 			return err
 		}},
 		{"SetCoverImage", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.SetCoverImage(ctx, connect.NewRequest(&organizerseriesv1.SetCoverImageRequest{}))
+			_, err := h.SetCoverImage(ctx, &organizerseriesv1.SetCoverImageRequest{})
 			return err
 		}},
 	}

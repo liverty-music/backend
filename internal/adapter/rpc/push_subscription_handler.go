@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	pushsubscriptionv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	pushsubscriptionv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/push_subscription/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -43,75 +43,75 @@ func NewPushSubscriptionHandler(
 
 // Create registers the calling browser's push subscription for the signed-in
 // caller.
-func (h *PushSubscriptionHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
+func (h *PushSubscriptionHandler) Create(ctx context.Context, req *rpc.CreateRequest) (*rpc.CreateResponse, error) {
 	user, err := h.resolveCallerUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Msg.GetEndpoint() == nil || req.Msg.GetKeys() == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("endpoint and keys are required"))
+	if req.GetEndpoint() == nil || req.GetKeys() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "endpoint and keys are required")
 	}
-	endpoint := req.Msg.GetEndpoint().GetValue()
-	p256dh := req.Msg.GetKeys().GetP256Dh()
-	auth := req.Msg.GetKeys().GetAuth()
+	endpoint := req.GetEndpoint().GetValue()
+	p256dh := req.GetKeys().GetP256Dh()
+	auth := req.GetKeys().GetAuth()
 
 	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth, mapper.DeviceTypeFromEndpoint(endpoint))
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.CreateResponse{
+	return &rpc.CreateResponse{
 		Subscription: toPushSubscriptionProto(sub),
-	}), nil
+	}, nil
 }
 
 // Get returns the caller's push subscription for the given endpoint, the
 // subscription's natural key. It fails with NotFound for an endpoint the
 // caller has not registered, whoever else has.
-func (h *PushSubscriptionHandler) Get(ctx context.Context, req *connect.Request[rpc.GetRequest]) (*connect.Response[rpc.GetResponse], error) {
+func (h *PushSubscriptionHandler) Get(ctx context.Context, req *rpc.GetRequest) (*rpc.GetResponse, error) {
 	user, err := h.resolveCallerUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Msg.GetEndpoint() == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("endpoint is required"))
+	if req.GetEndpoint() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "endpoint is required")
 	}
-	endpoint := req.Msg.GetEndpoint().GetValue()
+	endpoint := req.GetEndpoint().GetValue()
 
 	sub, err := h.pushUseCase.Get(ctx, user.ID, endpoint)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("push subscription not found"))
+			return nil, connect.NewError(connect.CodeNotFound, "push subscription not found")
 		}
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.GetResponse{
+	return &rpc.GetResponse{
 		Subscription: toPushSubscriptionProto(sub),
-	}), nil
+	}, nil
 }
 
 // Delete removes the caller's push subscription for the given endpoint. Only
 // that browser's subscription of the caller is removed; an endpoint only
 // another fan has registered removes nothing.
-func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *connect.Request[rpc.DeleteRequest]) (*connect.Response[rpc.DeleteResponse], error) {
+func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *rpc.DeleteRequest) (*rpc.DeleteResponse, error) {
 	user, err := h.resolveCallerUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Msg.GetEndpoint() == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("endpoint is required"))
+	if req.GetEndpoint() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "endpoint is required")
 	}
-	endpoint := req.Msg.GetEndpoint().GetValue()
+	endpoint := req.GetEndpoint().GetValue()
 
 	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint, mapper.DeviceTypeFromEndpoint(endpoint)); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.DeleteResponse{}), nil
+	return &rpc.DeleteResponse{}, nil
 }
 
 // resolveCallerUser extracts the provider_user_id from JWT claims and resolves the

@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	ticketv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
+	ticketv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
-	"connectrpc.com/connect"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -30,7 +29,7 @@ func NewTicketHandler(ticketUC usecase.TicketUseCase, userUC usecase.UserUseCase
 }
 
 // List returns all account-bound tickets issued to the caller.
-func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[ticketv1.ListRequest]) (*connect.Response[ticketv1.ListResponse], error) {
+func (h *TicketHandler) List(ctx context.Context, _ *ticketv1.ListRequest) (*ticketv1.ListResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
@@ -40,5 +39,5 @@ func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[ticketv1.Li
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketv1.ListResponse{Tickets: mapper.TicketsToProto(tickets)}), nil
+	return &ticketv1.ListResponse{Tickets: mapper.TicketsToProto(tickets)}, nil
 }

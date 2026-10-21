@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	officialsitev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/official_site/v1/official_sitev1connect"
+	officialsitev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/official_site/v1/official_sitev1connect"
 	officialsitev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/official_site/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -30,15 +29,15 @@ func NewOfficialSiteHandler(officialSiteUC usecase.OfficialSiteUseCase, logger *
 }
 
 // Create stores the official site URL of an artist.
-func (h *OfficialSiteHandler) Create(ctx context.Context, req *connect.Request[officialsitev1.CreateRequest]) (*connect.Response[officialsitev1.CreateResponse], error) {
-	if err := h.officialSiteUC.Create(ctx, req.Msg.GetArtistId().GetValue(), req.Msg.GetUrl().GetValue()); err != nil {
+func (h *OfficialSiteHandler) Create(ctx context.Context, req *officialsitev1.CreateRequest) (*officialsitev1.CreateResponse, error) {
+	if err := h.officialSiteUC.Create(ctx, req.GetArtistId().GetValue(), req.GetUrl().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&officialsitev1.CreateResponse{}), nil
+	return &officialsitev1.CreateResponse{}, nil
 }
 
 // Delete always fails with Unimplemented: there is no usecase behind it, and
 // nothing changes.
-func (h *OfficialSiteHandler) Delete(_ context.Context, _ *connect.Request[officialsitev1.DeleteRequest]) (*connect.Response[officialsitev1.DeleteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("deleting an official site is not supported"))
+func (h *OfficialSiteHandler) Delete(_ context.Context, _ *officialsitev1.DeleteRequest) (*officialsitev1.DeleteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "deleting an official site is not supported")
 }

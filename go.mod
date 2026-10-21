@@ -30,16 +30,17 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261020080618-a3caa5c38b64.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261020080618-a3caa5c38b64.1
 	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261020080618-a3caa5c38b64.2
-	buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1
-	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1
+	buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1
+	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20261013105838-b6e033b1b614.2
 	cloud.google.com/go/cloudsqlconn v1.25.4
 	cloud.google.com/go/storage v1.69.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.21.1
+	connectrpc.com/connect/v2 v2.0.1
 	connectrpc.com/cors v0.1.0
-	connectrpc.com/grpchealth v1.5.0
+	connectrpc.com/grpchealth/v2 v2.0.0
 	connectrpc.com/otelconnect v0.12.0
 	connectrpc.com/validate v0.9.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -54,8 +55,8 @@ require (
 	github.com/lestrrat-go/jwx/v4 v4.5.0
 	github.com/nats-io/nats-server/v2 v2.15.1
 	github.com/nats-io/nats.go v1.54.0
-	github.com/pannpers/go-apperr v1.1.0
-	github.com/pannpers/go-logging v1.2.1
+	github.com/pannpers/go-apperr v1.2.0
+	github.com/pannpers/go-logging v1.3.0
 	github.com/posthog/posthog-go v1.35.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
@@ -110,7 +111,6 @@ require (
 	cloud.google.com/go/iam v1.14.0 // indirect
 	cloud.google.com/go/monitoring v1.30.0 // indirect
 	cloud.google.com/go/sql v0.3.0 // indirect
-	connectrpc.com/connect/v2 v2.0.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect

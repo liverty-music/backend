@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -155,7 +155,7 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			logger, err := logging.New()
 			require.NoError(t, err)
 			h := rpc.NewOrganizerHandler(ucMock, logger)
-			resp, err := h.Get(tt.args.ctx, connect.NewRequest(&organizerv1.GetRequest{}))
+			resp, err := h.Get(tt.args.ctx, &organizerv1.GetRequest{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -167,8 +167,8 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			if tt.wantOrg {
-				assert.Equal(t, testOrganizerID, resp.Msg.Organizer.Id.Value)
-				assert.Equal(t, testOrganizerName, resp.Msg.Organizer.Name.Value)
+				assert.Equal(t, testOrganizerID, resp.Organizer.Id.Value)
+				assert.Equal(t, testOrganizerName, resp.Organizer.Name.Value)
 			}
 		})
 	}

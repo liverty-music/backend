@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -66,11 +66,11 @@ func TestPayoutAccountHandler_AudienceGate(t *testing.T) {
 		call func(h *rpc.PayoutAccountHandler) error
 	}{
 		{name: "Get", call: func(h *rpc.PayoutAccountHandler) error {
-			_, err := h.Get(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
+			_, err := h.Get(orgCtx(testProviderOrganizerID), &payoutaccountv1.GetRequest{})
 			return err
 		}},
 		{name: "StartOnboarding", call: func(h *rpc.PayoutAccountHandler) error {
-			_, err := h.StartOnboarding(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.StartOnboardingRequest{}))
+			_, err := h.StartOnboarding(orgCtx(testProviderOrganizerID), &payoutaccountv1.StartOnboardingRequest{})
 			return err
 		}},
 	}
@@ -120,12 +120,12 @@ func TestPayoutAccountHandler_Get(t *testing.T) {
 			return &entity.PayoutAccount{OrganizerID: organizerID, ProviderAccountID: "acct_1", Status: entity.PayoutOnboardingStatusPending}, nil
 		}}, caller, nil)
 
-		resp, err := h.Get(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
+		resp, err := h.Get(orgCtx(testProviderOrganizerID), &payoutaccountv1.GetRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, "org-1", resp.Msg.GetPayoutAccount().GetOrganizerId().GetValue())
-		assert.Equal(t, "acct_1", resp.Msg.GetPayoutAccount().GetProviderAccountId().GetValue())
-		assert.NotZero(t, resp.Msg.GetPayoutAccount().GetStatus())
+		assert.Equal(t, "org-1", resp.GetPayoutAccount().GetOrganizerId().GetValue())
+		assert.Equal(t, "acct_1", resp.GetPayoutAccount().GetProviderAccountId().GetValue())
+		assert.NotZero(t, resp.GetPayoutAccount().GetStatus())
 	})
 
 	// @spec components/adapter/organizer/api/rpc/payout-account "No payout account yet"
@@ -135,7 +135,7 @@ func TestPayoutAccountHandler_Get(t *testing.T) {
 			return nil, apperr.New(codes.NotFound, "payout account not found")
 		}}, caller, nil)
 
-		_, err := h.Get(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
+		_, err := h.Get(orgCtx(testProviderOrganizerID), &payoutaccountv1.GetRequest{})
 
 		assert.Equal(t, connect.CodeNotFound, connectCodeOf(err))
 	})
@@ -180,7 +180,7 @@ func TestPayoutAccountHandler_StartOnboarding(t *testing.T) {
 				return tt.ucURL, tt.ucErr
 			}}, caller, nil)
 
-			resp, err := h.StartOnboarding(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.StartOnboardingRequest{}))
+			resp, err := h.StartOnboarding(orgCtx(testProviderOrganizerID), &payoutaccountv1.StartOnboardingRequest{})
 
 			assert.Equal(t, "org-1", calledFor, "the caller's own Organizer")
 			if tt.wantCode != 0 {
@@ -188,7 +188,7 @@ func TestPayoutAccountHandler_StartOnboarding(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantURL, resp.Msg.GetOnboardingUrl().GetValue())
+			assert.Equal(t, tt.wantURL, resp.GetOnboardingUrl().GetValue())
 		})
 	}
 }

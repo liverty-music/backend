@@ -2,12 +2,11 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"time"
 
-	scannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
+	scannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
 	scannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/scanner/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -49,11 +48,11 @@ func NewScannerHandler(
 func requireCallProof(token string, hasSignTime bool, signature []byte) error {
 	switch {
 	case token == "":
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("link_token is required"))
+		return connect.NewError(connect.CodeInvalidArgument, "link_token is required")
 	case !hasSignTime:
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("sign_time is required"))
+		return connect.NewError(connect.CodeInvalidArgument, "sign_time is required")
 	case len(signature) != entity.SignatureLen:
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("signature must be a 64-byte P1363 signature"))
+		return connect.NewError(connect.CodeInvalidArgument, "signature must be a 64-byte P1363 signature")
 	}
 	return nil
 }
@@ -62,58 +61,56 @@ func requireCallProof(token string, hasSignTime bool, signature []byte) error {
 // admission window.
 func (h *ScannerHandler) Open(
 	ctx context.Context,
-	req *connect.Request[scannerv1.OpenRequest],
-) (*connect.Response[scannerv1.OpenResponse], error) {
-	msg := req.Msg
-	if err := requireCallProof(msg.GetLinkToken().GetValue(), msg.GetSignTime() != nil, msg.GetSignature().GetValue()); err != nil {
+	req *scannerv1.OpenRequest,
+) (*scannerv1.OpenResponse, error) {
+	if err := requireCallProof(req.GetLinkToken().GetValue(), req.GetSignTime() != nil, req.GetSignature().GetValue()); err != nil {
 		return nil, err
 	}
-	if len(msg.GetPublicKey().GetValue()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("public_key is required"))
+	if len(req.GetPublicKey().GetValue()) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "public_key is required")
 	}
 
 	result, err := h.scannerUC.Open(ctx, usecase.OpenScannerInput{
 		Procedure: scannerv1connect.ScannerServiceOpenProcedure,
-		LinkToken: msg.GetLinkToken().GetValue(),
-		PublicKey: entity.PublicKey(msg.GetPublicKey().GetValue()),
-		SignTime:  msg.GetSignTime().AsTime(),
-		Signature: entity.Signature(msg.GetSignature().GetValue()),
+		LinkToken: req.GetLinkToken().GetValue(),
+		PublicKey: entity.PublicKey(req.GetPublicKey().GetValue()),
+		SignTime:  req.GetSignTime().AsTime(),
+		Signature: entity.Signature(req.GetSignature().GetValue()),
 		Now:       time.Now(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scannerv1.OpenResponse{
+	return &scannerv1.OpenResponse{
 		Scanner:         mapper.ScannerToProto(result.Scanner),
 		AdmissionWindow: mapper.AdmissionWindowToProto(result.Window),
 		InsideWindow:    result.InsideWindow,
-	}), nil
+	}, nil
 }
 
 // Admit decides one scan and returns the head count and reasons, never any
 // personal data.
 func (h *ScannerHandler) Admit(
 	ctx context.Context,
-	req *connect.Request[scannerv1.AdmitRequest],
-) (*connect.Response[scannerv1.AdmitResponse], error) {
-	msg := req.Msg
-	if err := requireCallProof(msg.GetLinkToken().GetValue(), msg.GetSignTime() != nil, msg.GetSignature().GetValue()); err != nil {
+	req *scannerv1.AdmitRequest,
+) (*scannerv1.AdmitResponse, error) {
+	if err := requireCallProof(req.GetLinkToken().GetValue(), req.GetSignTime() != nil, req.GetSignature().GetValue()); err != nil {
 		return nil, err
 	}
-	if msg.GetScannedText().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("scanned_text is required"))
+	if req.GetScannedText().GetValue() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "scanned_text is required")
 	}
 
 	result, err := h.ticketUC.Admit(ctx, usecase.AdmitInput{
 		Procedure:   scannerv1connect.ScannerServiceAdmitProcedure,
-		LinkToken:   msg.GetLinkToken().GetValue(),
-		SignTime:    msg.GetSignTime().AsTime(),
-		Signature:   entity.Signature(msg.GetSignature().GetValue()),
-		ScannedText: msg.GetScannedText().GetValue(),
+		LinkToken:   req.GetLinkToken().GetValue(),
+		SignTime:    req.GetSignTime().AsTime(),
+		Signature:   entity.Signature(req.GetSignature().GetValue()),
+		ScannedText: req.GetScannedText().GetValue(),
 		Now:         time.Now(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(mapper.AdmitResultToProto(result)), nil
+	return mapper.AdmitResultToProto(result), nil
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -53,15 +53,15 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 			}, nil).
 			Once()
 
-		resp, err := d.handler.Search(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
+		resp, err := d.handler.Search(orgCtx(testProviderOrganizerID), &organizervenuev1.SearchRequest{Text: "Zepp Haneda"})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetCandidates(), 2)
-		first := resp.Msg.GetCandidates()[0]
+		require.Len(t, resp.GetCandidates(), 2)
+		first := resp.GetCandidates()[0]
 		assert.Equal(t, "ChIJeVmAOuphGGARoWY4-GPmhhA", first.GetPlaceId().GetValue())
 		assert.Equal(t, "Zepp Haneda (TOKYO)", first.GetName().GetValue())
 		assert.Equal(t, "〒144-0041 東京都大田区羽田空港１丁目１−４", first.GetAddress())
-		assert.Equal(t, "ChIJother", resp.Msg.GetCandidates()[1].GetPlaceId().GetValue())
+		assert.Equal(t, "ChIJother", resp.GetCandidates()[1].GetPlaceId().GetValue())
 	})
 
 	// @spec components/adapter/organizer/api/rpc/venue "Venue search without an Organizer"
@@ -77,7 +77,7 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 			Return(nil, resolveErr).
 			Once()
 
-		_, err := d.handler.Search(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
+		_, err := d.handler.Search(orgCtx(testProviderOrganizerID), &organizervenuev1.SearchRequest{Text: "Zepp Haneda"})
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, resolveErr)

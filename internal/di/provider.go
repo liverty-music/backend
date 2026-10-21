@@ -8,41 +8,41 @@ import (
 	"net/http"
 	"time"
 
-	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
-	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
-	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
-	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/notification/v1/notificationv1connect"
-	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
-	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
-	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
-	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
-	checkoutconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
-	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
-	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
-	identityverificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
-	lotteryentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
-	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
-	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/official_site/v1/official_sitev1connect"
-	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/order/v1/orderv1connect"
-	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/artist/v1/artistv1connect"
-	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
-	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
-	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
-	organizerseriesimageconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series_image/v1/series_imagev1connect"
-	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
-	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
-	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
-	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/venue/v1/venuev1connect"
-	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
-	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
-	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/scanner/v1/scannerv1connect"
-	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
-	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
-	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
-	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
-	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
-	"connectrpc.com/connect"
-	"connectrpc.com/grpchealth"
+	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
+	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
+	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
+	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/order/v1/orderv1connect"
+	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
+	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/artist/v1/artistv1connect"
+	checkoutconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/checkout/v1/checkoutv1connect"
+	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/concert/v1/concertv1connect"
+	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/follow/v1/followv1connect"
+	identityverificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
+	lotteryentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
+	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
+	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/official_site/v1/official_sitev1connect"
+	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/order/v1/orderv1connect"
+	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
+	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
+	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
+	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series/v1/seriesv1connect"
+	organizerseriesimageconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series_image/v1/series_imagev1connect"
+	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
+	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
+	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
+	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
+	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
+	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
+	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket/v1/ticketv1connect"
+	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
+	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
+	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
+	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
@@ -575,8 +575,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Health check handler (public, outside authn middleware).
 	// Keep a reference so App.Shutdown can call SetShuttingDown.
 	healthChecker := rpc.NewHealthCheckHandler(db.Pool, logger)
-	healthHandler := func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return grpchealth.NewHandler(healthChecker, opts...)
+	healthHandler := func(s *connect.Server) {
+		grpchealth.Register(s, healthChecker)
 	}
 
 	// Admin RPC handlers — served ONLY by the dedicated admin server, whose
@@ -584,17 +584,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// role. The consumer server below does NOT register these, so the admin
 	// surface cannot be reached via the consumer host.
 	adminHandlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconcertconnect.NewConcertServiceHandler(
-				rpc.NewAdminConcertHandler(concertUC, seriesImageURLBuilder, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminconcertconnect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, seriesImageURLBuilder, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminorganizerconnect.NewOrganizerServiceHandler(
-				rpc.NewAdminOrganizerHandler(organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminorganizerconnect.RegisterOrganizerServiceHandler(s, rpc.NewAdminOrganizerHandler(organizerUC, logger))
 		},
 		// Mount the consumer ArtistService on the admin server so the admin
 		// console can reuse ArtistService.Search (to pick an artist to
@@ -603,118 +597,67 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// higher-privilege admin server may additionally mount consumer
 		// handlers as needed; the server-wide RequireRoleInterceptor(admin)
 		// gates every method here.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return artistconnect.NewArtistServiceHandler(
-				rpc.NewArtistHandler(artistUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			artistconnect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
 		// Admin UserService: Delete (admin-delete-test-data). Removes a fan
 		// User and its Zitadel identity; never mounted on the consumer server.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminuserconnect.NewUserServiceHandler(
-				rpc.NewAdminUserHandler(userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminuserconnect.RegisterUserServiceHandler(s, rpc.NewAdminUserHandler(userUC, logger))
 		},
 		// Admin OrderService: Refund (⑤ task 4.1).
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminorderconnect.NewOrderServiceHandler(
-				rpc.NewAdminOrderHandler(orderUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminorderconnect.RegisterOrderServiceHandler(s, rpc.NewAdminOrderHandler(orderUC, logger))
 		},
 		// Admin ConcertCandidateService: review of concert candidates.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconcertcandidateconnect.NewConcertCandidateServiceHandler(
-				rpc.NewAdminConcertCandidateHandler(usecase.NewConcertCandidateUseCase(concertUC), logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminconcertcandidateconnect.RegisterConcertCandidateServiceHandler(s, rpc.NewAdminConcertCandidateHandler(usecase.NewConcertCandidateUseCase(concertUC), logger))
 		},
 		// Admin ArtistService: ListByOrganizer.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminartistconnect.NewArtistServiceHandler(
-				rpc.NewAdminArtistHandler(artistUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminartistconnect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(artistUC, logger))
 		},
 		// Admin NotificationService: NotifyNewConcerts.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminnotificationconnect.NewNotificationServiceHandler(
-				rpc.NewAdminNotificationHandler(notificationUC, cfg.BaseConfig, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			adminnotificationconnect.RegisterNotificationServiceHandler(s, rpc.NewAdminNotificationHandler(notificationUC, cfg.BaseConfig, logger))
 		},
 	}
 
 	// Consumer RPC handlers (protected by authn middleware)
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return userconnect.NewUserServiceHandler(
-				rpc.NewUserHandler(userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			userconnect.RegisterUserServiceHandler(s, rpc.NewUserHandler(userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return artistconnect.NewArtistServiceHandler(
-				rpc.NewArtistHandler(artistUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			artistconnect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return followconnect.NewFollowServiceHandler(
-				rpc.NewFollowHandler(followUC, userRepo, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			followconnect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(followUC, userRepo, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return pushsubscriptionconnect.NewPushSubscriptionServiceHandler(
-				rpc.NewPushSubscriptionHandler(pushSubscriptionUC, userRepo, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			pushsubscriptionconnect.RegisterPushSubscriptionServiceHandler(s, rpc.NewPushSubscriptionHandler(pushSubscriptionUC, userRepo, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return notificationconnect.NewNotificationServiceHandler(
-				rpc.NewNotificationHandler(notificationUC, userRepo, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			notificationconnect.RegisterNotificationServiceHandler(s, rpc.NewNotificationHandler(notificationUC, userRepo, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketjourneyconnect.NewTicketJourneyServiceHandler(
-				rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			ticketjourneyconnect.RegisterTicketJourneyServiceHandler(s, rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketconnect.NewTicketServiceHandler(
-				rpc.NewTicketHandler(ticketUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			ticketconnect.RegisterTicketServiceHandler(s, rpc.NewTicketHandler(ticketUC, userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return orderconnect.NewOrderServiceHandler(
-				rpc.NewOrderHandler(orderUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			orderconnect.RegisterOrderServiceHandler(s, rpc.NewOrderHandler(orderUC, userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return officialsiteconnect.NewOfficialSiteServiceHandler(
-				rpc.NewOfficialSiteHandler(usecase.NewOfficialSiteUseCase(artistRepo), logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			officialsiteconnect.RegisterOfficialSiteServiceHandler(s, rpc.NewOfficialSiteHandler(usecase.NewOfficialSiteUseCase(artistRepo), logger))
 		},
 		// Fan-facing WalletPublicKeyService: Register, Get (signed-in fan only).
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return walletpublickeyconnect.NewWalletPublicKeyServiceHandler(
-				rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userRepo, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			walletpublickeyconnect.RegisterWalletPublicKeyServiceHandler(s, rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userRepo, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return identityverificationconnect.NewIdentityVerificationServiceHandler(
-				rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			identityverificationconnect.RegisterIdentityVerificationServiceHandler(s, rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger))
 		},
 	}
 
@@ -722,37 +665,22 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// fan's first-come CheckoutService, LotteryEntryService and official
 	// ResaleListingService.
 	handlers = append(handlers,
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketsalev1connect.NewTicketSaleServiceHandler(
-				rpc.NewTicketSaleHandler(ticketSaleUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			ticketsalev1connect.RegisterTicketSaleServiceHandler(s, rpc.NewTicketSaleHandler(ticketSaleUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return checkoutconnect.NewCheckoutServiceHandler(
-				rpc.NewCheckoutHandler(checkoutUC, orderUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			checkoutconnect.RegisterCheckoutServiceHandler(s, rpc.NewCheckoutHandler(checkoutUC, orderUC, userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return lotteryentryconnect.NewLotteryEntryServiceHandler(
-				rpc.NewLotteryEntryHandler(lotteryEntryUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			lotteryentryconnect.RegisterLotteryEntryServiceHandler(s, rpc.NewLotteryEntryHandler(lotteryEntryUC, userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return resalelistingconnect.NewResaleListingServiceHandler(
-				rpc.NewResaleListingHandler(resaleListingUC, userUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			resalelistingconnect.RegisterResaleListingServiceHandler(s, rpc.NewResaleListingHandler(resaleListingUC, userUC, logger))
 		},
 	)
 
-	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return concertconnect.NewConcertServiceHandler(
-			rpc.NewConcertHandler(concertUC, userRepo, seriesImageURLBuilder, logger),
-			opts...,
-		)
+	handlers = append(handlers, func(s *connect.Server) {
+		concertconnect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, seriesImageURLBuilder, logger))
 	})
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{
@@ -784,7 +712,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminServerCfg := cfg.Server
 	adminServerCfg.Port = cfg.Server.AdminPort
 	adminServerCfg.AllowedOrigins = cfg.Server.AdminAllowedOrigins
-	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
+	adminInterceptors := []connect.ServerInterceptor{auth.NewRequireRoleInterceptor("admin")}
 	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
 
 	// Organizer Connect server — a third listener in the same binary on its
@@ -798,7 +726,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	organizerServerCfg := cfg.Server
 	organizerServerCfg.Port = cfg.Server.OrganizerPort
 	organizerServerCfg.AllowedOrigins = cfg.Server.OrganizerAllowedOrigins
-	organizerInterceptors := []connect.Interceptor{
+	organizerInterceptors := []connect.ServerInterceptor{
 		ratelimit.NewClientQuotaInterceptor(
 			ratelimit.NewClientThrottle(signInLinksClientLimit, signInLinksClientWindow, time.Now),
 			auth.OrganizerPublicProcedures(),
@@ -806,66 +734,39 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID, auth.OrganizerPublicProcedures()),
 	}
 	organizerHandlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerconnect.NewOrganizerServiceHandler(
-				rpc.NewOrganizerHandler(organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerconnect.RegisterOrganizerServiceHandler(s, rpc.NewOrganizerHandler(organizerUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerseriesconnect.NewSeriesServiceHandler(
-				rpc.NewOrganizerSeriesHandler(seriesUC, organizerUC, seriesImageURLBuilder, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerseriesconnect.RegisterSeriesServiceHandler(s, rpc.NewOrganizerSeriesHandler(seriesUC, organizerUC, seriesImageURLBuilder, logger))
 		},
 		// Organizer-facing VenueService: Search (map catalog venue lookup).
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizervenueconnect.NewVenueServiceHandler(
-				rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(mapCatalog), organizerUC),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizervenueconnect.RegisterVenueServiceHandler(s, rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(mapCatalog), organizerUC))
 		},
 		// Organizer-facing SeriesImageService: CreateUploadUrl.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerseriesimageconnect.NewSeriesImageServiceHandler(
-				rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerseriesimageconnect.RegisterSeriesImageServiceHandler(s, rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC))
 		},
 		// Organizer-facing ArtistService: List (the Organizer's own Artists).
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerartistconnect.NewArtistServiceHandler(
-				rpc.NewOrganizerArtistHandler(artistUC, organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerartistconnect.RegisterArtistServiceHandler(s, rpc.NewOrganizerArtistHandler(artistUC, organizerUC, logger))
 		},
 		// Organizer-facing PayoutAccountService: Get.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return payoutaccountconnect.NewPayoutAccountServiceHandler(
-				rpc.NewPayoutAccountHandler(payoutAccountUC, organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			payoutaccountconnect.RegisterPayoutAccountServiceHandler(s, rpc.NewPayoutAccountHandler(payoutAccountUC, organizerUC, logger))
 		},
 		// Organizer-facing ScannerService: Create, ListByEvent, Revoke.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerscannerconnect.NewScannerServiceHandler(
-				rpc.NewOrganizerScannerHandler(scannerUC, organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerscannerconnect.RegisterScannerServiceHandler(s, rpc.NewOrganizerScannerHandler(scannerUC, organizerUC, logger))
 		},
 		// Organizer-facing TicketSaleService: the Event's Lottery and FirstCome sales.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerticketsaleconnect.NewTicketSaleServiceHandler(
-				rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizerticketsaleconnect.RegisterTicketSaleServiceHandler(s, rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger))
 		},
 		// Organizer-facing TicketTypeService: a sale's TicketTypes.
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizertickettypeconnect.NewTicketTypeServiceHandler(
-				rpc.NewOrganizerTicketTypeHandler(ticketTypeUC, organizerUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			organizertickettypeconnect.RegisterTicketTypeServiceHandler(s, rpc.NewOrganizerTicketTypeHandler(ticketTypeUC, organizerUC, logger))
 		},
 	}
 	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
@@ -880,7 +781,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	receptionServerCfg := cfg.Server
 	receptionServerCfg.Port = cfg.Server.ReceptionPort
 	receptionServerCfg.AllowedOrigins = cfg.Server.ReceptionAllowedOrigins
-	receptionInterceptors := []connect.Interceptor{
+	receptionInterceptors := []connect.ServerInterceptor{
 		// Clients that make receptionUnknownTokenLimit scanner calls with
 		// unknown link tokens within receptionUnknownTokenWindow are refused
 		// with ResourceExhausted until the window passes.
@@ -891,11 +792,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		),
 	}
 	receptionHandlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return scannerconnect.NewScannerServiceHandler(
-				rpc.NewScannerHandler(scannerUC, ticketUC, logger),
-				opts...,
-			)
+		func(s *connect.Server) {
+			scannerconnect.RegisterScannerServiceHandler(s, rpc.NewScannerHandler(scannerUC, ticketUC, logger))
 		},
 	}
 	receptionSrv := server.NewConnectServer(receptionServerCfg, logger, receptionAuthFunc, rateLimiter, healthHandler, receptionInterceptors, nil, receptionHandlers...)

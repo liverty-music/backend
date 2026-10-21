@@ -2,13 +2,13 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	followv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
+	followv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/follow/v1/followv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	followv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
@@ -83,7 +83,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
-			resp, err := h.Follow(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.Follow(tt.ctx, tt.req)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -147,7 +147,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
-			resp, err := h.Unfollow(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.Unfollow(tt.ctx, tt.req)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -204,7 +204,7 @@ func TestFollowHandler_List(t *testing.T) {
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
-			resp, err := h.List(tt.ctx, connect.NewRequest(&followv1.ListRequest{}))
+			resp, err := h.List(tt.ctx, &followv1.ListRequest{})
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -282,7 +282,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
-			resp, err := h.SetHype(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.SetHype(tt.ctx, tt.req)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -307,12 +307,12 @@ func TestFollowHandler_Boundary(t *testing.T) {
 		require.NoError(t, err)
 		// The mocks fail the test if the usecase runs.
 		h := handler.NewFollowHandler(ucmocks.NewMockFollowUseCase(t), entitymocks.NewMockUserRepository(t), logger)
-		srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return followv1connect.NewFollowServiceHandler(h, opts...)
+		srv := newFanBoundaryServer(t, func(s *connect.Server) {
+			followv1connect.RegisterFollowServiceHandler(s, h)
 		})
-		client := followv1connect.NewFollowServiceClient(srv.Client(), srv.URL)
+		client := followv1connect.NewFollowServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
-		_, err = client.Follow(context.Background(), withFanToken(connect.NewRequest(&followv1.FollowRequest{})))
+		_, err = client.Follow(withFanToken(&followv1.FollowRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

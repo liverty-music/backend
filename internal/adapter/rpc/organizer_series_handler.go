@@ -2,12 +2,11 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
+	organizerseriesv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -52,7 +51,7 @@ func NewOrganizerSeriesHandler(
 func (h *OrganizerSeriesHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 
 	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
@@ -125,97 +124,97 @@ func eventIDValues(ids []*entityv1.EventId) []string {
 // dates as Concerts and its artists.
 func (h *OrganizerSeriesHandler) Create(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.CreateRequest],
-) (*connect.Response[organizerseriesv1.CreateResponse], error) {
+	req *organizerseriesv1.CreateRequest,
+) (*organizerseriesv1.CreateResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
+	s, eventInputs, artistIDs := seriesDraftToInputs(req.GetDraft())
 	series, concerts, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.CreateResponse{
+	return &organizerseriesv1.CreateResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
+	}, nil
 }
 
 // Update edits an existing series.
 func (h *OrganizerSeriesHandler) Update(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.UpdateRequest],
-) (*connect.Response[organizerseriesv1.UpdateResponse], error) {
+	req *organizerseriesv1.UpdateRequest,
+) (*organizerseriesv1.UpdateResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	seriesID := req.Msg.GetSeriesId().GetValue()
-	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
+	seriesID := req.GetSeriesId().GetValue()
+	s, eventInputs, artistIDs := seriesDraftToInputs(req.GetDraft())
 	series, concerts, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.UpdateResponse{
+	return &organizerseriesv1.UpdateResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
+	}, nil
 }
 
 // Publish publishes the named DRAFT events of a series, or all of them.
 func (h *OrganizerSeriesHandler) Publish(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.PublishRequest],
-) (*connect.Response[organizerseriesv1.PublishResponse], error) {
+	req *organizerseriesv1.PublishRequest,
+) (*organizerseriesv1.PublishResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	seriesID := req.Msg.GetSeriesId().GetValue()
-	series, concerts, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID, eventIDValues(req.Msg.GetEventIds()))
+	seriesID := req.GetSeriesId().GetValue()
+	series, concerts, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID, eventIDValues(req.GetEventIds()))
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.PublishResponse{
+	return &organizerseriesv1.PublishResponse{
 		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
+	}, nil
 }
 
 // Cancel cancels the named events of a series, or all its published and
 // draft events.
 func (h *OrganizerSeriesHandler) Cancel(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.CancelRequest],
-) (*connect.Response[organizerseriesv1.CancelResponse], error) {
+	req *organizerseriesv1.CancelRequest,
+) (*organizerseriesv1.CancelResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue(), eventIDValues(req.Msg.GetEventIds())); err != nil {
+	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.GetSeriesId().GetValue(), eventIDValues(req.GetEventIds())); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.CancelResponse{}), nil
+	return &organizerseriesv1.CancelResponse{}, nil
 }
 
 // SetCoverImage records an uploaded Series image as the series' cover and
 // publishes SERIES_IMAGE.uploaded so the processor generates variants.
 func (h *OrganizerSeriesHandler) SetCoverImage(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.SetCoverImageRequest],
-) (*connect.Response[organizerseriesv1.SetCoverImageResponse], error) {
+	req *organizerseriesv1.SetCoverImageRequest,
+) (*organizerseriesv1.SetCoverImageResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -223,27 +222,27 @@ func (h *OrganizerSeriesHandler) SetCoverImage(
 
 	if err := h.seriesUC.SetCoverImage(
 		ctx, organizer.ID,
-		req.Msg.GetSeriesId().GetValue(),
-		req.Msg.GetSeriesImageId().GetValue(),
+		req.GetSeriesId().GetValue(),
+		req.GetSeriesImageId().GetValue(),
 	); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.SetCoverImageResponse{}), nil
+	return &organizerseriesv1.SetCoverImageResponse{}, nil
 }
 
 // RegenerateShareUrl issues a fresh share token for an UNLISTED series; the
 // previous share link stops working.
 func (h *OrganizerSeriesHandler) RegenerateShareUrl(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.RegenerateShareUrlRequest],
-) (*connect.Response[organizerseriesv1.RegenerateShareUrlResponse], error) {
+	req *organizerseriesv1.RegenerateShareUrlRequest,
+) (*organizerseriesv1.RegenerateShareUrlResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := h.seriesUC.RegenerateShareURL(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue())
+	token, err := h.seriesUC.RegenerateShareURL(ctx, organizer.ID, req.GetSeriesId().GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -251,17 +250,17 @@ func (h *OrganizerSeriesHandler) RegenerateShareUrl(
 	// Return the raw token as the share URL value; the frontend appends the
 	// base URL. This matches the unlisted-token design where only the token
 	// component is backend-authoritative.
-	return connect.NewResponse(&organizerseriesv1.RegenerateShareUrlResponse{
+	return &organizerseriesv1.RegenerateShareUrlResponse{
 		ShareUrl: &entityv1.Url{Value: token},
-	}), nil
+	}, nil
 }
 
 // List returns the series authored by the caller's own Organizer, with their
 // dates as Concerts and each artist once.
 func (h *OrganizerSeriesHandler) List(
 	ctx context.Context,
-	_ *connect.Request[organizerseriesv1.ListRequest],
-) (*connect.Response[organizerseriesv1.ListResponse], error) {
+	_ *organizerseriesv1.ListRequest,
+) (*organizerseriesv1.ListResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -277,9 +276,9 @@ func (h *OrganizerSeriesHandler) List(
 		series = append(series, h.seriesImageURLBuilder.SeriesToProto(s))
 	}
 
-	return connect.NewResponse(&organizerseriesv1.ListResponse{
+	return &organizerseriesv1.ListResponse{
 		Series:   series,
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
+	}, nil
 }

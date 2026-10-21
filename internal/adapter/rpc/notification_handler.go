@@ -4,7 +4,6 @@ import (
 	"context"
 
 	notificationpb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/notification/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -35,30 +34,30 @@ func NewNotificationHandler(
 // MarkRead marks the signed-in caller's notification as read. The request
 // names no fan; NotificationUseCase.MarkRead refuses another fan's
 // Notification.
-func (h *NotificationHandler) MarkRead(ctx context.Context, req *connect.Request[notificationpb.MarkReadRequest]) (*connect.Response[notificationpb.MarkReadResponse], error) {
+func (h *NotificationHandler) MarkRead(ctx context.Context, req *notificationpb.MarkReadRequest) (*notificationpb.MarkReadResponse, error) {
 	userID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.notificationUC.MarkRead(ctx, userID, req.Msg.GetNotificationId().GetValue()); err != nil {
+	if err := h.notificationUC.MarkRead(ctx, userID, req.GetNotificationId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&notificationpb.MarkReadResponse{}), nil
+	return &notificationpb.MarkReadResponse{}, nil
 }
 
 // Dismiss marks the signed-in caller's notification as dismissed, with the
 // same caller scoping as MarkRead.
-func (h *NotificationHandler) Dismiss(ctx context.Context, req *connect.Request[notificationpb.DismissRequest]) (*connect.Response[notificationpb.DismissResponse], error) {
+func (h *NotificationHandler) Dismiss(ctx context.Context, req *notificationpb.DismissRequest) (*notificationpb.DismissResponse, error) {
 	userID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.notificationUC.Dismiss(ctx, userID, req.Msg.GetNotificationId().GetValue()); err != nil {
+	if err := h.notificationUC.Dismiss(ctx, userID, req.GetNotificationId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&notificationpb.DismissResponse{}), nil
+	return &notificationpb.DismissResponse{}, nil
 }
 
 // resolveCallerUserID resolves the signed-in caller's internal user ID from

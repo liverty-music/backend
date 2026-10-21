@@ -2,16 +2,15 @@ package server_test
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
+	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_sale/v1"
-	"connectrpc.com/connect"
-
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -38,12 +37,10 @@ func newTestFanTicketSaleServer(t *testing.T, ticketSaleUC *usecasemocks.MockTic
 	validator := authmocks.NewMockTokenValidator(t)
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
-	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
-		return "/unused-health-check/", http.NotFoundHandler()
-	}
+	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketsalev1connect.NewTicketSaleServiceHandler(rpc.NewTicketSaleHandler(ticketSaleUC, logger), opts...)
+		func(s *connect.Server) {
+			ticketsalev1connect.RegisterTicketSaleServiceHandler(s, rpc.NewTicketSaleHandler(ticketSaleUC, logger))
 		},
 	}
 	cfg := config.ServerSettings{
@@ -79,9 +76,9 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 			}},
 		}}
 	}
-	listByEvent := func(ts *httptest.Server, req *ticketsalev1.ListByEventRequest) (*connect.Response[ticketsalev1.ListByEventResponse], error) {
+	listByEvent := func(ts *httptest.Server, req *ticketsalev1.ListByEventRequest) (*ticketsalev1.ListByEventResponse, error) {
 		// No Authorization header: the procedure is public.
-		return ticketsalev1connect.NewTicketSaleServiceClient(ts.Client(), ts.URL).ListByEvent(context.Background(), connect.NewRequest(req))
+		return ticketsalev1connect.NewTicketSaleServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).ListByEvent(context.Background(), req)
 	}
 
 	t.Run("guest opens the event page", func(t *testing.T) {
@@ -94,8 +91,8 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 		resp, err := listByEvent(ts, &ticketsalev1.ListByEventRequest{EventId: &entityv1.EventId{Value: saleEventID}})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetTicketSales(), 1)
-		sale := resp.Msg.GetTicketSales()[0]
+		require.Len(t, resp.GetTicketSales(), 1)
+		sale := resp.GetTicketSales()[0]
 		assert.Equal(t, "一般発売", sale.GetName().GetValue())
 		require.Len(t, sale.GetTicketTypes(), 1)
 		assert.Equal(t, saleEventID, sale.GetTicketTypes()[0].GetEventId().GetValue())
@@ -112,7 +109,7 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 		resp, err := listByEvent(ts, &ticketsalev1.ListByEventRequest{EventId: &entityv1.EventId{Value: saleEventID}})
 
 		require.NoError(t, err)
-		tt := resp.Msg.GetTicketSales()[0].GetTicketTypes()[0]
+		tt := resp.GetTicketSales()[0].GetTicketTypes()[0]
 		assert.Equal(t, entityv1.TicketTypeState_TICKET_TYPE_STATE_ON_SALE, tt.GetState())
 		assert.True(t, tt.GetLowStock())
 		assert.Equal(t, int64(3000), tt.GetPrice().GetValue())
@@ -138,7 +135,7 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 		resp, err := listByEvent(ts, &ticketsalev1.ListByEventRequest{EventId: &entityv1.EventId{Value: saleEventID}})
 
 		require.NoError(t, err)
-		tt := resp.Msg.GetTicketSales()[0].GetTicketTypes()[0]
+		tt := resp.GetTicketSales()[0].GetTicketTypes()[0]
 		assert.Equal(t, entityv1.TicketTypeState_TICKET_TYPE_STATE_SOLD_OUT, tt.GetState())
 		assert.True(t, tt.GetResaleOpen())
 		assert.True(t, tt.GetResaleAvailable())

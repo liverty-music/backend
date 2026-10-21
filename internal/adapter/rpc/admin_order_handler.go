@@ -5,10 +5,9 @@ import (
 	"errors"
 	"time"
 
-	adminorderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
+	adminorderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
-	"connectrpc.com/connect"
-
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -46,16 +45,16 @@ func NewAdminOrderHandler(
 // unchanged (NotFound for an unknown Order).
 func (h *AdminOrderHandler) Get(
 	ctx context.Context,
-	req *connect.Request[adminorderv1.GetRequest],
-) (*connect.Response[adminorderv1.GetResponse], error) {
-	order, settlement, err := h.orderUC.GetWithSettlement(ctx, entity.OrderID(req.Msg.GetOrderId().GetValue()))
+	req *adminorderv1.GetRequest,
+) (*adminorderv1.GetResponse, error) {
+	order, settlement, err := h.orderUC.GetWithSettlement(ctx, entity.OrderID(req.GetOrderId().GetValue()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&adminorderv1.GetResponse{
+	return &adminorderv1.GetResponse{
 		Order:      mapper.OrderToProto(order),
 		Settlement: mapper.SettlementToProto(settlement),
-	}), nil
+	}, nil
 }
 
 // Refund implements [adminorderv1connect.OrderServiceHandler].
@@ -65,35 +64,35 @@ func (h *AdminOrderHandler) Get(
 // apperr to Connect codes is the sole responsibility here.
 func (h *AdminOrderHandler) Refund(
 	ctx context.Context,
-	req *connect.Request[adminorderv1.RefundRequest],
-) (*connect.Response[adminorderv1.RefundResponse], error) {
-	if req.Msg.GetOrderId() == nil || req.Msg.GetOrderId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("order_id is required"))
+	req *adminorderv1.RefundRequest,
+) (*adminorderv1.RefundResponse, error) {
+	if req.GetOrderId() == nil || req.GetOrderId().GetValue() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "order_id is required")
 	}
 
-	protoReason := req.Msg.GetReason()
+	protoReason := req.GetReason()
 	if protoReason == adminorderv1.RefundReason_REFUND_REASON_UNSPECIFIED {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("reason must be specified"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, "reason must be specified")
 	}
 
-	orderID := entity.OrderID(req.Msg.GetOrderId().GetValue())
+	orderID := entity.OrderID(req.GetOrderId().GetValue())
 	reason := mapper.ProtoRefundReasonToDomain(protoReason)
 
 	order, err := h.orderUC.Refund(ctx, orderID, reason, time.Now())
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("order not found"))
+			return nil, connect.NewError(connect.CodeNotFound, "order not found")
 		}
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
 		}
 		if errors.Is(err, apperr.ErrInvalidArgument) {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 		}
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminorderv1.RefundResponse{
+	return &adminorderv1.RefundResponse{
 		Order: mapper.OrderToProto(order),
-	}), nil
+	}, nil
 }

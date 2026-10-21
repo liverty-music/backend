@@ -7,8 +7,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
 	adminorganizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
-	"connectrpc.com/connect"
-
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/entity"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -18,11 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// asNonAdmin wraps msg in a request carrying a signed-in non-admin token.
-func asNonAdmin[T any](msg *T) *connect.Request[T] {
-	req := connect.NewRequest(msg)
-	req.Header().Set("Authorization", "Bearer "+deleteNonAdminToken)
-	return req
+// asNonAdmin returns the context and request of a call carrying a signed-in
+// non-admin token.
+func asNonAdmin[T any](msg *T) (context.Context, *T) {
+	return withBearer(context.Background(), deleteNonAdminToken), msg
 }
 
 func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
@@ -39,22 +37,21 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 			{ID: "artist-2", Name: "Band Two"},
 		}, nil).Once()
 
-		resp, err := newAdminArtistClient(t, uc).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
+		resp, err := newAdminArtistClient(t, uc).ListByOrganizer(asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
 		}))
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetArtists(), 2)
-		assert.Equal(t, "artist-1", resp.Msg.GetArtists()[0].GetId().GetValue())
-		assert.Equal(t, "artist-2", resp.Msg.GetArtists()[1].GetId().GetValue())
+		require.Len(t, resp.GetArtists(), 2)
+		assert.Equal(t, "artist-1", resp.GetArtists()[0].GetId().GetValue())
+		assert.Equal(t, "artist-2", resp.GetArtists()[1].GetId().GetValue())
 	})
 
 	t.Run("missing OrganizerId", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Missing OrganizerId"
 		// The strict mock fails the test if the usecase runs.
-		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(context.Background(),
-			asAdmin(&adminartistv1.ListByOrganizerRequest{}))
+		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(asAdmin(&adminartistv1.ListByOrganizerRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -65,7 +62,7 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 		uc := usecasemocks.NewMockArtistUseCase(t)
 		uc.EXPECT().ListByOrganizer(mock.Anything, organizerID).Return(nil, apperr.New(codes.NotFound, "organizer not found")).Once()
 
-		_, err := newAdminArtistClient(t, uc).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
+		_, err := newAdminArtistClient(t, uc).ListByOrganizer(asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
 		}))
 
@@ -75,8 +72,7 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 	t.Run("non-admin reads a roster", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Non-admin reads a roster"
-		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(context.Background(),
-			asNonAdmin(&adminartistv1.ListByOrganizerRequest{OrganizerId: &entityv1.OrganizerId{Value: organizerID}}))
+		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(asNonAdmin(&adminartistv1.ListByOrganizerRequest{OrganizerId: &entityv1.OrganizerId{Value: organizerID}}))
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
@@ -104,8 +100,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 	t.Run("non-admin sets a rate", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Non-admin sets a rate"
-		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(context.Background(),
-			asNonAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &rate}))
+		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(asNonAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &rate}))
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
@@ -115,8 +110,8 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/organizer "Missing OrganizerId"
 		client := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t))
 
-		_, rateErr := client.SetPlatformFeeRate(context.Background(), asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{PlatformFeeRateBps: &rate}))
-		_, detailsErr := client.SetBusinessDetails(context.Background(), asAdmin(setDetailsRequest(nil)))
+		_, rateErr := client.SetPlatformFeeRate(asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{PlatformFeeRateBps: &rate}))
+		_, detailsErr := client.SetBusinessDetails(asAdmin(setDetailsRequest(nil)))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(rateErr))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(detailsErr))
@@ -125,8 +120,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 	t.Run("missing rate", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Missing rate"
-		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(context.Background(),
-			asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}}))
+		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -135,8 +129,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 		t.Parallel()
 		over := int32(3100)
 
-		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(context.Background(),
-			asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &over}))
+		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetPlatformFeeRate(asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &over}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -148,8 +141,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 			Return(&entity.Organizer{ID: deleteOrganizerID, Name: "Label", PlatformFeeRateBps: 0}, nil).Once()
 		zero := int32(0)
 
-		_, err := newAdminOrganizerClient(t, uc).SetPlatformFeeRate(context.Background(),
-			asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &zero}))
+		_, err := newAdminOrganizerClient(t, uc).SetPlatformFeeRate(asAdmin(&adminorganizerv1.SetPlatformFeeRateRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}, PlatformFeeRateBps: &zero}))
 
 		assert.NoError(t, err)
 	})
@@ -162,11 +154,10 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 		uc.EXPECT().SetBusinessDetails(mock.Anything, deleteOrganizerID, details).
 			Return(&entity.Organizer{ID: deleteOrganizerID, Name: "Label", PlatformFeeRateBps: 800, BusinessDetails: &stored}, nil).Once()
 
-		resp, err := newAdminOrganizerClient(t, uc).SetBusinessDetails(context.Background(),
-			asAdmin(setDetailsRequest(&entityv1.OrganizerId{Value: deleteOrganizerID})))
+		resp, err := newAdminOrganizerClient(t, uc).SetBusinessDetails(asAdmin(setDetailsRequest(&entityv1.OrganizerId{Value: deleteOrganizerID})))
 
 		require.NoError(t, err)
-		o := resp.Msg.GetOrganizer()
+		o := resp.GetOrganizer()
 		assert.Equal(t, "株式会社リバティ", o.GetLegalName().GetValue())
 		assert.Equal(t, "代表 太郎", o.GetRepresentativeName().GetValue())
 		assert.Equal(t, "東京都渋谷区1-2-3", o.GetBusinessAddress().GetValue())
@@ -180,7 +171,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 		req := setDetailsRequest(&entityv1.OrganizerId{Value: deleteOrganizerID})
 		req.ContactEmail = nil
 
-		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetBusinessDetails(context.Background(), asAdmin(req))
+		_, err := newAdminOrganizerClient(t, usecasemocks.NewMockOrganizerUseCase(t)).SetBusinessDetails(asAdmin(req))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

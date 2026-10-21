@@ -3,10 +3,9 @@ package rpc
 import (
 	"context"
 
-	concertcandidatev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
+	concertcandidatev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertcandidatev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert_candidate/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -43,8 +42,8 @@ func NewAdminConcertCandidateHandler(
 // Performer resolution is delegated to the use case.
 func (h *AdminConcertCandidateHandler) List(
 	ctx context.Context,
-	_ *connect.Request[concertcandidatev1.ListRequest],
-) (*connect.Response[concertcandidatev1.ListResponse], error) {
+	_ *concertcandidatev1.ListRequest,
+) (*concertcandidatev1.ListResponse, error) {
 	reviews, err := h.concertCandidateUC.List(ctx)
 	if err != nil {
 		return nil, err
@@ -55,9 +54,9 @@ func (h *AdminConcertCandidateHandler) List(
 		pending = append(pending, mapper.ConcertCandidateToProto(r.ConcertCandidate, r.Performer))
 	}
 
-	return connect.NewResponse(&concertcandidatev1.ListResponse{
+	return &concertcandidatev1.ListResponse{
 		ConcertCandidates: pending,
-	}), nil
+	}, nil
 }
 
 // Approve promotes a pending concert candidate to a published event. When the candidate
@@ -66,8 +65,8 @@ func (h *AdminConcertCandidateHandler) List(
 // Approve with a resolution. The operation is idempotent on a missing concert candidate.
 func (h *AdminConcertCandidateHandler) Approve(
 	ctx context.Context,
-	req *connect.Request[concertcandidatev1.ApproveRequest],
-) (*connect.Response[concertcandidatev1.ApproveResponse], error) {
+	req *concertcandidatev1.ApproveRequest,
+) (*concertcandidatev1.ApproveResponse, error) {
 	// Reviewer identity is captured from the admin JWT (as in Reject) so a
 	// keep-existing reconciliation can attribute the rejection-log entry.
 	claims, ok := auth.GetClaims(ctx)
@@ -76,8 +75,8 @@ func (h *AdminConcertCandidateHandler) Approve(
 		reviewerSub = claims.Sub
 	}
 
-	concertCandidateID := req.Msg.GetConcertCandidateId().GetValue()
-	resolution := approveResolutionFromProto(req.Msg.GetResolution())
+	concertCandidateID := req.GetConcertCandidateId().GetValue()
+	resolution := approveResolutionFromProto(req.GetResolution())
 
 	result, err := h.concertCandidateUC.Approve(ctx, concertCandidateID, resolution, reviewerSub)
 	if err != nil {
@@ -88,7 +87,7 @@ func (h *AdminConcertCandidateHandler) Approve(
 	if result != nil && result.Conflict != nil {
 		resp.Conflict = duplicateConflictToProto(result.Conflict)
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
 // approveResolutionFromProto maps the generated Resolution enum to the usecase's
@@ -135,19 +134,19 @@ func existingEventToProto(e *usecase.ExistingEventDisplay) *concertcandidatev1.E
 // reviewer's identity and reason for search-quality analysis.
 func (h *AdminConcertCandidateHandler) Reject(
 	ctx context.Context,
-	req *connect.Request[concertcandidatev1.RejectRequest],
-) (*connect.Response[concertcandidatev1.RejectResponse], error) {
+	req *concertcandidatev1.RejectRequest,
+) (*concertcandidatev1.RejectResponse, error) {
 	claims, ok := auth.GetClaims(ctx)
 	reviewerSub := ""
 	if ok && claims != nil {
 		reviewerSub = claims.Sub
 	}
 
-	concertCandidateID := req.Msg.GetConcertCandidateId().GetValue()
-	reason := req.Msg.GetReason()
+	concertCandidateID := req.GetConcertCandidateId().GetValue()
+	reason := req.GetReason()
 	if err := h.concertCandidateUC.Reject(ctx, concertCandidateID, reason, reviewerSub); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertcandidatev1.RejectResponse{}), nil
+	return &concertcandidatev1.RejectResponse{}, nil
 }

@@ -6,7 +6,6 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -42,7 +41,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 			}).
 			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil).Once()
 
-		_, err := d.handler.Update(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.UpdateRequest{
+		_, err := d.handler.Update(orgCtx(testProviderOrganizerID), &organizerseriesv1.UpdateRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 			Draft: &organizerseriesv1.SeriesDraft{
 				Title:      &entityv1.Title{Value: "TOUR"},
@@ -54,7 +53,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 					{VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 8}}},
 				},
 			},
-		}))
+		})
 
 		require.NoError(t, err)
 		require.Len(t, inputs, 2)
@@ -76,16 +75,16 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string{"event-1"}).
 			Return(series, concertsOf(events, []*entity.Artist{{ID: "artist-1"}}), nil).Once()
 
-		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
+		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), &organizerseriesv1.PublishRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 			EventIds: []*entityv1.EventId{{Value: "event-1"}},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, resp.Msg.GetSeries().GetPublishState())
-		require.Len(t, resp.Msg.GetConcerts(), 2)
-		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, resp.Msg.GetConcerts()[0].GetEvent().GetPublishState())
-		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_DRAFT, resp.Msg.GetConcerts()[1].GetEvent().GetPublishState())
+		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, resp.GetSeries().GetPublishState())
+		require.Len(t, resp.GetConcerts(), 2)
+		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, resp.GetConcerts()[0].GetEvent().GetPublishState())
+		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_DRAFT, resp.GetConcerts()[1].GetEvent().GetPublishState())
 	})
 
 	t.Run("pass no event id to Publish when none is named", func(t *testing.T) {
@@ -95,9 +94,9 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string(nil)).
 			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, nil, nil).Once()
 
-		_, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
+		_, err := d.handler.Publish(orgCtx(testProviderOrganizerID), &organizerseriesv1.PublishRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -108,10 +107,10 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		expectCaller(d)
 		d.seriesUC.EXPECT().Cancel(mock.Anything, testOrganizerID, "series-1", []string{"event-2", "event-3"}).Return(nil).Once()
 
-		_, err := d.handler.Cancel(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.CancelRequest{
+		_, err := d.handler.Cancel(orgCtx(testProviderOrganizerID), &organizerseriesv1.CancelRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 			EventIds: []*entityv1.EventId{{Value: "event-2"}, {Value: "event-3"}},
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -127,15 +126,15 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		d.seriesUC.EXPECT().Publish(mock.Anything, testOrganizerID, "series-1", []string(nil)).
 			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, concerts, nil).Once()
 
-		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.PublishRequest{
+		resp, err := d.handler.Publish(orgCtx(testProviderOrganizerID), &organizerseriesv1.PublishRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
-		}))
+		})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetConcerts(), 2)
-		assert.Len(t, resp.Msg.GetConcerts()[0].GetArtistIds(), 2)
-		assert.Len(t, resp.Msg.GetConcerts()[1].GetArtistIds(), 1)
-		assert.Len(t, resp.Msg.GetArtists(), 2, "each artist once")
+		require.Len(t, resp.GetConcerts(), 2)
+		assert.Len(t, resp.GetConcerts()[0].GetArtistIds(), 2)
+		assert.Len(t, resp.GetConcerts()[1].GetArtistIds(), 1)
+		assert.Len(t, resp.GetArtists(), 2, "each artist once")
 	})
 
 	t.Run("set a fan concert's publish state on its event", func(t *testing.T) {

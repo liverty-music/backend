@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
+	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/artist/v1/artistv1connect"
 	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -56,14 +57,10 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 	concertUC.EXPECT().Get(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.NotFound, "event page not found")).Maybe()
 	preview := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder("https://liverty-music.app", mapper.NewSeriesImageURLBuilder("")), logger)
 
-	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
-		return "/unused-health-check/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-	}
+	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return artistv1connect.NewArtistServiceHandler(rpc.NewArtistHandler(artistUC, logger), opts...)
+		func(s *connect.Server) {
+			artistv1connect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
 	}
 	cfg := config.ServerSettings{
@@ -79,10 +76,10 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	// Control: the limiter admits one anonymous RPC and throttles the next.
-	client := artistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)
-	_, err = client.ListTop(context.Background(), connect.NewRequest(&artistv1.ListTopRequest{}))
+	client := artistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+	_, err = client.ListTop(context.Background(), &artistv1.ListTopRequest{})
 	require.NoError(t, err)
-	_, err = client.ListTop(context.Background(), connect.NewRequest(&artistv1.ListTopRequest{}))
+	_, err = client.ListTop(context.Background(), &artistv1.ListTopRequest{})
 	require.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err), "the RPC limit is tight enough to throttle")
 
 	// Repeated link preview requests from the same client all succeed.

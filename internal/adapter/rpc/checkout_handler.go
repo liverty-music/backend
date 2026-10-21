@@ -5,9 +5,8 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 
-	checkoutv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
+	checkoutv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/checkout/v1/checkoutv1connect"
 	checkoutv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/checkout/v1"
-	"connectrpc.com/connect"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -43,70 +42,70 @@ func NewCheckoutHandler(
 // Start holds tickets of a TicketType for the caller for 15 minutes.
 func (h *CheckoutHandler) Start(
 	ctx context.Context,
-	req *connect.Request[checkoutv1.StartRequest],
-) (*connect.Response[checkoutv1.StartResponse], error) {
+	req *checkoutv1.StartRequest,
+) (*checkoutv1.StartResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), int(req.Msg.GetTicketCount()),
-		mapper.ReferralCodeFromProto(req.Msg.GetReferralCode()))
+	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketTypeID(req.GetTicketTypeId().GetValue()), int(req.GetTicketCount()),
+		mapper.ReferralCodeFromProto(req.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&checkoutv1.StartResponse{Checkout: mapper.CheckoutToProto(checkout)}), nil
+	return &checkoutv1.StartResponse{Checkout: mapper.CheckoutToProto(checkout)}, nil
 }
 
 // Get returns the caller's Checkout as it stands now.
 func (h *CheckoutHandler) Get(
 	ctx context.Context,
-	req *connect.Request[checkoutv1.GetRequest],
-) (*connect.Response[checkoutv1.GetResponse], error) {
+	req *checkoutv1.GetRequest,
+) (*checkoutv1.GetResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	checkout, err := h.checkoutUC.Get(ctx, userID, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()))
+	checkout, err := h.checkoutUC.Get(ctx, userID, entity.CheckoutID(req.GetCheckoutId().GetValue()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout)}), nil
+	return &checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout)}, nil
 }
 
 // AuthorizeCard stores the caller's full name and phone number and opens the card
 // authorization, returning its card authorization secret.
 func (h *CheckoutHandler) AuthorizeCard(
 	ctx context.Context,
-	req *connect.Request[checkoutv1.AuthorizeCardRequest],
-) (*connect.Response[checkoutv1.AuthorizeCardResponse], error) {
+	req *checkoutv1.AuthorizeCardRequest,
+) (*checkoutv1.AuthorizeCardResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	secret, err := h.checkoutUC.AuthorizeCard(ctx, userID, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()),
-		req.Msg.GetFullName().GetValue(), req.Msg.GetPhoneNumber().GetValue())
+	secret, err := h.checkoutUC.AuthorizeCard(ctx, userID, entity.CheckoutID(req.GetCheckoutId().GetValue()),
+		req.GetFullName().GetValue(), req.GetPhoneNumber().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&checkoutv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}), nil
+	return &checkoutv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}, nil
 }
 
 // Confirm places the Order for the caller's Checkout.
 func (h *CheckoutHandler) Confirm(
 	ctx context.Context,
-	req *connect.Request[checkoutv1.ConfirmRequest],
-) (*connect.Response[checkoutv1.ConfirmResponse], error) {
+	req *checkoutv1.ConfirmRequest,
+) (*checkoutv1.ConfirmResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	order, err := h.orderUC.IssueFromCheckout(ctx, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()), &userID)
+	order, err := h.orderUC.IssueFromCheckout(ctx, entity.CheckoutID(req.GetCheckoutId().GetValue()), &userID)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&checkoutv1.ConfirmResponse{Order: mapper.OrderToProto(order)}), nil
+	return &checkoutv1.ConfirmResponse{Order: mapper.OrderToProto(order)}, nil
 }

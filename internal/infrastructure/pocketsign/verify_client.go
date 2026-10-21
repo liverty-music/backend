@@ -58,11 +58,12 @@ import (
 	"net/http"
 	"time"
 
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/stamp/v1/stampv1connect"
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/verify/v2/verifyv2connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/stamp/v1/stampv1connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/verify/v2/verifyv2connect"
 	stampv1 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/stamp/v1"
 	verifyv2 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/verify/v2"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -148,18 +149,20 @@ func NewStampClient(cfg StampClientConfig, httpClient *http.Client, logger *logg
 
 	// Both Authorization and X-Tenant-ID are required by the Stamp API on
 	// every request.
-	authInterceptor := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			req.Header().Set("Authorization", "Bearer "+cfg.Token)
-			req.Header().Set("X-Tenant-ID", cfg.TenantID)
-			return next(ctx, req)
+	authInterceptor := connect.ClientInterceptor(func(next connect.ClientFunc) connect.ClientFunc {
+		return func(ctx context.Context, spec connect.Spec) (connect.ClientStream, error) {
+			if info, ok := connect.CallInfoForClientContext(ctx); ok {
+				info.RequestHeader().Set("Authorization", "Bearer "+cfg.Token)
+				info.RequestHeader().Set("X-Tenant-ID", cfg.TenantID)
+			}
+			return next(ctx, spec)
 		}
 	})
-	opts := connect.WithInterceptors(authInterceptor)
+	client := connect.NewClient(connecthttp.NewTransport(httpClient, cfg.BaseURL), authInterceptor)
 
 	return &StampClient{
-		sessionSvc: stampv1connect.NewSessionServiceClient(httpClient, cfg.BaseURL, opts),
-		userSvc:    verifyv2connect.NewUserServiceClient(httpClient, cfg.BaseURL, opts),
+		sessionSvc: stampv1connect.NewSessionServiceClient(client),
+		userSvc:    verifyv2connect.NewUserServiceClient(client),
 		cfg:        cfg,
 		nonceCache: cache.NewMemoryCache(sessionTTL),
 		logger:     logger,
@@ -215,7 +218,7 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 	requireManualReturn := true
 	callbackWithSessionID := false
 
-	req := connect.NewRequest(stampv1.CreateSessionRequest_builder{
+	req := stampv1.CreateSessionRequest_builder{
 		CallbackUrl: &c.cfg.CallbackURL,
 		Requests: []*stampv1.Request{
 			stampv1.Request_builder{
@@ -231,15 +234,15 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 		},
 		RequireManualReturn:   &requireManualReturn,
 		CallbackWithSessionId: &callbackWithSessionID,
-	}.Build())
+	}.Build()
 
 	resp, err := c.sessionSvc.CreateSession(ctx, req)
 	if err != nil {
 		return "", "", mapConnectError(err, "pocket sign create session")
 	}
 
-	sessionID := resp.Msg.GetId()
-	redirectURL := resp.Msg.GetRedirectUrl()
+	sessionID := resp.GetId()
+	redirectURL := resp.GetRedirectUrl()
 
 	if sessionID == "" {
 		return "", "", apperr.New(codes.Internal, "pocket sign create session returned empty session id")
@@ -291,9 +294,9 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 		return nil, apperr.New(codes.Internal, "internal nonce cache type mismatch")
 	}
 
-	req := connect.NewRequest(stampv1.FinalizeSessionRequest_builder{
+	req := stampv1.FinalizeSessionRequest_builder{
 		Id: &sessionID,
-	}.Build())
+	}.Build()
 
 	resp, err := c.sessionSvc.FinalizeSession(ctx, req)
 	if err != nil {
@@ -315,7 +318,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 	// Validate the nonce returned in the session metadata against the one we
 	// stored at CreateSession. This prevents a replay or session-swap attack
 	// where an attacker substitutes their session_id for the victim's.
-	metadata := resp.Msg.GetMetadata()
+	metadata := resp.GetMetadata()
 	gotNonce := metadata["nonce"]
 	if gotNonce != expectedNonce {
 		c.logger.Warn(ctx, "pocket sign nonce mismatch; possible replay or tamper",
@@ -329,7 +332,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 	// Extract the userAuthentication result from the FinalizeSession response.
 	// MVP: we request exactly one result (userAuthentication), so results[0] is
 	// our result. Validate defensively.
-	results := resp.Msg.GetResults()
+	results := resp.GetResults()
 	if len(results) == 0 {
 		return nil, apperr.New(codes.Internal, "pocket sign finalize session returned no results")
 	}
@@ -400,10 +403,10 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.IdentityVerifierRecheckResult, error) {
 	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
 
-	req := connect.NewRequest(verifyv2.CheckUserStatusRequest_builder{
+	req := verifyv2.CheckUserStatusRequest_builder{
 		UserId:      &pocketSignUserID,
 		CheckMethod: &checkMethod,
-	}.Build())
+	}.Build()
 
 	resp, err := c.userSvc.CheckUserStatus(ctx, req)
 	if err != nil {
@@ -417,7 +420,7 @@ func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*us
 	// them would force a spurious re-verification of an otherwise-valid user for a
 	// transient lookup failure. Leave those as not-needing-reverification
 	// and log.
-	state := resp.Msg.GetCertificateState()
+	state := resp.GetCertificateState()
 	var needsReverification bool
 	switch state {
 	case verifyv2.Certificate_STATE_REVOKED, verifyv2.Certificate_STATE_EXPIRED:

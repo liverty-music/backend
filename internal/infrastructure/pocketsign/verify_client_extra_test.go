@@ -10,11 +10,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/stamp/v1/stampv1connect"
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/verify/v2/verifyv2connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/stamp/v1/stampv1connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/verify/v2/verifyv2connect"
 	stampv1 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/stamp/v1"
 	verifyv2 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/verify/v2"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	infrapocketsign "github.com/liverty-music/backend/internal/infrastructure/pocketsign"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -47,20 +48,20 @@ type headerCapturingSessionService struct {
 	lastFinalizeHeader http.Header
 }
 
-func (f *headerCapturingSessionService) CreateSession(_ context.Context, req *connect.Request[stampv1.CreateSessionRequest]) (*connect.Response[stampv1.CreateSessionResponse], error) {
-	f.lastCreateHeader = req.Header().Clone()
+func (f *headerCapturingSessionService) CreateSession(ctx context.Context, _ *stampv1.CreateSessionRequest) (*stampv1.CreateSessionResponse, error) {
+	f.lastCreateHeader = requestHeaderOf(ctx)
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
-	return connect.NewResponse(f.createResp), nil
+	return f.createResp, nil
 }
 
-func (f *headerCapturingSessionService) FinalizeSession(_ context.Context, req *connect.Request[stampv1.FinalizeSessionRequest]) (*connect.Response[stampv1.FinalizeSessionResponse], error) {
-	f.lastFinalizeHeader = req.Header().Clone()
+func (f *headerCapturingSessionService) FinalizeSession(ctx context.Context, _ *stampv1.FinalizeSessionRequest) (*stampv1.FinalizeSessionResponse, error) {
+	f.lastFinalizeHeader = requestHeaderOf(ctx)
 	if f.finalizeErr != nil {
 		return nil, f.finalizeErr
 	}
-	return connect.NewResponse(f.finalizeResp), nil
+	return f.finalizeResp, nil
 }
 
 // headerCapturingUserService captures headers from CheckUserStatus calls.
@@ -72,12 +73,23 @@ type headerCapturingUserService struct {
 	lastCheckHeader http.Header
 }
 
-func (f *headerCapturingUserService) CheckUserStatus(_ context.Context, req *connect.Request[verifyv2.CheckUserStatusRequest]) (*connect.Response[verifyv2.CheckUserStatusResponse], error) {
-	f.lastCheckHeader = req.Header().Clone()
+func (f *headerCapturingUserService) CheckUserStatus(ctx context.Context, _ *verifyv2.CheckUserStatusRequest) (*verifyv2.CheckUserStatusResponse, error) {
+	f.lastCheckHeader = requestHeaderOf(ctx)
 	if f.checkStatusErr != nil {
 		return nil, f.checkStatusErr
 	}
-	return connect.NewResponse(f.checkStatusResp), nil
+	return f.checkStatusResp, nil
+}
+
+// requestHeaderOf copies the request headers of the RPC served with ctx.
+func requestHeaderOf(ctx context.Context) http.Header {
+	header := http.Header{}
+	if info, ok := connect.CallInfoForServerContext(ctx); ok {
+		for key, values := range info.RequestHeader().All() {
+			header[key] = append([]string(nil), values...)
+		}
+	}
+	return header
 }
 
 // startHeaderCapturingServer returns an httptest.Server URL backed by the
@@ -85,8 +97,11 @@ func (f *headerCapturingUserService) CheckUserStatus(_ context.Context, req *con
 func startHeaderCapturingServer(t *testing.T, sessionSvc *headerCapturingSessionService, userSvc *headerCapturingUserService) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(stampv1connect.NewSessionServiceHandler(sessionSvc))
-	mux.Handle(verifyv2connect.NewUserServiceHandler(userSvc))
+	server := connect.NewServer()
+	stampv1connect.RegisterSessionServiceHandler(server, sessionSvc)
+	verifyv2connect.RegisterUserServiceHandler(server, userSvc)
+	connecthttp.Mount(mux, server)
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -409,7 +424,7 @@ func TestStampClient_CompleteVerify_FinalErrorDoesNotRestoreNonce(t *testing.T) 
 	sessionSvc := &fakeSessionService{
 		createResp: buildCreateSessionResponse("sess-final-err", "https://p8n.app/r/final-err"),
 		// A FINAL (non-FailedPrecondition) FinalizeSession error.
-		finalizeErr: connect.NewError(connect.CodeUnauthenticated, nil),
+		finalizeErr: connect.NewError(connect.CodeUnauthenticated, ""),
 	}
 	baseURL := startFakeServer(t, sessionSvc, &fakeUserService{})
 	client := newTestClient(t, baseURL)

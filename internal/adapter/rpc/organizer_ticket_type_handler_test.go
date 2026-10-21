@@ -2,13 +2,13 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	tickettypev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
+	tickettypev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	tickettypev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_type/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -28,10 +28,10 @@ func newOrganizerTicketTypeClient(t *testing.T) (tickettypev1connect.TicketTypeS
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewOrganizerTicketTypeHandler(types, orgs, logger)
-	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return tickettypev1connect.NewTicketTypeServiceHandler(h, opts...)
+	srv := serveValidated(t, func(s *connect.Server) {
+		tickettypev1connect.RegisterTicketTypeServiceHandler(s, h)
 	}, asMember(testProviderOrganizerID))
-	return tickettypev1connect.NewTicketTypeServiceClient(srv.Client(), srv.URL), types, orgs
+	return tickettypev1connect.NewTicketTypeServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL))), types, orgs
 }
 
 func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
@@ -59,11 +59,11 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 			State: entity.TicketTypeStateOnSale,
 		}, nil)
 
-		resp, err := client.Update(context.Background(), connect.NewRequest(updateReq()))
+		resp, err := client.Update(context.Background(), updateReq())
 
 		require.NoError(t, err)
-		assert.Equal(t, int32(180), resp.Msg.GetTicketType().GetQuantity())
-		assert.Equal(t, int32(150), resp.Msg.GetTicketType().GetSoldCount())
+		assert.Equal(t, int32(180), resp.GetTicketType().GetQuantity())
+		assert.Equal(t, int32(150), resp.GetTicketType().GetSoldCount())
 	})
 
 	t.Run("deactivated organizer", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 		client, _, orgs := newOrganizerTicketTypeClient(t)
 		orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated"))
 
-		_, err := client.Update(context.Background(), connect.NewRequest(updateReq()))
+		_, err := client.Update(context.Background(), updateReq())
 
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	})
@@ -96,7 +96,7 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 			req := updateReq()
 			tt.mutate(req)
 
-			_, err := client.Update(context.Background(), connect.NewRequest(req))
+			_, err := client.Update(context.Background(), req)
 
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})

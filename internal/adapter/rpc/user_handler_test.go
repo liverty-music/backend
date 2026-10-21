@@ -2,13 +2,13 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
-	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -42,10 +42,10 @@ func newUserHandler(t *testing.T) (*rpc.UserHandler, *mocks.MockUserUseCase) {
 // server's authn middleware and validation interceptor.
 func newUserBoundaryClient(t *testing.T, h *rpc.UserHandler) userv1connect.UserServiceClient {
 	t.Helper()
-	srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return userv1connect.NewUserServiceHandler(h, opts...)
+	srv := newFanBoundaryServer(t, func(s *connect.Server) {
+		userv1connect.RegisterUserServiceHandler(s, h)
 	})
-	return userv1connect.NewUserServiceClient(srv.Client(), srv.URL)
+	return userv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 }
 
 func callerUser() *entity.User {
@@ -63,12 +63,12 @@ func TestUserHandler_NotSignedIn(t *testing.T) {
 		client := newUserBoundaryClient(t, h)
 		ctx := context.Background()
 
-		_, getErr := client.Get(ctx, connect.NewRequest(&userv1.GetRequest{}))
-		_, createErr := client.Create(ctx, connect.NewRequest(&userv1.CreateRequest{Email: &entitypb.Email{Value: "a@example.com"}}))
-		_, updateErr := client.Update(ctx, connect.NewRequest(&userv1.UpdateRequest{PhoneNumber: &entitypb.PhoneNumber{Value: "+819098765432"}}))
-		_, langErr := client.SetPreferredLanguage(ctx, connect.NewRequest(&userv1.SetPreferredLanguageRequest{PreferredLanguage: "en"}))
-		_, homeErr := client.SetHome(ctx, connect.NewRequest(&userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}}))
-		_, resendErr := client.ResendEmailVerification(ctx, connect.NewRequest(&userv1.ResendEmailVerificationRequest{}))
+		_, getErr := client.Get(ctx, &userv1.GetRequest{})
+		_, createErr := client.Create(ctx, &userv1.CreateRequest{Email: &entitypb.Email{Value: "a@example.com"}})
+		_, updateErr := client.Update(ctx, &userv1.UpdateRequest{PhoneNumber: &entitypb.PhoneNumber{Value: "+819098765432"}})
+		_, langErr := client.SetPreferredLanguage(ctx, &userv1.SetPreferredLanguageRequest{PreferredLanguage: "en"})
+		_, homeErr := client.SetHome(ctx, &userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}})
+		_, resendErr := client.ResendEmailVerification(ctx, &userv1.ResendEmailVerificationRequest{})
 
 		for _, err := range []error{getErr, createErr, updateErr, langErr, homeErr, resendErr} {
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
@@ -85,10 +85,10 @@ func TestUserHandler_Get(t *testing.T) {
 		h, userUC := newUserHandler(t)
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
 
-		resp, err := h.Get(authedCtx(testCallerExtID), connect.NewRequest(&userv1.GetRequest{}))
+		resp, err := h.Get(authedCtx(testCallerExtID), &userv1.GetRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, testCallerUserID, resp.Msg.GetUser().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.GetUser().GetId().GetValue())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Caller reads their profile"
@@ -100,12 +100,12 @@ func TestUserHandler_Get(t *testing.T) {
 		u.Home = &entity.Home{CountryCode: "JP", Level1: "JP-13"}
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(u, nil).Once()
 
-		resp, err := h.Get(authedCtx(testCallerExtID), connect.NewRequest(&userv1.GetRequest{}))
+		resp, err := h.Get(authedCtx(testCallerExtID), &userv1.GetRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, "test@example.com", resp.Msg.GetUser().GetEmail().GetValue())
-		assert.Equal(t, "ja", resp.Msg.GetUser().GetPreferredLanguage())
-		assert.Equal(t, "JP-13", resp.Msg.GetUser().GetHome().GetLevel_1())
+		assert.Equal(t, "test@example.com", resp.GetUser().GetEmail().GetValue())
+		assert.Equal(t, "ja", resp.GetUser().GetPreferredLanguage())
+		assert.Equal(t, "JP-13", resp.GetUser().GetHome().GetLevel_1())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Missing user id"
@@ -115,10 +115,10 @@ func TestUserHandler_Get(t *testing.T) {
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
 		client := newUserBoundaryClient(t, h)
 
-		resp, err := client.Get(context.Background(), withFanToken(connect.NewRequest(&userv1.GetRequest{})))
+		resp, err := client.Get(withFanToken(&userv1.GetRequest{}))
 
 		require.NoError(t, err)
-		assert.Equal(t, testCallerUserID, resp.Msg.GetUser().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.GetUser().GetId().GetValue())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Another user's account"
@@ -130,10 +130,10 @@ func TestUserHandler_Get(t *testing.T) {
 		h, userUC := newUserHandler(t)
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
 
-		resp, err := h.Get(authedCtx(testCallerExtID), connect.NewRequest(&userv1.GetRequest{}))
+		resp, err := h.Get(authedCtx(testCallerExtID), &userv1.GetRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, testCallerUserID, resp.Msg.GetUser().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.GetUser().GetId().GetValue())
 		assert.Nil(t, (&userv1.GetRequest{}).ProtoReflect().Descriptor().Fields().ByName("user_id"), "GetRequest names no User")
 		assert.Nil(t, (&userv1.SetHomeRequest{}).ProtoReflect().Descriptor().Fields().ByName("user_id"), "SetHomeRequest names no User")
 		assert.Nil(t, (&userv1.SetPreferredLanguageRequest{}).ProtoReflect().Descriptor().Fields().ByName("user_id"), "SetPreferredLanguageRequest names no User")
@@ -148,7 +148,7 @@ func TestUserHandler_Get(t *testing.T) {
 		userUC.EXPECT().ResolveCaller(mock.Anything, "ext-unknown").
 			Return(nil, apperr.New(apperr.ErrNotFound.Code, "user not found")).Once()
 
-		resp, err := h.Get(authedCtx("ext-unknown"), connect.NewRequest(&userv1.GetRequest{}))
+		resp, err := h.Get(authedCtx("ext-unknown"), &userv1.GetRequest{})
 
 		assert.Nil(t, resp)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -171,14 +171,14 @@ func TestUserHandler_Create(t *testing.T) {
 		})).Return(&entity.User{ID: testCallerUserID, ProviderUserID: testCallerExtID, Email: "id@example.com", Name: "Identity Name", PreferredLanguage: "ja"}, nil).Once()
 
 		lang := "ja"
-		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
+		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
 			Email:             &entitypb.Email{Value: "id@example.com"},
 			PreferredLanguage: &lang,
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "id@example.com", resp.Msg.GetUser().GetEmail().GetValue())
-		assert.Equal(t, "ja", resp.Msg.GetUser().GetPreferredLanguage())
+		assert.Equal(t, "id@example.com", resp.GetUser().GetEmail().GetValue())
+		assert.Equal(t, "ja", resp.GetUser().GetPreferredLanguage())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Request email differs from the identity"
@@ -189,12 +189,12 @@ func TestUserHandler_Create(t *testing.T) {
 			return nu.Email == "id@example.com"
 		})).Return(&entity.User{ID: testCallerUserID, Email: "id@example.com"}, nil).Once()
 
-		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
+		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
 			Email: &entitypb.Email{Value: "other@example.com"},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "id@example.com", resp.Msg.GetUser().GetEmail().GetValue())
+		assert.Equal(t, "id@example.com", resp.GetUser().GetEmail().GetValue())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Returning identity"
@@ -204,12 +204,12 @@ func TestUserHandler_Create(t *testing.T) {
 		existing := callerUser()
 		userUC.EXPECT().Create(mock.Anything, mock.Anything).Return(existing, nil).Once()
 
-		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
+		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
 			Email: &entitypb.Email{Value: "id@example.com"},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, testCallerUserID, resp.Msg.GetUser().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.GetUser().GetId().GetValue())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Missing email in the request"
@@ -218,7 +218,7 @@ func TestUserHandler_Create(t *testing.T) {
 		h, _ := newUserHandler(t)
 		client := newUserBoundaryClient(t, h)
 
-		_, err := client.Create(context.Background(), withFanToken(connect.NewRequest(&userv1.CreateRequest{})))
+		_, err := client.Create(withFanToken(&userv1.CreateRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -239,13 +239,13 @@ func TestUserHandler_Update(t *testing.T) {
 			mock.MatchedBy(func(phone *string) bool { return phone != nil && *phone == "+819098765432" })).
 			Return(updated, nil).Once()
 
-		resp, err := h.Update(authedCtx(testCallerExtID), connect.NewRequest(&userv1.UpdateRequest{
+		resp, err := h.Update(authedCtx(testCallerExtID), &userv1.UpdateRequest{
 			PhoneNumber: &entitypb.PhoneNumber{Value: "+819098765432"},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "+819098765432", resp.Msg.GetUser().GetPhoneNumber().GetValue())
-		assert.Equal(t, "山田 花子", resp.Msg.GetUser().GetFullName().GetValue(), "the full name is unchanged")
+		assert.Equal(t, "+819098765432", resp.GetUser().GetPhoneNumber().GetValue())
+		assert.Equal(t, "山田 花子", resp.GetUser().GetFullName().GetValue(), "the full name is unchanged")
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Nothing to update"
@@ -254,8 +254,8 @@ func TestUserHandler_Update(t *testing.T) {
 		// The mock fails the test if the usecase runs.
 		h, _ := newUserHandler(t)
 
-		_, direct := h.Update(authedCtx(testCallerExtID), connect.NewRequest(&userv1.UpdateRequest{}))
-		_, viaBoundary := newUserBoundaryClient(t, h).Update(context.Background(), withFanToken(connect.NewRequest(&userv1.UpdateRequest{})))
+		_, direct := h.Update(authedCtx(testCallerExtID), &userv1.UpdateRequest{})
+		_, viaBoundary := newUserBoundaryClient(t, h).Update(withFanToken(&userv1.UpdateRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(direct))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(viaBoundary))
@@ -267,8 +267,8 @@ func TestUserHandler_Update(t *testing.T) {
 		h, _ := newUserHandler(t)
 		req := &userv1.UpdateRequest{PhoneNumber: &entitypb.PhoneNumber{Value: "090-9876-5432"}}
 
-		_, direct := h.Update(authedCtx(testCallerExtID), connect.NewRequest(req))
-		_, viaBoundary := newUserBoundaryClient(t, h).Update(context.Background(), withFanToken(connect.NewRequest(req)))
+		_, direct := h.Update(authedCtx(testCallerExtID), req)
+		_, viaBoundary := newUserBoundaryClient(t, h).Update(withFanToken(req))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(direct))
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(viaBoundary))
@@ -278,9 +278,9 @@ func TestUserHandler_Update(t *testing.T) {
 		t.Parallel()
 		h, _ := newUserHandler(t)
 
-		_, err := h.Update(authedCtx(testCallerExtID), connect.NewRequest(&userv1.UpdateRequest{
+		_, err := h.Update(authedCtx(testCallerExtID), &userv1.UpdateRequest{
 			FullName: &entitypb.FullName{Value: ""},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -291,9 +291,9 @@ func TestUserHandler_Update(t *testing.T) {
 		userUC.EXPECT().Update(mock.Anything, testCallerExtID, mock.Anything, mock.Anything).
 			Return(nil, apperr.New(apperr.ErrNotFound.Code, "user not found")).Once()
 
-		_, err := h.Update(authedCtx(testCallerExtID), connect.NewRequest(&userv1.UpdateRequest{
+		_, err := h.Update(authedCtx(testCallerExtID), &userv1.UpdateRequest{
 			FullName: &entitypb.FullName{Value: "山田 花子"},
-		}))
+		})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -315,11 +315,11 @@ func TestUserHandler_SetHome(t *testing.T) {
 			mock.MatchedBy(func(home *entity.Home) bool { return home.CountryCode == "JP" && home.Level1 == "JP-13" })).
 			Return(updated, nil).Once()
 
-		resp, err := h.SetHome(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetHomeRequest{Home: homeProto}))
+		resp, err := h.SetHome(authedCtx(testCallerExtID), &userv1.SetHomeRequest{Home: homeProto})
 
 		require.NoError(t, err)
-		assert.Equal(t, "JP", resp.Msg.GetUser().GetHome().GetCountryCode())
-		assert.Equal(t, "JP-13", resp.Msg.GetUser().GetHome().GetLevel_1())
+		assert.Equal(t, "JP", resp.GetUser().GetHome().GetCountryCode())
+		assert.Equal(t, "JP-13", resp.GetUser().GetHome().GetLevel_1())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Missing home"
@@ -328,7 +328,7 @@ func TestUserHandler_SetHome(t *testing.T) {
 		// The mock fails the test if the usecase runs.
 		h, _ := newUserHandler(t)
 
-		_, err := newUserBoundaryClient(t, h).SetHome(context.Background(), withFanToken(connect.NewRequest(&userv1.SetHomeRequest{})))
+		_, err := newUserBoundaryClient(t, h).SetHome(withFanToken(&userv1.SetHomeRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -341,7 +341,7 @@ func TestUserHandler_SetHome(t *testing.T) {
 		// UpdateHome runs for the resolved caller's id and no other.
 		userUC.EXPECT().SetHome(mock.Anything, testCallerUserID, mock.Anything).Return(callerUser(), nil).Once()
 
-		_, err := h.SetHome(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetHomeRequest{Home: homeProto}))
+		_, err := h.SetHome(authedCtx(testCallerExtID), &userv1.SetHomeRequest{Home: homeProto})
 
 		require.NoError(t, err)
 	})
@@ -352,7 +352,7 @@ func TestUserHandler_SetHome(t *testing.T) {
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).
 			Return(nil, apperr.New(apperr.ErrNotFound.Code, "user not found")).Once()
 
-		_, err := h.SetHome(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetHomeRequest{Home: homeProto}))
+		_, err := h.SetHome(authedCtx(testCallerExtID), &userv1.SetHomeRequest{Home: homeProto})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -370,12 +370,12 @@ func TestUserHandler_SetPreferredLanguage(t *testing.T) {
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
 		userUC.EXPECT().SetPreferredLanguage(mock.Anything, testCallerUserID, "en").Return(updated, nil).Once()
 
-		resp, err := h.SetPreferredLanguage(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetPreferredLanguageRequest{
+		resp, err := h.SetPreferredLanguage(authedCtx(testCallerExtID), &userv1.SetPreferredLanguageRequest{
 			PreferredLanguage: "en",
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "en", resp.Msg.GetUser().GetPreferredLanguage())
+		assert.Equal(t, "en", resp.GetUser().GetPreferredLanguage())
 	})
 
 	// @spec components/adapter/fan/api/rpc/user "Malformed language from a caller without an account"
@@ -386,9 +386,9 @@ func TestUserHandler_SetPreferredLanguage(t *testing.T) {
 		// if ResolveCaller runs.
 		h, _ := newUserHandler(t)
 
-		_, err := h.SetPreferredLanguage(authedCtx("ext-unknown"), connect.NewRequest(&userv1.SetPreferredLanguageRequest{
+		_, err := h.SetPreferredLanguage(authedCtx("ext-unknown"), &userv1.SetPreferredLanguageRequest{
 			PreferredLanguage: "ja-JP",
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -400,9 +400,9 @@ func TestUserHandler_SetPreferredLanguage(t *testing.T) {
 				t.Parallel()
 				h, _ := newUserHandler(t)
 
-				_, err := h.SetPreferredLanguage(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetPreferredLanguageRequest{
+				_, err := h.SetPreferredLanguage(authedCtx(testCallerExtID), &userv1.SetPreferredLanguageRequest{
 					PreferredLanguage: bad,
-				}))
+				})
 
 				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 			})
@@ -419,7 +419,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		h, userUC := newUserHandler(t)
 		userUC.EXPECT().ResendEmailVerification(mock.Anything, testCallerExtID).Return(nil).Once()
 
-		resp, err := h.ResendEmailVerification(authedCtx(testCallerExtID), connect.NewRequest(&userv1.ResendEmailVerificationRequest{}))
+		resp, err := h.ResendEmailVerification(authedCtx(testCallerExtID), &userv1.ResendEmailVerificationRequest{})
 
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
@@ -444,7 +444,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 				h, userUC := newUserHandler(t)
 				userUC.EXPECT().ResendEmailVerification(mock.Anything, testCallerExtID).Return(tc.ucErr).Once()
 
-				resp, err := h.ResendEmailVerification(authedCtx(testCallerExtID), connect.NewRequest(&userv1.ResendEmailVerificationRequest{}))
+				resp, err := h.ResendEmailVerification(authedCtx(testCallerExtID), &userv1.ResendEmailVerificationRequest{})
 
 				assert.Nil(t, resp)
 				assert.ErrorIs(t, err, tc.wantErr)

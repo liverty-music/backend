@@ -8,7 +8,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -81,7 +81,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse])
+		check    func(t *testing.T, resp *adminconcertv1.ListResponse)
 	}{
 		{
 			// @spec components/adapter/admin/api/rpc/concert "Admin lists concerts"
@@ -92,15 +92,15 @@ func TestAdminConcertHandler_List(t *testing.T) {
 					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{concertA, concertB}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
+			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
 				t.Helper()
-				require.Len(t, resp.Msg.Concerts, 2)
-				assert.Equal(t, "event-1", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
-				assert.Equal(t, "event-2", resp.Msg.Concerts[1].GetEvent().GetId().GetValue())
-				require.Len(t, resp.Msg.Series, 2)
-				assert.Equal(t, "Tour Alpha", resp.Msg.Series[0].GetTitle().GetValue())
-				require.Len(t, resp.Msg.Artists, 2)
-				assert.Equal(t, "Artist Alpha", resp.Msg.Artists[0].GetName().GetValue())
+				require.Len(t, resp.Concerts, 2)
+				assert.Equal(t, "event-1", resp.Concerts[0].GetEvent().GetId().GetValue())
+				assert.Equal(t, "event-2", resp.Concerts[1].GetEvent().GetId().GetValue())
+				require.Len(t, resp.Series, 2)
+				assert.Equal(t, "Tour Alpha", resp.Series[0].GetTitle().GetValue())
+				require.Len(t, resp.Artists, 2)
+				assert.Equal(t, "Artist Alpha", resp.Artists[0].GetName().GetValue())
 			},
 		},
 		{
@@ -112,14 +112,14 @@ func TestAdminConcertHandler_List(t *testing.T) {
 					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{tourDay("event-1"), tourDay("event-2")}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
+			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
 				t.Helper()
-				require.Len(t, resp.Msg.Series, 1)
-				assert.Equal(t, "series-1", resp.Msg.Series[0].GetId().GetValue())
-				require.Len(t, resp.Msg.Artists, 1)
-				assert.Equal(t, "artist-1", resp.Msg.Artists[0].GetId().GetValue())
-				require.Len(t, resp.Msg.Concerts, 2)
-				for _, c := range resp.Msg.Concerts {
+				require.Len(t, resp.Series, 1)
+				assert.Equal(t, "series-1", resp.Series[0].GetId().GetValue())
+				require.Len(t, resp.Artists, 1)
+				assert.Equal(t, "artist-1", resp.Artists[0].GetId().GetValue())
+				require.Len(t, resp.Concerts, 2)
+				for _, c := range resp.Concerts {
 					assert.Equal(t, "series-1", c.GetEvent().GetSeriesId().GetValue())
 					require.Len(t, c.GetArtistIds(), 1)
 					assert.Equal(t, "artist-1", c.GetArtistIds()[0].GetValue())
@@ -134,11 +134,11 @@ func TestAdminConcertHandler_List(t *testing.T) {
 					m.EXPECT().List(mock.Anything).Return(nil, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
+			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
 				t.Helper()
-				assert.Empty(t, resp.Msg.Concerts)
-				assert.Empty(t, resp.Msg.Series)
-				assert.Empty(t, resp.Msg.Artists)
+				assert.Empty(t, resp.Concerts)
+				assert.Empty(t, resp.Series)
+				assert.Empty(t, resp.Artists)
 			},
 		},
 		{
@@ -161,7 +161,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.List(tt.args.ctx, connect.NewRequest(&adminconcertv1.ListRequest{}))
+			resp, err := h.List(tt.args.ctx, &adminconcertv1.ListRequest{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -193,7 +193,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminconcertv1.DeleteResponse])
+		check    func(t *testing.T, resp *adminconcertv1.DeleteResponse)
 	}{
 		{
 			name: "pass event id through and return DeleteResponse",
@@ -203,9 +203,9 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 					m.EXPECT().Delete(mock.Anything, "event-abc").Return(nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.DeleteResponse]) {
+			check: func(t *testing.T, resp *adminconcertv1.DeleteResponse) {
 				t.Helper()
-				assert.NotNil(t, resp.Msg)
+				assert.NotNil(t, resp)
 			},
 		},
 		{
@@ -228,9 +228,9 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Delete(tt.args.ctx, connect.NewRequest(&adminconcertv1.DeleteRequest{
+			resp, err := h.Delete(tt.args.ctx, &adminconcertv1.DeleteRequest{
 				EventId: &entityv1.EventId{Value: tt.args.eventID},
-			}))
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)

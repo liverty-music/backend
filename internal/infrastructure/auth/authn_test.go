@@ -8,15 +8,15 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
-	"connectrpc.com/connect"
+	// authn.AuthFunc errors are connect v1 errors: connectrpc.com/authn stays on
+	// connect v1 (it is net/http middleware in front of the v2 server).
+	connectv1 "connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
-
-// testMsg is a simple type for testing.
-type testMsg struct{}
 
 // noPublicProcedures is an empty allowlist for tests that do not exercise public endpoints.
 var noPublicProcedures = map[string]bool{}
@@ -37,7 +37,7 @@ func TestNewAuthFunc(t *testing.T) {
 	type want struct {
 		claimsEqual *auth.Claims
 		claimsNil   bool
-		connectCode connect.Code
+		connectCode connectv1.Code
 	}
 	tests := []struct {
 		name      string
@@ -82,7 +82,7 @@ func TestNewAuthFunc(t *testing.T) {
 				t.Helper()
 				return mocks.NewMockTokenValidator(t)
 			},
-			want:    want{connectCode: connect.CodeUnauthenticated},
+			want:    want{connectCode: connectv1.CodeUnauthenticated},
 			wantErr: errors.New("unauthenticated"),
 		},
 		{
@@ -99,7 +99,7 @@ func TestNewAuthFunc(t *testing.T) {
 					Return((*auth.Claims)(nil), errors.New("token expired"))
 				return m
 			},
-			want:    want{connectCode: connect.CodeUnauthenticated},
+			want:    want{connectCode: connectv1.CodeUnauthenticated},
 			wantErr: errors.New("unauthenticated"),
 		},
 		{
@@ -113,7 +113,7 @@ func TestNewAuthFunc(t *testing.T) {
 				t.Helper()
 				return mocks.NewMockTokenValidator(t)
 			},
-			want:    want{connectCode: connect.CodeUnauthenticated},
+			want:    want{connectCode: connectv1.CodeUnauthenticated},
 			wantErr: errors.New("unauthenticated"),
 		},
 		{
@@ -187,7 +187,7 @@ func TestNewAuthFunc(t *testing.T) {
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
-				assert.Equal(t, tt.want.connectCode, connect.CodeOf(err))
+				assert.Equal(t, tt.want.connectCode, connectv1.CodeOf(err))
 				mockValidator.AssertExpectations(t)
 				return
 			}
@@ -205,7 +205,7 @@ func TestNewAuthFunc(t *testing.T) {
 	}
 }
 
-func TestClaimsBridgeInterceptor_WrapUnary(t *testing.T) {
+func TestClaimsBridgeInterceptor(t *testing.T) {
 	t.Parallel()
 
 	type want struct {
@@ -252,32 +252,33 @@ func TestClaimsBridgeInterceptor_WrapUnary(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	for _, streamType := range allStreamTypes {
+		for _, tt := range tests {
+			t.Run(streamTypeName(streamType)+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
 
-			bridge := auth.ClaimsBridgeInterceptor{}
+				bridge := auth.NewClaimsBridgeInterceptor()
 
-			var capturedCtx context.Context
-			handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-				capturedCtx = ctx
-				return connect.NewResponse(&testMsg{}), nil
-			}
+				var capturedCtx context.Context
+				handler := func(ctx context.Context, _ connect.Spec, _ connect.ServerStream) error {
+					capturedCtx = ctx
+					return nil
+				}
 
-			wrapped := bridge.WrapUnary(handler)
-			_, err := wrapped(tt.setupCtx(), connect.NewRequest(&testMsg{}))
+				err := bridge(handler)(tt.setupCtx(), connect.Spec{Procedure: "/test.v1.Service/Method", StreamType: streamType}, nil)
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
+				if tt.wantErr != nil {
+					assert.ErrorIs(t, err, tt.wantErr)
+					return
+				}
 
-			assert.NoError(t, err)
-			claims, ok := auth.GetClaims(capturedCtx)
-			assert.Equal(t, tt.want.claimsFound, ok)
-			if tt.want.claimsFound {
-				assert.Equal(t, tt.want.claims, claims)
-			}
-		})
+				assert.NoError(t, err)
+				claims, ok := auth.GetClaims(capturedCtx)
+				assert.Equal(t, tt.want.claimsFound, ok)
+				if tt.want.claimsFound {
+					assert.Equal(t, tt.want.claims, claims)
+				}
+			})
+		}
 	}
 }

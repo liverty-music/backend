@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	organizervenuev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/venue/v1/venuev1connect"
+	organizervenuev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -36,7 +35,7 @@ func NewOrganizerVenueHandler(
 func (h *OrganizerVenueHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
 }
@@ -45,19 +44,19 @@ func (h *OrganizerVenueHandler) resolveCallerOrganizer(ctx context.Context) (*en
 // active Organizer and returns the candidate places.
 func (h *OrganizerVenueHandler) Search(
 	ctx context.Context,
-	req *connect.Request[organizervenuev1.SearchRequest],
-) (*connect.Response[organizervenuev1.SearchResponse], error) {
+	req *organizervenuev1.SearchRequest,
+) (*organizervenuev1.SearchResponse, error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	candidates, err := h.venueUC.Search(ctx, organizer.ID, req.Msg.GetText())
+	candidates, err := h.venueUC.Search(ctx, organizer.ID, req.GetText())
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizervenuev1.SearchResponse{
+	return &organizervenuev1.SearchResponse{
 		Candidates: mapper.VenueCandidatesToProto(candidates),
-	}), nil
+	}, nil
 }

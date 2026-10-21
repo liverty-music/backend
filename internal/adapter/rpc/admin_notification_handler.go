@@ -2,11 +2,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
-	adminnotificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/notification/v1/notificationv1connect"
+	adminnotificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
 	adminnotificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/notification/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -47,35 +46,35 @@ func NewAdminNotificationHandler(
 // caller fails with PermissionDenied and nothing is sent. Every concert must
 // belong to the artist; otherwise the whole request fails with
 // InvalidArgument (no partial delivery).
-func (h *AdminNotificationHandler) NotifyNewConcerts(ctx context.Context, req *connect.Request[adminnotificationv1.NotifyNewConcertsRequest]) (*connect.Response[adminnotificationv1.NotifyNewConcertsResponse], error) {
+func (h *AdminNotificationHandler) NotifyNewConcerts(ctx context.Context, req *adminnotificationv1.NotifyNewConcertsRequest) (*adminnotificationv1.NotifyNewConcertsResponse, error) {
 	if _, err := mapper.GetExternalUserID(ctx); err != nil {
 		return nil, err
 	}
 	if h.isProduction {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("debug RPC is not available in production"))
+		return nil, connect.NewError(connect.CodePermissionDenied, "debug RPC is not available in production")
 	}
 
-	if req.Msg.GetArtistId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	if req.GetArtistId().GetValue() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "artist_id is required")
 	}
-	if len(req.Msg.GetConcertIds()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("at least one concert_id is required"))
+	if len(req.GetConcertIds()) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "at least one concert_id is required")
 	}
 
-	concertIDs := make([]string, 0, len(req.Msg.GetConcertIds()))
-	for _, id := range req.Msg.GetConcertIds() {
+	concertIDs := make([]string, 0, len(req.GetConcertIds()))
+	for _, id := range req.GetConcertIds() {
 		if id.GetValue() == "" {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id values must not be empty"))
+			return nil, connect.NewError(connect.CodeInvalidArgument, "concert_id values must not be empty")
 		}
 		concertIDs = append(concertIDs, id.GetValue())
 	}
 
 	if err := h.notificationUC.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{
-		ArtistID:   req.Msg.GetArtistId().GetValue(),
+		ArtistID:   req.GetArtistId().GetValue(),
 		ConcertIDs: concertIDs,
 	}); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminnotificationv1.NotifyNewConcertsResponse{}), nil
+	return &adminnotificationv1.NotifyNewConcertsResponse{}, nil
 }

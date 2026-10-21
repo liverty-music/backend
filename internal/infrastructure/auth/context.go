@@ -3,10 +3,9 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"slices"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // Claims represents JWT claims extracted from the token.
@@ -120,10 +119,10 @@ func GetUserID(ctx context.Context) (string, bool) {
 func RequireRole(ctx context.Context, role string) error {
 	claims, ok := GetClaims(ctx)
 	if !ok || claims == nil {
-		return connect.NewError(connect.CodeUnauthenticated, errors.New("caller is not authenticated"))
+		return connect.NewError(connect.CodeUnauthenticated, "caller is not authenticated")
 	}
 	if !claims.HasRole(role) {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("caller does not hold the required role: "+role))
+		return connect.NewError(connect.CodePermissionDenied, "caller does not hold the required role: "+role)
 	}
 	return nil
 }

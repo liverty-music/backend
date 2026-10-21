@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -47,30 +46,30 @@ func NewAdminConcertHandler(
 // flat result by performing artist client-side.
 func (h *AdminConcertHandler) List(
 	ctx context.Context,
-	_ *connect.Request[adminconcertv1.ListRequest],
-) (*connect.Response[adminconcertv1.ListResponse], error) {
+	_ *adminconcertv1.ListRequest,
+) (*adminconcertv1.ListResponse, error) {
 	concerts, err := h.concertUseCase.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminconcertv1.ListResponse{
+	return &adminconcertv1.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
+	}, nil
 }
 
 // Delete permanently removes a published concert by its event id. The delete
 // cascades to all referencing rows and is idempotent on a missing id.
 func (h *AdminConcertHandler) Delete(
 	ctx context.Context,
-	req *connect.Request[adminconcertv1.DeleteRequest],
-) (*connect.Response[adminconcertv1.DeleteResponse], error) {
-	eventID := req.Msg.GetEventId().GetValue()
+	req *adminconcertv1.DeleteRequest,
+) (*adminconcertv1.DeleteResponse, error) {
+	eventID := req.GetEventId().GetValue()
 	if err := h.concertUseCase.Delete(ctx, eventID); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminconcertv1.DeleteResponse{}), nil
+	return &adminconcertv1.DeleteResponse{}, nil
 }

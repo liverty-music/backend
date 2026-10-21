@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/concert/v1/concertv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/authn"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -39,14 +40,15 @@ func newConcertBoundaryClient(t *testing.T, concertUC *mocks.MockConcertUseCase)
 	require.NoError(t, err)
 	h := rpc.NewConcertHandler(concertUC, entitymocks.NewMockUserRepository(t), mapper.NewSeriesImageURLBuilder(""), logger)
 
-	path, svc := concertv1connect.NewConcertServiceHandler(h, connect.WithInterceptors(validate.NewInterceptor()))
+	server := connect.NewServer(validate.NewServerInterceptor())
+	concertv1connect.RegisterConcertServiceHandler(server, h)
 	mux := http.NewServeMux()
-	mux.Handle(path, svc)
+	connecthttp.Mount(mux, server)
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), auth.FanPublicProcedures())
 	srv := httptest.NewServer(authn.NewMiddleware(authFunc).Wrap(mux))
 	t.Cleanup(srv.Close)
 
-	return concertv1connect.NewConcertServiceClient(srv.Client(), srv.URL)
+	return concertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 }
 
 func TestConcertHandler_Get_Boundary(t *testing.T) {
@@ -62,12 +64,12 @@ func TestConcertHandler_Get_Boundary(t *testing.T) {
 			Return(firstPartyConcert(eventID, time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)), nil).Once()
 		client := newConcertBoundaryClient(t, concertUC)
 
-		resp, err := client.Get(context.Background(), connect.NewRequest(&concertv1.GetRequest{
+		resp, err := client.Get(context.Background(), &concertv1.GetRequest{
 			EventId: &entityv1.EventId{Value: eventID},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Equal(t, eventID, resp.Msg.GetConcert().GetEvent().GetId().GetValue())
+		assert.Equal(t, eventID, resp.GetConcert().GetEvent().GetId().GetValue())
 	})
 
 	tests := []struct {
@@ -90,7 +92,7 @@ func TestConcertHandler_Get_Boundary(t *testing.T) {
 			// The mock fails the test if any usecase method runs.
 			client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-			resp, err := client.Get(context.Background(), connect.NewRequest(tt.req))
+			resp, err := client.Get(context.Background(), tt.req)
 
 			assert.Nil(t, resp)
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -110,19 +112,19 @@ func TestConcertHandler_ListBySeries_Boundary(t *testing.T) {
 		}, nil).Once()
 		client := newConcertBoundaryClient(t, concertUC)
 
-		resp, err := client.ListBySeries(context.Background(), connect.NewRequest(&concertv1.ListBySeriesRequest{
+		resp, err := client.ListBySeries(context.Background(), &concertv1.ListBySeriesRequest{
 			SeriesId: &entityv1.SeriesId{Value: eventPageSeriesID},
-		}))
+		})
 
 		require.NoError(t, err)
-		assert.Len(t, resp.Msg.GetConcerts(), 1)
+		assert.Len(t, resp.GetConcerts(), 1)
 	})
 
 	t.Run("return INVALID_ARGUMENT without a series id", func(t *testing.T) {
 		t.Parallel()
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-		resp, err := client.ListBySeries(context.Background(), connect.NewRequest(&concertv1.ListBySeriesRequest{}))
+		resp, err := client.ListBySeries(context.Background(), &concertv1.ListBySeriesRequest{})
 
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -133,7 +135,7 @@ func TestConcertHandler_ListBySeries_Boundary(t *testing.T) {
 		t.Parallel()
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-		_, err := client.ListFollowed(context.Background(), connect.NewRequest(&concertv1.ListFollowedRequest{}))
+		_, err := client.ListFollowed(context.Background(), &concertv1.ListFollowedRequest{})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -155,10 +157,10 @@ func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
 			Return([]*entity.ProximityGroup{}, nil).Once()
 		client := newConcertBoundaryClient(t, concertUC)
 
-		_, err := client.ListByArtists(context.Background(), connect.NewRequest(&concertv1.ListByArtistsRequest{
+		_, err := client.ListByArtists(context.Background(), &concertv1.ListByArtistsRequest{
 			ArtistIds: []*entityv1.ArtistId{artistID(1), artistID(2)},
 			Home:      home,
-		}))
+		})
 
 		require.NoError(t, err)
 	})
@@ -172,10 +174,10 @@ func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
 		}
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-		_, err := client.ListByArtists(context.Background(), connect.NewRequest(&concertv1.ListByArtistsRequest{
+		_, err := client.ListByArtists(context.Background(), &concertv1.ListByArtistsRequest{
 			ArtistIds: ids,
 			Home:      home,
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -185,11 +187,11 @@ func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
 		t.Parallel()
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-		_, err := client.ListByLocation(context.Background(), connect.NewRequest(&concertv1.ListByLocationRequest{
+		_, err := client.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{
 			Location: &entityv1.GeoLocation{Latitude: 35.68, Longitude: 139.76, AdminArea: "JP-13"},
 			From:     &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 2}},
 			To:       &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

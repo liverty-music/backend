@@ -2,19 +2,18 @@ package server_test
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
-	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
-	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
+	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminorganizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
 	adminuserv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/user/v1"
-	"connectrpc.com/connect"
-
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
@@ -62,18 +61,16 @@ func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrgani
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
-	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
-		return "/unused-health-check/", http.NotFoundHandler()
-	}
+	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminorganizerv1connect.NewOrganizerServiceHandler(rpc.NewAdminOrganizerHandler(organizerUC, logger), opts...)
+		func(s *connect.Server) {
+			adminorganizerv1connect.RegisterOrganizerServiceHandler(s, rpc.NewAdminOrganizerHandler(organizerUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminuserv1connect.NewUserServiceHandler(rpc.NewAdminUserHandler(userUC, logger), opts...)
+		func(s *connect.Server) {
+			adminuserv1connect.RegisterUserServiceHandler(s, rpc.NewAdminUserHandler(userUC, logger))
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminartistv1connect.NewArtistServiceHandler(rpc.NewAdminArtistHandler(artistUseCase, logger), opts...)
+		func(s *connect.Server) {
+			adminartistv1connect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(artistUseCase, logger))
 		},
 	}
 	cfg := config.ServerSettings{
@@ -81,7 +78,7 @@ func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrgani
 		ReadTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second,
 	}
 	srv := server.NewConnectServer(cfg, logger, auth.NewAuthFunc(validator, nil), rateLimiter, healthHandler,
-		[]connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}, nil, handlers...)
+		[]connect.ServerInterceptor{auth.NewRequireRoleInterceptor("admin")}, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
@@ -134,9 +131,8 @@ func TestAdminServer_OrganizerDelete(t *testing.T) {
 			tt.setup(organizerUC)
 			ts := newTestAdminDeleteServer(t, organizerUC, usecasemocks.NewMockUserUseCase(t))
 
-			req := connect.NewRequest(&adminorganizerv1.DeleteRequest{OrganizerId: tt.organizerID})
-			req.Header().Set("Authorization", "Bearer "+deleteAdminToken)
-			_, err := adminorganizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL).Delete(context.Background(), req)
+			req := &adminorganizerv1.DeleteRequest{OrganizerId: tt.organizerID}
+			_, err := adminorganizerv1connect.NewOrganizerServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).Delete(withBearer(context.Background(), deleteAdminToken), req)
 
 			if tt.wantCode == 0 {
 				assert.NoError(t, err)
@@ -214,11 +210,8 @@ func TestAdminServer_UserDelete(t *testing.T) {
 			tt.setup(userUC)
 			ts := newTestAdminDeleteServer(t, usecasemocks.NewMockOrganizerUseCase(t), userUC)
 
-			req := connect.NewRequest(&adminuserv1.DeleteRequest{UserId: tt.userID})
-			if tt.token != "" {
-				req.Header().Set("Authorization", "Bearer "+tt.token)
-			}
-			_, err := adminuserv1connect.NewUserServiceClient(ts.Client(), ts.URL).Delete(context.Background(), req)
+			req := &adminuserv1.DeleteRequest{UserId: tt.userID}
+			_, err := adminuserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).Delete(withBearer(context.Background(), tt.token), req)
 
 			if tt.wantCode == 0 {
 				assert.NoError(t, err)
@@ -237,19 +230,14 @@ func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
 		// The strict mock fails the test if any OrganizerUseCase method runs.
 		uc := usecasemocks.NewMockOrganizerUseCase(t)
 		ts := newTestAdminDeleteServer(t, uc, usecasemocks.NewMockUserUseCase(t))
-		return adminorganizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL), uc
-	}
-	withToken := func(req connect.AnyRequest, token string) {
-		if token != "" {
-			req.Header().Set("Authorization", "Bearer "+token)
-		}
+		return adminorganizerv1connect.NewOrganizerServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))), uc
 	}
 
 	t.Run("not signed in", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Not signed in"
 		c, _ := client(t)
-		req := connect.NewRequest(&adminorganizerv1.ListRequest{})
+		req := &adminorganizerv1.ListRequest{}
 
 		_, err := c.List(context.Background(), req)
 
@@ -260,14 +248,13 @@ func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Non-admin cannot create an Organizer"
 		c, _ := client(t)
-		req := connect.NewRequest(&adminorganizerv1.CreateRequest{
+		req := &adminorganizerv1.CreateRequest{
 			Name:       &entityv1.OrganizerName{Value: "Acme Music"},
 			ShortName:  &entityv1.OrganizerShortName{Value: "acme-music"},
 			OwnerEmail: &entityv1.Email{Value: "band@example.com"},
-		})
-		withToken(req, deleteNonAdminToken)
+		}
 
-		_, err := c.Create(context.Background(), req)
+		_, err := c.Create(withBearer(context.Background(), deleteNonAdminToken), req)
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
@@ -276,13 +263,11 @@ func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Non-admin cannot list Organizers"
 		c, _ := client(t)
-		list := connect.NewRequest(&adminorganizerv1.ListRequest{})
-		withToken(list, deleteNonAdminToken)
-		get := connect.NewRequest(&adminorganizerv1.GetRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}})
-		withToken(get, deleteNonAdminToken)
+		list := &adminorganizerv1.ListRequest{}
+		get := &adminorganizerv1.GetRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}}
 
-		_, listErr := c.List(context.Background(), list)
-		_, getErr := c.Get(context.Background(), get)
+		_, listErr := c.List(withBearer(context.Background(), deleteNonAdminToken), list)
+		_, getErr := c.Get(withBearer(context.Background(), deleteNonAdminToken), get)
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(listErr))
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(getErr))

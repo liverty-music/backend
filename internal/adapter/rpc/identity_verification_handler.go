@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	identityverificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
+	identityverificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	identityverificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity_verification/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -52,16 +52,16 @@ func NewIdentityVerificationHandler(
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *IdentityVerificationHandler) Start(
 	ctx context.Context,
-	req *connect.Request[identityverificationv1.StartRequest],
-) (*connect.Response[identityverificationv1.StartResponse], error) {
+	req *identityverificationv1.StartRequest,
+) (*identityverificationv1.StartResponse, error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	method := mapper.VerificationMethodFromProto(req.Msg.GetMethod())
+	method := mapper.VerificationMethodFromProto(req.GetMethod())
 	if method == entity.VerificationMethodUnspecified {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("method must be specified"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, "method must be specified")
 	}
 
 	sessionID, redirectURL, err := h.identityVerificationUC.Start(ctx, callerUserID, method)
@@ -69,10 +69,10 @@ func (h *IdentityVerificationHandler) Start(
 		return nil, err
 	}
 
-	return connect.NewResponse(&identityverificationv1.StartResponse{
+	return &identityverificationv1.StartResponse{
 		SessionId:   sessionID,
 		RedirectUrl: &entityv1.Url{Value: redirectURL},
-	}), nil
+	}, nil
 }
 
 // Create finalizes the Stamp session and records the caller's IdentityVerification. The card
@@ -88,21 +88,21 @@ func (h *IdentityVerificationHandler) Start(
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *IdentityVerificationHandler) Create(
 	ctx context.Context,
-	req *connect.Request[identityverificationv1.CreateRequest],
-) (*connect.Response[identityverificationv1.CreateResponse], error) {
+	req *identityverificationv1.CreateRequest,
+) (*identityverificationv1.CreateResponse, error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	identityVerification, err := h.identityVerificationUC.Create(ctx, callerUserID, req.Msg.GetSessionId())
+	identityVerification, err := h.identityVerificationUC.Create(ctx, callerUserID, req.GetSessionId())
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&identityverificationv1.CreateResponse{
+	return &identityverificationv1.CreateResponse{
 		IdentityVerification: mapper.IdentityVerificationToProto(identityVerification),
-	}), nil
+	}, nil
 }
 
 // Recheck performs a 現況確認 (liveness) re-check of the caller's IdentityVerification.
@@ -113,8 +113,8 @@ func (h *IdentityVerificationHandler) Create(
 //   - UNAVAILABLE: Pocket Sign Verify API is not configured.
 func (h *IdentityVerificationHandler) Recheck(
 	ctx context.Context,
-	_ *connect.Request[identityverificationv1.RecheckRequest],
-) (*connect.Response[identityverificationv1.RecheckResponse], error) {
+	_ *identityverificationv1.RecheckRequest,
+) (*identityverificationv1.RecheckResponse, error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -128,12 +128,12 @@ func (h *IdentityVerificationHandler) Recheck(
 	// Guard against a contract violation so Recheck never nil-derefs identityVerification.Status.
 	if identityVerification == nil {
 		return nil, connect.NewError(connect.CodeInternal,
-			errors.New("recheck returned no identity verification without an error"))
+			"recheck returned no identity verification without an error")
 	}
 
-	return connect.NewResponse(&identityverificationv1.RecheckResponse{
+	return &identityverificationv1.RecheckResponse{
 		Status: mapper.VerificationStatusToProto(identityVerification.Status),
-	}), nil
+	}, nil
 }
 
 // Get returns the caller's IdentityVerification, whatever its status.
@@ -143,8 +143,8 @@ func (h *IdentityVerificationHandler) Recheck(
 //   - NOT_FOUND: the caller has never verified their identity.
 func (h *IdentityVerificationHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[identityverificationv1.GetRequest],
-) (*connect.Response[identityverificationv1.GetResponse], error) {
+	_ *identityverificationv1.GetRequest,
+) (*identityverificationv1.GetResponse, error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (h *IdentityVerificationHandler) Get(
 		return nil, err
 	}
 
-	return connect.NewResponse(&identityverificationv1.GetResponse{IdentityVerification: mapper.IdentityVerificationToProto(identityVerification)}), nil
+	return &identityverificationv1.GetResponse{IdentityVerification: mapper.IdentityVerificationToProto(identityVerification)}, nil
 }
 
 // resolveCallerUserID extracts the external user ID from the JWT context,
@@ -170,7 +170,7 @@ func (h *IdentityVerificationHandler) resolveCallerUserID(ctx context.Context) (
 	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return "", connect.NewError(connect.CodeUnauthenticated, errors.New("user not found"))
+			return "", connect.NewError(connect.CodeUnauthenticated, "user not found")
 		}
 		return "", err
 	}

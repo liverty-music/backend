@@ -6,11 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/stamp/v1/stampv1connect"
-	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/verify/v2/verifyv2connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/stamp/v1/stampv1connect"
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/v2/pocketsign/verify/v2/verifyv2connect"
 	stampv1 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/stamp/v1"
 	verifyv2 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/verify/v2"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -41,19 +42,19 @@ type fakeSessionService struct {
 	finalizeErr  *connect.Error
 }
 
-func (f *fakeSessionService) CreateSession(_ context.Context, req *connect.Request[stampv1.CreateSessionRequest]) (*connect.Response[stampv1.CreateSessionResponse], error) {
-	f.lastCreateReq = req.Msg
+func (f *fakeSessionService) CreateSession(_ context.Context, req *stampv1.CreateSessionRequest) (*stampv1.CreateSessionResponse, error) {
+	f.lastCreateReq = req
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
-	return connect.NewResponse(f.createResp), nil
+	return f.createResp, nil
 }
 
-func (f *fakeSessionService) FinalizeSession(_ context.Context, _ *connect.Request[stampv1.FinalizeSessionRequest]) (*connect.Response[stampv1.FinalizeSessionResponse], error) {
+func (f *fakeSessionService) FinalizeSession(_ context.Context, _ *stampv1.FinalizeSessionRequest) (*stampv1.FinalizeSessionResponse, error) {
 	if f.finalizeErr != nil {
 		return nil, f.finalizeErr
 	}
-	return connect.NewResponse(f.finalizeResp), nil
+	return f.finalizeResp, nil
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -67,11 +68,11 @@ type fakeUserService struct {
 	checkStatusErr  *connect.Error
 }
 
-func (f *fakeUserService) CheckUserStatus(_ context.Context, _ *connect.Request[verifyv2.CheckUserStatusRequest]) (*connect.Response[verifyv2.CheckUserStatusResponse], error) {
+func (f *fakeUserService) CheckUserStatus(_ context.Context, _ *verifyv2.CheckUserStatusRequest) (*verifyv2.CheckUserStatusResponse, error) {
 	if f.checkStatusErr != nil {
 		return nil, f.checkStatusErr
 	}
-	return connect.NewResponse(f.checkStatusResp), nil
+	return f.checkStatusResp, nil
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -84,8 +85,10 @@ func startFakeServer(t *testing.T, sessionSvc *fakeSessionService, userSvc *fake
 	t.Helper()
 
 	mux := http.NewServeMux()
-	mux.Handle(stampv1connect.NewSessionServiceHandler(sessionSvc))
-	mux.Handle(verifyv2connect.NewUserServiceHandler(userSvc))
+	server := connect.NewServer()
+	stampv1connect.RegisterSessionServiceHandler(server, sessionSvc)
+	verifyv2connect.RegisterUserServiceHandler(server, userSvc)
+	connecthttp.Mount(mux, server)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -272,7 +275,7 @@ func TestStampClient_StartVerify_VendorUnauthenticated_MapsToUnauthenticated(t *
 	t.Parallel()
 
 	sessionSvc := &fakeSessionService{
-		createErr: connect.NewError(connect.CodeUnauthenticated, nil),
+		createErr: connect.NewError(connect.CodeUnauthenticated, ""),
 	}
 	baseURL := startFakeServer(t, sessionSvc, &fakeUserService{})
 	client := newTestClient(t, baseURL)
@@ -393,7 +396,7 @@ func TestStampClient_CompleteVerify_SessionNotCompleted_ReturnsFailedPreconditio
 	sessionSvc := &fakeSessionService{
 		createResp: buildCreateSessionResponse("sess-notdone", "https://p8n.app/redirect"),
 		// FinalizeSession returns FailedPrecondition — fan has not finished yet.
-		finalizeErr: connect.NewError(connect.CodeFailedPrecondition, nil),
+		finalizeErr: connect.NewError(connect.CodeFailedPrecondition, ""),
 	}
 	baseURL := startFakeServer(t, sessionSvc, &fakeUserService{})
 	client := newTestClient(t, baseURL)
@@ -494,25 +497,25 @@ func TestStampClient_Recheck(t *testing.T) {
 		{
 			name:       "return Unauthenticated when vendor returns Unauthenticated (shared api.FromStatus: 401)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
-			fakeSvcErr: connect.NewError(connect.CodeUnauthenticated, nil),
+			fakeSvcErr: connect.NewError(connect.CodeUnauthenticated, ""),
 			wantErr:    apperr.ErrUnauthenticated,
 		},
 		{
 			name:       "return PermissionDenied when vendor returns PermissionDenied (403 no longer collapsed to Unavailable)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
-			fakeSvcErr: connect.NewError(connect.CodePermissionDenied, nil),
+			fakeSvcErr: connect.NewError(connect.CodePermissionDenied, ""),
 			wantErr:    apperr.ErrPermissionDenied,
 		},
 		{
 			name:       "return ResourceExhausted when vendor rate-limits (429 no longer collapsed to Unavailable)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
-			fakeSvcErr: connect.NewError(connect.CodeResourceExhausted, nil),
+			fakeSvcErr: connect.NewError(connect.CodeResourceExhausted, ""),
 			wantErr:    apperr.ErrResourceExhausted,
 		},
 		{
 			name:       "return Unavailable when vendor is unreachable (CodeUnavailable → Unavailable)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
-			fakeSvcErr: connect.NewError(connect.CodeUnavailable, nil),
+			fakeSvcErr: connect.NewError(connect.CodeUnavailable, ""),
 			wantErr:    apperr.ErrUnavailable,
 		},
 	}

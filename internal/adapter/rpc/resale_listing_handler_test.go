@@ -2,14 +2,14 @@ package rpc_test
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
-	resalelistingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
+	resalelistingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	resalelistingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/resale_listing/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -45,10 +45,10 @@ func newResaleListingFixture(t *testing.T, decorate func(context.Context) contex
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewResaleListingHandler(f.listings, f.users, logger)
-	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return resalelistingv1connect.NewResaleListingServiceHandler(h, opts...)
+	srv := serveValidated(t, func(s *connect.Server) {
+		resalelistingv1connect.RegisterResaleListingServiceHandler(s, h)
 	}, decorate)
-	f.client = resalelistingv1connect.NewResaleListingServiceClient(srv.Client(), srv.URL)
+	f.client = resalelistingv1connect.NewResaleListingServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	return f
 }
 
@@ -79,10 +79,10 @@ func TestResaleListingHandler(t *testing.T) {
 		expectFan(f.users)
 		f.listings.EXPECT().Create(mock.Anything, entity.UserID(tkFanUserID), entity.TicketID(rlTicketID)).Return(listed(), nil)
 
-		resp, err := f.client.Create(ctx, connect.NewRequest(createReq()))
+		resp, err := f.client.Create(ctx, createReq())
 
 		require.NoError(t, err)
-		got := resp.Msg.GetResaleListing()
+		got := resp.GetResaleListing()
 		assert.Equal(t, rlListingID, got.GetId().GetValue())
 		assert.Equal(t, rlTicketID, got.GetTicketId().GetValue())
 		assert.Equal(t, int64(5000), got.GetPrice().GetValue())
@@ -98,7 +98,7 @@ func TestResaleListingHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/resale-listing "Guest calls"
 		f := newResaleListingFixture(t, func(c context.Context) context.Context { return c })
 
-		_, err := f.client.Create(ctx, connect.NewRequest(createReq()))
+		_, err := f.client.Create(ctx, createReq())
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -108,7 +108,7 @@ func TestResaleListingHandler(t *testing.T) {
 		f := newResaleListingFixture(t, signedInAs("ext-new"))
 		expectNoAccount(f.users, "ext-new")
 
-		_, err := f.client.List(ctx, connect.NewRequest(&resalelistingv1.ListRequest{}))
+		_, err := f.client.List(ctx, &resalelistingv1.ListRequest{})
 
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
@@ -118,7 +118,7 @@ func TestResaleListingHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/resale-listing "Missing ticket"
 		f := newResaleListingFixture(t, signedInAs(tkFanSub))
 
-		_, err := f.client.Create(ctx, connect.NewRequest(&resalelistingv1.CreateRequest{}))
+		_, err := f.client.Create(ctx, &resalelistingv1.CreateRequest{})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -127,9 +127,9 @@ func TestResaleListingHandler(t *testing.T) {
 		t.Parallel()
 		f := newResaleListingFixture(t, signedInAs(tkFanSub))
 
-		_, err := f.client.Withdraw(ctx, connect.NewRequest(&resalelistingv1.WithdrawRequest{
+		_, err := f.client.Withdraw(ctx, &resalelistingv1.WithdrawRequest{
 			ResaleListingId: &entityv1.ResaleListingId{Value: "not-a-uuid"},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -141,9 +141,9 @@ func TestResaleListingHandler(t *testing.T) {
 		f.listings.EXPECT().Withdraw(mock.Anything, entity.UserID(tkFanUserID), entity.ResaleListingID(rlListingID)).
 			Return(nil, apperr.New(codes.FailedPrecondition, "held"))
 
-		_, err := f.client.Withdraw(ctx, connect.NewRequest(&resalelistingv1.WithdrawRequest{
+		_, err := f.client.Withdraw(ctx, &resalelistingv1.WithdrawRequest{
 			ResaleListingId: &entityv1.ResaleListingId{Value: rlListingID},
-		}))
+		})
 
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	})
@@ -159,11 +159,11 @@ func TestResaleListingHandler(t *testing.T) {
 		sold.Listing.SoldTime, sold.Listing.RefundTime = &soldAt, &refundAt
 		f.listings.EXPECT().List(mock.Anything, entity.UserID(tkFanUserID)).Return([]*usecase.ResaleListingAt{sold}, nil)
 
-		resp, err := f.client.List(ctx, connect.NewRequest(&resalelistingv1.ListRequest{}))
+		resp, err := f.client.List(ctx, &resalelistingv1.ListRequest{})
 
 		require.NoError(t, err)
-		require.Len(t, resp.Msg.GetResaleListings(), 1)
-		got := resp.Msg.GetResaleListings()[0]
+		require.Len(t, resp.GetResaleListings(), 1)
+		got := resp.GetResaleListings()[0]
 		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_SOLD, got.GetStatus())
 		assert.Equal(t, int64(5000), got.GetPrice().GetValue())
 		assert.Equal(t, int64(500), got.GetFee())
@@ -183,9 +183,9 @@ func TestResaleListingHandler(t *testing.T) {
 		expired.Status = entity.ResaleListingStatusExpired
 		f.listings.EXPECT().List(mock.Anything, entity.UserID(tkFanUserID)).Return([]*usecase.ResaleListingAt{expired}, nil)
 
-		resp, err := f.client.List(ctx, connect.NewRequest(&resalelistingv1.ListRequest{}))
+		resp, err := f.client.List(ctx, &resalelistingv1.ListRequest{})
 
 		require.NoError(t, err)
-		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_EXPIRED, resp.Msg.GetResaleListings()[0].GetStatus())
+		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_EXPIRED, resp.GetResaleListings()[0].GetStatus())
 	})
 }

@@ -7,7 +7,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertcandidatev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert_candidate/v1"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -79,7 +79,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse])
+		check    func(t *testing.T, resp *concertcandidatev1.ListResponse)
 	}{
 		{
 			// @spec components/adapter/admin/api/rpc/concert-candidate "Admin lists pending concerts"
@@ -92,10 +92,10 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse]) {
+			check: func(t *testing.T, resp *concertcandidatev1.ListResponse) {
 				t.Helper()
-				require.Len(t, resp.Msg.ConcertCandidates, 1)
-				pc := resp.Msg.ConcertCandidates[0]
+				require.Len(t, resp.ConcertCandidates, 1)
+				pc := resp.ConcertCandidates[0]
 				assert.Equal(t, "candidate-1", pc.GetId().GetValue())
 				assert.Equal(t, "Artist Alpha", pc.GetPerformer().GetName().GetValue())
 				assert.Equal(t, "Tour 2026", pc.GetTitle().GetValue())
@@ -120,10 +120,10 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse]) {
+			check: func(t *testing.T, resp *concertcandidatev1.ListResponse) {
 				t.Helper()
-				require.Len(t, resp.Msg.ConcertCandidates, 1)
-				pc := resp.Msg.ConcertCandidates[0]
+				require.Len(t, resp.ConcertCandidates, 1)
+				pc := resp.ConcertCandidates[0]
 				assert.Equal(t, "candidate-2", pc.GetId().GetValue())
 				assert.Nil(t, pc.GetResolvedVenue())
 				assert.Nil(t, pc.GetSourceUrl())
@@ -139,7 +139,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
-			resp, err := h.List(tt.args.ctx, connect.NewRequest(&concertcandidatev1.ListRequest{}))
+			resp, err := h.List(tt.args.ctx, &concertcandidatev1.ListRequest{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -195,9 +195,9 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
-			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&concertcandidatev1.ApproveRequest{
+			resp, err := h.Approve(tt.args.ctx, &concertcandidatev1.ApproveRequest{
 				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.concertCandidateID},
-			}))
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -255,10 +255,10 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
-			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&concertcandidatev1.RejectRequest{
+			resp, err := h.Reject(tt.args.ctx, &concertcandidatev1.RejectRequest{
 				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.concertCandidateID},
 				Reason:             tt.args.reason,
-			}))
+			})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -313,9 +313,9 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		}, h.Approve)
 
 		require.NoError(t, err)
-		require.NotNil(t, resp.Msg.GetConflict())
-		assert.Equal(t, "event-1", resp.Msg.GetConflict().GetExisting().GetEventId().GetValue())
-		assert.Equal(t, concertCandidateID, resp.Msg.GetConflict().GetConcertCandidate().GetId().GetValue())
+		require.NotNil(t, resp.GetConflict())
+		assert.Equal(t, "event-1", resp.GetConflict().GetExisting().GetEventId().GetValue())
+		assert.Equal(t, concertCandidateID, resp.GetConflict().GetConcertCandidate().GetId().GetValue())
 	})
 
 	t.Run("reject without a reason", func(t *testing.T) {

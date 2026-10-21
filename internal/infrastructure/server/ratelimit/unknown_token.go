@@ -2,11 +2,10 @@ package ratelimit
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // ClientThrottle counts calls per client, such as the calls made with unknown
@@ -91,58 +90,68 @@ func (t *ClientThrottle) recentLocked(client string, now time.Time) []time.Time 
 	return calls
 }
 
-// NewUnknownTokenInterceptor returns a unary interceptor that applies throttle
-// to the given procedures: a client already blocked is refused with
+// NewUnknownTokenInterceptor returns a server interceptor that applies
+// throttle to the given procedures: a client already blocked is refused with
 // ResourceExhausted before the handler runs, and a call whose error satisfies
 // isUnknownToken counts as one unknown-token call of its client. The client
 // is keyed by its IP as seen by the load balancer (see [ClientIP]), else by
 // the peer address. Place it inside the error-handling interceptor so it sees
 // the handler's own error.
-func NewUnknownTokenInterceptor(throttle *ClientThrottle, procedures map[string]bool, isUnknownToken func(error) bool) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			if !procedures[req.Spec().Procedure] {
-				return next(ctx, req)
+//
+// It applies to unary RPCs only and passes streaming RPCs through unchanged,
+// as the v1 unary interceptor did.
+func NewUnknownTokenInterceptor(throttle *ClientThrottle, procedures map[string]bool, isUnknownToken func(error) bool) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			if spec.StreamType != connect.StreamTypeUnary || !procedures[spec.Procedure] {
+				return next(ctx, spec, stream)
 			}
-			client := clientKey(req)
+			client := clientKey(ctx)
 			if throttle.Blocked(client) {
-				return nil, connect.NewError(connect.CodeResourceExhausted,
-					errors.New("too many calls with unknown links; try again later"))
+				return connect.NewError(connect.CodeResourceExhausted,
+					"too many calls with unknown links; try again later")
 			}
-			resp, err := next(ctx, req)
+			err := next(ctx, spec, stream)
 			if err != nil && isUnknownToken(err) {
 				throttle.Record(client)
 			}
-			return resp, err
+			return err
 		}
 	}
 }
 
-// NewClientQuotaInterceptor returns a unary interceptor that applies throttle
-// to every call of the given procedures: a client already blocked is refused
-// with ResourceExhausted before the handler runs, and every other call counts
-// as one call of its client. The client is keyed as in
+// NewClientQuotaInterceptor returns a server interceptor that applies
+// throttle to every call of the given procedures: a client already blocked is
+// refused with ResourceExhausted before the handler runs, and every other call
+// counts as one call of its client. The client is keyed as in
 // [NewUnknownTokenInterceptor].
-func NewClientQuotaInterceptor(throttle *ClientThrottle, procedures map[string]bool) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			if !procedures[req.Spec().Procedure] {
-				return next(ctx, req)
+//
+// It applies to unary RPCs only and passes streaming RPCs through unchanged,
+// as the v1 unary interceptor did.
+func NewClientQuotaInterceptor(throttle *ClientThrottle, procedures map[string]bool) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			if spec.StreamType != connect.StreamTypeUnary || !procedures[spec.Procedure] {
+				return next(ctx, spec, stream)
 			}
-			if !throttle.Allow(clientKey(req)) {
-				return nil, connect.NewError(connect.CodeResourceExhausted,
-					errors.New("too many requests; try again later"))
+			if !throttle.Allow(clientKey(ctx)) {
+				return connect.NewError(connect.CodeResourceExhausted,
+					"too many requests; try again later")
 			}
-			return next(ctx, req)
+			return next(ctx, spec, stream)
 		}
 	}
 }
 
-// clientKey identifies the client of req by its IP as seen by the load
-// balancer (see [ClientIP]), else by the peer address.
-func clientKey(req connect.AnyRequest) string {
-	if client := ClientIP(req.Header()); client != "" {
+// clientKey identifies the client of the RPC served with ctx by its IP as seen
+// by the load balancer (see [ClientIP]), else by the peer address.
+func clientKey(ctx context.Context) string {
+	if client := ClientIP(requestHeader(ctx)); client != "" {
 		return client
 	}
-	return ClientIPFromAddr(req.Peer().Addr)
+	var peerAddr string
+	if info, ok := connect.CallInfoForServerContext(ctx); ok {
+		peerAddr = info.PeerAddr
+	}
+	return ClientIPFromAddr(peerAddr)
 }

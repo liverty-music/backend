@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"connectrpc.com/authn"
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // NewAuthFunc creates an authn.AuthFunc that validates JWT bearer tokens
@@ -40,29 +40,18 @@ func NewAuthFunc(validator TokenValidator, publicProcedures map[string]bool) aut
 	}
 }
 
-// ClaimsBridgeInterceptor reads authn.GetInfo and injects *Claims into
-// the context via WithClaims, preserving backward compatibility with
-// handlers that use GetUserID/GetClaims.
-type ClaimsBridgeInterceptor struct{}
-
-// WrapUnary bridges authn info to auth.Claims context for unary RPCs.
-func (ClaimsBridgeInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		ctx = bridgeClaims(ctx)
-		return next(ctx, req)
-	}
-}
-
-// WrapStreamingClient is a no-op for client streaming.
-func (ClaimsBridgeInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-// WrapStreamingHandler bridges authn info to auth.Claims context for streaming RPCs.
-func (ClaimsBridgeInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		ctx = bridgeClaims(ctx)
-		return next(ctx, conn)
+// NewClaimsBridgeInterceptor returns a server interceptor that reads
+// authn.GetInfo and injects *Claims into the context via WithClaims,
+// preserving backward compatibility with handlers that use
+// GetUserID/GetClaims.
+//
+// It applies to every RPC type (unary and streaming), as the v1
+// interceptor did through its WrapUnary and WrapStreamingHandler methods.
+func NewClaimsBridgeInterceptor() connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+			return next(bridgeClaims(ctx), spec, stream)
+		}
 	}
 }
 

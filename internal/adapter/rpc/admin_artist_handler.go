@@ -3,9 +3,8 @@ package rpc
 import (
 	"context"
 
-	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -34,11 +33,11 @@ func NewAdminArtistHandler(artistUC usecase.ArtistUseCase, logger *logging.Logge
 // its status. Returns NotFound when no organizer with the given id exists.
 func (h *AdminArtistHandler) ListByOrganizer(
 	ctx context.Context,
-	req *connect.Request[adminartistv1.ListByOrganizerRequest],
-) (*connect.Response[adminartistv1.ListByOrganizerResponse], error) {
-	artists, err := h.artistUC.ListByOrganizer(ctx, req.Msg.GetOrganizerId().GetValue())
+	req *adminartistv1.ListByOrganizerRequest,
+) (*adminartistv1.ListByOrganizerResponse, error) {
+	artists, err := h.artistUC.ListByOrganizer(ctx, req.GetOrganizerId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&adminartistv1.ListByOrganizerResponse{Artists: mapper.ArtistsToProto(artists)}), nil
+	return &adminartistv1.ListByOrganizerResponse{Artists: mapper.ArtistsToProto(artists)}, nil
 }
