@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -56,7 +57,7 @@ func TestUserHandler_NotSignedIn(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/adapter/fan/api/rpc/user "Not signed in"
-	t.Run("every call fails with UNAUTHENTICATED without a sign-in token", func(t *testing.T) {
+	t.Run("every call other than RequestPasskeyRecovery fails with UNAUTHENTICATED without a sign-in token", func(t *testing.T) {
 		t.Parallel()
 		// The mock fails the test if any usecase method runs.
 		h, _ := newUserHandler(t)
@@ -73,6 +74,54 @@ func TestUserHandler_NotSignedIn(t *testing.T) {
 		for _, err := range []error{getErr, createErr, updateErr, langErr, homeErr, resendErr} {
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 		}
+	})
+}
+
+func TestUserHandler_RequestPasskeyRecovery(t *testing.T) {
+	t.Parallel()
+
+	recoveryRequest := func(email string) *userv1.RequestPasskeyRecoveryRequest {
+		return &userv1.RequestPasskeyRecoveryRequest{Email: &entitypb.Email{Value: email}}
+	}
+
+	// @spec components/adapter/fan/api/rpc/user "Recovery request without sign-in"
+	// @spec components/adapter/fan/api/rpc/user "Well-formed address"
+	t.Run("is handled without a sign-in token and answers an empty success after running the usecase", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().RequestPasskeyRecovery(mock.Anything, "fan@example.com").Return().Once()
+		client := newUserBoundaryClient(t, h)
+
+		resp, err := client.RequestPasskeyRecovery(context.Background(), recoveryRequest("fan@example.com"))
+
+		require.NoError(t, err)
+		assert.True(t, proto.Equal(&userv1.RequestPasskeyRecoveryResponse{}, resp))
+	})
+
+	t.Run("uses no sign-in identity when the caller presents one", func(t *testing.T) {
+		t.Parallel()
+		// The strict mock fails the test if ResolveCaller or any other usecase
+		// method runs.
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().RequestPasskeyRecovery(mock.Anything, "fan@example.com").Return().Once()
+		client := newUserBoundaryClient(t, h)
+
+		_, err := client.RequestPasskeyRecovery(withFanToken(recoveryRequest("fan@example.com")))
+
+		require.NoError(t, err)
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "Malformed address"
+	t.Run("fails with InvalidArgument for a malformed or missing address and runs no usecase", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newUserHandler(t)
+		client := newUserBoundaryClient(t, h)
+
+		_, malformedErr := client.RequestPasskeyRecovery(context.Background(), recoveryRequest("not-an-address"))
+		_, missingErr := client.RequestPasskeyRecovery(context.Background(), &userv1.RequestPasskeyRecoveryRequest{})
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(malformedErr))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(missingErr))
 	})
 }
 

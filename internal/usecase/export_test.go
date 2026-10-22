@@ -43,3 +43,15 @@ func RunSignInLinksSynchronously(uc OrganizerUseCase) {
 func RunSignInLinksWith(uc OrganizerUseCase, run func(task func())) {
 	uc.(*organizerUseCase).background = run
 }
+
+// RunPasskeyRecoverySynchronously makes the UserUseCase run the background
+// lookup and announcement of RequestPasskeyRecovery before it returns.
+func RunPasskeyRecoverySynchronously(uc UserUseCase) {
+	RunPasskeyRecoveryWith(uc, func(task func()) { task() })
+}
+
+// RunPasskeyRecoveryWith makes the UserUseCase hand the background lookup and
+// announcement of RequestPasskeyRecovery to run.
+func RunPasskeyRecoveryWith(uc UserUseCase, run func(task func())) {
+	uc.(*userUseCase).background = run
+}

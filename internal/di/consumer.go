@@ -277,6 +277,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
+	// Passkeys: the recovery link (only with the fan-passkey-recovery key), the
+	// change email and the Passkey records.
+	passkeyLinks, err := newPasskeyRegistrationLinkSender(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	passkeyChangeEmails, err := newPasskeyChangeEmailSender(cfg, japanTime, logger)
+	if err != nil {
+		return nil, err
+	}
+	// The consumer's UserUseCase only handles the passkey events; it never
+	// deletes users or resends verification emails.
+	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, nil, nil,
+		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
+	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
+
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
@@ -292,6 +308,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
+	passkeyConsumer := event.NewPasskeyConsumer(userUC, passkeyUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -323,7 +340,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
+		{"notify-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandlePasskeyChanged},
+		{"record-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandleRecordPasskeyChange},
 	}
+	behaviorTable = append(behaviorTable, passkeyRecoveryBehaviors(ctx, passkeyLinks != nil, passkeyConsumer, logger)...)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -395,4 +415,58 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 		Health:          consumerHealth,
 	}, nil
+}
+
+// passkeyRecoveryBehavior is the durable that sends passkey recovery links.
+const passkeyRecoveryBehavior = "send-passkey-recovery-link"
+
+// passkeyRecoveryBehaviors returns the send-passkey-recovery-link behavior when
+// recovery links can be issued, and none (logging that the handler is
+// disabled) when the consumer has no fan-passkey-recovery key: requests then
+// wait in the durable until a consumer with the key runs.
+func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event.PasskeyConsumer, logger *logging.Logger) []behaviorEntry {
+	if !enabled {
+		logger.Warn(ctx, "passkey recovery link handler disabled: ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH is not set",
+			slog.String("behavior", passkeyRecoveryBehavior))
+		return nil
+	}
+	return []behaviorEntry{
+		{passkeyRecoveryBehavior, entity.SubjectUserPasskeyRecoveryRequested, consumer.HandleRecoveryRequested},
+	}
+}
+
+// newPasskeyRegistrationLinkSender returns the sender of passkey recovery
+// links, or nil when the consumer has no fan-passkey-recovery key. Only the
+// event consumer calls it, so only the consumer ever loads that key (ORG_OWNER
+// on the product org). Without a Postmark token (local development) the
+// sender fails every send.
+func newPasskeyRegistrationLinkSender(ctx context.Context, cfg *config.ConsumerConfig, logger *logging.Logger) (entity.PasskeyRegistrationLinkSender, error) {
+	if cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath == "" {
+		return nil, nil
+	}
+	if cfg.Postmark.ServerToken == "" {
+		return mail.NewNoopPasskeyRegistrationLinkSender(logger), nil
+	}
+	issuer, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
+	}
+	return mail.NewPostmarkPasskeyRegistrationLinkSender(issuer, cfg.Postmark.ServerToken,
+		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
+}
+
+// newPasskeyChangeEmailSender returns the sender of the passkey change email:
+// Postmark when its server token is set, else (local development) a sender
+// that fails with Unavailable. Its links open the fan web, whose origin is
+// derived from the issuer.
+func newPasskeyChangeEmailSender(cfg *config.ConsumerConfig, japanTime *time.Location, logger *logging.Logger) (entity.PasskeyChangeEmailSender, error) {
+	if cfg.Postmark.ServerToken == "" {
+		return mail.NewNoopPasskeyChangeSender(logger), nil
+	}
+	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
+	if err != nil {
+		return nil, fmt.Errorf("derive fan web base url: %w", err)
+	}
+	return mail.NewPostmarkPasskeyChangeSender(fanWebBaseURL, japanTime, cfg.Postmark.ServerToken,
+		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }

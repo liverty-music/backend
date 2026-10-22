@@ -8,10 +8,10 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.0-20261009230124-4d2178
 buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.0-20261009230124-4d217860dade.1/go.mod h1:U3WcHUGfS/L67G7R0PmcaHA7MfviJJqDqhHXiCWeOEY=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261009230124-4d217860dade.2 h1:Bqu3+Hwxoh8gvRvGMtkz/Kbq4U+cOvyk37jLzE4PkC0=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261009230124-4d217860dade.2/go.mod h1:v7IaNcBKy5G3G8gpG2m92P0R3HK2qtMGclWzf+1Aut4=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261020080618-a3caa5c38b64.1 h1:97YKvwr19BE2DaPZ8hMBufkCJUyT20k/PQnN2aHG15M=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261020080618-a3caa5c38b64.1/go.mod h1:QLWFa5obhBOzE0HEYP0qIkomq0wvZNm2hvRGJu70QY8=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261020080618-a3caa5c38b64.2 h1:ufB9OEBQoGSRnNxIfYnWuogOtGX7CSrakIGWRZzWB9g=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261020080618-a3caa5c38b64.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
+buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261022015907-b88824777f05.1 h1:2ijcVTWnEu0DGOfQr53t3rfnkXf1ROaSCOpIHGi0s6Y=
+buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261022015907-b88824777f05.1/go.mod h1:6246pt9USHe1RZdRwLPKszdKDR3CTNr/wPSDQdpsKTs=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261022015907-b88824777f05.2 h1:OPWSSCpBXEUFDZYJ/P/SiAksY8lBifmJLOmFSUNPu+k=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261022015907-b88824777f05.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.12-20241007202033-cf42259fcbfc.2 h1:9xw8g8Q6zHLC7CO/jtpl2UK0kQticxIG+mI6N86f2/M=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.12-20241007202033-cf42259fcbfc.2/go.mod h1:+0bw+k8FY5MU3tojFh33HeA5xMfGWjAUQpr+maW5Z3o=
 buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1 h1:7hWTtO316Hov+CM/N4j3/OCE9xDUrwKoLOpY1y+uZjo=

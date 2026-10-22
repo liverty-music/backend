@@ -509,6 +509,9 @@ COMMENT ON INDEX idx_users_provider_user_id IS 'Speeds up user lookup by the ide
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 COMMENT ON INDEX idx_users_email IS 'Speeds up user lookup by email during authentication';
 
+CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(lower(email));
+COMMENT ON INDEX idx_users_email_lower IS 'Speeds up the user lookup by email that ignores letter case (passkey recovery)';
+
 -- Artists indexes
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
 COMMENT ON INDEX idx_artists_name IS 'Speeds up artist search by name';
@@ -1243,3 +1246,20 @@ COMMENT ON INDEX idx_rejected_scans_event_id IS 'Supports per-event review of re
 
 CREATE INDEX IF NOT EXISTS idx_rejected_scans_scanner_id ON rejected_scans(scanner_id);
 COMMENT ON INDEX idx_rejected_scans_scanner_id IS 'Supports the scanners foreign key';
+
+CREATE TABLE IF NOT EXISTS passkeys (
+    provider_passkey_id TEXT        PRIMARY KEY,
+    user_id             UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    aaguid              UUID        NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_passkeys_provider_passkey_id_not_empty CHECK (provider_passkey_id <> '')
+);
+
+COMMENT ON TABLE passkeys IS 'The platform''s record of a passkey registered for a user at the identity provider (Zitadel), written from the identity provider''s passkey added and removed notices. The identity provider remains the authority on which passkeys exist; a passkey registered before records were kept, or whose notice was lost, has no row';
+COMMENT ON COLUMN passkeys.provider_passkey_id IS 'The identity provider''s id for the passkey (Zitadel webAuthNTokenId)';
+COMMENT ON COLUMN passkeys.user_id IS 'The user the passkey signs in to';
+COMMENT ON COLUMN passkeys.aaguid IS 'Identifier of the passkey provider model that made the passkey; all zeros when the provider does not reveal itself';
+COMMENT ON COLUMN passkeys.created_at IS 'When the passkey finished registration at the identity provider';
+
+CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);
+COMMENT ON INDEX idx_passkeys_user_id IS 'Supports listing a user''s passkeys and the users foreign key';

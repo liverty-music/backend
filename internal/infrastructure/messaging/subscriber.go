@@ -159,6 +159,10 @@ func (s *pullSubscriber) Subscribe(ctx context.Context, topic string) (<-chan *m
 		case <-wmMsg.Acked():
 			_ = m.Ack() //nolint:errcheck
 		case <-wmMsg.Nacked():
+			if delay := redeliveryDelay(wmMsg); delay > 0 {
+				_ = m.NakWithDelay(delay) //nolint:errcheck
+				return
+			}
 			_ = m.Nak() //nolint:errcheck
 		case <-ctx.Done():
 			_ = m.Nak() //nolint:errcheck

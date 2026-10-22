@@ -1,4 +1,4 @@
-h1:rrQyzkvM7HJIa7Ctw8PCjUpxl3FuuYkKOPDgZyiErKg=
+h1:ScowZLknfD/WKWIEWIEGi+blk0Mi8s0xRIWFCWkw3JQ=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -116,3 +116,5 @@ h1:rrQyzkvM7HJIa7Ctw8PCjUpxl3FuuYkKOPDgZyiErKg=
 20261016010000_organizer_short_name_not_null.sql h1:Z7kG05P0gitbCZPJWOGzyEw1kyCq2VuRhA5KdxinSSw=
 20261017000000_organization_vocabulary_comments.sql h1:fJGCy6DC0fvuC86IsZc+ThUzFDqtKB1L0pCraB0KSrk=
 20261020081056_create_resale_listings.sql h1:Na2ObNWMmIYvfy6p/2xLIZ3RWIvHAsPOXIL5bqSR4fE=
+20261022014500_users_email_lower_index.sql h1:1BJBlwDdHEw0qjR1bmOEboSOiToJk1ITNbmiX+bjVSw=
+20261022014600_create_passkeys.sql h1:/6mv0ryadBTyrcQl2DUWmJNsC0f3m1yWLqma0jtjZqg=

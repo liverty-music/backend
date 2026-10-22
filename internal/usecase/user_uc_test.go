@@ -33,7 +33,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		emailVerifier:   mocks.NewMockEmailVerifier(t),
 		identityRemover: mocks.NewMockIdentityRemover(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, d.ticketRepo, d.orderRepo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.identityRemover, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, d.ticketRepo, d.orderRepo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.identityRemover, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d
 }
 
@@ -44,7 +44,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, messaging.NewEventPublisher(newTestPublisher()), nil, nil, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, messaging.NewEventPublisher(newTestPublisher()), nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d
 }
 

@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema modernize fix mocks test test-integration test-stripe-e2e check
+.PHONY: lint lint-schema modernize fix mocks refresh-aaguid-names test test-integration test-stripe-e2e check
 
 # Every binary links both the Pocket Sign and the Zitadel SDKs, which register
 # the same protobuf extension number; protobuf panics at init unless this is
@@ -46,6 +46,11 @@ modernize:
 ## mocks: regenerate the testify mocks listed in .mockery.yml (mockery v3)
 mocks:
 	go tool mockery
+
+## refresh-aaguid-names: rewrite the vendored passkey provider names (names only)
+## from passkeydeveloper/passkey-authenticator-aaguids; review the diff
+refresh-aaguid-names:
+	go run ./scripts/refresh-aaguid-names
 
 ## fix: auto-apply go fix modernizers, then format
 fix:
