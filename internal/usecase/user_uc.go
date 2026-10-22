@@ -110,10 +110,12 @@ type UserUseCase interface {
 	//  - NotFound: no user exists for providerUserID.
 	ResolveCaller(ctx context.Context, providerUserID string) (*entity.User, error)
 
-	// ResendEmailVerification triggers a new email verification message via
-	// the identity provider for the caller identified by providerUserID (the
-	// Zitadel subject claim), when the resend rate limit has not been
-	// exceeded.
+	// ResendEmailVerification announces a verification-email resend request for
+	// the caller identified by providerUserID (the Zitadel subject claim), when
+	// the resend rate limit has not been exceeded. The fresh code is sent by
+	// ReissueEmailVerification in the event consumer, so this process needs no
+	// identity-provider credential. The call succeeds for an address that is
+	// already verified; ReissueEmailVerification then sends nothing.
 	//
 	// The rate limit (3 resends per rolling 10-minute window) is tracked in
 	// memory, scoped to this process. It is NOT shared across replicas, so
@@ -124,8 +126,8 @@ type UserUseCase interface {
 	// # Possible errors
 	//
 	//  - ResourceExhausted: the resend rate limit has been exceeded.
-	//  - FailedPrecondition: the user's email is already verified.
-	//  - Unavailable: the email verification service is not configured.
+	//  - Unavailable: the resend request could not be announced; the request
+	//    still counts toward the limit.
 	//  - NotFound: no user exists for providerUserID.
 	ResendEmailVerification(ctx context.Context, providerUserID string) error
 
@@ -162,6 +164,19 @@ type UserUseCase interface {
 	//  - Any other failure of User.GetByProviderUserID or
 	//    User.SendPasskeyChangeEmail, unchanged.
 	NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error
+
+	// ReissueEmailVerification sends a fresh verification code to the address
+	// of the User identified by userID. It runs for each announced resend
+	// request. A User that no longer exists, an address that is already
+	// verified, or email verification that is not configured in this process
+	// finishes without sending. A run repeated after a code was sent sends a
+	// newer code.
+	//
+	// # Possible errors
+	//
+	//  - Any other failure of reading the User or sending the code, returned
+	//    so the request is run again.
+	ReissueEmailVerification(ctx context.Context, userID string) error
 }
 
 // PasskeyMailers are the senders of the passkey emails: the registration link
@@ -491,14 +506,9 @@ func (uc *userUseCase) ResolveCaller(ctx context.Context, providerUserID string)
 	return uc.GetByProviderUserID(ctx, providerUserID)
 }
 
-// ResendEmailVerification triggers a verification-email resend for the
-// caller, enforcing the in-memory resend rate limit before calling the
-// identity provider.
+// ResendEmailVerification announces a verification-email resend request for
+// the caller, enforcing the in-memory resend rate limit first.
 func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUserID string) error {
-	if uc.emailVerifier == nil {
-		return apperr.New(codes.Unavailable, "email verification service is not configured")
-	}
-
 	user, err := uc.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return err
@@ -508,7 +518,47 @@ func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUser
 		return apperr.New(codes.ResourceExhausted, "resend rate limit exceeded")
 	}
 
-	return uc.emailVerifier.ResendVerification(ctx, user.ProviderUserID)
+	if err := uc.publishEvent(ctx, entity.SubjectUserEmailVerificationResendRequested, entity.UserEmailVerificationResendRequestedData{
+		UserID: user.ID,
+	}); err != nil {
+		return apperr.Wrap(err, codes.Unavailable, "announce email verification resend request",
+			slog.String("user_id", user.ID))
+	}
+
+	return nil
+}
+
+// ReissueEmailVerification sends a fresh verification code for an announced
+// resend request.
+func (uc *userUseCase) ReissueEmailVerification(ctx context.Context, userID string) error {
+	if uc.emailVerifier == nil {
+		uc.logger.Warn(ctx, "email verifier not configured, skipping verification resend",
+			slog.String("user_id", userID))
+		return nil
+	}
+
+	user, err := uc.userRepo.Get(ctx, userID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "user deleted since the resend request, skipping verification resend",
+			slog.String("user_id", userID))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	err = uc.emailVerifier.ResendVerification(ctx, user.ProviderUserID)
+	if errors.Is(err, apperr.ErrFailedPrecondition) {
+		uc.logger.Info(ctx, "email already verified, skipping verification resend",
+			slog.String("user_id", userID))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	uc.logger.Info(ctx, "verification email resent", slog.String("user_id", userID))
+	return nil
 }
 
 // allowResend reports whether providerUserID has not exceeded the resend rate

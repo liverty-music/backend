@@ -973,6 +973,24 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			wantErr: "invalid STRIPE_ONBOARDING_RETURN_URL",
 		},
 		{
+			name:   "accept a fan workload without the backend-app credential",
+			mutate: func(c *ServerConfig) { c.ZitadelMachineKeyForBackendAppPath = "" },
+		},
+		{
+			name: "accept an organizer workload without the backend-app credential",
+			mutate: func(c *ServerConfig) {
+				c.Workload = WorkloadOrganizer
+				c.ZitadelMachineKeyForBackendAppPath = ""
+			},
+		},
+		{
+			name: "accept a reception workload without the backend-app credential",
+			mutate: func(c *ServerConfig) {
+				c.Workload = WorkloadReception
+				c.ZitadelMachineKeyForBackendAppPath = ""
+			},
+		},
+		{
 			name:    "reject an admin workload without the provisioner credential",
 			mutate:  func(c *ServerConfig) { c.Workload = WorkloadAdmin },
 			wantErr: "ORGANIZER_CONSOLE_PROJECT_ID, ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH",
@@ -1006,6 +1024,17 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 	t.Run("accept a complete admin workload", func(t *testing.T) {
 		t.Parallel()
 		assert.NoError(t, validNonLocalServerConfig(WorkloadAdmin).Validate())
+	})
+
+	t.Run("reject an admin workload without the backend-app credential", func(t *testing.T) {
+		t.Parallel()
+		cfg := validNonLocalServerConfig(WorkloadAdmin)
+		cfg.ZitadelMachineKeyForBackendAppPath = ""
+
+		err := cfg.Validate()
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
 	})
 }
 
