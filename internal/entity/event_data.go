@@ -48,6 +48,13 @@ const (
 	// construction. Modelled as a USER-domain event (USER.* stream), not a
 	// separate ACCOUNT stream.
 	SubjectUserLoggedIn = "USER.logged_in"
+	// SubjectUserEmailVerificationResendRequested is published by
+	// UserUseCase.ResendEmailVerification for each resend a fan asks for
+	// within the rate limit. The reissue-email-verification consumer runs
+	// UserUseCase.ReissueEmailVerification from it and sends the fresh code,
+	// so the internet-facing fan API holds no identity-provider credential.
+	// Two tokens so the plain USER.* stream filter captures it.
+	SubjectUserEmailVerificationResendRequested = "USER.email_verification_resend_requested"
 	// SubjectOrganizerCreated is published by OrganizerUseCase.Create after the
 	// Organizer's Organization is provisioned and the organizer row is flipped to active.
 	// It drives the organizer.created analytics event (admin-actor / group event
@@ -142,6 +149,7 @@ var AllSubjects = []string{
 	SubjectTicketSaleReminderDue,
 	SubjectTicketJourneyStatusChanged,
 	SubjectUserLoggedIn,
+	SubjectUserEmailVerificationResendRequested,
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
 	SubjectOrganizerConcertPublished,
@@ -317,6 +325,16 @@ type UserPasskeyChangedData struct {
 	AAGUID string `json:"aaguid,omitempty"`
 	// ChangeTime is when the identity provider recorded the change.
 	ChangeTime time.Time `json:"change_time"`
+}
+
+// UserEmailVerificationResendRequestedData is the payload for
+// USER.email_verification_resend_requested events. Published by
+// UserUseCase.ResendEmailVerification after the caller passed the resend
+// rate limit.
+type UserEmailVerificationResendRequestedData struct {
+	// UserID is the platform-internal identifier of the User whose
+	// verification email is resent.
+	UserID string `json:"user_id"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.

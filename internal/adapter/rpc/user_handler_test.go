@@ -483,8 +483,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 			wantErr error
 		}{
 			{"ResourceExhausted on rate limit", apperr.New(apperr.ErrResourceExhausted.Code, "resend rate limit exceeded"), apperr.ErrResourceExhausted},
-			{"FailedPrecondition when already verified", apperr.New(apperr.ErrFailedPrecondition.Code, "email is already verified"), apperr.ErrFailedPrecondition},
-			{"Unavailable when verifier is not configured", apperr.New(apperr.ErrUnavailable.Code, "email verification service is not configured"), apperr.ErrUnavailable},
+			{"Unavailable when the request cannot be announced", apperr.New(apperr.ErrUnavailable.Code, "announce email verification resend request"), apperr.ErrUnavailable},
 			{"NotFound when the caller has no User", apperr.New(apperr.ErrNotFound.Code, "user not found"), apperr.ErrNotFound},
 		}
 		for _, tc := range cases {

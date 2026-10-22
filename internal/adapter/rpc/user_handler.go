@@ -192,12 +192,12 @@ func (h *UserHandler) SetHome(ctx context.Context, req *userv1.SetHomeRequest) (
 	}, nil
 }
 
-// ResendEmailVerification triggers a new email verification message for the
-// authenticated user via the Zitadel API.
+// ResendEmailVerification requests a new email verification message for the
+// authenticated user.
 //
 // The handler only resolves the caller's provider user ID from the JWT and
-// delegates to the use case, which resolves the caller and enforces the resend
-// rate limit before calling the identity provider.
+// delegates to the use case, which resolves the caller, enforces the resend
+// rate limit and announces the request; the event consumer sends the code.
 func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *userv1.ResendEmailVerificationRequest) (*userv1.ResendEmailVerificationResponse, error) {
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {

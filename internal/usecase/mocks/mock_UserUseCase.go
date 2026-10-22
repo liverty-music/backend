@@ -371,6 +371,63 @@ func (_c *MockUserUseCase_NotifyPasskeyChange_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
+// ReissueEmailVerification provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) ReissueEmailVerification(ctx context.Context, userID string) error {
+	ret := _mock.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReissueEmailVerification")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, userID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockUserUseCase_ReissueEmailVerification_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReissueEmailVerification'
+type MockUserUseCase_ReissueEmailVerification_Call struct {
+	*mock.Call
+}
+
+// ReissueEmailVerification is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+func (_e *MockUserUseCase_Expecter) ReissueEmailVerification(ctx any, userID any) *MockUserUseCase_ReissueEmailVerification_Call {
+	return &MockUserUseCase_ReissueEmailVerification_Call{Call: _e.mock.On("ReissueEmailVerification", ctx, userID)}
+}
+
+func (_c *MockUserUseCase_ReissueEmailVerification_Call) Run(run func(ctx context.Context, userID string)) *MockUserUseCase_ReissueEmailVerification_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_ReissueEmailVerification_Call) Return(err error) *MockUserUseCase_ReissueEmailVerification_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockUserUseCase_ReissueEmailVerification_Call) RunAndReturn(run func(ctx context.Context, userID string) error) *MockUserUseCase_ReissueEmailVerification_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RequestPasskeyRecovery provides a mock function for the type MockUserUseCase
 func (_mock *MockUserUseCase) RequestPasskeyRecovery(ctx context.Context, email string) {
 	_mock.Called(ctx, email)

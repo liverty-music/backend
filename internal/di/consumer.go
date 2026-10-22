@@ -287,9 +287,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The consumer's UserUseCase only handles the passkey events; it never
-	// deletes users or resends verification emails.
-	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, nil, nil,
+	// The consumer's UserUseCase handles the passkey events and sends the
+	// verification resends the fan API announces (ReissueEmailVerification);
+	// it never deletes users.
+	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, emailVerifier, nil,
 		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
 
@@ -299,6 +300,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)
+	reissueEmailVerificationConsumer := event.NewReissueEmailVerificationConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
@@ -323,6 +325,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
 		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
 		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},
+		{"reissue-email-verification", entity.SubjectUserEmailVerificationResendRequested, reissueEmailVerificationConsumer.Handle},
 		{"track-user-logged-in", entity.SubjectUserLoggedIn, analyticsConsumer.HandleUserLoggedIn},
 		{"track-artist-followed", entity.SubjectArtistFollowed, analyticsConsumer.HandleArtistFollowed},
 		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},

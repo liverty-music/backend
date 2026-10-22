@@ -2,15 +2,18 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -774,66 +777,104 @@ const (
 	testResolveExtID  = "ext-resolve-1"
 )
 
+// newUserTestDepsWithPublisher builds test dependencies whose EventPublisher is
+// a mock, so a test can assert what is announced or make the announcement fail.
+func newUserTestDepsWithPublisher(t *testing.T) (*userTestDeps, *ucmocks.MockEventPublisher) {
+	t.Helper()
+	publisher := ucmocks.NewMockEventPublisher(t)
+	d := &userTestDeps{
+		repo:          mocks.NewMockUserRepository(t),
+		emailVerifier: mocks.NewMockEmailVerifier(t),
+	}
+	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, publisher, d.emailVerifier, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+	return d, publisher
+}
+
+// expectResendAnnounced expects one resend request announced for userID.
+func expectResendAnnounced(publisher *ucmocks.MockEventPublisher, userID string, times int) {
+	publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserEmailVerificationResendRequested,
+		entity.UserEmailVerificationResendRequestedData{UserID: userID}).Return(nil).Times(times)
+}
+
 func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
 	// @spec components/usecase/user/resend-email-verification "Caller resends their own email"
-	t.Run("success — sends the verification email", func(t *testing.T) {
+	t.Run("announces a resend request for the caller's User", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
+		d, publisher := newUserTestDepsWithPublisher(t)
 
 		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
+		expectResendAnnounced(publisher, testResolveUserID, 1)
+		// The verifier MUST NOT be called: sending is ReissueEmailVerification's part.
 
 		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
 		assert.NoError(t, err)
 	})
 
+	// @spec components/usecase/user/resend-email-verification "Caller already verified"
 	// @spec components/usecase/user/resend-email-verification "Email verification not configured"
-	t.Run("Unavailable — email verifier is not configured (nil)", func(t *testing.T) {
+	t.Run("succeeds and announces without a verifier, whatever the address state", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDepsNoVerifier(t)
-		// GetByProviderUserID MUST NOT be called — the nil-verifier check runs first.
+		publisher := ucmocks.NewMockEventPublisher(t)
+		repo := mocks.NewMockUserRepository(t)
+		uc := usecase.NewUserUseCase(repo, nil, nil, publisher, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+
+		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
+		expectResendAnnounced(publisher, testResolveUserID, 1)
+
+		err := uc.ResendEmailVerification(ctx, testResolveExtID)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("NotFound — the caller has no User", func(t *testing.T) {
+		t.Parallel()
+		d, _ := newUserTestDepsWithPublisher(t)
+
+		d.repo.EXPECT().GetByProviderUserID(ctx, "ext-ghost").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		err := d.uc.ResendEmailVerification(ctx, "ext-ghost")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	// @spec components/usecase/user/resend-email-verification "Announcement fails"
+	t.Run("Unavailable — the resend request cannot be announced", func(t *testing.T) {
+		t.Parallel()
+		d, publisher := newUserTestDepsWithPublisher(t)
+
+		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
+		publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserEmailVerificationResendRequested, mock.Anything).
+			Return(errors.New("nats down")).Once()
 
 		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
-	// @spec components/usecase/user/resend-email-verification "Caller already verified"
-	t.Run("FailedPrecondition — email already verified propagates from the verifier", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
-			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
-
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
-
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-	})
-
 	// The resend rate limit (3 per rolling 10-minute window) is tracked in
 	// memory, scoped to this process/instance — see the Go doc on
 	// UserUseCase.ResendEmailVerification. A 4th request within the window
-	// is rejected with ResourceExhausted before the verifier is called.
+	// is rejected with ResourceExhausted before anything is announced.
 	// @spec components/usecase/user/resend-email-verification "Too many requests"
 	t.Run("ResourceExhausted — 4th request within the 10-minute window is rate-limited", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
+		d, publisher := newUserTestDepsWithPublisher(t)
 
 		const rateExtID = "ext-rate"
 		const rateUserID = "user-rate"
 		rateUser := &entity.User{ID: rateUserID, ProviderUserID: rateExtID}
 
 		d.repo.EXPECT().GetByProviderUserID(ctx, rateExtID).Return(rateUser, nil).Times(4)
-		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
+		expectResendAnnounced(publisher, rateUserID, 3)
 
 		for range 3 {
 			err := d.uc.ResendEmailVerification(ctx, rateExtID)
@@ -845,24 +886,25 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	})
 
 	// Every request counts toward the limit once the caller is resolved, whether
-	// or not the send then succeeds: three FailedPrecondition failures use up
-	// the quota, and the fourth request is rejected without calling the verifier.
+	// or not an email is then sent: three requests for an already verified
+	// address send nothing but still use up the quota. Failed announcements
+	// count too.
 	// @spec components/usecase/user/resend-email-verification "Failed attempts count"
-	t.Run("failed attempts count toward the limit", func(t *testing.T) {
+	t.Run("requests that send nothing count toward the limit", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
+		d, publisher := newUserTestDepsWithPublisher(t)
 
 		const rateExtID = "ext-rate-failed"
 		const rateUserID = "user-rate-failed"
 		rateUser := &entity.User{ID: rateUserID, ProviderUserID: rateExtID}
 
 		d.repo.EXPECT().GetByProviderUserID(ctx, rateExtID).Return(rateUser, nil).Times(4)
-		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).
-			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Times(3)
+		publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserEmailVerificationResendRequested, mock.Anything).
+			Return(errors.New("nats down")).Times(3)
 
 		for range 3 {
 			err := d.uc.ResendEmailVerification(ctx, rateExtID)
-			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+			assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		}
 
 		err := d.uc.ResendEmailVerification(ctx, rateExtID)
@@ -874,7 +916,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	// @spec components/usecase/user/resend-email-verification "Limit is per user"
 	t.Run("rate limit is scoped per user", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
+		d, publisher := newUserTestDepsWithPublisher(t)
 
 		const rateExtID = "ext-rate-a"
 		const otherExtID = "ext-rate-b"
@@ -885,14 +927,87 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 			Return(&entity.User{ID: rateUserID, ProviderUserID: rateExtID}, nil).Times(3)
 		d.repo.EXPECT().GetByProviderUserID(ctx, otherExtID).
 			Return(&entity.User{ID: otherUserID, ProviderUserID: otherExtID}, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
-		d.emailVerifier.EXPECT().ResendVerification(ctx, otherExtID).Return(nil).Once()
+		expectResendAnnounced(publisher, rateUserID, 3)
+		expectResendAnnounced(publisher, otherUserID, 1)
 
 		for range 3 {
 			require.NoError(t, d.uc.ResendEmailVerification(ctx, rateExtID))
 		}
 
 		assert.NoError(t, d.uc.ResendEmailVerification(ctx, otherExtID))
+	})
+}
+
+func TestUserUseCase_ReissueEmailVerification(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	user := &entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}
+
+	// @spec components/usecase/user/reissue-email-verification "Unverified address"
+	t.Run("sends a fresh code to the User's address", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
+
+		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
+	})
+
+	// @spec components/usecase/user/reissue-email-verification "Already verified"
+	t.Run("finishes when the address is already verified", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
+			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
+
+		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
+	})
+
+	// @spec components/usecase/user/reissue-email-verification "Account deleted since the request"
+	t.Run("finishes without sending when the User is gone", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().Get(ctx, testResolveUserID).
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+		// The verifier MUST NOT be called.
+
+		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
+	})
+
+	// @spec components/usecase/user/reissue-email-verification "Verification not configured"
+	t.Run("finishes without sending when the verifier is not configured", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDepsNoVerifier(t)
+		// Nothing is read or sent.
+
+		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
+	})
+
+	// @spec components/usecase/user/reissue-email-verification "Identity provider down"
+	t.Run("fails so the request runs again when the identity provider is down", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
+			Return(apperr.New(codes.Internal, "zitadel unavailable")).Once()
+
+		assert.ErrorIs(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID), apperr.ErrInternal)
+	})
+
+	t.Run("fails so the request runs again when the User cannot be read", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().Get(ctx, testResolveUserID).
+			Return(nil, apperr.New(codes.Unavailable, "database unavailable")).Once()
+
+		assert.ErrorIs(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID), apperr.ErrUnavailable)
 	})
 }
 
