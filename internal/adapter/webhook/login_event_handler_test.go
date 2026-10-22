@@ -205,3 +205,19 @@ func TestLoginEventHandler_GET_ReturnsMethodNotAllowed(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	assert.Equal(t, http.MethodPost, rec.Header().Get("Allow"))
 }
+
+func TestLoginEventHandler_EmptySigningKey_Rejected_NoPublish(t *testing.T) {
+	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
+	pub := &stubPublisher{}
+	handler := webhook.NewLoginEventHandler("", users, pub, newLogger(t))
+
+	// actions.ValidateRequestPayload would accept this body: its HMAC is
+	// computed with the same empty key.
+	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSignedRequest(t, body, ""))
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, 0, users.calls)
+	assert.Equal(t, 0, pub.calls)
+}

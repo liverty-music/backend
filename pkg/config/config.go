@@ -671,15 +671,16 @@ type WebhookSettings struct {
 	// (`POST /account-login-event`, the account.login source). The Target uses
 	// PAYLOAD_TYPE_JSON; Zitadel signs each body with this key and the handler
 	// verifies the `ZITADEL-Signature` header against it. Sourced from a secret
-	// (Zitadel generates it at Target creation). Left un-validated/optional so a
-	// boot before the secret is synced degrades gracefully (the handler rejects
-	// unverifiable requests) rather than crash-looping.
+	// (Zitadel generates it at Target creation). Required outside local; when
+	// empty (local development) the handler answers every request with 503,
+	// because an HMAC with an empty key would verify a body signed with "".
 	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
 
 	// PasskeyEventSigningKey is the HMAC signing key for the passkey-event
 	// Target (`POST /passkey-event`, the passkey added and removed notices).
-	// Like LoginEventSigningKey it is optional: without it the handler
-	// rejects every request with 401.
+	// Optional, so an API workload starts before the secret is synced: when
+	// empty the handler answers every request with 503 and announces nothing
+	// (an HMAC with an empty key would verify a body signed with "").
 	PasskeyEventSigningKey string `envconfig:"WEBHOOK_PASSKEY_EVENT_SIGNING_KEY"`
 
 	// ProductOrgID is the Zitadel id of the product organization, the one

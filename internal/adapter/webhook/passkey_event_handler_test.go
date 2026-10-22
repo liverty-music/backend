@@ -114,6 +114,21 @@ func TestPasskeyEventHandler(t *testing.T) {
 		assert.Equal(t, 0, pub.calls)
 	})
 
+	// @spec components/adapter/fan/api/webhook/passkey-events "Forged notice"
+	t.Run("rejects a notice signed with an empty key when no signing key is configured, announcing nothing", func(t *testing.T) {
+		t.Parallel()
+		pub := &stubPublisher{}
+		rec := httptest.NewRecorder()
+		handler := webhook.NewPasskeyEventHandler("", testProductOrgID, pub, newLogger(t))
+
+		// actions.ValidateRequestPayload would accept this body: its HMAC is
+		// computed with the same empty key.
+		handler.ServeHTTP(rec, signedPasskeyRequest(t, verifiedEventBody(t, testProductOrgID), ""))
+
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Equal(t, 0, pub.calls)
+	})
+
 	// @spec components/adapter/fan/api/webhook/passkey-events "Passkey removed"
 	t.Run("announces a removed change without a name for a passkey-removed notice", func(t *testing.T) {
 		t.Parallel()

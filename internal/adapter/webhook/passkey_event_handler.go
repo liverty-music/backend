@@ -49,8 +49,9 @@ type PasskeyEventHandler struct {
 
 // NewPasskeyEventHandler constructs a handler bound to the passkey-event
 // Target's signing key and the product organization's Zitadel id. An empty
-// productOrgID makes every request fail with 503, so a misconfigured
-// workload announces nothing rather than every organization's changes.
+// signing key or productOrgID makes every request fail with 503, so a
+// misconfigured workload announces nothing rather than unsigned notices or
+// every organization's changes.
 func NewPasskeyEventHandler(signingKey, productOrgID string, publisher eventPublisher, logger *logging.Logger) *PasskeyEventHandler {
 	return &PasskeyEventHandler{signingKey: signingKey, productOrgID: productOrgID, publisher: publisher, logger: logger}
 }
@@ -83,6 +84,15 @@ func (h *PasskeyEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// An empty key would not reject anything: actions.ValidateRequestPayload
+	// computes the HMAC with whatever key it is given, so a body signed with
+	// "" would verify.
+	if h.signingKey == "" {
+		h.logger.Error(ctx, "passkey-event: signing key is not configured; announcing nothing",
+			errors.New("WEBHOOK_PASSKEY_EVENT_SIGNING_KEY is empty"))
+		http.Error(w, "not configured", http.StatusServiceUnavailable)
 		return
 	}
 	if h.productOrgID == "" {
