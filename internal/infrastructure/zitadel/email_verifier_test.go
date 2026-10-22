@@ -212,11 +212,13 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			},
 		},
 		{
-			name:      "already verified emits ERROR log and maps to FailedPrecondition",
+			// An expected outcome: ReissueEmailVerification logs it at INFO
+			// and finishes, so the verifier logs nothing (no ERROR to alert on).
+			name:      "already verified logs nothing and maps to FailedPrecondition",
 			args:      args{providerUserID: "verified-user"},
 			resendErr: grpcstatus.Error(grpccodes.FailedPrecondition, "email already verified"),
 			wantErr:   apperr.ErrFailedPrecondition,
-			wantInLog: "failed to resend email verification",
+			wantInLog: "",
 		},
 		{
 			name:      "gRPC unavailable emits ERROR log and wraps as internal",
@@ -255,8 +257,12 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-			assert.Contains(t, logBuf.String(), tt.wantInLog)
-			assert.Contains(t, logBuf.String(), tt.args.providerUserID)
+			if tt.wantInLog == "" {
+				assert.Empty(t, logBuf.String())
+			} else {
+				assert.Contains(t, logBuf.String(), tt.wantInLog)
+				assert.Contains(t, logBuf.String(), tt.args.providerUserID)
+			}
 			if tt.check != nil {
 				tt.check(t, stub)
 			}
