@@ -21,8 +21,9 @@ var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 
 // UserHandler implements the UserService Connect interface.
 //
-// Every call acts on the signed-in caller's own User: no request names a
-// User. The handler only resolves the caller's identity from the
+// Every call except RequestPasskeyRecovery acts on the signed-in caller's
+// own User: no request names a User. RequestPasskeyRecovery needs no sign-in
+// and uses no sign-in identity. The handler only resolves the caller's identity from the
 // authenticated context and maps proto to/from domain entities; resolving the
 // caller's User and the resend rate limit live in UserUseCase.
 type UserHandler struct {
@@ -208,4 +209,16 @@ func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *userv1.Res
 	}
 
 	return &userv1.ResendEmailVerificationResponse{}, nil
+}
+
+// RequestPasskeyRecovery asks for a passkey registration link for the
+// account of the given address, for a person who cannot sign in. It needs no
+// sign-in and uses no sign-in identity even when one is presented. The address
+// is checked by protovalidate before the handler runs; the per-client limit is
+// applied by the fan server's interceptor, whose ResourceExhausted reaches
+// the caller unchanged. The answer is the same empty success whatever the
+// address.
+func (h *UserHandler) RequestPasskeyRecovery(ctx context.Context, req *userv1.RequestPasskeyRecoveryRequest) (*userv1.RequestPasskeyRecoveryResponse, error) {
+	h.userUseCase.RequestPasskeyRecovery(ctx, req.GetEmail().GetValue())
+	return &userv1.RequestPasskeyRecoveryResponse{}, nil
 }

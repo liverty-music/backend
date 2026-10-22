@@ -24,8 +24,11 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 		return nil, err
 	}
 
-	// Poison queue: move messages that exceed max retries.
-	pq, err := middleware.PoisonQueue(poisonQueuePub, poisonQueueTopic)
+	// Poison queue: move messages that exceed max retries. A failure the
+	// handler marked with RedeliverLater is nacked for a delayed redelivery
+	// instead.
+	pq, err := middleware.PoisonQueueWithFilter(poisonQueuePub, poisonQueueTopic,
+		func(err error) bool { return !IsRedeliverLater(err) })
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +39,9 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 		MaxRetries:      3,
 		InitialInterval: 500 * time.Millisecond,
 		Multiplier:      2.0,
-		Logger:          wmLogger,
+		// A RedeliverLater failure waits for the broker's delayed redelivery.
+		ShouldRetry: func(params middleware.RetryParams) bool { return !IsRedeliverLater(params.Err) },
+		Logger:      wmLogger,
 	}.Middleware)
 
 	// Recoverer: catch panics and nack the message.

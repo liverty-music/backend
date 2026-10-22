@@ -217,6 +217,14 @@ type ConsumerConfig struct {
 	// skip processing with a warning.
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
+	// ZitadelMachineKeyForFanPasskeyRecoveryPath is the file path to the
+	// `fan-passkey-recovery` Zitadel MachineUser's private key JSON (ORG_OWNER
+	// on the product org, the narrowest role that can issue passkey
+	// registration codes). Mounted on the event consumer only. Empty disables
+	// the passkey recovery link handler; the consumer starts without it and
+	// logs that.
+	ZitadelMachineKeyForFanPasskeyRecoveryPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH"`
+
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
 
@@ -663,10 +671,23 @@ type WebhookSettings struct {
 	// (`POST /account-login-event`, the account.login source). The Target uses
 	// PAYLOAD_TYPE_JSON; Zitadel signs each body with this key and the handler
 	// verifies the `ZITADEL-Signature` header against it. Sourced from a secret
-	// (Zitadel generates it at Target creation). Left un-validated/optional so a
-	// boot before the secret is synced degrades gracefully (the handler rejects
-	// unverifiable requests) rather than crash-looping.
+	// (Zitadel generates it at Target creation). Required outside local; when
+	// empty (local development) the handler answers every request with 503,
+	// because an HMAC with an empty key would verify a body signed with "".
 	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
+
+	// PasskeyEventSigningKey is the HMAC signing key for the passkey-event
+	// Target (`POST /passkey-event`, the passkey added and removed notices).
+	// Optional, so an API workload starts before the secret is synced: when
+	// empty the handler answers every request with 503 and announces nothing
+	// (an HMAC with an empty key would verify a body signed with "").
+	PasskeyEventSigningKey string `envconfig:"WEBHOOK_PASSKEY_EVENT_SIGNING_KEY"`
+
+	// ProductOrgID is the Zitadel id of the product organization, the one
+	// fans' identities belong to. The passkey-event handler announces only
+	// notices about identities of this organization; without it the handler
+	// answers 503 and announces nothing.
+	ProductOrgID string `envconfig:"ZITADEL_PRODUCT_ORG_ID"`
 }
 
 // SeriesImageConsumerConfig is the configuration for the series-image-consumer workload.

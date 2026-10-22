@@ -38,6 +38,17 @@ const (
 		WHERE u.provider_user_id = $1
 	`
 
+	// getUsersByEmailQuery matches the address with letter case ignored
+	// (served by idx_users_email_lower). UNIQUE (email) is case-sensitive, so
+	// two rows can match; LIMIT 2 is enough to tell one match from several.
+	getUsersByEmailQuery = `
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM users u
+		LEFT JOIN homes h ON u.home_id = h.id
+		WHERE lower(u.email) = lower($1)
+		LIMIT 2
+	`
+
 	// Atomic UPDATE + SELECT in a single statement so the read-after-write
 	// can't race with a concurrent DELETE on the same user. The CTE
 	// returns 0 rows if no row matches the WHERE, which scanUser surfaces
@@ -292,6 +303,42 @@ func (r *UserRepository) GetByProviderUserID(ctx context.Context, providerUserID
 	}
 
 	return user, nil
+}
+
+// GetByEmail retrieves the user whose email equals email when letter case is
+// ignored. More than one match fails with Internal rather than picking one.
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	if email == "" {
+		return nil, apperr.New(codes.InvalidArgument, "email cannot be empty")
+	}
+
+	rows, err := r.db.Pool.Query(ctx, getUsersByEmailQuery, email)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get user by email")
+	}
+	defer rows.Close()
+
+	var users []*entity.User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan user by email")
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to get user by email")
+	}
+
+	switch len(users) {
+	case 0:
+		return nil, apperr.New(codes.NotFound, "no user has the email")
+	case 1:
+		return users[0], nil
+	default:
+		return nil, apperr.New(codes.Internal, "more than one user has the email when letter case is ignored",
+			slog.String("user_id", users[0].ID), slog.String("other_user_id", users[1].ID))
+	}
 }
 
 // UpdatePersonalDetails sets the user's full name and phone number, storing

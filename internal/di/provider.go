@@ -33,6 +33,7 @@ import (
 	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
+	passkeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/passkey/v1/passkeyv1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
 	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
@@ -95,6 +96,13 @@ const (
 	// signInLinksClientWindow is the window over which SendSignInLinks calls
 	// are counted per client.
 	signInLinksClientWindow = 60 * time.Minute
+	// passkeyRecoveryClientLimit is how many UserService.RequestPasskeyRecovery
+	// calls a client may make within passkeyRecoveryClientWindow before
+	// further calls are refused with ResourceExhausted.
+	passkeyRecoveryClientLimit = 10
+	// passkeyRecoveryClientWindow is the window over which
+	// RequestPasskeyRecovery calls are counted per client.
+	passkeyRecoveryClientWindow = 60 * time.Minute
 )
 
 // newSignInLinkSender returns the sender of the organizer sign-in link email:
@@ -281,7 +289,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, logger)
+	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -659,6 +667,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(s *connect.Server) {
 			identityverificationconnect.RegisterIdentityVerificationServiceHandler(s, rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger))
 		},
+		// Fan-facing PasskeyService: List (the signed-in fan's recorded passkeys).
+		func(s *connect.Server) {
+			passkeyconnect.RegisterPasskeyServiceHandler(s, rpc.NewPasskeyHandler(
+				usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger), userUC, logger))
+		},
 	}
 
 	// Fan-facing ticket sales: TicketSaleService (public reads), the signed-in
@@ -690,8 +703,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		AnonBurst: cfg.Server.RateLimit.AnonBurst,
 	}, time.Minute)
 
-	// Consumer Connect server — all consumer services, no admin service, no
-	// extra interceptors.
+	// Consumer Connect server — all consumer services, no admin service; its
+	// only extra interceptor is the per-client limit below.
 	// Link preview tags for the fan web's /events/{id} HTML (fetched by Caddy
 	// templates). Public and outside the RPC rate limit, since every crawler
 	// request reaches fan-api from Caddy's Pod IP.
@@ -700,7 +713,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
 	}
 
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, handlers...)
+	// The fan server's one public write, UserService.RequestPasskeyRecovery,
+	// may be called passkeyRecoveryClientLimit times per
+	// passkeyRecoveryClientWindow by one client.
+	fanInterceptors := []connect.ServerInterceptor{
+		ratelimit.NewClientQuotaInterceptor(
+			ratelimit.NewClientThrottle(passkeyRecoveryClientLimit, passkeyRecoveryClientWindow, time.Now),
+			auth.FanClientLimitedProcedures(),
+		),
+	}
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, fanInterceptors, publicRoutes, handlers...)
 
 	// Admin Connect server — a second listener in the same binary on its own
 	// port and CORS allowlist, serving ONLY admin services. Its server-wide
@@ -829,9 +851,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 
+	// Passkey-event Actions v2 handler — bound to the event executions on
+	// user.human.passwordless.token.verified and token.removed; announces
+	// USER.passkey_changed for the product org's identities (the change email
+	// and the Passkey record are the consumer's).
+	passkeyEventHandler := webhook.NewPasskeyEventHandler(
+		cfg.Webhook.PasskeyEventSigningKey,
+		cfg.Webhook.ProductOrgID,
+		eventPublisher,
+		logger,
+	)
+
 	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
 		"/pre-access-token":    preAccessTokenHandler,
 		"/account-login-event": loginEventHandler,
+		"/passkey-event":       passkeyEventHandler,
 		"/stripe-webhook":      stripeWebhookHandler,
 	})
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,7 +128,63 @@ type UserUseCase interface {
 	//  - Unavailable: the email verification service is not configured.
 	//  - NotFound: no user exists for providerUserID.
 	ResendEmailVerification(ctx context.Context, providerUserID string) error
+
+	// RequestPasskeyRecovery asks for a passkey registration link for the
+	// User whose email is the given address, on behalf of a person who cannot
+	// sign in. It succeeds in the same way whether or not the address belongs
+	// to a User: after the per-address limit (at most 3 announcements per 60
+	// minutes, compared without regard to letter case; a further request
+	// returns without announcing) it returns at once, and the lookup with
+	// User.GetByEmail and the announcement of a passkey recovery request for
+	// the User found run in the background, where failures are logged. The
+	// per-client limit is applied before the call, by the server.
+	RequestPasskeyRecovery(ctx context.Context, email string)
+
+	// SendPasskeyRecoveryLink sends the passkey registration link for an
+	// announced passkey recovery request of the User userID. A User that no
+	// longer exists, an identity that no longer exists and an identity whose
+	// address is not verified are logged and finish without sending.
+	//
+	// # Possible errors
+	//
+	//  - Any other failure of User.Get or User.SendPasskeyRegistrationLink,
+	//    unchanged, so the request runs again (and a newer link is sent).
+	SendPasskeyRecoveryLink(ctx context.Context, userID string) error
+
+	// NotifyPasskeyChange emails the fan of the identity providerUserID that a
+	// passkey was added or removed. When no User has the identity it finishes
+	// without sending.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the kind of change is unknown.
+	//  - Unavailable: the email cannot be sent now; run again to send it.
+	//  - Any other failure of User.GetByProviderUserID or
+	//    User.SendPasskeyChangeEmail, unchanged.
+	NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error
 }
+
+// PasskeyMailers are the senders of the passkey emails: the registration link
+// of a recovery request and the passkey change email. Only the event consumer
+// sends them; elsewhere they are nil.
+type PasskeyMailers struct {
+	// RegistrationLinks sends the passkey registration link
+	// (User.SendPasskeyRegistrationLink).
+	RegistrationLinks entity.PasskeyRegistrationLinkSender
+	// ChangeEmails sends the passkey change email
+	// (User.SendPasskeyChangeEmail).
+	ChangeEmails entity.PasskeyChangeEmailSender
+}
+
+// passkeyRecoveryLimit and passkeyRecoveryWindow bound the passkey recovery
+// requests announced for one address: at most passkeyRecoveryLimit within any
+// passkeyRecoveryWindow.
+const (
+	passkeyRecoveryLimit  = 3
+	passkeyRecoveryWindow = 60 * time.Minute
+	// passkeyRecoveryTimeout bounds the background lookup and announcement.
+	passkeyRecoveryTimeout = 30 * time.Second
+)
 
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
@@ -137,7 +194,16 @@ type userUseCase struct {
 	publisher       EventPublisher
 	emailVerifier   entity.EmailVerifier
 	identityRemover entity.IdentityRemover
+	passkeyMailers  PasskeyMailers
 	logger          *logging.Logger
+
+	// passkeyRecoveryLimiter bounds the recovery requests announced for one
+	// address.
+	passkeyRecoveryLimiter *slidingWindowLimiter
+	// background runs the recovery lookup and announcement after
+	// RequestPasskeyRecovery returns. Tests replace it to run the task
+	// synchronously.
+	background func(task func())
 
 	// resendMu protects resendLog for concurrent access.
 	resendMu  sync.Mutex
@@ -152,7 +218,8 @@ var _ UserUseCase = (*userUseCase)(nil)
 // repositories that deletion checks for live purchases, a publisher for domain
 // events, an email verifier for triggering verification emails and an
 // identity remover for deletion (both nil when the Zitadel API client is not
-// configured, e.g. local dev), and a logger.
+// configured, e.g. local dev), the passkey email senders (empty outside the
+// event consumer), and a logger.
 func NewUserUseCase(
 	userRepo entity.UserRepository,
 	ticketRepo entity.TicketRepository,
@@ -160,17 +227,21 @@ func NewUserUseCase(
 	publisher EventPublisher,
 	emailVerifier entity.EmailVerifier,
 	identityRemover entity.IdentityRemover,
+	passkeyMailers PasskeyMailers,
 	logger *logging.Logger,
 ) UserUseCase {
 	return &userUseCase{
-		userRepo:        userRepo,
-		ticketRepo:      ticketRepo,
-		orderRepo:       orderRepo,
-		publisher:       publisher,
-		emailVerifier:   emailVerifier,
-		identityRemover: identityRemover,
-		logger:          logger,
-		resendLog:       make(map[string][]time.Time),
+		userRepo:               userRepo,
+		ticketRepo:             ticketRepo,
+		orderRepo:              orderRepo,
+		publisher:              publisher,
+		emailVerifier:          emailVerifier,
+		identityRemover:        identityRemover,
+		passkeyMailers:         passkeyMailers,
+		logger:                 logger,
+		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, time.Now),
+		background:             func(task func()) { go task() },
+		resendLog:              make(map[string][]time.Time),
 	}
 }
 
@@ -470,4 +541,96 @@ func (uc *userUseCase) allowResend(providerUserID string) bool {
 
 	uc.resendLog[providerUserID] = append(recent, now)
 	return true
+}
+
+// RequestPasskeyRecovery implements [UserUseCase]. The per-address check runs
+// before it returns; the lookup and the announcement run afterwards on a
+// context detached from the request, so neither the answer nor its timing
+// depends on whether the address belongs to a User.
+func (uc *userUseCase) RequestPasskeyRecovery(ctx context.Context, email string) {
+	if !uc.passkeyRecoveryLimiter.allow(strings.ToLower(email)) {
+		uc.logger.Info(ctx, "passkey recovery not announced: per-address limit reached")
+		return
+	}
+	bgCtx := context.WithoutCancel(ctx)
+	uc.background(func() {
+		ctx, cancel := context.WithTimeout(bgCtx, passkeyRecoveryTimeout)
+		defer cancel()
+		uc.announcePasskeyRecovery(ctx, email)
+	})
+}
+
+// announcePasskeyRecovery reads the User whose email is the address and, when
+// there is one, announces a passkey recovery request for it. The address is
+// never logged; failures are.
+func (uc *userUseCase) announcePasskeyRecovery(ctx context.Context, email string) {
+	user, err := uc.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Info(ctx, "passkey recovery not announced: no user has the address")
+			return
+		}
+		uc.logger.Error(ctx, "failed to read the user for a passkey recovery request", err)
+		return
+	}
+	if err := uc.publishEvent(ctx, entity.SubjectUserPasskeyRecoveryRequested,
+		entity.UserPasskeyRecoveryRequestedData{UserID: user.ID}); err != nil {
+		uc.logger.Error(ctx, "failed to announce a passkey recovery request", err,
+			slog.String("user_id", user.ID))
+		return
+	}
+	uc.logger.Info(ctx, "passkey recovery request announced", slog.String("user_id", user.ID))
+}
+
+// SendPasskeyRecoveryLink implements [UserUseCase].
+func (uc *userUseCase) SendPasskeyRecoveryLink(ctx context.Context, userID string) error {
+	attrs := slog.String("user_id", userID)
+	user, err := uc.userRepo.Get(ctx, userID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Info(ctx, "passkey recovery link not sent: the user no longer exists", attrs)
+			return nil
+		}
+		return fmt.Errorf("get user %q for a passkey recovery link: %w", userID, err)
+	}
+	if uc.passkeyMailers.RegistrationLinks == nil {
+		return apperr.New(codes.Internal, "passkey registration links are not configured", attrs)
+	}
+	if err := uc.passkeyMailers.RegistrationLinks.SendPasskeyRegistrationLink(ctx, user); err != nil {
+		switch {
+		case errors.Is(err, apperr.ErrNotFound):
+			uc.logger.Info(ctx, "passkey recovery link not sent: the identity no longer exists", attrs)
+			return nil
+		case errors.Is(err, apperr.ErrFailedPrecondition):
+			uc.logger.Info(ctx, "passkey recovery link not sent: the identity's address is not verified", attrs)
+			return nil
+		}
+		return fmt.Errorf("send passkey registration link to user %q: %w", userID, err)
+	}
+	uc.logger.Info(ctx, "passkey recovery link sent", attrs)
+	return nil
+}
+
+// NotifyPasskeyChange implements [UserUseCase].
+func (uc *userUseCase) NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error {
+	attrs := []slog.Attr{slog.String("provider_user_id", providerUserID), slog.String("kind", string(change.Kind))}
+	if !change.Kind.IsValid() {
+		return apperr.New(codes.InvalidArgument, "unknown kind of passkey change", attrs...)
+	}
+	user, err := uc.userRepo.GetByProviderUserID(ctx, providerUserID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Info(ctx, "passkey change not emailed: no user has the identity", attrs...)
+			return nil
+		}
+		return fmt.Errorf("get user by provider user ID %q for a passkey change: %w", providerUserID, err)
+	}
+	if uc.passkeyMailers.ChangeEmails == nil {
+		return apperr.New(codes.Unavailable, "passkey change emails are not configured", attrs...)
+	}
+	if err := uc.passkeyMailers.ChangeEmails.SendPasskeyChangeEmail(ctx, user, change); err != nil {
+		return fmt.Errorf("send passkey change email to user %q: %w", user.ID, err)
+	}
+	uc.logger.Info(ctx, "passkey change emailed", append(attrs, slog.String("user_id", user.ID))...)
+	return nil
 }

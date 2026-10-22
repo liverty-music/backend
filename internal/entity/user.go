@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 	"unicode/utf8"
 )
 
@@ -231,6 +232,17 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	GetByProviderUserID(ctx context.Context, providerUserID string) (*User, error)
 
+	// GetByEmail retrieves the user whose email equals the given address when
+	// letter case is ignored.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the address is empty.
+	//  - NotFound: If no user has the address.
+	//  - Internal: If more than one user has the address once letter case is
+	//    ignored.
+	GetByEmail(ctx context.Context, email string) (*User, error)
+
 	// Delete removes a user.
 	//
 	// # Possible errors
@@ -297,4 +309,68 @@ type IdentityRemover interface {
 	//
 	//  - Internal: the identity provider failed to remove the identity.
 	DeleteIdentity(ctx context.Context, providerUserID string) error
+}
+
+// PasskeyRegistrationLinkSender sends a User's verified email address a link
+// that registers a new passkey for the User's identity on whichever device
+// the link is opened (User.SendPasskeyRegistrationLink). The link stops
+// working 1 hour after it is sent and once a registration has been started
+// with it; the identity's existing passkeys stay registered.
+type PasskeyRegistrationLinkSender interface {
+	// SendPasskeyRegistrationLink sends one email, in the user's preferred
+	// language (Japanese when none), to the address the user's identity has
+	// verified.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: the identity's address is not verified; nothing
+	//    is sent.
+	//  - NotFound: the user's identity no longer exists.
+	//  - Internal: any other failure to send.
+	SendPasskeyRegistrationLink(ctx context.Context, user *User) error
+}
+
+// PasskeyChangeKind is the kind of change made to a User's passkeys.
+type PasskeyChangeKind string
+
+const (
+	// PasskeyChangeAdded is a passkey that finished registration.
+	PasskeyChangeAdded PasskeyChangeKind = "added"
+	// PasskeyChangeRemoved is a passkey that was removed.
+	PasskeyChangeRemoved PasskeyChangeKind = "removed"
+)
+
+// IsValid reports whether k is a known kind of passkey change.
+func (k PasskeyChangeKind) IsValid() bool {
+	return k == PasskeyChangeAdded || k == PasskeyChangeRemoved
+}
+
+// PasskeyChange is a passkey added to or removed from a User's identity at
+// the identity provider. Passkeys are not stored by the platform; this value
+// only carries what the change email shows.
+type PasskeyChange struct {
+	// Kind is whether the passkey was added or removed.
+	Kind PasskeyChangeKind
+	// Name is the passkey's name at the identity provider; empty when not
+	// known (always for a removal).
+	Name string
+	// ChangeTime is when the change was made.
+	ChangeTime time.Time
+}
+
+// PasskeyChangeEmailSender emails a User that a passkey was added to or
+// removed from their account (User.SendPasskeyChangeEmail).
+type PasskeyChangeEmailSender interface {
+	// SendPasskeyChangeEmail sends one email to the user's email address, in
+	// the user's preferred language (Japanese when none), stating the kind of
+	// change, the passkey's name when it is not empty and the time of the
+	// change in Japan time, and telling the reader to open the "can't sign
+	// in" screen and remove unknown passkeys in Settings when they did not
+	// make the change.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the user has no email address.
+	//  - Unavailable: email cannot be sent.
+	SendPasskeyChangeEmail(ctx context.Context, user *User, change PasskeyChange) error
 }

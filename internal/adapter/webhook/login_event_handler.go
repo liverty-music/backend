@@ -64,7 +64,8 @@ type LoginEventHandler struct {
 
 // NewLoginEventHandler constructs a handler bound to the given Target signing
 // key, user resolver, and event publisher. The signing key MUST match the key
-// Zitadel generated for the login-event Target.
+// Zitadel generated for the login-event Target; an empty key makes every
+// request fail with 503.
 func NewLoginEventHandler(
 	signingKey string,
 	users userResolver,
@@ -97,6 +98,16 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// An empty key would not reject anything: actions.ValidateRequestPayload
+	// computes the HMAC with whatever key it is given, so a body signed with
+	// "" would verify.
+	if h.signingKey == "" {
+		h.logger.Error(ctx, "login-event: signing key is not configured; emitting nothing",
+			errors.New("WEBHOOK_LOGIN_EVENT_SIGNING_KEY is empty"))
+		http.Error(w, "not configured", http.StatusServiceUnavailable)
 		return
 	}
 

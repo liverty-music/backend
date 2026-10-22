@@ -130,3 +130,5 @@ configMapGenerator:
   - migrations/20261016010000_organizer_short_name_not_null.sql
   - migrations/20261017000000_organization_vocabulary_comments.sql
   - migrations/20261020081056_create_resale_listings.sql
+  - migrations/20261022014500_users_email_lower_index.sql
+  - migrations/20261022014600_create_passkeys.sql

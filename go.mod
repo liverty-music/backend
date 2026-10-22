@@ -30,8 +30,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261020080618-a3caa5c38b64.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261020080618-a3caa5c38b64.2
+	buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261022015907-b88824777f05.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261022015907-b88824777f05.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20261013105838-b6e033b1b614.2
 	cloud.google.com/go/cloudsqlconn v1.25.4
@@ -48,6 +48,7 @@ require (
 	github.com/ThreeDotsLabs/watermill-nats/v2 v2.2.0
 	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/davidbyttow/govips/v2 v2.19.0
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jwx-go/jwkfetch/v4 v4.0.4
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -158,7 +159,6 @@ require (
 	github.com/google/go-dap v0.12.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect

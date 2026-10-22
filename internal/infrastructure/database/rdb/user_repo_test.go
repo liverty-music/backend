@@ -242,6 +242,67 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 	}
 }
 
+func TestUserRepository_GetByEmail(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB)
+	ctx := context.Background()
+
+	// @spec components/entity/user/get-by-email "Registered address"
+	t.Run("returns the user whose email is the address", func(t *testing.T) {
+		cleanDatabase(t)
+		created, err := repo.Create(ctx, newTestUser("ext-by-email-1", "fan@example.com", "Fan"))
+		require.NoError(t, err)
+
+		got, err := repo.GetByEmail(ctx, "fan@example.com")
+
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, got.ID)
+		assert.Equal(t, "fan@example.com", got.Email)
+	})
+
+	// @spec components/entity/user/get-by-email "Different letter case"
+	t.Run("returns the user when the address differs only in letter case", func(t *testing.T) {
+		cleanDatabase(t)
+		created, err := repo.Create(ctx, newTestUser("ext-by-email-2", "fan@example.com", "Fan"))
+		require.NoError(t, err)
+
+		got, err := repo.GetByEmail(ctx, "Fan@Example.com")
+
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, got.ID)
+		assert.Equal(t, "fan@example.com", got.Email, "the stored address, not the typed one")
+	})
+
+	// @spec components/entity/user/get-by-email "Unregistered address"
+	t.Run("fails with NotFound when no user has the address", func(t *testing.T) {
+		cleanDatabase(t)
+		_, err := repo.Create(ctx, newTestUser("ext-by-email-3", "fan@example.com", "Fan"))
+		require.NoError(t, err)
+
+		_, err = repo.GetByEmail(ctx, "nobody@example.com")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	// @spec components/entity/user/get-by-email "Empty address"
+	t.Run("fails with InvalidArgument for an empty address", func(t *testing.T) {
+		_, err := repo.GetByEmail(ctx, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("fails with Internal when two users have the address once letter case is ignored", func(t *testing.T) {
+		cleanDatabase(t)
+		_, err := repo.Create(ctx, newTestUser("ext-by-email-4", "fan@example.com", "Fan"))
+		require.NoError(t, err)
+		_, err = repo.Create(ctx, newTestUser("ext-by-email-5", "FAN@example.com", "Fan Two"))
+		require.NoError(t, err)
+
+		_, err = repo.GetByEmail(ctx, "fan@example.com")
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+}
+
 func TestUserRepository_Delete(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")

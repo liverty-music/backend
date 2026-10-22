@@ -6,12 +6,15 @@ import (
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
+	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
 )
 
 // FanPublicProcedures returns the consumer (fan) Connect procedures that are
 // accessible without authentication: read-only endpoints that return publicly
 // available data (artist charts, concert schedules, public event pages) and
-// are called during onboarding or by guests. Write endpoints remain fully
+// are called during onboarding or by guests, and UserService.RequestPasskeyRecovery,
+// which serves people who cannot sign in and is limited per client
+// ([FanClientLimitedProcedures]). Other write endpoints remain fully
 // authenticated. The admin server never uses this allowlist.
 func FanPublicProcedures() map[string]bool {
 	return map[string]bool{
@@ -24,6 +27,16 @@ func FanPublicProcedures() map[string]bool {
 		"/" + concertconnect.ConcertServiceName + "/Get":            true,
 		"/" + concertconnect.ConcertServiceName + "/ListBySeries":   true,
 		ticketsaleconnect.TicketSaleServiceListByEventProcedure:     true,
+		userconnect.UserServiceRequestPasskeyRecoveryProcedure:      true,
+	}
+}
+
+// FanClientLimitedProcedures returns the fan Connect procedures whose calls
+// are limited per client: UserService.RequestPasskeyRecovery, which anyone
+// can call without a sign-in and which announces a recovery request.
+func FanClientLimitedProcedures() map[string]bool {
+	return map[string]bool{
+		userconnect.UserServiceRequestPasskeyRecoveryProcedure: true,
 	}
 }
 

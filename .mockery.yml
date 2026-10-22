@@ -34,6 +34,9 @@ packages:
       OrderRepository: {}
       OrganizationRepository: {}
       OrganizerRepository: {}
+      PasskeyRepository: {}
+      PasskeyChangeEmailSender: {}
+      PasskeyRegistrationLinkSender: {}
       PushNotificationSender: {}
       PushSubscriptionRepository: {}
       ReferralRepository: {}
@@ -86,6 +89,7 @@ packages:
       OrderUseCase: {}
       OrganizerMetrics: {}
       OrganizerUseCase: {}
+      PasskeyUseCase: {}
       PushSubscriptionUseCase: {}
       ResaleListingUseCase: {}
       ScannerUseCase: {}
