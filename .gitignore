@@ -83,3 +83,7 @@ task.md
 
 # Claude Code worktrees (claude --worktree / EnterWorktree)
 .claude/worktrees/
+
+# Go build cache restored by the deploy workflow
+go-build-cache/
+scratch/

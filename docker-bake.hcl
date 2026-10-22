@@ -44,9 +44,13 @@ target "image" {
     "${IMAGE_REPO}/${img.name}:main",
     "${IMAGE_REPO}/${img.name}:${SHA}",
   ]
-  # One GitHub Actions cache scope per image, the scopes the per-image jobs
-  # used before. A shared scope would let the images overwrite each other's
-  # cache manifest.
-  cache-from = ["type=gha,scope=${img.name}"]
-  cache-to   = ["type=gha,mode=max,scope=${img.name}"]
+  # Layer cache for the stages every image shares (base images, `go mod
+  # download`, the libvips packages). One target writes it and all read it:
+  # when all eight wrote their own scope, the same shared layers were exported
+  # eight times (~60 s per run). series-image-consumer writes it because its
+  # stages include `builder` plus the libvips layers. Compiled packages are
+  # not in this cache; they live in the Go build cache mount (see Dockerfile
+  # and the "Go build cache" steps of deploy.yml).
+  cache-from = ["type=gha,scope=backend-shared"]
+  cache-to   = img.name == "series-image-consumer" ? ["type=gha,mode=max,scope=backend-shared"] : []
 }
