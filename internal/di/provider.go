@@ -121,6 +121,29 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
+// provideIdentityProviderClients builds the Zitadel clients that use the
+// backend-app key at keyPath: the email verifier and, from the same
+// credential (its ORG_USER_MANAGER membership on the product org carries
+// user.delete), the fan identity remover. With keyPath empty it builds
+// neither; the fan, organizer and reception workloads run that way so they
+// hold no identity-provider credential. It logs which clients were built so their absence is visible.
+func provideIdentityProviderClients(ctx context.Context, issuer, keyPath string, logger *logging.Logger) (entity.EmailVerifier, entity.IdentityRemover, error) {
+	if keyPath == "" {
+		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "none"))
+		return nil, nil, nil
+	}
+	ev, err := infrazitadel.NewEmailVerifier(ctx, issuer, keyPath, logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create zitadel email verifier: %w", err)
+	}
+	ir, err := infrazitadel.NewIdentityRemover(ctx, issuer, keyPath, logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create zitadel identity remover: %w", err)
+	}
+	logger.Info(ctx, "identity-provider clients built", slog.String("clients", "email_verifier,identity_remover"))
+	return ev, ir, nil
+}
+
 // newVenueMapCatalog builds the Google Maps Places client that serves the
 // organizer venue search and reads a picked place. It authenticates with
 // Application Default Credentials (Workload Identity in GKE) and bills the
@@ -263,24 +286,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	// Infrastructure - Zitadel API client (optional, nil in local dev).
-	var emailVerifier entity.EmailVerifier
-	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
-		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
-		}
-		emailVerifier = ev
-	}
-	// Fan identity removal uses the same backend-app credential, whose
-	// ORG_USER_MANAGER membership on the product org carries user.delete.
-	var identityRemover entity.IdentityRemover
-	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
-		ir, err := infrazitadel.NewIdentityRemover(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create zitadel identity remover: %w", err)
-		}
-		identityRemover = ir
+	// Infrastructure - Zitadel API clients (optional, nil where the backend-app
+	// key is not mounted: local dev and every workload but admin).
+	emailVerifier, identityRemover, err := provideIdentityProviderClients(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	// Business metrics

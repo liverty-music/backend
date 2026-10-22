@@ -107,8 +107,10 @@ type ServerConfig struct {
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
 	// from GSM secret `zitadel-machine-key-for-backend-app`. Required
-	// outside local; empty in local development disables the Zitadel API
-	// client (email verification and fan identity removal).
+	// outside local only on the admin workload, which serves fan identity
+	// removal; the fan, organizer and reception workloads hold no
+	// identity-provider credential. Empty disables the Zitadel API client
+	// (email verification and fan identity removal).
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
@@ -945,8 +947,10 @@ var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer, Workl
 
 // validateWorkloadSettings requires, outside local, every setting the API
 // servers use. Each deployment runs all five listeners, so the requirements
-// are the same for every workload except the organizer-provisioner
-// credential, which only the admin workload may carry.
+// are the same for every workload except two credentials that only the admin
+// workload needs: the organizer-provisioner credential, which only it may
+// carry, and the backend-app credential, which it needs for fan identity
+// removal (the verification resend is sent by the event consumer).
 func (c *ServerConfig) validateWorkloadSettings() error {
 	if c.Workload == "" {
 		return fmt.Errorf("API_WORKLOAD is required outside local (allowed: %s)", strings.Join(apiWorkloads, ", "))
@@ -970,11 +974,11 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
 		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
-		{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
 	}
 	if c.Workload == WorkloadAdmin {
 		required = append(required,
 			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+			envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
 			envVar{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
 		)
 	} else if c.ZitadelMachineKeyForOrganizerProvisionerPath != "" {

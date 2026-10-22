@@ -23,3 +23,6 @@ func PasskeyRecoveryBehaviorNames(enabled bool) []string {
 	}
 	return names
 }
+
+// ProvideIdentityProviderClients exposes provideIdentityProviderClients for testing.
+var ProvideIdentityProviderClients = provideIdentityProviderClients
