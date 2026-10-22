@@ -40,3 +40,8 @@ testdata/
 Dockerfile*
 docker-compose*
 .dockerignore
+# Go build cache restored by the deploy workflow (actions/cache +
+# buildkit-cache-dance). It reaches the build through a cache mount, never
+# through the context.
+go-build-cache
+scratch

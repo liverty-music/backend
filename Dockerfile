@@ -39,7 +39,8 @@ COPY . .
 # /out/<last path element>. No main package carries a default.pgo, so
 # `-pgo=auto` changes nothing today; it stays so a profile can be dropped in.
 FROM builder AS build-static
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s' \
     -pgo=auto \
     -o /out/ \
@@ -103,7 +104,8 @@ ENTRYPOINT ["/consumer"]
 # the golang builder image.
 FROM builder AS build-series-image-consumer
 RUN apk add --no-cache vips-dev gcc musl-dev pkgconfig
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -tags vips \
     -ldflags='-w -s' \
     -o /out ./cmd/consumer/series-image-consumer
