@@ -31,89 +31,67 @@ COPY . .
 # precedence over this `ENV`; keep the two in sync.
 # See https://protobuf.dev/reference/go/faq#namespace-conflict
 
-# --- Server target ---
-FROM builder AS build-server
+# --- Static binaries (every target except series-image-consumer) ---
+# One `go build` for all seven CGO-free binaries: the packages they share
+# (internal/..., the generated SDKs, every dependency) compile once instead of
+# once per image, and Bake builds this stage once for all seven targets. With
+# several main packages and a directory `-o`, go build writes each binary as
+# /out/<last path element>. No main package carries a default.pgo, so
+# `-pgo=auto` changes nothing today; it stays so a profile can be dropped in.
+FROM builder AS build-static
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s' \
     -pgo=auto \
-    -o /out ./cmd/api
+    -o /out/ \
+    ./cmd/api \
+    ./cmd/consumer \
+    ./cmd/job/concert-discovery \
+    ./cmd/job/artist-image-sync \
+    ./cmd/job/official-site-refresh \
+    ./cmd/job/sales-phase-discovery \
+    ./cmd/job/sales-reminders
 
+# --- Server target ---
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS server
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-server /out /main
+COPY --from=build-static /out/api /main
 EXPOSE 8080
 ENTRYPOINT ["/main"]
 
 # --- Job target ---
-FROM builder AS build-concert-discovery
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/job/concert-discovery
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS concert-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-concert-discovery /out /concert-discovery
+COPY --from=build-static /out/concert-discovery /concert-discovery
 ENTRYPOINT ["/concert-discovery"]
 
 # --- Artist Image Sync Job target ---
-FROM builder AS build-artist-image-sync
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/job/artist-image-sync
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS artist-image-sync
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-artist-image-sync /out /artist-image-sync
+COPY --from=build-static /out/artist-image-sync /artist-image-sync
 ENTRYPOINT ["/artist-image-sync"]
 
 # --- Official Site Refresh Job target ---
-FROM builder AS build-official-site-refresh
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/job/official-site-refresh
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS official-site-refresh
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-official-site-refresh /out /official-site-refresh
+COPY --from=build-static /out/official-site-refresh /official-site-refresh
 ENTRYPOINT ["/official-site-refresh"]
 
 # --- Sales Phase Discovery Job target ---
-FROM builder AS build-sales-phase-discovery
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/job/sales-phase-discovery
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS sales-phase-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-sales-phase-discovery /out /sales-phase-discovery
+COPY --from=build-static /out/sales-phase-discovery /sales-phase-discovery
 ENTRYPOINT ["/sales-phase-discovery"]
 
 # --- Sales Reminders Job target ---
-FROM builder AS build-sales-reminders
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/job/sales-reminders
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS sales-reminders
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-sales-reminders /out /sales-reminders
+COPY --from=build-static /out/sales-reminders /sales-reminders
 ENTRYPOINT ["/sales-reminders"]
 
 # --- Consumer target ---
-FROM builder AS build-consumer
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s' \
-    -pgo=auto \
-    -o /out ./cmd/consumer
-
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS consumer
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-consumer /out /consumer
+COPY --from=build-static /out/consumer /consumer
 ENTRYPOINT ["/consumer"]
 
 # --- Series Image Consumer target (libvips / CGO) ---
