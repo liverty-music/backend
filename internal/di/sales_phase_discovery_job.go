@@ -10,6 +10,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -88,6 +89,13 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 	}
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
+	// PostHog analytics client for the search signals (optional: nil without
+	// POSTHOG_PROJECT_API_KEY).
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	// Gemini published-sale searcher — mandatory for this job.
 	if cfg.GCP.GeminiSearchAPIKey == "" {
 		return nil, fmt.Errorf("sales-phase-discovery job requires GCP_GEMINI_SEARCH_API_KEY")
@@ -97,6 +105,7 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 		APIKey:   cfg.GCP.GeminiSearchAPIKey,
 		Model:    cfg.GCP.PublishedSaleSearchModel(),
 		Thinking: cfg.GCP.PublishedSaleSearchThinking(),
+		Reporter: posthog.NewGenerationReporter(analyticsClient, logger),
 	}, geminiHTTPClient, logger)
 	if err != nil {
 		return nil, err
@@ -113,6 +122,7 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 		journeyRepo,
 		searcher,
 		eventPublisher,
+		analyticsClient,
 		logger,
 	)
 

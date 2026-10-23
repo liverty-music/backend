@@ -12,8 +12,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v7"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/genai"
@@ -71,6 +74,10 @@ type Config struct {
 	// ThinkingLevel is the thinking level of the grounded call. Empty leaves
 	// the model default in place.
 	ThinkingLevel string
+
+	// Reporter receives one generation per request sent to the model. Nil
+	// reports nothing.
+	Reporter GenerationReporter
 }
 
 // temperature returns the request temperature, or nil when OmitTemperature
@@ -232,9 +239,8 @@ type PassMetadata struct {
 	ToolReportDropped bool
 
 	// ExhaustedTransient is true when the retry policy ran to the end with
-	// the call still in a transient-error state and the result was forced to
-	// empty. Surfaced so observability can distinguish "model found nothing"
-	// (false) from "infra failed, output was forced to empty" (true).
+	// the call still in a transient-error state; SearchExt then fails with
+	// Unavailable.
 	ExhaustedTransient bool
 }
 
@@ -348,8 +354,22 @@ func (s *ConcertSearcher) SearchExt(
 	links := s.linkedPages(ctx, officialSiteURL, attrs)
 	attrs = append(attrs, slog.Int("linked_pages", len(links)), slog.Any("linked_page_urls", links))
 
+	// Every request sent below is reported once, after the response is
+	// parsed so the last one carries the parse result.
+	base := posthog.LLMGeneration{
+		Model: s.config.Model,
+		Request: posthog.LLMRequest{
+			ArtistID:        artist.ID,
+			OfficialSiteURL: officialSiteURL,
+			LinkedPageURLs:  links,
+			SearchFrom:      from.Format(time.DateOnly),
+		},
+	}
+	var gens []posthog.LLMGeneration
+	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
+
 	prompt, cfg := s.buildRequest(artist.Name, officialSiteURL, links, time.Now().UTC())
-	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs)
+	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs, base, &gens)
 	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
 		// Some pages break the Preview tool-invocation report after URL
 		// context reads them, and the request fails with 400 (backend #542).
@@ -360,7 +380,7 @@ func (s *ConcertSearcher) SearchExt(
 		reduced.ToolConfig = nil
 		first := pm
 		pm, rawText, transient, err = s.executePass(ctx, s.config.Model, prompt, &reduced,
-			append(slices.Clone(attrs), slog.Bool("tool_report_dropped", true)))
+			append(slices.Clone(attrs), slog.Bool("tool_report_dropped", true)), base, &gens)
 		pm.RetryCount += first.RetryCount
 		pm.ToolReportDropped = true
 	}
@@ -380,9 +400,11 @@ func (s *ConcertSearcher) SearchExt(
 		return nil, md, err
 	}
 	if transient {
-		s.logger.Warn(ctx, "grounded call exhausted retries with transient error, returning empty results", attrs...)
+		// Every attempt failed transiently: fail with Unavailable so the
+		// caller records the search as failed and searches again on the next
+		// run, instead of reading it as "no concerts".
 		pm.ExhaustedTransient = true
-		return nil, md, nil
+		return nil, md, apperr.New(codes.Unavailable, "gemini concert search failed transiently on every attempt", attrs...)
 	}
 	if rawText == "" {
 		s.logger.Warn(ctx, "grounded call returned no text, returning empty results", attrs...)
@@ -391,8 +413,10 @@ func (s *ConcertSearcher) SearchExt(
 
 	drafts, err := parseSingleStepJSON(rawText)
 	md.DraftCount = len(drafts)
+	last := &gens[len(gens)-1]
 	if err != nil {
 		md.InvalidJSON = true
+		last.ErrorKind = errorKindInvalidJSON
 		truncated := rawText
 		if len(truncated) > maxRawTextLogLen {
 			truncated = truncated[:maxRawTextLogLen]
@@ -405,9 +429,16 @@ func (s *ConcertSearcher) SearchExt(
 	}
 	if len(drafts) == 0 {
 		s.logger.Info(ctx, "grounded call returned 0 events", attrs...)
+		last.Concerts = &posthog.ConcertParseResult{}
 		return nil, md, nil
 	}
-	return s.mergeDrafts(ctx, drafts, from, md, attrs), md, nil
+	discovered := s.mergeDrafts(ctx, drafts, from, md, attrs)
+	last.Concerts = &posthog.ConcertParseResult{
+		DraftCount:  len(drafts),
+		SeriesCount: len(discovered),
+		EventCount:  entity.SumSeriesEvents(discovered),
+	}
+	return discovered, md, nil
 }
 
 // linkedPages returns the concert pages the official top page links to, or
@@ -479,12 +510,17 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links
 //     (errTooManyToolCalls), neither retried
 //
 // Non-STOP finish_reason is treated as transient and retried.
+//
+// Each request sent is appended to gens as base filled from its response,
+// with its latency and, for a failed one, its error kind.
 func (s *ConcertSearcher) executePass(
 	ctx context.Context,
 	modelName string,
 	prompt string,
 	cfg *genai.GenerateContentConfig,
 	attrs []slog.Attr,
+	base posthog.LLMGeneration,
+	gens *[]posthog.LLMGeneration,
 ) (*PassMetadata, string, bool, error) {
 	pm := &PassMetadata{}
 	bo := &backoff.ExponentialBackOff{
@@ -512,8 +548,18 @@ func (s *ConcertSearcher) executePass(
 		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
 		defer cancel()
 
+		start := time.Now()
 		resp, err := s.client.Models.GenerateContent(reqCtx, modelName, genai.Text(prompt), cfg)
+		gen := base
+		gen.Model = modelName
+		gen.Latency = time.Since(start)
+		fillFromResponse(&gen, resp)
+		record := func(errorKind string) {
+			gen.ErrorKind = errorKind
+			*gens = append(*gens, gen)
+		}
 		if err != nil {
+			record(callErrorKind(ctx, err))
 			lastWasFinish = false
 			s.logger.Warn(ctx, "gemini model call failed",
 				append(attrs, slog.String("error", err.Error()))...)
@@ -557,6 +603,7 @@ func (s *ConcertSearcher) executePass(
 		}
 
 		if len(resp.Candidates) == 0 {
+			record(errorKindNoCandidates)
 			lastWasFinish = false
 			sawPermanent = true
 			if pf := resp.PromptFeedback; pf != nil {
@@ -667,6 +714,7 @@ func (s *ConcertSearcher) executePass(
 		)
 
 		if candidate.FinishReason == genai.FinishReasonTooManyToolCalls {
+			record(errorKindTooManyToolCalls)
 			lastWasFinish = false
 			sawPermanent = true
 			s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
@@ -678,6 +726,7 @@ func (s *ConcertSearcher) executePass(
 		// often carries no text at all and must be retried, not read as
 		// "no concerts".
 		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
+			record(errorKindIncomplete)
 			lastWasFinish = true
 			finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
 			s.logger.Warn(ctx, "gemini response not completed normally, retrying",
@@ -687,10 +736,12 @@ func (s *ConcertSearcher) executePass(
 		lastWasFinish = false
 
 		if joined == "" {
+			record(errorKindNoText)
 			s.logger.Warn(ctx, "candidate has no text parts",
 				append(attrs, candidateAttrs...)...)
 			return "", nil
 		}
+		record("")
 
 		s.logger.Info(ctx, "successfully received Gemini response",
 			append(attrs, candidateAttrs...)...)
@@ -715,7 +766,7 @@ func (s *ConcertSearcher) executePass(
 		}
 		// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
 		// per-attempt RPC failed three times without ever reaching a
-		// permanent / non-STOP-FinishReason path. Degrade to no results.
+		// permanent / non-STOP-FinishReason path. SearchExt fails with Unavailable.
 		s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
 			append(attrs, slog.String("last_error", err.Error()))...)
 		return pm, "", true, nil

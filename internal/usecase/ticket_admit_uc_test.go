@@ -10,6 +10,7 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,8 @@ type admitFixture struct {
 	event    *entity.Event
 	fanID    entity.UserID
 	appended []*entity.RejectedScan
+	// admitted collects the ORDER.ticket_admitted announcements.
+	admitted []entity.TicketAdmittedData
 }
 
 func newAdmitFixture(t *testing.T) *admitFixture {
@@ -74,7 +77,15 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 		Status:         entity.ScannerStatusInUse,
 		BoundPublicKey: f.staff.PublicKey(t),
 	}
-	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, newTestLogger(t))
+	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher.EXPECT().
+		PublishEventWithID(mock.Anything, entity.SubjectTicketAdmitted, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _ string, data any) error {
+			f.admitted = append(f.admitted, data.(entity.TicketAdmittedData))
+			return nil
+		}).
+		Maybe()
+	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, publisher, newTestLogger(t))
 	return f
 }
 
@@ -379,6 +390,32 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.Empty(t, got.RejectedTickets)
 		assert.Equal(t, entity.RejectedScanReasonUnspecified, got.RejectedScanReason)
 		f.rejects.AssertNotCalled(t, "Append", mock.Anything, mock.Anything)
+	})
+
+	t.Run("two tickets admitted in one scan", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket/admit "Two tickets admitted in one scan"
+		f := newAdmitFixture(t)
+		f.expectScannerAndEvent()
+		f.expectFanKey()
+		f.expectAppend()
+		tickets := f.heldTickets(3)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		for _, tk := range tickets[:2] {
+			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.scanner.ID, now).
+				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
+		}
+		// The third is refunded: a rejected ticket sends no signal.
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[2].ID, f.scanner.ID, now).
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil).Once()
+
+		got, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
+		require.NoError(t, err)
+		assert.Equal(t, 2, got.AdmittedTicketCount)
+		assert.Equal(t, []entity.TicketAdmittedData{
+			{TicketID: string(tickets[0].ID), UserID: string(f.fanID), EventID: f.event.ID, AdmitTime: now},
+			{TicketID: string(tickets[1].ID), UserID: string(f.fanID), EventID: f.event.ID, AdmitTime: now},
+		}, f.admitted)
 	})
 
 	t.Run("already used earlier", func(t *testing.T) {

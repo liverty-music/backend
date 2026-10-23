@@ -189,7 +189,7 @@ func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 
 // SetHype updates the enthusiasm tier for a followed artist.
 func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
-	err := uc.followRepo.SetHype(ctx, userID, artistID, hype)
+	previous, err := uc.followRepo.SetHype(ctx, userID, artistID, hype)
 	if err != nil {
 		return err
 	}
@@ -199,6 +199,22 @@ func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, h
 		slog.String("artist_id", artistID),
 		slog.String("hype", string(hype)),
 	)
+
+	// Only an actual change is reported; a failed publish is logged and
+	// never fails SetHype or undoes the change.
+	if previous != hype {
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistHypeChanged, entity.ArtistHypeChangedData{
+			UserID:   userID,
+			ArtistID: artistID,
+			FromHype: string(previous),
+			ToHype:   string(hype),
+		}); err != nil {
+			uc.logger.Error(ctx, "failed to publish ARTIST.hype_changed event", err,
+				slog.String("user_id", userID),
+				slog.String("artist_id", artistID),
+			)
+		}
+	}
 	return nil
 }
 

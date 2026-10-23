@@ -135,10 +135,11 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 		d.searcher, d.centroidResolver,
 		messaging.NewEventPublisher(d.publisher),
 		noopMetrics{},
+		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
 	)
 
-	concerts, err := uc.SearchNewConcerts(ctx, "artist-1")
+	concerts, err := uc.SearchNewConcerts(ctx, "artist-1", usecase.SearchTriggerDaily)
 	require.NoError(t, err)
 	assert.Nil(t, concerts, "expected nil result when artist is organizer-represented")
 	// Searcher mock has no expectations — no Gemini call must have been made.
@@ -162,6 +163,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		d.searcher, d.centroidResolver,
 		messaging.NewEventPublisher(d.publisher),
 		noopMetrics{},
+		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
 	)
 
@@ -183,7 +185,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, "artist-2", entity.ConcertSearchStatusCompleted).
 		Return(nil).Maybe()
 
-	concerts, err := uc.SearchNewConcerts(ctx, "artist-2")
+	concerts, err := uc.SearchNewConcerts(ctx, "artist-2", usecase.SearchTriggerDaily)
 	require.NoError(t, err)
 	assert.Nil(t, concerts)
 }

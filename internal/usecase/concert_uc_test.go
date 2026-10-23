@@ -40,6 +40,7 @@ type concertTestDeps struct {
 	searcher             *mocks.MockConcertSearcher
 	centroidResolver     usecase.CentroidResolver
 	publisher            *gochannel.GoChannel
+	analytics            *recordingAnalytics
 	uc                   usecase.ConcertUseCase
 }
 
@@ -67,8 +68,9 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		searcher:             mocks.NewMockConcertSearcher(t),
 		centroidResolver:     noopCentroidResolver{},
 		publisher:            pub,
+		analytics:            &recordingAnalytics{},
 	}
-	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
+	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, logger)
 	d.uc = uc
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
@@ -435,7 +437,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			var msgs <-chan *entity.ConcertDiscoveredData
 			_ = msgs // event verification is optional; main assertion is on error
 
-			_, err := d.uc.SearchNewConcerts(ctx, tt.args.artistID)
+			_, err := d.uc.SearchNewConcerts(ctx, tt.args.artistID, usecase.SearchTriggerDaily)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -587,7 +589,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			time.Sleep(1 * time.Hour) // advance fake clock — still within 24h TTL
 
-			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 			assert.Nil(t, got)
 		})
@@ -621,7 +623,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
@@ -645,7 +647,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			time.Sleep(1 * time.Minute)
 
-			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 			assert.Nil(t, got)
 		})
@@ -679,7 +681,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
@@ -721,7 +723,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 			time.Sleep(48 * time.Hour) // past 24h TTL but within 14d discovery window
 
-			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 			assert.Nil(t, got, "recent discovery should suppress the external search")
 		})
@@ -755,7 +757,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
@@ -791,7 +793,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
@@ -998,7 +1000,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 					d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 				}
 
-				_, err = d.uc.SearchNewConcerts(ctx, artistID)
+				_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 				assert.NoError(t, err)
 
 				got := receivePublishedConcerts(t, ctx, sub)
@@ -1168,7 +1170,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
 			// Only the genuinely new concert should be published.
@@ -1217,7 +1219,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
@@ -1254,11 +1256,110 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
 			assert.Equal(t, 1, got, "previously rejected concert is not suppressed — it should be re-discovered")
 		})
+	})
+}
+
+// expectSearchUpToSearcher sets up a never-searched artist up to the external
+// search: the pending mark, the artist, its site, the existing upcoming
+// concerts and no pending candidates.
+func expectSearchUpToSearcher(d *concertTestDeps, artist *entity.Artist, existing []*entity.Concert) {
+	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, artist.ID, entity.ConcertSearchStatusPending).Return(nil).Once()
+	d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
+	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+	d.concertRepo.EXPECT().ListByArtist(mock.Anything, artist.ID, true).Return(existing, nil).Once()
+	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artist.ID).Return(nil, nil).Once()
+}
+
+func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+	date := time.Now().Add(48 * time.Hour).UTC().Truncate(24 * time.Hour)
+
+	t.Run("nothing new", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/search-new-concerts "Nothing new"
+		d := newConcertTestDeps(t)
+		hall := "Hall A"
+		known := &entity.Concert{LocalDate: date, ListedVenueName: &hall}
+		expectSearchUpToSearcher(d, artist, []*entity.Concert{known})
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).Return([]*entity.DiscoveredSeries{{
+			Title: "Tour", Events: []*entity.DiscoveredEvent{{ListedVenueName: "Hall A", LocalDate: date}},
+		}}, nil).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+
+		assert.Equal(t, []usecase.AnalyticsProperties{{
+			"artist_id":    "artist-1",
+			"trigger":      "daily_run",
+			"outcome":      "nothing_new",
+			"series_count": 0,
+			"event_count":  0,
+		}}, d.analytics.sent(usecase.EventConcertSearchCompleted))
+	})
+
+	t.Run("search failed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/search-new-concerts "Search failed"
+		d := newConcertTestDeps(t)
+		expectSearchUpToSearcher(d, artist, nil)
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).
+			Return(nil, apperr.New(codes.Unavailable, "gemini down")).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, entity.ConcertSearchStatusFailed).Return(nil).Once()
+
+		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+
+		sent := d.analytics.sent(usecase.EventConcertSearchCompleted)
+		require.Len(t, sent, 1)
+		assert.Equal(t, "failed", sent[0]["outcome"])
+	})
+
+	t.Run("new concerts found on a first follow", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		// SearchNewConcertsOnFirstFollow reads the search once, then SearchNewConcerts again.
+		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+		expectSearchUpToSearcher(d, artist, nil)
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).Return([]*entity.DiscoveredSeries{{
+			Title: "Tour", Events: []*entity.DiscoveredEvent{
+				{ListedVenueName: "Hall A", LocalDate: date},
+				{ListedVenueName: "Hall B", LocalDate: date.AddDate(0, 0, 7)},
+			},
+		}}, nil).Once()
+		d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artist.ID).Return(nil).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
+
+		require.NoError(t, d.uc.SearchNewConcertsOnFirstFollow(ctx, artist.ID))
+
+		assert.Equal(t, []usecase.AnalyticsProperties{{
+			"artist_id":    "artist-1",
+			"trigger":      "first_follow",
+			"outcome":      "found",
+			"series_count": 1,
+			"event_count":  2,
+		}}, d.analytics.sent(usecase.EventConcertSearchCompleted))
+	})
+
+	t.Run("a run that returns before the search sends nothing", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(&entity.ConcertSearch{
+			ArtistID: artist.ID, SearchTime: time.Now().Add(-time.Hour), Status: entity.ConcertSearchStatusCompleted,
+		}, nil).Once()
+
+		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
+		require.NoError(t, err)
+		assert.Empty(t, d.analytics.sent(usecase.EventConcertSearchCompleted))
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -123,7 +124,7 @@ func TestNew(t *testing.T) {
 				lg = testLogger(t)
 			}
 
-			client, err := posthog.New(tt.args.apiHost, tt.args.projectAPIKey, lg)
+			client, err := posthog.New(tt.args.apiHost, tt.args.projectAPIKey, "test-process", "v1.2.3", lg)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -255,7 +256,7 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 			t.Parallel()
 
 			fake := &fakeEnqueuer{enqueueErr: tt.setupErr}
-			client := posthog.NewWithEnqueuer(fake, testLogger(t))
+			client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 			err := client.Enqueue(
 				context.Background(),
@@ -289,7 +290,7 @@ func TestAnalyticsClient_Enqueue_TracePropagation(t *testing.T) {
 		defer span.End()
 
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		err := client.Enqueue(ctx, validUUID, usecase.EventUserCreated, usecase.AnalyticsProperties{"foo": "bar"})
 		require.NoError(t, err)
@@ -309,7 +310,7 @@ func TestAnalyticsClient_Enqueue_TracePropagation(t *testing.T) {
 		defer span.End()
 
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		err := client.Enqueue(ctx, validUUID, usecase.EventUserCreated, usecase.AnalyticsProperties{
 			posthog.TracePropertyKey: "caller-supplied-trace",
@@ -324,7 +325,7 @@ func TestAnalyticsClient_Enqueue_TracePropagation(t *testing.T) {
 	t.Run("no trace_id when context has no active span", func(t *testing.T) {
 		t.Parallel()
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		err := client.Enqueue(context.Background(), validUUID, usecase.EventUserCreated, usecase.AnalyticsProperties{"foo": "bar"})
 		require.NoError(t, err)
@@ -343,7 +344,7 @@ func TestAnalyticsClient_Enqueue_TracePropagation(t *testing.T) {
 		defer span.End()
 
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		callerProps := usecase.AnalyticsProperties{"foo": "bar"}
 		require.NoError(t, client.Enqueue(ctx, validUUID, usecase.EventUserCreated, callerProps))
@@ -361,7 +362,7 @@ func TestAnalyticsClient_Close(t *testing.T) {
 	t.Run("closes the underlying enqueuer", func(t *testing.T) {
 		t.Parallel()
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		require.NoError(t, client.Close())
 		assert.Equal(t, 1, fake.CloseCalls())
@@ -371,7 +372,7 @@ func TestAnalyticsClient_Close(t *testing.T) {
 		t.Parallel()
 		sdkErr := errors.New("shutdown timeout")
 		fake := &fakeEnqueuer{closeErr: sdkErr}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		err := client.Close()
 		assert.ErrorIs(t, err, apperr.ErrInternal)
@@ -381,7 +382,7 @@ func TestAnalyticsClient_Close(t *testing.T) {
 	t.Run("is idempotent across repeated calls (Finding 04)", func(t *testing.T) {
 		t.Parallel()
 		fake := &fakeEnqueuer{}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		// First call closes successfully.
 		require.NoError(t, client.Close())
@@ -396,7 +397,7 @@ func TestAnalyticsClient_Close(t *testing.T) {
 		t.Parallel()
 		sdkErr := errors.New("shutdown timeout")
 		fake := &fakeEnqueuer{closeErr: sdkErr}
-		client := posthog.NewWithEnqueuer(fake, testLogger(t))
+		client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 		first := client.Close()
 		second := client.Close()
@@ -412,7 +413,7 @@ func TestAnalyticsClient_Close(t *testing.T) {
 func TestEnqueue_AcceptsUUIDGeneratedDistinctID(t *testing.T) {
 	t.Parallel()
 	fake := &fakeEnqueuer{}
-	client := posthog.NewWithEnqueuer(fake, testLogger(t))
+	client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
 
 	generated := uuid.New().String()
 	require.NoError(t, client.Enqueue(context.Background(), generated, usecase.EventUserCreated, nil))
@@ -420,4 +421,128 @@ func TestEnqueue_AcceptsUUIDGeneratedDistinctID(t *testing.T) {
 	captured := fake.Captured()
 	require.Len(t, captured, 1)
 	assert.Equal(t, generated, captured[0].DistinctId)
+}
+
+// TestAnalyticsClient_EnqueueSystem covers the personless pipeline events:
+// the process as distinct id, the added properties and the event-name guard.
+func TestAnalyticsClient_EnqueueSystem(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		eventName  usecase.AnalyticsEventName
+		properties usecase.AnalyticsProperties
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+		check   func(t *testing.T, fake *fakeEnqueuer, in usecase.AnalyticsProperties)
+	}{
+		{
+			name: "sends the event as the process without a person profile",
+			args: args{
+				eventName:  usecase.EventConcertSearchCompleted,
+				properties: usecase.AnalyticsProperties{"artist_id": "artist-1", "outcome": "found"},
+			},
+			check: func(t *testing.T, fake *fakeEnqueuer, in usecase.AnalyticsProperties) {
+				t.Helper()
+				captured := fake.Captured()
+				require.Len(t, captured, 1)
+				assert.Equal(t, "test-process", captured[0].DistinctId)
+				assert.Equal(t, "concert.search.completed", captured[0].Event)
+				assert.Equal(t, posthogsdk.Properties{
+					"artist_id":               "artist-1",
+					"outcome":                 "found",
+					"process":                 "test-process",
+					"app_version":             "v1.2.3",
+					"$process_person_profile": false,
+				}, captured[0].Properties)
+				assert.Len(t, in, 2, "the caller's map is not mutated")
+			},
+		},
+		{
+			name:    "rejects empty eventName",
+			args:    args{eventName: ""},
+			wantErr: apperr.ErrInvalidArgument,
+			check: func(t *testing.T, fake *fakeEnqueuer, _ usecase.AnalyticsProperties) {
+				t.Helper()
+				assert.Empty(t, fake.Captured())
+			},
+		},
+		{
+			name:    "rejects unknown eventName",
+			args:    args{eventName: usecase.AnalyticsEventName("concert.serch.completed")},
+			wantErr: apperr.ErrInvalidArgument,
+			check: func(t *testing.T, fake *fakeEnqueuer, _ usecase.AnalyticsProperties) {
+				t.Helper()
+				assert.Empty(t, fake.Captured())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeEnqueuer{}
+			client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
+
+			err := client.EnqueueSystem(context.Background(), tt.args.eventName, tt.args.properties)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			tt.check(t, fake, tt.args.properties)
+		})
+	}
+}
+
+// TestAnalyticsClient_EnqueueOnce covers the stable event id and timestamp
+// that let PostHog store a redelivered event once.
+func TestAnalyticsClient_EnqueueOnce(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	orderID := "019a0000-0000-7000-8000-00000000a001"
+
+	type args struct {
+		distinctID string
+		eventID    string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+	}{
+		{name: "sends the event id and timestamp", args: args{distinctID: validUUID, eventID: orderID}},
+		{name: "rejects a non-UUID event id", args: args{distinctID: validUUID, eventID: "order-1"}, wantErr: apperr.ErrInvalidArgument},
+		{name: "rejects a non-UUID distinct id", args: args{distinctID: "fan-1", eventID: orderID}, wantErr: apperr.ErrInvalidArgument},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeEnqueuer{}
+			client := posthog.NewWithEnqueuer(fake, "test-process", "v1.2.3", testLogger(t))
+
+			err := client.EnqueueOnce(context.Background(), tt.args.distinctID, tt.args.eventID, at, usecase.EventOrderPaid,
+				usecase.AnalyticsProperties{"order_id": orderID})
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Empty(t, fake.Captured())
+				return
+			}
+			require.NoError(t, err)
+			captured := fake.Captured()
+			require.Len(t, captured, 1)
+			assert.Equal(t, orderID, captured[0].Uuid)
+			assert.Equal(t, at, captured[0].Timestamp)
+			assert.Equal(t, validUUID, captured[0].DistinctId)
+			assert.Equal(t, "order.paid", captured[0].Event)
+		})
+	}
 }

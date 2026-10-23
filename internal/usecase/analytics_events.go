@@ -96,6 +96,60 @@ const (
 	EventOrganizerConcertPublished AnalyticsEventName = "organizer.concert.published"
 )
 
+// Fan-level commerce and engagement events forwarded by the analytics
+// consumer from domain events.
+const (
+	// EventArtistHypeChanged is recorded when a fan changes the hype level of
+	// a followed artist to a different level (ARTIST.hype_changed).
+	// Properties: artist_id, from_hype, to_hype.
+	EventArtistHypeChanged AnalyticsEventName = "artist.hype.changed"
+
+	// EventOrderPaid is recorded once per paid Order (ORDER.paid), with the
+	// Order id as the event id so a redelivered announcement is stored once.
+	// Properties: order_id, event_id, ticket_count, amount, currency, source
+	// ("lottery_entry" or "checkout"), lottery_entry_id or checkout_id.
+	EventOrderPaid AnalyticsEventName = "order.paid"
+
+	// EventTicketLotteryResult is recorded for each drawn lottery entry
+	// (ORDER.lottery_entry_drawn). Properties: lottery_entry_id,
+	// ticket_sale_id, ticket_type_id, result ("won" or "lost"),
+	// capture_failed.
+	EventTicketLotteryResult AnalyticsEventName = "ticket.lottery.result"
+
+	// EventCheckoutExpired is recorded when a Checkout's hold lapses
+	// (ORDER.checkout_expired). Properties: checkout_id, ticket_type_id,
+	// ticket_count.
+	EventCheckoutExpired AnalyticsEventName = "checkout.expired"
+
+	// EventTicketAdmitted is recorded for each Ticket a scan admits
+	// (ORDER.ticket_admitted). Properties: ticket_id, event_id.
+	EventTicketAdmitted AnalyticsEventName = "ticket.admitted"
+)
+
+// Pipeline events without a fan, sent with AnalyticsClient.EnqueueSystem.
+const (
+	// EventConcertSearchCompleted is recorded once per SearchNewConcerts run
+	// that performed the external search. Properties: artist_id, trigger,
+	// outcome ("failed", "nothing_new" or "found"), series_count,
+	// event_count.
+	EventConcertSearchCompleted AnalyticsEventName = "concert.search.completed"
+
+	// EventConcertIngestCompleted is recorded once per CreateFromDiscovered
+	// batch. Properties: artist_id, published_count, staged_count,
+	// filled_count, suppressed_count, conflict_count.
+	EventConcertIngestCompleted AnalyticsEventName = "concert.ingest.completed"
+
+	// EventTicketSaleSearchCompleted is recorded once per DiscoverForArtist
+	// run that called the published-sale search. Properties: artist_id,
+	// outcome ("failed" or "completed"), series_count, returned_count,
+	// new_count.
+	EventTicketSaleSearchCompleted AnalyticsEventName = "ticket_sale.search.completed"
+
+	// EventAIGeneration is PostHog's LLM-analytics generation event, recorded
+	// once per request to the external search model.
+	EventAIGeneration AnalyticsEventName = "$ai_generation"
+)
+
 // knownBackendEvents is the allowlist of AnalyticsEventName constants
 // emitted from the backend. AnalyticsClient implementations consult this
 // via IsKnownEvent to reject typos at the call site, satisfying the
@@ -115,6 +169,15 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventOrganizerCreated:           {},
 	EventOrganizerArtistAssociated:  {},
 	EventOrganizerConcertPublished:  {},
+	EventArtistHypeChanged:          {},
+	EventOrderPaid:                  {},
+	EventTicketLotteryResult:        {},
+	EventCheckoutExpired:            {},
+	EventTicketAdmitted:             {},
+	EventConcertSearchCompleted:     {},
+	EventConcertIngestCompleted:     {},
+	EventTicketSaleSearchCompleted:  {},
+	EventAIGeneration:               {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event

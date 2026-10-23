@@ -81,11 +81,14 @@ type ConcertUseCase interface {
 	// It returns the newly discovered concerts after deduplication against
 	// already-known upcoming events.
 	//
+	// trigger names what started the run; it is reported with the run's
+	// outcome when the external search is performed.
+	//
 	// # Possible errors
 	//
 	//  - NotFound: If the artist does not exist.
 	//  - Internal: search or database failure.
-	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
+	SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) ([]*entity.Concert, error)
 
 	// SearchNewConcertsOnFirstFollow triggers concert discovery for an artist
 	// the very first time it is followed by anyone, and is a no-op on every
@@ -155,6 +158,8 @@ type concertUseCase struct {
 	centroidResolver     CentroidResolver
 	publisher            EventPublisher
 	metrics              ConcertMetrics
+	// analytics receives the concert.search.completed signal; nil sends none.
+	analytics AnalyticsClient
 	// searchCacheTTL is how long a completed search is reused before a repeat
 	// external call is allowed. Configured per environment (prod runs longer).
 	searchCacheTTL time.Duration
@@ -192,6 +197,7 @@ func NewConcertUseCase(
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
 	metrics ConcertMetrics,
+	analytics AnalyticsClient,
 	searchCacheTTL time.Duration,
 	discoveryWindow time.Duration,
 	logger *logging.Logger,
@@ -209,6 +215,7 @@ func NewConcertUseCase(
 		centroidResolver:     centroidResolver,
 		publisher:            publisher,
 		metrics:              metrics,
+		analytics:            analytics,
 		searchCacheTTL:       searchCacheTTL,
 		discoveryWindow:      discoveryWindow,
 		logger:               logger,
@@ -360,10 +367,30 @@ func (uc *concertUseCase) ListByLocation(ctx context.Context, location *entity.G
 	return nearby, nil
 }
 
+// SearchTrigger names what started a SearchNewConcerts run, reported as the
+// `trigger` of concert.search.completed.
+type SearchTrigger string
+
+const (
+	// SearchTriggerDaily is the daily run over followed artists.
+	SearchTriggerDaily SearchTrigger = "daily_run"
+	// SearchTriggerFirstFollow is SearchNewConcertsOnFirstFollow.
+	SearchTriggerFirstFollow SearchTrigger = "first_follow"
+	// SearchTriggerManual is a run started by hand, outside the daily run.
+	SearchTriggerManual SearchTrigger = "manual"
+)
+
+// Outcomes of the concert.search.completed signal.
+const (
+	concertSearchOutcomeFailed     = "failed"
+	concertSearchOutcomeNothingNew = "nothing_new"
+	concertSearchOutcomeFound      = "found"
+)
+
 // SearchNewConcerts discovers new concerts for the given artist synchronously.
 // It returns the newly discovered concerts after deduplication against
 // already-known upcoming events.
-func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) ([]*entity.Concert, error) {
 	// Discovery exclusion: skip Gemini search entirely for artists whose
 	// concerts are managed directly by an active organizer. The organizer
 	// publishes their concerts via the authoring surface; a background
@@ -425,7 +452,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
-	return uc.executeSearch(ctx, artistID)
+	return uc.executeSearch(ctx, artistID, trigger)
 }
 
 // SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
@@ -445,7 +472,7 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 	uc.logger.Info(ctx, "first follow detected, triggering concert search",
 		slog.String("artist_id", artistID),
 	)
-	if _, err := uc.SearchNewConcerts(ctx, artistID); err != nil {
+	if _, err := uc.SearchNewConcerts(ctx, artistID, SearchTriggerFirstFollow); err != nil {
 		return fmt.Errorf("search new concerts for first follow: %w", err)
 	}
 	return nil
@@ -465,7 +492,32 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 // unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
 // is the source of truth and uses the resolved `venue_id` instead of the raw
 // listed name, so the application key is a best-effort upstream filter.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (result []*entity.Concert, err error) {
+func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, trigger SearchTrigger) (result []*entity.Concert, err error) {
+	// searched is set once the external search is called; only such a run
+	// reports its outcome. announcedSeries/Events count what was announced.
+	var (
+		searched                         bool
+		announcedSeries, announcedEvents int
+	)
+	defer func() {
+		if !searched {
+			return
+		}
+		outcome := concertSearchOutcomeFound
+		switch {
+		case err != nil:
+			outcome = concertSearchOutcomeFailed
+		case len(result) == 0:
+			outcome = concertSearchOutcomeNothingNew
+		}
+		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, AnalyticsProperties{
+			"artist_id":    artistID,
+			"trigger":      string(trigger),
+			"outcome":      outcome,
+			"series_count": announcedSeries,
+			"event_count":  announcedEvents,
+		})
+	}()
 	defer func() {
 		switch {
 		case err != nil:
@@ -534,6 +586,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 
 	// Search new concerts via external API (deadline inherited from HandlerTimeout).
 	// The searcher returns discovered concerts already grouped by series.
+	searched = true
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
@@ -616,6 +669,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 		return nil, err
 	}
 
+	announcedSeries, announcedEvents = len(newSeries), newEvents
 	uc.logger.Info(ctx, "published concert.discovered event",
 		slog.String("artist_id", artistID),
 		slog.String("artist_name", artist.Name),

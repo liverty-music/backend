@@ -78,6 +78,9 @@ type SalesSeriesRef struct {
 // artist, not per series, to cut search cost and to let the model see all of
 // the artist's tours at once.
 type PublishedSaleSearchInput struct {
+	// ArtistID is the id of the performing artist; it identifies the search
+	// in its usage report and is not sent to the search service.
+	ArtistID string
 	// ArtistName is the performing artist whose sales are searched.
 	ArtistName string
 	// OfficialSiteURL seeds the page-reading tool so the model reads the real

@@ -182,6 +182,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
 	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
+	// Infrastructure - PostHog analytics client (optional, nil in local dev).
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	concertCreationUC := usecase.NewConcertCreationUseCase(
 		concertCandidateRepo,
 		venueRepo,
@@ -190,6 +196,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		suppressedConcertRepo,
 		placeSearcher,
 		eventPublisher,
+		analyticsClient,
 		logger,
 	)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
@@ -211,6 +218,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			OmitTemperature: true,
 
 			IncludeServerSideToolInvocations: true,
+			Reporter:                         posthog.NewGenerationReporter(analyticsClient, logger),
 		}, extHTTPClient, gemini.NewOfficialPageClient(), logger)
 		if err != nil {
 			return nil, fmt.Errorf("create gemini concert searcher: %w", err)
@@ -230,6 +238,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		centroidResolver,
 		eventPublisher,
 		infratelemetry.NewBusinessMetrics(),
+		analyticsClient,
 		cfg.GCP.SearchCacheTTL(),
 		cfg.GCP.SearchDiscoveryWindow(),
 		logger,
@@ -240,16 +249,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	emailVerifier, err := newConsumerEmailVerifier(cfg, logger)
 	if err != nil {
 		return nil, err
-	}
-
-	// Infrastructure - PostHog analytics client (optional, nil in local dev).
-	var analyticsClient usecase.AnalyticsClient
-	if cfg.PostHog.ProjectAPIKey != "" {
-		ac, err := posthog.New(cfg.PostHog.APIHost, cfg.PostHog.ProjectAPIKey, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create posthog analytics client: %w", err)
-		}
-		analyticsClient = ac
 	}
 
 	// Ticket sale use cases for the two SALES_PHASE consumers. AnnounceDiscoveredSale
@@ -330,6 +329,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"track-ticket-journey", entity.SubjectTicketJourneyStatusChanged, analyticsConsumer.HandleTicketJourneyStatusChanged},
 		{"analytics-organizer-created", entity.SubjectOrganizerCreated, analyticsConsumer.HandleOrganizerCreated},
 		{"analytics-organizer-artist-associated", entity.SubjectOrganizerArtistAssociated, analyticsConsumer.HandleOrganizerArtistAssociated},
+		{"track-artist-hype-changed", entity.SubjectArtistHypeChanged, analyticsConsumer.HandleArtistHypeChanged},
+		{"track-order-paid", entity.SubjectOrderPaid, analyticsConsumer.HandleOrderPaid},
+		{"track-lottery-entry-drawn", entity.SubjectLotteryEntryDrawn, analyticsConsumer.HandleLotteryEntryDrawn},
+		{"track-checkout-expired", entity.SubjectCheckoutExpired, analyticsConsumer.HandleCheckoutExpired},
+		{"track-ticket-admitted", entity.SubjectTicketAdmitted, analyticsConsumer.HandleTicketAdmitted},
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
 		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
 		{"notify-sales-reminder", entity.SubjectTicketSaleReminderDue, salesReminderConsumer.Handle},
@@ -398,9 +402,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(musicbrainzClient)
 	shutdown.AddExternalPhase(fanarttvClient)
-	if analyticsClient != nil {
-		shutdown.AddExternalPhase(analyticsClient.(*posthog.AnalyticsClient))
-	}
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"testing"
 	"time"
 
@@ -464,6 +465,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		suppressed *fakeSuppressedConcertRepo
 		place      *stubPlaceSearcher
 		pub        *gochannel.GoChannel
+		analytics  *recordingAnalytics
 	}
 	build := func(t *testing.T) *creationHarness {
 		t.Helper()
@@ -475,10 +477,11 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			suppressed: newFakeSuppressedConcertRepo(),
 			place:      newStubPlaceSearcher(),
 			pub:        newGoChannelPub(t),
+			analytics:  &recordingAnalytics{},
 		}
 		h.uc = usecase.NewConcertCreationUseCase(
 			h.candidate, h.venue, h.concert, h.series, h.suppressed,
-			h.place, messaging.NewEventPublisher(h.pub), newTestLogger(t),
+			h.place, messaging.NewEventPublisher(h.pub), h.analytics, newTestLogger(t),
 		)
 		return h
 	}
@@ -542,6 +545,45 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("expected CONCERT.created to be published")
 		}
+	})
+
+	t.Run("mixed batch reports what it did", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Mixed batch"
+		h := build(t)
+		for _, v := range []string{"Venue A", "Venue B", "Venue C"} {
+			h.place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
+		}
+		// "Venue Unknown" has no place: staged for review.
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Series: []*entity.DiscoveredSeries{{
+				Title: "Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour",
+				Events: []*entity.DiscoveredEvent{
+					{ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
+					{ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
+					{ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 0, 2), StartTime: startTime.AddDate(0, 0, 2)},
+					{ListedVenueName: "Venue Unknown", LocalDate: localDate.AddDate(0, 0, 3)},
+				},
+			}},
+		}
+		// The message context carries the trace of the search that found the batch.
+		ctx, span := sdktrace.NewTracerProvider().Tracer("test").Start(context.Background(), "search")
+		defer span.End()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(ctx, data))
+
+		require.Len(t, h.concert.created, 3)
+		require.Len(t, h.candidate.upserted, 1)
+		assert.Equal(t, []usecase.AnalyticsProperties{{
+			"artist_id":        "artist-1",
+			"published_count":  3,
+			"staged_count":     1,
+			"filled_count":     0,
+			"suppressed_count": 0,
+			"conflict_count":   0,
+		}}, h.analytics.sent(usecase.EventConcertIngestCompleted))
+		assert.Equal(t, []string{span.SpanContext().TraceID().String()}, h.analytics.traces(usecase.EventConcertIngestCompleted))
 	})
 
 	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {
@@ -730,7 +772,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(
 			&fakeConcertCandidateRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
-			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
+			newFakeSuppressedConcertRepo(), nil, nil, nil, newTestLogger(t),
 		)
 	})
 }
@@ -765,7 +807,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 		uc := usecase.NewConcertCreationUseCase(
 			candidate, venue, concert, series, suppressed,
-			place, messaging.NewEventPublisher(pub), newTestLogger(t),
+			place, messaging.NewEventPublisher(pub), nil, newTestLogger(t),
 		)
 		return uc, concert, series, candidate, pub
 	}

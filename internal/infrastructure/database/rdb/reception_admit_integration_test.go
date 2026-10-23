@@ -109,7 +109,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 	uc := usecase.NewTicketUseCase(
 		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewScannerRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
-		rdb.NewRejectedScanRepository(receptionDB), logger,
+		rdb.NewRejectedScanRepository(receptionDB), &recordingPublisher{}, logger,
 	)
 	// Seeding runs as the test superuser.
 	scannerRepo := rdb.NewScannerRepository(testDB)

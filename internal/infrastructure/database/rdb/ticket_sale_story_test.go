@@ -275,7 +275,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
-		searcher, d.pub, d.logger)
+		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
 		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
 

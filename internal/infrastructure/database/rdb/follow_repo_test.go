@@ -46,7 +46,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 
 				err = followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
-				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
+				_, err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
 				require.NoError(t, err)
 
 				return userID
@@ -219,7 +219,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 				artistID := seedArtist(t, "Dup Follow Artist", "a1000000-0000-0000-0000-000000000002")
 				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
-				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
+				_, err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
 				require.NoError(t, err)
 				return userID, artistID
 			},
@@ -323,13 +323,14 @@ func TestFollowRepository_SetHype(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name    string
-		setup   func() (userID, artistID string)
-		hype    entity.Hype
-		wantErr error
+		name         string
+		setup        func() (userID, artistID string)
+		hype         entity.Hype
+		wantPrevious entity.Hype
+		wantErr      error
 	}{
 		{
-			name: "set hype on existing follow",
+			name: "set hype on existing follow returns the previous level",
 			setup: func() (string, string) {
 				cleanDatabase(t)
 				userID := seedUser(t, "Hype User", "hype@test.com", "ext-hype-01")
@@ -338,7 +339,22 @@ func TestFollowRepository_SetHype(t *testing.T) {
 				require.NoError(t, err)
 				return userID, artistID
 			},
-			hype: entity.HypeAway,
+			hype:         entity.HypeAway,
+			wantPrevious: entity.DefaultHype,
+		},
+		{
+			name: "set the level the follow already has returns that level",
+			setup: func() (string, string) {
+				cleanDatabase(t)
+				userID := seedUser(t, "Same Hype User", "same-hype@test.com", "ext-hype-02")
+				artistID := seedArtist(t, "Same Hype Artist", "a3000000-0000-0000-0000-000000000003")
+				require.NoError(t, followRepo.Follow(ctx, userID, artistID))
+				_, err := followRepo.SetHype(ctx, userID, artistID, entity.HypeHome)
+				require.NoError(t, err)
+				return userID, artistID
+			},
+			hype:         entity.HypeHome,
+			wantPrevious: entity.HypeHome,
 		},
 		{
 			name: "set hype on non-existent follow returns NotFound",
@@ -357,7 +373,7 @@ func TestFollowRepository_SetHype(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			userID, artistID := tt.setup()
 
-			err := followRepo.SetHype(ctx, userID, artistID, tt.hype)
+			previous, err := followRepo.SetHype(ctx, userID, artistID, tt.hype)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -365,6 +381,7 @@ func TestFollowRepository_SetHype(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			assert.Equal(t, tt.wantPrevious, previous)
 
 			// Verify hype was updated via ListByUser.
 			followed, err := followRepo.ListByUser(ctx, userID)
@@ -464,7 +481,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				noHomeUserID := seedUser(t, "No Home User", "nohome@test.com", "ext-nohome-01")
 				err := followRepo.Follow(ctx, noHomeUserID, artistID)
 				require.NoError(t, err)
-				err = followRepo.SetHype(ctx, noHomeUserID, artistID, entity.HypeAway)
+				_, err = followRepo.SetHype(ctx, noHomeUserID, artistID, entity.HypeAway)
 				require.NoError(t, err)
 
 				// User with home area.
@@ -477,7 +494,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				require.NoError(t, err)
 				err = followRepo.Follow(ctx, homeUserID, artistID)
 				require.NoError(t, err)
-				err = followRepo.SetHype(ctx, homeUserID, artistID, entity.HypeHome)
+				_, err = followRepo.SetHype(ctx, homeUserID, artistID, entity.HypeHome)
 				require.NoError(t, err)
 
 				return artistID
@@ -535,7 +552,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				require.NoError(t, err)
 				err = followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
-				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeNearby)
+				_, err = followRepo.SetHype(ctx, userID, artistID, entity.HypeNearby)
 				require.NoError(t, err)
 
 				return artistID

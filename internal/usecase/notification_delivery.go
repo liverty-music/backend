@@ -67,7 +67,7 @@ const (
 // send is re-dispatchable.
 //
 // payload is mutated to carry the minted notification id under
-// data.notification_id, establishing the end-to-end correlation key. Callers
+// data.notification_id and the notification type under data.type, establishing the end-to-end correlation key. Callers
 // are responsible for rejecting a nil payload themselves — the two current
 // callers disagree on what a nil payload means (an InvalidArgument error for
 // NotificationUseCase.Deliver; a defensive no-op skip for
@@ -92,12 +92,14 @@ func deliverNotification(
 		return nil, fmt.Errorf("failed to create notification record: %w", err)
 	}
 
-	// 2. Carry the stable notification id into the dispatched payload so the
-	//    client/service worker can correlate interactions back to this record.
+	// 2. Carry the stable notification id and its type into the dispatched
+	//    payload so the client/service worker can correlate interactions back to
+	//    this record and report them by type.
 	if payload.Data == nil {
-		payload.Data = make(map[string]string, 1)
+		payload.Data = make(map[string]string, 2)
 	}
 	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
+	payload.Data[entity.NotificationDataKeyType] = string(typ)
 
 	// 3. Dispatch to the web-push channel and 4. record the outcome.
 	status, deliveredAt, reason, reasonCategory := d.dispatch(ctx, n, payload)

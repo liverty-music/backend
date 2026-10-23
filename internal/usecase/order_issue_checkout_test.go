@@ -486,10 +486,14 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 			CardAuthorizationID: "pi_won", State: entity.LotteryEntryStateWon,
 		}
 		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(entry, nil)
-		winOrder := &entity.Order{ID: "order-2", UserID: entry.UserID, LotteryEntryID: entry.ID, Amount: 10000, Currency: "JPY"}
+		paidAt := now.Add(-time.Hour)
+		winOrder := &entity.Order{ID: "order-2", UserID: entry.UserID, LotteryEntryID: entry.ID, Amount: 10000, Currency: "JPY", PayTime: paidAt}
 		f.orders.EXPECT().GetByLotteryEntryID(mock.Anything, entry.ID).Return(winOrder, nil)
+		// The announcement carries the Order's pay time, the same on every
+		// re-publish, for the analytics event time.
 		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-2", &entity.OrderPaidData{
 			OrderID: "order-2", UserID: "user-1", EventID: "event-1", TicketCount: 2, Amount: 10000, Currency: "JPY", LotteryEntryID: "entry-1",
+			PayTime: paidAt,
 		}).Return(nil).Once()
 
 		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_won"))

@@ -1,6 +1,12 @@
 package usecase
 
-import "context"
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/pannpers/go-logging/logging"
+)
 
 // AnalyticsProperties carries the per-event payload sent to the analytics
 // destination. Keys MUST be snake_case and MUST NOT include personally
@@ -59,4 +65,39 @@ type AnalyticsClient interface {
 	// (codes.Internal). Transient destination failures are retried
 	// internally by the implementation and never surfaced here.
 	Enqueue(ctx context.Context, distinctID string, eventName AnalyticsEventName, properties AnalyticsProperties) error
+
+	// EnqueueOnce is Enqueue for an event that may be handed off more than
+	// once, such as one forwarded from a redelivered domain event. eventID
+	// (a UUID, e.g. the Order id) becomes the destination's event id and at
+	// its timestamp, so the destination stores the event once however often
+	// it is handed off. A zero at means now.
+	//
+	// It returns codes.InvalidArgument for a non-UUID eventID, in addition to
+	// the errors of Enqueue.
+	EnqueueOnce(ctx context.Context, distinctID, eventID string, at time.Time, eventName AnalyticsEventName, properties AnalyticsProperties) error
+
+	// EnqueueSystem hands off an event that has no fan: a signal of a
+	// pipeline process (a search outcome, an external model call). The
+	// process the implementation runs as (e.g. the telemetry service name
+	// "liverty-music-concert-discovery") is the distinct id, no person
+	// profile is created for it, and the process and the backend's release
+	// version are added to the properties as `process` and `app_version`.
+	//
+	// It returns the errors of Enqueue for eventName.
+	EnqueueSystem(ctx context.Context, eventName AnalyticsEventName, properties AnalyticsProperties) error
+}
+
+// sendSystemSignal sends a pipeline signal through client, which may be nil
+// (no PostHog key configured: nothing is sent). A failure is logged and never
+// returned, so a signal can never change the outcome it reports.
+func sendSystemSignal(ctx context.Context, client AnalyticsClient, logger *logging.Logger, eventName AnalyticsEventName, properties AnalyticsProperties) {
+	if client == nil {
+		return
+	}
+	if err := client.EnqueueSystem(ctx, eventName, properties); err != nil {
+		logger.Warn(ctx, "failed to send a product-analytics signal",
+			slog.String("event", string(eventName)),
+			slog.Any("error", err),
+		)
+	}
 }

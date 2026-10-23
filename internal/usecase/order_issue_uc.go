@@ -438,6 +438,7 @@ func orderPaid(order *entity.Order, eventID string, ticketCount int) *entity.Ord
 		Currency:       order.Currency,
 		LotteryEntryID: string(order.LotteryEntryID),
 		CheckoutID:     string(order.CheckoutID),
+		PayTime:        order.PayTime,
 	}
 }
 

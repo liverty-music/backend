@@ -309,20 +309,29 @@ func (_c *MockFollowRepository_ListFollowers_Call) RunAndReturn(run func(ctx con
 }
 
 // SetHype provides a mock function for the type MockFollowRepository
-func (_mock *MockFollowRepository) SetHype(ctx context.Context, userID string, artistID string, hype entity.Hype) error {
+func (_mock *MockFollowRepository) SetHype(ctx context.Context, userID string, artistID string, hype entity.Hype) (entity.Hype, error) {
 	ret := _mock.Called(ctx, userID, artistID, hype)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetHype")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, entity.Hype) error); ok {
+	var r0 entity.Hype
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, entity.Hype) (entity.Hype, error)); ok {
+		return returnFunc(ctx, userID, artistID, hype)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, entity.Hype) entity.Hype); ok {
 		r0 = returnFunc(ctx, userID, artistID, hype)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(entity.Hype)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, entity.Hype) error); ok {
+		r1 = returnFunc(ctx, userID, artistID, hype)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockFollowRepository_SetHype_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetHype'
@@ -367,12 +376,12 @@ func (_c *MockFollowRepository_SetHype_Call) Run(run func(ctx context.Context, u
 	return _c
 }
 
-func (_c *MockFollowRepository_SetHype_Call) Return(err error) *MockFollowRepository_SetHype_Call {
-	_c.Call.Return(err)
+func (_c *MockFollowRepository_SetHype_Call) Return(previous entity.Hype, err error) *MockFollowRepository_SetHype_Call {
+	_c.Call.Return(previous, err)
 	return _c
 }
 
-func (_c *MockFollowRepository_SetHype_Call) RunAndReturn(run func(ctx context.Context, userID string, artistID string, hype entity.Hype) error) *MockFollowRepository_SetHype_Call {
+func (_c *MockFollowRepository_SetHype_Call) RunAndReturn(run func(ctx context.Context, userID string, artistID string, hype entity.Hype) (entity.Hype, error)) *MockFollowRepository_SetHype_Call {
 	_c.Call.Return(run)
 	return _c
 }

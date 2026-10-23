@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -30,10 +33,20 @@ const (
 		DELETE FROM followed_artists
 		WHERE user_id = $1 AND artist_id = $2
 	`
+	// followSetHypeQuery reads the row under a row lock and updates it in one
+	// statement; the locked read sees the latest committed hype, so the
+	// returned previous level is exact under concurrent changes.
 	followSetHypeQuery = `
-		UPDATE followed_artists
+		UPDATE followed_artists fa
 		SET hype = $3
-		WHERE user_id = $1 AND artist_id = $2
+		FROM (
+			SELECT user_id, artist_id, hype
+			FROM followed_artists
+			WHERE user_id = $1 AND artist_id = $2
+			FOR UPDATE
+		) old
+		WHERE fa.user_id = old.user_id AND fa.artist_id = old.artist_id
+		RETURNING old.hype
 	`
 	followListByUserQuery = `
 		SELECT a.id, a.name, COALESCE(a.mbid, ''), a.fanart, fa.hype
@@ -102,14 +115,16 @@ func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string
 	return nil
 }
 
-// SetHype updates the enthusiasm tier for a followed artist.
-func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
-	tag, err := r.db.Pool.Exec(ctx, followSetHypeQuery, userID, artistID, string(hype))
-	if err != nil {
-		return toAppErr(err, "failed to set hype", slog.String("user_id", userID), slog.String("artist_id", artistID))
+// SetHype updates the enthusiasm tier for a followed artist and returns the
+// tier it had before.
+func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) (entity.Hype, error) {
+	var previous string
+	err := r.db.Pool.QueryRow(ctx, followSetHypeQuery, userID, artistID, string(hype)).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperr.New(codes.NotFound, "follow relationship not found")
 	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "follow relationship not found")
+	if err != nil {
+		return "", toAppErr(err, "failed to set hype", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	}
 
 	r.db.logger.Info(ctx, "hype updated",
@@ -118,7 +133,7 @@ func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string,
 		slog.String("artistID", artistID),
 		slog.String("hype", string(hype)),
 	)
-	return nil
+	return entity.Hype(previous), nil
 }
 
 // ListByUser retrieves the list of artists followed by a user, including hype level.

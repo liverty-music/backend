@@ -11,6 +11,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -80,7 +81,7 @@ func run(bootLogger *logging.Logger) error {
 	// a concert.discovered.v1 event. Concert persistence, notification, and
 	// venue enrichment are handled asynchronously by event consumers.
 	totalFailed := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
-		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID)
+		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		return err
 	})
 

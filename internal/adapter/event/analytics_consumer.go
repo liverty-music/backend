@@ -570,6 +570,166 @@ func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message
 	return nil
 }
 
+// HandleArtistHypeChanged forwards the ARTIST.hype_changed NATS subject as the
+// catalogue event usecase.EventArtistHypeChanged. Properties: artist_id,
+// from_hype, to_hype.
+func (c *AnalyticsConsumer) HandleArtistHypeChanged(msg *message.Message) error {
+	var data entity.ArtistHypeChangedData
+	return c.forward(msg, entity.SubjectArtistHypeChanged, &data, usecase.EventArtistHypeChanged, func() (string, usecase.AnalyticsProperties) {
+		return data.UserID, usecase.AnalyticsProperties{
+			"artist_id": data.ArtistID,
+			"from_hype": data.FromHype,
+			"to_hype":   data.ToHype,
+		}
+	}, nil)
+}
+
+// stableEvent is the PostHog event id and time of an announcement that may be
+// handled more than once (see usecase.AnalyticsClient.EnqueueOnce).
+type stableEvent struct {
+	id string
+	at time.Time
+}
+
+// HandleOrderPaid forwards the ORDER.paid NATS subject as the catalogue event
+// usecase.EventOrderPaid. The Order id is the PostHog event id and the
+// Order's pay time its timestamp, both the same on every announcement of the
+// Order, so an Order announced or handled more than once is stored once. Properties: order_id, event_id, ticket_count,
+// amount, currency, source ("lottery_entry" or "checkout"), and the source's
+// id as lottery_entry_id or checkout_id.
+func (c *AnalyticsConsumer) HandleOrderPaid(msg *message.Message) error {
+	var data entity.OrderPaidData
+	return c.forward(msg, entity.SubjectOrderPaid, &data, usecase.EventOrderPaid, func() (string, usecase.AnalyticsProperties) {
+		props := usecase.AnalyticsProperties{
+			"order_id":     data.OrderID,
+			"event_id":     data.EventID,
+			"ticket_count": data.TicketCount,
+			"amount":       data.Amount,
+			"currency":     data.Currency,
+		}
+		switch {
+		case data.LotteryEntryID != "":
+			props["source"] = "lottery_entry"
+			props["lottery_entry_id"] = data.LotteryEntryID
+		case data.CheckoutID != "":
+			props["source"] = "checkout"
+			props["checkout_id"] = data.CheckoutID
+		}
+		return data.UserID, props
+	}, func() stableEvent { return stableEvent{id: data.OrderID, at: data.PayTime} })
+}
+
+// HandleLotteryEntryDrawn forwards the ORDER.lottery_entry_drawn NATS subject
+// as the catalogue event usecase.EventTicketLotteryResult, once per entry id
+// and draw time. Properties:
+// lottery_entry_id, ticket_sale_id, ticket_type_id, result, capture_failed.
+func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error {
+	var data entity.LotteryEntryDrawnData
+	return c.forward(msg, entity.SubjectLotteryEntryDrawn, &data, usecase.EventTicketLotteryResult, func() (string, usecase.AnalyticsProperties) {
+		return data.UserID, usecase.AnalyticsProperties{
+			"lottery_entry_id": data.LotteryEntryID,
+			"ticket_sale_id":   data.TicketSaleID,
+			"ticket_type_id":   data.TicketTypeID,
+			"result":           data.Result,
+			"capture_failed":   data.CaptureFailed,
+		}
+	}, func() stableEvent { return stableEvent{id: data.LotteryEntryID, at: data.DrawTime} })
+}
+
+// HandleCheckoutExpired forwards the ORDER.checkout_expired NATS subject as
+// the catalogue event usecase.EventCheckoutExpired, once per Checkout id and
+// hold expiry time. Properties: checkout_id,
+// ticket_type_id, ticket_count.
+func (c *AnalyticsConsumer) HandleCheckoutExpired(msg *message.Message) error {
+	var data entity.CheckoutExpiredData
+	return c.forward(msg, entity.SubjectCheckoutExpired, &data, usecase.EventCheckoutExpired, func() (string, usecase.AnalyticsProperties) {
+		return data.UserID, usecase.AnalyticsProperties{
+			"checkout_id":    data.CheckoutID,
+			"ticket_type_id": data.TicketTypeID,
+			"ticket_count":   data.TicketCount,
+		}
+	}, func() stableEvent { return stableEvent{id: data.CheckoutID, at: data.HoldExpireTime} })
+}
+
+// HandleTicketAdmitted forwards the ORDER.ticket_admitted NATS subject as the
+// catalogue event usecase.EventTicketAdmitted, once per Ticket id and admit
+// time. Properties: ticket_id,
+// event_id.
+func (c *AnalyticsConsumer) HandleTicketAdmitted(msg *message.Message) error {
+	var data entity.TicketAdmittedData
+	return c.forward(msg, entity.SubjectTicketAdmitted, &data, usecase.EventTicketAdmitted, func() (string, usecase.AnalyticsProperties) {
+		return data.UserID, usecase.AnalyticsProperties{
+			"ticket_id": data.TicketID,
+			"event_id":  data.EventID,
+		}
+	}, func() stableEvent { return stableEvent{id: data.TicketID, at: data.AdmitTime} })
+}
+
+// forward is the shared body of the fan-level handlers: it parses the
+// CloudEvent into data, reads the distinct id and properties from it with
+// build, and enqueues the event. With stable, the event is enqueued once per
+// id and time read from data (see usecase.AnalyticsClient.EnqueueOnce); the
+// time is truncated to the millisecond so it does not depend on the precision
+// it was stored or serialised with, and falls back to the CloudEvent's publish
+// time when the data has none (an announcement published before the field
+// existed). The skip and failure paths match the hand-written handlers above.
+func (c *AnalyticsConsumer) forward(
+	msg *message.Message,
+	subject string,
+	data any,
+	event usecase.AnalyticsEventName,
+	build func() (userID string, props usecase.AnalyticsProperties),
+	stable func() stableEvent,
+) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	if err := messaging.ParseCloudEventData(msg, data); err != nil {
+		c.logger.Error(ctx, "failed to parse "+subject+" event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse "+subject+" event")
+	}
+	userID, props := build()
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(event)),
+			slog.String("user_id", userID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if userID == "" {
+		c.logger.Warn(ctx, subject+" event missing user_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	var err error
+	if stable != nil {
+		e := stable()
+		at := e.at.UTC().Truncate(time.Millisecond)
+		if e.at.IsZero() {
+			at, _ = time.Parse(time.RFC3339, msg.Metadata.Get("ce_time"))
+		}
+		err = c.client.EnqueueOnce(ctx, userID, e.id, at, event, props)
+	} else {
+		err = c.client.Enqueue(ctx, userID, event, props)
+	}
+	if err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(event)),
+			slog.String("user_id", userID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream

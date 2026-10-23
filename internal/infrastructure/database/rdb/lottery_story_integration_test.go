@@ -135,7 +135,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewReferralRepository(testDB), rdb.NewSeriesRepository(testDB), organizerRepo,
 		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, rdb.NewReferralRepository(testDB), ticketRepo, identityVerificationRepo, s.userRepo, cardAuthorizations, clock, logger)
+	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, rdb.NewReferralRepository(testDB), ticketRepo, identityVerificationRepo, s.userRepo, cardAuthorizations, s.published, clock, logger)
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
 		OrderRepo:                s.orderRepo,
@@ -153,7 +153,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	})
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		rdb.NewEventRepository(testDB), rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
-		rdb.NewRejectedScanRepository(testDB), logger)
+		rdb.NewRejectedScanRepository(testDB), s.published, logger)
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.published, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil,

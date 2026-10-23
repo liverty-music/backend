@@ -16,6 +16,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 func fixedClock(t time.Time) usecase.Clock {
@@ -32,6 +33,8 @@ type lotteryFixture struct {
 	users                *entitymocks.MockUserRepository
 	cardAuthorizations   *entitymocks.MockCardAuthorizationRepository
 	uc                   usecase.LotteryEntryUseCase
+	// drawn collects the ORDER.lottery_entry_drawn announcements.
+	drawn []entity.LotteryEntryDrawnData
 }
 
 // newLotteryFixture builds the use case at now, drawing in the order of a
@@ -47,8 +50,16 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		users:                entitymocks.NewMockUserRepository(t),
 		cardAuthorizations:   entitymocks.NewMockCardAuthorizationRepository(t),
 	}
+	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher.EXPECT().
+		PublishEventWithID(mock.Anything, entity.SubjectLotteryEntryDrawn, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _ string, data any) error {
+			f.drawn = append(f.drawn, data.(entity.LotteryEntryDrawnData))
+			return nil
+		}).
+		Maybe()
 	f.uc = usecase.NewLotteryEntryUseCaseWithRand(f.sales, f.entries, f.referrals, f.tickets, f.identityVerification, f.users, f.cardAuthorizations,
-		fixedClock(now), func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) }, newTestLogger(t))
+		publisher, fixedClock(now), func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) }, newTestLogger(t))
 	return f
 }
 
@@ -860,6 +871,53 @@ func TestLotteryEntryUseCase_RunDraw(t *testing.T) {
 		assert.Empty(t, out.drafts)
 	})
 
+	t.Run("two entries, one place", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Two entries, one place"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(1)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("entry-a", tt, "fan-a", entity.LotteryEntryStateEntered, 1, "pi_a"),
+			lotteryEntry("entry-b", tt, "fan-b", entity.LotteryEntryStateEntered, 1, "pi_b"),
+		}, nil)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, mock.Anything).Return(nil).Once()
+		f.cardAuthorizations.EXPECT().Release(mock.Anything, mock.Anything).Return(nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
+
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		require.Len(t, out.winners, 1)
+		winner := out.winners[0].LotteryEntryID
+		fanOf := map[entity.LotteryEntryID]string{"entry-a": "fan-a", "entry-b": "fan-b"}
+		loser := entity.LotteryEntryID("entry-a")
+		if winner == loser {
+			loser = "entry-b"
+		}
+		assert.ElementsMatch(t, []entity.LotteryEntryDrawnData{
+			{LotteryEntryID: string(winner), UserID: fanOf[winner], TicketSaleID: string(sale.ID), TicketTypeID: string(tt), Result: "won", DrawTime: afterWindow},
+			{LotteryEntryID: string(loser), UserID: fanOf[loser], TicketSaleID: string(sale.ID), TicketTypeID: string(tt), Result: "lost", DrawTime: afterWindow},
+		}, f.drawn)
+	})
+
+	t.Run("no result is reported when the draw cannot be recorded", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(1)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("entry-a", tt, "fan-a", entity.LotteryEntryStateEntered, 1, "pi_a"),
+		}, nil)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, "pi_a").Return(nil).Once()
+		f.entries.EXPECT().PersistDrawOutcome(mock.Anything, sale.ID, mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
+
+		require.ErrorIs(t, f.uc.RunDraw(ctx, sale.ID), apperr.ErrInternal)
+		assert.Empty(t, f.drawn)
+	})
+
 	t.Run("winner's card was closed", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/lottery-entry/run-draw "Winner's card was closed"
@@ -882,6 +940,14 @@ func TestLotteryEntryUseCase_RunDraw(t *testing.T) {
 		assert.Equal(t, []entity.LotteryEntryID{"fine"}, out.winnerIDs(), "no loser is promoted")
 		require.Len(t, out.losers, 1)
 		assert.Equal(t, entity.LotteryEntryID("closed-card"), out.losers[0].LotteryEntryID)
+		// The loss is reported as coming from the failed capture.
+		for _, r := range f.drawn {
+			if r.LotteryEntryID == "closed-card" {
+				assert.Equal(t, "lost", r.Result)
+				assert.True(t, r.CaptureFailed)
+			}
+		}
+		assert.Len(t, f.drawn, 2)
 	})
 
 	t.Run("release fails for one loser", func(t *testing.T) {

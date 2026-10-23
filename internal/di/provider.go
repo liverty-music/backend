@@ -328,7 +328,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
@@ -426,7 +426,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 	}
-	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, time.Now, logger)
+	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, eventPublisher, time.Now, logger)
 
 	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
 	// 15-minute first-come checkout.
@@ -441,10 +441,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
+		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
-	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, eventPublisher, logger)
 
 	// ⑥ ticket wallet and venue admission (Scanners).
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)

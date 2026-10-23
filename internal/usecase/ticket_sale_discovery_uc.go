@@ -49,13 +49,15 @@ type ticketSaleDiscoveryUseCase struct {
 	journeyRepo    entity.TicketJourneyRepository
 	searcher       entity.TicketSaleSearcher
 	publisher      EventPublisher
+	analytics      AnalyticsClient
 	logger         *logging.Logger
 }
 
 // Compile-time interface compliance check.
 var _ TicketSaleDiscoveryUseCase = (*ticketSaleDiscoveryUseCase)(nil)
 
-// NewTicketSaleDiscoveryUseCase wires the discovery use case.
+// NewTicketSaleDiscoveryUseCase wires the discovery use case. analytics may
+// be nil; the search outcome is then not reported.
 func NewTicketSaleDiscoveryUseCase(
 	concertRepo entity.ConcertRepository,
 	artistRepo entity.ArtistRepository,
@@ -64,6 +66,7 @@ func NewTicketSaleDiscoveryUseCase(
 	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.TicketSaleSearcher,
 	publisher EventPublisher,
+	analytics AnalyticsClient,
 	logger *logging.Logger,
 ) TicketSaleDiscoveryUseCase {
 	return &ticketSaleDiscoveryUseCase{
@@ -74,6 +77,7 @@ func NewTicketSaleDiscoveryUseCase(
 		journeyRepo:    journeyRepo,
 		searcher:       searcher,
 		publisher:      publisher,
+		analytics:      analytics,
 		logger:         logger,
 	}
 }
@@ -138,6 +142,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 
 	searchedTime := time.Now()
 	found, err := uc.searcher.SearchPublishedSales(ctx, &entity.PublishedSaleSearchInput{
+		ArtistID:        artist.ID,
 		ArtistName:      artist.Name,
 		OfficialSiteURL: site.URL,
 		Series:          seriesRefs,
@@ -145,6 +150,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	if err != nil {
 		// Nothing is recorded, so the next daily run searches these series again.
 		uc.logger.Error(ctx, "ticket_sale_discovery: searcher failed for artist", err, attrs...)
+		uc.reportSearch(ctx, artist.ID, ticketSaleSearchOutcomeFailed, len(seriesRefs), 0, 0)
 		return 0, err
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: searcher returned sales",
@@ -167,6 +173,8 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 			totalNew++
 		}
 	}
+
+	uc.reportSearch(ctx, artist.ID, ticketSaleSearchOutcomeCompleted, len(seriesRefs), len(found), totalNew)
 
 	searchedIDs := make([]string, len(seriesRefs))
 	for i, ref := range seriesRefs {
@@ -285,4 +293,22 @@ func (uc *ticketSaleDiscoveryUseCase) publishDiscovered(
 		uc.logger.Warn(ctx, "ticket_sale_discovery: failed to publish SALES_PHASE.discovered",
 			append(attrs, slog.String("error", err.Error()))...)
 	}
+}
+
+// Outcomes of the ticket_sale.search.completed signal.
+const (
+	ticketSaleSearchOutcomeFailed    = "failed"
+	ticketSaleSearchOutcomeCompleted = "completed"
+)
+
+// reportSearch sends the ticket_sale.search.completed signal of one run that
+// called the searcher.
+func (uc *ticketSaleDiscoveryUseCase) reportSearch(ctx context.Context, artistID, outcome string, seriesCount, returned, newCount int) {
+	sendSystemSignal(ctx, uc.analytics, uc.logger, EventTicketSaleSearchCompleted, AnalyticsProperties{
+		"artist_id":      artistID,
+		"outcome":        outcome,
+		"series_count":   seriesCount,
+		"returned_count": returned,
+		"new_count":      newCount,
+	})
 }

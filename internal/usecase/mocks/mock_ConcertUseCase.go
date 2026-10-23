@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -612,8 +613,8 @@ func (_c *MockConcertUseCase_ListFollowed_Call) RunAndReturn(run func(ctx contex
 }
 
 // SearchNewConcerts provides a mock function for the type MockConcertUseCase
-func (_mock *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	ret := _mock.Called(ctx, artistID)
+func (_mock *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger usecase.SearchTrigger) ([]*entity.Concert, error) {
+	ret := _mock.Called(ctx, artistID, trigger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchNewConcerts")
@@ -621,18 +622,18 @@ func (_mock *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID
 
 	var r0 []*entity.Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
-		return returnFunc(ctx, artistID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.SearchTrigger) ([]*entity.Concert, error)); ok {
+		return returnFunc(ctx, artistID, trigger)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
-		r0 = returnFunc(ctx, artistID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.SearchTrigger) []*entity.Concert); ok {
+		r0 = returnFunc(ctx, artistID, trigger)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, artistID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, usecase.SearchTrigger) error); ok {
+		r1 = returnFunc(ctx, artistID, trigger)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -647,11 +648,12 @@ type MockConcertUseCase_SearchNewConcerts_Call struct {
 // SearchNewConcerts is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artistID string
-func (_e *MockConcertUseCase_Expecter) SearchNewConcerts(ctx any, artistID any) *MockConcertUseCase_SearchNewConcerts_Call {
-	return &MockConcertUseCase_SearchNewConcerts_Call{Call: _e.mock.On("SearchNewConcerts", ctx, artistID)}
+//   - trigger usecase.SearchTrigger
+func (_e *MockConcertUseCase_Expecter) SearchNewConcerts(ctx any, artistID any, trigger any) *MockConcertUseCase_SearchNewConcerts_Call {
+	return &MockConcertUseCase_SearchNewConcerts_Call{Call: _e.mock.On("SearchNewConcerts", ctx, artistID, trigger)}
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_SearchNewConcerts_Call {
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Context, artistID string, trigger usecase.SearchTrigger)) *MockConcertUseCase_SearchNewConcerts_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -661,9 +663,14 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Co
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
+		var arg2 usecase.SearchTrigger
+		if args[2] != nil {
+			arg2 = args[2].(usecase.SearchTrigger)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -674,7 +681,7 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(concerts []*entity.C
 	return _c
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(ctx context.Context, artistID string) ([]*entity.Concert, error)) *MockConcertUseCase_SearchNewConcerts_Call {
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(ctx context.Context, artistID string, trigger usecase.SearchTrigger) ([]*entity.Concert, error)) *MockConcertUseCase_SearchNewConcerts_Call {
 	_c.Call.Return(run)
 	return _c
 }

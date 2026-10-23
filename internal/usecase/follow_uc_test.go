@@ -75,8 +75,9 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 				t.Helper()
 				d.followRepo.EXPECT().
 					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return(nil).
+					Return(entity.HypeNearby, nil).
 					Once()
+				d.publisher.EXPECT().PublishEvent(ctx, entity.SubjectArtistHypeChanged, mock.Anything).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -91,10 +92,27 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 				t.Helper()
 				d.followRepo.EXPECT().
 					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return(apperr.ErrInternal).
+					Return("", apperr.ErrInternal).
 					Once()
 			},
 			wantErr: apperr.ErrInternal,
+		},
+		{
+			name: "succeed when publishing the signal fails",
+			args: args{
+				userID:   "internal-uuid-1",
+				artistID: "artist-1",
+				hype:     entity.HypeAway,
+			},
+			setup: func(t *testing.T, d *followTestDeps) {
+				t.Helper()
+				d.followRepo.EXPECT().
+					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
+					Return(entity.HypeNearby, nil).
+					Once()
+				d.publisher.EXPECT().PublishEvent(ctx, entity.SubjectArtistHypeChanged, mock.Anything).Return(apperr.ErrInternal).Once()
+			},
+			wantErr: nil,
 		},
 	}
 
@@ -115,6 +133,44 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// TestFollowUseCase_SetHype_HypeRaised verifies that an actual change sends
+// one hype-changed signal with the previous and the new level.
+//
+// @spec components/usecase/follow/set-hype "Hype raised"
+func TestFollowUseCase_SetHype_HypeRaised(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	d := newFollowTestDeps(t)
+	d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).Return(entity.HypeWatch, nil).Once()
+	d.publisher.EXPECT().
+		PublishEvent(ctx, entity.SubjectArtistHypeChanged, entity.ArtistHypeChangedData{
+			UserID:   "internal-uuid-1",
+			ArtistID: "artist-1",
+			FromHype: "watch",
+			ToHype:   "away",
+		}).
+		Return(nil).
+		Once()
+
+	require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway))
+}
+
+// TestFollowUseCase_SetHype_SameLevel verifies that setting the level the
+// follow already has sends no signal (the strict publisher mock fails on any
+// PublishEvent call).
+//
+// @spec components/usecase/follow/set-hype "Same level"
+func TestFollowUseCase_SetHype_SameLevel(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	d := newFollowTestDeps(t)
+	d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeHome).Return(entity.HypeHome, nil).Once()
+
+	require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeHome))
 }
 
 // TestFollowUseCase_Follow_PublishesAnalyticsEvent verifies that a

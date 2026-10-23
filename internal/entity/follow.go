@@ -157,13 +157,15 @@ type FollowRepository interface {
 	//   - Internal: database execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// SetHype updates the enthusiasm tier for a followed artist.
+	// SetHype updates the enthusiasm tier for a followed artist and returns
+	// the tier it had before, read and changed in one statement so a
+	// concurrent change cannot slip between the two.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: the user is not following the specified artist.
 	//   - Internal: database execution failure.
-	SetHype(ctx context.Context, userID, artistID string, hype Hype) error
+	SetHype(ctx context.Context, userID, artistID string, hype Hype) (previous Hype, err error)
 
 	// ListByUser retrieves all artists followed by a specific user,
 	// enriched with per-user hype metadata.

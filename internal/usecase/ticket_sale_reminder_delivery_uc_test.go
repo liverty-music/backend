@@ -2,10 +2,12 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -337,4 +339,53 @@ func TestDeliverReminder_RecordingFailsAfterDelivery(t *testing.T) {
 	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
+}
+
+// TestDeliverReminder_MessageNamesSaleAndMilestone verifies that the issued
+// sales_reminder message data names the TicketSale and the milestone, next to
+// the notification id and type Deliver adds.
+//
+// @spec components/usecase/ticket-sale-reminder/deliver-reminder "Apply-close reminder"
+func TestDeliverReminder_MessageNamesSaleAndMilestone(t *testing.T) {
+	t.Parallel()
+
+	d := newReminderDeliveryTestDeps(t)
+	d.reminderRepo.EXPECT().
+		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(false, nil)
+	d.notifRepo.EXPECT().
+		Create(anyCtx, mock.Anything).
+		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-milestone" }).
+		Return(nil)
+	d.pushSubRepo.EXPECT().
+		ListByUserIDs(anyCtx, []string{"user-001"}).
+		Return([]*entity.PushSubscription{{UserID: "user-001", Endpoint: "https://push/1", P256dh: "p", Auth: "a"}}, nil)
+	var pushed []byte
+	d.sender.EXPECT().
+		Send(anyCtx, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, msg []byte, _ *entity.PushSubscription) error {
+			pushed = msg
+			return nil
+		})
+	d.notifRepo.EXPECT().
+		UpdateDelivery(anyCtx, "id-milestone", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
+		Return(nil)
+	d.publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
+		Return(nil)
+	d.reminderRepo.EXPECT().
+		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(nil)
+
+	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
+	require.NoError(t, err)
+
+	var msg entity.NotificationPayload
+	require.NoError(t, json.Unmarshal(pushed, &msg))
+	assert.Equal(t, map[string]string{
+		"notification_id": "id-milestone",
+		"type":            "sales_reminder",
+		"ticket_sale_id":  string(deliverySaleID),
+		"milestone":       "apply_close_24h",
+	}, msg.Data)
 }
