@@ -28,12 +28,15 @@ import (
 // connection keeps retrying in the background and a publish fails after the
 // JetStream ack timeout (5 s), so a server starts and serves calls that do not
 // need the broker. Connection state changes are logged.
+//
+// Every published message carries the caller's trace context in its metadata
+// (see traceContextPublisher), next to the CloudEvents attributes.
 func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goChannel *gochannel.GoChannel, logger *logging.Logger) (message.Publisher, error) {
 	if cfg.URL == "" {
 		if goChannel == nil {
 			return nil, fmt.Errorf("GoChannel is required when NATS_URL is not set")
 		}
-		return wotel.NewPublisherDecorator(goChannel), nil
+		return wotel.NewPublisherDecorator(traceContextPublisher{goChannel}), nil
 	}
 
 	ctx := context.Background()
@@ -56,5 +59,5 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 		return nil, fmt.Errorf("create NATS publisher: %w", err)
 	}
 
-	return wotel.NewPublisherDecorator(pub), nil
+	return wotel.NewPublisherDecorator(traceContextPublisher{pub}), nil
 }
