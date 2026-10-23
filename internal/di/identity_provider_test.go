@@ -45,8 +45,8 @@ func writeMachineKey(t *testing.T) string {
 	return path
 }
 
-// Every workload but admin runs without the identity service and the
-// backend-app key: DI must build no identity-provider client, say so in the
+// Every workload but admin runs without the identity service: DI must build no
+// identity-provider client, say so in the
 // startup log, and still register the fan handlers (and the unrouted
 // in-process admin one) on a UserUseCase without it.
 func TestProvideIdentityRemover_NeitherSet(t *testing.T) {
@@ -55,9 +55,8 @@ func TestProvideIdentityRemover_NeitherSet(t *testing.T) {
 	logger, err := di.ProvideLogger(config.LoggingConfig{Format: "json"}, logging.WithWriter(buf))
 	require.NoError(t, err)
 
-	identityRemover, err := di.ProvideIdentityRemover(context.Background(), "https://auth.example.com", "", "", logger)
+	identityRemover := di.ProvideIdentityRemover(context.Background(), "", logger)
 
-	require.NoError(t, err)
 	assert.Nil(t, identityRemover)
 	entries := parseJSONLines(t, buf)
 	require.Len(t, entries, 1)
@@ -72,81 +71,29 @@ func TestProvideIdentityRemover_NeitherSet(t *testing.T) {
 	})
 }
 
-func TestProvideIdentityRemover(t *testing.T) {
+func TestProvideIdentityRemover_IdentityService(t *testing.T) {
 	t.Parallel()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	keyPath := writeMachineKey(t)
 
-	t.Run("the identity service URL selects the identity service client", func(t *testing.T) {
-		t.Parallel()
-		got, err := di.ProvideIdentityRemover(context.Background(), "https://auth.example.com", "http://identity:9101", keyPath, logger)
-		require.NoError(t, err)
-		assert.IsType(t, &identity.UserClient{}, got)
-	})
+	got := di.ProvideIdentityRemover(context.Background(), "http://identity:9101", logger)
 
-	t.Run("without the URL the backend-app key selects the direct client", func(t *testing.T) {
-		t.Parallel()
-		got, err := di.ProvideIdentityRemover(context.Background(), "https://auth.example.com", "", keyPath, logger)
-		require.NoError(t, err)
-		assert.IsType(t, &infrazitadel.IdentityRemover{}, got)
-	})
+	assert.IsType(t, &identity.UserClient{}, got)
 }
 
 func TestNewConsumerEmailVerifier(t *testing.T) {
 	t.Parallel()
-	logger, err := logging.New()
-	require.NoError(t, err)
-	keyPath := writeMachineKey(t)
 
-	tests := []struct {
-		name string
-		cfg  *config.ConsumerConfig
-		want any // nil, or a value of the expected type
-	}{
-		{
-			name: "the identity service URL selects the identity service client",
-			cfg:  &config.ConsumerConfig{IdentityServiceURL: "http://identity:9100", ZitadelMachineKeyForBackendAppPath: keyPath},
-			want: &identity.UserClient{},
-		},
-		{
-			name: "without the URL outside local the backend-app key selects the direct client",
-			cfg:  &config.ConsumerConfig{ZitadelMachineKeyForBackendAppPath: keyPath},
-			want: &infrazitadel.EmailVerifier{},
-		},
-		{
-			name: "with neither in local there is no verifier",
-			cfg:  &config.ConsumerConfig{Environment: "local"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.cfg.ZitadelDomain = "https://auth.example.com"
-
-			got, err := di.NewConsumerEmailVerifier(context.Background(), tt.cfg, logger)
-
-			require.NoError(t, err)
-			if tt.want == nil {
-				assert.Nil(t, got)
-				return
-			}
-			assert.IsType(t, tt.want, got)
-		})
-	}
+	assert.IsType(t, &identity.UserClient{}, di.NewConsumerEmailVerifier(&config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}),
+		"the identity service URL selects the identity service client")
+	assert.Nil(t, di.NewConsumerEmailVerifier(&config.ConsumerConfig{Environment: "local"}),
+		"without it in local there is no verifier")
 }
 
 func TestProvideOrganizationRepository(t *testing.T) {
 	t.Parallel()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	keyPath := writeMachineKey(t)
-	admin := func(mutate func(c *config.ServerConfig)) *config.ServerConfig {
-		c := &config.ServerConfig{Environment: "production", Workload: config.WorkloadAdmin}
-		c.JWT.Issuer = "https://auth.example.com"
-		mutate(c)
-		return c
-	}
 
 	tests := []struct {
 		name string
@@ -154,20 +101,16 @@ func TestProvideOrganizationRepository(t *testing.T) {
 		want any
 	}{
 		{
-			name: "admin with the identity service URL uses the identity service",
-			cfg: admin(func(c *config.ServerConfig) {
-				c.IdentityServiceURL = "http://identity:9101"
-				c.ZitadelMachineKeyForOrganizerProvisionerPath = keyPath
-			}),
+			name: "admin uses the identity service",
+			cfg: &config.ServerConfig{
+				Environment:        "production",
+				Workload:           config.WorkloadAdmin,
+				IdentityServiceURL: "http://identity:9101",
+			},
 			want: &identity.OrganizationClient{},
 		},
 		{
-			name: "admin without the URL uses the provisioner key directly",
-			cfg:  admin(func(c *config.ServerConfig) { c.ZitadelMachineKeyForOrganizerProvisionerPath = keyPath }),
-			want: &infrazitadel.OrganizationRepository{},
-		},
-		{
-			name: "local with neither uses the no-op",
+			name: "local without the identity service uses the no-op",
 			cfg:  &config.ServerConfig{Environment: "local"},
 			want: &infrazitadel.NoopOrganizationRepository{},
 		},
@@ -180,11 +123,7 @@ func TestProvideOrganizationRepository(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			got, err := di.ProvideOrganizationRepository(context.Background(), tt.cfg, logger)
-
-			require.NoError(t, err)
-			assert.IsType(t, tt.want, got)
+			assert.IsType(t, tt.want, di.ProvideOrganizationRepository(tt.cfg, logger))
 		})
 	}
 }
