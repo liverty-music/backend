@@ -235,9 +235,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Infrastructure - email verification through the identity service; nil
-	// in local dev without it.
-	emailVerifier := newConsumerEmailVerifier(cfg)
+	// Infrastructure - verification emails with codes the identity service
+	// issues; nil in local dev without it.
+	emailVerifier, err := newConsumerEmailVerifier(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	// Infrastructure - PostHog analytics client (optional, nil in local dev).
 	var analyticsClient usecase.AnalyticsClient
@@ -282,7 +285,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// The consumer's UserUseCase handles the passkey events and sends the
 	// verification resends the fan API announces (ReissueEmailVerification);
 	// it never deletes users.
-	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, emailVerifier, nil,
+	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, emailVerifier, nil, nil,
 		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
 
@@ -291,7 +294,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
-	userConsumer := event.NewUserConsumer(emailVerifier, logger)
+	userConsumer := event.NewUserConsumer(userUC, emailVerifier, logger)
 	reissueEmailVerificationConsumer := event.NewReissueEmailVerificationConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
@@ -430,14 +433,24 @@ func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event
 	}
 }
 
-// newConsumerEmailVerifier returns the verification email client: the
-// identity service when IDENTITY_SERVICE_URL is set, else (local development)
-// nil, which makes the verification handlers skip with a warning.
-func newConsumerEmailVerifier(cfg *config.ConsumerConfig) entity.EmailVerifier {
+// newConsumerEmailVerifier returns the sender of verification emails, whose
+// codes the identity service issues and whose links open the fan web (origin
+// derived from the issuer), or nil without IDENTITY_SERVICE_URL (local
+// development), which makes the verification handlers skip with a warning.
+// Without a Postmark token (local development) the sender fails every send.
+func newConsumerEmailVerifier(cfg *config.ConsumerConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
 	if cfg.IdentityServiceURL == "" {
-		return nil
+		return nil, nil
 	}
-	return identity.NewUserClient(cfg.IdentityServiceURL)
+	if cfg.Postmark.ServerToken == "" {
+		return mail.NewNoopEmailVerificationSender(logger), nil
+	}
+	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
+	if err != nil {
+		return nil, fmt.Errorf("derive fan web base url: %w", err)
+	}
+	return mail.NewPostmarkEmailVerificationSender(identity.NewUserClient(cfg.IdentityServiceURL), fanWebBaseURL,
+		cfg.Postmark.ServerToken, cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
 // newPasskeyRegistrationLinkSender returns the sender of passkey recovery

@@ -8,6 +8,7 @@ import (
 	backendorganizationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/backend/organization/v1"
 	backenduserv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/backend/user/v1"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	rpcmocks "github.com/liverty-music/backend/internal/adapter/rpc/mocks"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -37,35 +38,77 @@ func TestBackendUserHandler(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	t.Run("SendEmailVerification sends the code for the identity", func(t *testing.T) {
+	t.Run("SendEmailVerification returns the address and the issued code", func(t *testing.T) {
 		t.Parallel()
-		ev := mocks.NewMockEmailVerifier(t)
-		ev.EXPECT().SendVerification(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "ABC123", nil).Once()
 
-		_, err := rpc.NewBackendUserHandler(ev, nil, nil).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
+		resp, err := rpc.NewBackendUserHandler(ev, nil, nil).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
 
-		assert.NoError(t, err)
+		require.NoError(t, err)
+		assert.Equal(t, "fan@example.com", resp.GetEmail().GetValue())
+		assert.Equal(t, "ABC123", resp.GetCode().GetValue())
 	})
 
 	t.Run("SendEmailVerification keeps Unavailable", func(t *testing.T) {
 		t.Parallel()
-		ev := mocks.NewMockEmailVerifier(t)
-		ev.EXPECT().SendVerification(mock.Anything, "zitadel-user-1").Return(apperr.New(codes.Unavailable, "down")).Once()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("", "", apperr.New(codes.Unavailable, "down")).Once()
 
 		_, err := rpc.NewBackendUserHandler(ev, nil, nil).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
+	t.Run("ResendEmailVerification returns the address and a fresh code", func(t *testing.T) {
+		t.Parallel()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "NEW456", nil).Once()
+
+		resp, err := rpc.NewBackendUserHandler(ev, nil, nil).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
+
+		require.NoError(t, err)
+		assert.Equal(t, "NEW456", resp.GetCode().GetValue())
+	})
+
 	t.Run("ResendEmailVerification keeps FailedPrecondition for a verified address", func(t *testing.T) {
 		t.Parallel()
-		ev := mocks.NewMockEmailVerifier(t)
-		ev.EXPECT().ResendVerification(mock.Anything, "zitadel-user-1").Return(apperr.New(codes.FailedPrecondition, "verified")).Once()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("", "", apperr.New(codes.FailedPrecondition, "verified")).Once()
 
 		_, err := rpc.NewBackendUserHandler(ev, nil, nil).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
+
+	verifyCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "VerifyEmail verifies with the code", err: nil},
+		{name: "VerifyEmail keeps InvalidArgument for a wrong, expired or used code", err: apperr.New(codes.InvalidArgument, "bad code"), wantErr: apperr.ErrInvalidArgument},
+		{name: "VerifyEmail keeps NotFound for an unknown identity", err: apperr.New(codes.NotFound, "gone"), wantErr: apperr.ErrNotFound},
+		{name: "VerifyEmail keeps Unavailable", err: apperr.New(codes.Unavailable, "down"), wantErr: apperr.ErrUnavailable},
+	}
+	for _, tt := range verifyCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ev := rpcmocks.NewMockEmailVerificationCodes(t)
+			ev.EXPECT().VerifyEmail(mock.Anything, "zitadel-user-1", "ABC123").Return(tt.err).Once()
+
+			_, err := rpc.NewBackendUserHandler(ev, nil, nil).VerifyEmail(ctx, &backenduserv1.VerifyEmailRequest{
+				ProviderUserId: backendUserID,
+				Code:           &entityv1.EmailVerificationCode{Value: "ABC123"},
+			})
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 
 	t.Run("IssuePasskeyRegistrationLink returns the verified address and the link", func(t *testing.T) {
 		t.Parallel()

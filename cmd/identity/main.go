@@ -60,7 +60,7 @@ func run(bootLogger *logging.Logger) error {
 		return err
 	}
 
-	errChan := make(chan error, 3)
+	errChan := make(chan error, 4)
 	serve := func(srv *server.ConnectServer, ln net.Listener) {
 		go func() {
 			if err := srv.Serve(ln); err != nil {
@@ -71,7 +71,7 @@ func run(bootLogger *logging.Logger) error {
 
 	// Bind every listener before reporting ready, so readiness means the
 	// callers' requests are accepted.
-	servers := []*server.ConnectServer{app.HealthServer, app.EventConsumerServer, app.AdminConsoleAPIServer}
+	servers := []*server.ConnectServer{app.HealthServer, app.EventConsumerServer, app.AdminConsoleAPIServer, app.FanAPIServer}
 	for _, srv := range servers {
 		ln, err := net.Listen("tcp", srv.Address())
 		if err != nil {

@@ -23,6 +23,7 @@ type userTestDeps struct {
 	ticketRepo      *mocks.MockTicketRepository
 	orderRepo       *mocks.MockOrderRepository
 	emailVerifier   *mocks.MockEmailVerifier
+	emailCodes      *mocks.MockEmailCodeVerifier
 	identityRemover *mocks.MockIdentityRemover
 	uc              usecase.UserUseCase
 }
@@ -34,9 +35,10 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		ticketRepo:      mocks.NewMockTicketRepository(t),
 		orderRepo:       mocks.NewMockOrderRepository(t),
 		emailVerifier:   mocks.NewMockEmailVerifier(t),
+		emailCodes:      mocks.NewMockEmailCodeVerifier(t),
 		identityRemover: mocks.NewMockIdentityRemover(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, d.ticketRepo, d.orderRepo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.identityRemover, usecase.PasskeyMailers{}, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, d.ticketRepo, d.orderRepo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d
 }
 
@@ -47,7 +49,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, messaging.NewEventPublisher(newTestPublisher()), nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, messaging.NewEventPublisher(newTestPublisher()), nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d
 }
 
@@ -786,7 +788,7 @@ func newUserTestDepsWithPublisher(t *testing.T) (*userTestDeps, *ucmocks.MockEve
 		repo:          mocks.NewMockUserRepository(t),
 		emailVerifier: mocks.NewMockEmailVerifier(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, publisher, d.emailVerifier, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, publisher, d.emailVerifier, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d, publisher
 }
 
@@ -822,7 +824,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		publisher := ucmocks.NewMockEventPublisher(t)
 		repo := mocks.NewMockUserRepository(t)
-		uc := usecase.NewUserUseCase(repo, nil, nil, publisher, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+		uc := usecase.NewUserUseCase(repo, nil, nil, publisher, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
 
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
@@ -950,7 +952,7 @@ func TestUserUseCase_ReissueEmailVerification(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, user).Return(nil).Once()
 
 		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
 	})
@@ -961,7 +963,7 @@ func TestUserUseCase_ReissueEmailVerification(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
+		d.emailVerifier.EXPECT().ResendVerification(ctx, user).
 			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
 
 		assert.NoError(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID))
@@ -994,7 +996,7 @@ func TestUserUseCase_ReissueEmailVerification(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
-		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
+		d.emailVerifier.EXPECT().ResendVerification(ctx, user).
 			Return(apperr.New(codes.Internal, "zitadel unavailable")).Once()
 
 		assert.ErrorIs(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID), apperr.ErrInternal)
@@ -1008,6 +1010,109 @@ func TestUserUseCase_ReissueEmailVerification(t *testing.T) {
 			Return(nil, apperr.New(codes.Unavailable, "database unavailable")).Once()
 
 		assert.ErrorIs(t, d.uc.ReissueEmailVerification(ctx, testResolveUserID), apperr.ErrUnavailable)
+	})
+}
+
+func TestUserUseCase_VerifyEmail(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	user := &entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}
+
+	tests := []struct {
+		name    string
+		setup   func(d *userTestDeps)
+		wantErr error
+	}{
+		{
+			// @spec components/usecase/user/verify-email "Link from the email"
+			name: "verifies the User's address with the code",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+				d.emailCodes.EXPECT().VerifyEmail(ctx, testResolveExtID, "ABC123").Return(nil).Once()
+			},
+		},
+		{
+			// @spec components/usecase/user/verify-email "Unknown User"
+			name: "an unknown User fails like a wrong code",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, testResolveUserID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/usecase/user/verify-email "Expired or used link"
+			name: "a wrong, expired or used code is InvalidArgument",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+				d.emailCodes.EXPECT().VerifyEmail(ctx, testResolveExtID, "ABC123").Return(apperr.New(codes.InvalidArgument, "code is not valid")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "an identity gone at the identity provider fails like a wrong code",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+				d.emailCodes.EXPECT().VerifyEmail(ctx, testResolveExtID, "ABC123").Return(apperr.New(codes.NotFound, "identity not found")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/usecase/user/verify-email "Identity provider down"
+			name: "an unreachable identity provider is Unavailable",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, testResolveUserID).Return(user, nil).Once()
+				d.emailCodes.EXPECT().VerifyEmail(ctx, testResolveExtID, "ABC123").Return(apperr.New(codes.Unavailable, "down")).Once()
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+			tt.setup(d)
+
+			err := d.uc.VerifyEmail(ctx, testResolveUserID, "ABC123")
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+
+	// @spec components/usecase/user/verify-email "Sixth attempt for one User"
+	t.Run("the sixth attempt for one User in 60 minutes reads nothing", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(nil, apperr.New(codes.NotFound, "user not found")).Times(5)
+
+		for range 5 {
+			assert.ErrorIs(t, d.uc.VerifyEmail(ctx, testResolveUserID, "WRONG1"), apperr.ErrInvalidArgument)
+		}
+		assert.ErrorIs(t, d.uc.VerifyEmail(ctx, testResolveUserID, "ABC123"), apperr.ErrResourceExhausted)
+	})
+
+	t.Run("another User id has its own attempts", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		const otherID = "019a0000-0000-7000-8000-0000000000u2"
+		d.repo.EXPECT().Get(ctx, testResolveUserID).Return(nil, apperr.New(codes.NotFound, "user not found")).Times(5)
+		d.repo.EXPECT().Get(ctx, otherID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		for range 5 {
+			_ = d.uc.VerifyEmail(ctx, testResolveUserID, "WRONG1")
+		}
+		assert.ErrorIs(t, d.uc.VerifyEmail(ctx, otherID, "ABC123"), apperr.ErrInvalidArgument)
+	})
+
+	t.Run("without the identity service the call is Unavailable", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDepsNoVerifier(t)
+
+		assert.ErrorIs(t, d.uc.VerifyEmail(ctx, testResolveUserID, "ABC123"), apperr.ErrUnavailable)
 	})
 }
 

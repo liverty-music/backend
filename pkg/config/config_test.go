@@ -910,9 +910,12 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 			OnboardingReturnURL:  "https://organizer.dev.liverty-music.app/",
 		},
 	}
-	if workload == WorkloadAdmin {
+	switch workload {
+	case WorkloadAdmin:
 		cfg.OrganizerConsoleProjectID = "organizer-console-project"
 		cfg.IdentityServiceURL = "http://identity:9101"
+	case WorkloadFan:
+		cfg.IdentityServiceURL = "http://identity:9102"
 	}
 	return cfg
 }
@@ -972,9 +975,17 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			wantErr: "invalid STRIPE_ONBOARDING_RETURN_URL",
 		},
 		{
-			name:    "reject an admin workload without the identity service",
-			mutate:  func(c *ServerConfig) { c.Workload = WorkloadAdmin },
+			name: "reject an admin workload without the identity service",
+			mutate: func(c *ServerConfig) {
+				c.Workload = WorkloadAdmin
+				c.IdentityServiceURL = ""
+			},
 			wantErr: "IDENTITY_SERVICE_URL, ORGANIZER_CONSOLE_PROJECT_ID",
+		},
+		{
+			name:    "reject a fan workload without the identity service",
+			mutate:  func(c *ServerConfig) { c.IdentityServiceURL = "" },
+			wantErr: "IDENTITY_SERVICE_URL",
 		},
 	}
 
@@ -1081,7 +1092,7 @@ func validIdentityConfig() *IdentityConfig {
 		ZitadelMachineKeyForFanPasskeyRecoveryPath:   "/secrets/fan-passkey-recovery.json",
 		ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
 		OrganizerConsoleProjectID:                    "organizer-console-project",
-		Listeners:                                    IdentityListeners{HealthPort: 8080, EventConsumerPort: 9100, AdminConsoleAPIPort: 9101},
+		Listeners:                                    IdentityListeners{HealthPort: 8080, EventConsumerPort: 9100, AdminConsoleAPIPort: 9101, FanAPIPort: 9102},
 	}
 }
 

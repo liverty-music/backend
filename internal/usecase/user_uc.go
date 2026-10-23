@@ -177,6 +177,25 @@ type UserUseCase interface {
 	//  - Any other failure of reading the User or sending the code, returned
 	//    so the request is run again.
 	ReissueEmailVerification(ctx context.Context, userID string) error
+
+	// VerifyEmail confirms the email address of the User userID with the code
+	// from that User's verification email, for whoever holds the link: it
+	// needs no sign-in. At most 5 attempts per User id in any 60 minutes are
+	// accepted, counted before the User is read and whatever their outcome;
+	// the per-client limit is applied before the call, by the server. An
+	// unknown User and a wrong, expired or used code fail alike, so the
+	// outcome never reveals whether a User exists.
+	//
+	// Like the resend limit, the per-User limit is held in memory per process.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no User has the id, or the code is wrong, older
+	//    than 1 hour or already used.
+	//  - ResourceExhausted: the per-User limit is reached; nothing is read.
+	//  - Unavailable: the identity provider cannot be reached, or email
+	//    verification is not configured in this process.
+	VerifyEmail(ctx context.Context, userID, code string) error
 }
 
 // PasskeyMailers are the senders of the passkey emails: the registration link
@@ -201,6 +220,14 @@ const (
 	passkeyRecoveryTimeout = 30 * time.Second
 )
 
+// verifyEmailLimit and verifyEmailWindow bound the email verification
+// attempts for one User id: at most verifyEmailLimit within any
+// verifyEmailWindow.
+const (
+	verifyEmailLimit  = 5
+	verifyEmailWindow = 60 * time.Minute
+)
+
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
 	userRepo        entity.UserRepository
@@ -208,9 +235,14 @@ type userUseCase struct {
 	orderRepo       entity.OrderRepository
 	publisher       EventPublisher
 	emailVerifier   entity.EmailVerifier
+	emailCodes      entity.EmailCodeVerifier
 	identityRemover entity.IdentityRemover
 	passkeyMailers  PasskeyMailers
 	logger          *logging.Logger
+
+	// verifyEmailLimiter bounds the email verification attempts for one User
+	// id.
+	verifyEmailLimiter *slidingWindowLimiter
 
 	// passkeyRecoveryLimiter bounds the recovery requests announced for one
 	// address.
@@ -234,13 +266,15 @@ var _ UserUseCase = (*userUseCase)(nil)
 // events, an email verifier for triggering verification emails and an
 // identity remover for deletion (both nil when the Zitadel API client is not
 // configured, e.g. local dev), the passkey email senders (empty outside the
-// event consumer), and a logger.
+// event consumer), and a logger. emailCodes confirms addresses with emailed
+// codes; it is nil outside the fan API.
 func NewUserUseCase(
 	userRepo entity.UserRepository,
 	ticketRepo entity.TicketRepository,
 	orderRepo entity.OrderRepository,
 	publisher EventPublisher,
 	emailVerifier entity.EmailVerifier,
+	emailCodes entity.EmailCodeVerifier,
 	identityRemover entity.IdentityRemover,
 	passkeyMailers PasskeyMailers,
 	logger *logging.Logger,
@@ -251,10 +285,12 @@ func NewUserUseCase(
 		orderRepo:              orderRepo,
 		publisher:              publisher,
 		emailVerifier:          emailVerifier,
+		emailCodes:             emailCodes,
 		identityRemover:        identityRemover,
 		passkeyMailers:         passkeyMailers,
 		logger:                 logger,
 		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, time.Now),
+		verifyEmailLimiter:     newSlidingWindowLimiter(verifyEmailLimit, verifyEmailWindow, time.Now),
 		background:             func(task func()) { go task() },
 		resendLog:              make(map[string][]time.Time),
 	}
@@ -547,7 +583,7 @@ func (uc *userUseCase) ReissueEmailVerification(ctx context.Context, userID stri
 		return err
 	}
 
-	err = uc.emailVerifier.ResendVerification(ctx, user.ProviderUserID)
+	err = uc.emailVerifier.ResendVerification(ctx, user)
 	if errors.Is(err, apperr.ErrFailedPrecondition) {
 		uc.logger.Info(ctx, "email already verified, skipping verification resend",
 			slog.String("user_id", userID))
@@ -558,6 +594,33 @@ func (uc *userUseCase) ReissueEmailVerification(ctx context.Context, userID stri
 	}
 
 	uc.logger.Info(ctx, "verification email resent", slog.String("user_id", userID))
+	return nil
+}
+
+// VerifyEmail implements [UserUseCase].
+func (uc *userUseCase) VerifyEmail(ctx context.Context, userID, code string) error {
+	attrs := slog.String("user_id", userID)
+	if !uc.verifyEmailLimiter.allow(userID) {
+		return apperr.New(codes.ResourceExhausted, "too many email verification attempts for the user", attrs)
+	}
+	if uc.emailCodes == nil {
+		return apperr.New(codes.Unavailable, "email verification is not configured", attrs)
+	}
+	user, err := uc.userRepo.Get(ctx, userID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		return apperr.Wrap(err, codes.InvalidArgument, "email verification link is not valid", attrs)
+	}
+	if err != nil {
+		return err
+	}
+	err = uc.emailCodes.VerifyEmail(ctx, user.ProviderUserID, code)
+	if errors.Is(err, apperr.ErrInvalidArgument) || errors.Is(err, apperr.ErrNotFound) {
+		return apperr.Wrap(err, codes.InvalidArgument, "email verification link is not valid", attrs)
+	}
+	if err != nil {
+		return err
+	}
+	uc.logger.Info(ctx, "email verified", attrs)
 	return nil
 }
 

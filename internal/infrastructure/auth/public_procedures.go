@@ -12,9 +12,11 @@ import (
 // FanPublicProcedures returns the consumer (fan) Connect procedures that are
 // accessible without authentication: read-only endpoints that return publicly
 // available data (artist charts, concert schedules, public event pages) and
-// are called during onboarding or by guests, and UserService.RequestPasskeyRecovery,
+// are called during onboarding or by guests, UserService.RequestPasskeyRecovery,
 // which serves people who cannot sign in and is limited per client
-// ([FanClientLimitedProcedures]). Other write endpoints remain fully
+// ([FanClientLimitedProcedures]), and UserService.VerifyEmail, which serves
+// whoever holds a verification link and has its own per-client limit
+// ([FanEmailVerificationProcedures]). Other write endpoints remain fully
 // authenticated. The admin server never uses this allowlist.
 func FanPublicProcedures() map[string]bool {
 	return map[string]bool{
@@ -28,6 +30,7 @@ func FanPublicProcedures() map[string]bool {
 		"/" + concertconnect.ConcertServiceName + "/ListBySeries":   true,
 		ticketsaleconnect.TicketSaleServiceListByEventProcedure:     true,
 		userconnect.UserServiceRequestPasskeyRecoveryProcedure:      true,
+		userconnect.UserServiceVerifyEmailProcedure:                 true,
 	}
 }
 
@@ -37,6 +40,16 @@ func FanPublicProcedures() map[string]bool {
 func FanClientLimitedProcedures() map[string]bool {
 	return map[string]bool{
 		userconnect.UserServiceRequestPasskeyRecoveryProcedure: true,
+	}
+}
+
+// FanEmailVerificationProcedures returns the fan Connect procedures counted
+// by the per-client email verification limit: UserService.VerifyEmail, which
+// anyone holding a verification link can call without a sign-in. Its attempts
+// are counted apart from [FanClientLimitedProcedures].
+func FanEmailVerificationProcedures() map[string]bool {
+	return map[string]bool{
+		userconnect.UserServiceVerifyEmailProcedure: true,
 	}
 }
 

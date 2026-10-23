@@ -23,12 +23,14 @@ import (
 // IdentityApp is the identity service: the only backend process that holds
 // identity-provider credentials. It has no database and no messaging. Each
 // calling workload has its own listener, which serves only the procedures
-// that workload uses, and a third listener serves the health check.
+// that workload uses, and another listener serves the health check.
 type IdentityApp struct {
 	// EventConsumerServer serves the event consumer's procedures.
 	EventConsumerServer *server.ConnectServer
 	// AdminConsoleAPIServer serves the admin console API's procedures.
 	AdminConsoleAPIServer *server.ConnectServer
+	// FanAPIServer serves the fan API's procedures.
+	FanAPIServer *server.ConnectServer
 	// HealthServer serves the gRPC health check for the kubelet probes.
 	HealthServer *server.ConnectServer
 	// Health reports readiness; the entry point sets it ready once every
@@ -39,7 +41,7 @@ type IdentityApp struct {
 }
 
 // EventConsumerProcedures are the identity-service procedures the event
-// consumer may call: verification emails and passkey registration links.
+// consumer may call: verification codes and passkey registration links.
 var EventConsumerProcedures = []string{
 	backenduserv1connect.UserServiceSendEmailVerificationProcedure,
 	backenduserv1connect.UserServiceResendEmailVerificationProcedure,
@@ -55,6 +57,13 @@ var AdminConsoleAPIProcedures = []string{
 	backendorganizationv1connect.OrganizationServiceProvisionProcedure,
 	backendorganizationv1connect.OrganizationServiceDeactivateIdentitiesProcedure,
 	backendorganizationv1connect.OrganizationServiceDeleteProcedure,
+}
+
+// FanAPIProcedures are the identity-service procedures the fan API may call:
+// only confirming an email address with the code from its verification email,
+// which needs a code only the address owner has.
+var FanAPIProcedures = []string{
+	backenduserv1connect.UserServiceVerifyEmailProcedure,
 }
 
 // InitializeIdentityApp creates the identity service with its
@@ -98,7 +107,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 		return nil, fmt.Errorf("create organization repository: %w", err)
 	}
 
-	// Both services are mounted on both listeners; each listener's allowlist
+	// Both services are mounted on every caller's listener; each listener's allowlist
 	// decides what its caller reaches, so an operation outside the caller's
 	// set is refused with PermissionDenied instead of looking unimplemented.
 	handlers := []server.RPCHandlerFunc{
@@ -114,24 +123,27 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	}
 	eventConsumerSrv := server.NewBackendServer(listener(cfg.Listeners.EventConsumerPort), logger, EventConsumerProcedures, handlers...)
 	adminConsoleAPISrv := server.NewBackendServer(listener(cfg.Listeners.AdminConsoleAPIPort), logger, AdminConsoleAPIProcedures, handlers...)
+	fanAPISrv := server.NewBackendServer(listener(cfg.Listeners.FanAPIPort), logger, FanAPIProcedures, handlers...)
 
 	health := rpc.NewProcessHealthCheckHandler()
 	healthSrv := server.NewHealthCheckServer(listener(cfg.Listeners.HealthPort), logger, func(s *connect.Server) {
 		grpchealth.Register(s, health)
 	})
 
-	shutdown.AddDrainPhase(health, eventConsumerSrv, adminConsoleAPISrv, healthSrv)
+	shutdown.AddDrainPhase(health, eventConsumerSrv, adminConsoleAPISrv, fanAPISrv, healthSrv)
 	shutdown.AddObservePhase(telemetryCloser)
 
 	logger.Info(ctx, "identity service initialized",
 		slog.Int("event_consumer_port", cfg.Listeners.EventConsumerPort),
 		slog.Int("admin_console_api_port", cfg.Listeners.AdminConsoleAPIPort),
+		slog.Int("fan_api_port", cfg.Listeners.FanAPIPort),
 		slog.Int("health_port", cfg.Listeners.HealthPort),
 	)
 
 	return &IdentityApp{
 		EventConsumerServer:   eventConsumerSrv,
 		AdminConsoleAPIServer: adminConsoleAPISrv,
+		FanAPIServer:          fanAPISrv,
 		HealthServer:          healthSrv,
 		Health:                health,
 		Logger:                logger,

@@ -107,11 +107,12 @@ type ServerConfig struct {
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
 
-	// IdentityServiceURL is the identity service's listener for the admin
-	// console API (e.g. http://identity:9101, h2c). Fan identity removal and
-	// Organization provisioning go through it; no API workload holds an
-	// identity-provider credential. Required outside local on the admin
-	// workload; unset elsewhere.
+	// IdentityServiceURL is the identity service's listener for this
+	// workload (h2c): on the admin workload http://identity:9101, for fan
+	// identity removal and Organization provisioning; on the fan workload
+	// http://identity:9102, for email verification. No API workload holds an
+	// identity-provider credential. Required outside local on the admin and
+	// fan workloads; unset elsewhere.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
@@ -776,6 +777,9 @@ type IdentityListeners struct {
 	// AdminConsoleAPIPort serves the admin console API's procedures.
 	AdminConsoleAPIPort int `envconfig:"IDENTITY_ADMIN_CONSOLE_API_PORT" default:"9101"`
 
+	// FanAPIPort serves the fan API's procedures.
+	FanAPIPort int `envconfig:"IDENTITY_FAN_API_PORT" default:"9102"`
+
 	// HandlerTimeout bounds one request.
 	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"30s"`
 }
@@ -787,12 +791,12 @@ func (c *IdentityConfig) Validate() error {
 	if err := validateEnvironmentAndLogging(c.Environment, c.Logging); err != nil {
 		return err
 	}
-	ports := []int{c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort}
+	ports := []int{c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort}
 	seen := make(map[int]bool, len(ports))
 	for _, p := range ports {
 		if p <= 0 || p > 65535 || seen[p] {
-			return fmt.Errorf("identity ports (health %d, event consumer %d, admin console API %d) must be valid and distinct",
-				c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort)
+			return fmt.Errorf("identity ports (health %d, event consumer %d, admin console API %d, fan API %d) must be valid and distinct",
+				c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort)
 		}
 		seen[p] = true
 	}
@@ -1063,11 +1067,14 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
 		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
 	}
-	if c.Workload == WorkloadAdmin {
+	switch c.Workload {
+	case WorkloadAdmin:
 		required = append(required,
 			envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
 			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
 		)
+	case WorkloadFan:
+		required = append(required, envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL})
 	}
 	if err := requireSet(required...); err != nil {
 		return err
@@ -1100,6 +1107,28 @@ func (c *ServerConfig) ProvisionsOrganizers() bool {
 		return c.IdentityServiceURL != ""
 	}
 	return c.Workload == WorkloadAdmin
+}
+
+// RemovesIdentities reports whether this process removes fan identities
+// through the identity service: outside local only the admin workload, whose
+// IDENTITY_SERVICE_URL is the admin console API's listener; local whenever
+// the identity service's URL is set.
+func (c *ServerConfig) RemovesIdentities() bool {
+	if c.IsLocal() {
+		return c.IdentityServiceURL != ""
+	}
+	return c.Workload == WorkloadAdmin
+}
+
+// VerifiesEmails reports whether this process confirms email addresses
+// through the identity service: outside local only the fan workload, whose
+// IDENTITY_SERVICE_URL is the fan API's listener; local whenever the identity
+// service's URL is set.
+func (c *ServerConfig) VerifiesEmails() bool {
+	if c.IsLocal() {
+		return c.IdentityServiceURL != ""
+	}
+	return c.Workload == WorkloadFan && c.IdentityServiceURL != ""
 }
 
 // Validate validates JobConfig including base checks.

@@ -17,6 +17,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -27,8 +29,9 @@ const fanOrigin = "https://liverty-music.test"
 
 // newFanPasskeyRecoveryTestServer builds the fan Connect server the way
 // di.InitializeApp does for UserService: the AuthFunc with
-// FanPublicProcedures and the per-client quota on FanClientLimitedProcedures
-// (10 per 60 minutes), over a mocked UserUseCase.
+// FanPublicProcedures and the per-client quotas on FanClientLimitedProcedures
+// and FanEmailVerificationProcedures (each 10 per 60 minutes), over a mocked
+// UserUseCase.
 func newFanPasskeyRecoveryTestServer(t *testing.T) (userv1connect.UserServiceClient, *usecasemocks.MockUserUseCase) {
 	t.Helper()
 	logger, err := logging.New()
@@ -37,6 +40,7 @@ func newFanPasskeyRecoveryTestServer(t *testing.T) (userv1connect.UserServiceCli
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), auth.FanPublicProcedures())
 	interceptors := []connect.ServerInterceptor{
 		ratelimit.NewClientQuotaInterceptor(ratelimit.NewClientThrottle(10, 60*time.Minute, time.Now), auth.FanClientLimitedProcedures()),
+		ratelimit.NewClientQuotaInterceptor(ratelimit.NewClientThrottle(10, 60*time.Minute, time.Now), auth.FanEmailVerificationProcedures()),
 	}
 	userUC := usecasemocks.NewMockUserUseCase(t)
 	handlers := []server.RPCHandlerFunc{
@@ -103,11 +107,92 @@ func TestFanServer_RequestPasskeyRecovery(t *testing.T) {
 	})
 }
 
+// verifyEmailRequest is the context and request of an email verification
+// without a sign-in from the client at ip.
+func verifyEmailRequest(userID, code, ip string) (context.Context, *userv1.VerifyEmailRequest) {
+	return withHeader(context.Background(), "X-Forwarded-For", ip),
+		&userv1.VerifyEmailRequest{UserId: &entityv1.UserId{Value: userID}, Code: &entityv1.EmailVerificationCode{Value: code}}
+}
+
+func TestFanServer_VerifyEmail(t *testing.T) {
+	t.Parallel()
+	const userID = "019a0000-0000-7000-8000-000000000001"
+
+	// @spec components/adapter/fan/api/rpc/user "Email verification without sign-in"
+	// @spec components/adapter/fan/api/rpc/user "Link from the email"
+	t.Run("is served without a sign-in and hands the link to the usecase", func(t *testing.T) {
+		t.Parallel()
+		client, userUC := newFanPasskeyRecoveryTestServer(t)
+		userUC.EXPECT().VerifyEmail(mock.Anything, userID, "AB12CD").Return(nil).Once()
+
+		_, err := client.VerifyEmail(verifyEmailRequest(userID, "AB12CD", "203.0.113.20"))
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns the usecase's outcome unchanged", func(t *testing.T) {
+		t.Parallel()
+		client, userUC := newFanPasskeyRecoveryTestServer(t)
+		userUC.EXPECT().VerifyEmail(mock.Anything, userID, "AB12CD").Return(apperr.New(codes.InvalidArgument, "email verification link is not valid")).Once()
+
+		_, err := client.VerifyEmail(verifyEmailRequest(userID, "AB12CD", "203.0.113.21"))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	malformed := []struct {
+		name   string
+		userID string
+		code   string
+	}{
+		// @spec components/adapter/fan/api/rpc/user "Malformed link"
+		{name: "a User id that is not a UUID", userID: "not-a-uuid", code: "AB12CD"},
+		{name: "an empty code", userID: userID, code: ""},
+		{name: "a code longer than 32 characters", userID: userID, code: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456"},
+	}
+	for _, tt := range malformed {
+		t.Run("refuses "+tt.name+" with InvalidArgument before the usecase", func(t *testing.T) {
+			t.Parallel()
+			client, _ := newFanPasskeyRecoveryTestServer(t) // no expectation: a usecase call fails the test
+
+			_, err := client.VerifyEmail(verifyEmailRequest(tt.userID, tt.code, "203.0.113.22"))
+
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		})
+	}
+
+	// @spec components/usecase/user/verify-email "Eleventh attempt from one client"
+	t.Run("refuses the eleventh attempt from one client within 60 minutes, counted apart from recovery requests", func(t *testing.T) {
+		t.Parallel()
+		client, userUC := newFanPasskeyRecoveryTestServer(t)
+		userUC.EXPECT().VerifyEmail(mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(11)
+		userUC.EXPECT().RequestPasskeyRecovery(mock.Anything, mock.Anything).Return().Once()
+
+		for i := range 10 {
+			_, err := client.VerifyEmail(verifyEmailRequest(userID, "AB12CD", "203.0.113.23"))
+			require.NoError(t, err, "attempt %d", i+1)
+		}
+		_, err := client.VerifyEmail(verifyEmailRequest(userID, "AB12CD", "203.0.113.23"))
+		assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+
+		// The client's recovery requests and another client's attempts have
+		// their own counts.
+		_, err = client.RequestPasskeyRecovery(passkeyRecoveryRequest("fan@example.com", "203.0.113.23"))
+		assert.NoError(t, err)
+		_, err = client.VerifyEmail(verifyEmailRequest(userID, "AB12CD", "198.51.100.23"))
+		assert.NoError(t, err)
+	})
+}
+
 func TestFanClientLimitedProcedures(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, map[string]bool{userv1connect.UserServiceRequestPasskeyRecoveryProcedure: true},
-		auth.FanClientLimitedProcedures(), "RequestPasskeyRecovery is the only fan call limited per client")
+		auth.FanClientLimitedProcedures(), "RequestPasskeyRecovery is the only fan call on the recovery count")
+	assert.Equal(t, map[string]bool{userv1connect.UserServiceVerifyEmailProcedure: true},
+		auth.FanEmailVerificationProcedures(), "VerifyEmail is the only fan call on the email verification count")
 	assert.True(t, auth.FanPublicProcedures()[userv1connect.UserServiceRequestPasskeyRecoveryProcedure],
 		"RequestPasskeyRecovery needs no sign-in")
+	assert.True(t, auth.FanPublicProcedures()[userv1connect.UserServiceVerifyEmailProcedure],
+		"VerifyEmail needs no sign-in")
 }

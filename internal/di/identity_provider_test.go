@@ -18,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/infrastructure/identity"
+	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -45,25 +46,27 @@ func writeMachineKey(t *testing.T) string {
 	return path
 }
 
-// Every workload but admin runs without the identity service: DI must build no
-// identity-provider client, say so in the
-// startup log, and still register the fan handlers (and the unrouted
-// in-process admin one) on a UserUseCase without it.
-func TestProvideIdentityRemover_NeitherSet(t *testing.T) {
+// The organizer and reception workloads run without the identity service: DI
+// must build no identity-provider client, say so in the startup log, and
+// still register the fan handlers (and the unrouted in-process admin one) on a
+// UserUseCase without it.
+func TestProvideIdentityClients_None(t *testing.T) {
 	t.Parallel()
 	buf := &bytes.Buffer{}
 	logger, err := di.ProvideLogger(config.LoggingConfig{Format: "json"}, logging.WithWriter(buf))
 	require.NoError(t, err)
 
-	identityRemover := di.ProvideIdentityRemover(context.Background(), "", logger)
+	identityRemover, emailCodes := di.ProvideIdentityClients(context.Background(),
+		&config.ServerConfig{Environment: "production", Workload: config.WorkloadOrganizer}, logger)
 
 	assert.Nil(t, identityRemover)
+	assert.Nil(t, emailCodes)
 	entries := parseJSONLines(t, buf)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "identity-provider clients built", entries[0]["msg"])
 	assert.Equal(t, "none", entries[0]["clients"])
 
-	userUC := usecase.NewUserUseCase(nil, nil, nil, nil, nil, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(nil, nil, nil, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	server := connect.NewServer()
 	assert.NotPanics(t, func() {
 		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, logger))
@@ -71,23 +74,65 @@ func TestProvideIdentityRemover_NeitherSet(t *testing.T) {
 	})
 }
 
-func TestProvideIdentityRemover_IdentityService(t *testing.T) {
+func TestProvideIdentityClients(t *testing.T) {
 	t.Parallel()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	got := di.ProvideIdentityRemover(context.Background(), "http://identity:9101", logger)
-
-	assert.IsType(t, &identity.UserClient{}, got)
+	type want struct {
+		remover    bool
+		emailCodes bool
+	}
+	tests := []struct {
+		name string
+		cfg  *config.ServerConfig
+		want want
+	}{
+		{
+			name: "admin removes identities and verifies no email",
+			cfg:  &config.ServerConfig{Environment: "production", Workload: config.WorkloadAdmin, IdentityServiceURL: "http://identity:9101"},
+			want: want{remover: true},
+		},
+		{
+			name: "fan verifies emails and removes no identity",
+			cfg:  &config.ServerConfig{Environment: "production", Workload: config.WorkloadFan, IdentityServiceURL: "http://identity:9102"},
+			want: want{emailCodes: true},
+		},
+		{
+			name: "local with the identity service does both",
+			cfg:  &config.ServerConfig{Environment: "local", IdentityServiceURL: "http://localhost:9101"},
+			want: want{remover: true, emailCodes: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			remover, emailCodes := di.ProvideIdentityClients(context.Background(), tt.cfg, logger)
+			assert.Equal(t, tt.want, want{remover: remover != nil, emailCodes: emailCodes != nil})
+		})
+	}
 }
 
 func TestNewConsumerEmailVerifier(t *testing.T) {
 	t.Parallel()
+	logger, err := logging.New()
+	require.NoError(t, err)
 
-	assert.IsType(t, &identity.UserClient{}, di.NewConsumerEmailVerifier(&config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}),
-		"the identity service URL selects the identity service client")
-	assert.Nil(t, di.NewConsumerEmailVerifier(&config.ConsumerConfig{Environment: "local"}),
-		"without it in local there is no verifier")
+	got, err := di.NewConsumerEmailVerifier(&config.ConsumerConfig{
+		IdentityServiceURL: "http://identity:9100",
+		ZitadelDomain:      "https://auth.liverty-music.app",
+		Postmark:           config.PostmarkConfig{ServerToken: "token"},
+	}, logger)
+	require.NoError(t, err)
+	assert.IsType(t, &mail.PostmarkEmailVerificationSender{}, got, "the identity service URL and Postmark select the Postmark sender")
+
+	got, err = di.NewConsumerEmailVerifier(&config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}, logger)
+	require.NoError(t, err)
+	assert.IsType(t, &mail.NoopEmailVerificationSender{}, got, "without Postmark every send fails")
+
+	got, err = di.NewConsumerEmailVerifier(&config.ConsumerConfig{Environment: "local"}, logger)
+	require.NoError(t, err)
+	assert.Nil(t, got, "without the identity service in local there is no verifier")
 }
 
 func TestProvideOrganizationRepository(t *testing.T) {

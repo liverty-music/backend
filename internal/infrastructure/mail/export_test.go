@@ -30,3 +30,8 @@ func NewPostmarkPasskeyRegistrationLinkSenderForTest(links PasskeyRegistrationLi
 func NewPostmarkPasskeyChangeSenderForTest(fanWebBaseURL string, japanTime *time.Location, apiURL, serverToken string, logger *logging.Logger) *PostmarkPasskeyChangeSender {
 	return newPostmarkPasskeyChangeSender(fanWebBaseURL, japanTime, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
+
+// NewPostmarkEmailVerificationSenderForTest points the sender at a stub Postmark API.
+func NewPostmarkEmailVerificationSenderForTest(codes EmailVerificationCodeIssuer, fanWebBaseURL, apiURL, serverToken string, logger *logging.Logger) *PostmarkEmailVerificationSender {
+	return newPostmarkEmailVerificationSender(codes, fanWebBaseURL, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
+}

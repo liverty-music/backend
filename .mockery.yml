@@ -20,6 +20,7 @@ packages:
       ConcertRepository: {}
       ConcertSearchRepository: {}
       ConcertSearcher: {}
+      EmailCodeVerifier: {}
       EmailVerifier: {}
       EventRepository: {}
       FollowRepository: {}
@@ -61,6 +62,9 @@ packages:
       VenueMapCatalog: {}
       VenueRepository: {}
       WalletPublicKeyRepository: {}
+  github.com/liverty-music/backend/internal/adapter/rpc:
+    interfaces:
+      EmailVerificationCodes: {}
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator: {}
