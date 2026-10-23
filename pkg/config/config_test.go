@@ -891,14 +891,13 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 			Issuer:              "https://test-issuer.com",
 			JWKSRefreshInterval: 15 * time.Minute,
 		},
-		GCP:                                GCPConfig{GeminiSearchAPIKey: "gemini-key"},
-		VAPID:                              VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"},
-		ZitadelMachineKeyForBackendAppPath: "/secrets/backend-app.json",
-		LastFMAPIKey:                       "lastfm-key",
-		StorageInternalBucket:              "storage-internal",
-		StorageBucket:                      "storage",
-		CDNBaseURL:                         "https://cdn.dev.liverty-music.app",
-		FanWebBaseURL:                      "https://dev.liverty-music.app",
+		GCP:                   GCPConfig{GeminiSearchAPIKey: "gemini-key"},
+		VAPID:                 VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"},
+		LastFMAPIKey:          "lastfm-key",
+		StorageInternalBucket: "storage-internal",
+		StorageBucket:         "storage",
+		CDNBaseURL:            "https://cdn.dev.liverty-music.app",
+		FanWebBaseURL:         "https://dev.liverty-music.app",
 		PocketSign: PocketSignConfig{
 			BaseURL:     "https://verify.mock.p8n.app",
 			Token:       "ps-token",
@@ -913,7 +912,7 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 	}
 	if workload == WorkloadAdmin {
 		cfg.OrganizerConsoleProjectID = "organizer-console-project"
-		cfg.ZitadelMachineKeyForOrganizerProvisionerPath = "/secrets/organizer-provisioner.json"
+		cfg.IdentityServiceURL = "http://identity:9101"
 	}
 	return cfg
 }
@@ -973,34 +972,9 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			wantErr: "invalid STRIPE_ONBOARDING_RETURN_URL",
 		},
 		{
-			name:   "accept a fan workload without the backend-app credential",
-			mutate: func(c *ServerConfig) { c.ZitadelMachineKeyForBackendAppPath = "" },
-		},
-		{
-			name: "accept an organizer workload without the backend-app credential",
-			mutate: func(c *ServerConfig) {
-				c.Workload = WorkloadOrganizer
-				c.ZitadelMachineKeyForBackendAppPath = ""
-			},
-		},
-		{
-			name: "accept a reception workload without the backend-app credential",
-			mutate: func(c *ServerConfig) {
-				c.Workload = WorkloadReception
-				c.ZitadelMachineKeyForBackendAppPath = ""
-			},
-		},
-		{
-			name:    "reject an admin workload without the provisioner credential",
+			name:    "reject an admin workload without the identity service",
 			mutate:  func(c *ServerConfig) { c.Workload = WorkloadAdmin },
-			wantErr: "ORGANIZER_CONSOLE_PROJECT_ID, ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH",
-		},
-		{
-			name: "reject the provisioner credential outside the admin workload",
-			mutate: func(c *ServerConfig) {
-				c.ZitadelMachineKeyForOrganizerProvisionerPath = "/secrets/organizer-provisioner.json"
-			},
-			wantErr: "belongs to the admin workload only",
+			wantErr: "IDENTITY_SERVICE_URL, ORGANIZER_CONSOLE_PROJECT_ID",
 		},
 	}
 
@@ -1025,27 +999,6 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 		t.Parallel()
 		assert.NoError(t, validNonLocalServerConfig(WorkloadAdmin).Validate())
 	})
-
-	t.Run("accept an admin workload with the identity service instead of the keys", func(t *testing.T) {
-		t.Parallel()
-		cfg := validNonLocalServerConfig(WorkloadAdmin)
-		cfg.ZitadelMachineKeyForBackendAppPath = ""
-		cfg.ZitadelMachineKeyForOrganizerProvisionerPath = ""
-		cfg.IdentityServiceURL = "http://identity:9101"
-
-		assert.NoError(t, cfg.Validate())
-	})
-
-	t.Run("reject an admin workload without the backend-app credential", func(t *testing.T) {
-		t.Parallel()
-		cfg := validNonLocalServerConfig(WorkloadAdmin)
-		cfg.ZitadelMachineKeyForBackendAppPath = ""
-
-		err := cfg.Validate()
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
-	})
 }
 
 func TestServerConfig_WorkloadDuties(t *testing.T) {
@@ -1062,11 +1015,11 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 		{name: "organizer does neither", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
 		{name: "reception does neither", cfg: validNonLocalServerConfig(WorkloadReception)},
 		{
-			name: "local with both credentials does both",
+			name: "local with the Stripe key and the identity service does both",
 			cfg: &ServerConfig{
-				Environment: "local",
-				Stripe:      StripeConfig{SecretKey: "sk_test_x"},
-				ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
+				Environment:        "local",
+				Stripe:             StripeConfig{SecretKey: "sk_test_x"},
+				IdentityServiceURL: "http://localhost:9101",
 			},
 			wantSweepers:     true,
 			wantProvisioning: true,
@@ -1104,20 +1057,16 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, OIDC_ISSUER_URL, "+
-		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, IDENTITY_SERVICE_URL or ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
+	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, IDENTITY_SERVICE_URL, OIDC_ISSUER_URL, "+
+		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY")
 
 	cfg.FanartTVAPIKey = "fanart-key"
 	cfg.GCP = GCPConfig{GeminiSearchAPIKey: "gemini-key", ProjectID: "project"}
 	cfg.ZitadelDomain = "https://auth.dev.liverty-music.app"
 	cfg.PostHog.ProjectAPIKey = "phc_x"
 	cfg.VAPID = VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"}
-	cfg.ZitadelMachineKeyForBackendAppPath = "/secrets/backend-app.json"
-	assert.NoError(t, cfg.Validate())
-
-	cfg.ZitadelMachineKeyForBackendAppPath = ""
 	cfg.IdentityServiceURL = "http://identity:9100"
-	assert.NoError(t, cfg.Validate(), "the identity service replaces the backend-app key")
+	assert.NoError(t, cfg.Validate())
 }
 
 // validIdentityConfig returns an IdentityConfig that passes Validate outside

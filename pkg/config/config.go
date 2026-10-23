@@ -108,28 +108,11 @@ type ServerConfig struct {
 	VAPID VAPIDConfig `envconfig:""`
 
 	// IdentityServiceURL is the identity service's listener for the admin
-	// console API (e.g. http://identity:9101, h2c). When set, fan identity
-	// removal and Organization provisioning go through the identity service
-	// and the two Zitadel keys below are not read. Outside local the admin
-	// workload needs it or both keys.
+	// console API (e.g. http://identity:9101, h2c). Fan identity removal and
+	// Organization provisioning go through it; no API workload holds an
+	// identity-provider credential. Required outside local on the admin
+	// workload; unset elsewhere.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
-
-	// ZitadelMachineKeyForBackendAppPath is the file path to the
-	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. Used only on the
-	// admin workload without IDENTITY_SERVICE_URL, for fan identity removal;
-	// the fan, organizer and reception workloads hold no identity-provider
-	// credential. Empty disables fan identity removal.
-	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
-
-	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
-	// `organizer-provisioner` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-organizer-provisioner`. This
-	// credential grants IAM_ORG_MANAGER (Organization creation + cross-org
-	// grants) and is mounted only into the isolated admin workload
-	// (`admin-console-api`), never the consumer surface. Required for the admin
-	// workload outside local; other workloads must not carry it.
-	ZitadelMachineKeyForOrganizerProvisionerPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH"`
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
 	// Project-Granted to each Organizer's Organization and used as the role
@@ -222,26 +205,12 @@ type ConsumerConfig struct {
 	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
 
 	// IdentityServiceURL is the identity service's listener for the event
-	// consumer (e.g. http://identity:9100, h2c). When set, verification emails
-	// and passkey registration links go through the identity service and the
-	// two Zitadel keys below are not read. Outside local it or the backend-app
-	// key is required.
+	// consumer (e.g. http://identity:9100, h2c). Verification emails and
+	// passkey registration links go through it; the consumer holds no
+	// identity-provider credential. Required outside local; unset in local
+	// development, the verification handlers skip with a warning and the
+	// passkey recovery link handler is disabled.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
-
-	// ZitadelMachineKeyForBackendAppPath is the file path to the
-	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. Used only without
-	// IDENTITY_SERVICE_URL; with neither set (local development) the email
-	// verification consumer skips processing with a warning.
-	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
-
-	// ZitadelMachineKeyForFanPasskeyRecoveryPath is the file path to the
-	// `fan-passkey-recovery` Zitadel MachineUser's private key JSON (ORG_OWNER
-	// on the product org, the narrowest role that can issue passkey
-	// registration codes). Used only without IDENTITY_SERVICE_URL; with neither
-	// set the passkey recovery link handler is disabled, and the consumer
-	// starts without it and logs that.
-	ZitadelMachineKeyForFanPasskeyRecoveryPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH"`
 
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
@@ -1069,9 +1038,7 @@ var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer, Workl
 // servers use. Each deployment runs all five listeners, so the requirements
 // are the same for every workload except what only the admin workload needs
 // for fan identity removal and Organization provisioning: the identity
-// service's URL, or else the backend-app and organizer-provisioner
-// credentials. Only the admin workload may carry the organizer-provisioner
-// credential.
+// service's URL.
 func (c *ServerConfig) validateWorkloadSettings() error {
 	if c.Workload == "" {
 		return fmt.Errorf("API_WORKLOAD is required outside local (allowed: %s)", strings.Join(apiWorkloads, ", "))
@@ -1097,16 +1064,10 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
 	}
 	if c.Workload == WorkloadAdmin {
-		required = append(required, envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID})
-		if c.IdentityServiceURL == "" {
-			required = append(required,
-				envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
-				envVar{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
-			)
-		}
-	} else if c.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
-		return fmt.Errorf("ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH is set on the %s workload: "+
-			"the organizer-provisioner credential belongs to the admin workload only", c.Workload)
+		required = append(required,
+			envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
+			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+		)
 	}
 	if err := requireSet(required...); err != nil {
 		return err
@@ -1133,11 +1094,10 @@ func (c *ServerConfig) RunsPaymentSweepers() bool {
 
 // ProvisionsOrganizers reports whether this process provisions Organizers'
 // Organizations (and runs the provisioning reconciler). Outside local only the admin
-// workload does; local does whenever the identity service's URL is set or the
-// provisioner credential is mounted.
+// workload does; local does whenever the identity service's URL is set.
 func (c *ServerConfig) ProvisionsOrganizers() bool {
 	if c.IsLocal() {
-		return c.IdentityServiceURL != "" || c.ZitadelMachineKeyForOrganizerProvisionerPath != ""
+		return c.IdentityServiceURL != ""
 	}
 	return c.Workload == WorkloadAdmin
 }
@@ -1174,11 +1134,11 @@ func (c *ConsumerConfig) Validate() error {
 		envVar{"FANARTTV_API_KEY", c.FanartTVAPIKey},
 		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
+		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
 		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
-		envVar{"IDENTITY_SERVICE_URL or ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.IdentityServiceURL + c.ZitadelMachineKeyForBackendAppPath},
 	)
 }
 

@@ -123,51 +123,33 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 }
 
 // provideIdentityRemover builds the fan identity remover: a client of the
-// identity service when identityServiceURL is set, else the Zitadel client
-// with the backend-app key at keyPath (its ORG_USER_MANAGER membership on the
-// product org carries user.delete), else nil. The fan, organizer and
-// reception workloads set neither, so they reach no identity-provider
-// operation. The API builds no email verifier: verification resends are sent
-// by the event consumer. It logs which client was built so its absence is
-// visible.
-func provideIdentityRemover(ctx context.Context, issuer, identityServiceURL, keyPath string, logger *logging.Logger) (entity.IdentityRemover, error) {
-	switch {
-	case identityServiceURL != "":
-		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_service"))
-		return identity.NewUserClient(identityServiceURL), nil
-	case keyPath != "":
-		ir, err := infrazitadel.NewIdentityRemover(ctx, issuer, keyPath, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create zitadel identity remover: %w", err)
-		}
-		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_remover"))
-		return ir, nil
-	default:
+// identity service when identityServiceURL is set (the admin workload), else
+// nil. The fan, organizer and reception workloads leave it unset, so they
+// reach no identity-provider operation. The API builds no email verifier:
+// verification resends are sent by the event consumer. It logs which client
+// was built so its absence is visible.
+func provideIdentityRemover(ctx context.Context, identityServiceURL string, logger *logging.Logger) entity.IdentityRemover {
+	if identityServiceURL == "" {
 		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "none"))
-		return nil, nil
+		return nil
 	}
+	logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_service"))
+	return identity.NewUserClient(identityServiceURL)
 }
 
 // provideOrganizationRepository returns the Organization repository. On the
 // workload that provisions Organizers (the isolated admin workload) it is a
-// client of the identity service, or the Zitadel Management-API client with
-// the organizer-provisioner credential until IDENTITY_SERVICE_URL is set.
-// Other workloads outside local refuse every call, and local dev without
-// either uses a no-op (no live Zitadel).
-func provideOrganizationRepository(ctx context.Context, cfg *config.ServerConfig, logger *logging.Logger) (entity.OrganizationRepository, error) {
+// client of the identity service. Other workloads outside local refuse every
+// call, and local dev without the identity service uses a no-op (no live
+// Zitadel).
+func provideOrganizationRepository(cfg *config.ServerConfig, logger *logging.Logger) entity.OrganizationRepository {
 	switch {
-	case cfg.ProvisionsOrganizers() && cfg.IdentityServiceURL != "":
-		return identity.NewOrganizationClient(cfg.IdentityServiceURL), nil
 	case cfg.ProvisionsOrganizers():
-		repo, err := infrazitadel.NewOrganizationRepository(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create organization repository: %w", err)
-		}
-		return repo, nil
+		return identity.NewOrganizationClient(cfg.IdentityServiceURL)
 	case cfg.IsLocal():
-		return infrazitadel.NewNoopOrganizationRepository(logger), nil
+		return infrazitadel.NewNoopOrganizationRepository(logger)
 	default:
-		return infrazitadel.NewUnavailableOrganizationRepository(cfg.Workload), nil
+		return infrazitadel.NewUnavailableOrganizationRepository(cfg.Workload)
 	}
 }
 
@@ -315,10 +297,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Infrastructure - fan identity removal (nil on every workload but admin,
 	// and in local dev without the identity service or the backend-app key).
-	identityRemover, err := provideIdentityRemover(ctx, cfg.JWT.Issuer, cfg.IdentityServiceURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
-	if err != nil {
-		return nil, err
-	}
+	identityRemover := provideIdentityRemover(ctx, cfg.IdentityServiceURL, logger)
 
 	// Business metrics
 	businessMetrics := infratelemetry.NewBusinessMetrics()
@@ -330,10 +309,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	organizationRepo, err := provideOrganizationRepository(ctx, cfg, logger)
-	if err != nil {
-		return nil, err
-	}
+	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside
 	// local a storer that cannot be created stops the server.

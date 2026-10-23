@@ -1,7 +1,6 @@
 package di_test
 
 import (
-	"context"
 	"io"
 	"reflect"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // envNames returns every envconfig name declared in the struct type t and
@@ -31,30 +29,39 @@ func envNames(t reflect.Type) []string {
 func TestPasskeyRecoveryWiring(t *testing.T) {
 	t.Parallel()
 
-	t.Run("without the fan-passkey-recovery key the consumer starts with the recovery link handler disabled", func(t *testing.T) {
+	t.Run("without the identity service the consumer starts with the recovery link handler disabled", func(t *testing.T) {
 		t.Parallel()
 		cfg := &config.ConsumerConfig{}
 		cfg.Postmark.ServerToken = "server-token"
 
-		sender, err := di.NewPasskeyRegistrationLinkSender(context.Background(), cfg, di.NewBootstrapLoggerTo(io.Discard))
+		sender := di.NewPasskeyRegistrationLinkSender(cfg, di.NewBootstrapLoggerTo(io.Discard))
 
-		require.NoError(t, err)
-		assert.Nil(t, sender, "no identity-provider recovery client is built")
+		assert.Nil(t, sender, "no recovery link sender is built")
 		assert.Empty(t, di.PasskeyRecoveryBehaviorNames(false), "no send-passkey-recovery-link behavior")
 	})
 
-	t.Run("with the key the consumer registers the send-passkey-recovery-link behavior", func(t *testing.T) {
+	t.Run("with the identity service the consumer builds the sender", func(t *testing.T) {
+		t.Parallel()
+		cfg := &config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}
+		cfg.Postmark.ServerToken = "server-token"
+
+		assert.NotNil(t, di.NewPasskeyRegistrationLinkSender(cfg, di.NewBootstrapLoggerTo(io.Discard)))
+	})
+
+	t.Run("when links can be issued the consumer registers the send-passkey-recovery-link behavior", func(t *testing.T) {
 		t.Parallel()
 
 		assert.Equal(t, []string{"send-passkey-recovery-link USER.passkey_recovery_requested"}, di.PasskeyRecoveryBehaviorNames(true))
 	})
 
-	t.Run("the fan API configuration never reads the fan-passkey-recovery key", func(t *testing.T) {
+	t.Run("only the identity service configuration reads an identity-provider key", func(t *testing.T) {
 		t.Parallel()
 
-		for _, name := range envNames(reflect.TypeFor[config.ServerConfig]()) {
-			assert.False(t, strings.Contains(name, "FAN_PASSKEY_RECOVERY"), "ServerConfig declares %s", name)
+		for _, typ := range []reflect.Type{reflect.TypeFor[config.ServerConfig](), reflect.TypeFor[config.ConsumerConfig]()} {
+			for _, name := range envNames(typ) {
+				assert.False(t, strings.HasPrefix(name, "ZITADEL_MACHINE_KEY"), "%s declares %s", typ.Name(), name)
+			}
 		}
-		assert.Contains(t, envNames(reflect.TypeFor[config.ConsumerConfig]()), "ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH")
+		assert.Contains(t, envNames(reflect.TypeFor[config.IdentityConfig]()), "ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH")
 	})
 }
