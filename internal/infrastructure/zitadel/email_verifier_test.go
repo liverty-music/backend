@@ -3,13 +3,9 @@ package zitadel_test
 import (
 	"bytes"
 	"context"
-	"net"
 	"testing"
 
-	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
-	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -21,251 +17,185 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// stubUserServiceServer implements only the v2 UserService method used by
-// SendVerification. All other methods return Unimplemented via the embedded
-// type.
-type stubUserServiceServer struct {
-	userpb.UnimplementedUserServiceServer
-	sendErr error
-
-	lastSendUserID string
+// fakeEmailCodeClient stands in for Zitadel's v2 User Service: it holds one
+// identity's address and answers each call with the configured result.
+type fakeEmailCodeClient struct {
+	email      string
+	verified   bool
+	getErr     error
+	sendErr    error
+	sendCode   string
+	verifyErr  error
+	sendCalls  []*userpb.SendEmailCodeRequest
+	verifyReqs []*userpb.VerifyEmailRequest
 }
 
-func (s *stubUserServiceServer) SendEmailCode(_ context.Context, in *userpb.SendEmailCodeRequest) (*userpb.SendEmailCodeResponse, error) {
-	s.lastSendUserID = in.UserId
-	if s.sendErr != nil {
-		return nil, s.sendErr
+func (f *fakeEmailCodeClient) GetUserByID(_ context.Context, in *userpb.GetUserByIDRequest, _ ...grpc.CallOption) (*userpb.GetUserByIDResponse, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
 	}
-	return &userpb.SendEmailCodeResponse{}, nil
+	return &userpb.GetUserByIDResponse{User: &userpb.User{
+		UserId: in.GetUserId(),
+		Type: &userpb.User_Human{Human: &userpb.HumanUser{
+			Email: &userpb.HumanEmail{Email: f.email, IsVerified: f.verified},
+		}},
+	}}, nil
 }
 
-// stubManagementServiceServer implements only the v1 Management method used
-// by ResendVerification. The post-cutover ResendVerification path uses v1
-// Management `ResendHumanEmailVerification` rather than v2
-// `ResendEmailCode` — see emailResendClient docstring in email_verifier.go.
-type stubManagementServiceServer struct {
-	mgmtpb.UnimplementedManagementServiceServer
-	resendErr error
-
-	lastResendUserID string
-}
-
-func (s *stubManagementServiceServer) ResendHumanEmailVerification(_ context.Context, in *mgmtpb.ResendHumanEmailVerificationRequest) (*mgmtpb.ResendHumanEmailVerificationResponse, error) {
-	s.lastResendUserID = in.UserId
-	if s.resendErr != nil {
-		return nil, s.resendErr
+func (f *fakeEmailCodeClient) SendEmailCode(_ context.Context, in *userpb.SendEmailCodeRequest, _ ...grpc.CallOption) (*userpb.SendEmailCodeResponse, error) {
+	f.sendCalls = append(f.sendCalls, in)
+	if f.sendErr != nil {
+		return nil, f.sendErr
 	}
-	return &mgmtpb.ResendHumanEmailVerificationResponse{}, nil
+	return &userpb.SendEmailCodeResponse{VerificationCode: &f.sendCode}, nil
 }
 
-// startZitadelStubServer starts a real gRPC server on a random local port
-// with both v2 UserService and v1 ManagementService registered, mirroring
-// the real Zitadel API surface. The same listener handles both because the
-// EmailVerifier shares one underlying connection between its two service
-// stubs.
-func startZitadelStubServer(t *testing.T, userSrv *stubUserServiceServer, mgmtSrv *stubManagementServiceServer) string {
-	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	s := grpc.NewServer()
-	if userSrv != nil {
-		userpb.RegisterUserServiceServer(s, userSrv)
+func (f *fakeEmailCodeClient) VerifyEmail(_ context.Context, in *userpb.VerifyEmailRequest, _ ...grpc.CallOption) (*userpb.VerifyEmailResponse, error) {
+	f.verifyReqs = append(f.verifyReqs, in)
+	if f.verifyErr != nil {
+		return nil, f.verifyErr
 	}
-	if mgmtSrv != nil {
-		mgmtpb.RegisterManagementServiceServer(s, mgmtSrv)
-	}
-	go func() { _ = s.Serve(lis) }()
-	t.Cleanup(s.GracefulStop)
-	return lis.Addr().String()
+	return &userpb.VerifyEmailResponse{}, nil
 }
 
-// newTestVerifier creates an EmailVerifier pointing at the given gRPC server
-// address using insecure transport and a static token, bypassing JWT auth.
-// The returned bytes.Buffer captures all log output for assertions.
-func newTestVerifier(t *testing.T, addr string) (*infrazitadel.EmailVerifier, *bytes.Buffer) {
+func newTestVerifier(t *testing.T, client *fakeEmailCodeClient) (*infrazitadel.EmailVerifier, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	logger, err := logging.New(logging.WithWriter(buf))
 	require.NoError(t, err)
-
-	v, err := infrazitadel.NewEmailVerifier(
-		context.Background(),
-		"http://test-issuer",
-		"",
-		logger,
-		zitadelconn.WithInsecure(),
-		zitadelconn.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test"})),
-		zitadelconn.WithCustomURL("http://test-issuer", addr),
-	)
-	require.NoError(t, err)
-	return v, buf
+	return infrazitadel.NewEmailVerifierWithClient(client, logger), buf
 }
 
-func TestEmailVerifier_SendVerification(t *testing.T) {
+func TestEmailVerifier_IssueEmailVerificationCode(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		providerUserID string
+	type want struct {
+		address string
+		code    string
 	}
 	tests := []struct {
 		name      string
-		args      args
-		sendErr   error
+		client    *fakeEmailCodeClient
+		want      want
 		wantErr   error
-		wantInLog string
-		wantNoLog string
-		check     func(t *testing.T, stub *stubUserServiceServer)
+		wantSends int
 	}{
 		{
-			name:      "success emits INFO log",
-			args:      args{providerUserID: "user-123"},
-			sendErr:   nil,
-			wantErr:   nil,
-			wantInLog: "email verification sent",
-			check: func(t *testing.T, stub *stubUserServiceServer) {
-				t.Helper()
-				assert.Equal(t, "user-123", stub.lastSendUserID)
-			},
+			name:      "an unverified address gets a returned code and no Zitadel email",
+			client:    &fakeEmailCodeClient{email: "fan@example.com", sendCode: "ABC123"},
+			want:      want{address: "fan@example.com", code: "ABC123"},
+			wantSends: 1,
 		},
 		{
-			name:      "gRPC unavailable wraps as internal without logging (caller logs)",
-			args:      args{providerUserID: "user-456"},
-			sendErr:   grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
-			wantErr:   apperr.ErrInternal,
-			wantNoLog: "failed to send email code",
+			name:    "an already verified address gets no code",
+			client:  &fakeEmailCodeClient{email: "fan@example.com", verified: true},
+			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
-			name:      "gRPC not found wraps as internal without logging (caller logs)",
-			args:      args{providerUserID: "nonexistent"},
-			sendErr:   grpcstatus.Error(grpccodes.NotFound, "user not found"),
+			name:    "an unknown identity is NotFound",
+			client:  &fakeEmailCodeClient{getErr: grpcstatus.Error(grpccodes.NotFound, "user not found")},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:    "an unreachable Zitadel is Unavailable",
+			client:  &fakeEmailCodeClient{getErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused")},
+			wantErr: apperr.ErrUnavailable,
+		},
+		{
+			name:      "a failure to issue is Internal",
+			client:    &fakeEmailCodeClient{email: "fan@example.com", sendErr: grpcstatus.Error(grpccodes.Internal, "boom")},
 			wantErr:   apperr.ErrInternal,
-			wantNoLog: "failed to send email code",
+			wantSends: 1,
+		},
+		{
+			name:      "an empty returned code is Internal",
+			client:    &fakeEmailCodeClient{email: "fan@example.com"},
+			wantErr:   apperr.ErrInternal,
+			wantSends: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stub := &stubUserServiceServer{sendErr: tt.sendErr}
-			addr := startZitadelStubServer(t, stub, nil)
-			v, logBuf := newTestVerifier(t, addr)
+			v, logBuf := newTestVerifier(t, tt.client)
 
-			err := v.SendVerification(context.Background(), tt.args.providerUserID)
+			address, code, err := v.IssueEmailVerificationCode(context.Background(), "zitadel-user-1")
 
+			require.Len(t, tt.client.sendCalls, tt.wantSends)
+			for _, req := range tt.client.sendCalls {
+				assert.NotNil(t, req.GetReturnCode(), "Zitadel must return the code, not send it")
+			}
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				assert.NoError(t, err)
+				return
 			}
-			if tt.wantInLog != "" {
-				assert.Contains(t, logBuf.String(), tt.wantInLog)
-				assert.Contains(t, logBuf.String(), tt.args.providerUserID)
-			}
-			if tt.wantNoLog != "" {
-				assert.NotContains(t, logBuf.String(), tt.wantNoLog)
-			}
-			if tt.check != nil {
-				tt.check(t, stub)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, want{address: address, code: code})
+			assert.NotContains(t, logBuf.String(), code, "the code is never logged")
 		})
 	}
 }
 
-func TestEmailVerifier_ResendVerification(t *testing.T) {
+func TestEmailVerifier_VerifyEmail(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		providerUserID string
-	}
 	tests := []struct {
-		name      string
-		args      args
-		resendErr error
-		wantErr   error
-		wantInLog string
-		check     func(t *testing.T, stub *stubManagementServiceServer)
+		name    string
+		client  *fakeEmailCodeClient
+		wantErr error
 	}{
 		{
-			name:      "success emits INFO log",
-			args:      args{providerUserID: "user-123"},
-			resendErr: nil,
-			wantErr:   nil,
-			wantInLog: "email verification resent",
-			check: func(t *testing.T, stub *stubManagementServiceServer) {
-				t.Helper()
-				assert.Equal(t, "user-123", stub.lastResendUserID)
-			},
+			// @spec components/entity/user/verify-email "Valid code"
+			name:   "the latest code verifies the address",
+			client: &fakeEmailCodeClient{},
 		},
 		{
-			// §13.16 incident path: user signed up while SMTP was inactive,
-			// so no verification code was ever generated. The v2 endpoint
-			// fails this case with `Code is empty (EMAIL-5w5ilin4yt)`; the
-			// v1 Management endpoint generates a fresh code and succeeds.
-			name:      "succeeds when no prior verification code exists (post-SMTP-inactive sign-up)",
-			args:      args{providerUserID: "user-no-prior-code"},
-			resendErr: nil,
-			wantErr:   nil,
-			wantInLog: "email verification resent",
-			check: func(t *testing.T, stub *stubManagementServiceServer) {
-				t.Helper()
-				assert.Equal(t, "user-no-prior-code", stub.lastResendUserID)
-			},
+			// @spec components/entity/user/verify-email "Code already used"
+			name:    "a used code is InvalidArgument",
+			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Empty")},
+			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			// An expected outcome: ReissueEmailVerification logs it at INFO
-			// and finishes, so the verifier logs nothing (no ERROR to alert on).
-			name:      "already verified logs nothing and maps to FailedPrecondition",
-			args:      args{providerUserID: "verified-user"},
-			resendErr: grpcstatus.Error(grpccodes.FailedPrecondition, "email already verified"),
-			wantErr:   apperr.ErrFailedPrecondition,
-			wantInLog: "",
+			// @spec components/entity/user/verify-email "Code older than 1 hour"
+			name:    "an expired code is InvalidArgument",
+			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Expired")},
+			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			name:      "gRPC unavailable emits ERROR log and wraps as internal",
-			args:      args{providerUserID: "user-456"},
-			resendErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
-			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email verification",
+			name:    "a wrong code is InvalidArgument",
+			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.InvalidArgument, "Errors.User.Code.Invalid")},
+			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			name:      "gRPC internal emits ERROR log and wraps as internal",
-			args:      args{providerUserID: "user-789"},
-			resendErr: grpcstatus.Error(grpccodes.Internal, "something went wrong"),
-			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email verification",
+			// @spec components/entity/user/verify-email "Unknown identity"
+			name:    "an unknown identity is NotFound",
+			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.NotFound, "Errors.User.NotFound")},
+			wantErr: apperr.ErrNotFound,
 		},
 		{
-			name:      "gRPC permission denied emits ERROR log and wraps as internal",
-			args:      args{providerUserID: "no-perms"},
-			resendErr: grpcstatus.Error(grpccodes.PermissionDenied, "insufficient permissions"),
-			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email verification",
+			name:    "an unreachable Zitadel is Unavailable",
+			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused")},
+			wantErr: apperr.ErrUnavailable,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stub := &stubManagementServiceServer{resendErr: tt.resendErr}
-			addr := startZitadelStubServer(t, nil, stub)
-			v, logBuf := newTestVerifier(t, addr)
+			v, logBuf := newTestVerifier(t, tt.client)
 
-			err := v.ResendVerification(context.Background(), tt.args.providerUserID)
+			err := v.VerifyEmail(context.Background(), "zitadel-user-1", "ABC123")
 
+			require.Len(t, tt.client.verifyReqs, 1)
+			assert.Equal(t, "zitadel-user-1", tt.client.verifyReqs[0].GetUserId())
+			assert.Equal(t, "ABC123", tt.client.verifyReqs[0].GetVerificationCode())
+			assert.NotContains(t, logBuf.String(), "ABC123", "the code is never logged")
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				assert.NoError(t, err)
+				return
 			}
-			if tt.wantInLog == "" {
-				assert.Empty(t, logBuf.String())
-			} else {
-				assert.Contains(t, logBuf.String(), tt.wantInLog)
-				assert.Contains(t, logBuf.String(), tt.args.providerUserID)
-			}
-			if tt.check != nil {
-				tt.check(t, stub)
-			}
+			assert.NoError(t, err)
 		})
 	}
 }

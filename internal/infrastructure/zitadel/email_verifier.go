@@ -5,62 +5,40 @@ package zitadel
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
-	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"log/slog"
-
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
-
-	grpccodes "google.golang.org/grpc/codes"
 )
 
-// emailSendClient is the subset of the v2 UserServiceClient used by
-// SendVerification (initial verification email at sign-up time).
-type emailSendClient interface {
+// EmailCodeClient is the subset of the v2 UserServiceClient the
+// EmailVerifier uses.
+type EmailCodeClient interface {
+	GetUserByID(ctx context.Context, in *userpb.GetUserByIDRequest, opts ...grpc.CallOption) (*userpb.GetUserByIDResponse, error)
 	SendEmailCode(ctx context.Context, in *userpb.SendEmailCodeRequest, opts ...grpc.CallOption) (*userpb.SendEmailCodeResponse, error)
+	VerifyEmail(ctx context.Context, in *userpb.VerifyEmailRequest, opts ...grpc.CallOption) (*userpb.VerifyEmailResponse, error)
 }
 
-// emailResendClient is the subset of the v1 ManagementServiceClient used by
-// ResendVerification (post-sign-up "Resend verification email" button).
-//
-// v1 Management ResendHumanEmailVerification is used instead of v2
-// ResendEmailCode because v2 only resends an EXISTING code: if SMTP was
-// inactive at sign-up time (the §13.16 cutover incident path), no code was
-// ever generated and v2 fails with `Code is empty (EMAIL-5w5ilin4yt)`.
-// v1 generates a fresh code AND sends the email, which matches the
-// user-intent of the Settings-page "Resend verification email" button.
-// See `cutover-warning-fixes` design doc D1 for the full rationale.
-type emailResendClient interface {
-	ResendHumanEmailVerification(ctx context.Context, in *mgmtpb.ResendHumanEmailVerificationRequest, opts ...grpc.CallOption) (*mgmtpb.ResendHumanEmailVerificationResponse, error)
-}
-
-// Compile-time interface compliance check.
-var _ entity.EmailVerifier = (*EmailVerifier)(nil)
-
-// EmailVerifier calls Zitadel APIs to send and resend email verification
-// codes. SendVerification uses the v2 User Service; ResendVerification uses
-// the v1 Management Service (see emailResendClient docstring).
+// EmailVerifier issues and checks email verification codes through the v2
+// User Service. Zitadel sends no email: the code is returned to the caller,
+// which emails it. A code is a credential, so it is never logged.
 type EmailVerifier struct {
-	sendClient   emailSendClient
-	resendClient emailResendClient
-	logger       *logging.Logger
+	client EmailCodeClient
+	logger *logging.Logger
 }
 
 // NewEmailVerifier creates a new EmailVerifier that authenticates to the
-// Zitadel API using a machine user's private key JWT. A single underlying
-// gRPC connection is shared between the v2 User Service and v1 Management
-// Service stubs, so there is exactly one auth/refresh goroutine per process.
+// Zitadel API using a machine user's private key JWT.
 //
 // issuerURL is the OIDC issuer URL (e.g., "https://auth.dev.liverty-music.app").
 // keyPath is the file path to the machine key JSON.
@@ -92,50 +70,91 @@ func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *lo
 		return nil, fmt.Errorf("create zitadel connection: %w", err)
 	}
 
-	return &EmailVerifier{
-		sendClient:   userpb.NewUserServiceClient(conn.ClientConn),
-		resendClient: mgmtpb.NewManagementServiceClient(conn.ClientConn),
-		logger:       logger,
-	}, nil
+	return NewEmailVerifierWithClient(userpb.NewUserServiceClient(conn.ClientConn), logger), nil
 }
 
-// SendVerification triggers a verification email for the given Zitadel user.
-func (v *EmailVerifier) SendVerification(ctx context.Context, providerUserID string) error {
-	_, err := v.sendClient.SendEmailCode(ctx, &userpb.SendEmailCodeRequest{
-		UserId: providerUserID,
-	})
+// NewEmailVerifierWithClient creates an EmailVerifier around the given client
+// instead of a live Zitadel connection (used by tests).
+func NewEmailVerifierWithClient(client EmailCodeClient, logger *logging.Logger) *EmailVerifier {
+	return &EmailVerifier{client: client, logger: logger}
+}
+
+// IssueEmailVerificationCode issues a new verification code for the email
+// address of the identity providerUserID and returns the address and the
+// code. Earlier codes stop working. SendEmailCode does not check whether the
+// address is already verified, so the identity is read first.
+//
+// # Possible errors
+//
+//   - NotFound: the identity does not exist (or is not a human identity).
+//   - FailedPrecondition: the address is already verified; no code is issued.
+//   - Unavailable: Zitadel cannot be reached.
+//   - Internal: any other failure.
+func (v *EmailVerifier) IssueEmailVerificationCode(ctx context.Context, providerUserID string) (address, code string, err error) {
+	attrs := slog.String("provider_user_id", providerUserID)
+	resp, err := v.client.GetUserByID(ctx, &userpb.GetUserByIDRequest{UserId: providerUserID})
 	if err != nil {
-		return apperr.Wrap(err, codes.Internal, "send email verification code")
+		return "", "", wrapGRPC(err, "get zitadel user", attrs)
 	}
-	v.logger.Info(ctx, "email verification sent",
-		slog.String("provider_user_id", providerUserID),
-	)
-	return nil
-}
+	email := resp.GetUser().GetHuman().GetEmail()
+	if email.GetEmail() == "" {
+		return "", "", apperr.New(codes.NotFound, "identity has no email address", attrs)
+	}
+	if email.GetIsVerified() {
+		return "", "", apperr.New(codes.FailedPrecondition, "email is already verified", attrs)
+	}
 
-// ResendVerification resends a verification email for the given Zitadel user.
-// Always succeeds for users whose email is unverified, including the case
-// where SMTP was inactive at sign-up time and no prior code exists — the v1
-// Management endpoint generates a fresh code and sends the email.
-// Returns FailedPrecondition if the email is already verified, without
-// logging: that is an expected outcome the caller decides about.
-func (v *EmailVerifier) ResendVerification(ctx context.Context, providerUserID string) error {
-	_, err := v.resendClient.ResendHumanEmailVerification(ctx, &mgmtpb.ResendHumanEmailVerificationRequest{
-		UserId: providerUserID,
+	sent, err := v.client.SendEmailCode(ctx, &userpb.SendEmailCodeRequest{
+		UserId:       providerUserID,
+		Verification: &userpb.SendEmailCodeRequest_ReturnCode{ReturnCode: &userpb.ReturnEmailVerificationCode{}},
 	})
 	if err != nil {
-		if st, ok := status.FromError(err); ok && st.Code() == grpccodes.FailedPrecondition {
-			return apperr.Wrap(err, codes.FailedPrecondition, "email is already verified")
+		return "", "", wrapGRPC(err, "issue email verification code", attrs)
+	}
+	if sent.GetVerificationCode() == "" {
+		return "", "", apperr.New(codes.Internal, "zitadel returned no email verification code", attrs)
+	}
+	v.logger.Info(ctx, "email verification code issued", attrs)
+	return email.GetEmail(), sent.GetVerificationCode(), nil
+}
+
+// VerifyEmail marks the email address of the identity providerUserID verified
+// with code. A wrong, expired or used code changes nothing.
+//
+// # Possible errors
+//
+//   - InvalidArgument: the code is wrong, expired or already used, or the
+//     address is already verified.
+//   - NotFound: the identity does not exist.
+//   - Unavailable: Zitadel cannot be reached.
+//   - Internal: any other failure.
+func (v *EmailVerifier) VerifyEmail(ctx context.Context, providerUserID, code string) error {
+	attrs := slog.String("provider_user_id", providerUserID)
+	_, err := v.client.VerifyEmail(ctx, &userpb.VerifyEmailRequest{UserId: providerUserID, VerificationCode: code})
+	if err != nil {
+		// Zitadel answers a wrong code with InvalidArgument and an expired or
+		// missing code, or an address already verified, with
+		// FailedPrecondition: all mean this code cannot verify.
+		if st, ok := status.FromError(err); ok && (st.Code() == grpccodes.InvalidArgument || st.Code() == grpccodes.FailedPrecondition) {
+			return apperr.Wrap(err, codes.InvalidArgument, "email verification code is not valid", attrs)
 		}
-		v.logger.Error(ctx, "failed to resend email verification", err,
-			slog.String("provider_user_id", providerUserID),
-		)
-		return apperr.Wrap(err, codes.Internal, "resend email verification code")
+		return wrapGRPC(err, "verify email", attrs)
 	}
-	v.logger.Info(ctx, "email verification resent",
-		slog.String("provider_user_id", providerUserID),
-	)
+	v.logger.Info(ctx, "email verified", attrs)
 	return nil
+}
+
+// wrapGRPC maps a Zitadel gRPC error: NotFound stays NotFound, an unreachable
+// Zitadel is Unavailable and anything else is Internal.
+func wrapGRPC(err error, msg string, attrs ...slog.Attr) error {
+	switch status.Code(err) {
+	case grpccodes.NotFound:
+		return apperr.Wrap(err, codes.NotFound, "identity not found", attrs...)
+	case grpccodes.Unavailable, grpccodes.DeadlineExceeded:
+		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+	default:
+		return apperr.Wrap(err, codes.Internal, msg, attrs...)
+	}
 }
 
 // grpcEndpoint extracts the host:port gRPC endpoint from an OIDC issuer URL.

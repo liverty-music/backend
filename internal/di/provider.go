@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
@@ -104,6 +105,13 @@ const (
 	// passkeyRecoveryClientWindow is the window over which
 	// RequestPasskeyRecovery calls are counted per client.
 	passkeyRecoveryClientWindow = 60 * time.Minute
+	// verifyEmailClientLimit is how many UserService.VerifyEmail calls a client
+	// may make within verifyEmailClientWindow before further calls are refused
+	// with ResourceExhausted.
+	verifyEmailClientLimit = 10
+	// verifyEmailClientWindow is the window over which VerifyEmail calls are
+	// counted per client.
+	verifyEmailClientWindow = 60 * time.Minute
 )
 
 // newSignInLinkSender returns the sender of the organizer sign-in link email:
@@ -122,19 +130,31 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
-// provideIdentityRemover builds the fan identity remover: a client of the
-// identity service when identityServiceURL is set (the admin workload), else
-// nil. The fan, organizer and reception workloads leave it unset, so they
-// reach no identity-provider operation. The API builds no email verifier:
-// verification resends are sent by the event consumer. It logs which client
-// was built so its absence is visible.
-func provideIdentityRemover(ctx context.Context, identityServiceURL string, logger *logging.Logger) entity.IdentityRemover {
-	if identityServiceURL == "" {
-		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "none"))
-		return nil
+// provideIdentityClients builds the identity-service clients this workload
+// uses: the fan identity remover on the admin workload and the email code
+// verifier on the fan workload, each nil elsewhere. The organizer and
+// reception workloads reach no identity-provider operation. The API builds no
+// email sender: verification emails are sent by the event consumer. It logs
+// which clients were built so their absence is visible.
+func provideIdentityClients(ctx context.Context, cfg *config.ServerConfig, logger *logging.Logger) (entity.IdentityRemover, entity.EmailCodeVerifier) {
+	var (
+		remover    entity.IdentityRemover
+		emailCodes entity.EmailCodeVerifier
+		built      []string
+	)
+	if cfg.RemovesIdentities() {
+		remover = identity.NewUserClient(cfg.IdentityServiceURL)
+		built = append(built, "identity_remover")
 	}
-	logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_service"))
-	return identity.NewUserClient(identityServiceURL)
+	if cfg.VerifiesEmails() {
+		emailCodes = identity.NewUserClient(cfg.IdentityServiceURL)
+		built = append(built, "email_code_verifier")
+	}
+	if len(built) == 0 {
+		built = append(built, "none")
+	}
+	logger.Info(ctx, "identity-provider clients built", slog.String("clients", strings.Join(built, ",")))
+	return remover, emailCodes
 }
 
 // provideOrganizationRepository returns the Organization repository. On the
@@ -295,9 +315,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	// Infrastructure - fan identity removal (nil on every workload but admin,
-	// and in local dev without the identity service or the backend-app key).
-	identityRemover := provideIdentityRemover(ctx, cfg.IdentityServiceURL, logger)
+	// Infrastructure - fan identity removal (admin workload) and email
+	// verification (fan workload) through the identity service; nil elsewhere
+	// and in local dev without the identity service.
+	identityRemover, emailCodes := provideIdentityClients(ctx, cfg, logger)
 
 	// Business metrics
 	businessMetrics := infratelemetry.NewBusinessMetrics()
@@ -305,7 +326,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, nil, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -712,13 +733,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
 	}
 
-	// The fan server's one public write, UserService.RequestPasskeyRecovery,
-	// may be called passkeyRecoveryClientLimit times per
-	// passkeyRecoveryClientWindow by one client.
+	// The fan server's public writes are limited per client, each on its own
+	// count: UserService.RequestPasskeyRecovery passkeyRecoveryClientLimit
+	// times per passkeyRecoveryClientWindow, and UserService.VerifyEmail
+	// verifyEmailClientLimit times per verifyEmailClientWindow.
 	fanInterceptors := []connect.ServerInterceptor{
 		ratelimit.NewClientQuotaInterceptor(
 			ratelimit.NewClientThrottle(passkeyRecoveryClientLimit, passkeyRecoveryClientWindow, time.Now),
 			auth.FanClientLimitedProcedures(),
+		),
+		ratelimit.NewClientQuotaInterceptor(
+			ratelimit.NewClientThrottle(verifyEmailClientLimit, verifyEmailClientWindow, time.Now),
+			auth.FanEmailVerificationProcedures(),
 		),
 	}
 	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, fanInterceptors, publicRoutes, handlers...)

@@ -21,9 +21,9 @@ var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 
 // UserHandler implements the UserService Connect interface.
 //
-// Every call except RequestPasskeyRecovery acts on the signed-in caller's
-// own User: no request names a User. RequestPasskeyRecovery needs no sign-in
-// and uses no sign-in identity. The handler only resolves the caller's identity from the
+// Every call except RequestPasskeyRecovery and VerifyEmail acts on the
+// signed-in caller's own User: no request names a User. RequestPasskeyRecovery
+// and VerifyEmail need no sign-in and use no sign-in identity. The handler only resolves the caller's identity from the
 // authenticated context and maps proto to/from domain entities; resolving the
 // caller's User and the resend rate limit live in UserUseCase.
 type UserHandler struct {
@@ -221,4 +221,16 @@ func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *userv1.Res
 func (h *UserHandler) RequestPasskeyRecovery(ctx context.Context, req *userv1.RequestPasskeyRecoveryRequest) (*userv1.RequestPasskeyRecoveryResponse, error) {
 	h.userUseCase.RequestPasskeyRecovery(ctx, req.GetEmail().GetValue())
 	return &userv1.RequestPasskeyRecoveryResponse{}, nil
+}
+
+// VerifyEmail confirms a User's email address with the User id and code from
+// the link in the User's verification email. It needs no sign-in and uses no
+// sign-in identity even when one is presented. The User id and the code are
+// checked by protovalidate before the handler runs; the per-client limit is
+// applied by the fan server's interceptor. The code is never logged.
+func (h *UserHandler) VerifyEmail(ctx context.Context, req *userv1.VerifyEmailRequest) (*userv1.VerifyEmailResponse, error) {
+	if err := h.userUseCase.VerifyEmail(ctx, req.GetUserId().GetValue(), req.GetCode().GetValue()); err != nil {
+		return nil, err
+	}
+	return &userv1.VerifyEmailResponse{}, nil
 }

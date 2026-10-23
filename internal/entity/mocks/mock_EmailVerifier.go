@@ -7,6 +7,7 @@ package mocks
 import (
 	"context"
 
+	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -47,16 +48,16 @@ func (_m *MockEmailVerifier) EXPECT() *MockEmailVerifier_Expecter {
 }
 
 // ResendVerification provides a mock function for the type MockEmailVerifier
-func (_mock *MockEmailVerifier) ResendVerification(ctx context.Context, providerUserID string) error {
-	ret := _mock.Called(ctx, providerUserID)
+func (_mock *MockEmailVerifier) ResendVerification(ctx context.Context, user *entity.User) error {
+	ret := _mock.Called(ctx, user)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResendVerification")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, providerUserID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.User) error); ok {
+		r0 = returnFunc(ctx, user)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -70,20 +71,20 @@ type MockEmailVerifier_ResendVerification_Call struct {
 
 // ResendVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - providerUserID string
-func (_e *MockEmailVerifier_Expecter) ResendVerification(ctx any, providerUserID any) *MockEmailVerifier_ResendVerification_Call {
-	return &MockEmailVerifier_ResendVerification_Call{Call: _e.mock.On("ResendVerification", ctx, providerUserID)}
+//   - user *entity.User
+func (_e *MockEmailVerifier_Expecter) ResendVerification(ctx any, user any) *MockEmailVerifier_ResendVerification_Call {
+	return &MockEmailVerifier_ResendVerification_Call{Call: _e.mock.On("ResendVerification", ctx, user)}
 }
 
-func (_c *MockEmailVerifier_ResendVerification_Call) Run(run func(ctx context.Context, providerUserID string)) *MockEmailVerifier_ResendVerification_Call {
+func (_c *MockEmailVerifier_ResendVerification_Call) Run(run func(ctx context.Context, user *entity.User)) *MockEmailVerifier_ResendVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 *entity.User
 		if args[1] != nil {
-			arg1 = args[1].(string)
+			arg1 = args[1].(*entity.User)
 		}
 		run(
 			arg0,
@@ -98,22 +99,22 @@ func (_c *MockEmailVerifier_ResendVerification_Call) Return(err error) *MockEmai
 	return _c
 }
 
-func (_c *MockEmailVerifier_ResendVerification_Call) RunAndReturn(run func(ctx context.Context, providerUserID string) error) *MockEmailVerifier_ResendVerification_Call {
+func (_c *MockEmailVerifier_ResendVerification_Call) RunAndReturn(run func(ctx context.Context, user *entity.User) error) *MockEmailVerifier_ResendVerification_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SendVerification provides a mock function for the type MockEmailVerifier
-func (_mock *MockEmailVerifier) SendVerification(ctx context.Context, providerUserID string) error {
-	ret := _mock.Called(ctx, providerUserID)
+func (_mock *MockEmailVerifier) SendVerification(ctx context.Context, user *entity.User) error {
+	ret := _mock.Called(ctx, user)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendVerification")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, providerUserID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.User) error); ok {
+		r0 = returnFunc(ctx, user)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -127,20 +128,20 @@ type MockEmailVerifier_SendVerification_Call struct {
 
 // SendVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - providerUserID string
-func (_e *MockEmailVerifier_Expecter) SendVerification(ctx any, providerUserID any) *MockEmailVerifier_SendVerification_Call {
-	return &MockEmailVerifier_SendVerification_Call{Call: _e.mock.On("SendVerification", ctx, providerUserID)}
+//   - user *entity.User
+func (_e *MockEmailVerifier_Expecter) SendVerification(ctx any, user any) *MockEmailVerifier_SendVerification_Call {
+	return &MockEmailVerifier_SendVerification_Call{Call: _e.mock.On("SendVerification", ctx, user)}
 }
 
-func (_c *MockEmailVerifier_SendVerification_Call) Run(run func(ctx context.Context, providerUserID string)) *MockEmailVerifier_SendVerification_Call {
+func (_c *MockEmailVerifier_SendVerification_Call) Run(run func(ctx context.Context, user *entity.User)) *MockEmailVerifier_SendVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 *entity.User
 		if args[1] != nil {
-			arg1 = args[1].(string)
+			arg1 = args[1].(*entity.User)
 		}
 		run(
 			arg0,
@@ -155,7 +156,7 @@ func (_c *MockEmailVerifier_SendVerification_Call) Return(err error) *MockEmailV
 	return _c
 }
 
-func (_c *MockEmailVerifier_SendVerification_Call) RunAndReturn(run func(ctx context.Context, providerUserID string) error) *MockEmailVerifier_SendVerification_Call {
+func (_c *MockEmailVerifier_SendVerification_Call) RunAndReturn(run func(ctx context.Context, user *entity.User) error) *MockEmailVerifier_SendVerification_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -279,23 +279,43 @@ type UserRepository interface {
 	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*User, error)
 }
 
-// EmailVerifier sends and resends email verification codes via the identity
-// provider. Implementations call the Zitadel Management API.
+// EmailVerifier sends a User's verification email (User.SendVerification and
+// User.ResendVerification). The email is written in the User's preferred
+// language (Japanese when none), is sent in the name of Liverty Music and
+// links to the fan web's email verification screen with the User's id and a
+// fresh code, valid for 1 hour.
 type EmailVerifier interface {
-	// SendVerification triggers a verification email for the given Zitadel user.
+	// SendVerification sends the verification email at sign-up.
 	//
 	// # Possible errors
 	//
-	//  - Unavailable: The Zitadel API client is not configured.
-	SendVerification(ctx context.Context, providerUserID string) error
+	//  - Internal: the code cannot be issued or the email cannot be sent.
+	SendVerification(ctx context.Context, user *User) error
 
-	// ResendVerification resends a verification email for the given Zitadel user.
+	// ResendVerification sends a verification email with a fresh code, even
+	// when no earlier code was issued. Earlier codes stop working.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: The user's email is already verified.
-	//  - Unavailable: The Zitadel API client is not configured.
-	ResendVerification(ctx context.Context, providerUserID string) error
+	//  - FailedPrecondition: the User's email is already verified; nothing is
+	//    sent.
+	//  - Internal: any other failure to issue or send.
+	ResendVerification(ctx context.Context, user *User) error
+}
+
+// EmailCodeVerifier confirms a User's email address at the identity provider
+// with the code from the User's verification email (User.VerifyEmail).
+type EmailCodeVerifier interface {
+	// VerifyEmail marks the address of the identity providerUserID verified
+	// when code is the latest one issued for it and is less than 1 hour old.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the code is wrong, older than 1 hour or already
+	//    used; nothing changes.
+	//  - NotFound: no identity has the provider user ID.
+	//  - Unavailable: the identity provider cannot be reached.
+	VerifyEmail(ctx context.Context, providerUserID, code string) error
 }
 
 // IdentityRemover removes a User's sign-in identity at the identity provider.

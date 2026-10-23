@@ -21,39 +21,74 @@ type PasskeyRegistrationLinkIssuer interface {
 	IssuePasskeyRegistrationLink(ctx context.Context, providerUserID string) (address, link string, err error)
 }
 
+// EmailVerificationCodes issues and checks an identity's email verification
+// codes at the identity provider. A code is a credential and is never logged.
+type EmailVerificationCodes interface {
+	// IssueEmailVerificationCode issues a new code for the identity's email
+	// address and returns the address and the code; the identity provider
+	// sends nothing. It fails with NotFound when the identity does not exist,
+	// FailedPrecondition when its address is already verified, Unavailable
+	// when the identity provider cannot be reached and Internal otherwise.
+	IssueEmailVerificationCode(ctx context.Context, providerUserID string) (address, code string, err error)
+	// VerifyEmail marks the identity's address verified with code. It fails
+	// with InvalidArgument when the code is wrong, expired or used, NotFound
+	// when the identity does not exist, Unavailable when the identity
+	// provider cannot be reached and Internal otherwise.
+	VerifyEmail(ctx context.Context, providerUserID, code string) error
+}
+
 // BackendUserHandler implements the identity service's UserService, which the
-// event consumer and the admin console API call to change a fan's identity at
+// event consumer, the fan API and the admin console API call to change a fan's identity at
 // the identity provider. The identity service holds the identity-provider
 // credentials and has no business rules of its own, so each method calls one
 // identity-provider client and maps its result. Which caller may call which
 // procedure is enforced by each listener's allowlist, and the request is
 // validated by the server's protovalidate interceptor.
 type BackendUserHandler struct {
-	emailVerifier   entity.EmailVerifier
+	emailCodes      EmailVerificationCodes
 	identityRemover entity.IdentityRemover
 	passkeyLinks    PasskeyRegistrationLinkIssuer
 }
 
 // NewBackendUserHandler creates a new BackendUserHandler.
-func NewBackendUserHandler(emailVerifier entity.EmailVerifier, identityRemover entity.IdentityRemover, passkeyLinks PasskeyRegistrationLinkIssuer) *BackendUserHandler {
-	return &BackendUserHandler{emailVerifier: emailVerifier, identityRemover: identityRemover, passkeyLinks: passkeyLinks}
+func NewBackendUserHandler(emailCodes EmailVerificationCodes, identityRemover entity.IdentityRemover, passkeyLinks PasskeyRegistrationLinkIssuer) *BackendUserHandler {
+	return &BackendUserHandler{emailCodes: emailCodes, identityRemover: identityRemover, passkeyLinks: passkeyLinks}
 }
 
-// SendEmailVerification sends the identity's email address a verification code.
+// SendEmailVerification issues a verification code for the identity's email
+// address and returns the address and the code, which the caller emails.
 func (h *BackendUserHandler) SendEmailVerification(ctx context.Context, req *backenduserv1.SendEmailVerificationRequest) (*backenduserv1.SendEmailVerificationResponse, error) {
-	if err := h.emailVerifier.SendVerification(ctx, req.GetProviderUserId().GetValue()); err != nil {
+	address, code, err := h.emailCodes.IssueEmailVerificationCode(ctx, req.GetProviderUserId().GetValue())
+	if err != nil {
 		return nil, err
 	}
-	return &backenduserv1.SendEmailVerificationResponse{}, nil
+	return &backenduserv1.SendEmailVerificationResponse{
+		Email: &entityv1.Email{Value: address},
+		Code:  &entityv1.EmailVerificationCode{Value: code},
+	}, nil
 }
 
-// ResendEmailVerification sends the identity's email address a new
-// verification code. Returns FailedPrecondition when it is already verified.
+// ResendEmailVerification issues a new verification code for the identity's
+// email address, when the fan asks for one, and returns the address and the
+// code. Returns FailedPrecondition when the address is already verified.
 func (h *BackendUserHandler) ResendEmailVerification(ctx context.Context, req *backenduserv1.ResendEmailVerificationRequest) (*backenduserv1.ResendEmailVerificationResponse, error) {
-	if err := h.emailVerifier.ResendVerification(ctx, req.GetProviderUserId().GetValue()); err != nil {
+	address, code, err := h.emailCodes.IssueEmailVerificationCode(ctx, req.GetProviderUserId().GetValue())
+	if err != nil {
 		return nil, err
 	}
-	return &backenduserv1.ResendEmailVerificationResponse{}, nil
+	return &backenduserv1.ResendEmailVerificationResponse{
+		Email: &entityv1.Email{Value: address},
+		Code:  &entityv1.EmailVerificationCode{Value: code},
+	}, nil
+}
+
+// VerifyEmail marks the identity's email address verified with the code from
+// its verification email. The code is never logged.
+func (h *BackendUserHandler) VerifyEmail(ctx context.Context, req *backenduserv1.VerifyEmailRequest) (*backenduserv1.VerifyEmailResponse, error) {
+	if err := h.emailCodes.VerifyEmail(ctx, req.GetProviderUserId().GetValue(), req.GetCode().GetValue()); err != nil {
+		return nil, err
+	}
+	return &backenduserv1.VerifyEmailResponse{}, nil
 }
 
 // IssuePasskeyRegistrationLink returns the identity's verified email address

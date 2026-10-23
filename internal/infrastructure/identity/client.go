@@ -29,7 +29,8 @@ import (
 
 // Compile-time interface compliance checks.
 var (
-	_ entity.EmailVerifier               = (*UserClient)(nil)
+	_ mail.EmailVerificationCodeIssuer   = (*UserClient)(nil)
+	_ entity.EmailCodeVerifier           = (*UserClient)(nil)
 	_ entity.IdentityRemover             = (*UserClient)(nil)
 	_ mail.PasskeyRegistrationLinkIssuer = (*UserClient)(nil)
 	_ entity.OrganizationRepository      = (*OrganizationClient)(nil)
@@ -71,8 +72,9 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 }
 
 // UserClient changes a fan's identity through the identity service's
-// UserService. The event consumer uses it for verification emails and passkey
-// registration links, the admin console API for identity removal.
+// UserService. The event consumer uses it for verification codes and passkey
+// registration links, the fan API to verify an email address with a code, and
+// the admin console API for identity removal.
 type UserClient struct {
 	client backenduserv1connect.UserServiceClient
 }
@@ -87,20 +89,34 @@ func userIDOf(id string) *entityv1.User_ProviderUserId {
 	return &entityv1.User_ProviderUserId{Value: id}
 }
 
-// SendVerification implements [entity.EmailVerifier].
-func (c *UserClient) SendVerification(ctx context.Context, providerUserID string) error {
-	_, err := c.client.SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userIDOf(providerUserID)})
+// IssueEmailVerificationCode implements [mail.EmailVerificationCodeIssuer]
+// with SendEmailVerification. The code is a credential and is never logged.
+func (c *UserClient) IssueEmailVerificationCode(ctx context.Context, providerUserID string) (address, code string, err error) {
+	resp, err := c.client.SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userIDOf(providerUserID)})
 	if err != nil {
-		return toAppErr(err, "send email verification code", slog.String("provider_user_id", providerUserID))
+		return "", "", toAppErr(err, "send email verification code", slog.String("provider_user_id", providerUserID))
 	}
-	return nil
+	return resp.GetEmail().GetValue(), resp.GetCode().GetValue(), nil
 }
 
-// ResendVerification implements [entity.EmailVerifier].
-func (c *UserClient) ResendVerification(ctx context.Context, providerUserID string) error {
-	_, err := c.client.ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: userIDOf(providerUserID)})
+// ReissueEmailVerificationCode implements [mail.EmailVerificationCodeIssuer]
+// with ResendEmailVerification. The code is a credential and is never logged.
+func (c *UserClient) ReissueEmailVerificationCode(ctx context.Context, providerUserID string) (address, code string, err error) {
+	resp, err := c.client.ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: userIDOf(providerUserID)})
 	if err != nil {
-		return toAppErr(err, "resend email verification code", slog.String("provider_user_id", providerUserID))
+		return "", "", toAppErr(err, "resend email verification code", slog.String("provider_user_id", providerUserID))
+	}
+	return resp.GetEmail().GetValue(), resp.GetCode().GetValue(), nil
+}
+
+// VerifyEmail implements [entity.EmailCodeVerifier]. The code is never logged.
+func (c *UserClient) VerifyEmail(ctx context.Context, providerUserID, code string) error {
+	_, err := c.client.VerifyEmail(ctx, &backenduserv1.VerifyEmailRequest{
+		ProviderUserId: userIDOf(providerUserID),
+		Code:           &entityv1.EmailVerificationCode{Value: code},
+	})
+	if err != nil {
+		return toAppErr(err, "verify email", slog.String("provider_user_id", providerUserID))
 	}
 	return nil
 }

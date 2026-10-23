@@ -49,14 +49,27 @@ func (f *fakeIdentityService) SendEmailVerification(_ context.Context, req *back
 	if err := f.record("SendEmailVerification", req.GetProviderUserId().GetValue()); err != nil {
 		return nil, err
 	}
-	return &backenduserv1.SendEmailVerificationResponse{}, nil
+	return &backenduserv1.SendEmailVerificationResponse{
+		Email: &entityv1.Email{Value: "fan@example.com"},
+		Code:  &entityv1.EmailVerificationCode{Value: "SEND01"},
+	}, nil
 }
 
 func (f *fakeIdentityService) ResendEmailVerification(_ context.Context, req *backenduserv1.ResendEmailVerificationRequest) (*backenduserv1.ResendEmailVerificationResponse, error) {
 	if err := f.record("ResendEmailVerification", req.GetProviderUserId().GetValue()); err != nil {
 		return nil, err
 	}
-	return &backenduserv1.ResendEmailVerificationResponse{}, nil
+	return &backenduserv1.ResendEmailVerificationResponse{
+		Email: &entityv1.Email{Value: "fan@example.com"},
+		Code:  &entityv1.EmailVerificationCode{Value: "RESEND"},
+	}, nil
+}
+
+func (f *fakeIdentityService) VerifyEmail(_ context.Context, req *backenduserv1.VerifyEmailRequest) (*backenduserv1.VerifyEmailResponse, error) {
+	if err := f.record("VerifyEmail", req.GetProviderUserId().GetValue()+" "+req.GetCode().GetValue()); err != nil {
+		return nil, err
+	}
+	return &backenduserv1.VerifyEmailResponse{}, nil
 }
 
 func (f *fakeIdentityService) IssuePasskeyRegistrationLink(_ context.Context, req *backenduserv1.IssuePasskeyRegistrationLinkRequest) (*backenduserv1.IssuePasskeyRegistrationLinkResponse, error) {
@@ -139,12 +152,17 @@ func TestUserClient(t *testing.T) {
 		f := &fakeIdentityService{}
 		c := identity.NewUserClient(startIdentityService(t, f))
 
-		require.NoError(t, c.SendVerification(ctx, "u1"))
-		require.NoError(t, c.ResendVerification(ctx, "u2"))
+		sentTo, sentCode, err := c.IssueEmailVerificationCode(ctx, "u1")
+		require.NoError(t, err)
+		resentTo, resentCode, err := c.ReissueEmailVerificationCode(ctx, "u2")
+		require.NoError(t, err)
 		address, link, err := c.IssuePasskeyRegistrationLink(ctx, "u3")
 		require.NoError(t, err)
 		require.NoError(t, c.DeleteIdentity(ctx, "u4"))
+		require.NoError(t, c.VerifyEmail(ctx, "u5", "ABC123"))
 
+		assert.Equal(t, []string{"fan@example.com", "SEND01"}, []string{sentTo, sentCode})
+		assert.Equal(t, []string{"fan@example.com", "RESEND"}, []string{resentTo, resentCode})
 		assert.Equal(t, "fan@example.com", address)
 		assert.Equal(t, "https://liverty-music.app/passkey/register?code=one-time", link)
 		assert.Equal(t, []string{
@@ -152,6 +170,7 @@ func TestUserClient(t *testing.T) {
 			"ResendEmailVerification u2",
 			"IssuePasskeyRegistrationLink u3",
 			"DeleteIdentity u4",
+			"VerifyEmail u5 ABC123",
 		}, f.recorded())
 	})
 
@@ -159,6 +178,7 @@ func TestUserClient(t *testing.T) {
 		code connect.Code
 		want *apperr.AppErr
 	}{
+		{connect.CodeInvalidArgument, apperr.ErrInvalidArgument},
 		{connect.CodeNotFound, apperr.ErrNotFound},
 		{connect.CodeFailedPrecondition, apperr.ErrFailedPrecondition},
 		{connect.CodeUnavailable, apperr.ErrUnavailable},
@@ -171,11 +191,14 @@ func TestUserClient(t *testing.T) {
 			f := &fakeIdentityService{err: connect.NewError(tc.code, "refused")}
 			c := identity.NewUserClient(startIdentityService(t, f))
 
-			assert.ErrorIs(t, c.SendVerification(ctx, "u1"), tc.want)
-			assert.ErrorIs(t, c.ResendVerification(ctx, "u1"), tc.want)
-			_, _, err := c.IssuePasskeyRegistrationLink(ctx, "u1")
+			_, _, err := c.IssueEmailVerificationCode(ctx, "u1")
+			assert.ErrorIs(t, err, tc.want)
+			_, _, err = c.ReissueEmailVerificationCode(ctx, "u1")
+			assert.ErrorIs(t, err, tc.want)
+			_, _, err = c.IssuePasskeyRegistrationLink(ctx, "u1")
 			assert.ErrorIs(t, err, tc.want)
 			assert.ErrorIs(t, c.DeleteIdentity(ctx, "u1"), tc.want)
+			assert.ErrorIs(t, c.VerifyEmail(ctx, "u1", "ABC123"), tc.want)
 		})
 	}
 
@@ -266,19 +289,43 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 	require.NoError(t, err)
 	fan := &entity.User{ID: "019a0000-0000-7000-8000-000000000001", ProviderUserID: "zitadel-fan-1"}
 
-	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan requests a verification resend"
-	t.Run("the event consumer's verification resend asks the identity service", func(t *testing.T) {
+	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan confirms an email address"
+	// @spec components/entity/user/verify-email "Valid code"
+	t.Run("the fan API's email verification asks the identity service to verify the address", func(t *testing.T) {
 		t.Parallel()
 		f := &fakeIdentityService{}
 		users := mocks.NewMockUserRepository(t)
 		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, nil, nil, nil, client, nil, usecase.PasskeyMailers{}, logger)
+		uc := usecase.NewUserUseCase(users, nil, nil, nil, nil, client, nil, usecase.PasskeyMailers{}, logger)
 
-		require.NoError(t, uc.ReissueEmailVerification(ctx, fan.ID))
+		require.NoError(t, uc.VerifyEmail(ctx, fan.ID, "ABC123"))
 
-		assert.Equal(t, []string{"ResendEmailVerification zitadel-fan-1"}, f.recorded())
+		assert.Equal(t, []string{"VerifyEmail zitadel-fan-1 ABC123"}, f.recorded())
 	})
+
+	verifyErrs := []struct {
+		name string
+		code connect.Code
+		want *apperr.AppErr
+	}{
+		// @spec components/entity/user/verify-email "Code already used"
+		{"a used code", connect.CodeInvalidArgument, apperr.ErrInvalidArgument},
+		// @spec components/entity/user/verify-email "Code older than 1 hour"
+		{"an expired code", connect.CodeInvalidArgument, apperr.ErrInvalidArgument},
+		// @spec components/entity/user/verify-email "Unknown identity"
+		{"an unknown identity", connect.CodeNotFound, apperr.ErrNotFound},
+		{"an identity provider that cannot be reached", connect.CodeUnavailable, apperr.ErrUnavailable},
+	}
+	for _, tc := range verifyErrs {
+		t.Run("VerifyEmail maps "+tc.name+" from the identity service", func(t *testing.T) {
+			t.Parallel()
+			f := &fakeIdentityService{err: connect.NewError(tc.code, "refused")}
+			client := identity.NewUserClient(startIdentityService(t, f))
+
+			assert.ErrorIs(t, client.VerifyEmail(ctx, "zitadel-fan-1", "ABC123"), tc.want)
+		})
+	}
 
 	// @spec components/infrastructure/backend/process/identity-provider-credentials "Admin deletes a fan"
 	t.Run("the admin console API's fan deletion asks the identity service to delete the identity", func(t *testing.T) {
@@ -292,7 +339,7 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		orders := mocks.NewMockOrderRepository(t)
 		orders.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, tickets, orders, nil, nil, client, usecase.PasskeyMailers{}, logger)
+		uc := usecase.NewUserUseCase(users, tickets, orders, nil, nil, nil, client, usecase.PasskeyMailers{}, logger)
 
 		require.NoError(t, uc.Delete(ctx, fan.ID))
 

@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/grpchealth/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	rpcmocks "github.com/liverty-music/backend/internal/adapter/rpc/mocks"
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
@@ -69,7 +70,7 @@ func TestInitializeIdentityApp_StartsWithoutDatabaseWhileIdentityProviderIsUnrea
 
 // identityListener serves the identity service's handlers over mocked
 // identity-provider clients behind the given caller's allowlist.
-func identityListener(t *testing.T, allowed []string, ev *mocks.MockEmailVerifier, ir *mocks.MockIdentityRemover, orgs *mocks.MockOrganizationRepository) *httptest.Server {
+func identityListener(t *testing.T, allowed []string, ev *rpcmocks.MockEmailVerificationCodes, ir *mocks.MockIdentityRemover, orgs *mocks.MockOrganizationRepository) *httptest.Server {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -94,7 +95,7 @@ func TestIdentityListeners(t *testing.T) {
 	t.Run("the event consumer listener refuses DeleteIdentity and removes nothing", func(t *testing.T) {
 		t.Parallel()
 		ir := mocks.NewMockIdentityRemover(t) // no expectation: a call fails the test
-		ts := identityListener(t, di.EventConsumerProcedures, mocks.NewMockEmailVerifier(t), ir, mocks.NewMockOrganizationRepository(t))
+		ts := identityListener(t, di.EventConsumerProcedures, rpcmocks.NewMockEmailVerificationCodes(t), ir, mocks.NewMockOrganizationRepository(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
@@ -104,7 +105,7 @@ func TestIdentityListeners(t *testing.T) {
 
 	t.Run("the event consumer listener refuses every Organization procedure", func(t *testing.T) {
 		t.Parallel()
-		ts := identityListener(t, di.EventConsumerProcedures, mocks.NewMockEmailVerifier(t), mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
+		ts := identityListener(t, di.EventConsumerProcedures, rpcmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
 		client := backendorganizationv1connect.NewOrganizationServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.Delete(context.Background(), &backendorganizationv1.DeleteRequest{
@@ -116,19 +117,64 @@ func TestIdentityListeners(t *testing.T) {
 
 	t.Run("the event consumer listener serves ResendEmailVerification", func(t *testing.T) {
 		t.Parallel()
-		ev := mocks.NewMockEmailVerifier(t)
-		ev.EXPECT().ResendVerification(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "ABC123", nil).Once()
 		ts := identityListener(t, di.EventConsumerProcedures, ev, mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
-		_, err := client.ResendEmailVerification(context.Background(), &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: userID})
+		resp, err := client.ResendEmailVerification(context.Background(), &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: userID})
+
+		require.NoError(t, err)
+		assert.Equal(t, "fan@example.com", resp.GetEmail().GetValue())
+		assert.Equal(t, "ABC123", resp.GetCode().GetValue())
+	})
+
+	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan API asks for another operation"
+	t.Run("the fan API listener refuses DeleteIdentity and SendEmailVerification and changes nothing", func(t *testing.T) {
+		t.Parallel()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t) // no expectation: a call fails the test
+		ir := mocks.NewMockIdentityRemover(t)
+		ts := identityListener(t, di.FanAPIProcedures, ev, ir, mocks.NewMockOrganizationRepository(t))
+		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+
+		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+		_, err = client.SendEmailVerification(context.Background(), &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userID})
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
+	t.Run("the fan API listener serves VerifyEmail", func(t *testing.T) {
+		t.Parallel()
+		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev.EXPECT().VerifyEmail(mock.Anything, "zitadel-user-1", "ABC123").Return(nil).Once()
+		ts := identityListener(t, di.FanAPIProcedures, ev, mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
+		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+
+		_, err := client.VerifyEmail(context.Background(), &backenduserv1.VerifyEmailRequest{
+			ProviderUserId: userID,
+			Code:           &entityv1.EmailVerificationCode{Value: "ABC123"},
+		})
 
 		assert.NoError(t, err)
 	})
 
+	t.Run("the event consumer listener refuses VerifyEmail", func(t *testing.T) {
+		t.Parallel()
+		ts := identityListener(t, di.EventConsumerProcedures, rpcmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
+		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+
+		_, err := client.VerifyEmail(context.Background(), &backenduserv1.VerifyEmailRequest{
+			ProviderUserId: userID,
+			Code:           &entityv1.EmailVerificationCode{Value: "ABC123"},
+		})
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
 	t.Run("the admin console API listener refuses SendEmailVerification", func(t *testing.T) {
 		t.Parallel()
-		ts := identityListener(t, di.AdminConsoleAPIProcedures, mocks.NewMockEmailVerifier(t), mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
+		ts := identityListener(t, di.AdminConsoleAPIProcedures, rpcmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), mocks.NewMockOrganizationRepository(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.SendEmailVerification(context.Background(), &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userID})
@@ -140,7 +186,7 @@ func TestIdentityListeners(t *testing.T) {
 		t.Parallel()
 		ir := mocks.NewMockIdentityRemover(t)
 		ir.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
-		ts := identityListener(t, di.AdminConsoleAPIProcedures, mocks.NewMockEmailVerifier(t), ir, mocks.NewMockOrganizationRepository(t))
+		ts := identityListener(t, di.AdminConsoleAPIProcedures, rpcmocks.NewMockEmailVerificationCodes(t), ir, mocks.NewMockOrganizationRepository(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})

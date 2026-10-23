@@ -24,8 +24,8 @@ func PasskeyRecoveryBehaviorNames(enabled bool) []string {
 	return names
 }
 
-// ProvideIdentityRemover exposes provideIdentityRemover for testing.
-var ProvideIdentityRemover = provideIdentityRemover
+// ProvideIdentityClients exposes provideIdentityClients for testing.
+var ProvideIdentityClients = provideIdentityClients
 
 // NewConsumerEmailVerifier exposes newConsumerEmailVerifier for testing.
 var NewConsumerEmailVerifier = newConsumerEmailVerifier
