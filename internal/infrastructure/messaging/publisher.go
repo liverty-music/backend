@@ -11,7 +11,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/nats-io/nats.go"
-	wotel "github.com/voi-oss/watermill-opentelemetry/pkg/opentelemetry"
 
 	watermillnats "github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
 
@@ -30,13 +29,13 @@ import (
 // need the broker. Connection state changes are logged.
 //
 // Every published message carries the caller's trace context in its metadata
-// (see traceContextPublisher), next to the CloudEvents attributes.
+// (see newTracedPublisher), next to the CloudEvents attributes.
 func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goChannel *gochannel.GoChannel, logger *logging.Logger) (message.Publisher, error) {
 	if cfg.URL == "" {
 		if goChannel == nil {
 			return nil, fmt.Errorf("GoChannel is required when NATS_URL is not set")
 		}
-		return wotel.NewPublisherDecorator(traceContextPublisher{goChannel}), nil
+		return newTracedPublisher("gochannel.GoChannel", goChannel)
 	}
 
 	ctx := context.Background()
@@ -59,5 +58,5 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 		return nil, fmt.Errorf("create NATS publisher: %w", err)
 	}
 
-	return wotel.NewPublisherDecorator(traceContextPublisher{pub}), nil
+	return newTracedPublisher("nats.Publisher", pub)
 }

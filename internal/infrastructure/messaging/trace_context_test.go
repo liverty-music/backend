@@ -151,6 +151,7 @@ func TestNewPublisher_InjectsProducerSpanAsParent(t *testing.T) {
 	assert.Equal(t, caller.SpanContext().TraceID().String(), parts[1])
 	assert.Equal(t, producer.SpanContext().SpanID().String(), parts[2])
 	assert.NotEqual(t, caller.SpanContext().SpanID().String(), parts[2])
+	assert.Equal(t, "gochannel.GoChannel", producer.Name(), "the send span keeps the broker's name")
 	assert.Equal(t, "1.0", msg.Metadata.Get("ce_specversion"), "CloudEvents attributes stay as they are")
 }
 
