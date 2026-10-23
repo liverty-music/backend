@@ -56,6 +56,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -121,27 +122,53 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
-// provideIdentityProviderClients builds the Zitadel clients that use the
-// backend-app key at keyPath: the email verifier and, from the same
-// credential (its ORG_USER_MANAGER membership on the product org carries
-// user.delete), the fan identity remover. With keyPath empty it builds
-// neither; the fan, organizer and reception workloads run that way so they
-// hold no identity-provider credential. It logs which clients were built so their absence is visible.
-func provideIdentityProviderClients(ctx context.Context, issuer, keyPath string, logger *logging.Logger) (entity.EmailVerifier, entity.IdentityRemover, error) {
-	if keyPath == "" {
+// provideIdentityRemover builds the fan identity remover: a client of the
+// identity service when identityServiceURL is set, else the Zitadel client
+// with the backend-app key at keyPath (its ORG_USER_MANAGER membership on the
+// product org carries user.delete), else nil. The fan, organizer and
+// reception workloads set neither, so they reach no identity-provider
+// operation. The API builds no email verifier: verification resends are sent
+// by the event consumer. It logs which client was built so its absence is
+// visible.
+func provideIdentityRemover(ctx context.Context, issuer, identityServiceURL, keyPath string, logger *logging.Logger) (entity.IdentityRemover, error) {
+	switch {
+	case identityServiceURL != "":
+		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_service"))
+		return identity.NewUserClient(identityServiceURL), nil
+	case keyPath != "":
+		ir, err := infrazitadel.NewIdentityRemover(ctx, issuer, keyPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel identity remover: %w", err)
+		}
+		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "identity_remover"))
+		return ir, nil
+	default:
 		logger.Info(ctx, "identity-provider clients built", slog.String("clients", "none"))
-		return nil, nil, nil
+		return nil, nil
 	}
-	ev, err := infrazitadel.NewEmailVerifier(ctx, issuer, keyPath, logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create zitadel email verifier: %w", err)
+}
+
+// provideOrganizationRepository returns the Organization repository. On the
+// workload that provisions Organizers (the isolated admin workload) it is a
+// client of the identity service, or the Zitadel Management-API client with
+// the organizer-provisioner credential until IDENTITY_SERVICE_URL is set.
+// Other workloads outside local refuse every call, and local dev without
+// either uses a no-op (no live Zitadel).
+func provideOrganizationRepository(ctx context.Context, cfg *config.ServerConfig, logger *logging.Logger) (entity.OrganizationRepository, error) {
+	switch {
+	case cfg.ProvisionsOrganizers() && cfg.IdentityServiceURL != "":
+		return identity.NewOrganizationClient(cfg.IdentityServiceURL), nil
+	case cfg.ProvisionsOrganizers():
+		repo, err := infrazitadel.NewOrganizationRepository(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create organization repository: %w", err)
+		}
+		return repo, nil
+	case cfg.IsLocal():
+		return infrazitadel.NewNoopOrganizationRepository(logger), nil
+	default:
+		return infrazitadel.NewUnavailableOrganizationRepository(cfg.Workload), nil
 	}
-	ir, err := infrazitadel.NewIdentityRemover(ctx, issuer, keyPath, logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create zitadel identity remover: %w", err)
-	}
-	logger.Info(ctx, "identity-provider clients built", slog.String("clients", "email_verifier,identity_remover"))
-	return ev, ir, nil
 }
 
 // newVenueMapCatalog builds the Google Maps Places client that serves the
@@ -286,9 +313,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	// Infrastructure - Zitadel API clients (optional, nil where the backend-app
-	// key is not mounted: local dev and every workload but admin).
-	emailVerifier, identityRemover, err := provideIdentityProviderClients(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	// Infrastructure - fan identity removal (nil on every workload but admin,
+	// and in local dev without the identity service or the backend-app key).
+	identityRemover, err := provideIdentityRemover(ctx, cfg.JWT.Issuer, cfg.IdentityServiceURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -299,27 +326,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, nil, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	// Organization repository: the real Zitadel Management-API client on the
-	// workload that provisions Organizers (the isolated admin workload, which
-	// mounts the dedicated organizer-provisioner credential). Other workloads
-	// outside local refuse every call, and local dev without the credential uses
-	// a no-op (no live Zitadel).
-	var organizationRepo entity.OrganizationRepository
-	switch {
-	case cfg.ProvisionsOrganizers():
-		repo, err := infrazitadel.NewOrganizationRepository(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create organization repository: %w", err)
-		}
-		organizationRepo = repo
-	case cfg.IsLocal():
-		organizationRepo = infrazitadel.NewNoopOrganizationRepository(logger)
-	default:
-		organizationRepo = infrazitadel.NewUnavailableOrganizationRepository(cfg.Workload)
+	organizationRepo, err := provideOrganizationRepository(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
 	}
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside

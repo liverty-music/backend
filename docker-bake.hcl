@@ -21,6 +21,7 @@ variable "images" {
   default = [
     { name = "api", target = "server" },
     { name = "consumer", target = "consumer" },
+    { name = "identity", target = "identity" },
     { name = "concert-discovery", target = "concert-discovery" },
     { name = "artist-image-sync", target = "artist-image-sync" },
     { name = "official-site-refresh", target = "official-site-refresh" },
@@ -46,8 +47,8 @@ target "image" {
   ]
   # Layer cache for the stages every image shares (base images, `go mod
   # download`, the libvips packages). One target writes it and all read it:
-  # when all eight wrote their own scope, the same shared layers were exported
-  # eight times (~60 s per run). series-image-consumer writes it because its
+  # when all nine wrote their own scope, the same shared layers were exported
+  # nine times (~60 s per run). series-image-consumer writes it because its
   # stages include `builder` plus the libvips layers. Compiled packages are
   # not in this cache; they live in the Go build cache mount (see Dockerfile
   # and the "Go build cache" steps of deploy.yml).

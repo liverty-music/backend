@@ -15,6 +15,9 @@
 //	// Event consumer — loads base fields plus NATS, VAPID, Google Maps
 //	cfg, err := config.Load[config.ConsumerConfig]()
 //
+//	// Identity service — no database; the identity-provider keys
+//	cfg, err := config.Load[config.IdentityConfig]()
+//
 // # BaseConfig
 //
 // All workload configs embed BaseConfig which provides:
@@ -104,13 +107,19 @@ type ServerConfig struct {
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
 
+	// IdentityServiceURL is the identity service's listener for the admin
+	// console API (e.g. http://identity:9101, h2c). When set, fan identity
+	// removal and Organization provisioning go through the identity service
+	// and the two Zitadel keys below are not read. Outside local the admin
+	// workload needs it or both keys.
+	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
+
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. Required
-	// outside local only on the admin workload, which serves fan identity
-	// removal; the fan, organizer and reception workloads hold no
-	// identity-provider credential. Empty disables the Zitadel API client
-	// (email verification and fan identity removal).
+	// from GSM secret `zitadel-machine-key-for-backend-app`. Used only on the
+	// admin workload without IDENTITY_SERVICE_URL, for fan identity removal;
+	// the fan, organizer and reception workloads hold no identity-provider
+	// credential. Empty disables fan identity removal.
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
@@ -212,19 +221,26 @@ type ConsumerConfig struct {
 	// Same value as OIDC_ISSUER_URL used by the API server.
 	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
 
+	// IdentityServiceURL is the identity service's listener for the event
+	// consumer (e.g. http://identity:9100, h2c). When set, verification emails
+	// and passkey registration links go through the identity service and the
+	// two Zitadel keys below are not read. Outside local it or the backend-app
+	// key is required.
+	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
+
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. Required outside
-	// local; empty in local development makes the email verification consumer
-	// skip processing with a warning.
+	// from GSM secret `zitadel-machine-key-for-backend-app`. Used only without
+	// IDENTITY_SERVICE_URL; with neither set (local development) the email
+	// verification consumer skips processing with a warning.
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// ZitadelMachineKeyForFanPasskeyRecoveryPath is the file path to the
 	// `fan-passkey-recovery` Zitadel MachineUser's private key JSON (ORG_OWNER
 	// on the product org, the narrowest role that can issue passkey
-	// registration codes). Mounted on the event consumer only. Empty disables
-	// the passkey recovery link handler; the consumer starts without it and
-	// logs that.
+	// registration codes). Used only without IDENTITY_SERVICE_URL; with neither
+	// set the passkey recovery link handler is disabled, and the consumer
+	// starts without it and logs that.
 	ZitadelMachineKeyForFanPasskeyRecoveryPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH"`
 
 	// FanartTV API Key for artist image resolution
@@ -732,6 +748,127 @@ func (c *SeriesImageConsumerConfig) Validate() error {
 	)
 }
 
+// IdentityConfig is the configuration for the identity service, the only
+// workload that holds identity-provider credentials. It has no database and
+// no messaging: it serves one listener per calling workload and a gRPC health
+// check, and reaches only the identity provider.
+type IdentityConfig struct {
+	// Environment is one of local, development, staging or production.
+	Environment string `envconfig:"ENVIRONMENT" required:"true"`
+
+	// ShutdownTimeout bounds the graceful shutdown.
+	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
+
+	// Logging configuration
+	Logging LoggingConfig `envconfig:""`
+
+	// Telemetry configuration
+	Telemetry TelemetryConfig `envconfig:""`
+
+	// IssuerURL is the identity provider's issuer URL, which also serves its
+	// management API.
+	IssuerURL string `envconfig:"OIDC_ISSUER_URL"`
+
+	// ZitadelMachineKeyForBackendAppPath is the file path to the `backend-app`
+	// key (ORG_USER_MANAGER on the product org): verification emails and fan
+	// identity removal.
+	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
+
+	// ZitadelMachineKeyForFanPasskeyRecoveryPath is the file path to the
+	// `fan-passkey-recovery` key (ORG_OWNER on the product org): passkey
+	// registration links.
+	ZitadelMachineKeyForFanPasskeyRecoveryPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH"`
+
+	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
+	// `organizer-provisioner` key (IAM_ORG_MANAGER): Organizers' Organizations.
+	ZitadelMachineKeyForOrganizerProvisionerPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH"`
+
+	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
+	// granted to each Organizer's Organization.
+	OrganizerConsoleProjectID string `envconfig:"ORGANIZER_CONSOLE_PROJECT_ID"`
+
+	// Listeners are the identity service's ports.
+	Listeners IdentityListeners `envconfig:""`
+}
+
+// IdentityListeners are the identity service's listeners: one per calling
+// workload, each serving only that workload's procedures, and the health
+// check.
+type IdentityListeners struct {
+	// Host to bind every listener to.
+	Host string `envconfig:"SERVER_HOST" default:"localhost"`
+
+	// HealthPort serves the gRPC health check for the kubelet probes.
+	HealthPort int `envconfig:"HEALTH_PORT" default:"8080"`
+
+	// EventConsumerPort serves the event consumer's procedures.
+	EventConsumerPort int `envconfig:"IDENTITY_EVENT_CONSUMER_PORT" default:"9100"`
+
+	// AdminConsoleAPIPort serves the admin console API's procedures.
+	AdminConsoleAPIPort int `envconfig:"IDENTITY_ADMIN_CONSOLE_API_PORT" default:"9101"`
+
+	// HandlerTimeout bounds one request.
+	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"30s"`
+}
+
+// Validate validates IdentityConfig. The identity service exists only to use
+// the identity-provider keys, so the issuer, the three keys and the
+// organizer-console project are required in every environment.
+func (c *IdentityConfig) Validate() error {
+	if err := validateEnvironmentAndLogging(c.Environment, c.Logging); err != nil {
+		return err
+	}
+	ports := []int{c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort}
+	seen := make(map[int]bool, len(ports))
+	for _, p := range ports {
+		if p <= 0 || p > 65535 || seen[p] {
+			return fmt.Errorf("identity ports (health %d, event consumer %d, admin console API %d) must be valid and distinct",
+				c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort)
+		}
+		seen[p] = true
+	}
+	required := []envVar{
+		{"OIDC_ISSUER_URL", c.IssuerURL},
+		{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+		{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
+		{"ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH", c.ZitadelMachineKeyForFanPasskeyRecoveryPath},
+		{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
+	}
+	if !c.IsLocal() {
+		required = append(required, envVar{"TELEMETRY_OTLP_ENDPOINT", c.Telemetry.OTLPEndpoint})
+	}
+	var missing []string
+	for _, v := range required {
+		if strings.TrimSpace(v.value) == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("required but not set: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// IsLocal returns true if the environment is "local".
+func (c *IdentityConfig) IsLocal() bool {
+	return c.Environment == "local"
+}
+
+// validateEnvironmentAndLogging checks the settings every workload shares:
+// the environment and the log level and format.
+func validateEnvironmentAndLogging(environment string, logging LoggingConfig) error {
+	if !slices.Contains([]string{"local", "development", "staging", "production"}, environment) {
+		return fmt.Errorf("invalid environment: %s", environment)
+	}
+	if !slices.Contains([]string{"debug", "info", "warn", "error"}, logging.Level) {
+		return fmt.Errorf("invalid log level: %s", logging.Level)
+	}
+	if !slices.Contains([]string{"json", "text"}, logging.Format) {
+		return fmt.Errorf("invalid log format: %s", logging.Format)
+	}
+	return nil
+}
+
 // envVar pairs an environment variable's name with its loaded value.
 type envVar struct {
 	name  string
@@ -757,7 +894,7 @@ func requireSet(vars ...envVar) error {
 // LoggingConfig is loadable on its own so a process can build its logger
 // before, and independently of, its workload config.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig | SeriesImageConsumerConfig | LoggingConfig
+	ServerConfig | JobConfig | ConsumerConfig | SeriesImageConsumerConfig | IdentityConfig | LoggingConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.
@@ -808,25 +945,8 @@ func (c *BaseConfig) Validate() error {
 		return fmt.Errorf("invalid database port: %d", c.Database.Port)
 	}
 
-	validEnvironments := []string{"local", "development", "staging", "production"}
-	valid := slices.Contains(validEnvironments, c.Environment)
-
-	if !valid {
-		return fmt.Errorf("invalid environment: %s", c.Environment)
-	}
-
-	validLogLevels := []string{"debug", "info", "warn", "error"}
-	valid = slices.Contains(validLogLevels, c.Logging.Level)
-
-	if !valid {
-		return fmt.Errorf("invalid log level: %s", c.Logging.Level)
-	}
-
-	validLogFormats := []string{"json", "text"}
-	valid = slices.Contains(validLogFormats, c.Logging.Format)
-
-	if !valid {
-		return fmt.Errorf("invalid log format: %s", c.Logging.Format)
+	if err := validateEnvironmentAndLogging(c.Environment, c.Logging); err != nil {
+		return err
 	}
 
 	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {
@@ -947,10 +1067,11 @@ var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer, Workl
 
 // validateWorkloadSettings requires, outside local, every setting the API
 // servers use. Each deployment runs all five listeners, so the requirements
-// are the same for every workload except two credentials that only the admin
-// workload needs: the organizer-provisioner credential, which only it may
-// carry, and the backend-app credential, which it needs for fan identity
-// removal (the verification resend is sent by the event consumer).
+// are the same for every workload except what only the admin workload needs
+// for fan identity removal and Organization provisioning: the identity
+// service's URL, or else the backend-app and organizer-provisioner
+// credentials. Only the admin workload may carry the organizer-provisioner
+// credential.
 func (c *ServerConfig) validateWorkloadSettings() error {
 	if c.Workload == "" {
 		return fmt.Errorf("API_WORKLOAD is required outside local (allowed: %s)", strings.Join(apiWorkloads, ", "))
@@ -976,11 +1097,13 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
 	}
 	if c.Workload == WorkloadAdmin {
-		required = append(required,
-			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
-			envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
-			envVar{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
-		)
+		required = append(required, envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID})
+		if c.IdentityServiceURL == "" {
+			required = append(required,
+				envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
+				envVar{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
+			)
+		}
 	} else if c.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
 		return fmt.Errorf("ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH is set on the %s workload: "+
 			"the organizer-provisioner credential belongs to the admin workload only", c.Workload)
@@ -1010,10 +1133,11 @@ func (c *ServerConfig) RunsPaymentSweepers() bool {
 
 // ProvisionsOrganizers reports whether this process provisions Organizers'
 // Organizations (and runs the provisioning reconciler). Outside local only the admin
-// workload does; local does whenever the provisioner credential is mounted.
+// workload does; local does whenever the identity service's URL is set or the
+// provisioner credential is mounted.
 func (c *ServerConfig) ProvisionsOrganizers() bool {
 	if c.IsLocal() {
-		return c.ZitadelMachineKeyForOrganizerProvisionerPath != ""
+		return c.IdentityServiceURL != "" || c.ZitadelMachineKeyForOrganizerProvisionerPath != ""
 	}
 	return c.Workload == WorkloadAdmin
 }
@@ -1054,7 +1178,7 @@ func (c *ConsumerConfig) Validate() error {
 		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
-		envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
+		envVar{"IDENTITY_SERVICE_URL or ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.IdentityServiceURL + c.ZitadelMachineKeyForBackendAppPath},
 	)
 }
 

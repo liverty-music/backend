@@ -188,3 +188,37 @@ func TestHealthCheckHandler_ProbeTimeoutDoesNotAbandonCheck(t *testing.T) {
 		assert.Equal(t, int32(1), db.calls.Load())
 	})
 }
+
+func processCheck(t *testing.T, h *rpc.ProcessHealthCheckHandler, service string) grpchealth.Status {
+	t.Helper()
+	resp, err := h.Check(context.Background(), &grpchealth.CheckRequest{Service: service})
+	require.NoError(t, err)
+	return resp.Status
+}
+
+func TestProcessHealthCheckHandler(t *testing.T) {
+	t.Parallel()
+
+	t.Run("not ready until the listeners accept requests, alive throughout", func(t *testing.T) {
+		t.Parallel()
+		h := rpc.NewProcessHealthCheckHandler()
+
+		assert.Equal(t, grpchealth.StatusNotServing, processCheck(t, h, ""))
+		assert.Equal(t, grpchealth.StatusServing, processCheck(t, h, rpc.LivenessService))
+
+		h.SetReady()
+		assert.Equal(t, grpchealth.StatusServing, processCheck(t, h, ""))
+	})
+
+	// @spec components/infrastructure/backend/process/health-probes "Identity service shutting down"
+	t.Run("reports not ready once shutting down, and stays alive", func(t *testing.T) {
+		t.Parallel()
+		h := rpc.NewProcessHealthCheckHandler()
+		h.SetReady()
+
+		require.NoError(t, h.Close())
+
+		assert.Equal(t, grpchealth.StatusNotServing, processCheck(t, h, ""))
+		assert.Equal(t, grpchealth.StatusServing, processCheck(t, h, rpc.LivenessService))
+	})
+}

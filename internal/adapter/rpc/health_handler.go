@@ -133,3 +133,44 @@ func (h *HealthCheckHandler) checkDB() bool {
 	h.last = readinessResult{serving: err == nil, at: h.now()}
 	return h.last.serving
 }
+
+// ProcessHealthCheckHandler implements [grpchealth.Checker] for a process with
+// no database, such as the identity service. The LivenessService always
+// reports SERVING. Readiness reports SERVING once SetReady is called (the
+// process accepts requests) and NOT_SERVING again once it is shutting down. No
+// dependency is checked: a dependency outage fails the requests that need it,
+// not the probes.
+type ProcessHealthCheckHandler struct {
+	ready        atomic.Bool
+	shuttingDown atomic.Bool
+}
+
+// NewProcessHealthCheckHandler creates a ProcessHealthCheckHandler that is not
+// ready yet.
+func NewProcessHealthCheckHandler() *ProcessHealthCheckHandler {
+	return &ProcessHealthCheckHandler{}
+}
+
+// SetReady reports the process ready: it accepts requests.
+func (h *ProcessHealthCheckHandler) SetReady() {
+	h.ready.Store(true)
+}
+
+// Close transitions readiness to NOT_SERVING for the rest of the process's
+// life. It implements [io.Closer] so the handler can be registered with the
+// shutdown package's Drain phase.
+func (h *ProcessHealthCheckHandler) Close() error {
+	h.shuttingDown.Store(true)
+	return nil
+}
+
+// Check implements the [grpchealth.Checker] interface.
+func (h *ProcessHealthCheckHandler) Check(_ context.Context, req *grpchealth.CheckRequest) (*grpchealth.CheckResponse, error) {
+	if req.Service == LivenessService {
+		return &grpchealth.CheckResponse{Status: grpchealth.StatusServing}, nil
+	}
+	if !h.ready.Load() || h.shuttingDown.Load() {
+		return &grpchealth.CheckResponse{Status: grpchealth.StatusNotServing}, nil
+	}
+	return &grpchealth.CheckResponse{Status: grpchealth.StatusServing}, nil
+}

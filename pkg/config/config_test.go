@@ -1026,6 +1026,16 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 		assert.NoError(t, validNonLocalServerConfig(WorkloadAdmin).Validate())
 	})
 
+	t.Run("accept an admin workload with the identity service instead of the keys", func(t *testing.T) {
+		t.Parallel()
+		cfg := validNonLocalServerConfig(WorkloadAdmin)
+		cfg.ZitadelMachineKeyForBackendAppPath = ""
+		cfg.ZitadelMachineKeyForOrganizerProvisionerPath = ""
+		cfg.IdentityServiceURL = "http://identity:9101"
+
+		assert.NoError(t, cfg.Validate())
+	})
+
 	t.Run("reject an admin workload without the backend-app credential", func(t *testing.T) {
 		t.Parallel()
 		cfg := validNonLocalServerConfig(WorkloadAdmin)
@@ -1061,6 +1071,11 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 			wantSweepers:     true,
 			wantProvisioning: true,
 		},
+		{
+			name:             "local with the identity service provisions organizers",
+			cfg:              &ServerConfig{Environment: "local", IdentityServiceURL: "http://localhost:9101"},
+			wantProvisioning: true,
+		},
 		{name: "local without credentials does neither", cfg: &ServerConfig{Environment: "local"}},
 	}
 
@@ -1090,7 +1105,7 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 	err := cfg.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, OIDC_ISSUER_URL, "+
-		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
+		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, IDENTITY_SERVICE_URL or ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
 
 	cfg.FanartTVAPIKey = "fanart-key"
 	cfg.GCP = GCPConfig{GeminiSearchAPIKey: "gemini-key", ProjectID: "project"}
@@ -1099,6 +1114,89 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 	cfg.VAPID = VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"}
 	cfg.ZitadelMachineKeyForBackendAppPath = "/secrets/backend-app.json"
 	assert.NoError(t, cfg.Validate())
+
+	cfg.ZitadelMachineKeyForBackendAppPath = ""
+	cfg.IdentityServiceURL = "http://identity:9100"
+	assert.NoError(t, cfg.Validate(), "the identity service replaces the backend-app key")
+}
+
+// validIdentityConfig returns an IdentityConfig that passes Validate outside
+// local.
+func validIdentityConfig() *IdentityConfig {
+	return &IdentityConfig{
+		Environment:                        "production",
+		Logging:                            LoggingConfig{Level: "info", Format: "json"},
+		Telemetry:                          TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		IssuerURL:                          "https://auth.liverty-music.app",
+		ZitadelMachineKeyForBackendAppPath: "/secrets/backend-app.json",
+		ZitadelMachineKeyForFanPasskeyRecoveryPath:   "/secrets/fan-passkey-recovery.json",
+		ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
+		OrganizerConsoleProjectID:                    "organizer-console-project",
+		Listeners:                                    IdentityListeners{HealthPort: 8080, EventConsumerPort: 9100, AdminConsoleAPIPort: 9101},
+	}
+}
+
+func TestIdentityConfig_Validate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(c *IdentityConfig)
+		wantErr string // substring; empty means no error
+	}{
+		{name: "accept a complete configuration", mutate: func(*IdentityConfig) {}},
+		{
+			name:   "accept no database settings",
+			mutate: func(c *IdentityConfig) { c.Environment = "development" },
+		},
+		{
+			name: "reject every missing key at once, even in local",
+			mutate: func(c *IdentityConfig) {
+				c.Environment = "local"
+				c.ZitadelMachineKeyForBackendAppPath = ""
+				c.ZitadelMachineKeyForFanPasskeyRecoveryPath = ""
+				c.ZitadelMachineKeyForOrganizerProvisionerPath = ""
+			},
+			wantErr: "ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH, ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH, ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH",
+		},
+		{
+			name:    "reject a missing issuer",
+			mutate:  func(c *IdentityConfig) { c.IssuerURL = "" },
+			wantErr: "OIDC_ISSUER_URL",
+		},
+		{
+			name:    "reject a missing telemetry endpoint outside local",
+			mutate:  func(c *IdentityConfig) { c.Telemetry.OTLPEndpoint = "" },
+			wantErr: "TELEMETRY_OTLP_ENDPOINT",
+		},
+		{
+			name:    "reject two listeners on one port",
+			mutate:  func(c *IdentityConfig) { c.Listeners.AdminConsoleAPIPort = c.Listeners.EventConsumerPort },
+			wantErr: "must be valid and distinct",
+		},
+		{
+			name:    "reject an unknown environment",
+			mutate:  func(c *IdentityConfig) { c.Environment = "prod" },
+			wantErr: "invalid environment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validIdentityConfig()
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }
 
 func TestSeriesImageConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) {
