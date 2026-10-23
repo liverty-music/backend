@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -52,9 +53,9 @@ func NewArtistImageSyncUseCase(
 // is still updated to record that the artist was checked.
 func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID, mbid string) error {
 	if mbid == "" {
-		uc.logger.Info(ctx, "skipping image sync: artist has no MusicBrainz ID",
+		uc.logger.Info(ctx, "skipping image sync: artist has no MusicBrainz ID", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
-		)
+		)...)
 		return nil
 	}
 
@@ -73,18 +74,18 @@ func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID,
 	}
 
 	if fanart == nil {
-		uc.logger.Info(ctx, "no fanart.tv images found for artist",
+		uc.logger.Info(ctx, "no fanart.tv images found for artist", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
 			slog.String("mbid", mbid),
-		)
+		)...)
 	} else {
-		uc.logger.Info(ctx, "artist fanart synced",
+		uc.logger.Info(ctx, "artist fanart synced", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
 			slog.String("mbid", mbid),
 			slog.Int("thumbs", len(fanart.ArtistThumb)),
 			slog.Int("logos", len(fanart.HDMusicLogo)),
 			slog.Bool("has_color_profile", fanart.LogoColorProfile != nil),
-		)
+		)...)
 	}
 
 	return nil

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -70,7 +71,7 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
-	app.Logger.Info(ctx, "official site refresh job complete",
+	app.Logger.Info(ctx, "official site refresh job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
 		slog.Int("followed_artists", summary.Followed),
 		slog.Int("batch_size", summary.BatchSize),
 		slog.Int("artists_due", summary.Due),
@@ -78,7 +79,7 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("artists_succeeded", summary.Attempted-summary.Failed),
 		slog.Int("failures", summary.Failed),
 		slog.Bool("circuit_broken", summary.CircuitBroken),
-	)
+	)...)
 
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -477,12 +478,12 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 	if err := uc.entryRepo.PersistDrawOutcome(ctx, saleID, winners, losers, drafts); err != nil {
 		return err
 	}
-	uc.logger.Info(ctx, "draw completed",
+	uc.logger.Info(ctx, "draw completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("ticket_sale_id", string(saleID)),
 		slog.Int("winner_count", len(winners)),
 		slog.Int("loser_count", len(losers)),
 		slog.Int("withdrawn_draft_count", len(drafts)),
-	)
+	)...)
 	return nil
 }
 

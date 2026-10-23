@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -296,13 +297,13 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
 			return nil, fmt.Errorf("upsert concert candidate (unresolved venue) %q: %w", series.Title, err)
 		}
-		uc.logger.Info(ctx, "concert candidate with unresolved venue for review",
+		uc.logger.Info(ctx, "concert candidate with unresolved venue for review", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("artist_id", artistID),
 			slog.String("concert_candidate_id", candidate.ID),
 			slog.String("series_id", seriesID),
 			slog.String("listed_venue_name", ev.ListedVenueName),
 			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-		)
+		)...)
 		return nil, nil
 	}
 
@@ -355,13 +356,13 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
 			return nil, fmt.Errorf("upsert concert candidate (conflict) %q: %w", series.Title, err)
 		}
-		uc.logger.Info(ctx, "conflicting concert kept as a candidate for reconciliation",
+		uc.logger.Info(ctx, "conflicting concert kept as a candidate for reconciliation", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("artist_id", artistID),
 			slog.String("concert_candidate_id", candidate.ID),
 			slog.String("series_id", seriesID),
 			slog.String("existing_event_id", conflict.ID),
 			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-		)
+		)...)
 		return nil, nil
 	}
 

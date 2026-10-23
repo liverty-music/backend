@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -105,10 +106,10 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 	// recipient (so no push is sent), but short-circuiting here also skips
 	// the follower lookup entirely.
 	if len(concerts) == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no deliverable concerts",
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no deliverable concerts", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
 			slog.String("artist_id", data.ArtistID),
 			slog.String("reason", "no_deliverable_concerts"),
-		)
+		)...)
 		return nil
 	}
 
@@ -118,10 +119,10 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 		return fmt.Errorf("failed to list followers for artist %s: %w", artist.ID, err)
 	}
 	if len(followers) == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: artist has no followers",
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: artist has no followers", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
 			slog.String("artist_id", artist.ID),
 			slog.String("reason", "no_followers"),
-		)
+		)...)
 		return nil
 	}
 
@@ -196,11 +197,11 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 	// the event but sent nothing" is diagnosable from logs alone, rather than
 	// returning silently.
 	if dispatched == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering",
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
 			slog.String("artist_id", artist.ID),
 			slog.String("reason", "no_eligible_recipients"),
 			slog.Int("follower_count", len(followers)),
-		)
+		)...)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -261,12 +262,12 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 		}
 	}
 
-	uc.logger.Info(ctx, "concert candidate approved and published",
+	uc.logger.Info(ctx, "concert candidate approved and published", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("series_id", sc.SeriesID),
 		slog.String("concert_candidate_id", concertCandidateID),
 		slog.Int("inserted", len(insertedIDs)),
-	)
+	)...)
 
 	return &ApproveResult{}, nil
 }
@@ -320,10 +321,10 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
 			return nil, fmt.Errorf("keep-existing: delete concert candidate: %w", err)
 		}
-		uc.logger.Info(ctx, "duplicate reconciled: kept existing event, concert candidate logged and cleared",
+		uc.logger.Info(ctx, "duplicate reconciled: kept existing event, concert candidate logged and cleared", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("concert_candidate_id", sc.ID),
 			slog.String("existing_event_id", existing.ID),
-		)
+		)...)
 		return &ApproveResult{}, nil
 
 	case ApproveResolutionAdoptCandidate:
@@ -342,10 +343,10 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
 			return nil, fmt.Errorf("adopt-candidate: delete concert candidate: %w", err)
 		}
-		uc.logger.Info(ctx, "duplicate reconciled: adopted the candidate's display fields onto existing event",
+		uc.logger.Info(ctx, "duplicate reconciled: adopted the candidate's display fields onto existing event", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("concert_candidate_id", sc.ID),
 			slog.String("existing_event_id", existing.ID),
-		)
+		)...)
 		return &ApproveResult{}, nil
 
 	default:
@@ -427,11 +428,11 @@ func (uc *concertCandidateUseCase) Reject(ctx context.Context, concertCandidateI
 		// Non-fatal: an orphaned series row is harmless and swept on the next run.
 	}
 
-	uc.logger.Info(ctx, "concert candidate rejected and logged",
+	uc.logger.Info(ctx, "concert candidate rejected and logged", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("concert_candidate_id", concertCandidateID),
 		slog.String("reason", reason),
-	)
+	)...)
 
 	return nil
 }

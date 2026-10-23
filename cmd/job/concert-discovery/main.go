@@ -11,6 +11,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -90,13 +91,18 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
-	app.Logger.Info(ctx, "concert discovery job complete",
-		slog.Int("artists_attempted", len(artists)),
-		slog.Int("artists_succeeded", len(artists)-totalFailed),
-		slog.Int("failures", totalFailed),
-	)
+	logSummary(ctx, app.Logger, len(artists), totalFailed)
 
 	return nil
+}
+
+// logSummary writes the run's summary line, marked for analytics.
+func logSummary(ctx context.Context, logger *logging.Logger, attempted, failed int) {
+	logger.Info(ctx, "concert discovery job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
+		slog.Int("artists_attempted", attempted),
+		slog.Int("artists_succeeded", attempted-failed),
+		slog.Int("failures", failed),
+	)...)
 }
 
 // searchArtists runs search for each artist in its own trace, linked to the

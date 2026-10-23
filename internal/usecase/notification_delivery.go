@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -103,18 +104,27 @@ func deliverNotification(
 
 	// Surface the outcome as an operational signal so a systemic delivery failure
 	// is detectable without querying the notifications table. The metric is emitted
-	// for every outcome (the alert needs a failed-vs-total ratio); a failed
-	// delivery is additionally logged at WARNING, with the bounded failure_reason
-	// as a label and the unbounded detail kept separate for debugging.
+	// for every outcome (the alert needs a failed-vs-total ratio). Every outcome
+	// is also logged, marked for analytics so delivery rates can be read over
+	// months: a delivery at INFO, a failure at WARNING with the bounded
+	// failure_reason as a label and the unbounded detail kept separate for
+	// debugging.
 	d.metrics.RecordDeliveryOutcome(ctx, string(status), reasonCategory)
-	if status == entity.NotificationDeliveryStatusFailed {
-		d.logger.Warn(ctx, "notification delivery failed",
+	switch status {
+	case entity.NotificationDeliveryStatusFailed:
+		d.logger.Warn(ctx, "notification delivery failed", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
 			slog.String("notification_id", n.ID),
 			slog.String("user_id", userID),
 			slog.String("notification_type", string(typ)),
 			slog.String("failure_reason", reasonCategory),
 			slog.String("failure_detail", reason),
-		)
+		)...)
+	case entity.NotificationDeliveryStatusDelivered:
+		d.logger.Info(ctx, "notification delivered", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
+			slog.String("notification_id", n.ID),
+			slog.String("user_id", userID),
+			slog.String("notification_type", string(typ)),
+		)...)
 	}
 
 	if err := d.notificationRepo.UpdateDelivery(ctx, n.ID, status, deliveredAt, reason); err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -111,10 +112,10 @@ func (uc *officialSiteRefreshUseCase) RefreshOfficialSite(ctx context.Context, a
 	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, mbid)
 	switch {
 	case errors.Is(err, apperr.ErrNotFound):
-		uc.logger.Warn(ctx, "catalog has no artist for the MBID; recording the official site check",
+		uc.logger.Warn(ctx, "catalog has no artist for the MBID; recording the official site check", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
 			slog.String("mbid", mbid),
-		)
+		)...)
 		url = ""
 	case err != nil:
 		return fmt.Errorf("resolve official site url for artist %s: %w", artistID, err)
@@ -141,11 +142,11 @@ func (uc *officialSiteRefreshUseCase) applyResolvedURL(ctx context.Context, arti
 		if err := uc.artistRepo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, url)); err != nil {
 			return fmt.Errorf("create official site for artist %s: %w", artistID, err)
 		}
-		uc.logger.Info(ctx, "official site created from catalog",
+		uc.logger.Info(ctx, "official site created from catalog", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
 			slog.String("old_url", ""),
 			slog.String("new_url", url),
-		)
+		)...)
 		return nil
 	case err != nil:
 		return fmt.Errorf("get official site for artist %s: %w", artistID, err)
@@ -156,11 +157,11 @@ func (uc *officialSiteRefreshUseCase) applyResolvedURL(ctx context.Context, arti
 	if err := uc.artistRepo.UpdateOfficialSiteURL(ctx, artistID, url); err != nil {
 		return fmt.Errorf("update official site url for artist %s: %w", artistID, err)
 	}
-	uc.logger.Info(ctx, "official site replaced from catalog",
+	uc.logger.Info(ctx, "official site replaced from catalog", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 		slog.String("artist_id", artistID),
 		slog.String("old_url", site.URL),
 		slog.String("new_url", url),
-	)
+	)...)
 	return nil
 }
 
