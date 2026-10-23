@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -214,12 +215,12 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		return err
 	}
 
-	uc.logger.Info(ctx, "payout sweep: settlement released",
+	uc.logger.Info(ctx, "payout sweep: settlement released", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("settlement_id", string(s.ID)),
 		slog.String("order_id", string(s.OrderID)),
 		slog.String("provider_charge_id", providerChargeID),
 		slog.Int("split_count", len(releasedSplits)),
-	)
+	)...)
 	return nil
 }
 

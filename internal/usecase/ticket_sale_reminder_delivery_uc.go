@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -81,12 +82,12 @@ func (uc *ticketSaleReminderDeliveryUseCase) logDeliveryOutcome(
 	stage entity.ReminderStage,
 	outcome string,
 ) {
-	attrs := []slog.Attr{
+	attrs := analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
 		slog.String("outcome", outcome),
 		slog.String("phase_stage", stage.String()),
 		slog.String("user_id", data.UserID),
 		slog.String("ticket_sale_id", data.TicketSaleID),
-	}
+	)
 	if outcome == "delivered" {
 		uc.logger.Info(ctx, "sales_reminder delivery outcome", attrs...)
 		return

@@ -74,3 +74,20 @@ func TestSearchArtists_OneTracePerArtist(t *testing.T) {
 	assert.Equal(t, "a2", line.ArtistID)
 	assert.Equal(t, seen["a2"].String(), line.TraceID, "the failure log carries the artist's trace id")
 }
+
+// @spec components/infrastructure/backend/process/structured-logging "Job summary"
+func TestLogSummary_MarkedAsJobResult(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger, err := logging.New(logging.WithWriter(&logs), logging.WithFormat(logging.FormatJSON))
+	require.NoError(t, err)
+
+	logSummary(context.Background(), logger, 5, 2)
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line), "logs: %s", logs.String())
+	assert.Equal(t, "concert discovery job complete", line["msg"])
+	assert.Equal(t, map[string]any{"sink": "analytics", "topic": "job_result"}, line["logging.googleapis.com/labels"])
+	assert.InDelta(t, 3, line["artists_succeeded"], 0)
+}

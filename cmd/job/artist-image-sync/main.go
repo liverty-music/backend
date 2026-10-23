@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -113,11 +114,11 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
-	app.Logger.Info(ctx, "artist image sync job complete",
+	app.Logger.Info(ctx, "artist image sync job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
 		slog.Int("artists_attempted", totalAttempted),
 		slog.Int("artists_succeeded", totalAttempted-totalFailed),
 		slog.Int("failures", totalFailed),
-	)
+	)...)
 
 	return nil
 }

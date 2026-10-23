@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -187,11 +188,11 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	}
 
 	order.Status = entity.OrderStatusRefunded
-	uc.logger.Info(ctx, "refund order: completed",
+	uc.logger.Info(ctx, "refund order: completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),
 		slog.String("provider_refund_id", providerRefundID), // empty for DISPUTE (no CreateRefund call)
-	)
+	)...)
 	return order, nil
 }
 

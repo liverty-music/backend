@@ -18,6 +18,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -88,11 +89,11 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
-	app.Logger.Info(ctx, "sales-phase-discovery: complete",
+	app.Logger.Info(ctx, "sales-phase-discovery: complete", analyticslog.Attrs(analyticslog.TopicJobResult,
 		slog.Int("artists_attempted", len(artists)),
 		slog.Int("artists_succeeded", len(artists)-totalFailed),
 		slog.Int("failures", totalFailed),
-	)
+	)...)
 	return nil
 }
 

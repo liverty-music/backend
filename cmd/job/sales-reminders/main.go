@@ -17,6 +17,7 @@ import (
 	_ "time/tzdata" // embed IANA timezone DB; distroless/static has no system tzdata
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -67,8 +68,8 @@ func run(bootLogger *logging.Logger) error {
 		return err
 	}
 
-	app.Logger.Info(ctx, "sales-reminders: scan complete",
+	app.Logger.Info(ctx, "sales-reminders: scan complete", analyticslog.Attrs(analyticslog.TopicJobResult,
 		slog.Int("reminders_published", published),
-	)
+	)...)
 	return nil
 }
