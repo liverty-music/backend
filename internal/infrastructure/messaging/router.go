@@ -47,7 +47,11 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 	// Recoverer: catch panics and nack the message.
 	router.AddMiddleware(middleware.Recoverer)
 
-	// OpenTelemetry: propagate trace context via message metadata.
+	// OpenTelemetry: restore the publisher's trace context from the message
+	// metadata, then start the consumer span as its child. Both run inside
+	// the retry middleware, so every attempt is a span in the trace the
+	// message carries.
+	router.AddMiddleware(extractTraceContext)
 	router.AddMiddleware(wotel.Trace())
 
 	return router, nil

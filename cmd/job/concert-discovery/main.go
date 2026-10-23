@@ -10,8 +10,12 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/shutdown"
+	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -59,6 +63,9 @@ func run(bootLogger *logging.Logger) error {
 		return err
 	}
 
+	ctx, runSpan := telemetry.StartJobRun(ctx, "concert-discovery")
+	defer runSpan.End()
+
 	artists, err := app.FollowRepo.ListAll(ctx)
 	if err != nil {
 		return err
@@ -68,38 +75,13 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("count", len(artists)),
 	)
 
-	var totalFailed int
-	var consecutiveErrors int
-
-	for _, artist := range artists {
-		// Stop immediately on SIGTERM instead of waiting for the circuit
-		// breaker to trip after maxConsecutiveErrors cancelled API calls.
-		if ctx.Err() != nil {
-			break
-		}
-
-		// SearchNewConcerts calls the external API, deduplicates, and publishes
-		// a concert.discovered.v1 event. Concert persistence, notification, and
-		// venue enrichment are handled asynchronously by event consumers.
-		if _, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID); err != nil {
-			totalFailed++
-			consecutiveErrors++
-			app.Logger.Error(ctx, "failed to search concerts for artist", err,
-				slog.String("artist_id", artist.ID),
-				slog.String("artist_name", artist.Name),
-			)
-
-			if consecutiveErrors >= maxConsecutiveErrors {
-				app.Logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
-					slog.Int("consecutive_errors", consecutiveErrors),
-				)
-				break
-			}
-			continue
-		}
-
-		consecutiveErrors = 0
-	}
+	// SearchNewConcerts calls the external API, deduplicates, and publishes
+	// a concert.discovered.v1 event. Concert persistence, notification, and
+	// venue enrichment are handled asynchronously by event consumers.
+	totalFailed := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
+		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID)
+		return err
+	})
 
 	// Go 1.26: context.Cause returns the specific OS signal if shutdown was triggered.
 	if cause := context.Cause(ctx); cause != nil {
@@ -115,4 +97,51 @@ func run(bootLogger *logging.Logger) error {
 	)
 
 	return nil
+}
+
+// searchArtists runs search for each artist in its own trace, linked to the
+// run span in ctx, so the search's log lines and the events it publishes
+// carry that artist's trace id. It stops on cancellation or after
+// maxConsecutiveErrors failures in a row, and returns the number of failures.
+func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entity.Artist, search func(context.Context, *entity.Artist) error) int {
+	var totalFailed int
+	var consecutiveErrors int
+
+	for _, artist := range artists {
+		// Stop immediately on SIGTERM instead of waiting for the circuit
+		// breaker to trip after maxConsecutiveErrors cancelled API calls.
+		if ctx.Err() != nil {
+			break
+		}
+
+		itemCtx, span := telemetry.StartJobItem(ctx, "concert_search.artist",
+			attribute.String("artist.id", artist.ID),
+		)
+		err := search(itemCtx, artist)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "concert search failed")
+			logger.Error(itemCtx, "failed to search concerts for artist", err,
+				slog.String("artist_id", artist.ID),
+				slog.String("artist_name", artist.Name),
+			)
+		}
+		span.End()
+
+		if err != nil {
+			totalFailed++
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
+					slog.Int("consecutive_errors", consecutiveErrors),
+				)
+				break
+			}
+			continue
+		}
+
+		consecutiveErrors = 0
+	}
+
+	return totalFailed
 }

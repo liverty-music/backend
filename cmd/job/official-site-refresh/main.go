@@ -11,6 +11,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/pkg/shutdown"
+	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -54,6 +55,9 @@ func run(bootLogger *logging.Logger) error {
 	if err != nil {
 		return err
 	}
+
+	ctx, runSpan := telemetry.StartJobRun(ctx, "official-site-refresh")
+	defer runSpan.End()
 
 	summary, err := app.OfficialSiteRefreshUC.RefreshDueOfficialSites(ctx)
 	if err != nil {
