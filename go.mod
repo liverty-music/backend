@@ -30,15 +30,15 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.1-20261022015907-b88824777f05.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261022015907-b88824777f05.2
+	buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261023111337-dc79030228a1.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261023111337-dc79030228a1.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20261013105838-b6e033b1b614.2
 	cloud.google.com/go/cloudsqlconn v1.25.4
 	cloud.google.com/go/storage v1.69.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.21.1
-	connectrpc.com/connect/v2 v2.0.1
+	connectrpc.com/connect/v2 v2.0.2
 	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpchealth/v2 v2.0.0
 	connectrpc.com/otelconnect v0.12.0

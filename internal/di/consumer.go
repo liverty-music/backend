@@ -18,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -234,14 +235,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Infrastructure - Zitadel API client (optional, nil in local dev).
-	var emailVerifier entity.EmailVerifier
-	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
-		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForBackendAppPath, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
-		}
-		emailVerifier = ev
+	// Infrastructure - email verification through the identity service, or
+	// (until every deployment sets IDENTITY_SERVICE_URL) directly with the
+	// backend-app key; nil in local dev without either.
+	emailVerifier, err := newConsumerEmailVerifier(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	// Infrastructure - PostHog analytics client (optional, nil in local dev).
@@ -425,11 +424,12 @@ const passkeyRecoveryBehavior = "send-passkey-recovery-link"
 
 // passkeyRecoveryBehaviors returns the send-passkey-recovery-link behavior when
 // recovery links can be issued, and none (logging that the handler is
-// disabled) when the consumer has no fan-passkey-recovery key: requests then
-// wait in the durable until a consumer with the key runs.
+// disabled) when the consumer can reach neither the identity service nor the
+// fan-passkey-recovery key: requests then wait in the durable until a consumer
+// that can issue them runs.
 func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event.PasskeyConsumer, logger *logging.Logger) []behaviorEntry {
 	if !enabled {
-		logger.Warn(ctx, "passkey recovery link handler disabled: ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH is not set",
+		logger.Warn(ctx, "passkey recovery link handler disabled: neither IDENTITY_SERVICE_URL nor ZITADEL_MACHINE_KEY_FOR_FAN_PASSKEY_RECOVERY_PATH is set",
 			slog.String("behavior", passkeyRecoveryBehavior))
 		return nil
 	}
@@ -438,21 +438,46 @@ func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event
 	}
 }
 
+// newConsumerEmailVerifier returns the verification email client: the
+// identity service when IDENTITY_SERVICE_URL is set, else the Zitadel client
+// with the backend-app key, else (local development) nil, which makes the
+// verification handlers skip with a warning.
+func newConsumerEmailVerifier(ctx context.Context, cfg *config.ConsumerConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
+	switch {
+	case cfg.IdentityServiceURL != "":
+		return identity.NewUserClient(cfg.IdentityServiceURL), nil
+	case cfg.ZitadelMachineKeyForBackendAppPath != "":
+		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
+		}
+		return ev, nil
+	default:
+		return nil, nil
+	}
+}
+
 // newPasskeyRegistrationLinkSender returns the sender of passkey recovery
-// links, or nil when the consumer has no fan-passkey-recovery key. Only the
-// event consumer calls it, so only the consumer ever loads that key (ORG_OWNER
-// on the product org). Without a Postmark token (local development) the
-// sender fails every send.
+// links. The link is issued by the identity service when IDENTITY_SERVICE_URL
+// is set, else directly with the fan-passkey-recovery key (ORG_OWNER on the
+// product org); with neither it returns nil. Without a Postmark token (local
+// development) the sender fails every send.
 func newPasskeyRegistrationLinkSender(ctx context.Context, cfg *config.ConsumerConfig, logger *logging.Logger) (entity.PasskeyRegistrationLinkSender, error) {
-	if cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath == "" {
+	if cfg.IdentityServiceURL == "" && cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath == "" {
 		return nil, nil
 	}
 	if cfg.Postmark.ServerToken == "" {
 		return mail.NewNoopPasskeyRegistrationLinkSender(logger), nil
 	}
-	issuer, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
+	var issuer mail.PasskeyRegistrationLinkIssuer
+	if cfg.IdentityServiceURL != "" {
+		issuer = identity.NewUserClient(cfg.IdentityServiceURL)
+	} else {
+		zitadelIssuer, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
+		}
+		issuer = zitadelIssuer
 	}
 	return mail.NewPostmarkPasskeyRegistrationLinkSender(issuer, cfg.Postmark.ServerToken,
 		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
