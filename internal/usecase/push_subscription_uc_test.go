@@ -41,20 +41,16 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	return d
 }
 
-// expectNotificationRequested sets up a PublishEventWithID expectation
+// expectNotificationRequested sets up a PublishEvent expectation
 // matching a NOTIFICATION.requested publish for the given recipient and
 // notification type — the request NotifyNewConcerts / AnnounceDiscoveredSale
-// now issue instead of calling NotificationUseCase.Deliver directly. The id
-// argument is deliberately not asserted here (it is a deterministic hash of
-// business keys, covered by its own test); mock.AnythingOfType("string")
-// matches whatever notificationRequestMsgID derives.
+// now issue instead of calling NotificationUseCase.Deliver directly.
 func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, typ entity.NotificationType) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
-			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
-				return data.UserID == userID && data.Type == typ
-			})).
+		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+			return data.UserID == userID && data.Type == typ
+		})).
 		Return(nil).
 		Once()
 }
@@ -71,10 +67,9 @@ func expectNotificationRequestedMatching(
 ) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
-			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
-				return data.UserID == userID && data.Type == typ && payloadMatches(data.Payload)
-			})).
+		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+			return data.UserID == userID && data.Type == typ && payloadMatches(data.Payload)
+		})).
 		Return(nil).
 		Once()
 }
@@ -120,10 +115,9 @@ func TestPushSubscriptionUseCase_Create(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
-						UserID:     "user-1",
-						DeviceType: "android",
-					}).
+					PublishEvent(ctx, entity.SubjectNotificationSubscribed, mock.MatchedBy(func(d entity.NotificationSubscribedData) bool {
+						return d.UserID == "user-1" && d.DeviceType == "android" && !d.SubscribeTime.IsZero()
+					})).
 					Return(nil).Once()
 			},
 			wantErr: nil,
@@ -160,10 +154,9 @@ func TestPushSubscriptionUseCase_Create(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
-						UserID:     "user-1",
-						DeviceType: "android",
-					}).
+					PublishEvent(ctx, entity.SubjectNotificationSubscribed, mock.MatchedBy(func(d entity.NotificationSubscribedData) bool {
+						return d.UserID == "user-1" && d.DeviceType == "android" && !d.SubscribeTime.IsZero()
+					})).
 					Return(nil).Once()
 			},
 			wantID:  "existing-stored-id",
@@ -321,10 +314,9 @@ func TestPushSubscriptionUseCase_Delete(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
-						UserID:     "user-1",
-						DeviceType: "android",
-					}).
+					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, mock.MatchedBy(func(d entity.NotificationUnsubscribedData) bool {
+						return d.UserID == "user-1" && d.DeviceType == "android" && !d.UnsubscribeTime.IsZero()
+					})).
 					Return(nil).Once()
 			},
 			wantErr: nil,
@@ -339,10 +331,9 @@ func TestPushSubscriptionUseCase_Delete(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
-						UserID:     "user-1",
-						DeviceType: "apple",
-					}).
+					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, mock.MatchedBy(func(d entity.NotificationUnsubscribedData) bool {
+						return d.UserID == "user-1" && d.DeviceType == "apple" && !d.UnsubscribeTime.IsZero()
+					})).
 					Return(apperr.ErrInternal).Once()
 			},
 			// Publish error must not propagate — Delete returns nil.
@@ -738,8 +729,7 @@ func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 				// The second publish fails; no request is expected for user-3,
 				// so a third publish would fail the mock.
 				d.publisher.EXPECT().
-					PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
-						mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == "user-2" })).
+					PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == "user-2" })).
 					Return(apperr.ErrInternal).
 					Once()
 			},

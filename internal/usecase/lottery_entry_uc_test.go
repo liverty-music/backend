@@ -52,8 +52,8 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 	}
 	publisher := ucmocks.NewMockEventPublisher(t)
 	publisher.EXPECT().
-		PublishEventWithID(mock.Anything, entity.SubjectLotteryEntryDrawn, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _, _ string, data any) error {
+		PublishEvent(mock.Anything, entity.SubjectLotteryEntryDrawn, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, data any) error {
 			f.drawn = append(f.drawn, data.(entity.LotteryEntryDrawnData))
 			return nil
 		}).

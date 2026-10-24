@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -146,11 +144,12 @@ func deliverNotification(
 	//    when the send actually reached the delivered state. Non-fatal by design:
 	//    analytics must never affect the delivery outcome, so a publish failure is
 	//    logged and swallowed (mirrors the notification.subscribed emit).
-	if status == entity.NotificationDeliveryStatusDelivered {
+	if status == entity.NotificationDeliveryStatusDelivered && deliveredAt != nil {
 		if err := d.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
 			UserID:         userID,
 			NotificationID: n.ID,
 			Type:           string(typ),
+			DeliverTime:    *deliveredAt,
 		}); err != nil {
 			d.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
 				slog.String("notification_id", n.ID),
@@ -235,18 +234,4 @@ func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notifi
 		return entity.NotificationDeliveryStatusDelivered, &now, "", deliveryFailureReasonNone
 	}
 	return entity.NotificationDeliveryStatusFailed, nil, lastErr, lastCategory
-}
-
-// notificationRequestMsgID derives a deterministic id for a NOTIFICATION.requested
-// publish from stable business keys (never from randomness or wall-clock time),
-// so an at-least-once retry of the same triggering event re-publishes the same
-// id for the same recipient. Passed as the EventPublisher.PublishEventWithID id,
-// it becomes the NATS Msg-Id the JetStream stream's Duplicates window (2 minutes,
-// see infrastructure/messaging/streams.go) deduplicates broker-side — a retried
-// trigger re-requests delivery for the same recipients without queuing a second,
-// redundant request. It is unrelated to and never reused as the eventual
-// entity.Notification.ID (which NotificationRepository.Create still mints fresh).
-func notificationRequestMsgID(typ entity.NotificationType, userID, correlationKey string) string {
-	sum := sha256.Sum256([]byte(string(typ) + "\x00" + userID + "\x00" + correlationKey))
-	return hex.EncodeToString(sum[:])
 }

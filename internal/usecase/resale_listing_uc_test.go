@@ -353,9 +353,8 @@ func (f *resaleFixture) expectOrderCharge() {
 }
 
 // expectAnnounced expects the refund of listing id to be announced once.
-func (f *resaleFixture) expectAnnounced(id entity.ResaleListingID) *ucmocks.MockEventPublisher_PublishEventWithID_Call {
-	return f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectResaleListingRefunded, string(id),
-		entity.ResaleListingRefundedData{ResaleListingID: string(id), UserID: "fan-1", OrderID: "order-1", EventID: "event-1"})
+func (f *resaleFixture) expectAnnounced(id entity.ResaleListingID) *ucmocks.MockEventPublisher_PublishEvent_Call {
+	return f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectResaleListingRefunded, entity.ResaleListingRefundedData{ResaleListingID: string(id), UserID: "fan-1", OrderID: "order-1", EventID: "event-1"})
 }
 
 func TestResaleListingUseCase_RefundSold(t *testing.T) {
@@ -444,7 +443,7 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{done}, nil)
 
 		require.NoError(t, f.uc.RefundSold(ctx))
-		f.publisher.AssertNotCalled(t, "PublishEventWithID", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		f.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("charge cannot be refunded", func(t *testing.T) {

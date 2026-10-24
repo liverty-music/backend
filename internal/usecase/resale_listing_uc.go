@@ -265,10 +265,10 @@ func (uc *resaleListingUseCase) refund(ctx context.Context, l *entity.ResaleList
 	return nil
 }
 
-// announceRefund announces that the listing's user was refunded, with the
-// listing id as the message id, so the event consumer sends the sold email.
+// announceRefund announces that the listing's user was refunded, so the event
+// consumer sends the sold email; the consumer is idempotent by the listing id.
 func (uc *resaleListingUseCase) announceRefund(ctx context.Context, l *entity.ResaleListing) error {
-	return uc.Publisher.PublishEventWithID(ctx, entity.SubjectResaleListingRefunded, string(l.ID), entity.ResaleListingRefundedData{
+	return uc.Publisher.PublishEvent(ctx, entity.SubjectResaleListingRefunded, entity.ResaleListingRefundedData{
 		ResaleListingID: string(l.ID),
 		UserID:          string(l.UserID),
 		OrderID:         string(l.OrderID),

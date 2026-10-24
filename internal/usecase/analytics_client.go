@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/pannpers/go-logging/logging"
+
+	"github.com/liverty-music/backend/internal/entity"
 )
 
 // AnalyticsProperties carries the per-event payload sent to the analytics
@@ -18,7 +20,7 @@ type AnalyticsProperties map[string]any
 // analytics destination (PostHog Cloud EU in production).
 //
 // Implementations MUST NOT block the caller on network availability of the
-// destination. Enqueue is expected to hand the event off to an internal
+// destination. Capture is expected to hand the event off to an internal
 // buffer or queue and return immediately so that Connect-RPC handlers
 // retain their latency contract even when the analytics destination is
 // degraded.
@@ -34,18 +36,11 @@ type AnalyticsProperties map[string]any
 // manager via shutdown.AddExternalPhase, matching the pattern used by
 // other outbound clients (lastfm, musicbrainz, fanarttv, db).
 type AnalyticsClient interface {
-	// Enqueue hands an event off for asynchronous delivery to the
-	// analytics destination.
-	//
-	// distinctID is the platform-internal UserId UUID — never the
-	// Zitadel sub claim and never an empty string. Implementations MUST
-	// reject empty distinctID and SHOULD validate UUID format so that
-	// callers cannot accidentally pass an opaque IdP subject identifier.
-	//
-	// eventName MUST be one of the AnalyticsEventName constants defined
-	// in analytics_events.go. Implementations MUST reject unknown event
-	// names (use IsKnownEvent for membership checks) so a typo at a
-	// call site fails fast instead of silently fragmenting dashboards.
+	// Capture hands one event off for asynchronous delivery to the
+	// analytics destination. The caller sets every value of the event (see
+	// [AnalyticsEvent]); the destination stores events with the same UUID,
+	// name, time and distinct id once, so a redelivered domain event handed
+	// off again with the same values is recorded once.
 	//
 	// ctx is read by implementations to extract the active OpenTelemetry
 	// trace ID and inject it into the event payload as the `trace_id`
@@ -54,47 +49,63 @@ type AnalyticsClient interface {
 	// cancellation is NOT propagated to the underlying SDK because the
 	// posthog-go Client interface does not expose a context-aware Enqueue.
 	//
-	// properties is the per-event payload, optional, sanitised per the
-	// PII policy before this call. Implementations MUST NOT mutate the
-	// supplied map; trace_id injection, when applied, happens on a
-	// defensive copy.
-	//
-	// Enqueue returns an apperr-coded error for caller-side mistakes
-	// (codes.InvalidArgument: empty/non-UUID distinctID, empty/unknown
-	// eventName) and for the rare SDK queue-overflow case
-	// (codes.Internal). Transient destination failures are retried
-	// internally by the implementation and never surfaced here.
-	Enqueue(ctx context.Context, distinctID string, eventName AnalyticsEventName, properties AnalyticsProperties) error
-
-	// EnqueueOnce is Enqueue for an event that may be handed off more than
-	// once, such as one forwarded from a redelivered domain event. eventID
-	// (a UUID, e.g. the Order id) becomes the destination's event id and at
-	// its timestamp, so the destination stores the event once however often
-	// it is handed off. A zero at means now.
-	//
-	// It returns codes.InvalidArgument for a non-UUID eventID, in addition to
-	// the errors of Enqueue.
-	EnqueueOnce(ctx context.Context, distinctID, eventID string, at time.Time, eventName AnalyticsEventName, properties AnalyticsProperties) error
-
-	// EnqueueSystem hands off an event that has no fan: a signal of a
-	// pipeline process (a search outcome, an external model call). The
-	// process the implementation runs as (e.g. the telemetry service name
-	// "liverty-music-concert-discovery") is the distinct id, no person
-	// profile is created for it, and the process and the backend's release
-	// version are added to the properties as `process` and `app_version`.
-	//
-	// It returns the errors of Enqueue for eventName.
-	EnqueueSystem(ctx context.Context, eventName AnalyticsEventName, properties AnalyticsProperties) error
+	// Capture returns an apperr-coded error for caller-side mistakes
+	// (codes.InvalidArgument: an empty or unknown Name, an empty or
+	// non-UUID UUID, a zero Time, a non-UUID DistinctID of a fan event) and
+	// for the rare SDK queue-overflow case (codes.Internal). Transient
+	// destination failures are retried internally by the implementation and
+	// never surfaced here.
+	Capture(ctx context.Context, event AnalyticsEvent) error
 }
 
-// sendSystemSignal sends a pipeline signal through client, which may be nil
-// (no PostHog key configured: nothing is sent). A failure is logged and never
+// AnalyticsEvent is one product-analytics event.
+type AnalyticsEvent struct {
+	// Name MUST be one of the AnalyticsEventName constants defined in
+	// analytics_events.go; implementations reject unknown names (see
+	// IsKnownEvent) so a typo fails fast instead of fragmenting dashboards.
+	Name AnalyticsEventName
+
+	// UUID identifies the event at the destination: the CloudEvent id for a
+	// forwarded domain event, a new entity.NewID() for an event a use case
+	// sends directly. Required.
+	UUID string
+
+	// Time is when the fact happened, read from the domain event data (or,
+	// for an event a use case sends directly, the time the work ended).
+	// Required.
+	Time time.Time
+
+	// DistinctID is the fan's platform-internal UserId UUID (never the
+	// Zitadel sub). It is ignored for a Personless event.
+	DistinctID string
+
+	// Personless marks an event of a pipeline process with no fan (a search
+	// outcome, an external model call). The process the implementation runs
+	// as (its telemetry service name) is then the distinct id, no person
+	// profile is created, and the process and the backend's release version
+	// are added as the `process` and `app_version` properties.
+	Personless bool
+
+	// Properties is the per-event payload, optional, sanitised per the PII
+	// policy. Implementations MUST NOT mutate it.
+	Properties AnalyticsProperties
+}
+
+// sendSystemSignal sends a personless pipeline signal through client, which
+// may be nil (no PostHog key configured: nothing is sent), with a new event
+// id and now as the time the work ended. A failure is logged and never
 // returned, so a signal can never change the outcome it reports.
 func sendSystemSignal(ctx context.Context, client AnalyticsClient, logger *logging.Logger, eventName AnalyticsEventName, properties AnalyticsProperties) {
 	if client == nil {
 		return
 	}
-	if err := client.EnqueueSystem(ctx, eventName, properties); err != nil {
+	if err := client.Capture(ctx, AnalyticsEvent{
+		Name:       eventName,
+		UUID:       entity.NewID(),
+		Time:       time.Now(),
+		Personless: true,
+		Properties: properties,
+	}); err != nil {
 		logger.Warn(ctx, "failed to send a product-analytics signal",
 			slog.String("event", string(eventName)),
 			slog.Any("error", err),

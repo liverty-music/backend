@@ -45,10 +45,6 @@ func (p *storyPublisher) PublishEvent(_ context.Context, subject string, data an
 	return nil
 }
 
-func (p *storyPublisher) PublishEventWithID(ctx context.Context, subject, _ string, data any) error {
-	return p.PublishEvent(ctx, subject, data)
-}
-
 func (p *storyPublisher) take(subject string) []any {
 	p.mu.Lock()
 	defer p.mu.Unlock()

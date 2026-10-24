@@ -378,7 +378,7 @@ func (uc *orderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID 
 	if err != nil || paid == nil {
 		return err
 	}
-	if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectOrderPaid, paid.OrderID, paid); err != nil {
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrderPaid, paid); err != nil {
 		return fmt.Errorf("announce order %s as paid: %w", paid.OrderID, err)
 	}
 	uc.logger.Info(ctx, "order announced as paid",

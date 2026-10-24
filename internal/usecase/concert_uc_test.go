@@ -1306,6 +1306,13 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 			"series_count": 0,
 			"event_count":  0,
 		}}, d.analytics.sent(usecase.EventConcertSearchCompleted))
+		// A signal the use case sends directly is personless, with a new
+		// event id and the time the search ended.
+		sent := d.analytics.captured(usecase.EventConcertSearchCompleted)
+		require.Len(t, sent, 1)
+		assert.True(t, sent[0].Personless)
+		assert.NotEmpty(t, sent[0].UUID)
+		assert.WithinDuration(t, time.Now(), sent[0].Time, time.Minute)
 	})
 
 	t.Run("search failed", func(t *testing.T) {

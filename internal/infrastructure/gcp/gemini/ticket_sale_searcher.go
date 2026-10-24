@@ -311,6 +311,7 @@ func (s *TicketSaleSearcher) call(
 	resp, err := s.generate(reqCtx, s.config.Model, genai.Text(prompt), cfg)
 	gen := base
 	gen.Latency = time.Since(start)
+	gen.EndTime = start.Add(gen.Latency)
 	fillFromResponse(&gen, resp)
 	if err != nil {
 		gen.ErrorKind = callErrorKind(reqCtx, err)

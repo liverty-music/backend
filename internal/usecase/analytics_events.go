@@ -126,7 +126,7 @@ const (
 	EventTicketAdmitted AnalyticsEventName = "ticket.admitted"
 )
 
-// Pipeline events without a fan, sent with AnalyticsClient.EnqueueSystem.
+// Pipeline events without a fan, sent as personless AnalyticsClient.Capture events.
 const (
 	// EventConcertSearchCompleted is recorded once per SearchNewConcerts run
 	// that performed the external search. Properties: artist_id, trigger,
@@ -153,7 +153,7 @@ const (
 // knownBackendEvents is the allowlist of AnalyticsEventName constants
 // emitted from the backend. AnalyticsClient implementations consult this
 // via IsKnownEvent to reject typos at the call site, satisfying the
-// "unknown eventName" contract on Enqueue.
+// "unknown Name" contract on Capture.
 //
 // The map is populated lazily-once at package init via the const groups
 // above; every new constant MUST be added here in the same commit.
@@ -181,7 +181,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 }
 
 // IsKnownEvent reports whether name is registered in the backend event
-// catalogue. AnalyticsClient implementations call this on Enqueue to
+// catalogue. AnalyticsClient implementations call this on Capture to
 // fail fast on typos like AnalyticsEventName("ticket.purcase.completed")
 // that would otherwise silently fragment downstream dashboards.
 func IsKnownEvent(name AnalyticsEventName) bool {

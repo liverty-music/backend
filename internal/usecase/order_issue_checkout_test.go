@@ -2,12 +2,14 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -469,7 +471,7 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", &entity.OrderPaidData{
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, &entity.OrderPaidData{
 			OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY", CheckoutID: "checkout-1",
 		}).Return(nil).Once()
 
@@ -491,7 +493,7 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f.orders.EXPECT().GetByLotteryEntryID(mock.Anything, entry.ID).Return(winOrder, nil)
 		// The announcement carries the Order's pay time, the same on every
 		// re-publish, for the analytics event time.
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-2", &entity.OrderPaidData{
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, &entity.OrderPaidData{
 			OrderID: "order-2", UserID: "user-1", EventID: "event-1", TicketCount: 2, Amount: 10000, Currency: "JPY", LotteryEntryID: "entry-1",
 			PayTime: paidAt,
 		}).Return(nil).Once()
@@ -502,18 +504,29 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 	t.Run("charge reported twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/fulfill-payment "Charge reported twice"
-		// Both reports find the same Order and announce it under the same
-		// message id, which JetStream deduplicates; no second Order is issued.
+		// Both reports find the same Order (no second Order is issued) and
+		// announce it twice, each announcement a new event with its own id;
+		// consumers act on it once by the Order id.
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil).Twice()
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil).Twice()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil).Twice()
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(nil).Twice()
+		wm := &capturingPublisher{}
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, mock.Anything).
+			RunAndReturn(messaging.NewEventPublisher(wm).PublishEvent).Twice()
 
 		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
 		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
+
+		require.Len(t, wm.msgs, 2, "the Order is announced twice")
+		assert.NotEqual(t, wm.msgs[0].Metadata.Get("ce_id"), wm.msgs[1].Metadata.Get("ce_id"), "each announcement has its own id")
+		for _, m := range wm.msgs {
+			var paid entity.OrderPaidData
+			require.NoError(t, json.Unmarshal(m.Payload, &paid))
+			assert.Equal(t, "order-1", paid.OrderID)
+		}
 	})
 
 	t.Run("messaging unavailable", func(t *testing.T) {
@@ -525,7 +538,7 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(errors.New("nats down"))
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, mock.Anything).Return(errors.New("nats down"))
 
 		assert.Error(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
 	})

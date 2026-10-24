@@ -80,8 +80,8 @@ func (uc *ticketSaleAnnouncementUseCase) AnnounceDiscoveredSale(ctx context.Cont
 	}
 
 	// Request one announcement per audience member: publish NOTIFICATION.requested
-	// (deterministic id — see notification_delivery.go) so the deliver-notification
-	// consumer records a durable Notification and dispatches the push. This
+	// so the deliver-notification consumer records a durable Notification and
+	// dispatches the push. This
 	// announcement fires once immediately from the discovery job's daily
 	// 21:00 JST run (no quiet-hours constraint); the copy follows the
 	// recipient's language and time zone, and the link opens the recipient's
@@ -104,19 +104,14 @@ func (uc *ticketSaleAnnouncementUseCase) AnnounceDiscoveredSale(ctx context.Cont
 		}
 
 		payload := buildAnnouncementPayload(sale, user, series.Title, tr.EventID)
-		// Deterministic id: same sale + same recipient always derives the same
-		// id, so a retried SALES_PHASE.discovered delivery republishes an
-		// identical NOTIFICATION.requested that the stream's Duplicates window
-		// discards rather than requesting delivery twice.
-		reqID := notificationRequestMsgID(entity.NotificationTypeTicketSaleAnnouncement, tr.UserID, data.TicketSaleID)
-		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationRequested, entity.NotificationRequestedData{
 			UserID:  tr.UserID,
 			Type:    entity.NotificationTypeTicketSaleAnnouncement,
 			Payload: payload,
 		}); err != nil {
 			// Publish failure: surface so the consumer's at-least-once retry
-			// re-drives the batch. Repeat pushes are deduplicated both by the
-			// Duplicates window above and, browser-side, by the per-sale Tag.
+			// re-drives the batch. A repeat push is collapsed browser-side by
+			// the per-sale Tag.
 			return fmt.Errorf("ticket_sale_announcement: publish notification request for user %s: %w", tr.UserID, err)
 		}
 	}

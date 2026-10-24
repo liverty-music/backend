@@ -137,6 +137,7 @@ func TestSearch_ReportsQueriesAndPagesRead(t *testing.T) {
 	assert.Equal(t, "gemini-test-001", g.ModelVersion)
 	assert.Equal(t, posthog.LLMUsage{PromptTokens: 100, CandidatesTokens: 20, ThinkingTokens: 30, ToolUseTokens: 400, CachedTokens: 5}, g.Usage)
 	assert.Positive(t, g.Latency)
+	assert.False(t, g.EndTime.IsZero(), "the time the request ended")
 	assert.Equal(t, &posthog.ConcertParseResult{}, g.Concerts)
 }
 

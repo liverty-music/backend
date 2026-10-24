@@ -511,7 +511,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 	// Report each entry's result for product analytics. A failed publish is
 	// logged and never changes the recorded draw.
 	for _, r := range results {
-		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectLotteryEntryDrawn, r.LotteryEntryID, r); err != nil {
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectLotteryEntryDrawn, r); err != nil {
 			uc.logger.Error(ctx, "failed to publish ORDER.lottery_entry_drawn event", err,
 				slog.String("ticket_sale_id", string(saleID)),
 				slog.String("lottery_entry_id", r.LotteryEntryID),

@@ -79,8 +79,8 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 	}
 	publisher := ucmocks.NewMockEventPublisher(t)
 	publisher.EXPECT().
-		PublishEventWithID(mock.Anything, entity.SubjectTicketAdmitted, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _, _ string, data any) error {
+		PublishEvent(mock.Anything, entity.SubjectTicketAdmitted, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, data any) error {
 			f.admitted = append(f.admitted, data.(entity.TicketAdmittedData))
 			return nil
 		}).

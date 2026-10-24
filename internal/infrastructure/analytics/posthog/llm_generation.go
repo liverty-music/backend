@@ -9,6 +9,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -34,6 +35,8 @@ type LLMGeneration struct {
 
 	// Latency is the wall time of the request.
 	Latency time.Duration
+	// EndTime is when the request ended, the event's time.
+	EndTime time.Time
 
 	// WebSearchQueries are the Google Search queries the model issued.
 	WebSearchQueries []string
@@ -187,8 +190,17 @@ func (r *GenerationReporter) ReportGeneration(ctx context.Context, g LLMGenerati
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
 		traceID = sc.TraceID().String()
 	}
-	props := g.Properties(traceID, uuid.NewV4().String())
-	if err := r.client.EnqueueSystem(ctx, usecase.EventAIGeneration, props); err != nil {
+	endTime := g.EndTime
+	if endTime.IsZero() {
+		endTime = time.Now()
+	}
+	if err := r.client.Capture(ctx, usecase.AnalyticsEvent{
+		Name:       usecase.EventAIGeneration,
+		UUID:       entity.NewID(),
+		Time:       endTime,
+		Personless: true,
+		Properties: g.Properties(traceID, uuid.NewV4().String()),
+	}); err != nil {
 		r.logger.Warn(ctx, "failed to report an LLM generation",
 			slog.String("model", g.Model),
 			slog.Any("error", err),

@@ -335,7 +335,7 @@ func (uc *checkoutUseCase) releaseCardAuthorization(ctx context.Context, checkou
 // reportExpired announces, for product analytics, that the Checkout's hold
 // lapsed. A failed publish is logged and never changes the release.
 func (uc *checkoutUseCase) reportExpired(ctx context.Context, checkout *entity.Checkout) {
-	if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectCheckoutExpired, string(checkout.ID), entity.CheckoutExpiredData{
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectCheckoutExpired, entity.CheckoutExpiredData{
 		CheckoutID:     string(checkout.ID),
 		UserID:         string(checkout.UserID),
 		TicketTypeID:   string(checkout.TicketTypeID),

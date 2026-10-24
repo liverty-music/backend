@@ -351,7 +351,8 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	)
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{
-		OrganizerID: org.ID,
+		OrganizerID:  org.ID,
+		ActivateTime: time.Now(),
 	}); err != nil {
 		uc.logger.Warn(ctx, "failed to publish ORGANIZER.created event",
 			slog.String("organizer_id", org.ID),
@@ -515,8 +516,9 @@ func (uc *organizerUseCase) AssociateArtist(ctx context.Context, organizerID, ar
 	}
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerArtistAssociated, entity.OrganizerArtistAssociatedData{
-		OrganizerID: organizerID,
-		ArtistID:    artistID,
+		OrganizerID:   organizerID,
+		ArtistID:      artistID,
+		AssociateTime: time.Now(),
 	}); err != nil {
 		uc.logger.Warn(ctx, "failed to publish ORGANIZER.artist_associated event",
 			slog.String("organizer_id", organizerID),

@@ -551,7 +551,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			slog.String("workload", cfg.Workload))
 	}
 
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, time.Now, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)

@@ -118,10 +118,13 @@ func TestGenerationReporter_ReportGeneration(t *testing.T) {
 		fake := &fakeEnqueuer{}
 		client := posthog.NewWithEnqueuer(fake, "liverty-music-concert-discovery", "v1.2.3", testLogger(t))
 
-		posthog.NewGenerationReporter(client, testLogger(t)).ReportGeneration(ctx, posthog.LLMGeneration{Model: "m"})
+		endTime := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+		posthog.NewGenerationReporter(client, testLogger(t)).ReportGeneration(ctx, posthog.LLMGeneration{Model: "m", EndTime: endTime})
 
 		captured := fake.Captured()
 		require.Len(t, captured, 1)
+		assert.NotEmpty(t, captured[0].Uuid, "a new event id")
+		assert.Equal(t, endTime, captured[0].Timestamp, "the time the request ended")
 		assert.Equal(t, "$ai_generation", captured[0].Event)
 		assert.Equal(t, "liverty-music-concert-discovery", captured[0].DistinctId)
 		assert.Equal(t, span.SpanContext().TraceID().String(), captured[0].Properties["$ai_trace_id"])

@@ -42,135 +42,59 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 		d.siteResolver,
 		d.publisher,
 		noopMetrics{},
+		fixedClock(followTestNow),
 		newTestLogger(t),
 	)
 	return d
 }
+
+// followTestNow is the clock of the FollowUseCase under test.
+var followTestNow = time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 
 func TestFollowUseCase_SetHype(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
-	type args struct {
-		userID   string
-		artistID string
-		hype     entity.Hype
-	}
+	t.Run("not followed", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+		d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).Return(apperr.ErrNotFound).Once()
 
-	tests := []struct {
-		name    string
-		args    args
-		setup   func(t *testing.T, d *followTestDeps)
-		wantErr error
-	}{
-		{
-			name: "success",
-			args: args{
-				userID:   "internal-uuid-1",
-				artistID: "artist-1",
-				hype:     entity.HypeAway,
-			},
-			setup: func(t *testing.T, d *followTestDeps) {
-				t.Helper()
-				d.followRepo.EXPECT().
-					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return(entity.HypeNearby, nil).
-					Once()
-				d.publisher.EXPECT().PublishEvent(ctx, entity.SubjectArtistHypeChanged, mock.Anything).Return(nil).Once()
-			},
-			wantErr: nil,
-		},
-		{
-			name: "return error when repository SetHype fails",
-			args: args{
-				userID:   "internal-uuid-1",
-				artistID: "artist-1",
-				hype:     entity.HypeAway,
-			},
-			setup: func(t *testing.T, d *followTestDeps) {
-				t.Helper()
-				d.followRepo.EXPECT().
-					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return("", apperr.ErrInternal).
-					Once()
-			},
-			wantErr: apperr.ErrInternal,
-		},
-		{
-			name: "succeed when publishing the signal fails",
-			args: args{
-				userID:   "internal-uuid-1",
-				artistID: "artist-1",
-				hype:     entity.HypeAway,
-			},
-			setup: func(t *testing.T, d *followTestDeps) {
-				t.Helper()
-				d.followRepo.EXPECT().
-					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return(entity.HypeNearby, nil).
-					Once()
-				d.publisher.EXPECT().PublishEvent(ctx, entity.SubjectArtistHypeChanged, mock.Anything).Return(apperr.ErrInternal).Once()
-			},
-			wantErr: nil,
-		},
-	}
+		// Nothing is set, so nothing is announced (the strict publisher mock
+		// fails on any PublishEvent call).
+		assert.ErrorIs(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway), apperr.ErrNotFound)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := newFollowTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
+	t.Run("hype raised", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/follow/set-hype "Hype raised"
+		d := newFollowTestDeps(t)
+		d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).Return(nil).Once()
+		d.publisher.EXPECT().
+			PublishEvent(ctx, entity.SubjectArtistHypeChanged, entity.ArtistHypeChangedData{
+				UserID:   "internal-uuid-1",
+				ArtistID: "artist-1",
+				Hype:     "away",
+				SetTime:  followTestNow,
+			}).
+			Return(nil).
+			Once()
 
-			err := d.uc.SetHype(ctx, tt.args.userID, tt.args.artistID, tt.args.hype)
+		require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway))
+	})
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
-}
+	t.Run("signal failure", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/follow/set-hype "Signal failure"
+		d := newFollowTestDeps(t)
+		d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).Return(nil).Once()
+		d.publisher.EXPECT().PublishEvent(ctx, entity.SubjectArtistHypeChanged, mock.Anything).Return(apperr.ErrUnavailable).Once()
 
-// TestFollowUseCase_SetHype_HypeRaised verifies that an actual change sends
-// one hype-changed signal with the previous and the new level.
-//
-// @spec components/usecase/follow/set-hype "Hype raised"
-func TestFollowUseCase_SetHype_HypeRaised(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	d := newFollowTestDeps(t)
-	d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).Return(entity.HypeWatch, nil).Once()
-	d.publisher.EXPECT().
-		PublishEvent(ctx, entity.SubjectArtistHypeChanged, entity.ArtistHypeChangedData{
-			UserID:   "internal-uuid-1",
-			ArtistID: "artist-1",
-			FromHype: "watch",
-			ToHype:   "away",
-		}).
-		Return(nil).
-		Once()
-
-	require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway))
-}
-
-// TestFollowUseCase_SetHype_SameLevel verifies that setting the level the
-// follow already has sends no signal (the strict publisher mock fails on any
-// PublishEvent call).
-//
-// @spec components/usecase/follow/set-hype "Same level"
-func TestFollowUseCase_SetHype_SameLevel(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	d := newFollowTestDeps(t)
-	d.followRepo.EXPECT().SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeHome).Return(entity.HypeHome, nil).Once()
-
-	require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeHome))
+		// SetHype succeeds; the level stays as set (nothing is undone: the
+		// repository is not called again).
+		require.NoError(t, d.uc.SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway))
+	})
 }
 
 // TestFollowUseCase_Follow_PublishesAnalyticsEvent verifies that a
@@ -197,8 +121,9 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 			Return(nil).Once()
 		d.publisher.EXPECT().
 			PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
-				UserID:   "user-1",
-				ArtistID: "artist-1",
+				UserID:     "user-1",
+				ArtistID:   "artist-1",
+				FollowTime: followTestNow,
 			}).
 			Return(nil).Once()
 
@@ -224,8 +149,9 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 			Return(nil).Once()
 		d.publisher.EXPECT().
 			PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
-				UserID:   "user-1",
-				ArtistID: "artist-1",
+				UserID:     "user-1",
+				ArtistID:   "artist-1",
+				FollowTime: followTestNow,
 			}).
 			Return(apperr.ErrInternal).Once()
 
@@ -295,7 +221,7 @@ func TestFollowUseCase_Follow_BrokerDown(t *testing.T) {
 	artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-1").
 		Return(&entity.OfficialSite{}, nil).Maybe()
 	uc := usecase.NewFollowUseCase(followRepo, artistRepo, mocks.NewMockOfficialSiteResolver(t),
-		messaging.NewEventPublisher(pub), noopMetrics{}, logger)
+		messaging.NewEventPublisher(pub), noopMetrics{}, time.Now, logger)
 
 	start := time.Now()
 	err = uc.Follow(ctx, "user-1", "artist-1")
@@ -321,8 +247,9 @@ func TestFollowUseCase_Unfollow_PublishesAnalyticsEvent(t *testing.T) {
 			Return(nil).Once()
 		d.publisher.EXPECT().
 			PublishEvent(ctx, entity.SubjectArtistUnfollowed, entity.ArtistUnfollowedData{
-				UserID:   "user-1",
-				ArtistID: "artist-1",
+				UserID:       "user-1",
+				ArtistID:     "artist-1",
+				UnfollowTime: followTestNow,
 			}).
 			Return(nil).Once()
 

@@ -50,11 +50,6 @@ func (p *recordingPublisher) PublishEvent(_ context.Context, subject string, dat
 	return nil
 }
 
-func (p *recordingPublisher) PublishEventWithID(_ context.Context, subject, _ string, data any) error {
-	p.record(subject, data)
-	return nil
-}
-
 func (p *recordingPublisher) record(subject string, data any) {
 	if subject != entity.SubjectOrderPaid {
 		return

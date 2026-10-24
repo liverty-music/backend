@@ -3,7 +3,6 @@ package usecase_test
 import (
 	"context"
 	"sync"
-	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
@@ -18,30 +17,36 @@ type systemSignal struct {
 	traceID string
 }
 
-// recordingAnalytics is an AnalyticsClient that records the personless
-// signals sent with EnqueueSystem. Enqueue and EnqueueOnce are not used by
-// the use cases under test and record nothing.
+// recordingAnalytics is an AnalyticsClient that records the captured
+// events.
 type recordingAnalytics struct {
 	mu      sync.Mutex
 	signals []systemSignal
+	events  []usecase.AnalyticsEvent
 	err     error
 }
 
 var _ usecase.AnalyticsClient = (*recordingAnalytics)(nil)
 
-func (r *recordingAnalytics) Enqueue(context.Context, string, usecase.AnalyticsEventName, usecase.AnalyticsProperties) error {
-	return nil
-}
-
-func (r *recordingAnalytics) EnqueueOnce(context.Context, string, string, time.Time, usecase.AnalyticsEventName, usecase.AnalyticsProperties) error {
-	return nil
-}
-
-func (r *recordingAnalytics) EnqueueSystem(ctx context.Context, event usecase.AnalyticsEventName, props usecase.AnalyticsProperties) error {
+func (r *recordingAnalytics) Capture(ctx context.Context, event usecase.AnalyticsEvent) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.signals = append(r.signals, systemSignal{event: event, props: props, traceID: trace.SpanContextFromContext(ctx).TraceID().String()})
+	r.events = append(r.events, event)
+	r.signals = append(r.signals, systemSignal{event: event.Name, props: event.Properties, traceID: trace.SpanContextFromContext(ctx).TraceID().String()})
 	return r.err
+}
+
+// captured returns the recorded events of name.
+func (r *recordingAnalytics) captured(name usecase.AnalyticsEventName) []usecase.AnalyticsEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []usecase.AnalyticsEvent
+	for _, e := range r.events {
+		if e.Name == name {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // sent returns the recorded signals of event.

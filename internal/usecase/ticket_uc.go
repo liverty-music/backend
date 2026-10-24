@@ -297,7 +297,7 @@ func (uc *ticketUseCase) appendRejections(ctx context.Context, scans []*entity.R
 // reportAdmitted announces, for product analytics, that the Ticket was
 // admitted. A failed publish is logged and never changes the admission.
 func (uc *ticketUseCase) reportAdmitted(ctx context.Context, ticketID entity.TicketID, userID entity.UserID, eventID string, admitTime time.Time) {
-	if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectTicketAdmitted, string(ticketID), entity.TicketAdmittedData{
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketAdmitted, entity.TicketAdmittedData{
 		TicketID:  string(ticketID),
 		UserID:    string(userID),
 		EventID:   eventID,

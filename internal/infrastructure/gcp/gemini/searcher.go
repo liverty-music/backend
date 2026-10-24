@@ -553,6 +553,7 @@ func (s *ConcertSearcher) executePass(
 		gen := base
 		gen.Model = modelName
 		gen.Latency = time.Since(start)
+		gen.EndTime = start.Add(gen.Latency)
 		fillFromResponse(&gen, resp)
 		record := func(errorKind string) {
 			gen.ErrorKind = errorKind

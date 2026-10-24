@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/actions"
 
@@ -83,6 +84,8 @@ func NewLoginEventHandler(
 type eventExecutionPayload struct {
 	EventType    string          `json:"event_type"`
 	EventPayload json.RawMessage `json:"event_payload"`
+	// CreatedAt is when Zitadel recorded the event, the time of the login.
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // sessionUserCheckedPayload is the decoded `event_payload` of a
@@ -151,7 +154,7 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.emitAccountLogin(ctx, h.loginUserID(ctx, payload.EventPayload))
+	h.emitAccountLogin(ctx, h.loginUserID(ctx, payload.EventPayload), payload.CreatedAt)
 	h.writeOK(ctx, w)
 }
 
@@ -193,7 +196,10 @@ func (h *LoginEventHandler) loginUserID(ctx context.Context, raw json.RawMessage
 // publishes `ACCOUNT.login` best-effort. Every failure mode — an absent
 // identifier, a lookup miss/error, or a publish error — is logged and
 // swallowed; it never affects the HTTP response.
-func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string) {
+//
+// loginTime is the event's created_at; when Zitadel sent none, the handler's
+// receive time stands in.
+func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string, loginTime time.Time) {
 	if sub == "" {
 		h.logger.Warn(ctx, "login-event: event_payload missing userID, skipping account.login")
 		return
@@ -209,7 +215,10 @@ func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string) {
 		return
 	}
 
-	if err := h.publisher.PublishEvent(ctx, entity.SubjectUserLoggedIn, entity.UserLoggedInData{UserID: user.ID}); err != nil {
+	if loginTime.IsZero() {
+		loginTime = time.Now()
+	}
+	if err := h.publisher.PublishEvent(ctx, entity.SubjectUserLoggedIn, entity.UserLoggedInData{UserID: user.ID, LoginTime: loginTime}); err != nil {
 		h.logger.Error(ctx, "login-event: failed to publish ACCOUNT.login", err)
 	}
 }

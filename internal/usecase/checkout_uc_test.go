@@ -499,7 +499,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		lapsed.CardAuthorizationID = "pi_1"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectCheckoutExpired, "checkout-1", mock.Anything).Return(nil).Once()
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, mock.Anything).Return(nil).Once()
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 
@@ -521,7 +521,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
 		f.publisher.EXPECT().
-			PublishEventWithID(mock.Anything, entity.SubjectCheckoutExpired, "checkout-1", entity.CheckoutExpiredData{
+			PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, entity.CheckoutExpiredData{
 				CheckoutID:     "checkout-1",
 				UserID:         "fan-1",
 				TicketTypeID:   "tt-1",
@@ -540,7 +540,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		lapsed := fanCheckout(start)
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
-		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectCheckoutExpired, "checkout-1", mock.Anything).
+		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, mock.Anything).
 			Return(apperr.New(apperr.ErrUnavailable.Code, "nats down")).Once()
 
 		// The release stands and the sweep succeeds.

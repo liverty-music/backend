@@ -113,11 +113,10 @@ func TestDeliver_Success(t *testing.T) {
 	// Delivered ⇒ exactly one NOTIFICATION.delivered emit, keyed by notification_id.
 	publisher := ucmocks.NewMockEventPublisher(t)
 	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
-			UserID:         "user-1",
-			NotificationID: "01890000-0000-7000-8000-000000000abc",
-			Type:           string(entity.NotificationTypeNewConcerts),
-		}).
+		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.MatchedBy(func(d entity.NotificationDeliveredData) bool {
+			return d.UserID == "user-1" && d.NotificationID == "01890000-0000-7000-8000-000000000abc" &&
+				d.Type == string(entity.NotificationTypeNewConcerts) && !d.DeliverTime.IsZero()
+		})).
 		Return(nil).
 		Once()
 

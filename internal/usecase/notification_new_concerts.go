@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -173,20 +172,14 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 			concertDeepLink(earliest),
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
-		// Deterministic id: same artist + same concert batch + same recipient
-		// always derives the same id, so a retried CONCERT.created delivery
-		// republishes an identical NOTIFICATION.requested that the stream's
-		// Duplicates window discards rather than requesting delivery twice.
-		reqID := notificationRequestMsgID(entity.NotificationTypeNewConcerts, f.User.ID,
-			artist.ID+"|"+strings.Join(data.ConcertIDs, ","))
-		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationRequested, entity.NotificationRequestedData{
 			UserID:  f.User.ID,
 			Type:    entity.NotificationTypeNewConcerts,
 			Payload: payload,
 		}); err != nil {
 			// Publish failure: surface so the consumer's at-least-once retry
-			// re-drives the batch. Repeat web pushes are deduplicated both by
-			// the Duplicates window above and, browser-side, by the per-artist Tag.
+			// re-drives the batch. A repeat web push is collapsed browser-side
+			// by the per-artist Tag.
 			return fmt.Errorf("failed to publish notification request for user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
 		}
 		dispatched++

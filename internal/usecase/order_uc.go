@@ -144,8 +144,7 @@ type OrderUseCase interface {
 	IssueDueCheckouts(ctx context.Context) error
 
 	// FulfillPayment turns a charge the payment provider reports as completed
-	// into an issued Order and announces it as ORDER.paid, with the Order id
-	// as the message id. It finds the charge's source — a Checkout by its
+	// into an issued Order and announces it as ORDER.paid. It finds the charge's source — a Checkout by its
 	// card authorization, else a LotteryEntry by its authorization — and runs the
 	// idempotent issuance for it, so a repeated report finds the same Order. A
 	// charge of no source succeeds without effect.

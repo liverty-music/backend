@@ -6,7 +6,6 @@ package mocks
 
 import (
 	"context"
-	"time"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
@@ -48,215 +47,59 @@ func (_m *MockAnalyticsClient) EXPECT() *MockAnalyticsClient_Expecter {
 	return &MockAnalyticsClient_Expecter{mock: &_m.Mock}
 }
 
-// Enqueue provides a mock function for the type MockAnalyticsClient
-func (_mock *MockAnalyticsClient) Enqueue(ctx context.Context, distinctID string, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error {
-	ret := _mock.Called(ctx, distinctID, eventName, properties)
+// Capture provides a mock function for the type MockAnalyticsClient
+func (_mock *MockAnalyticsClient) Capture(ctx context.Context, event usecase.AnalyticsEvent) error {
+	ret := _mock.Called(ctx, event)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Enqueue")
+		panic("no return value specified for Capture")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.AnalyticsEventName, usecase.AnalyticsProperties) error); ok {
-		r0 = returnFunc(ctx, distinctID, eventName, properties)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.AnalyticsEvent) error); ok {
+		r0 = returnFunc(ctx, event)
 	} else {
 		r0 = ret.Error(0)
 	}
 	return r0
 }
 
-// MockAnalyticsClient_Enqueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Enqueue'
-type MockAnalyticsClient_Enqueue_Call struct {
+// MockAnalyticsClient_Capture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Capture'
+type MockAnalyticsClient_Capture_Call struct {
 	*mock.Call
 }
 
-// Enqueue is a helper method to define mock.On call
+// Capture is a helper method to define mock.On call
 //   - ctx context.Context
-//   - distinctID string
-//   - eventName usecase.AnalyticsEventName
-//   - properties usecase.AnalyticsProperties
-func (_e *MockAnalyticsClient_Expecter) Enqueue(ctx any, distinctID any, eventName any, properties any) *MockAnalyticsClient_Enqueue_Call {
-	return &MockAnalyticsClient_Enqueue_Call{Call: _e.mock.On("Enqueue", ctx, distinctID, eventName, properties)}
+//   - event usecase.AnalyticsEvent
+func (_e *MockAnalyticsClient_Expecter) Capture(ctx any, event any) *MockAnalyticsClient_Capture_Call {
+	return &MockAnalyticsClient_Capture_Call{Call: _e.mock.On("Capture", ctx, event)}
 }
 
-func (_c *MockAnalyticsClient_Enqueue_Call) Run(run func(ctx context.Context, distinctID string, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties)) *MockAnalyticsClient_Enqueue_Call {
+func (_c *MockAnalyticsClient_Capture_Call) Run(run func(ctx context.Context, event usecase.AnalyticsEvent)) *MockAnalyticsClient_Capture_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 usecase.AnalyticsEvent
 		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 usecase.AnalyticsEventName
-		if args[2] != nil {
-			arg2 = args[2].(usecase.AnalyticsEventName)
-		}
-		var arg3 usecase.AnalyticsProperties
-		if args[3] != nil {
-			arg3 = args[3].(usecase.AnalyticsProperties)
+			arg1 = args[1].(usecase.AnalyticsEvent)
 		}
 		run(
 			arg0,
 			arg1,
-			arg2,
-			arg3,
 		)
 	})
 	return _c
 }
 
-func (_c *MockAnalyticsClient_Enqueue_Call) Return(err error) *MockAnalyticsClient_Enqueue_Call {
+func (_c *MockAnalyticsClient_Capture_Call) Return(err error) *MockAnalyticsClient_Capture_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockAnalyticsClient_Enqueue_Call) RunAndReturn(run func(ctx context.Context, distinctID string, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error) *MockAnalyticsClient_Enqueue_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// EnqueueOnce provides a mock function for the type MockAnalyticsClient
-func (_mock *MockAnalyticsClient) EnqueueOnce(ctx context.Context, distinctID string, eventID string, at time.Time, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error {
-	ret := _mock.Called(ctx, distinctID, eventID, at, eventName, properties)
-
-	if len(ret) == 0 {
-		panic("no return value specified for EnqueueOnce")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time, usecase.AnalyticsEventName, usecase.AnalyticsProperties) error); ok {
-		r0 = returnFunc(ctx, distinctID, eventID, at, eventName, properties)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockAnalyticsClient_EnqueueOnce_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnqueueOnce'
-type MockAnalyticsClient_EnqueueOnce_Call struct {
-	*mock.Call
-}
-
-// EnqueueOnce is a helper method to define mock.On call
-//   - ctx context.Context
-//   - distinctID string
-//   - eventID string
-//   - at time.Time
-//   - eventName usecase.AnalyticsEventName
-//   - properties usecase.AnalyticsProperties
-func (_e *MockAnalyticsClient_Expecter) EnqueueOnce(ctx any, distinctID any, eventID any, at any, eventName any, properties any) *MockAnalyticsClient_EnqueueOnce_Call {
-	return &MockAnalyticsClient_EnqueueOnce_Call{Call: _e.mock.On("EnqueueOnce", ctx, distinctID, eventID, at, eventName, properties)}
-}
-
-func (_c *MockAnalyticsClient_EnqueueOnce_Call) Run(run func(ctx context.Context, distinctID string, eventID string, at time.Time, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties)) *MockAnalyticsClient_EnqueueOnce_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		var arg3 time.Time
-		if args[3] != nil {
-			arg3 = args[3].(time.Time)
-		}
-		var arg4 usecase.AnalyticsEventName
-		if args[4] != nil {
-			arg4 = args[4].(usecase.AnalyticsEventName)
-		}
-		var arg5 usecase.AnalyticsProperties
-		if args[5] != nil {
-			arg5 = args[5].(usecase.AnalyticsProperties)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-			arg5,
-		)
-	})
-	return _c
-}
-
-func (_c *MockAnalyticsClient_EnqueueOnce_Call) Return(err error) *MockAnalyticsClient_EnqueueOnce_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockAnalyticsClient_EnqueueOnce_Call) RunAndReturn(run func(ctx context.Context, distinctID string, eventID string, at time.Time, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error) *MockAnalyticsClient_EnqueueOnce_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// EnqueueSystem provides a mock function for the type MockAnalyticsClient
-func (_mock *MockAnalyticsClient) EnqueueSystem(ctx context.Context, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error {
-	ret := _mock.Called(ctx, eventName, properties)
-
-	if len(ret) == 0 {
-		panic("no return value specified for EnqueueSystem")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.AnalyticsEventName, usecase.AnalyticsProperties) error); ok {
-		r0 = returnFunc(ctx, eventName, properties)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockAnalyticsClient_EnqueueSystem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EnqueueSystem'
-type MockAnalyticsClient_EnqueueSystem_Call struct {
-	*mock.Call
-}
-
-// EnqueueSystem is a helper method to define mock.On call
-//   - ctx context.Context
-//   - eventName usecase.AnalyticsEventName
-//   - properties usecase.AnalyticsProperties
-func (_e *MockAnalyticsClient_Expecter) EnqueueSystem(ctx any, eventName any, properties any) *MockAnalyticsClient_EnqueueSystem_Call {
-	return &MockAnalyticsClient_EnqueueSystem_Call{Call: _e.mock.On("EnqueueSystem", ctx, eventName, properties)}
-}
-
-func (_c *MockAnalyticsClient_EnqueueSystem_Call) Run(run func(ctx context.Context, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties)) *MockAnalyticsClient_EnqueueSystem_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 usecase.AnalyticsEventName
-		if args[1] != nil {
-			arg1 = args[1].(usecase.AnalyticsEventName)
-		}
-		var arg2 usecase.AnalyticsProperties
-		if args[2] != nil {
-			arg2 = args[2].(usecase.AnalyticsProperties)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockAnalyticsClient_EnqueueSystem_Call) Return(err error) *MockAnalyticsClient_EnqueueSystem_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockAnalyticsClient_EnqueueSystem_Call) RunAndReturn(run func(ctx context.Context, eventName usecase.AnalyticsEventName, properties usecase.AnalyticsProperties) error) *MockAnalyticsClient_EnqueueSystem_Call {
+func (_c *MockAnalyticsClient_Capture_Call) RunAndReturn(run func(ctx context.Context, event usecase.AnalyticsEvent) error) *MockAnalyticsClient_Capture_Call {
 	_c.Call.Return(run)
 	return _c
 }
