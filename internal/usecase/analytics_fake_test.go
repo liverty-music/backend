@@ -9,7 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
-// systemSignal is one AnalyticsClient.EnqueueSystem call.
+// systemSignal is one personless AnalyticsClient.Capture call.
 type systemSignal struct {
 	event usecase.AnalyticsEventName
 	props usecase.AnalyticsProperties
