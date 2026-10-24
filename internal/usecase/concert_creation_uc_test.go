@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"testing"
 	"time"
@@ -179,15 +180,12 @@ type fakeConcertRepo struct {
 	// updatedListedNames maps eventID → the listed_venue_name written via
 	// UpdateEventListedVenueName; adopt-candidate tests assert on this.
 	updatedListedNames map[string]string
-	// published holds concerts returned by List; admin tests seed this directly.
-	published []*entity.Concert
-	// deleteAndSuppressCalled records whether DeleteAndSuppress was invoked, and
-	// suppressedEventIDs captures the ids passed; admin Delete tests assert on these.
-	deleteAndSuppressCalled bool
-	suppressedEventIDs      []string
-	// deleteErr, when set, is what DeleteAndSuppress returns, removing nothing.
-	deleteErr error
 }
+
+// errNotFaked is returned by the admin catalog methods, which the concert
+// creation and candidate tests never call; the admin methods are tested with
+// the mockery mock (concert_uc_admin_test.go).
+var errNotFaked = errors.New("fakeConcertRepo: admin catalog methods are not faked")
 
 func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
 	return nil, nil
@@ -278,53 +276,20 @@ func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert)
 	return ids, nil
 }
 
-// List returns all concerts in the published slice. Implements the admin
-// catalog-listing half of entity.ConcertRepository.
-func (r *fakeConcertRepo) List(_ context.Context, artistID string) ([]*entity.Concert, error) {
-	if artistID == "" {
-		return r.published, nil
-	}
-	var out []*entity.Concert
-	for _, c := range r.published {
-		for _, a := range c.Artists {
-			if a.ID == artistID {
-				out = append(out, c)
-				break
-			}
-		}
-	}
-	return out, nil
+func (r *fakeConcertRepo) List(_ context.Context) ([]*entity.Concert, error) {
+	return nil, errNotFaked
 }
 
-// Delete removes a concert from the published slice by event id. It is
-// idempotent: deleting an absent id is a no-op. Records the call so tests can
-// assert repo.Delete was (or was not) invoked.
-func (r *fakeConcertRepo) Delete(_ context.Context, eventID string) error {
-	for i, c := range r.published {
-		if c.ID == eventID {
-			r.published = append(r.published[:i], r.published[i+1:]...)
-			return nil
-		}
-	}
-	return nil
+func (r *fakeConcertRepo) ListCatalogByArtist(_ context.Context, _ string) ([]*entity.Concert, error) {
+	return nil, errNotFaked
 }
 
-// DeleteAndSuppress removes a published concert and records the suppression by
-// event id. It mirrors Delete's idempotent removal and records the call so admin
-// Delete tests can assert the suppression path was taken.
-func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, eventID string) error {
-	r.deleteAndSuppressCalled = true
-	if r.deleteErr != nil {
-		return r.deleteErr
-	}
-	for i, c := range r.published {
-		if c.ID == eventID {
-			r.suppressedEventIDs = append(r.suppressedEventIDs, eventID)
-			r.published = append(r.published[:i], r.published[i+1:]...)
-			return nil
-		}
-	}
-	return nil
+func (r *fakeConcertRepo) Delete(_ context.Context, _ string) error {
+	return errNotFaked
+}
+
+func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, _ string) error {
+	return errNotFaked
 }
 
 // fakeConcertCandidateRepo is an in-memory implementation for unit tests.

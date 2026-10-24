@@ -15,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -651,5 +652,33 @@ func TestArtistUseCase_Search(t *testing.T) {
 		assert.Len(t, result, 2)
 		assert.Equal(t, "db-a", result[0].ID)
 		assert.Equal(t, "db-b", result[1].ID)
+	})
+}
+
+func TestArtistUseCase_Get(t *testing.T) {
+	t.Parallel()
+
+	t.Run("return a registered artist", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/get "Known artist"
+		want := &entity.Artist{ID: "artist-1", Name: "E2E Test Artist"}
+		d := newArtistTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, "artist-1").Return(want, nil).Once()
+
+		got, err := d.uc.Get(context.Background(), "artist-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("return NotFound unchanged for an unknown id", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/get "Unknown artist"
+		d := newArtistTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, "artist-unknown").Return(nil, apperr.New(codes.NotFound, "artist not found")).Once()
+
+		_, err := d.uc.Get(context.Background(), "artist-unknown")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }

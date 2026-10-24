@@ -224,13 +224,9 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
-	// listAllConcertsQuery returns every published concert with no audience
-	// filter, for the admin console's catalog management, narrowed to one
-	// performing artist when $1 is not NULL. Venue lat/lng are
-	// included (withCoords) so the shared scanConcertRow path is reused.
-	// Admin queries intentionally omit the visibility guard so admins can
-	// see all series states.
-	listAllConcertsQuery = `
+	// catalogConcertsSelect is the projection and joins of the admin catalog
+	// reads, scanned by scanConcertRow with coordinates.
+	catalogConcertsSelect = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
@@ -241,10 +237,23 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
+	`
+
+	// listAllConcertsQuery returns every published concert with no audience
+	// filter, for the admin console's catalog management. Venue lat/lng are
+	// included (withCoords) so the shared scanConcertRow path is reused.
+	// Admin queries intentionally omit the visibility guard so admins can
+	// see all series states.
+	listAllConcertsQuery = catalogConcertsSelect + `
 		WHERE ` + catalogEventCondition + `
-		  AND ($1::uuid IS NULL OR EXISTS (
-			SELECT 1 FROM concert_artists ca WHERE ca.event_id = e.id AND ca.artist_id = $1::uuid
-		  ))
+		ORDER BY e.local_event_date ASC
+	`
+
+	// listCatalogByArtistQuery is listAllConcertsQuery narrowed to the
+	// concerts the artist bound to $1 performs in.
+	listCatalogByArtistQuery = catalogConcertsSelect + `
+		WHERE ` + catalogEventCondition + `
+		  AND EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.event_id = e.id AND ca.artist_id = $1)
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -252,12 +261,12 @@ const (
 	// event are removed by the schema's ON DELETE CASCADE foreign keys.
 	deleteEventQuery = `DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition
 
-	// lockCatalogEventSlotQuery locks a published (not DRAFT) event row and
-	// returns its slot for the suppression entry.
-	lockCatalogEventSlotQuery = `
+	// catalogEventSlotQuery returns a published (not DRAFT) event's slot for
+	// the suppression entry; DeleteAndSuppress reads it after
+	// lockAndCheckEventRemoval.
+	catalogEventSlotQuery = `
 		SELECT e.venue_id, e.local_event_date, e.start_at FROM events e
 		WHERE e.id = $1 AND ` + catalogEventCondition + `
-		FOR UPDATE
 	`
 
 	insertSuppressionQuery = `
@@ -703,17 +712,28 @@ func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity
 	return concerts, nil
 }
 
-// List retrieves every published concert with no audience filter, or only the
-// concerts artistID performs in when it is not empty. Venue lat/lng are included
-// for parity with the other proximity-aware list methods.
-func (r *ConcertRepository) List(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	var artist *string
-	if artistID != "" {
-		artist = &artistID
+// List retrieves every published concert with no audience filter. Venue lat/lng
+// are included for parity with the other proximity-aware list methods.
+func (r *ConcertRepository) List(ctx context.Context) ([]*entity.Concert, error) {
+	return r.listCatalog(ctx, "failed to list all concerts", listAllConcertsQuery)
+}
+
+// ListCatalogByArtist retrieves every published concert the artist performs
+// in, with no audience filter. An artist without concerts, or an unknown id,
+// yields an empty list.
+func (r *ConcertRepository) ListCatalogByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	if artistID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "artist id must not be empty")
 	}
-	rows, err := r.db.Pool.Query(ctx, listAllConcertsQuery, artist)
+	return r.listCatalog(ctx, "failed to list the artist's concerts", listCatalogByArtistQuery, artistID)
+}
+
+// listCatalog runs a catalog query and returns its concerts hydrated with their
+// performers.
+func (r *ConcertRepository) listCatalog(ctx context.Context, failure, query string, args ...any) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, toAppErr(err, "failed to list all concerts")
+		return nil, toAppErr(err, failure)
 	}
 	defer rows.Close()
 
@@ -747,14 +767,15 @@ func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 
 // DeleteAndSuppress deletes a published event with everything that depends
 // only on it (see removeEvents) and records a suppression entry for its slot,
-// in one transaction. The event row is locked first; an id that is gone or
-// DRAFT is a no-op. ON CONFLICT absorbs a repeated suppression of the same
+// in one transaction. The event's purchase records are locked and checked
+// first (lockAndCheckEventRemoval); an id that is gone or DRAFT is then a
+// no-op. ON CONFLICT absorbs a repeated suppression of the same
 // slot.
 //
 // # Possible errors
 //
-//   - FailedPrecondition: the event has an Order that is not Refunded, a
-//     Settlement that is not Reversed, or a purchase in progress.
+//   - FailedPrecondition: the event has a Paid Order, a Settlement that is
+//     not Reversed, or a purchase in progress.
 func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -763,22 +784,21 @@ func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID strin
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	eventIDs := []string{eventID}
+	if err := lockAndCheckEventRemoval(ctx, tx, eventIDs); err != nil {
+		return err
+	}
 	var (
 		venueID   string
 		localDate time.Time
 		startAt   sql.NullTime
 	)
-	err = tx.QueryRow(ctx, lockCatalogEventSlotQuery, eventID).Scan(&venueID, &localDate, &startAt)
+	err = tx.QueryRow(ctx, catalogEventSlotQuery, eventID).Scan(&venueID, &localDate, &startAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
-		return toAppErr(err, "failed to lock event", slog.String("event_id", eventID))
-	}
-
-	eventIDs := []string{eventID}
-	if err := checkEventRemovalBlockers(ctx, tx, eventIDs); err != nil {
-		return err
+		return toAppErr(err, "failed to read event slot", slog.String("event_id", eventID))
 	}
 	if err := removeEvents(ctx, tx, eventIDs); err != nil {
 		return err

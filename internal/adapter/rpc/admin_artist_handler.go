@@ -29,6 +29,18 @@ func NewAdminArtistHandler(artistUC usecase.ArtistUseCase, logger *logging.Logge
 	return &AdminArtistHandler{artistUC: artistUC, logger: logger}
 }
 
+// Get returns one Artist by its id. Returns NotFound when no artist has it.
+func (h *AdminArtistHandler) Get(
+	ctx context.Context,
+	req *adminartistv1.GetRequest,
+) (*adminartistv1.GetResponse, error) {
+	artist, err := h.artistUC.Get(ctx, req.GetArtistId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+	return &adminartistv1.GetResponse{Artist: mapper.ArtistToProto(artist)}, nil
+}
+
 // ListByOrganizer returns the Artists the named Organizer represents, whatever
 // its status. Returns NotFound when no organizer with the given id exists.
 func (h *AdminArtistHandler) ListByOrganizer(

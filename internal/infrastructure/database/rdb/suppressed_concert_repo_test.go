@@ -227,6 +227,21 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "the slot is suppressed")
 	})
 
+	t.Run("cancelled concert with a failed order", func(t *testing.T) {
+		// @spec components/entity/concert/delete-and-suppress "Cancelled concert with a failed order"
+		cleanDatabase(t)
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		exec(t, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, o.eventID)
+		firstCome := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		orderID := seedCheckoutOrder(t, firstCome.ID, entity.OrderStatusFailed, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC), false)
+
+		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
+
+		assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "event")
+		assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, orderID), "failed order")
+		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "the slot is suppressed")
+	})
+
 	t.Run("last event of a first-party series", func(t *testing.T) {
 		// @spec components/entity/concert/delete-and-suppress "Last event of a first-party series"
 		cleanDatabase(t)
@@ -288,6 +303,26 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			setup: func(t *testing.T, o deletableOrganizer) {
 				exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 					VALUES ($1, $2, $3, 1, 'pi_entered', 1)`, entity.NewID(), string(o.typeID), seedFanUser(t))
+			},
+		},
+		{
+			// @spec components/entity/concert/delete-and-suppress "Concert with a draft entry holding a card authorization"
+			name: "concert with a draft entry holding a card authorization",
+			setup: func(t *testing.T, o deletableOrganizer) {
+				seedDraftEntryWithAuthorization(t, o.typeID, seedFanUser(t))
+			},
+		},
+		{
+			// @spec components/entity/concert/delete-and-suppress "Concert with a won entry awaiting its order"
+			name: "concert with a won entry awaiting its order",
+			setup: func(t *testing.T, o deletableOrganizer) {
+				seedLotteryEntryWithState(t, o.typeID, seedFanUser(t), entity.LotteryEntryStateWon, 1)
+			},
+		},
+		{
+			name: "concert with a paid order",
+			setup: func(t *testing.T, o deletableOrganizer) {
+				seedPurchase(t, o, entity.OrderStatusPaid, entity.SettlementStatusHeld, false)
 			},
 		},
 	}

@@ -116,8 +116,8 @@ type OrganizerUseCase interface {
 	//
 	// # Possible errors:
 	//   - NotFound: the organizer does not exist.
-	//   - FailedPrecondition: the organizer is not deactivated, or an Order
-	//     that is not Refunded, a Settlement that is not Reversed or a payout
+	//   - FailedPrecondition: the organizer is not deactivated, or a Paid Order,
+	//     a Settlement that is not Reversed, a purchase in progress or a payout
 	//     account blocks deletion.
 	//   - Internal: a file or the Organization could not be removed, or image
 	//     storage is not configured while the organizer owns series images.

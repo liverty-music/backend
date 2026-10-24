@@ -264,6 +264,24 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/entity/organizer/delete "Draft entry with a card authorization"
+			name: "a draft lottery entry holding a card authorization",
+			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
+				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+				seedDraftEntryWithAuthorization(t, o.typeID, o.followerID)
+				return o, nil
+			},
+		},
+		{
+			// @spec components/entity/organizer/delete "Won entry awaiting its order"
+			name: "a won lottery entry awaiting its order",
+			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
+				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+				seedLotteryEntryWithState(t, o.typeID, o.followerID, entity.LotteryEntryStateWon, 1)
+				return o, nil
+			},
+		},
+		{
 			// @spec components/entity/organizer/delete "Payout account"
 			name: "a payout account",
 			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {

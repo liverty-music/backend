@@ -401,7 +401,8 @@ const (
 // with dryRun the transaction is rolled back after the check.
 //
 // Its Events go through the same removal as a Concert deletion (removeEvents),
-// after the same blocker check (checkEventRemovalBlockers). Then the remaining
+// after the same locks and blocker check (lockAndCheckEventRemoval). No purchase path references the organizer row,
+// so locking it first adds no lock-order inversion. Then the remaining
 // Series (which cascades their TicketSales and series_cover_images), the
 // SeriesImage rows and finally the organizer row (which cascades
 // organizer_artists) are deleted.
@@ -425,7 +426,7 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 	if err != nil {
 		return toAppErr(err, "failed to read organizer events", slog.String("id", id))
 	}
-	if err := checkEventRemovalBlockers(ctx, tx, eventIDs); err != nil {
+	if err := lockAndCheckEventRemoval(ctx, tx, eventIDs); err != nil {
 		return err
 	}
 	var payoutAccount bool

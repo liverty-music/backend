@@ -549,10 +549,19 @@ type ConcertRepository interface {
 	// List retrieves every published concert with Series, Venue, and Artists
 	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /
 	// ListByFollower it applies no audience filter — it returns the whole
-	// published catalog for admin review and management. When artistID is not
-	// empty it returns only the concerts that artist performs in, and an empty
+	// published catalog for admin review and management.
+	List(ctx context.Context) ([]*Concert, error)
+	// ListCatalogByArtist retrieves every published concert the artist
+	// performs in, hydrated like List and with no audience filter: past and
+	// upcoming, of every series whatever its visibility, CANCELLED ones
+	// included, ordered by local_event_date ascending. It returns an empty
 	// list when the artist performs in none or no artist has the id.
-	List(ctx context.Context, artistID string) ([]*Concert, error)
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no artist is given.
+	//  - Internal: database query failure.
+	ListCatalogByArtist(ctx context.Context, artistID string) ([]*Concert, error)
 	// Delete removes a published event by id. The delete cascades through the
 	// database's ON DELETE CASCADE foreign keys to every row scoped to the
 	// event alone (the 1:1 concerts row, concert_artists, ticket_journeys, and
@@ -567,7 +576,7 @@ type ConcertRepository interface {
 	// DeleteAndSuppress removes a published event by id together with every
 	// record that depends only on it: its performers, Concert and ticket
 	// journeys; its TicketTypes with their lottery entries and Checkouts; the
-	// Refunded Orders of those, with their Tickets and the Tickets'
+	// Refunded and Failed Orders of those, with their Tickets and the Tickets'
 	// ResaleListings; the Reversed Settlements; the event's Scanners with their
 	// admissions and rejected scans; every Organizer's TicketSale the removal
 	// leaves without a TicketType; and the event's first-party Series when it
@@ -582,10 +591,12 @@ type ConcertRepository interface {
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the event has an Order that is not Refunded, a
-	//    Settlement that is not Reversed, or a purchase in progress (a Held or
-	//    Committed Checkout, an Expired or Released Checkout whose card
-	//    authorization is not yet released, or an Entered lottery entry).
+	//  - FailedPrecondition: the event has a Paid Order, a Settlement that is
+	//    not Reversed, or a purchase in progress (a Held or Committed Checkout,
+	//    an Expired or Released Checkout whose card authorization is not yet
+	//    released, an Entered lottery entry, a Draft lottery entry whose card
+	//    authorization is open, or a Won lottery entry whose Order is not yet
+	//    issued).
 	DeleteAndSuppress(ctx context.Context, eventID string) error
 }
 

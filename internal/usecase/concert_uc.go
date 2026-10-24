@@ -19,13 +19,22 @@ import (
 // ConcertUseCase defines the interface for concert-related business logic.
 type ConcertUseCase interface {
 	// List returns every published concert (no audience filter), each carrying
-	// its event id and performers, for catalog review and management. When
-	// artistID is not empty it returns only that artist's concerts.
+	// its event id and performers, for catalog review and management.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	List(ctx context.Context, artistID string) ([]*entity.Concert, error)
+	List(ctx context.Context) ([]*entity.Concert, error)
+
+	// ListCatalogByArtist returns every published concert the artist performs
+	// in (no audience filter: CANCELLED and UNLISTED included), for an admin
+	// to manage that artist's concerts.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no artist is given.
+	//  - Internal: database query failure.
+	ListCatalogByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
 	// Delete permanently removes a published concert by its event id with the
 	// records that depend only on it, and suppresses its slot for discovery
@@ -35,8 +44,8 @@ type ConcertUseCase interface {
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the event id is empty or malformed.
-	//  - FailedPrecondition: If the event has an Order that is not Refunded, a
-	//    Settlement that is not Reversed, or a purchase in progress.
+	//  - FailedPrecondition: If the event has a Paid Order, a Settlement that
+	//    is not Reversed, or a purchase in progress.
 	//  - Internal: If the delete fails.
 	Delete(ctx context.Context, eventID string) error
 
@@ -742,11 +751,23 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 
 // List returns every published concert for admin catalog management. Read logic
 // is shared with the consumer path through ConcertRepository; this method only
-// strips the audience filter. A non-empty artistID narrows it to that artist.
-func (uc *concertUseCase) List(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	concerts, err := uc.concertRepo.List(ctx, artistID)
+// strips the audience filter.
+func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
+	concerts, err := uc.concertRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list published concerts: %w", err)
+	}
+	return concerts, nil
+}
+
+// ListCatalogByArtist implements [ConcertUseCase].
+func (uc *concertUseCase) ListCatalogByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	if artistID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "artist id must not be empty")
+	}
+	concerts, err := uc.concertRepo.ListCatalogByArtist(ctx, artistID)
+	if err != nil {
+		return nil, fmt.Errorf("list the artist's concerts: %w", err)
 	}
 	return concerts, nil
 }

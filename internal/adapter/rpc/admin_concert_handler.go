@@ -41,21 +41,38 @@ func NewAdminConcertHandler(
 	}
 }
 
-// List returns every published concert for admin catalog management, or only
-// the concerts of the request's artist when one is set, with each Series and
-// Artist they refer to once. The admin console groups the flat result by
-// performing artist client-side. A malformed artist id is rejected by the
-// protovalidate interceptor before this runs.
+// List returns every published concert for admin catalog management, with
+// each Series and Artist they refer to once. The admin console groups the
+// flat result by performing artist client-side.
 func (h *AdminConcertHandler) List(
 	ctx context.Context,
-	req *adminconcertv1.ListRequest,
+	_ *adminconcertv1.ListRequest,
 ) (*adminconcertv1.ListResponse, error) {
-	concerts, err := h.concertUseCase.List(ctx, req.GetArtistId().GetValue())
+	concerts, err := h.concertUseCase.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return &adminconcertv1.ListResponse{
+		Concerts: mapper.ConcertsToProto(concerts),
+		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Artists:  mapper.ReferencedArtists(concerts),
+	}, nil
+}
+
+// ListByArtist returns every published concert one artist performs in, with
+// each Series and Artist they refer to once. A missing or malformed artist id
+// is rejected by the protovalidate interceptor before this runs.
+func (h *AdminConcertHandler) ListByArtist(
+	ctx context.Context,
+	req *adminconcertv1.ListByArtistRequest,
+) (*adminconcertv1.ListByArtistResponse, error) {
+	concerts, err := h.concertUseCase.ListCatalogByArtist(ctx, req.GetArtistId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminconcertv1.ListByArtistResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
