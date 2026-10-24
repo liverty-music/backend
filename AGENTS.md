@@ -74,5 +74,8 @@ See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-pr
 - Interfaces are defined where consumed (`internal/entity/`, `internal/usecase/`); impls in `infrastructure/`/`adapter/`.
 - Nullable columns scan into `sql.Null*` and are `.Valid`-checked before assignment (cf. `user_repo.go scanUser`).
 - Every new column (timestamps included) maps to an entity field the spec defines; a column no spec requirement uses is a violation, and a creation-time column is named `created_at`, not a synonym.
+- A write that checks a condition and then acts (a delete refused while a record exists, a create limited by a count) runs the check and the write in one transaction and locks the rows that the paths creating those records also lock (cf. `checkout_repo.go` `checkoutLockTicketTypeQuery`). A delete of dependent rows filters by the states the check allowed, so a row created after the check makes a RESTRICT foreign key fail instead of vanishing.
+- A different filter is a different method (`ListByArtist`), not an optional parameter on an existing one; an optional value is a pointer (cf. `VenueRepository.GetByListedName` `adminArea *string`), never `""` or `0` meaning "absent".
+- A usecase test stubs its ports with the mockery mocks in `mocks/`; a hand-written fake does not grow behaviour the real implementation lacks.
 
 </agent-rules>
