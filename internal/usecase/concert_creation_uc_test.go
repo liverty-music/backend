@@ -604,6 +604,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 	t.Run("skips a suppressed concert entirely (no publish, no stage)", func(t *testing.T) {
 		t.Parallel()
+		// @spec stories/delete-a-wrong-concert "Discovery finds it again"
 		h := build(t)
 		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
