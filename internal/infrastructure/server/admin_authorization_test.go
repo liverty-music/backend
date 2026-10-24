@@ -107,7 +107,7 @@ func TestAdminServer_Authorization(t *testing.T) {
 	artistUC.EXPECT().Search(mock.Anything, "query").Return([]*entity.Artist{}, nil).Maybe()
 
 	concertUC := usecasemocks.NewMockConcertUseCase(t)
-	concertUC.EXPECT().List(mock.Anything).Return(nil, nil).Maybe()
+	concertUC.EXPECT().List(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	ts := newTestAdminServer(t, validator, artistUC, concertUC)
 	httpClient := ts.Client()

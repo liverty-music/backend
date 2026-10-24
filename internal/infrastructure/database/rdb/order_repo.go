@@ -35,6 +35,16 @@ const (
 	`
 	orderExistsQuery     = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
 	orderListByUserQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY pay_at, id`
+	// orderEventIDColumn derives an order's event from the TicketType of its
+	// source, a lottery entry or a checkout, with orders aliased as o.
+	orderEventIDColumn = `COALESCE(
+		(SELECT tt.event_id FROM lottery_entries le JOIN ticket_types tt ON tt.id = le.ticket_type_id WHERE le.id = o.lottery_entry_id),
+		(SELECT tt.event_id FROM checkouts c JOIN ticket_types tt ON tt.id = c.ticket_type_id WHERE c.id = o.checkout_id)
+	)`
+	// orderListByEventQuery takes the event as a one-element uuid array, the
+	// shape eventOrderIDsSubquery expects.
+	orderListByEventQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id IN (` + eventOrderIDsSubquery + `) ORDER BY pay_at, id`
+	orderGetEventIDQuery  = `SELECT ` + orderEventIDColumn + ` FROM orders o WHERE o.id = $1`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -130,6 +140,44 @@ func (r *OrderRepository) ListByUser(ctx context.Context, userID entity.UserID) 
 		return nil, toAppErr(err, "failed to iterate orders", slog.String("user_id", string(userID)))
 	}
 	return orders, nil
+}
+
+// ListByEvent returns every order whose source is for a TicketType of the
+// given event, in any status, oldest pay time first. Returns an empty slice
+// when the event has no order or does not exist.
+func (r *OrderRepository) ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error) {
+	if eventID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "event id must not be empty")
+	}
+	rows, err := r.db.Pool.Query(ctx, orderListByEventQuery, []string{eventID})
+	if err != nil {
+		return nil, toAppErr(err, "failed to list orders by event", slog.String("event_id", eventID))
+	}
+	defer rows.Close()
+
+	orders := []*entity.Order{}
+	for rows.Next() {
+		order, err := scanOrder(rows)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan order", slog.String("event_id", eventID))
+		}
+		orders = append(orders, order)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate orders", slog.String("event_id", eventID))
+	}
+	return orders, nil
+}
+
+// GetEventID returns the id of the event the order is for: the event of the
+// TicketType its lottery entry or checkout was for. Returns apperr.ErrNotFound
+// when no order has the id.
+func (r *OrderRepository) GetEventID(ctx context.Context, id entity.OrderID) (string, error) {
+	var eventID string
+	if err := r.db.Pool.QueryRow(ctx, orderGetEventIDQuery, string(id)).Scan(&eventID); err != nil {
+		return "", toAppErr(err, "failed to get order event", slog.String("order_id", string(id)))
+	}
+	return eventID, nil
 }
 
 // orderScanner is satisfied by both pgx.Row and pgx.Rows, so scanOrder works

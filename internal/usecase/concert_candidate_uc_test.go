@@ -595,7 +595,7 @@ func TestConcertUseCase_List(t *testing.T) {
 			},
 		}
 
-		concerts, err := d.concerts.List(context.Background())
+		concerts, err := d.concerts.List(context.Background(), "")
 		require.NoError(t, err)
 		require.Len(t, concerts, 2)
 		assert.Equal(t, "event-1", concerts[0].ID)
@@ -607,9 +607,68 @@ func TestConcertUseCase_List(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		// No concerts seeded.
 
-		concerts, err := d.concerts.List(context.Background())
+		concerts, err := d.concerts.List(context.Background(), "")
 		require.NoError(t, err)
 		assert.Empty(t, concerts)
+	})
+}
+
+func TestConcertUseCase_List_Scenarios(t *testing.T) {
+	t.Parallel()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+	orgID := "org-1"
+	cancelled, published := entity.PublishStateCancelled, entity.PublishStatePublished
+	unlistedVisibility := entity.SeriesVisibilityUnlisted
+
+	t.Run("return only the concerts while concert candidates are pending", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/list "Catalog and queue both populated"
+		d := newApprovalTestDeps(t, artist)
+		d.candidateRepo.upserted = []*entity.ConcertCandidate{{ID: "candidate-1", ArtistID: artist.ID}}
+		d.concertRepo.published = []*entity.Concert{{ID: "event-1", Artists: []*entity.Artist{artist}}}
+
+		concerts, err := d.concerts.List(context.Background(), "")
+
+		require.NoError(t, err)
+		require.Len(t, concerts, 1)
+		assert.Equal(t, "event-1", concerts[0].ID)
+	})
+
+	t.Run("return a concert of a published unlisted series", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/list "Unlisted Organizer concert"
+		d := newApprovalTestDeps(t, artist)
+		unlisted := &entity.Concert{
+			ID:     "event-unlisted",
+			Series: &entity.Series{ID: "series-1", OrganizerID: &orgID, Visibility: &unlistedVisibility},
+		}
+		unlisted.PublishState = &published
+		d.concertRepo.published = []*entity.Concert{unlisted}
+
+		concerts, err := d.concerts.List(context.Background(), "")
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.Concert{unlisted}, concerts)
+	})
+
+	t.Run("return only the given artist's concerts", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/list "One artist's concerts"
+		d := newApprovalTestDeps(t, artist)
+		own := &entity.Concert{
+			ID:      "event-cancelled",
+			Series:  &entity.Series{ID: "series-1", OrganizerID: &orgID},
+			Artists: []*entity.Artist{artist},
+		}
+		own.PublishState = &cancelled
+		other := &entity.Concert{ID: "event-other", Artists: []*entity.Artist{{ID: "artist-2"}}}
+		d.concertRepo.published = []*entity.Concert{own, other}
+
+		concerts, err := d.concerts.List(context.Background(), artist.ID)
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.Concert{own}, concerts)
 	})
 }
 
@@ -625,10 +684,36 @@ func TestConcertUseCase_Delete(t *testing.T) {
 		name       string
 		args       args
 		seedEvents []string // event IDs to pre-populate in fakeConcertRepo
+		deleteErr  error    // what the repository's DeleteAndSuppress returns
 		wantErr    error
 		checkRepo  func(t *testing.T, repo *fakeConcertRepo)
 	}{
 		{
+			// @spec components/usecase/concert/delete "Concert with issued tickets"
+			name:       "return the repository's FailedPrecondition when a paid order blocks the delete",
+			args:       args{eventID: "event-sold"},
+			seedEvents: []string{"event-sold"},
+			deleteErr:  apperr.New(codes.FailedPrecondition, "an event has an order that is not refunded"),
+			wantErr:    apperr.ErrFailedPrecondition,
+			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
+				t.Helper()
+				assert.Len(t, repo.published, 1, "nothing is removed")
+				assert.Empty(t, repo.suppressedEventIDs, "nothing is suppressed")
+			},
+		},
+		{
+			// @spec components/usecase/concert/delete "Cancelled concert after refunds"
+			name:       "delete-and-suppress a cancelled organizer concert whose orders are refunded",
+			args:       args{eventID: "event-cancelled"},
+			seedEvents: []string{"event-cancelled"},
+			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
+				t.Helper()
+				assert.Empty(t, repo.published, "the concert is removed")
+				assert.Contains(t, repo.suppressedEventIDs, "event-cancelled", "its slot is suppressed")
+			},
+		},
+		{
+			// @spec components/usecase/concert/delete "Missing id"
 			name:    "return InvalidArgument when event id is empty",
 			args:    args{eventID: ""},
 			wantErr: apperr.ErrInvalidArgument,
@@ -639,6 +724,7 @@ func TestConcertUseCase_Delete(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/usecase/concert/delete "Auto-published concert deleted"
 			name:       "delete-and-suppress and succeed when event id is valid",
 			args:       args{eventID: "event-abc"},
 			seedEvents: []string{"event-abc"},
@@ -650,6 +736,7 @@ func TestConcertUseCase_Delete(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/usecase/concert/delete "Unknown id"
 			name:       "succeed idempotently when event id is absent from repo",
 			args:       args{eventID: "event-nonexistent"},
 			seedEvents: nil,
@@ -665,6 +752,7 @@ func TestConcertUseCase_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := newApprovalTestDeps(t, artist)
+			d.concertRepo.deleteErr = tt.deleteErr
 			for _, id := range tt.seedEvents {
 				d.concertRepo.published = append(d.concertRepo.published, &entity.Concert{
 					ID: id,

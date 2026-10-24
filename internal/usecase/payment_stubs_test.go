@@ -29,6 +29,11 @@ func withOrderPayments(o entity.OrderRepository, p paymentProviderStub) entity.O
 	return orderRepoWithPayments{OrderRepository: o, p: p}
 }
 
+// GetEventID answers "event-<order id>", the Event refundEvents serves.
+func (o orderRepoWithPayments) GetEventID(_ context.Context, id entity.OrderID) (string, error) {
+	return "event-" + string(id), nil
+}
+
 func (o orderRepoWithPayments) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	return o.p.CreateRefund(ctx, params)
 }

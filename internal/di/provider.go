@@ -465,6 +465,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		TicketSaleRepo:           ticketSaleRepo,
 		TicketRepo:               ticketRepo,
 		EventState:               eventPublishState,
+		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
 		Publisher:                eventPublisher,
 		Clock:                    time.Now,

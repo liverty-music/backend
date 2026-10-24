@@ -697,6 +697,26 @@ func TestEventRepository_Get(t *testing.T) {
 		assert.True(t, after.StartTime.Equal(nov20(19, 0)))
 	})
 
+	t.Run("cancelled event", func(t *testing.T) {
+		// @spec components/entity/event/get "Cancelled event"
+		cleanDatabase(t)
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, o.eventID)
+		require.NoError(t, err)
+
+		got, err := repo.Get(ctx, o.eventID)
+		require.NoError(t, err)
+		assert.True(t, got.HasPublishState(entity.PublishStateCancelled))
+	})
+
+	t.Run("discovered event", func(t *testing.T) {
+		// @spec components/entity/event/get "Discovered event"
+		cleanDatabase(t)
+		got, err := repo.Get(ctx, seedAdmissionEvent(t))
+		require.NoError(t, err)
+		assert.Nil(t, got.PublishState)
+	})
+
 	t.Run("unknown event", func(t *testing.T) {
 		// @spec components/entity/event/get "Unknown event"
 		cleanDatabase(t)

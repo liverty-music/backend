@@ -89,7 +89,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			args: args{ctx: adminCtx()},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertUseCase) {
-					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{concertA, concertB}, nil).Once()
+					m.EXPECT().List(mock.Anything, "").Return([]*entity.Concert{concertA, concertB}, nil).Once()
 				},
 			},
 			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
@@ -109,7 +109,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			args: args{ctx: adminCtx()},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertUseCase) {
-					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{tourDay("event-1"), tourDay("event-2")}, nil).Once()
+					m.EXPECT().List(mock.Anything, "").Return([]*entity.Concert{tourDay("event-1"), tourDay("event-2")}, nil).Once()
 				},
 			},
 			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
@@ -131,7 +131,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			args: args{ctx: adminCtx()},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertUseCase) {
-					m.EXPECT().List(mock.Anything).Return(nil, nil).Once()
+					m.EXPECT().List(mock.Anything, "").Return(nil, nil).Once()
 				},
 			},
 			check: func(t *testing.T, resp *adminconcertv1.ListResponse) {
@@ -147,7 +147,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			wantErr: true,
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertUseCase) {
-					m.EXPECT().List(mock.Anything).Return(nil, errors.New("db failure")).Once()
+					m.EXPECT().List(mock.Anything, "").Return(nil, errors.New("db failure")).Once()
 				},
 			},
 		},

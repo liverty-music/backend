@@ -184,6 +184,8 @@ type fakeConcertRepo struct {
 	// suppressedEventIDs captures the ids passed; admin Delete tests assert on these.
 	deleteAndSuppressCalled bool
 	suppressedEventIDs      []string
+	// deleteErr, when set, is what DeleteAndSuppress returns, removing nothing.
+	deleteErr error
 }
 
 func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
@@ -277,8 +279,20 @@ func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert)
 
 // List returns all concerts in the published slice. Implements the admin
 // catalog-listing half of entity.ConcertRepository.
-func (r *fakeConcertRepo) List(_ context.Context) ([]*entity.Concert, error) {
-	return r.published, nil
+func (r *fakeConcertRepo) List(_ context.Context, artistID string) ([]*entity.Concert, error) {
+	if artistID == "" {
+		return r.published, nil
+	}
+	var out []*entity.Concert
+	for _, c := range r.published {
+		for _, a := range c.Artists {
+			if a.ID == artistID {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // Delete removes a concert from the published slice by event id. It is
@@ -299,6 +313,9 @@ func (r *fakeConcertRepo) Delete(_ context.Context, eventID string) error {
 // Delete tests can assert the suppression path was taken.
 func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, eventID string) error {
 	r.deleteAndSuppressCalled = true
+	if r.deleteErr != nil {
+		return r.deleteErr
+	}
 	for i, c := range r.published {
 		if c.ID == eventID {
 			r.suppressedEventIDs = append(r.suppressedEventIDs, eventID)

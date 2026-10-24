@@ -3,9 +3,11 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -223,7 +225,8 @@ const (
 	`
 
 	// listAllConcertsQuery returns every published concert with no audience
-	// filter, for the admin console's catalog management. Venue lat/lng are
+	// filter, for the admin console's catalog management, narrowed to one
+	// performing artist when $1 is not NULL. Venue lat/lng are
 	// included (withCoords) so the shared scanConcertRow path is reused.
 	// Admin queries intentionally omit the visibility guard so admins can
 	// see all series states.
@@ -239,6 +242,9 @@ const (
 		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE ` + catalogEventCondition + `
+		  AND ($1::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM concert_artists ca WHERE ca.event_id = e.id AND ca.artist_id = $1::uuid
+		  ))
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -246,42 +252,17 @@ const (
 	// event are removed by the schema's ON DELETE CASCADE foreign keys.
 	deleteEventQuery = `DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition
 
-	// deleteEventAndSuppressQuery deletes a published event (cascading via the
-	// schema's foreign keys) and, in the same statement, records a suppression
-	// entry from the deleted row's own natural key so a later discovery run does
-	// not re-create it. The CTE couples the two effects atomically: when the event
-	// id no longer exists the DELETE returns no row and the INSERT selects nothing,
-	// so a missing event records no suppression. ON CONFLICT absorbs a repeated
-	// suppression of the same natural key.
-	//
-	// The same statement deletes every TicketSale whose only TicketTypes are
-	// the event's, so no sale is left without a TicketType; the event's
-	// TicketTypes (and their lottery entries) go by the cascades of either
-	// delete.
-	//
-	// The event's checkouts that moved no money (status 1=Held, 4=Expired,
-	// 5=Released) go with its ticket types. A Committed (2) or Completed (3)
-	// checkout stays, so the RESTRICT foreign key from checkouts to
-	// ticket_types refuses the whole statement, like an issued ticket does.
-	deleteEventAndSuppressQuery = `
-		WITH deleted AS (
-			DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition + `
-			RETURNING e.venue_id, e.local_event_date, e.start_at
-		), abandoned_checkouts AS (
-			DELETE FROM checkouts c
-			USING ticket_types tt
-			WHERE c.ticket_type_id = tt.id
-			  AND tt.event_id = $1
-			  AND c.status IN (1, 4, 5)
-		), emptied_sales AS (
-			DELETE FROM ticket_sales ts
-			WHERE ts.id IN (SELECT ticket_sale_id FROM ticket_types WHERE event_id = $1)
-			  AND NOT EXISTS (
-				SELECT 1 FROM ticket_types tt WHERE tt.ticket_sale_id = ts.id AND tt.event_id <> $1
-			  )
-		)
+	// lockCatalogEventSlotQuery locks a published (not DRAFT) event row and
+	// returns its slot for the suppression entry.
+	lockCatalogEventSlotQuery = `
+		SELECT e.venue_id, e.local_event_date, e.start_at FROM events e
+		WHERE e.id = $1 AND ` + catalogEventCondition + `
+		FOR UPDATE
+	`
+
+	insertSuppressionQuery = `
 		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
-		SELECT $2, venue_id, local_event_date, start_at FROM deleted
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT ON CONSTRAINT uq_suppressed_concerts_natural_key DO NOTHING
 	`
 
@@ -722,10 +703,15 @@ func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity
 	return concerts, nil
 }
 
-// List retrieves every published concert with no audience filter. Venue lat/lng
-// are included for parity with the other proximity-aware list methods.
-func (r *ConcertRepository) List(ctx context.Context) ([]*entity.Concert, error) {
-	rows, err := r.db.Pool.Query(ctx, listAllConcertsQuery)
+// List retrieves every published concert with no audience filter, or only the
+// concerts artistID performs in when it is not empty. Venue lat/lng are included
+// for parity with the other proximity-aware list methods.
+func (r *ConcertRepository) List(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	var artist *string
+	if artistID != "" {
+		artist = &artistID
+	}
+	rows, err := r.db.Pool.Query(ctx, listAllConcertsQuery, artist)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list all concerts")
 	}
@@ -759,19 +745,54 @@ func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 	return nil
 }
 
-// DeleteAndSuppress deletes a published event, its checkouts that moved no
-// money (Held, Expired, Released), the TicketSales it leaves without a
-// TicketType, and records a suppression entry derived from the deleted row,
-// atomically in one statement.
+// DeleteAndSuppress deletes a published event with everything that depends
+// only on it (see removeEvents) and records a suppression entry for its slot,
+// in one transaction. The event row is locked first; an id that is gone or
+// DRAFT is a no-op. ON CONFLICT absorbs a repeated suppression of the same
+// slot.
 //
 // # Possible errors
 //
-//   - FailedPrecondition: the event has issued tickets, an Order, or a
-//     Committed or Completed checkout.
+//   - FailedPrecondition: the event has an Order that is not Refunded, a
+//     Settlement that is not Reversed, or a purchase in progress.
 func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
-	suppressionID := entity.NewID()
-	if _, err := r.db.Pool.Exec(ctx, deleteEventAndSuppressQuery, eventID, suppressionID); err != nil {
-		return toAppErr(err, "failed to delete event and record suppression", slog.String("event_id", eventID))
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin concert delete transaction", slog.String("event_id", eventID))
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		venueID   string
+		localDate time.Time
+		startAt   sql.NullTime
+	)
+	err = tx.QueryRow(ctx, lockCatalogEventSlotQuery, eventID).Scan(&venueID, &localDate, &startAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return toAppErr(err, "failed to lock event", slog.String("event_id", eventID))
+	}
+
+	eventIDs := []string{eventID}
+	if err := checkEventRemovalBlockers(ctx, tx, eventIDs); err != nil {
+		return err
+	}
+	if err := removeEvents(ctx, tx, eventIDs); err != nil {
+		return err
+	}
+	var start *time.Time
+	if startAt.Valid {
+		start = &startAt.Time
+	}
+	if _, err := tx.Exec(ctx, insertSuppressionQuery, entity.NewID(), venueID, localDate, start); err != nil {
+		return toAppErr(err, "failed to record suppression", slog.String("event_id", eventID))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit concert delete", slog.String("event_id", eventID))
 	}
 	return nil
 }

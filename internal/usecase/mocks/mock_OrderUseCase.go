@@ -500,6 +500,74 @@ func (_c *MockOrderUseCase_IssueFromCheckout_Call) RunAndReturn(run func(ctx con
 	return _c
 }
 
+// ListByEvent provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error) {
+	ret := _mock.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByEvent")
+	}
+
+	var r0 []*entity.Order
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Order, error)); ok {
+		return returnFunc(ctx, eventID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.Order); ok {
+		r0 = returnFunc(ctx, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Order)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderUseCase_ListByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByEvent'
+type MockOrderUseCase_ListByEvent_Call struct {
+	*mock.Call
+}
+
+// ListByEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockOrderUseCase_Expecter) ListByEvent(ctx any, eventID any) *MockOrderUseCase_ListByEvent_Call {
+	return &MockOrderUseCase_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID)}
+}
+
+func (_c *MockOrderUseCase_ListByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockOrderUseCase_ListByEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_ListByEvent_Call) Return(orders []*entity.Order, err error) *MockOrderUseCase_ListByEvent_Call {
+	_c.Call.Return(orders, err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]*entity.Order, error)) *MockOrderUseCase_ListByEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Refund provides a mock function for the type MockOrderUseCase
 func (_mock *MockOrderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
 	ret := _mock.Called(ctx, orderID, reason, now)

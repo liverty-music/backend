@@ -335,8 +335,9 @@ type SeriesRepository interface {
 	//
 	//  - FailedPrecondition: If the series does not exist or is not
 	//    first-party, if a given id is not an event of the series, or if a
-	//    PUBLISHED event's new slot is suppressed or held by an event of
-	//    another first-party series. Nothing changes.
+	//    PUBLISHED event's new slot is held by an event of another
+	//    first-party series. Nothing changes. A slot suppressed by an admin
+	//    delete does not block it.
 	Update(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
 	// GetAuthored retrieves the full authored concert for one series: the
@@ -367,8 +368,9 @@ type SeriesRepository interface {
 	//  - InvalidArgument: If no event is given.
 	//  - NotFound: If the series does not exist.
 	//  - FailedPrecondition: If a given event is not a DRAFT event of the
-	//    series, or a slot is suppressed, held by another organizer's event, or
-	//    held by a CANCELLED event. Nothing changes.
+	//    series, or a slot is held by another organizer's event or by a
+	//    CANCELLED event. Nothing changes. A slot suppressed by an admin delete
+	//    does not block it.
 	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
 
 	// CancelEvents cancels the given events of a first-party series in a

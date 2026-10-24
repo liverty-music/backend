@@ -89,8 +89,9 @@ type SeriesUseCase interface {
 	//    caller. Non-revealing.
 	//  - FailedPrecondition: The title is blank, there is no performer, an
 	//    event to publish has no venue or date, a named event is not DRAFT,
-	//    no event is named and none is DRAFT, or a slot is suppressed, held by
-	//    another organizer or held by a CANCELLED event.
+	//    no event is named and none is DRAFT, or a slot is held by another
+	//    organizer or by a CANCELLED event. A slot suppressed by an admin
+	//    delete does not block it.
 	Publish(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) (*entity.Series, []*entity.Concert, error)
 
 	// Cancel cancels the named events of a series, or every PUBLISHED and

@@ -386,6 +386,72 @@ func (_c *MockOrderRepository_GetByProviderPaymentID_Call) RunAndReturn(run func
 	return _c
 }
 
+// GetEventID provides a mock function for the type MockOrderRepository
+func (_mock *MockOrderRepository) GetEventID(ctx context.Context, id entity.OrderID) (string, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetEventID")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID) (string, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID) string); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.OrderID) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderRepository_GetEventID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEventID'
+type MockOrderRepository_GetEventID_Call struct {
+	*mock.Call
+}
+
+// GetEventID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.OrderID
+func (_e *MockOrderRepository_Expecter) GetEventID(ctx any, id any) *MockOrderRepository_GetEventID_Call {
+	return &MockOrderRepository_GetEventID_Call{Call: _e.mock.On("GetEventID", ctx, id)}
+}
+
+func (_c *MockOrderRepository_GetEventID_Call) Run(run func(ctx context.Context, id entity.OrderID)) *MockOrderRepository_GetEventID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.OrderID
+		if args[1] != nil {
+			arg1 = args[1].(entity.OrderID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_GetEventID_Call) Return(s string, err error) *MockOrderRepository_GetEventID_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockOrderRepository_GetEventID_Call) RunAndReturn(run func(ctx context.Context, id entity.OrderID) (string, error)) *MockOrderRepository_GetEventID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetProviderChargeID provides a mock function for the type MockOrderRepository
 func (_mock *MockOrderRepository) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
 	ret := _mock.Called(ctx, providerPaymentID)
@@ -448,6 +514,74 @@ func (_c *MockOrderRepository_GetProviderChargeID_Call) Return(providerChargeID 
 }
 
 func (_c *MockOrderRepository_GetProviderChargeID_Call) RunAndReturn(run func(ctx context.Context, providerPaymentID string) (string, error)) *MockOrderRepository_GetProviderChargeID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByEvent provides a mock function for the type MockOrderRepository
+func (_mock *MockOrderRepository) ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error) {
+	ret := _mock.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByEvent")
+	}
+
+	var r0 []*entity.Order
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Order, error)); ok {
+		return returnFunc(ctx, eventID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.Order); ok {
+		r0 = returnFunc(ctx, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Order)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderRepository_ListByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByEvent'
+type MockOrderRepository_ListByEvent_Call struct {
+	*mock.Call
+}
+
+// ListByEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockOrderRepository_Expecter) ListByEvent(ctx any, eventID any) *MockOrderRepository_ListByEvent_Call {
+	return &MockOrderRepository_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID)}
+}
+
+func (_c *MockOrderRepository_ListByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockOrderRepository_ListByEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_ListByEvent_Call) Return(orders []*entity.Order, err error) *MockOrderRepository_ListByEvent_Call {
+	_c.Call.Return(orders, err)
+	return _c
+}
+
+func (_c *MockOrderRepository_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]*entity.Order, error)) *MockOrderRepository_ListByEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }

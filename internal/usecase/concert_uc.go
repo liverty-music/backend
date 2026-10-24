@@ -19,22 +19,24 @@ import (
 // ConcertUseCase defines the interface for concert-related business logic.
 type ConcertUseCase interface {
 	// List returns every published concert (no audience filter), each carrying
-	// its event id and performers, for catalog review and management.
+	// its event id and performers, for catalog review and management. When
+	// artistID is not empty it returns only that artist's concerts.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	List(ctx context.Context) ([]*entity.Concert, error)
+	List(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
-	// Delete permanently removes a published concert by its event id, cascading
-	// to the rows scoped to the event alone (see [entity.ConcertRepository.Delete]
-	// for the exact set); it fails instead if tickets or settlements still
-	// reference the event. It is idempotent: deleting an id that no longer
-	// exists succeeds.
+	// Delete permanently removes a published concert by its event id with the
+	// records that depend only on it, and suppresses its slot for discovery
+	// (see [entity.ConcertRepository.DeleteAndSuppress] for the exact set). It
+	// is idempotent: deleting an id that no longer exists succeeds.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the event id is empty or malformed.
+	//  - FailedPrecondition: If the event has an Order that is not Refunded, a
+	//    Settlement that is not Reversed, or a purchase in progress.
 	//  - Internal: If the delete fails.
 	Delete(ctx context.Context, eventID string) error
 
@@ -686,21 +688,20 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 
 // List returns every published concert for admin catalog management. Read logic
 // is shared with the consumer path through ConcertRepository; this method only
-// strips the audience filter.
-func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
-	concerts, err := uc.concertRepo.List(ctx)
+// strips the audience filter. A non-empty artistID narrows it to that artist.
+func (uc *concertUseCase) List(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	concerts, err := uc.concertRepo.List(ctx, artistID)
 	if err != nil {
 		return nil, fmt.Errorf("list published concerts: %w", err)
 	}
 	return concerts, nil
 }
 
-// Delete permanently removes a published concert by its event id, cascading to
-// the rows scoped to the event alone, and records a suppression entry from the
-// deleted event's natural key so a later discovery run does not re-create it.
-// An empty id is rejected; deleting an absent id succeeds and records no
-// suppression (the repository writes suppression only for a row that actually
-// existed).
+// Delete permanently removes a published concert by its event id, with the
+// records that depend only on it, and records a suppression entry for its slot
+// so a later discovery run does not re-create it. An empty id is rejected;
+// deleting an absent id succeeds and records no suppression. A live purchase
+// of the event fails it with the repository's FailedPrecondition, unchanged.
 func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
 	if eventID == "" {
 		return apperr.New(codes.InvalidArgument, "event id must not be empty")

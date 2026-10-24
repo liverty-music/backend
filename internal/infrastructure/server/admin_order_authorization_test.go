@@ -186,3 +186,62 @@ func TestAdminServer_OrderGet(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 }
+
+func TestAdminServer_OrderListByEvent(t *testing.T) {
+	t.Parallel()
+
+	const eventID = "019a0000-0000-7000-8000-0000000000e1"
+	listByEvent := func(t *testing.T, ts *httptest.Server, token string, id *entityv1.EventId) (*adminorderv1.ListByEventResponse, error) {
+		t.Helper()
+		req := &adminorderv1.ListByEventRequest{EventId: id}
+		return adminorderv1connect.NewOrderServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).ListByEvent(withBearer(context.Background(), token), req)
+	}
+
+	t.Run("admin lists an event's orders", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/order "Admin lists an event's orders"
+		orders := usecasemocks.NewMockOrderUseCase(t)
+		orders.EXPECT().ListByEvent(mock.Anything, eventID).Return([]*entity.Order{{
+			ID: adminOrderOrderID, UserID: "019a0000-0000-7000-8000-0000000000f3", CheckoutID: "019a0000-0000-7000-8000-0000000000f4",
+			Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY", PayTime: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		}}, nil)
+		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})
+
+		resp, err := listByEvent(t, ts, adminOrderToken, &entityv1.EventId{Value: eventID})
+
+		require.NoError(t, err)
+		require.Len(t, resp.GetOrders(), 1)
+		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, resp.GetOrders()[0].GetStatus())
+		assert.Equal(t, adminOrderOrderID, resp.GetOrders()[0].GetId().GetValue())
+	})
+
+	t.Run("event missing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/order "Event missing"
+		ts := newTestAdminOrderServer(t, usecasemocks.NewMockOrderUseCase(t), unreachableRefundUC{t: t})
+
+		_, err := listByEvent(t, ts, adminOrderToken, nil)
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("non-admin lists orders", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/order "Non-admin lists orders"
+		ts := newTestAdminOrderServer(t, usecasemocks.NewMockOrderUseCase(t), unreachableRefundUC{t: t})
+
+		resp, err := listByEvent(t, ts, adminViewerToken, &entityv1.EventId{Value: eventID})
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+		assert.Nil(t, resp)
+	})
+
+	t.Run("not signed in", func(t *testing.T) {
+		t.Parallel()
+		ts := newTestAdminOrderServer(t, usecasemocks.NewMockOrderUseCase(t), unreachableRefundUC{t: t})
+
+		_, err := listByEvent(t, ts, "", &entityv1.EventId{Value: eventID})
+
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+}

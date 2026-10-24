@@ -189,7 +189,7 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 			return concertIDs(got)
 		}, catalog},
 		"List": {func(t *testing.T) []string {
-			got, err := f.repo.List(f.ctx)
+			got, err := f.repo.List(f.ctx, "")
 			require.NoError(t, err)
 			return concertIDs(got)
 		}, catalog},
@@ -315,7 +315,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 		f := newVisibilityFixture(t)
 		id := f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 5, "CANCELLED", f.artist())
 
-		got, err := f.repo.List(f.ctx)
+		got, err := f.repo.List(f.ctx, "")
 
 		require.NoError(t, err)
 		require.Len(t, got, 1)
@@ -329,7 +329,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 		f.exec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, listed_venue_name) VALUES ($1, $2, $3, 'Pending', $4, 'Somewhere')`,
 			entity.NewID(), f.artist(), f.discoveredSeries(), f.today.AddDate(0, 0, 5))
 
-		got, err := f.repo.List(f.ctx)
+		got, err := f.repo.List(f.ctx, "")
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -339,7 +339,33 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 		// @spec components/entity/concert/list "Empty catalog"
 		f := newVisibilityFixture(t)
 
-		got, err := f.repo.List(f.ctx)
+		got, err := f.repo.List(f.ctx, "")
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("narrow to one artist's concerts", func(t *testing.T) {
+		// @spec components/entity/concert/list "Narrowed to one artist"
+		f := newVisibilityFixture(t)
+		a, other := f.artist(), f.artist()
+		v := f.venue("JP-13", nil, nil)
+		unlisted := f.event(f.firstPartySeries(entity.SeriesVisibilityUnlisted), v, 5, "PUBLISHED", a)
+		cancelled := f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), v, 6, "CANCELLED", a)
+		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), v, 7, "PUBLISHED", other)
+
+		got, err := f.repo.List(f.ctx, a)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{unlisted, cancelled}, concertIDs(got))
+	})
+
+	t.Run("return an empty list for an artist without concerts", func(t *testing.T) {
+		// @spec components/entity/concert/list "Artist without concerts"
+		f := newVisibilityFixture(t)
+		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 5, "PUBLISHED", f.artist())
+
+		got, err := f.repo.List(f.ctx, f.artist())
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -353,7 +379,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 		pub := f.event(s, v, 5, "PUBLISHED", f.artist())
 		f.event(s, v, 6, "DRAFT", f.artist())
 
-		got, err := f.repo.List(f.ctx)
+		got, err := f.repo.List(f.ctx, "")
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{pub}, concertIDs(got))

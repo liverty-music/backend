@@ -117,3 +117,109 @@ func TestOrderRepository_GetByCheckoutID(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
+
+// seedCheckoutOrder seeds a Completed checkout of the ticket type, a resale
+// checkout when resale is set, and an Order of it in status paid at payAt.
+func seedCheckoutOrder(t *testing.T, typeID entity.TicketTypeID, status entity.OrderStatus, payAt time.Time, resale bool) entity.OrderID {
+	t.Helper()
+	ctx := context.Background()
+	userID := seedFanUser(t)
+	checkoutID, orderID := entity.NewID(), entity.NewID()
+	_, err := testDB.Pool.Exec(ctx, `INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, card_authorization_id, status, hold_expire_at, commit_at, capture_at, resale)
+		VALUES ($1, $2, $3, 1, 3000, $4, 3, $5, $5, $5, $6)`,
+		checkoutID, string(typeID), userID, "pi_checkout_"+checkoutID, payAt, resale)
+	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `INSERT INTO orders (id, user_id, checkout_id, provider, provider_payment_id, status, amount, currency, pay_at)
+		VALUES ($1, $2, $3, 1, $4, $5, 3000, 'JPY', $6)`,
+		orderID, userID, checkoutID, "pi_"+orderID, int16(status), payAt)
+	require.NoError(t, err)
+	return entity.OrderID(orderID)
+}
+
+func TestOrderRepository_ListByEvent(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	repo := rdb.NewOrderRepository(testDB)
+
+	t.Run("returns the event's paid, refunded and resale orders, oldest first", func(t *testing.T) {
+		// @spec components/entity/order/list-by-event "Paid, refunded and resale orders"
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		firstCome := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		paid := seedCheckoutOrder(t, firstCome.ID, entity.OrderStatusPaid, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), false)
+		refunded := seedPurchase(t, o, entity.OrderStatusRefunded, entity.SettlementStatusReversed, false) // paid 2026-10-09
+		resale := seedCheckoutOrder(t, o.typeID, entity.OrderStatusPaid, time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), true)
+
+		got, err := repo.ListByEvent(ctx, o.eventID)
+
+		require.NoError(t, err)
+		ids := make([]entity.OrderID, 0, len(got))
+		for _, order := range got {
+			ids = append(ids, order.ID)
+		}
+		assert.Equal(t, []entity.OrderID{paid, entity.OrderID(refunded.orderID), resale}, ids)
+		assert.Equal(t, entity.OrderStatusRefunded, got[1].Status)
+	})
+
+	t.Run("returns an empty list when only another event of the series has orders", func(t *testing.T) {
+		// @spec components/entity/order/list-by-event "Orders of another event"
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		seedPurchase(t, o, entity.OrderStatusPaid, entity.SettlementStatusHeld, false)
+		otherEventID := uuid.NewV7().String()
+		_, err := testDB.Pool.Exec(ctx, `INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state)
+			SELECT $1, series_id, venue_id, '2026-11-21', 'PUBLISHED' FROM events WHERE id = $2`, otherEventID, o.eventID)
+		require.NoError(t, err)
+
+		got, err := repo.ListByEvent(ctx, otherEventID)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.NotNil(t, got)
+	})
+
+	t.Run("fails with InvalidArgument when no event is given", func(t *testing.T) {
+		// @spec components/entity/order/list-by-event "No event given"
+		_, err := repo.ListByEvent(ctx, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestOrderRepository_GetEventID(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	repo := rdb.NewOrderRepository(testDB)
+
+	t.Run("returns the event of a checkout's order", func(t *testing.T) {
+		// @spec components/entity/order/get-event-id "Order from a checkout"
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		tt := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		orderID := seedCheckoutOrder(t, tt.ID, entity.OrderStatusPaid, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), false)
+
+		got, err := repo.GetEventID(ctx, orderID)
+
+		require.NoError(t, err)
+		assert.Equal(t, o.eventID, got)
+	})
+
+	t.Run("returns the event of a won lottery entry's order", func(t *testing.T) {
+		// @spec components/entity/order/get-event-id "Order from a won lottery entry"
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		p := seedPurchase(t, o, entity.OrderStatusPaid, entity.SettlementStatusHeld, false)
+
+		got, err := repo.GetEventID(ctx, entity.OrderID(p.orderID))
+
+		require.NoError(t, err)
+		assert.Equal(t, o.eventID, got)
+	})
+
+	t.Run("fails with NotFound for an unknown order", func(t *testing.T) {
+		// @spec components/entity/order/get-event-id "Unknown order"
+		_, err := repo.GetEventID(ctx, entity.OrderID(entity.NewID()))
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}

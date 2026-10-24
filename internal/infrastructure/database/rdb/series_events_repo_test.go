@@ -376,19 +376,20 @@ func TestSeriesRepository_Update(t *testing.T) {
 		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
 	})
 
-	t.Run("fail with FAILED_PRECONDITION when the new slot is suppressed", func(t *testing.T) {
+	t.Run("take a suppressed new slot", func(t *testing.T) {
 		// @spec components/entity/series/update "Suppressed new slot"
 		f := newAuthoredFixture(t)
-		seriesID, _ := f.series(entity.PublishStatePublished)
+		seriesID, ids := f.series(entity.PublishStatePublished)
 		f.suppress(authoredFirstDate, jstAt(authoredFirstDate, 18))
 		s, events := f.edit(seriesID)
 		events[0].StartTime = jstAt(authoredFirstDate, 18)
 
-		err := f.repo.Update(f.ctx, s, events, []string{f.artistID})
+		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		_, after := f.edit(seriesID)
-		assert.Nil(t, after[0].StartTime)
+		assert.Equal(t, ids[0], after[0].ID)
+		require.NotNil(t, after[0].StartTime)
+		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
 	})
 
 	t.Run("fail with FAILED_PRECONDITION when an event of another first-party series holds the new slot", func(t *testing.T) {
@@ -478,11 +479,6 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		block func(f *authoredFixture)
 	}{
 		{
-			// @spec components/entity/series/publish-events "Suppressed slot"
-			name:  "a suppressed slot",
-			block: func(f *authoredFixture) { f.suppress(authoredFirstDate.AddDate(0, 0, 1), nil) },
-		},
-		{
 			// @spec components/entity/series/publish-events "Another Organizer's slot"
 			name: "another organizer's event at the slot",
 			block: func(f *authoredFixture) {
@@ -512,6 +508,20 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("publish a draft at a suppressed slot", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Suppressed slot"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		f.suppress(authoredFirstDate, nil)
+
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+
+		require.NoError(t, err)
+		assert.Equal(t, ids, got)
+		state, _ := f.state(ids[0])
+		assert.Equal(t, "PUBLISHED", state)
+	})
 
 	t.Run("fail with FAILED_PRECONDITION for an event already PUBLISHED", func(t *testing.T) {
 		// @spec components/entity/series/publish-events "Already published"

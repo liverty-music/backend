@@ -77,13 +77,6 @@ const (
 		DELETE FROM events WHERE id = ANY($1::uuid[]) AND publish_state = 'DRAFT'
 	`
 
-	slotSuppressedQuery = `
-		SELECT EXISTS (
-			SELECT 1 FROM suppressed_concerts
-			WHERE venue_id = $1 AND local_event_date = $2 AND start_at IS NOT DISTINCT FROM $3
-		)
-	`
-
 	// eventAtSlotQuery finds the event that holds a slot: the one event at
 	// the venue, date and start time that is not DRAFT (uq_events_natural_key),
 	// other than the event $4 itself, with its series' organizer.
@@ -214,23 +207,10 @@ type slotHolder struct {
 	OrganizerID *string
 }
 
-// checkSlot returns FailedPrecondition when the slot is suppressed, and
-// otherwise the event that holds it, or nil when the slot is free. exceptID is
-// the event being placed, which never holds its own slot.
+// checkSlot returns the event that holds the slot, or nil when the slot is
+// free. exceptID is the event being placed, which never holds its own slot. A
+// suppressed slot does not matter here: suppression keeps only discovery away.
 func checkSlot(ctx context.Context, tx pgx.Tx, e *entity.Event, exceptID string) (*slotHolder, error) {
-	var suppressed bool
-	if err := tx.QueryRow(ctx, slotSuppressedQuery, e.VenueID, e.LocalDate, e.StartTime).Scan(&suppressed); err != nil {
-		return nil, toAppErr(err, "failed to check suppression")
-	}
-	if suppressed {
-		return nil, apperr.New(codes.FailedPrecondition,
-			"the event's slot was suppressed by an admin delete",
-			slog.String("event_id", exceptID),
-			slog.String("venue_id", e.VenueID),
-			slog.String("local_date", e.LocalDate.Format("2006-01-02")),
-		)
-	}
-
 	var (
 		h           slotHolder
 		state       sql.NullString
@@ -371,8 +351,8 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 
 // takeNewSlot prepares a PUBLISHED event to take the slot of its new start
 // time (design D8): a discovered event there is merged into it, so its fans
-// track the PUBLISHED event and its performers join; a suppressed slot or a
-// first-party event there fails with FailedPrecondition.
+// track the PUBLISHED event and its performers join; a first-party event there
+// fails with FailedPrecondition.
 func takeNewSlot(ctx context.Context, tx pgx.Tx, e *entity.Event) error {
 	holder, err := checkSlot(ctx, tx, e, e.ID)
 	if err != nil {

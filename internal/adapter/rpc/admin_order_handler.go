@@ -57,6 +57,24 @@ func (h *AdminOrderHandler) Get(
 	}, nil
 }
 
+// ListByEvent implements [adminorderv1connect.OrderServiceHandler]. It returns
+// every Order of the Event, in any status. The request is validated by the
+// protovalidate interceptor before this runs.
+func (h *AdminOrderHandler) ListByEvent(
+	ctx context.Context,
+	req *adminorderv1.ListByEventRequest,
+) (*adminorderv1.ListByEventResponse, error) {
+	orders, err := h.orderUC.ListByEvent(ctx, req.GetEventId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+	resp := &adminorderv1.ListByEventResponse{}
+	for _, o := range orders {
+		resp.Orders = append(resp.Orders, mapper.OrderToProto(o))
+	}
+	return resp, nil
+}
+
 // Refund implements [adminorderv1connect.OrderServiceHandler].
 //
 // It maps the proto RefundReason to the domain RefundReason and delegates to

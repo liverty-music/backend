@@ -317,6 +317,26 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*Order, error)
 
+	// ListByEvent returns every Order whose source, a LotteryEntry or a
+	// Checkout, is for a TicketType of the given Event, in any status (an
+	// official resale purchase included), oldest pay time first. It returns an
+	// empty slice when the Event has no Order or no Event has the id.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no Event is given.
+	//  - Internal: database query failure.
+	ListByEvent(ctx context.Context, eventID string) ([]*Order, error)
+
+	// GetEventID returns the id of the Event the Order is for: the Event of
+	// the TicketType its LotteryEntry or Checkout was for.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no Order with the id exists.
+	//  - Internal: database query failure.
+	GetEventID(ctx context.Context, id OrderID) (string, error)
+
 	// MarkConfirmationSent sets the Order's confirmation-sent time when it is
 	// unset; an already set time is kept.
 	//
