@@ -65,6 +65,12 @@ packages:
   github.com/liverty-music/backend/internal/adapter/rpc:
     interfaces:
       EmailVerificationCodes: {}
+  github.com/liverty-music/backend/internal/infrastructure/mail:
+    interfaces:
+      EmailVerificationCodeIssuer: {}
+  github.com/liverty-music/backend/internal/infrastructure/zitadel:
+    interfaces:
+      EmailCodeClient: {}
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator: {}

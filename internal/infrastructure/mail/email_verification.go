@@ -59,12 +59,17 @@ func newPostmarkEmailVerificationSender(codes EmailVerificationCodeIssuer, fanWe
 	}
 }
 
-// SendVerification implements [entity.EmailVerifier]. Any failure is
-// Internal.
+// SendVerification implements [entity.EmailVerifier]. An address that is
+// already verified is FailedPrecondition; any other failure is Internal.
 func (s *PostmarkEmailVerificationSender) SendVerification(ctx context.Context, user *entity.User) error {
 	attrs := slog.String("user_id", user.ID)
 	address, code, err := s.codes.IssueEmailVerificationCode(ctx, user.ProviderUserID)
 	if err != nil {
+		// Checked before wrapping: apperr.Wrap keeps only the original cause,
+		// so the FailedPrecondition code would not survive it.
+		if errors.Is(err, apperr.ErrFailedPrecondition) {
+			return err
+		}
 		return apperr.Wrap(err, codes.Internal, "email verification code cannot be issued", attrs)
 	}
 	return s.send(ctx, user, address, code)
@@ -111,7 +116,7 @@ func emailVerificationEmail(lang, link string) (subject, body string) {
 		b.WriteString("Open the link below and tap \"Verify email address\" to confirm this address.\n\n")
 		b.WriteString(link)
 		b.WriteString("\n\n")
-		b.WriteString("- The link works for 1 hour after this email was sent. If it has expired, send a new one from Settings in the app.\n\n")
+		b.WriteString("- The link works for 1 hour after this email was sent. If it has expired, tap Resend in Settings in the app to get a new one.\n\n")
 		b.WriteString("If you did not sign up for Liverty Music, you can ignore this email.\n\n")
 		b.WriteString("Liverty Music\n")
 		return "[Liverty Music] Verify your email address", b.String()
@@ -120,7 +125,7 @@ func emailVerificationEmail(lang, link string) (subject, body string) {
 	b.WriteString("下のリンクを開き、「メールアドレスを確認する」を押して、このメールアドレスを確認してください。\n\n")
 	b.WriteString(link)
 	b.WriteString("\n\n")
-	b.WriteString("・リンクの有効期限は、このメールの送信から1時間です。期限が切れた場合は、アプリの設定から再送してください。\n\n")
+	b.WriteString("・リンクの有効期限は、このメールの送信から1時間です。期限が切れた場合は、アプリの「Settings」の「再送信」から送り直してください。\n\n")
 	b.WriteString("お心当たりがない場合は、このメールを無視してください。\n\n")
 	b.WriteString("Liverty Music\n")
 	return "【Liverty Music】メールアドレスの確認", b.String()

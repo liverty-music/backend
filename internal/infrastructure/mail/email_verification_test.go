@@ -10,39 +10,41 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
+	mailmocks "github.com/liverty-music/backend/internal/infrastructure/mail/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeEmailVerificationCodes stands in for the identity service: it issues
-// one fixed code for its address, or fails with err.
-type fakeEmailVerificationCodes struct {
-	address string
-	code    string
-	err     error
-	calls   []string // "<method> <provider user id>"
-}
-
-func (f *fakeEmailVerificationCodes) IssueEmailVerificationCode(_ context.Context, providerUserID string) (string, string, error) {
-	f.calls = append(f.calls, "Issue "+providerUserID)
-	if f.err != nil {
-		return "", "", f.err
+// issues returns an identity-service mock whose sign-up code (Issue) answers
+// with the address and code, or err.
+func issues(t *testing.T, err error) *mailmocks.MockEmailVerificationCodeIssuer {
+	t.Helper()
+	m := mailmocks.NewMockEmailVerificationCodeIssuer(t)
+	if err != nil {
+		m.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-fan-1").Return("", "", err).Once()
+	} else {
+		m.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-fan-1").Return("fan@example.com", "AB12CD", nil).Once()
 	}
-	return f.address, f.code, nil
+	return m
 }
 
-func (f *fakeEmailVerificationCodes) ReissueEmailVerificationCode(_ context.Context, providerUserID string) (string, string, error) {
-	f.calls = append(f.calls, "Reissue "+providerUserID)
-	if f.err != nil {
-		return "", "", f.err
+// reissues is issues for the resend code (Reissue).
+func reissues(t *testing.T, err error) *mailmocks.MockEmailVerificationCodeIssuer {
+	t.Helper()
+	m := mailmocks.NewMockEmailVerificationCodeIssuer(t)
+	if err != nil {
+		m.EXPECT().ReissueEmailVerificationCode(mock.Anything, "zitadel-fan-1").Return("", "", err).Once()
+	} else {
+		m.EXPECT().ReissueEmailVerificationCode(mock.Anything, "zitadel-fan-1").Return("fan@example.com", "AB12CD", nil).Once()
 	}
-	return f.address, f.code, nil
+	return m
 }
 
-func newEmailVerificationSender(t *testing.T, codes *fakeEmailVerificationCodes, stub *stubPostmark) (*mail.PostmarkEmailVerificationSender, *bytes.Buffer) {
+func newEmailVerificationSender(t *testing.T, codes mail.EmailVerificationCodeIssuer, stub *stubPostmark) (*mail.PostmarkEmailVerificationSender, *bytes.Buffer) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(stub.handler))
 	t.Cleanup(srv.Close)
@@ -61,14 +63,13 @@ func TestPostmarkEmailVerificationSender(t *testing.T) {
 	// @spec components/entity/user/send-verification "Unverified user"
 	t.Run("sends an English fan an English email linking to the email verification screen", func(t *testing.T) {
 		t.Parallel()
-		issuer := &fakeEmailVerificationCodes{address: "fan@example.com", code: "AB12CD"}
+		issuer := issues(t, nil)
 		stub := &stubPostmark{status: http.StatusOK}
 		sender, logs := newEmailVerificationSender(t, issuer, stub)
 
 		err := sender.SendVerification(ctx, &entity.User{ID: userID, ProviderUserID: "zitadel-fan-1", PreferredLanguage: "en"})
 
 		require.NoError(t, err)
-		assert.Equal(t, []string{"Issue zitadel-fan-1"}, issuer.calls)
 		require.Len(t, stub.sent, 1)
 		sent := stub.sent[0]
 		assert.Equal(t, "fan@example.com", sent["To"])
@@ -83,7 +84,7 @@ func TestPostmarkEmailVerificationSender(t *testing.T) {
 
 	t.Run("writes in Japanese when the fan has no preferred language", func(t *testing.T) {
 		t.Parallel()
-		issuer := &fakeEmailVerificationCodes{address: "fan@example.com", code: "AB12CD"}
+		issuer := issues(t, nil)
 		stub := &stubPostmark{status: http.StatusOK}
 		sender, _ := newEmailVerificationSender(t, issuer, stub)
 
@@ -102,7 +103,7 @@ func TestPostmarkEmailVerificationSender(t *testing.T) {
 	// @spec components/entity/user/send-verification "Sending fails"
 	t.Run("a rejected email is Internal", func(t *testing.T) {
 		t.Parallel()
-		issuer := &fakeEmailVerificationCodes{address: "fan@example.com", code: "AB12CD"}
+		issuer := issues(t, nil)
 		sender, _ := newEmailVerificationSender(t, issuer, &stubPostmark{status: http.StatusInternalServerError})
 
 		err := sender.SendVerification(ctx, &entity.User{ID: userID, ProviderUserID: "zitadel-fan-1"})
@@ -110,9 +111,22 @@ func TestPostmarkEmailVerificationSender(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 
+	// @spec components/entity/user/send-verification "Already verified"
+	t.Run("an address already verified at sign-up sends nothing and is FailedPrecondition", func(t *testing.T) {
+		t.Parallel()
+		issuer := issues(t, apperr.New(codes.FailedPrecondition, "email is already verified"))
+		stub := &stubPostmark{status: http.StatusOK}
+		sender, _ := newEmailVerificationSender(t, issuer, stub)
+
+		err := sender.SendVerification(ctx, &entity.User{ID: userID, ProviderUserID: "zitadel-fan-1"})
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Empty(t, stub.sent)
+	})
+
 	t.Run("a code that cannot be issued at sign-up is Internal", func(t *testing.T) {
 		t.Parallel()
-		issuer := &fakeEmailVerificationCodes{err: apperr.New(codes.Unavailable, "identity service down")}
+		issuer := issues(t, apperr.New(codes.Unavailable, "identity service down"))
 		stub := &stubPostmark{status: http.StatusOK}
 		sender, _ := newEmailVerificationSender(t, issuer, stub)
 
@@ -140,13 +154,12 @@ func TestPostmarkEmailVerificationSender(t *testing.T) {
 	for _, tt := range resendTests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			issuer := &fakeEmailVerificationCodes{address: "fan@example.com", code: "AB12CD", err: tt.issueErr}
+			issuer := reissues(t, tt.issueErr)
 			stub := &stubPostmark{status: http.StatusOK}
 			sender, _ := newEmailVerificationSender(t, issuer, stub)
 
 			err := sender.ResendVerification(ctx, &entity.User{ID: userID, ProviderUserID: "zitadel-fan-1"})
 
-			assert.Equal(t, []string{"Reissue zitadel-fan-1"}, issuer.calls)
 			require.Len(t, stub.sent, tt.wantSent)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
