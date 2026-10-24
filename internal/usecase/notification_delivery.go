@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,7 +65,7 @@ const (
 // send is re-dispatchable.
 //
 // payload is mutated to carry the minted notification id under
-// data.notification_id, establishing the end-to-end correlation key. Callers
+// data.notification_id and the notification type under data.type, establishing the end-to-end correlation key. Callers
 // are responsible for rejecting a nil payload themselves — the two current
 // callers disagree on what a nil payload means (an InvalidArgument error for
 // NotificationUseCase.Deliver; a defensive no-op skip for
@@ -92,12 +90,14 @@ func deliverNotification(
 		return nil, fmt.Errorf("failed to create notification record: %w", err)
 	}
 
-	// 2. Carry the stable notification id into the dispatched payload so the
-	//    client/service worker can correlate interactions back to this record.
+	// 2. Carry the stable notification id and its type into the dispatched
+	//    payload so the client/service worker can correlate interactions back to
+	//    this record and report them by type.
 	if payload.Data == nil {
-		payload.Data = make(map[string]string, 1)
+		payload.Data = make(map[string]string, 2)
 	}
 	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
+	payload.Data[entity.NotificationDataKeyType] = string(typ)
 
 	// 3. Dispatch to the web-push channel and 4. record the outcome.
 	status, deliveredAt, reason, reasonCategory := d.dispatch(ctx, n, payload)
@@ -144,11 +144,12 @@ func deliverNotification(
 	//    when the send actually reached the delivered state. Non-fatal by design:
 	//    analytics must never affect the delivery outcome, so a publish failure is
 	//    logged and swallowed (mirrors the notification.subscribed emit).
-	if status == entity.NotificationDeliveryStatusDelivered {
+	if status == entity.NotificationDeliveryStatusDelivered && deliveredAt != nil {
 		if err := d.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
 			UserID:         userID,
 			NotificationID: n.ID,
 			Type:           string(typ),
+			DeliverTime:    *deliveredAt,
 		}); err != nil {
 			d.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
 				slog.String("notification_id", n.ID),
@@ -233,18 +234,4 @@ func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notifi
 		return entity.NotificationDeliveryStatusDelivered, &now, "", deliveryFailureReasonNone
 	}
 	return entity.NotificationDeliveryStatusFailed, nil, lastErr, lastCategory
-}
-
-// notificationRequestMsgID derives a deterministic id for a NOTIFICATION.requested
-// publish from stable business keys (never from randomness or wall-clock time),
-// so an at-least-once retry of the same triggering event re-publishes the same
-// id for the same recipient. Passed as the EventPublisher.PublishEventWithID id,
-// it becomes the NATS Msg-Id the JetStream stream's Duplicates window (2 minutes,
-// see infrastructure/messaging/streams.go) deduplicates broker-side — a retried
-// trigger re-requests delivery for the same recipients without queuing a second,
-// redundant request. It is unrelated to and never reused as the eventual
-// entity.Notification.ID (which NotificationRepository.Create still mints fresh).
-func notificationRequestMsgID(typ entity.NotificationType, userID, correlationKey string) string {
-	sum := sha256.Sum256([]byte(string(typ) + "\x00" + userID + "\x00" + correlationKey))
-	return hex.EncodeToString(sum[:])
 }

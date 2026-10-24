@@ -17,7 +17,7 @@ import (
 // and the in-app inbox has durable, per-user read/dismiss state to build on.
 //
 // Producers never call Deliver directly: they publish NOTIFICATION.requested
-// (via EventPublisher.PublishEventWithID) and the deliver-notification event
+// (via EventPublisher.PublishEvent) and the deliver-notification event
 // consumer calls Deliver, so no usecase depends on NotificationUseCase's
 // interface. TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception —
 // it stays synchronous and composes the same delivery ports directly (see
@@ -88,12 +88,10 @@ type NotificationUseCase interface {
 	// filtering, and requests a push notification for all eligible followers.
 	//
 	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
-	// (EventPublisher.PublishEventWithID with a deterministic id derived from the
-	// artist, the concert batch, and the recipient — see notification_delivery.go)
 	// so the deliver-notification consumer records the durable Notification and
-	// dispatches the push; the deterministic id makes an at-least-once retry of
-	// this same CONCERT.created delivery a broker-side no-op rather than a second
-	// request. Only a publish failure surfaces as an error, so the consumer's
+	// dispatches the push; an at-least-once retry of the same CONCERT.created
+	// delivery requests delivery again (the per-artist Tag keeps one
+	// notification on the device). Only a publish failure surfaces as an error, so the consumer's
 	// at-least-once retry re-drives the batch; per-channel delivery errors
 	// (including 410 Gone responses) happen later, inside the deliver-notification
 	// consumer, and never reach this method.

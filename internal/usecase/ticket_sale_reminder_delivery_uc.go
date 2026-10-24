@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -122,6 +123,14 @@ func (uc *ticketSaleReminderDeliveryUseCase) DeliverReminder(ctx context.Context
 		uc.logger.Warn(ctx, "ticket_sale_reminder_delivery: nil payload, skipping", attrs...)
 		return nil
 	}
+
+	// Name the sale and the milestone in the message data so the fan's reaction
+	// (opened / dismissed) can be told apart by milestone on the client.
+	if data.Payload.Data == nil {
+		data.Payload.Data = make(map[string]string, 2)
+	}
+	data.Payload.Data[entity.NotificationDataKeyTicketSaleID] = data.TicketSaleID
+	data.Payload.Data[entity.NotificationDataKeyMilestone] = strings.ToLower(stage.String())
 
 	// Record and dispatch directly (see notification_delivery.go): it creates
 	// the durable record, resolves the user's push subscriptions, sends,

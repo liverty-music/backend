@@ -17,9 +17,10 @@ func NewLotteryEntryUseCaseWithRand(
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
 	cardAuthorizations entity.CardAuthorizationRepository,
+	publisher EventPublisher,
 	clock Clock,
 	newRand func() *mrand.Rand,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, newRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, publisher, clock, newRand, logger)
 }

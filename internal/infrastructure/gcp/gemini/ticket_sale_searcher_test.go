@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -569,4 +570,65 @@ func TestTicketSaleSearcher_LogsURLContextCounts(t *testing.T) {
 	require.NotNil(t, line, "metadata line is logged")
 	assert.EqualValues(t, 1, line["url_context_calls"])
 	assert.EqualValues(t, 1, line["url_context_succeeded"])
+}
+
+// generationRecorder is a GenerationReporter that records each report.
+type generationRecorder struct{ gens []posthog.LLMGeneration }
+
+func (r *generationRecorder) ReportGeneration(_ context.Context, g posthog.LLMGeneration) {
+	r.gens = append(r.gens, g)
+}
+
+// @spec components/entity/ticket-sale/search-published-sales "Discarded sale"
+func TestTicketSaleSearcher_ReportsDiscardedSale(t *testing.T) {
+	t.Parallel()
+
+	resp := jsonResponse(t,
+		phase(spTourA, salesMethodLottery, "2026-11-01T12:00:00+09:00", "2026-11-10T23:59:00+09:00", nil),
+		phase(spTourB, salesMethodFirstCome, "2026-11-20T10:00:00+09:00", nil, nil),
+		// Opened before spNow: discarded.
+		phase(spTourB, salesMethodFirstCome, "2026-10-01T10:00:00+09:00", nil, nil),
+	)
+	resp.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 50, ToolUsePromptTokenCount: 300}
+	f := &fakeGemini{resp: resp}
+	s := newTestTicketSaleSearcher(t, f, nil)
+	rec := &generationRecorder{}
+	s.config.Reporter = rec
+	in := spInput()
+	in.ArtistID = "artist-1"
+
+	got, err := s.SearchPublishedSales(context.Background(), in)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	require.Len(t, rec.gens, 1)
+	g := rec.gens[0]
+	assert.Equal(t, &posthog.SaleParseResult{Returned: 3, Kept: 2, Dropped: map[string]int{"already started": 1}}, g.Sales)
+	assert.Equal(t, posthog.LLMRequest{ArtistID: "artist-1", OfficialSiteURL: "https://kinggnu.jp/", SeriesIDs: []string{spTourA, spTourB}}, g.Request)
+	assert.Equal(t, posthog.LLMUsage{PromptTokens: 50, ToolUseTokens: 300}, g.Usage)
+	assert.Empty(t, g.ErrorKind)
+}
+
+// The request rejected as invalid and the request sent after it are both
+// reported; a response that is not JSON marks the last one.
+func TestTicketSaleSearcher_ReportsBothRequestsAfterAnInvalidOne(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeGemini{respond: func(call int) (*genai.GenerateContentResponse, error) {
+		if call == 1 {
+			return nil, genai.APIError{Code: http.StatusBadRequest, Message: "invalid"}
+		}
+		return textResponse("not json", genai.FinishReasonStop), nil
+	}}
+	s := newTestTicketSaleSearcher(t, f, nil)
+	rec := &generationRecorder{}
+	s.config.Reporter = rec
+
+	_, err := s.SearchPublishedSales(context.Background(), spInput())
+	require.Error(t, err)
+
+	require.Len(t, rec.gens, 2)
+	assert.Equal(t, "invalid_request", rec.gens[0].ErrorKind)
+	assert.Equal(t, "invalid_json", rec.gens[1].ErrorKind)
+	assert.Nil(t, rec.gens[1].Sales)
 }

@@ -55,7 +55,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	now := saleWindowStart.Add(time.Hour)
 	clock := usecase.Clock(func() time.Time { return now })
 	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewReferralRepository(testDB), rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
-		rdb.NewUserRepository(testDB), stripePort, clock, logger)
+		rdb.NewUserRepository(testDB), stripePort, &recordingPublisher{}, clock, logger)
 
 	// -- a Lottery ticket type of 2 tickets, so 3 single-ticket entries force one loss --
 	const (

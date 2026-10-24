@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
@@ -89,8 +90,9 @@ func (uc *pushSubscriptionUseCase) Create(ctx context.Context, userID, endpoint,
 	}
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
-		UserID:     userID,
-		DeviceType: deviceType,
+		UserID:        userID,
+		DeviceType:    deviceType,
+		SubscribeTime: time.Now(),
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish NOTIFICATION.subscribed event", err,
 			slog.String("user_id", userID),
@@ -123,8 +125,9 @@ func (uc *pushSubscriptionUseCase) Delete(ctx context.Context, userID, endpoint,
 	}
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
-		UserID:     userID,
-		DeviceType: deviceType,
+		UserID:          userID,
+		DeviceType:      deviceType,
+		UnsubscribeTime: time.Now(),
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish NOTIFICATION.unsubscribed event", err,
 			slog.String("user_id", userID),

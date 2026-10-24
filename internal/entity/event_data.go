@@ -94,24 +94,24 @@ const (
 	// NotifyNewConcerts, TicketSaleAnnouncementUseCase.AnnounceDiscoveredSale).
 	// The deliver-notification consumer subscribes to this subject and calls
 	// NotificationUseCase.Deliver, which records the durable Notification and
-	// dispatches the push. Producers publish with a deterministic id (see
-	// EventPublisher.PublishEventWithID) derived from stable business keys so
-	// an at-least-once retry of the same triggering event republishes the same
-	// recipients as the same NATS Msg-Id, which the NOTIFICATION stream's
-	// Duplicates window (2 minutes) deduplicates broker-side. Already covered
-	// by the existing NOTIFICATION.* stream — see streams.go.
+	// dispatches the push. A request rebuilt when its trigger is redelivered
+	// is a new event and can push a second time (accepted for now; the
+	// browser shows one notification per Tag). Already covered by the
+	// existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
 	// SubjectOrderPaid announces that an Order is paid, for a won lottery
 	// entry or a completed checkout. OrderUseCase.FulfillPayment
-	// publishes it on the payment provider's completed-charge webhook, with the
-	// Order id as the message id. Two consumers run from
+	// publishes it on the payment provider's completed-charge webhook; a
+	// repeated webhook announces the Order again as a new event, and the
+	// consumers are idempotent by the Order id. Two consumers run from
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
 	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
 	SubjectOrderPaid = "ORDER.paid"
 	// SubjectResaleListingRefunded announces that the user of a resold
 	// ResaleListing was refunded from the listing's Order's charge.
-	// ResaleListingUseCase.RefundSold publishes it with the listing id as the
-	// message id, and again on later runs while the sold email is unsent. The
+	// ResaleListingUseCase.RefundSold publishes it, and again on later runs
+	// while the sold email is unsent; the consumer is idempotent by the
+	// listing id. The
 	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
 	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
 	// SubjectUserPasskeyRecoveryRequested announces that someone asked for a
@@ -125,6 +125,23 @@ const (
 	// passkey-events webhook. The passkey change email consumer
 	// (UserUseCase.NotifyPasskeyChange) runs from it.
 	SubjectUserPasskeyChanged = "USER.passkey_changed"
+	// SubjectArtistHypeChanged announces that a fan set the hype level of a
+	// followed artist. FollowUseCase.SetHype publishes it on every successful
+	// set; the analytics consumer forwards it as artist.hype.changed. The name
+	// is kept for the existing durable track-artist-hype-changed.
+	SubjectArtistHypeChanged = "ARTIST.hype_changed"
+	// SubjectLotteryEntryDrawn announces one entry's draw result (Won or
+	// Lost). LotteryEntryUseCase.RunDraw publishes it after the draw is
+	// recorded; the analytics consumer forwards it as ticket.lottery.result.
+	SubjectLotteryEntryDrawn = "ORDER.lottery_entry_drawn"
+	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed.
+	// CheckoutUseCase.ReleaseExpired publishes it when it makes the Checkout
+	// Expired; the analytics consumer forwards it as checkout.expired.
+	SubjectCheckoutExpired = "ORDER.checkout_expired"
+	// SubjectTicketAdmitted announces that a scan admitted a Ticket.
+	// TicketUseCase.Admit publishes it once per admitted Ticket; the analytics
+	// consumer forwards it as ticket.admitted.
+	SubjectTicketAdmitted = "ORDER.ticket_admitted"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -159,15 +176,17 @@ var AllSubjects = []string{
 	SubjectResaleListingRefunded,
 	SubjectUserPasskeyRecoveryRequested,
 	SubjectUserPasskeyChanged,
+	SubjectArtistHypeChanged,
+	SubjectLotteryEntryDrawn,
+	SubjectCheckoutExpired,
+	SubjectTicketAdmitted,
 }
 
 // OrderPaidData is the payload for ORDER.paid events. It carries ids and
 // amounts only, never personal data; consumers read the rest by id. Exactly
 // one of LotteryEntryID and CheckoutID is set: the Order's source.
 type OrderPaidData struct {
-	// OrderID is the paid Order; also the event's message id, so a
-	// republished announcement is deduplicated and consumers are idempotent by
-	// it.
+	// OrderID is the paid Order; consumers are idempotent by it.
 	OrderID string `json:"order_id"`
 	// UserID is the platform-internal id of the Order's user.
 	UserID string `json:"user_id"`
@@ -183,15 +202,16 @@ type OrderPaidData struct {
 	LotteryEntryID string `json:"lottery_entry_id,omitempty"`
 	// CheckoutID is the completed checkout, when that is the source.
 	CheckoutID string `json:"checkout_id,omitempty"`
+	// PayTime is the Order's pay time, the time the fact happened (the
+	// analytics event time).
+	PayTime time.Time `json:"pay_time"`
 }
 
 // ResaleListingRefundedData is the payload for ORDER.resale_listing_refunded
 // events. It carries ids only, never personal data; consumers read the rest
 // by id.
 type ResaleListingRefundedData struct {
-	// ResaleListingID is the refunded listing; also the event's message id,
-	// so a republished announcement is deduplicated and consumers are
-	// idempotent by it.
+	// ResaleListingID is the refunded listing; consumers are idempotent by it.
 	ResaleListingID string `json:"resale_listing_id"`
 	// UserID is the platform-internal id of the listing's user.
 	UserID string `json:"user_id"`
@@ -287,6 +307,9 @@ type UserCreatedData struct {
 	ProviderUserID string `json:"provider_user_id"`
 	// Email is the user's email address.
 	Email string `json:"email"`
+	// CreateTime is when the User record was created (the creating use
+	// case's clock), the time the fact happened.
+	CreateTime time.Time `json:"create_time"`
 }
 
 // UserLoggedInData is the payload for USER.logged_in events.
@@ -296,8 +319,11 @@ type UserCreatedData struct {
 // Zitadel sub has been resolved to the platform UserID.
 type UserLoggedInData struct {
 	// UserID is the platform-internal user identifier (UUID). Used as the
-	// PostHog distinct_id. Never the Zitadel sub, which Enqueue rejects.
+	// PostHog distinct_id. Never the Zitadel sub, which Capture rejects.
 	UserID string `json:"user_id"`
+	// LoginTime is the created_at of the Zitadel session.user.checked event,
+	// the time the fact happened.
+	LoginTime time.Time `json:"login_time"`
 }
 
 // UserPasskeyRecoveryRequestedData is the payload for
@@ -358,6 +384,9 @@ type ArtistFollowedData struct {
 	UserID string `json:"user_id"`
 	// ArtistID is the internal UUID of the followed artist.
 	ArtistID string `json:"artist_id"`
+	// FollowTime is when the follow was stored (the use case's clock), the
+	// time the fact happened.
+	FollowTime time.Time `json:"follow_time"`
 }
 
 // ArtistUnfollowedData is the payload for ARTIST.unfollowed.
@@ -370,6 +399,9 @@ type ArtistUnfollowedData struct {
 	UserID string `json:"user_id"`
 	// ArtistID is the internal UUID of the unfollowed artist.
 	ArtistID string `json:"artist_id"`
+	// UnfollowTime is when the follow was removed (the use case's clock), the
+	// time the fact happened.
+	UnfollowTime time.Time `json:"unfollow_time"`
 }
 
 // NotificationSubscribedData is the payload for NOTIFICATION.subscribed.
@@ -389,6 +421,9 @@ type NotificationSubscribedData struct {
 	// is sensitive and is NOT included in the payload — the host classifier
 	// is the only signal forwarded to PostHog.
 	DeviceType string `json:"device_type"`
+	// SubscribeTime is when the subscription was stored (the use case's
+	// clock), the time the fact happened.
+	SubscribeTime time.Time `json:"subscribe_time"`
 }
 
 // NotificationUnsubscribedData is the payload for NOTIFICATION.unsubscribed.
@@ -407,6 +442,9 @@ type NotificationUnsubscribedData struct {
 	// mapper.DeviceTypeFromEndpoint (internal/adapter/rpc/mapper), which
 	// classifies the endpoint at subscription-registration time.
 	DeviceType string `json:"device_type"`
+	// UnsubscribeTime is when the subscription was removed (the use case's
+	// clock), the time the fact happened.
+	UnsubscribeTime time.Time `json:"unsubscribe_time"`
 }
 
 // NotificationDeliveredData is the payload for NOTIFICATION.delivered.
@@ -424,6 +462,9 @@ type NotificationDeliveredData struct {
 	NotificationID string `json:"notification_id"`
 	// Type is the string name of the NotificationType (e.g. "new_concerts").
 	Type string `json:"type"`
+	// DeliverTime is the Notification's recorded delivered time
+	// (notifications.delivered_at), the time the fact happened.
+	DeliverTime time.Time `json:"deliver_time"`
 }
 
 // NotificationRequestedData is the payload for NOTIFICATION.requested.
@@ -489,6 +530,9 @@ type TicketSaleReminderDueData struct {
 type OrganizerCreatedData struct {
 	// OrganizerID is the platform-internal UUID of the newly provisioned organizer.
 	OrganizerID string `json:"organizer_id"`
+	// ActivateTime is when the organizer was made active (the use case's
+	// clock), the time the fact happened.
+	ActivateTime time.Time `json:"activate_time"`
 }
 
 // OrganizerArtistAssociatedData is the payload for ORGANIZER.artist_associated.
@@ -501,6 +545,9 @@ type OrganizerArtistAssociatedData struct {
 	OrganizerID string `json:"organizer_id"`
 	// ArtistID is the internal UUID of the associated artist.
 	ArtistID string `json:"artist_id"`
+	// AssociateTime is when the association was stored (the use case's
+	// clock), the time the fact happened.
+	AssociateTime time.Time `json:"associate_time"`
 }
 
 // TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.
@@ -520,6 +567,9 @@ type TicketJourneyStatusChangedData struct {
 	FromStatus string `json:"from_status"`
 	// ToStatus is the TicketJourneyStatus name after the successful upsert.
 	ToStatus string `json:"to_status"`
+	// ChangeTime is when the status was stored (the use case's clock), the
+	// time the fact happened.
+	ChangeTime time.Time `json:"change_time"`
 }
 
 // SeriesImageUploadedData is the payload for SERIES_IMAGE.uploaded events.
@@ -537,4 +587,74 @@ type SeriesImageUploadedData struct {
 	// from the series image row (stored on insert by SetCoverImage) so it can compose
 	// all bucket paths without an extra DB lookup.
 	SeriesID string `json:"series_id"`
+}
+
+// ArtistHypeChangedData is the payload for ARTIST.hype_changed. Mapped to the
+// catalogue event artist.hype.changed by the analytics-consumer. Published by
+// FollowUseCase.SetHype on every successful set. The previous level is not
+// carried: it is the level of the fan's previous signal for the artist, or
+// the default at follow.
+type ArtistHypeChangedData struct {
+	// UserID is the platform-internal user identifier of the fan. Used as the
+	// PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// ArtistID is the internal UUID of the followed artist.
+	ArtistID string `json:"artist_id"`
+	// Hype is the level set (e.g. "away").
+	Hype string `json:"hype"`
+	// SetTime is when the level was set, the time the fact happened.
+	SetTime time.Time `json:"set_time"`
+}
+
+// LotteryEntryDrawnData is the payload for ORDER.lottery_entry_drawn. It
+// carries ids only, never personal data. Mapped to the catalogue event
+// ticket.lottery.result by the analytics-consumer.
+type LotteryEntryDrawnData struct {
+	// LotteryEntryID is the drawn entry.
+	LotteryEntryID string `json:"lottery_entry_id"`
+	// UserID is the platform-internal id of the entry's fan.
+	UserID string `json:"user_id"`
+	// TicketSaleID is the drawn Lottery sale.
+	TicketSaleID string `json:"ticket_sale_id"`
+	// TicketTypeID is the TicketType the entry was for.
+	TicketTypeID string `json:"ticket_type_id"`
+	// Result is the entry's result, "won" or "lost" ([LotteryEntryState]
+	// String).
+	Result string `json:"result"`
+	// CaptureFailed is true for a loss that came from a failed capture of a
+	// drawn winner's card authorization.
+	CaptureFailed bool `json:"capture_failed"`
+	// DrawTime is when the draw ran, the time the fact happened.
+	DrawTime time.Time `json:"draw_time"`
+}
+
+// CheckoutExpiredData is the payload for ORDER.checkout_expired. It carries
+// ids and counts only. Mapped to the catalogue event checkout.expired by the
+// analytics-consumer.
+type CheckoutExpiredData struct {
+	// CheckoutID is the expired Checkout.
+	CheckoutID string `json:"checkout_id"`
+	// UserID is the platform-internal id of the Checkout's fan.
+	UserID string `json:"user_id"`
+	// TicketTypeID is the TicketType the Checkout held.
+	TicketTypeID string `json:"ticket_type_id"`
+	// TicketCount is the number of tickets the Checkout held.
+	TicketCount int `json:"ticket_count"`
+	// HoldExpireTime is when the Checkout's hold lapsed, the time the fact
+	// happened.
+	HoldExpireTime time.Time `json:"hold_expire_time"`
+}
+
+// TicketAdmittedData is the payload for ORDER.ticket_admitted. It carries ids
+// only. Mapped to the catalogue event ticket.admitted by the
+// analytics-consumer.
+type TicketAdmittedData struct {
+	// TicketID is the admitted Ticket.
+	TicketID string `json:"ticket_id"`
+	// UserID is the platform-internal id of the Ticket's fan.
+	UserID string `json:"user_id"`
+	// EventID is the event the Ticket admits to.
+	EventID string `json:"event_id"`
+	// AdmitTime is when the Ticket was admitted, the time the fact happened.
+	AdmitTime time.Time `json:"admit_time"`
 }

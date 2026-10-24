@@ -42,6 +42,7 @@ type concertCreationUseCase struct {
 	suppressedConcertRepo entity.SuppressedConcertRepository
 	placeSearcher         entity.VenuePlaceSearcher
 	publisher             EventPublisher
+	analytics             AnalyticsClient
 	logger                *logging.Logger
 }
 
@@ -49,7 +50,8 @@ type concertCreationUseCase struct {
 var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 
 // NewConcertCreationUseCase creates a new ConcertCreationUseCase.
-// placeSearcher must not be nil; panics if not provided.
+// placeSearcher must not be nil; panics if not provided. analytics may be
+// nil; the batch outcome is then not reported.
 func NewConcertCreationUseCase(
 	concertCandidateRepo entity.ConcertCandidateRepository,
 	venueRepo entity.VenueRepository,
@@ -58,6 +60,7 @@ func NewConcertCreationUseCase(
 	suppressedConcertRepo entity.SuppressedConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
 	publisher EventPublisher,
+	analytics AnalyticsClient,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
 	if placeSearcher == nil {
@@ -71,8 +74,15 @@ func NewConcertCreationUseCase(
 		suppressedConcertRepo: suppressedConcertRepo,
 		placeSearcher:         placeSearcher,
 		publisher:             publisher,
+		analytics:             analytics,
 		logger:                logger,
 	}
+}
+
+// ingestTally counts what one CreateFromDiscovered batch did with its events,
+// for the concert.ingest.completed signal.
+type ingestTally struct {
+	published, staged, filled, suppressed, conflicts int
 }
 
 // CreateFromDiscovered processes a discovered concert batch grouped by series.
@@ -107,6 +117,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	// Avoids redundant Places API calls for the same venue within one batch,
 	// shared across every series of this artist's batch.
 	newPlaces := make(map[string]*entity.VenuePlace)
+	tally := &ingestTally{}
 
 	// mintedSeriesIDs collects the series this batch newly created, so the
 	// end-of-batch orphan sweep is scoped to them alone and cannot delete another
@@ -124,7 +135,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			continue
 		}
 
-		mintedID, err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces)
+		mintedID, err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces, tally)
 		if err != nil {
 			return err
 		}
@@ -144,6 +155,16 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		// Non-fatal: an orphaned series row is harmless and swept next run.
 	}
 
+	// The message context carries the trace of the search that found the
+	// batch, so the signal joins that search's signals.
+	sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, AnalyticsProperties{
+		"artist_id":        data.ArtistID,
+		"published_count":  tally.published,
+		"staged_count":     tally.staged,
+		"filled_count":     tally.filled,
+		"suppressed_count": tally.suppressed,
+		"conflict_count":   tally.conflicts,
+	})
 	return nil
 }
 
@@ -157,6 +178,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	artistID string,
 	series *entity.DiscoveredSeries,
 	newPlaces map[string]*entity.VenuePlace,
+	tally *ingestTally,
 ) (string, error) {
 	seriesID, existed, existingEvents, err := resolveSeriesForGroup(ctx, artistID, series.Events, uc.concertRepo)
 	if err != nil {
@@ -201,11 +223,12 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 			continue
 		}
 
-		ids, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces)
+		ids, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces, tally)
 		if err != nil {
 			return "", err
 		}
 		insertedIDs = append(insertedIDs, ids...)
+		tally.published += len(ids)
 	}
 
 	// Publish ONE CONCERT.created per discovered series carrying every newly
@@ -245,6 +268,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	sameDateEvents []*entity.Event,
 	claimedFill map[string]bool,
 	newPlaces map[string]*entity.VenuePlace,
+	tally *ingestTally,
 ) ([]string, error) {
 	// Re-discovery fast-path: an existing (artist, date) event at the same listed
 	// venue is a re-discovery. Skip the Places API entirely; fill a known start
@@ -263,6 +287,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 				); err != nil {
 					return nil, fmt.Errorf("fill event start times: %w", err)
 				}
+				tally.filled++
 				uc.logger.Info(ctx, "filled existing event start time on re-discovery (no new concert)",
 					slog.String("artist_id", artistID),
 					slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
@@ -278,7 +303,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		// instead of inserting a phantom NULL-start duplicate.
 		venueID := sameVenue[0].VenueID
 		candidate := buildConcertCandidate(entity.NewID(), artistID, seriesID, series, ev, nil)
-		return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate)
+		return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate, tally)
 	}
 
 	place, err := uc.resolvePlace(ctx, ev.ListedVenueName, ev.AdminArea, newPlaces)
@@ -297,6 +322,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
 			return nil, fmt.Errorf("upsert concert candidate (unresolved venue) %q: %w", series.Title, err)
 		}
+		tally.staged++
 		uc.logger.Info(ctx, "concert candidate with unresolved venue for review", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("artist_id", artistID),
 			slog.String("concert_candidate_id", candidate.ID),
@@ -314,7 +340,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		return nil, fmt.Errorf("resolve or create venue for %q: %w", series.Title, err)
 	}
 
-	return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate)
+	return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate, tally)
 }
 
 // stageOrInsert runs the shared tail for a resolved-venue event: the suppression
@@ -331,6 +357,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 	ev *entity.DiscoveredEvent,
 	venueID string,
 	candidate *entity.ConcertCandidate,
+	tally *ingestTally,
 ) ([]string, error) {
 	// Suppression gate: a deleted-then-rediscovered slot is skipped entirely.
 	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
@@ -338,6 +365,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		return nil, fmt.Errorf("check suppression for %q: %w", series.Title, err)
 	}
 	if suppressed {
+		tally.suppressed++
 		uc.logger.Info(ctx, "skipping suppressed concert (deleted by an admin)",
 			slog.String("artist_id", artistID),
 			slog.String("venue_id", venueID),
@@ -356,6 +384,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
 			return nil, fmt.Errorf("upsert concert candidate (conflict) %q: %w", series.Title, err)
 		}
+		tally.conflicts++
 		uc.logger.Info(ctx, "conflicting concert kept as a candidate for reconciliation", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 			slog.String("artist_id", artistID),
 			slog.String("concert_candidate_id", candidate.ID),

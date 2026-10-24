@@ -182,6 +182,11 @@ type JobConfig struct {
 
 	// FanartTV API Key for artist image sync job
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
+
+	// PostHog configuration for the pipeline signals of the concert-discovery
+	// and sales-phase-discovery jobs (search outcomes and external model
+	// usage). Optional: with no project API key the jobs report nothing.
+	PostHog PostHogConfig `envconfig:""`
 }
 
 // ConsumerConfig is the configuration for the event consumer workload.

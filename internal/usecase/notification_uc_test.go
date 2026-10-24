@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -112,11 +113,10 @@ func TestDeliver_Success(t *testing.T) {
 	// Delivered ⇒ exactly one NOTIFICATION.delivered emit, keyed by notification_id.
 	publisher := ucmocks.NewMockEventPublisher(t)
 	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
-			UserID:         "user-1",
-			NotificationID: "01890000-0000-7000-8000-000000000abc",
-			Type:           string(entity.NotificationTypeNewConcerts),
-		}).
+		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.MatchedBy(func(d entity.NotificationDeliveredData) bool {
+			return d.UserID == "user-1" && d.NotificationID == "01890000-0000-7000-8000-000000000abc" &&
+				d.Type == string(entity.NotificationTypeNewConcerts) && !d.DeliverTime.IsZero()
+		})).
 		Return(nil).
 		Once()
 
@@ -132,6 +132,53 @@ func TestDeliver_Success(t *testing.T) {
 	require.Len(t, pushed, 2)
 	for _, msg := range pushed {
 		assert.Contains(t, string(msg), "01890000-0000-7000-8000-000000000abc")
+	}
+}
+
+// The pushed message names the recorded Notification's type next to its id.
+//
+// @spec components/usecase/notification/deliver "Message names its type"
+func TestDeliver_MessageNamesType(t *testing.T) {
+	t.Parallel()
+
+	notifRepo := entitymocks.NewMockNotificationRepository(t)
+	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
+	sender := entitymocks.NewMockPushNotificationSender(t)
+	publisher := ucmocks.NewMockEventPublisher(t)
+
+	notifRepo.EXPECT().
+		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
+		Run(func(_ context.Context, n *entity.Notification) { n.ID = "notif-type-1" }).
+		Return(nil)
+	pushSubRepo.EXPECT().
+		ListByUserIDs(anyCtx, []string{"user-1"}).
+		Return([]*entity.PushSubscription{sub("user-1", "https://push/1"), sub("user-1", "https://push/2")}, nil)
+	var pushed [][]byte
+	sender.EXPECT().
+		Send(anyCtx, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("*entity.PushSubscription")).
+		RunAndReturn(func(_ context.Context, msg []byte, _ *entity.PushSubscription) error {
+			pushed = append(pushed, msg)
+			return nil
+		}).
+		Times(2)
+	notifRepo.EXPECT().
+		UpdateDelivery(anyCtx, "notif-type-1", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
+		Return(nil)
+	publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
+		Return(nil)
+
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeSalesReminder, notifPayload())
+	require.NoError(t, err)
+
+	require.Len(t, pushed, 2)
+	for _, raw := range pushed {
+		var msg entity.NotificationPayload
+		require.NoError(t, json.Unmarshal(raw, &msg))
+		assert.Equal(t, "sales_reminder", msg.Data["type"])
+		assert.Equal(t, "notif-type-1", msg.Data["notification_id"])
+		assert.Equal(t, "/concerts", msg.Data["url"])
 	}
 }
 

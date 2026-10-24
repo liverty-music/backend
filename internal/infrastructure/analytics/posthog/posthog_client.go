@@ -32,6 +32,15 @@ const DefaultAPIHost = "https://eu.i.posthog.com"
 // Cloud Trace spans during incident investigation.
 const tracePropertyKey = "trace_id"
 
+// Properties added to every personless event.
+const (
+	processPropertyKey    = "process"
+	appVersionPropertyKey = "app_version"
+	// personProfilePropertyKey is PostHog's switch for person processing;
+	// false records the event without creating a person for the process.
+	personProfilePropertyKey = "$process_person_profile"
+)
+
 // enqueuer is the minimal subset of the posthog SDK Client that this
 // adapter depends on. Declaring it here lets tests inject a fake without
 // implementing the dozen feature-flag methods on the full posthog.Client
@@ -52,7 +61,11 @@ type enqueuer interface {
 // stays at the infrastructure layer where lifecycle concerns belong.
 type AnalyticsClient struct {
 	client enqueuer
-	logger *logging.Logger
+	// process is the distinct id of personless events and their `process`
+	// property; appVersion is their `app_version` property.
+	process    string
+	appVersion string
+	logger     *logging.Logger
 
 	closeOnce sync.Once
 	closeErr  error
@@ -64,12 +77,17 @@ var _ usecase.AnalyticsClient = (*AnalyticsClient)(nil)
 // New constructs an AnalyticsClient backed by a PostHog SDK client
 // configured against the given apiHost and projectAPIKey.
 //
+// process names the workload the client runs in (the telemetry service
+// name, e.g. "liverty-music-concert-discovery") and appVersion its release
+// version; both identify the personless events. process MUST
+// be non-empty.
+//
 // projectAPIKey MUST be non-empty after trimming whitespace; the
 // posthog-go SDK trims the key internally and silently returns a no-op
 // client when the trimmed value is empty (posthog.go:225-229 in v1.13.1).
 // Without an explicit guard here, a misconfigured secret containing only
 // whitespace would pass the constructor and cause every subsequent
-// Enqueue call to be silently discarded in production.
+// Capture call to be silently discarded in production.
 //
 // If apiHost is empty, DefaultAPIHost (PostHog Cloud EU) is used. logger
 // is required; tests in the gemini/musicbrainz/lastfm adapters
@@ -79,7 +97,7 @@ var _ usecase.AnalyticsClient = (*AnalyticsClient)(nil)
 // The returned client owns a background worker that flushes events
 // asynchronously; call Close at process shutdown to flush in-flight
 // events.
-func New(apiHost, projectAPIKey string, logger *logging.Logger) (*AnalyticsClient, error) {
+func New(apiHost, projectAPIKey, process, appVersion string, logger *logging.Logger) (*AnalyticsClient, error) {
 	if strings.TrimSpace(projectAPIKey) == "" {
 		return nil, apperr.New(codes.InvalidArgument, "posthog: project API key must not be empty or whitespace-only")
 	}
@@ -89,6 +107,9 @@ func New(apiHost, projectAPIKey string, logger *logging.Logger) (*AnalyticsClien
 	if logger == nil {
 		return nil, apperr.New(codes.InvalidArgument, "posthog: logger must not be nil")
 	}
+	if strings.TrimSpace(process) == "" {
+		return nil, apperr.New(codes.InvalidArgument, "posthog: process must not be empty")
+	}
 
 	sdkClient, err := posthogsdk.NewWithConfig(projectAPIKey, posthogsdk.Config{
 		Endpoint: apiHost,
@@ -96,69 +117,91 @@ func New(apiHost, projectAPIKey string, logger *logging.Logger) (*AnalyticsClien
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "create posthog client")
 	}
-	return newWithEnqueuer(sdkClient, logger), nil
+	return newWithEnqueuer(sdkClient, process, appVersion, logger), nil
 }
 
 // newWithEnqueuer wraps an existing enqueuer. Exposed for tests via
 // export_test.go.
-func newWithEnqueuer(client enqueuer, logger *logging.Logger) *AnalyticsClient {
+func newWithEnqueuer(client enqueuer, process, appVersion string, logger *logging.Logger) *AnalyticsClient {
 	return &AnalyticsClient{
-		client: client,
-		logger: logger,
+		client:     client,
+		process:    process,
+		appVersion: appVersion,
+		logger:     logger,
 	}
 }
 
-// Enqueue implements usecase.AnalyticsClient.
+// Capture implements usecase.AnalyticsClient.
 //
 // Validation:
-//   - distinctID must be a valid UUID; the platform `UserId` is a UUID
-//     (see entity/v1/user.proto). This catches the misuse of passing
-//     the Zitadel `sub` claim (also a UUID-like string but issued by a
-//     different namespace) when it differs from a UUID format. Even
-//     when sub happens to be a UUID, this validation enforces format
-//     hygiene at the boundary.
-//   - eventName must be registered in usecase.IsKnownEvent. A typo'd
-//     constant (e.g. AnalyticsEventName("ticket.purcase.completed"))
-//     would otherwise silently fragment dashboards.
+//   - Name must be registered in usecase.IsKnownEvent. A typo'd constant
+//     (e.g. AnalyticsEventName("ticket.purcase.completed")) would otherwise
+//     silently fragment dashboards.
+//   - UUID must be a UUID: it becomes the capture's uuid, which PostHog
+//     deduplicates on together with the event name, timestamp and distinct
+//     id.
+//   - Time must be set: it becomes the capture's timestamp.
+//   - DistinctID of a fan event must be a valid UUID; the platform `UserId`
+//     is a UUID (see entity/v1/user.proto). This catches the misuse of
+//     passing the Zitadel `sub` claim.
+//
+// A Personless event is sent as the process with `process`, `app_version`
+// and `$process_person_profile: false`, so PostHog creates no person for it.
 //
 // Context handling:
 //   - ctx is inspected for an active OpenTelemetry span; if found, its
 //     trace ID is injected as the `trace_id` property unless the caller
 //     already supplied one.
 //   - ctx cancellation does NOT abort the SDK send: posthog-go's public
-//     Client interface does not expose a context-aware Enqueue
-//     (EnqueueWithContext is unexported), so the wrapper falls back to
-//     the SDK's synchronous-into-async-queue Enqueue.
+//     Client interface does not expose a context-aware Enqueue.
 //
-// The supplied properties map is never mutated; trace_id injection,
-// when applied, happens on a defensive copy.
-func (c *AnalyticsClient) Enqueue(
-	ctx context.Context,
-	distinctID string,
-	eventName usecase.AnalyticsEventName,
-	properties usecase.AnalyticsProperties,
-) error {
+// The supplied properties map is never mutated.
+func (c *AnalyticsClient) Capture(ctx context.Context, event usecase.AnalyticsEvent) error {
+	if event.Name == "" {
+		return apperr.New(codes.InvalidArgument, "posthog: event name must not be empty")
+	}
+	if !usecase.IsKnownEvent(event.Name) {
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("posthog: unknown event name %q (not in usecase.IsKnownEvent allowlist)", event.Name))
+	}
+	if _, err := uuid.Parse(event.UUID); err != nil {
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("posthog: event UUID must be a UUID (got %q)", event.UUID))
+	}
+	if event.Time.IsZero() {
+		return apperr.New(codes.InvalidArgument, "posthog: event time must not be zero")
+	}
+
+	distinctID := event.DistinctID
+	props := event.Properties
+	if event.Personless {
+		distinctID = c.process
+		props = make(usecase.AnalyticsProperties, len(event.Properties)+3)
+		maps.Copy(props, event.Properties)
+		props[processPropertyKey] = c.process
+		props[appVersionPropertyKey] = c.appVersion
+		props[personProfilePropertyKey] = false
+	} else if err := validateDistinctID(distinctID); err != nil {
+		return err
+	}
+
+	if err := c.client.Enqueue(posthogsdk.Capture{
+		Uuid:       event.UUID,
+		DistinctId: distinctID,
+		Event:      string(event.Name),
+		Timestamp:  event.Time,
+		Properties: buildSDKProperties(ctx, props),
+	}); err != nil {
+		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("posthog enqueue %s", event.Name))
+	}
+	return nil
+}
+
+// validateDistinctID rejects an empty or non-UUID fan distinct id.
+func validateDistinctID(distinctID string) error {
 	if distinctID == "" {
 		return apperr.New(codes.InvalidArgument, "posthog: distinctID must not be empty")
 	}
 	if _, err := uuid.Parse(distinctID); err != nil {
 		return apperr.New(codes.InvalidArgument, fmt.Sprintf("posthog: distinctID must be a UUID (got %q)", distinctID))
-	}
-	if eventName == "" {
-		return apperr.New(codes.InvalidArgument, "posthog: eventName must not be empty")
-	}
-	if !usecase.IsKnownEvent(eventName) {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("posthog: unknown eventName %q (not in usecase.IsKnownEvent allowlist)", eventName))
-	}
-
-	sdkProps := buildSDKProperties(ctx, properties)
-
-	if err := c.client.Enqueue(posthogsdk.Capture{
-		DistinctId: distinctID,
-		Event:      string(eventName),
-		Properties: sdkProps,
-	}); err != nil {
-		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("posthog enqueue %s", eventName))
 	}
 	return nil
 }

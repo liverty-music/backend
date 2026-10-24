@@ -69,6 +69,7 @@ func loginEventBody(t *testing.T, eventType, userID string) []byte {
 		// Top-level userID is the editor (Login-UI service user); the handler
 		// must ignore it and read the decoded event_payload instead.
 		"userID":        "login-ui-editor",
+		"created_at":    "2026-10-22T03:04:05.123456Z",
 		"event_payload": base64.StdEncoding.EncodeToString(raw),
 	})
 	require.NoError(t, err)
@@ -103,6 +104,8 @@ func TestLoginEventHandler_UserInitiatedLogin_EmitsAccountLoginOnce(t *testing.T
 	data, ok := pub.data.(entity.UserLoggedInData)
 	require.True(t, ok, "published data must be entity.UserLoggedInData")
 	assert.Equal(t, "platform-uuid-1", data.UserID)
+	// The login time is the Zitadel event's created_at.
+	assert.Equal(t, time.Date(2026, 10, 22, 3, 4, 5, 123456000, time.UTC), data.LoginTime.UTC())
 }
 
 func TestLoginEventHandler_InvalidSignature_Rejected_NoPublish(t *testing.T) {

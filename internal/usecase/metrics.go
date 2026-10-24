@@ -35,7 +35,7 @@ type PushMetrics interface {
 // RecordMessage.
 type AnalyticsConsumerMetrics interface {
 	// RecordMessage increments the per-event counter. status is one of:
-	// "forwarded" (Enqueue accepted), "skipped_nil_client",
+	// "forwarded" (Capture accepted), "skipped_nil_client",
 	// "skipped_empty_user_id", "skipped_parse_error", "enqueue_error".
 	RecordMessage(ctx context.Context, status string)
 	// RecordLag records the time between the CloudEvent's publish

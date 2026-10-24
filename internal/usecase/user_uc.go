@@ -372,6 +372,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		UserID:         user.ID,
 		ProviderUserID: user.ProviderUserID,
 		Email:          user.Email,
+		CreateTime:     time.Now(),
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish user.created event", err,
 			slog.String("user_id", user.ID),

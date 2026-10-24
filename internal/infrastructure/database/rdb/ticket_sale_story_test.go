@@ -45,10 +45,6 @@ func (p *storyPublisher) PublishEvent(_ context.Context, subject string, data an
 	return nil
 }
 
-func (p *storyPublisher) PublishEventWithID(ctx context.Context, subject, _ string, data any) error {
-	return p.PublishEvent(ctx, subject, data)
-}
-
 func (p *storyPublisher) take(subject string) []any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -275,7 +271,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
-		searcher, d.pub, d.logger)
+		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
 		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
 

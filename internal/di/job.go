@@ -10,6 +10,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
@@ -71,6 +72,13 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 
+	// Infrastructure - PostHog analytics client for the search signals
+	// (optional: nil without POSTHOG_PROJECT_API_KEY).
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	// Infrastructure - Gemini
 	//
 	// Fail fast in non-local environments: without the key the job would run
@@ -88,6 +96,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 			OmitTemperature: true,
 
 			IncludeServerSideToolInvocations: true,
+			Reporter:                         posthog.NewGenerationReporter(analyticsClient, logger),
 		}, geminiHTTPClient, gemini.NewOfficialPageClient(), logger)
 		if err != nil {
 			return nil, err
@@ -119,7 +128,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

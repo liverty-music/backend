@@ -107,7 +107,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			Once()
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 		d.publisher.EXPECT().
-			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-1"}).
+			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, mock.MatchedBy(func(d entity.OrganizerCreatedData) bool { return d.OrganizerID == "org-1" && !d.ActivateTime.IsZero() })).
 			Return(nil).
 			Once()
 	}
@@ -361,7 +361,7 @@ func TestOrganizerUseCase_Create_sameNameTwice(t *testing.T) {
 			Return(true, nil).
 			Once()
 		d.publisher.EXPECT().
-			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: c.id}).
+			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, mock.MatchedBy(func(d entity.OrganizerCreatedData) bool { return d.OrganizerID == c.id && !d.ActivateTime.IsZero() })).
 			Return(nil).
 			Once()
 	}
@@ -676,7 +676,9 @@ func TestOrganizerUseCase_AssociateArtist(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(mock.Anything, entity.SubjectOrganizerArtistAssociated, entity.OrganizerArtistAssociatedData{OrganizerID: "org-1", ArtistID: "artist-1"}).
+					PublishEvent(mock.Anything, entity.SubjectOrganizerArtistAssociated, mock.MatchedBy(func(d entity.OrganizerArtistAssociatedData) bool {
+						return d.OrganizerID == "org-1" && d.ArtistID == "artist-1" && !d.AssociateTime.IsZero()
+					})).
 					Return(nil).
 					Once()
 			},
@@ -1017,7 +1019,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 	expectActivation := func(d *organizerTestDeps, id string) {
 		d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: id}).Return(nil).Once()
+		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, mock.MatchedBy(func(d entity.OrganizerCreatedData) bool { return d.OrganizerID == id && !d.ActivateTime.IsZero() })).Return(nil).Once()
 	}
 
 	// @spec components/usecase/organizer/reconcile-provisioning "Organization already recorded"

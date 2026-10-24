@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -29,6 +30,10 @@ type TicketSaleSearcherConfig struct {
 	// Thinking is the thinking level ("low", "medium", "high"). Empty leaves
 	// the model default.
 	Thinking string
+
+	// Reporter receives one generation per request sent to the model. Nil
+	// reports nothing.
+	Reporter GenerationReporter
 }
 
 const (
@@ -216,36 +221,59 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 	cfg := s.buildConfig(now, seriesIDs)
 	prompt := publishedSalesUserPrompt(now, in, seriesIDs, series)
 
-	resp, err := s.call(ctx, prompt, cfg)
+	// Every request sent below is reported once, after the response is
+	// read so the last one carries what was kept.
+	base := posthog.LLMGeneration{
+		Model: s.config.Model,
+		Request: posthog.LLMRequest{
+			ArtistID:        in.ArtistID,
+			OfficialSiteURL: in.OfficialSiteURL,
+			SeriesIDs:       seriesIDs,
+		},
+	}
+	var gens []posthog.LLMGeneration
+	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
+	// fail marks the last request with errorKind.
+	fail := func(errorKind string) {
+		if len(gens) > 0 {
+			gens[len(gens)-1].ErrorKind = errorKind
+		}
+	}
+
+	resp, err := s.call(ctx, prompt, cfg, base, &gens)
 	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
 		s.logger.Warn(ctx, "TicketSaleSearcher: request rejected as invalid, retrying once without the tool-invocation report",
 			append(attrs, slog.String("error", err.Error()))...)
 		reduced := *cfg
 		reduced.ToolConfig = nil
 		attrs = append(attrs, slog.Bool("tool_report_dropped", true))
-		resp, err = s.call(ctx, prompt, &reduced)
+		resp, err = s.call(ctx, prompt, &reduced, base, &gens)
 	}
 	if err != nil {
 		return nil, publishedSalesCallErr(err, attrs...)
 	}
 
-	text, err := s.readResponse(ctx, resp, attrs)
+	text, errorKind, err := s.readResponse(ctx, resp, attrs)
 	if err != nil {
+		fail(errorKind)
 		return nil, err
 	}
 
 	var out publishedSalesResponse
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		fail(errorKindInvalidJSON)
 		return nil, apperr.Wrap(err, codes.Internal, "TicketSaleSearcher: response is not valid JSON", attrs...)
 	}
 
 	candidates := make([]*entity.DiscoveredTicketSale, 0, len(out.Phases))
+	dropped := map[string]int{}
 	for _, p := range out.Phases {
 		if p == nil {
 			continue
 		}
 		c, reason := validatePublishedSale(p, now, series)
 		if reason != "" {
+			dropped[reason]++
 			s.logger.Info(ctx, "TicketSaleSearcher: dropping sale",
 				append(attrs,
 					slog.String("reason", reason),
@@ -257,6 +285,7 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 		}
 		candidates = append(candidates, c)
 	}
+	gens[len(gens)-1].Sales = &posthog.SaleParseResult{Returned: len(out.Phases), Kept: len(candidates), Dropped: dropped}
 
 	s.logger.Info(ctx, "TicketSaleSearcher: search complete",
 		append(attrs,
@@ -266,15 +295,29 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 	return candidates, nil
 }
 
-// call makes one grounded call within publishedSalesCallTimeout.
+// call makes one grounded call within publishedSalesCallTimeout and appends
+// it to gens as base filled from the response, with its latency and, for a
+// failed call, its error kind.
 func (s *TicketSaleSearcher) call(
 	ctx context.Context,
 	prompt string,
 	cfg *genai.GenerateContentConfig,
+	base posthog.LLMGeneration,
+	gens *[]posthog.LLMGeneration,
 ) (*genai.GenerateContentResponse, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, publishedSalesCallTimeout)
 	defer cancel()
-	return s.generate(reqCtx, s.config.Model, genai.Text(prompt), cfg)
+	start := time.Now()
+	resp, err := s.generate(reqCtx, s.config.Model, genai.Text(prompt), cfg)
+	gen := base
+	gen.Latency = time.Since(start)
+	gen.EndTime = start.Add(gen.Latency)
+	fillFromResponse(&gen, resp)
+	if err != nil {
+		gen.ErrorKind = callErrorKind(reqCtx, err)
+	}
+	*gens = append(*gens, gen)
+	return resp, err
 }
 
 // buildConfig builds the request configuration (design D1). Temperature is
@@ -344,15 +387,16 @@ func eventPeriod(sr *entity.SalesSeriesRef) (first, last time.Time, ok bool) {
 }
 
 // readResponse logs the response metadata and returns the JSON text of the
-// first candidate. An empty or cut-off response is an Internal error.
+// first candidate. An empty or cut-off response is an Internal error, returned
+// with its generation error kind.
 func (s *TicketSaleSearcher) readResponse(
 	ctx context.Context,
 	resp *genai.GenerateContentResponse,
 	attrs []slog.Attr,
-) (string, error) {
+) (string, string, error) {
 	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0] == nil || resp.Candidates[0].Content == nil {
 		s.logResponseMetadata(ctx, resp, nil, attrs)
-		return "", apperr.New(codes.Internal, "TicketSaleSearcher: response has no candidate", attrs...)
+		return "", errorKindNoCandidates, apperr.New(codes.Internal, "TicketSaleSearcher: response has no candidate", attrs...)
 	}
 	candidate := resp.Candidates[0]
 
@@ -381,13 +425,13 @@ func (s *TicketSaleSearcher) readResponse(
 	s.logResponseMetadata(ctx, resp, queries, attrs)
 
 	if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
-		return "", apperr.New(codes.Internal, "TicketSaleSearcher: response did not finish",
+		return "", errorKindIncomplete, apperr.New(codes.Internal, "TicketSaleSearcher: response did not finish",
 			append(attrs, slog.String("finish_reason", string(candidate.FinishReason)))...)
 	}
 	if strings.TrimSpace(text.String()) == "" {
-		return "", apperr.New(codes.Internal, "TicketSaleSearcher: response has no text", attrs...)
+		return "", errorKindNoText, apperr.New(codes.Internal, "TicketSaleSearcher: response has no text", attrs...)
 	}
-	return text.String(), nil
+	return text.String(), "", nil
 }
 
 // publishedSalesCallErr maps a failed Gemini call to an apperr code (design D4):

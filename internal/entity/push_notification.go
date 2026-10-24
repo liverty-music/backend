@@ -25,6 +25,22 @@ type NotificationPayload struct {
 // worker, establishing the end-to-end correlation key.
 const NotificationDataKeyNotificationID = "notification_id"
 
+// NotificationDataKeyType is the [NotificationPayload.Data] key under which the
+// stored notification's [NotificationType] (e.g. "sales_reminder") is
+// propagated to the client, so the service worker can report an opened or
+// dismissed notification by its type.
+const NotificationDataKeyType = "type"
+
+// NotificationDataKeyTicketSaleID is the [NotificationPayload.Data] key under
+// which a sales_reminder names the TicketSale it reminds about.
+const NotificationDataKeyTicketSaleID = "ticket_sale_id"
+
+// NotificationDataKeyMilestone is the [NotificationPayload.Data] key under which
+// a sales_reminder names the [ReminderStage] it is for, as the lowercase stage
+// name ("apply_open", "apply_close_24h" or "result_day"), so a fan's reaction
+// can be told apart by milestone.
+const NotificationDataKeyMilestone = "milestone"
+
 // NotificationDataKeyURL is the [NotificationPayload.Data] key under which the
 // deep-link target opened on notificationclick is propagated to the client.
 // Consolidated with notification_id under Data so the service worker maps the

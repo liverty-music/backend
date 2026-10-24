@@ -1,125 +1,114 @@
 package usecase_test
 
-// notificationRequestMsgID is unexported, so its determinism is exercised
-// indirectly through the producers that call it (PushSubscriptionUseCase.
-// NotifyNewConcerts, TicketSaleAnnouncementUseCase.AnnounceDiscoveredSale):
-// this test asserts the id EventPublisher.PublishEventWithID actually
-// receives is stable across repeated calls with the same business keys, and
-// differs when the recipient differs — the property NATS Msg-Id
-// deduplication (see infrastructure/messaging/streams.go's Duplicates
-// window) depends on.
+// A trigger delivered twice (an at-least-once redelivery of
+// SALES_PHASE.discovered or CONCERT.created) makes two NOTIFICATION.requested
+// publishes for the same recipient, each a new CloudEvent with its own id; the
+// second push replaces the first on the device by its Tag. These tests run
+// the producers twice over a real EventPublisher and read the message ids.
 
 import (
 	"context"
+	"sync"
 	"testing"
+
+	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
-// TestAnnounceDiscoveredSale_RequestIDIsDeterministic verifies that
-// publishing NOTIFICATION.requested for the same sale and the same
-// recipient twice (simulating an at-least-once redelivery of
-// SALES_PHASE.discovered) derives the identical id both times, and that a
-// different recipient derives a different id — so an accidental collision
-// wouldn't silently swallow a distinct recipient's request.
+// capturingPublisher is a watermill publisher that keeps every published
+// message.
+type capturingPublisher struct {
+	mu   sync.Mutex
+	msgs []*message.Message
+}
+
+func (p *capturingPublisher) Publish(_ string, msgs ...*message.Message) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.msgs = append(p.msgs, msgs...)
+	return nil
+}
+
+func (p *capturingPublisher) Close() error { return nil }
+
+// ids returns the CloudEvent ids of the published messages.
+func (p *capturingPublisher) ids() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.msgs))
+	for _, m := range p.msgs {
+		out = append(out, m.Metadata.Get("ce_id"))
+	}
+	return out
+}
+
+// TestAnnounceDiscoveredSale_SameSaleTwice verifies that announcing the same
+// sale twice for the same recipient makes two requests, each with its own id.
 //
 // @spec components/usecase/ticket-sale/announce-discovered-sale "Same sale announced twice"
-func TestAnnounceDiscoveredSale_RequestIDIsDeterministic(t *testing.T) {
+func TestAnnounceDiscoveredSale_SameSaleTwice(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	runOnce := func(t *testing.T, userIDs []string) []string {
-		t.Helper()
-		userRepo := entitymocks.NewMockUserRepository(t)
-		journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
-		seriesRepo := entitymocks.NewMockSeriesRepository(t)
-		publisher := ucmocks.NewMockEventPublisher(t)
-		uc := usecase.NewTicketSaleAnnouncementUseCase(userRepo, journeyRepo, seriesRepo, publisher, newTestLogger(t))
+	userRepo := entitymocks.NewMockUserRepository(t)
+	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
+	seriesRepo := entitymocks.NewMockSeriesRepository(t)
+	wm := &capturingPublisher{}
+	uc := usecase.NewTicketSaleAnnouncementUseCase(userRepo, journeyRepo, seriesRepo, messaging.NewEventPublisher(wm), newTestLogger(t))
 
-		trackers := make([]*entity.SeriesTracker, len(userIDs))
-		for i, uid := range userIDs {
-			trackers[i] = &entity.SeriesTracker{UserID: uid, EventID: "event-1"}
-		}
-		journeyRepo.EXPECT().ListUserIDsTrackingSeries(ctx, "series-1").Return(trackers, nil).Once()
-		seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "Tour"}, nil).Once()
-		for _, uid := range userIDs {
-			userRepo.EXPECT().Get(ctx, uid).Return(&entity.User{ID: uid}, nil).Once()
-		}
+	journeyRepo.EXPECT().ListUserIDsTrackingSeries(ctx, "series-1").
+		Return([]*entity.SeriesTracker{{UserID: "user-1", EventID: "event-1"}}, nil).Twice()
+	seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "Tour"}, nil).Twice()
+	userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1"}, nil).Twice()
 
-		var ids []string
-		publisher.EXPECT().
-			PublishEventWithID(mock.Anything, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
-			RunAndReturn(func(_ context.Context, _ string, id string, _ any) error {
-				ids = append(ids, id)
-				return nil
-			}).
-			Times(len(userIDs))
+	sale := entity.TicketSaleDiscoveredData{SeriesID: "series-1", TicketSaleID: "sale-1"}
+	require.NoError(t, uc.AnnounceDiscoveredSale(ctx, sale))
+	require.NoError(t, uc.AnnounceDiscoveredSale(ctx, sale))
 
-		require.NoError(t, uc.AnnounceDiscoveredSale(ctx, entity.TicketSaleDiscoveredData{SeriesID: "series-1", TicketSaleID: "sale-1"}))
-		return ids
-	}
-
-	firstRun := runOnce(t, []string{"user-1"})
-	secondRun := runOnce(t, []string{"user-1"})
-	require.Equal(t, firstRun, secondRun, "same sale + same recipient must derive the same id across redeliveries")
-
-	differentRecipient := runOnce(t, []string{"user-2"})
-	require.NotEqual(t, firstRun, differentRecipient, "different recipient must derive a different id")
+	ids := wm.ids()
+	require.Len(t, ids, 2, "two requests are made for the recipient")
+	assert.NotEmpty(t, ids[0])
+	assert.NotEqual(t, ids[0], ids[1], "each request is a new event with its own id")
 }
 
-// TestNotifyNewConcerts_RequestIDIsDeterministic verifies that requesting
-// new_concerts notifications twice for the same artist, concerts and follower
-// (simulating an at-least-once redelivery of CONCERT.created) derives the
-// identical id both times, and that a different follower derives a different
+// TestNotifyNewConcerts_SameConcertsTwice verifies that notifying the same
+// concerts twice to the same follower makes two requests, each with its own
 // id.
 //
 // @spec components/usecase/notification/notify-new-concerts "Same concerts notified twice"
-func TestNotifyNewConcerts_RequestIDIsDeterministic(t *testing.T) {
+func TestNotifyNewConcerts_SameConcertsTwice(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	runOnce := func(t *testing.T, userID string) []string {
-		t.Helper()
-		artistRepo := entitymocks.NewMockArtistRepository(t)
-		concertRepo := entitymocks.NewMockConcertRepository(t)
-		followRepo := entitymocks.NewMockFollowRepository(t)
-		pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-		publisher := ucmocks.NewMockEventPublisher(t)
-		uc := usecase.NewNotificationUseCase(nil, pushSubRepo, nil, publisher, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
-			usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+	artistRepo := entitymocks.NewMockArtistRepository(t)
+	concertRepo := entitymocks.NewMockConcertRepository(t)
+	followRepo := entitymocks.NewMockFollowRepository(t)
+	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
+	wm := &capturingPublisher{}
+	uc := usecase.NewNotificationUseCase(nil, pushSubRepo, nil, messaging.NewEventPublisher(wm), noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
 
-		area := "JP-13"
-		artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Once()
-		concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
-			{ID: "c1", Venue: &entity.Venue{AdminArea: &area}, Artists: []*entity.Artist{{ID: "artist-1"}}},
-		}, nil).Once()
-		followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
-			{ArtistID: "artist-1", User: &entity.User{ID: userID}, Hype: entity.HypeAway},
-		}, nil).Once()
+	area := "JP-13"
+	artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Twice()
+	concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &area}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+	}, nil).Twice()
+	followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
+	}, nil).Twice()
 
-		var ids []string
-		publisher.EXPECT().
-			PublishEventWithID(mock.Anything, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
-			RunAndReturn(func(_ context.Context, _ string, id string, _ any) error {
-				ids = append(ids, id)
-				return nil
-			}).
-			Once()
+	data := usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}
+	require.NoError(t, uc.NotifyNewConcerts(ctx, data))
+	require.NoError(t, uc.NotifyNewConcerts(ctx, data))
 
-		require.NoError(t, uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}))
-		return ids
-	}
-
-	firstRun := runOnce(t, "user-1")
-	secondRun := runOnce(t, "user-1")
-	require.Len(t, firstRun, 1)
-	require.Equal(t, firstRun, secondRun, "same artist + concerts + follower must derive the same id across redeliveries")
-
-	differentFollower := runOnce(t, "user-2")
-	require.NotEqual(t, firstRun, differentFollower, "different follower must derive a different id")
+	ids := wm.ids()
+	require.Len(t, ids, 2, "two requests are made for the follower")
+	assert.NotEmpty(t, ids[0])
+	assert.NotEqual(t, ids[0], ids[1], "each request is a new event with its own id")
 }

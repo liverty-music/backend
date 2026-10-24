@@ -392,7 +392,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 
 			uc := usecase.NewTicketSaleDiscoveryUseCase(
 				m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-				m.searcher, m.pub, logger,
+				m.searcher, m.pub, nil, logger,
 			)
 			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 
@@ -452,4 +452,89 @@ func TestTicketSaleSearchDue(t *testing.T) {
 			assert.Equal(t, tt.want, usecase.ExportedTicketSaleSearchDue(searched, tt.now))
 		})
 	}
+}
+
+func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.T) {
+	t.Parallel()
+
+	nextMonth := time.Now().AddDate(0, 1, 0)
+	series := []string{"series-a", "series-b", "series-c"}
+	// setup expects three tracked, never-searched series with no stored sale.
+	setup := func(m *discoveryMocks) {
+		m.concerts(
+			upcomingConcert("series-a", "Tour A", nextMonth),
+			upcomingConcert("series-b", "Tour B", nextMonth),
+			upcomingConcert("series-c", "Tour C", nextMonth),
+		)
+		for _, id := range series {
+			m.tracked(id, true)
+			m.sales(id)
+		}
+		m.searches(series)
+		m.officialSite()
+	}
+	sale := func(seriesID string, days int) *entity.DiscoveredTicketSale {
+		return &entity.DiscoveredTicketSale{SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: time.Now().AddDate(0, 0, days)}
+	}
+
+	t.Run("one new sale", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/discover-for-artist "One new sale"
+		m := newDiscoveryMocks(t)
+		setup(m)
+		found := []*entity.DiscoveredTicketSale{sale("series-a", 7), sale("series-b", 9)}
+		m.search(series, found, nil)
+		m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, found[0]).Return(entity.TicketSaleID("sale-new"), entity.UpsertOutcomeInserted, nil).Once()
+		m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, found[1]).Return(entity.TicketSaleID("sale-old"), entity.UpsertOutcomeUpdated, nil).Once()
+		m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, mock.Anything).Return(nil).Once()
+		m.record(series, nil)
+		analytics := &recordingAnalytics{}
+		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
+			m.searcher, m.pub, analytics, newTestLogger(t))
+
+		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+
+		assert.Equal(t, []usecase.AnalyticsProperties{{
+			"artist_id":      discoveryArtistID,
+			"outcome":        "completed",
+			"series_count":   3,
+			"returned_count": 2,
+			"new_count":      1,
+		}}, analytics.sent(usecase.EventTicketSaleSearchCompleted))
+	})
+
+	t.Run("failed search", func(t *testing.T) {
+		t.Parallel()
+		m := newDiscoveryMocks(t)
+		setup(m)
+		m.search(series, nil, apperr.New(codes.Unavailable, "gemini down"))
+		analytics := &recordingAnalytics{}
+		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
+			m.searcher, m.pub, analytics, newTestLogger(t))
+
+		_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+
+		sent := analytics.sent(usecase.EventTicketSaleSearchCompleted)
+		require.Len(t, sent, 1)
+		assert.Equal(t, "failed", sent[0]["outcome"])
+		assert.Equal(t, 3, sent[0]["series_count"])
+	})
+
+	t.Run("a signal that cannot be sent does not change the run", func(t *testing.T) {
+		t.Parallel()
+		m := newDiscoveryMocks(t)
+		setup(m)
+		m.search(series, nil, nil)
+		m.record(series, nil)
+		analytics := &recordingAnalytics{err: errors.New("queue full")}
+		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
+			m.searcher, m.pub, analytics, newTestLogger(t))
+
+		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
+		require.NoError(t, err)
+		assert.Zero(t, n)
+	})
 }

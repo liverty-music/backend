@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -105,6 +106,7 @@ func (uc *ticketJourneyUseCase) SetStatus(ctx context.Context, userID, eventID s
 		EventID:    eventID,
 		FromStatus: fromStatus.String(),
 		ToStatus:   status.String(),
+		ChangeTime: time.Now(),
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish TICKET_JOURNEY.status_changed event", err,
 			slog.String("user_id", userID),

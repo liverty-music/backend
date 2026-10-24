@@ -55,15 +55,22 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+	reporter := &recordingReporter{}
+	s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(int32, map[string]any) (int, string) {
 		return http.StatusTooManyRequests, errBody429
 	})
 
 	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
-	// Transient exhaustion degrades to no results, flagged in the metadata.
-	assert.NoError(t, err)
+	// Transient exhaustion fails the search with Unavailable, flagged in the
+	// metadata, and each of the 3 requests is reported as transient.
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	assert.Empty(t, got)
+	reported := reporter.reported()
+	require.Len(t, reported, 3)
+	for _, r := range reported {
+		assert.Equal(t, "transient", r.gen.ErrorKind)
+	}
 	require.NotNil(t, md.Grounded)
 	assert.True(t, md.Grounded.ExhaustedTransient)
 	assert.Equal(t, int32(3), calls.Load(), "3 attempts in total")
@@ -134,6 +141,7 @@ func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 		wantTitle []string
 		wantCalls int32
 		wantFlag  bool
+		wantErr   error
 	}{
 		{
 			name: "recovered on the next attempt",
@@ -147,10 +155,11 @@ func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 			wantCalls: 2,
 		},
 		{
-			name:      "every attempt incomplete degrades to no results",
+			name:      "every attempt incomplete fails with Unavailable",
 			respond:   func(int32) string { return noText },
 			wantCalls: 3,
 			wantFlag:  true,
+			wantErr:   apperr.ErrUnavailable,
 		},
 	}
 	for _, tt := range tests {
@@ -162,7 +171,11 @@ func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 
 			got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
-			require.NoError(t, err)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 			titles := make([]string, 0, len(got))
 			for _, ds := range got {
 				titles = append(titles, ds.Title)

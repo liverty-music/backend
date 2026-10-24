@@ -43,16 +43,15 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 	return d
 }
 
-// expectAnnouncementRequested sets up a PublishEventWithID expectation
+// expectAnnouncementRequested sets up a PublishEvent expectation
 // matching a NOTIFICATION.requested publish for the given recipient with a
 // ticket_sale_announcement payload satisfying payloadMatches.
 func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
-			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
-				return data.UserID == userID && data.Type == entity.NotificationTypeTicketSaleAnnouncement && payloadMatches(data.Payload)
-			})).
+		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+			return data.UserID == userID && data.Type == entity.NotificationTypeTicketSaleAnnouncement && payloadMatches(data.Payload)
+		})).
 		Return(nil).
 		Once()
 }
@@ -173,11 +172,11 @@ func TestAnnounceDiscoveredSale_PublishError_PropagatesAndAborts(t *testing.T) {
 	}
 	publishErr := errors.New("nats unavailable")
 	d.publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), requestedFor("user-1")).
+		PublishEvent(anyCtx, entity.SubjectNotificationRequested, requestedFor("user-1")).
 		Return(nil).
 		Once()
 	d.publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), requestedFor("user-2")).
+		PublishEvent(anyCtx, entity.SubjectNotificationRequested, requestedFor("user-2")).
 		Return(publishErr).
 		Once()
 	// No request is expected for user-3: a third publish would fail the mock.
@@ -185,7 +184,7 @@ func TestAnnounceDiscoveredSale_PublishError_PropagatesAndAborts(t *testing.T) {
 	err := d.uc.AnnounceDiscoveredSale(ctx, discoveredLottery())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, publishErr)
-	d.publisher.AssertNumberOfCalls(t, "PublishEventWithID", 2)
+	d.publisher.AssertNumberOfCalls(t, "PublishEvent", 2)
 }
 
 func TestBuildAnnouncementPayload(t *testing.T) {
