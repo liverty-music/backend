@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAdminServer_ConcertListByArtist covers admin ConcertService.List with an
-// artist through the admin server's validation and role gate.
+// TestAdminServer_ConcertListByArtist covers admin ConcertService.ListByArtist
+// through the admin server's validation and role gate.
 func TestAdminServer_ConcertListByArtist(t *testing.T) {
 	t.Parallel()
 
@@ -49,10 +49,10 @@ func TestAdminServer_ConcertListByArtist(t *testing.T) {
 			Artists: []*entity.Artist{artist},
 		}
 		concertUC := usecasemocks.NewMockConcertUseCase(t)
-		concertUC.EXPECT().List(mock.Anything, artistID).Return([]*entity.Concert{concert}, nil).Once()
+		concertUC.EXPECT().ListCatalogByArtist(mock.Anything, artistID).Return([]*entity.Concert{concert}, nil).Once()
 
-		resp, err := newServer(t, concertUC).List(withBearer(context.Background(), adminToken),
-			&adminconcertv1.ListRequest{ArtistId: &entityv1.ArtistId{Value: artistID}})
+		resp, err := newServer(t, concertUC).ListByArtist(withBearer(context.Background(), adminToken),
+			&adminconcertv1.ListByArtistRequest{ArtistId: &entityv1.ArtistId{Value: artistID}})
 
 		require.NoError(t, err)
 		require.Len(t, resp.GetConcerts(), 1)
@@ -68,10 +68,33 @@ func TestAdminServer_ConcertListByArtist(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/concert "Malformed artist id"
 		concertUC := usecasemocks.NewMockConcertUseCase(t)
 
-		_, err := newServer(t, concertUC).List(withBearer(context.Background(), adminToken),
-			&adminconcertv1.ListRequest{ArtistId: &entityv1.ArtistId{Value: "not-a-uuid"}})
+		_, err := newServer(t, concertUC).ListByArtist(withBearer(context.Background(), adminToken),
+			&adminconcertv1.ListByArtistRequest{ArtistId: &entityv1.ArtistId{Value: "not-a-uuid"}})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-		concertUC.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
+	})
+
+	t.Run("missing artist id", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert "Missing artist id"
+		_, err := newServer(t, usecasemocks.NewMockConcertUseCase(t)).ListByArtist(withBearer(context.Background(), adminToken),
+			&adminconcertv1.ListByArtistRequest{})
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("non-admin lists an artist's concerts", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert "Non-admin lists an artist's concerts"
+		validator := authmocks.NewMockTokenValidator(t)
+		validator.EXPECT().ValidateToken(mock.Anything, "viewer-token").
+			Return(&auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
+		ts := newTestAdminServer(t, validator, usecasemocks.NewMockArtistUseCase(t), usecasemocks.NewMockConcertUseCase(t))
+		client := adminconcertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+
+		_, err := client.ListByArtist(withBearer(context.Background(), "viewer-token"),
+			&adminconcertv1.ListByArtistRequest{ArtistId: &entityv1.ArtistId{Value: artistID}})
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 }

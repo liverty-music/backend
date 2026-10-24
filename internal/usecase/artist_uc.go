@@ -32,6 +32,15 @@ type ArtistUseCase interface {
 	//   - Internal: database query failure.
 	List(ctx context.Context) ([]*entity.Artist, error)
 
+	// Get returns one artist by its id.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: the id is not a UUID.
+	//   - NotFound: no artist has the id.
+	//   - Internal: database query failure.
+	Get(ctx context.Context, id string) (*entity.Artist, error)
+
 	// GetOfficialSite retrieves the primary official website for an artist.
 	//
 	// # Possible errors:
@@ -370,6 +379,11 @@ func hashString(s string) string {
 	h := sha256.New()
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Get implements [ArtistUseCase].
+func (uc *artistUseCase) Get(ctx context.Context, id string) (*entity.Artist, error) {
+	return uc.artistRepo.Get(ctx, id)
 }
 
 // ListByOrganizer implements [ArtistUseCase].
