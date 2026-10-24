@@ -13,7 +13,7 @@ export GOLANG_PROTOBUF_REGISTRATION_CONFLICT := ignore
 # for local runs, the pre-commit hook and CI, and Renovate updates it (see the
 # custom manager in renovate.json). The versioned file name makes a bump
 # reinstall on the next `make lint`.
-GOLANGCI_LINT_VERSION := v2.14.0
+GOLANGCI_LINT_VERSION := v2.15.0
 GOLANGCI_LINT := bin/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
 ## lint: format check + static analysis (matches CI)
