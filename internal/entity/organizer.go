@@ -299,14 +299,17 @@ type OrganizerRepository interface {
 
 	// Delete permanently removes, in one transaction, a deactivated Organizer
 	// together with its first-party Series with their TicketSales, and their
-	// Events (with each Event's TicketTypes, lottery entries, ticket journeys,
-	// performers, Scanners, admissions and rejected scans), the
-	// refunded Orders, their Tickets and their Reversed Settlements for those
-	// Events, its SeriesImage records, its artist associations and its
-	// payout-account record. It removes nothing when
-	// the Organizer is not deactivated, when any of its Events has an Order that
-	// is not Refunded or a Settlement that is not Reversed, or when the
-	// Organizer has a payout-account record.
+	// Events (with each Event's TicketTypes, lottery entries, Checkouts, ticket
+	// journeys, performers, Scanners, admissions and rejected scans), the
+	// refunded Orders, their Tickets with the Tickets' ResaleListings and their
+	// Reversed Settlements for those Events, its SeriesImage records, its
+	// artist associations and its payout-account record. It removes nothing
+	// when the Organizer is not deactivated, when any of its Events has an
+	// Order that is not Refunded, a Settlement that is not Reversed or a
+	// purchase in progress (a Held or Committed Checkout, an Expired or
+	// Released Checkout whose card authorization is not yet released, or an
+	// Entered lottery entry), or when the Organizer has a payout-account
+	// record.
 	//
 	// With dryRun it runs the same checks and removes nothing, so a caller can
 	// learn whether deletion is blocked before removing anything kept outside

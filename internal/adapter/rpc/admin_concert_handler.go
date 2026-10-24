@@ -41,14 +41,16 @@ func NewAdminConcertHandler(
 	}
 }
 
-// List returns every published concert for admin catalog management, with
-// each Series and Artist they refer to once. The admin console groups the
-// flat result by performing artist client-side.
+// List returns every published concert for admin catalog management, or only
+// the concerts of the request's artist when one is set, with each Series and
+// Artist they refer to once. The admin console groups the flat result by
+// performing artist client-side. A malformed artist id is rejected by the
+// protovalidate interceptor before this runs.
 func (h *AdminConcertHandler) List(
 	ctx context.Context,
-	_ *adminconcertv1.ListRequest,
+	req *adminconcertv1.ListRequest,
 ) (*adminconcertv1.ListResponse, error) {
-	concerts, err := h.concertUseCase.List(ctx)
+	concerts, err := h.concertUseCase.List(ctx, req.GetArtistId().GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -60,8 +62,9 @@ func (h *AdminConcertHandler) List(
 	}, nil
 }
 
-// Delete permanently removes a published concert by its event id. The delete
-// cascades to all referencing rows and is idempotent on a missing id.
+// Delete permanently removes a published concert by its event id with the
+// records that depend only on it, and is idempotent on a missing id. A live
+// purchase of the event fails it with FailedPrecondition from the use case.
 func (h *AdminConcertHandler) Delete(
 	ctx context.Context,
 	req *adminconcertv1.DeleteRequest,

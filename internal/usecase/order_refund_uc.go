@@ -21,8 +21,8 @@ const (
 	// RefundReasonUnspecified is the zero value; rejected at the boundary.
 	RefundReasonUnspecified RefundReason = 0
 	// RefundReasonCancellation is an event cancellation (中止): full refund
-	// to the fan (face + system/発券 fee; processor fee retained). Always allowed
-	// while Order is Paid.
+	// to the fan (face + system/発券 fee; processor fee retained). Allowed while
+	// the Order is Paid and its Event is CANCELLED.
 	RefundReasonCancellation RefundReason = 1
 	// RefundReasonDispute is a chargeback / dispute. Funds clawed back via
 	// transfer_reversal; platform absorbs negative-balance responsibility.
@@ -65,6 +65,14 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	if order.Status != entity.OrderStatusPaid {
 		return nil, apperr.New(codes.FailedPrecondition,
 			"order is not in a refundable state (must be paid)")
+	}
+
+	// A cancellation (中止) refund is only for a cancelled Event; checked before
+	// any money moves. A dispute is accepted whatever the Event's state.
+	if reason == RefundReasonCancellation {
+		if err := uc.requireCancelledEvent(ctx, orderID); err != nil {
+			return nil, err
+		}
 	}
 
 	// -- load the settlement (may not exist yet if payout sweep hasn't run). --
@@ -261,4 +269,25 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 		split.ProviderPayoutReversalID = providerPayoutReversalID
 	}
 	return result, nil
+}
+
+// requireCancelledEvent fails with FailedPrecondition unless the Event the
+// Order is for is CANCELLED.
+func (uc *orderUseCase) requireCancelledEvent(ctx context.Context, orderID entity.OrderID) error {
+	eventID, err := uc.orderRepo.GetEventID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	event, err := uc.eventRepo.Get(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	if !event.HasPublishState(entity.PublishStateCancelled) {
+		return apperr.New(codes.FailedPrecondition,
+			"a cancellation refund needs the order's event to be cancelled",
+			slog.String("order_id", string(orderID)),
+			slog.String("event_id", eventID),
+		)
+	}
+	return nil
 }

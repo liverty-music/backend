@@ -1445,7 +1445,7 @@ func TestConcertRepository_List(t *testing.T) {
 			},
 		)
 
-		got, err := concertRepo.List(ctx)
+		got, err := concertRepo.List(ctx, "")
 		require.NoError(t, err)
 		assert.Len(t, got, 2, "List returns all published concerts regardless of audience")
 		// Series, Venue, and Performers are hydrated like the other list methods.
@@ -1457,7 +1457,7 @@ func TestConcertRepository_List(t *testing.T) {
 	t.Run("returns empty when nothing is published", func(t *testing.T) {
 		cleanDatabase(t)
 
-		got, err := concertRepo.List(ctx)
+		got, err := concertRepo.List(ctx, "")
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -1517,7 +1517,7 @@ func TestConcertRepository_Delete(t *testing.T) {
 		assert.Equal(t, 0, countRows(t, ctx, "concert_artists", eventID), "concert_artists cascaded")
 		assert.Equal(t, 0, countRows(t, ctx, "ticket_journeys", eventID), "ticket_journeys cascaded")
 
-		got, err := concertRepo.List(ctx)
+		got, err := concertRepo.List(ctx, "")
 		require.NoError(t, err)
 		assert.Empty(t, got, "deleted concert no longer listed")
 	})

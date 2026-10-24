@@ -153,12 +153,13 @@ func sameOptionalTime(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-// EventRepository reads one [Event]'s current date and times.
+// EventRepository reads one [Event]'s current date, times and publish state.
 // Implementations live in internal/infrastructure/database/rdb/.
 type EventRepository interface {
 	// Get returns the event's id, series, venue, current local date, open
-	// time and start time, read afresh; an unknown time is nil. Venue is not
-	// resolved.
+	// time, start time and publish state, read afresh; an unknown time is nil,
+	// and the publish state is nil for an event of a discovered series. Venue
+	// is not resolved.
 	//
 	// # Possible errors
 	//

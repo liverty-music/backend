@@ -548,18 +548,23 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectConcertCreated, mock.Anything)
 	})
 
-	t.Run("return FAILED_PRECONDITION unchanged when a slot is suppressed", func(t *testing.T) {
+	t.Run("publish a draft at a slot an admin's delete suppressed", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Suppressed slot"
 		d := newAuthoringDeps(t)
+		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
-			Return(lifecycleSeries(entity.SeriesVisibilityPublic), concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).
-			Return(nil, apperr.New(codes.FailedPrecondition, "suppressed")).Once()
+			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
+		// Series.PublishEvents no longer refuses a suppressed slot.
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		published(d, s, nil, artists)
+		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, mock.Anything).Return(nil).Once()
 
-		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+		_, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		require.NoError(t, err)
+		require.Len(t, concerts, 1)
+		assert.True(t, concerts[0].HasPublishState(entity.PublishStatePublished))
 	})
 
 	t.Run("fail with FAILED_PRECONDITION when the series has no DRAFT event", func(t *testing.T) {

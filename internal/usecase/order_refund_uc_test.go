@@ -101,6 +101,22 @@ func paidOrder(id entity.OrderID, amount int64, providerPaymentID string, paidAt
 	}
 }
 
+// refundEvents implements the EventRepository read of the refund use case:
+// every Event is in state, and reads are counted.
+type refundEvents struct {
+	entity.EventRepository
+	state entity.PublishState
+	reads *int
+}
+
+func (s refundEvents) Get(_ context.Context, id string) (*entity.Event, error) {
+	if s.reads != nil {
+		*s.reads++
+	}
+	state := s.state
+	return &entity.Event{ID: id, PublishState: &state}, nil
+}
+
 func newRefundUCWithLogger(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
@@ -109,11 +125,27 @@ func newRefundUCWithLogger(
 	t *testing.T,
 	tickets ...stubOrderTickets,
 ) usecase.OrderUseCase {
+	return newRefundUCForEvent(orderRepo, refundRepo, settlementRepo, port, t,
+		refundEvents{state: entity.PublishStateCancelled}, tickets...)
+}
+
+// newRefundUCForEvent is newRefundUCWithLogger with the Events the Orders are
+// for read from events.
+func newRefundUCForEvent(
+	orderRepo entity.OrderRepository,
+	refundRepo entity.RefundRepository,
+	settlementRepo entity.SettlementRepository,
+	port paymentProviderStub,
+	t *testing.T,
+	events refundEvents,
+	tickets ...stubOrderTickets,
+) usecase.OrderUseCase {
 	ticketRepo := stubOrderTickets{}
 	if len(tickets) > 0 {
 		ticketRepo = tickets[0]
 	}
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
+		EventRepo:      events,
 		TicketRepo:     ticketRepo,
 		OrderRepo:      withOrderPayments(orderRepo, port),
 		RefundRepo:     refundRepo,
@@ -123,13 +155,15 @@ func newRefundUCWithLogger(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CANCELLATION — always allowed while Order is Paid; Released settlement
+// CANCELLATION — allowed while Order is Paid and its Event CANCELLED;
+// Released settlement
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestOrderUseCase_Refund_Cancellation_HappyPath(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Cancellation refund"
 	// @spec components/usecase/order/refund "Payout already released"
+	// @spec components/usecase/order/refund "Cancellation refund for a cancelled event"
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -442,6 +476,65 @@ func TestOrderUseCase_Refund_Dispute_AfterPayout(t *testing.T) {
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	assert.True(t, reversalCalled, "ReverseTransfer must be called for chargeback-after-payout")
 	assert.True(t, commitCalled, "CommitRefund must commit atomically")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Event state — a cancellation refund needs a CANCELLED Event; a dispute does not
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestOrderUseCase_Refund_EventState(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	const orderID = entity.OrderID("order-on-sale")
+
+	setup := func(t *testing.T) (orderRepo *stubOrderRepo, refundRepo *stubRefundRepo, port *stubRefundSettlementPayouts, moved *bool) {
+		t.Helper()
+		var m bool
+		order := paidOrder(orderID, 10000, "pi_on_sale", now.Add(-24*time.Hour))
+		orderRepo = &stubOrderRepo{
+			getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
+		}
+		refundRepo = &stubRefundRepo{
+			commitRefundFn: func(_ context.Context, _ entity.RefundCommit) error { m = true; return nil },
+		}
+		port = &stubRefundSettlementPayouts{
+			createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) { m = true; return "re_on_sale", nil },
+		}
+		return orderRepo, refundRepo, port, &m
+	}
+	noSettlement := &stubSettlementRepo{
+		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
+			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
+		},
+	}
+
+	t.Run("a cancellation refund for an event still on sale fails and moves no money", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Cancellation refund for an event still on sale"
+		orderRepo, refundRepo, port, moved := setup(t)
+		uc := newRefundUCForEvent(orderRepo, refundRepo, noSettlement, port, t,
+			refundEvents{state: entity.PublishStatePublished})
+
+		_, err := uc.Refund(context.Background(), orderID, usecase.RefundReasonCancellation, now)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.False(t, *moved, "no refund and no commit")
+	})
+
+	t.Run("a dispute for an event still on sale is refunded without reading the event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Dispute for an event still on sale"
+		orderRepo, refundRepo, port, _ := setup(t)
+		var reads int
+		uc := newRefundUCForEvent(orderRepo, refundRepo, noSettlement, port, t,
+			refundEvents{state: entity.PublishStatePublished, reads: &reads})
+
+		got, err := uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+		assert.Zero(t, reads, "the Event's state is not checked")
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

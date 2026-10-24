@@ -174,8 +174,8 @@ func (_c *MockConcertUseCase_Get_Call) RunAndReturn(run func(ctx context.Context
 }
 
 // List provides a mock function for the type MockConcertUseCase
-func (_mock *MockConcertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
-	ret := _mock.Called(ctx)
+func (_mock *MockConcertUseCase) List(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	ret := _mock.Called(ctx, artistID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
@@ -183,18 +183,18 @@ func (_mock *MockConcertUseCase) List(ctx context.Context) ([]*entity.Concert, e
 
 	var r0 []*entity.Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]*entity.Concert, error)); ok {
-		return returnFunc(ctx)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
+		return returnFunc(ctx, artistID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []*entity.Concert); ok {
-		r0 = returnFunc(ctx)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+		r0 = returnFunc(ctx, artistID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = returnFunc(ctx)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, artistID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -208,18 +208,24 @@ type MockConcertUseCase_List_Call struct {
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockConcertUseCase_Expecter) List(ctx any) *MockConcertUseCase_List_Call {
-	return &MockConcertUseCase_List_Call{Call: _e.mock.On("List", ctx)}
+//   - artistID string
+func (_e *MockConcertUseCase_Expecter) List(ctx any, artistID any) *MockConcertUseCase_List_Call {
+	return &MockConcertUseCase_List_Call{Call: _e.mock.On("List", ctx, artistID)}
 }
 
-func (_c *MockConcertUseCase_List_Call) Run(run func(ctx context.Context)) *MockConcertUseCase_List_Call {
+func (_c *MockConcertUseCase_List_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -230,7 +236,7 @@ func (_c *MockConcertUseCase_List_Call) Return(concerts []*entity.Concert, err e
 	return _c
 }
 
-func (_c *MockConcertUseCase_List_Call) RunAndReturn(run func(ctx context.Context) ([]*entity.Concert, error)) *MockConcertUseCase_List_Call {
+func (_c *MockConcertUseCase_List_Call) RunAndReturn(run func(ctx context.Context, artistID string) ([]*entity.Concert, error)) *MockConcertUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -194,6 +194,18 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 		assert.False(t, rowExists(t, `SELECT 1 FROM settlement_splits WHERE settlement_id = $1`, p.settlementID), "split")
 	})
 
+	t.Run("deletes a resold ticket's listing with the event", func(t *testing.T) {
+		// @spec components/entity/organizer/delete "Resold ticket"
+		e := seedRemovableEvent(t, entity.OrganizerStatusDeactivated)
+
+		require.NoError(t, repo.Delete(ctx, e.organizerID, false))
+
+		assertOrganizerRecords(t, e.deletableOrganizer, false)
+		assertPurchaseRecords(t, e.lottery, false)
+		assert.False(t, rowExists(t, `SELECT 1 FROM resale_listings WHERE id = $1`, e.resaleListingID), "resale listing")
+		assert.False(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, e.checkoutID), "checkout")
+	})
+
 	t.Run("a dry run removes nothing", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		p := seedPurchase(t, o, entity.OrderStatusRefunded, entity.SettlementStatusReversed, false)
@@ -237,6 +249,18 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 				p := seedPurchase(t, o, entity.OrderStatusRefunded, entity.SettlementStatusReleased, false)
 				return o, &p
+			},
+		},
+		{
+			// @spec components/entity/organizer/delete "Purchase in progress"
+			name: "an entered lottery entry",
+			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
+				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+				_, err := testDB.Pool.Exec(context.Background(),
+					`INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state) VALUES ($1, $2, $3, 1, 'pi_entered', 1)`,
+					entity.NewID(), string(o.typeID), o.followerID)
+				require.NoError(t, err)
+				return o, nil
 			},
 		},
 		{

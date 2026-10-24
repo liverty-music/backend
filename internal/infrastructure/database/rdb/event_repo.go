@@ -9,7 +9,7 @@ import (
 )
 
 // EventRepository implements [entity.EventRepository] for PostgreSQL: a
-// read-only view of one event's current date and times.
+// read-only view of one event's current date, times and publish state.
 type EventRepository struct {
 	db *Database
 }
@@ -23,7 +23,7 @@ func NewEventRepository(db *Database) *EventRepository {
 }
 
 const getEventQuery = `
-	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at
+	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state
 	FROM events WHERE id = $1
 `
 
@@ -34,9 +34,10 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 		listedName sql.NullString
 		startAt    sql.NullTime
 		openAt     sql.NullTime
+		state      sql.NullString
 	)
 	if err := r.db.Pool.QueryRow(ctx, getEventQuery, id).Scan(
-		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt,
+		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt, &state,
 	); err != nil {
 		return nil, toAppErr(err, "failed to get event", slog.String("event_id", id))
 	}
@@ -52,5 +53,6 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 		t := openAt.Time
 		e.OpenTime = &t
 	}
+	e.PublishState = nullPublishState(state)
 	return &e, nil
 }

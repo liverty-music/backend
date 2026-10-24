@@ -40,6 +40,17 @@ type OrderUseCase interface {
 	//  - Errors of reading the Order or the Settlement, unchanged.
 	GetWithSettlement(ctx context.Context, orderID entity.OrderID) (*entity.Order, *entity.Settlement, error)
 
+	// ListByEvent returns every Order of the Event, in any status, oldest pay
+	// time first, so an admin can see and refund the purchases of a cancelled
+	// Event. An Event with no Order, and an id no Event has, yield an empty
+	// list.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no Event is given.
+	//  - Internal: database query failure.
+	ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error)
+
 	// Refund applies the refund policy for the given reason and executes
 	// the money-movement: issues a platform-balance Refund, voids the Order's
 	// tickets, sets Order status=refunded, and (if a Settlement exists) reverses
@@ -50,8 +61,9 @@ type OrderUseCase interface {
 	//
 	// # Policy by reason
 	//
-	//   - CANCELLATION: always allowed while the Order is Paid. Refunds the
-	//     fan (face + system/発券 fee; processor fee retained).
+	//   - CANCELLATION: allowed while the Order is Paid and its Event is
+	//     CANCELLED. Refunds the fan (face + system/発券 fee; processor fee
+	//     retained).
 	//   - DISPUTE: always allowed (platform absorbs via negative-balance
 	//     responsibility); funds already paid out are clawed back via
 	//     transfer_reversal.
@@ -66,7 +78,8 @@ type OrderUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the Order does not exist.
-	//  - FailedPrecondition: the Order is not refundable (not Paid).
+	//  - FailedPrecondition: the Order is not refundable (not Paid), or the
+	//    reason is CANCELLATION and the Order's Event is not CANCELLED.
 	//  - InvalidArgument: the reason is UNSPECIFIED.
 	//  - Internal: database or payment provider failure.
 	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
@@ -156,6 +169,7 @@ type orderUseCase struct {
 	ticketSaleRepo           entity.TicketSaleRepository
 	ticketRepo               entity.TicketRepository
 	eventState               EventPublishStatePort
+	eventRepo                entity.EventRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
 	publisher                EventPublisher
 	clock                    Clock
@@ -180,6 +194,8 @@ type OrderDeps struct {
 	// TicketRepo reads an Order's Tickets to refund only those still Issued.
 	TicketRepo entity.TicketRepository
 	EventState EventPublishStatePort
+	// EventRepo reads the Event of an Order a cancellation refund is for.
+	EventRepo entity.EventRepository
 	// CardAuthorizations is the checkout's card authorization repository; it
 	// also reads a lottery entry's captured payment.
 	CardAuthorizations entity.CardAuthorizationRepository
@@ -203,6 +219,7 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		ticketSaleRepo:           d.TicketSaleRepo,
 		ticketRepo:               d.TicketRepo,
 		eventState:               d.EventState,
+		eventRepo:                d.EventRepo,
 		cardAuthorizations:       d.CardAuthorizations,
 		publisher:                d.Publisher,
 		clock:                    d.Clock,
@@ -224,6 +241,11 @@ func (uc *orderUseCase) Get(ctx context.Context, userID entity.UserID, orderID e
 		return nil, apperr.New(codes.NotFound, "order not found")
 	}
 	return order, nil
+}
+
+// ListByEvent implements [OrderUseCase].
+func (uc *orderUseCase) ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error) {
+	return uc.orderRepo.ListByEvent(ctx, eventID)
 }
 
 // GetWithSettlement implements [OrderUseCase].
