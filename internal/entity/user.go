@@ -289,6 +289,8 @@ type EmailVerifier interface {
 	//
 	// # Possible errors
 	//
+	//  - FailedPrecondition: the User's email is already verified; nothing is
+	//    sent.
 	//  - Internal: the code cannot be issued or the email cannot be sent.
 	SendVerification(ctx context.Context, user *User) error
 

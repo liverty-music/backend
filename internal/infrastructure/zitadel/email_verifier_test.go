@@ -6,65 +6,43 @@ import (
 	"testing"
 
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// fakeEmailCodeClient stands in for Zitadel's v2 User Service: it holds one
-// identity's address and answers each call with the configured result.
-type fakeEmailCodeClient struct {
-	email      string
-	verified   bool
-	getErr     error
-	sendErr    error
-	sendCode   string
-	verifyErr  error
-	sendCalls  []*userpb.SendEmailCodeRequest
-	verifyReqs []*userpb.VerifyEmailRequest
-}
+const providerUserID = "zitadel-user-1"
 
-func (f *fakeEmailCodeClient) GetUserByID(_ context.Context, in *userpb.GetUserByIDRequest, _ ...grpc.CallOption) (*userpb.GetUserByIDResponse, error) {
-	if f.getErr != nil {
-		return nil, f.getErr
-	}
-	return &userpb.GetUserByIDResponse{User: &userpb.User{
-		UserId: in.GetUserId(),
-		Type: &userpb.User_Human{Human: &userpb.HumanUser{
-			Email: &userpb.HumanEmail{Email: f.email, IsVerified: f.verified},
-		}},
-	}}, nil
-}
-
-func (f *fakeEmailCodeClient) SendEmailCode(_ context.Context, in *userpb.SendEmailCodeRequest, _ ...grpc.CallOption) (*userpb.SendEmailCodeResponse, error) {
-	f.sendCalls = append(f.sendCalls, in)
-	if f.sendErr != nil {
-		return nil, f.sendErr
-	}
-	return &userpb.SendEmailCodeResponse{VerificationCode: &f.sendCode}, nil
-}
-
-func (f *fakeEmailCodeClient) VerifyEmail(_ context.Context, in *userpb.VerifyEmailRequest, _ ...grpc.CallOption) (*userpb.VerifyEmailResponse, error) {
-	f.verifyReqs = append(f.verifyReqs, in)
-	if f.verifyErr != nil {
-		return nil, f.verifyErr
-	}
-	return &userpb.VerifyEmailResponse{}, nil
-}
-
-func newTestVerifier(t *testing.T, client *fakeEmailCodeClient) (*infrazitadel.EmailVerifier, *bytes.Buffer) {
+func newTestVerifier(t *testing.T, client infrazitadel.EmailCodeClient) (*infrazitadel.EmailVerifier, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	logger, err := logging.New(logging.WithWriter(buf))
 	require.NoError(t, err)
 	return infrazitadel.NewEmailVerifierWithClient(client, logger), buf
 }
+
+// identity answers GetUserByID with a human identity holding address.
+func identity(address string, verified bool) *userpb.GetUserByIDResponse {
+	return &userpb.GetUserByIDResponse{User: &userpb.User{
+		UserId: providerUserID,
+		Type: &userpb.User_Human{Human: &userpb.HumanUser{
+			Email: &userpb.HumanEmail{Email: address, IsVerified: verified},
+		}},
+	}}
+}
+
+// returnCodeRequest matches a SendEmailCode request for the identity that
+// asks Zitadel to return the code instead of sending it.
+var returnCodeRequest = mock.MatchedBy(func(in *userpb.SendEmailCodeRequest) bool {
+	return in.GetUserId() == providerUserID && in.GetReturnCode() != nil
+})
 
 func TestEmailVerifier_IssueEmailVerificationCode(t *testing.T) {
 	t.Parallel()
@@ -74,58 +52,68 @@ func TestEmailVerifier_IssueEmailVerificationCode(t *testing.T) {
 		code    string
 	}
 	tests := []struct {
-		name      string
-		client    *fakeEmailCodeClient
-		want      want
-		wantErr   error
-		wantSends int
+		name    string
+		setup   func(c *mocks.MockEmailCodeClient)
+		want    want
+		wantErr error
 	}{
 		{
-			name:      "an unverified address gets a returned code and no Zitadel email",
-			client:    &fakeEmailCodeClient{email: "fan@example.com", sendCode: "ABC123"},
-			want:      want{address: "fan@example.com", code: "ABC123"},
-			wantSends: 1,
+			name: "an unverified address gets a returned code and no Zitadel email",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(identity("fan@example.com", false), nil).Once()
+				code := "ABC123"
+				c.EXPECT().SendEmailCode(mock.Anything, returnCodeRequest).Return(&userpb.SendEmailCodeResponse{VerificationCode: &code}, nil).Once()
+			},
+			want: want{address: "fan@example.com", code: "ABC123"},
 		},
 		{
-			name:    "an already verified address gets no code",
-			client:  &fakeEmailCodeClient{email: "fan@example.com", verified: true},
+			name: "an already verified address gets no code",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(identity("fan@example.com", true), nil).Once()
+			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
-			name:    "an unknown identity is NotFound",
-			client:  &fakeEmailCodeClient{getErr: grpcstatus.Error(grpccodes.NotFound, "user not found")},
+			name: "an unknown identity is NotFound",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(nil, grpcstatus.Error(grpccodes.NotFound, "user not found")).Once()
+			},
 			wantErr: apperr.ErrNotFound,
 		},
 		{
-			name:    "an unreachable Zitadel is Unavailable",
-			client:  &fakeEmailCodeClient{getErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused")},
+			name: "an unreachable Zitadel is Unavailable",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(nil, grpcstatus.Error(grpccodes.Unavailable, "connection refused")).Once()
+			},
 			wantErr: apperr.ErrUnavailable,
 		},
 		{
-			name:      "a failure to issue is Internal",
-			client:    &fakeEmailCodeClient{email: "fan@example.com", sendErr: grpcstatus.Error(grpccodes.Internal, "boom")},
-			wantErr:   apperr.ErrInternal,
-			wantSends: 1,
+			name: "a failure to issue is Internal",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(identity("fan@example.com", false), nil).Once()
+				c.EXPECT().SendEmailCode(mock.Anything, returnCodeRequest).Return(nil, grpcstatus.Error(grpccodes.Internal, "boom")).Once()
+			},
+			wantErr: apperr.ErrInternal,
 		},
 		{
-			name:      "an empty returned code is Internal",
-			client:    &fakeEmailCodeClient{email: "fan@example.com"},
-			wantErr:   apperr.ErrInternal,
-			wantSends: 1,
+			name: "an empty returned code is Internal",
+			setup: func(c *mocks.MockEmailCodeClient) {
+				c.EXPECT().GetUserByID(mock.Anything, mock.Anything).Return(identity("fan@example.com", false), nil).Once()
+				c.EXPECT().SendEmailCode(mock.Anything, returnCodeRequest).Return(&userpb.SendEmailCodeResponse{}, nil).Once()
+			},
+			wantErr: apperr.ErrInternal,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			v, logBuf := newTestVerifier(t, tt.client)
+			client := mocks.NewMockEmailCodeClient(t)
+			tt.setup(client)
+			v, logBuf := newTestVerifier(t, client)
 
-			address, code, err := v.IssueEmailVerificationCode(context.Background(), "zitadel-user-1")
+			address, code, err := v.IssueEmailVerificationCode(context.Background(), providerUserID)
 
-			require.Len(t, tt.client.sendCalls, tt.wantSends)
-			for _, req := range tt.client.sendCalls {
-				assert.NotNil(t, req.GetReturnCode(), "Zitadel must return the code, not send it")
-			}
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
@@ -141,55 +129,59 @@ func TestEmailVerifier_VerifyEmail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		client  *fakeEmailCodeClient
-		wantErr error
+		name      string
+		verifyErr error
+		wantErr   error
 	}{
 		{
 			// @spec components/entity/user/verify-email "Valid code"
-			name:   "the latest code verifies the address",
-			client: &fakeEmailCodeClient{},
+			name: "the latest code verifies the address",
 		},
 		{
 			// @spec components/entity/user/verify-email "Code already used"
-			name:    "a used code is InvalidArgument",
-			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Empty")},
-			wantErr: apperr.ErrInvalidArgument,
+			name:      "a used code is InvalidArgument",
+			verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Empty"),
+			wantErr:   apperr.ErrInvalidArgument,
 		},
 		{
 			// @spec components/entity/user/verify-email "Code older than 1 hour"
-			name:    "an expired code is InvalidArgument",
-			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Expired")},
-			wantErr: apperr.ErrInvalidArgument,
+			name:      "an expired code is InvalidArgument",
+			verifyErr: grpcstatus.Error(grpccodes.FailedPrecondition, "Errors.User.Code.Expired"),
+			wantErr:   apperr.ErrInvalidArgument,
 		},
 		{
-			name:    "a wrong code is InvalidArgument",
-			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.InvalidArgument, "Errors.User.Code.Invalid")},
-			wantErr: apperr.ErrInvalidArgument,
+			name:      "a wrong code is InvalidArgument",
+			verifyErr: grpcstatus.Error(grpccodes.InvalidArgument, "Errors.User.Code.Invalid"),
+			wantErr:   apperr.ErrInvalidArgument,
 		},
 		{
 			// @spec components/entity/user/verify-email "Unknown identity"
-			name:    "an unknown identity is NotFound",
-			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.NotFound, "Errors.User.NotFound")},
-			wantErr: apperr.ErrNotFound,
+			name:      "an unknown identity is NotFound",
+			verifyErr: grpcstatus.Error(grpccodes.NotFound, "Errors.User.NotFound"),
+			wantErr:   apperr.ErrNotFound,
 		},
 		{
-			name:    "an unreachable Zitadel is Unavailable",
-			client:  &fakeEmailCodeClient{verifyErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused")},
-			wantErr: apperr.ErrUnavailable,
+			name:      "an unreachable Zitadel is Unavailable",
+			verifyErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
+			wantErr:   apperr.ErrUnavailable,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			v, logBuf := newTestVerifier(t, tt.client)
+			client := mocks.NewMockEmailCodeClient(t)
+			var resp *userpb.VerifyEmailResponse
+			if tt.verifyErr == nil {
+				resp = &userpb.VerifyEmailResponse{}
+			}
+			client.EXPECT().VerifyEmail(mock.Anything, mock.MatchedBy(func(in *userpb.VerifyEmailRequest) bool {
+				return in.GetUserId() == providerUserID && in.GetVerificationCode() == "ABC123"
+			})).Return(resp, tt.verifyErr).Once()
+			v, logBuf := newTestVerifier(t, client)
 
-			err := v.VerifyEmail(context.Background(), "zitadel-user-1", "ABC123")
+			err := v.VerifyEmail(context.Background(), providerUserID, "ABC123")
 
-			require.Len(t, tt.client.verifyReqs, 1)
-			assert.Equal(t, "zitadel-user-1", tt.client.verifyReqs[0].GetUserId())
-			assert.Equal(t, "ABC123", tt.client.verifyReqs[0].GetVerificationCode())
 			assert.NotContains(t, logBuf.String(), "ABC123", "the code is never logged")
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

@@ -61,6 +61,22 @@ func TestUserConsumer_Handle(t *testing.T) {
 		assert.Contains(t, err.Error(), "send email verification")
 	})
 
+	t.Run("finishes when the address is already verified, so a redelivery does not retry forever", func(t *testing.T) {
+		t.Parallel()
+
+		users := ucmocks.NewMockUserUseCase(t)
+		users.EXPECT().GetByProviderUserID(anyCtx, "zitadel-user-001").Return(newUser, nil).Once()
+		emailVerifier := entitymocks.NewMockEmailVerifier(t)
+		emailVerifier.EXPECT().SendVerification(anyCtx, newUser).
+			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).
+			Once()
+		handler := event.NewUserConsumer(users, emailVerifier, newTestLogger(t))
+
+		err := handler.Handle(makeUserCreatedMsg(t, entity.UserCreatedData{ProviderUserID: "zitadel-user-001"}))
+
+		assert.NoError(t, err)
+	})
+
 	t.Run("finishes without sending when the User was deleted since sign-up", func(t *testing.T) {
 		t.Parallel()
 

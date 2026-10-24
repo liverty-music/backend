@@ -59,12 +59,17 @@ func newPostmarkEmailVerificationSender(codes EmailVerificationCodeIssuer, fanWe
 	}
 }
 
-// SendVerification implements [entity.EmailVerifier]. Any failure is
-// Internal.
+// SendVerification implements [entity.EmailVerifier]. An address that is
+// already verified is FailedPrecondition; any other failure is Internal.
 func (s *PostmarkEmailVerificationSender) SendVerification(ctx context.Context, user *entity.User) error {
 	attrs := slog.String("user_id", user.ID)
 	address, code, err := s.codes.IssueEmailVerificationCode(ctx, user.ProviderUserID)
 	if err != nil {
+		// Checked before wrapping: apperr.Wrap keeps only the original cause,
+		// so the FailedPrecondition code would not survive it.
+		if errors.Is(err, apperr.ErrFailedPrecondition) {
+			return err
+		}
 		return apperr.Wrap(err, codes.Internal, "email verification code cannot be issued", attrs)
 	}
 	return s.send(ctx, user, address, code)
