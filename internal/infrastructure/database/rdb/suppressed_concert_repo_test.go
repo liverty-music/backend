@@ -320,22 +320,41 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			},
 		},
 		{
-			name: "concert with a paid order",
+			// @spec stories/remove-a-cancelled-concert "Delete before refunds"
+			name: "cancelled concert with a paid order",
 			setup: func(t *testing.T, o deletableOrganizer) {
+				exec(t, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, o.eventID)
 				seedPurchase(t, o, entity.OrderStatusPaid, entity.SettlementStatusHeld, false)
 			},
 		},
+	}
+	// purchaseRecords counts the event's purchase records, table by table.
+	purchaseRecords := func(t *testing.T, eventID string) map[string]int {
+		t.Helper()
+		const types = `SELECT id FROM ticket_types WHERE event_id = $1`
+		const entries = `SELECT id FROM lottery_entries WHERE ticket_type_id IN (` + types + `)`
+		const checkouts = `SELECT id FROM checkouts WHERE ticket_type_id IN (` + types + `)`
+		const orders = `SELECT id FROM orders WHERE checkout_id IN (` + checkouts + `) OR lottery_entry_id IN (` + entries + `)`
+		return map[string]int{
+			"lottery entries": count(t, `SELECT COUNT(*) FROM (`+entries+`) x`, eventID),
+			"checkouts":       count(t, `SELECT COUNT(*) FROM (`+checkouts+`) x`, eventID),
+			"orders":          count(t, `SELECT COUNT(*) FROM (`+orders+`) x`, eventID),
+			"tickets":         count(t, `SELECT COUNT(*) FROM tickets WHERE order_id IN (`+orders+`)`, eventID),
+			"settlements":     count(t, `SELECT COUNT(*) FROM settlements WHERE event_id = $1`, eventID),
+		}
 	}
 	for _, tc := range blocked {
 		t.Run(tc.name+" is refused", func(t *testing.T) {
 			cleanDatabase(t)
 			o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 			tc.setup(t, o)
+			before := purchaseRecords(t, o.eventID)
 
 			err := repo.DeleteAndSuppress(ctx, o.eventID)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			assert.True(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
+			assert.Equal(t, before, purchaseRecords(t, o.eventID), "every purchase record remains")
 			assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "nothing is suppressed")
 		})
 	}
