@@ -85,6 +85,12 @@ type ingestTally struct {
 	published, staged, filled, suppressed, conflicts int
 }
 
+// Outcomes of the concert.ingest.completed signal.
+const (
+	ingestOutcomeCompleted = "completed"
+	ingestOutcomeFailed    = "failed"
+)
+
 // CreateFromDiscovered processes a discovered concert batch grouped by series.
 // The series_id shared by a whole group is resolved ONCE (adopt an existing
 // event's series, else mint), the series row is created eagerly, then each
@@ -112,12 +118,31 @@ type ingestTally struct {
 // notification consumer once. A lightweight cleanup at the end removes any
 // series left with no events and no pending concert candidates (the provisional-mint or
 // all-candidate-then-rejected case).
-func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
+func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) (err error) {
 	// Batch-local place cache: (listed_venue_name, admin_area) → *VenuePlace.
 	// Avoids redundant Places API calls for the same venue within one batch,
 	// shared across every series of this artist's batch.
 	newPlaces := make(map[string]*entity.VenuePlace)
 	tally := &ingestTally{}
+
+	// Every batch reports what it did, a failed one included with what it had
+	// done before failing. The message context carries the trace of the
+	// search that found the batch, so the signal joins that search's signals.
+	defer func() {
+		outcome := ingestOutcomeCompleted
+		if err != nil {
+			outcome = ingestOutcomeFailed
+		}
+		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, AnalyticsProperties{
+			"artist_id":        data.ArtistID,
+			"outcome":          outcome,
+			"published_count":  tally.published,
+			"staged_count":     tally.staged,
+			"filled_count":     tally.filled,
+			"suppressed_count": tally.suppressed,
+			"conflict_count":   tally.conflicts,
+		})
+	}()
 
 	// mintedSeriesIDs collects the series this batch newly created, so the
 	// end-of-batch orphan sweep is scoped to them alone and cannot delete another
@@ -154,17 +179,6 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		)
 		// Non-fatal: an orphaned series row is harmless and swept next run.
 	}
-
-	// The message context carries the trace of the search that found the
-	// batch, so the signal joins that search's signals.
-	sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, AnalyticsProperties{
-		"artist_id":        data.ArtistID,
-		"published_count":  tally.published,
-		"staged_count":     tally.staged,
-		"filled_count":     tally.filled,
-		"suppressed_count": tally.suppressed,
-		"conflict_count":   tally.conflicts,
-	})
 	return nil
 }
 

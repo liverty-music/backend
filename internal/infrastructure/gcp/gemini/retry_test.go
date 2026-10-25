@@ -307,3 +307,57 @@ func TestSearch_InvalidRequestRetriedWithoutToolReport(t *testing.T) {
 		})
 	}
 }
+
+// @spec components/entity/concert/search "Deadline passes during a call that then succeeds"
+func TestSearch_DeadlinePassedDuringSuccessfulCallFails(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	successBody := `{"series": [{"title": "Late Show", "source_url": "https://example.com/late", "events": [
+		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}]}`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		// The call is detached from the caller's context, so it outlives the
+		// deadline and then answers with concerts.
+		<-ctx.Done()
+		return http.StatusOK, geminiResponse(successBody, "STOP")
+	})
+
+	got, err := s.Search(ctx, artist, officialSite, from)
+
+	assert.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
+	assert.Empty(t, got)
+	assert.Equal(t, int32(1), calls.Load())
+}
+
+// @spec components/entity/concert/search "Response without text"
+func TestSearch_StopWithoutTextFailsWithoutRetry(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	noText := `{"candidates": [{"content": {"parts": [
+		{"toolCall": {"toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["Test Artist live"]}}}
+	]}, "finishReason": "STOP"}]}`
+
+	reporter := &recordingReporter{}
+	s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusOK, noText
+	})
+
+	got, _, err := s.SearchExt(context.Background(), artist, officialSite, from)
+
+	assert.ErrorIs(t, err, gemini.ErrNoText)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
+	assert.Empty(t, got)
+	assert.Equal(t, int32(1), calls.Load(), "not retried")
+	reported := reporter.reported()
+	require.Len(t, reported, 1)
+	assert.Equal(t, "no_text", reported[0].gen.ErrorKind)
+}

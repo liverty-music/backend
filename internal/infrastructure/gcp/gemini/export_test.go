@@ -12,6 +12,9 @@ var ErrNoCandidates = errNoCandidates
 // ErrTooManyToolCalls exports errTooManyToolCalls for testing.
 var ErrTooManyToolCalls = errTooManyToolCalls
 
+// ErrNoText exports errNoText for testing.
+var ErrNoText = errNoText
+
 // SetPrompt overrides the prompt of s for A/B variant runs.
 func SetPrompt(s *ConcertSearcher, p Prompt) { s.prompt = p }
 

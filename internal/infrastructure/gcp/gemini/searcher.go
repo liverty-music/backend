@@ -42,6 +42,13 @@ var (
 	// search-only mode. Failing the Search marks the Artist's ConcertSearch failed
 	// so the next daily run searches again.
 	errTooManyToolCalls = errors.New("gemini stopped after too many tool calls")
+
+	// errNoText is returned when the response ends normally (STOP) but carries
+	// no text. It is not retried: like errInvalidJSON it is a structurally
+	// broken response, since even a search that found no concerts answers
+	// with JSON text. Failing the Search keeps it from being recorded as
+	// "no concerts".
+	errNoText = errors.New("gemini response ended normally without text")
 )
 
 // Config holds the configuration for Gemini searcher.
@@ -406,9 +413,11 @@ func (s *ConcertSearcher) SearchExt(
 		pm.ExhaustedTransient = true
 		return nil, md, apperr.New(codes.Unavailable, "gemini concert search failed transiently on every attempt", attrs...)
 	}
-	if rawText == "" {
-		s.logger.Warn(ctx, "grounded call returned no text, returning empty results", attrs...)
-		return nil, md, nil
+	// Each call runs detached from ctx so an in-flight request is not cut off
+	// mid-response. A call that succeeds after the caller's deadline or
+	// cancellation must still fail Search: the caller has given up on it.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, md, toAppErr(ctxErr, "caller's context ended during the gemini concert search", attrs...)
 	}
 
 	drafts, err := parseSingleStepJSON(rawText)
@@ -506,8 +515,9 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links
 //   - (pm, rawText, false, nil) on success
 //   - (pm, "", true, nil) when retries are exhausted with transient errors
 //   - (pm, "", false, err) on permanent error, including a response with no
-//     candidate (errNoCandidates) or one stopped by TOO_MANY_TOOL_CALLS
-//     (errTooManyToolCalls), neither retried
+//     candidate (errNoCandidates), one stopped by TOO_MANY_TOOL_CALLS
+//     (errTooManyToolCalls) or one that ends normally without text
+//     (errNoText), none retried
 //
 // Non-STOP finish_reason is treated as transient and retried.
 //
@@ -738,9 +748,10 @@ func (s *ConcertSearcher) executePass(
 
 		if joined == "" {
 			record(errorKindNoText)
-			s.logger.Warn(ctx, "candidate has no text parts",
+			sawPermanent = true
+			s.logger.Warn(ctx, "candidate has no text parts (permanent, not retrying)",
 				append(attrs, candidateAttrs...)...)
-			return "", nil
+			return "", backoff.Permanent(errNoText)
 		}
 		record("")
 
