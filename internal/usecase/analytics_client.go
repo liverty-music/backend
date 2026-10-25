@@ -2,9 +2,11 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -89,6 +91,18 @@ type AnalyticsEvent struct {
 	// Properties is the per-event payload, optional, sanitised per the PII
 	// policy. Implementations MUST NOT mutate it.
 	Properties AnalyticsProperties
+}
+
+// errorCode names the kind of error err is for a pipeline signal: the code
+// of the first apperr in its chain (Connect's names, such as
+// "deadline_exceeded" or "permission_denied"), or "unknown" when it has
+// none. The message is never reported: it can quote page content or model
+// output, and the signal's trace_id leads to it in the logs.
+func errorCode(err error) string {
+	if appErr, ok := errors.AsType[*apperr.AppErr](err); ok {
+		return appErr.Code.String()
+	}
+	return "unknown"
 }
 
 // sendSystemSignal sends a personless pipeline signal through client, which

@@ -133,7 +133,8 @@ const (
 	// EventConcertSearchCompleted is recorded once per SearchNewConcerts run
 	// that performed the external search. Properties: artist_id, trigger,
 	// outcome ("failed", "nothing_new" or "found"), series_count,
-	// event_count.
+	// event_count, and on a failed search error_code (the error's apperr
+	// code, or "unknown").
 	EventConcertSearchCompleted AnalyticsEventName = "concert.search.completed"
 
 	// EventConcertIngestCompleted is recorded once per CreateFromDiscovered
@@ -146,7 +147,8 @@ const (
 	// EventTicketSaleSearchCompleted is recorded once per DiscoverForArtist
 	// run that called the published-sale search. Properties: artist_id,
 	// outcome ("failed" or "completed"), series_count, returned_count,
-	// new_count.
+	// new_count, and on a failed search error_code (the error's apperr
+	// code, or "unknown").
 	EventTicketSaleSearchCompleted AnalyticsEventName = "ticket_sale.search.completed"
 
 	// EventAIGeneration is PostHog's LLM-analytics generation event, recorded

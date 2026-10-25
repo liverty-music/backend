@@ -150,7 +150,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	if err != nil {
 		// Nothing is recorded, so the next daily run searches these series again.
 		uc.logger.Error(ctx, "ticket_sale_discovery: searcher failed for artist", err, attrs...)
-		uc.reportSearch(ctx, artist.ID, ticketSaleSearchOutcomeFailed, len(seriesRefs), 0, 0)
+		uc.reportSearch(ctx, artist.ID, err, len(seriesRefs), 0, 0)
 		return 0, err
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: searcher returned sales",
@@ -174,7 +174,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		}
 	}
 
-	uc.reportSearch(ctx, artist.ID, ticketSaleSearchOutcomeCompleted, len(seriesRefs), len(found), totalNew)
+	uc.reportSearch(ctx, artist.ID, nil, len(seriesRefs), len(found), totalNew)
 
 	searchedIDs := make([]string, len(seriesRefs))
 	for i, ref := range seriesRefs {
@@ -302,13 +302,19 @@ const (
 )
 
 // reportSearch sends the ticket_sale.search.completed signal of one run that
-// called the searcher.
-func (uc *ticketSaleDiscoveryUseCase) reportSearch(ctx context.Context, artistID, outcome string, seriesCount, returned, newCount int) {
-	sendSystemSignal(ctx, uc.analytics, uc.logger, EventTicketSaleSearchCompleted, AnalyticsProperties{
+// called the searcher; searchErr is the search's error, nil when it
+// completed.
+func (uc *ticketSaleDiscoveryUseCase) reportSearch(ctx context.Context, artistID string, searchErr error, seriesCount, returned, newCount int) {
+	props := AnalyticsProperties{
 		"artist_id":      artistID,
-		"outcome":        outcome,
+		"outcome":        ticketSaleSearchOutcomeCompleted,
 		"series_count":   seriesCount,
 		"returned_count": returned,
 		"new_count":      newCount,
-	})
+	}
+	if searchErr != nil {
+		props["outcome"] = ticketSaleSearchOutcomeFailed
+		props["error_code"] = errorCode(searchErr)
+	}
+	sendSystemSignal(ctx, uc.analytics, uc.logger, EventTicketSaleSearchCompleted, props)
 }

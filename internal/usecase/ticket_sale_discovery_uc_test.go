@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -507,20 +508,23 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 
 	t.Run("failed search", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/ticket-sale/discover-for-artist "Search failed for a spent quota"
 		m := newDiscoveryMocks(t)
 		setup(m)
-		m.search(series, nil, apperr.New(codes.Unavailable, "gemini down"))
+		m.search(series, nil, apperr.New(codes.PermissionDenied, "Spend cap breached for project"))
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
 			m.searcher, m.pub, analytics, newTestLogger(t))
 
 		_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		require.ErrorIs(t, err, apperr.ErrPermissionDenied)
 
 		sent := analytics.sent(usecase.EventTicketSaleSearchCompleted)
 		require.Len(t, sent, 1)
 		assert.Equal(t, "failed", sent[0]["outcome"])
+		assert.Equal(t, "permission_denied", sent[0]["error_code"])
 		assert.Equal(t, 3, sent[0]["series_count"])
+		assert.NotContains(t, fmt.Sprint(sent[0]), "Spend cap")
 	})
 
 	t.Run("a signal that cannot be sent does not change the run", func(t *testing.T) {
