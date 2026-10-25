@@ -511,6 +511,7 @@ func TestOrderUseCase_Refund_EventState(t *testing.T) {
 	t.Run("a cancellation refund for an event still on sale fails and moves no money", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/refund "Cancellation refund for an event still on sale"
+		// @spec stories/remove-a-cancelled-concert "Refund before cancellation"
 		orderRepo, refundRepo, port, moved := setup(t)
 		uc := newRefundUCForEvent(orderRepo, refundRepo, noSettlement, port, t,
 			refundEvents{state: entity.PublishStatePublished})
