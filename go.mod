@@ -35,7 +35,7 @@ require (
 	buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20261013105838-b6e033b1b614.2
 	cloud.google.com/go/cloudsqlconn v1.25.4
-	cloud.google.com/go/storage v1.69.0
+	cloud.google.com/go/storage v1.70.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/connect/v2 v2.0.2
