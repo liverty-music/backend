@@ -92,9 +92,19 @@ type fakeSeriesRepo struct {
 	// deleteOrphanedIDs captures the candidate ids passed to the last
 	// DeleteOrphaned call, so tests can assert the sweep is scoped.
 	deleteOrphanedIDs []string
+	// createErrByTitle makes Create fail for a series of that title, as the
+	// database does when the insert fails.
+	createErrByTitle map[string]error
 }
 
 func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
+	for _, s := range series {
+		if s != nil {
+			if err := r.createErrByTitle[s.Title]; err != nil {
+				return nil, err
+			}
+		}
+	}
 	r.created = append(r.created, series...)
 	ids := make([]string, 0, len(series))
 	for _, s := range series {
@@ -542,6 +552,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.Len(t, h.candidate.upserted, 1)
 		assert.Equal(t, []usecase.AnalyticsProperties{{
 			"artist_id":        "artist-1",
+			"outcome":          "completed",
 			"published_count":  3,
 			"staged_count":     1,
 			"filled_count":     0,
@@ -549,6 +560,49 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			"conflict_count":   0,
 		}}, h.analytics.sent(usecase.EventConcertIngestCompleted))
 		assert.Equal(t, []string{span.SpanContext().TraceID().String()}, h.analytics.traces(usecase.EventConcertIngestCompleted))
+	})
+
+	t.Run("batch failing part way reports what it did before failing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Batch fails part way"
+		h := build(t)
+		for _, v := range []string{"Venue A", "Venue B", "Venue C"} {
+			h.place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
+		}
+		errCreate := errors.New("insert series failed")
+		h.series.createErrByTitle = map[string]error{"Second Tour": errCreate}
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title: "First Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/first",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
+						{ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
+					},
+				},
+				{
+					Title: "Second Tour", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/second",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 1, 0), StartTime: startTime.AddDate(0, 1, 0)},
+					},
+				},
+			},
+		}
+
+		err := h.uc.CreateFromDiscovered(context.Background(), data)
+
+		require.ErrorIs(t, err, errCreate)
+		require.Len(t, h.concert.created, 2)
+		assert.Equal(t, []usecase.AnalyticsProperties{{
+			"artist_id":        "artist-1",
+			"outcome":          "failed",
+			"published_count":  2,
+			"staged_count":     0,
+			"filled_count":     0,
+			"suppressed_count": 0,
+			"conflict_count":   0,
+		}}, h.analytics.sent(usecase.EventConcertIngestCompleted))
 	})
 
 	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {

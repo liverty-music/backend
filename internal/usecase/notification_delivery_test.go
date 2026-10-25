@@ -48,8 +48,25 @@ func (p *capturingPublisher) ids() []string {
 	return out
 }
 
+// tags returns the notification Tag of each published NOTIFICATION.requested
+// message, in publish order.
+func (p *capturingPublisher) tags(t *testing.T) []string {
+	t.Helper()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, 0, len(p.msgs))
+	for _, m := range p.msgs {
+		var data entity.NotificationRequestedData
+		require.NoError(t, messaging.ParseCloudEventData(m, &data))
+		require.NotNil(t, data.Payload)
+		out = append(out, data.Payload.Tag)
+	}
+	return out
+}
+
 // TestAnnounceDiscoveredSale_SameSaleTwice verifies that announcing the same
-// sale twice for the same recipient makes two requests, each with its own id.
+// sale twice for the same recipient makes two requests, each with its own id
+// and the same per-sale tag.
 //
 // @spec components/usecase/ticket-sale/announce-discovered-sale "Same sale announced twice"
 func TestAnnounceDiscoveredSale_SameSaleTwice(t *testing.T) {
@@ -75,11 +92,13 @@ func TestAnnounceDiscoveredSale_SameSaleTwice(t *testing.T) {
 	require.Len(t, ids, 2, "two requests are made for the recipient")
 	assert.NotEmpty(t, ids[0])
 	assert.NotEqual(t, ids[0], ids[1], "each request is a new event with its own id")
+	assert.Equal(t, []string{"ticket-sale-sale-1", "ticket-sale-sale-1"}, wm.tags(t),
+		"both requests carry the per-sale tag, so the second replaces the first")
 }
 
 // TestNotifyNewConcerts_SameConcertsTwice verifies that notifying the same
 // concerts twice to the same follower makes two requests, each with its own
-// id.
+// id and the same per-artist tag.
 //
 // @spec components/usecase/notification/notify-new-concerts "Same concerts notified twice"
 func TestNotifyNewConcerts_SameConcertsTwice(t *testing.T) {
@@ -111,4 +130,6 @@ func TestNotifyNewConcerts_SameConcertsTwice(t *testing.T) {
 	require.Len(t, ids, 2, "two requests are made for the follower")
 	assert.NotEmpty(t, ids[0])
 	assert.NotEqual(t, ids[0], ids[1], "each request is a new event with its own id")
+	assert.Equal(t, []string{"concert-artist-1", "concert-artist-1"}, wm.tags(t),
+		"both requests carry the per-artist tag, so the second replaces the first")
 }

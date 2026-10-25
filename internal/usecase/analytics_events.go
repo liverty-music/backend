@@ -99,13 +99,15 @@ const (
 // Fan-level commerce and engagement events forwarded by the analytics
 // consumer from domain events.
 const (
-	// EventArtistHypeChanged is recorded when a fan changes the hype level of
-	// a followed artist to a different level (ARTIST.hype_changed).
-	// Properties: artist_id, from_hype, to_hype.
+	// EventArtistHypeChanged is recorded each time a fan sets the hype level
+	// of a followed artist (ARTIST.hype_changed), including a set to the level
+	// it already had. Properties: artist_id, hype.
 	EventArtistHypeChanged AnalyticsEventName = "artist.hype.changed"
 
-	// EventOrderPaid is recorded once per paid Order (ORDER.paid), with the
-	// Order id as the event id so a redelivered announcement is stored once.
+	// EventOrderPaid is recorded for each ORDER.paid announcement, with the
+	// CloudEvent id (a UUIDv7) as the event id: a redelivery of the same
+	// message is stored once, but a charge reported again announces a new
+	// message and records a second event.
 	// Properties: order_id, event_id, ticket_count, amount, currency, source
 	// ("lottery_entry" or "checkout"), lottery_entry_id or checkout_id.
 	EventOrderPaid AnalyticsEventName = "order.paid"
@@ -135,8 +137,10 @@ const (
 	EventConcertSearchCompleted AnalyticsEventName = "concert.search.completed"
 
 	// EventConcertIngestCompleted is recorded once per CreateFromDiscovered
-	// batch. Properties: artist_id, published_count, staged_count,
-	// filled_count, suppressed_count, conflict_count.
+	// batch, a failed one included with what it had done before failing.
+	// Properties: artist_id, outcome ("completed" or "failed"),
+	// published_count, staged_count, filled_count, suppressed_count,
+	// conflict_count.
 	EventConcertIngestCompleted AnalyticsEventName = "concert.ingest.completed"
 
 	// EventTicketSaleSearchCompleted is recorded once per DiscoverForArtist

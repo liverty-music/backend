@@ -33,7 +33,9 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	if errors.Is(err, errNoCandidates) || errors.Is(err, errTooManyToolCalls) {
 		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
 	}
-	if errors.Is(err, errInvalidJSON) {
+	// A structurally broken response: invalid JSON, or a normal finish
+	// without text.
+	if errors.Is(err, errInvalidJSON) || errors.Is(err, errNoText) {
 		return apperr.Wrap(err, codes.Internal, msg, attrs...)
 	}
 
