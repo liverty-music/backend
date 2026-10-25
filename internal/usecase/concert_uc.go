@@ -519,13 +519,17 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, tr
 		case len(result) == 0:
 			outcome = concertSearchOutcomeNothingNew
 		}
-		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, AnalyticsProperties{
+		props := AnalyticsProperties{
 			"artist_id":    artistID,
 			"trigger":      string(trigger),
 			"outcome":      outcome,
 			"series_count": announcedSeries,
 			"event_count":  announcedEvents,
-		})
+		}
+		if err != nil {
+			props["error_code"] = errorCode(err)
+		}
+		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, props)
 	}()
 	defer func() {
 		switch {

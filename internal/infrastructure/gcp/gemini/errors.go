@@ -45,8 +45,12 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		switch apiErr.Code {
 		case http.StatusBadRequest:
 			code = codes.InvalidArgument
-		case http.StatusUnauthorized, http.StatusForbidden:
+		case http.StatusUnauthorized:
 			code = codes.Unauthenticated
+		case http.StatusForbidden:
+			// A denial, not missing credentials (AIP-193), such as a spent
+			// project spend cap ("Spend cap breached", PERMISSION_DENIED).
+			code = codes.PermissionDenied
 		case http.StatusNotFound:
 			code = codes.NotFound
 		case http.StatusTooManyRequests:

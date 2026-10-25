@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"testing/synctest"
@@ -1321,15 +1322,37 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 		d := newConcertTestDeps(t)
 		expectSearchUpToSearcher(d, artist, nil)
 		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).
-			Return(nil, apperr.New(codes.Unavailable, "gemini down")).Once()
+			Return(nil, apperr.New(codes.DeadlineExceeded, "caller's context ended during the gemini concert search")).Once()
 		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, entity.ConcertSearchStatusFailed).Return(nil).Once()
 
 		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		require.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
 
 		sent := d.analytics.sent(usecase.EventConcertSearchCompleted)
 		require.Len(t, sent, 1)
 		assert.Equal(t, "failed", sent[0]["outcome"])
+		assert.Equal(t, "deadline_exceeded", sent[0]["error_code"])
+		for key, value := range sent[0] {
+			assert.NotContains(t, fmt.Sprint(value), "caller's context", "property %s carries the message", key)
+		}
+	})
+
+	t.Run("search failed with an error that states no kind", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/search-new-concerts "Failure without a kind"
+		d := newConcertTestDeps(t)
+		expectSearchUpToSearcher(d, artist, nil)
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).
+			Return(nil, errors.New("connection reset")).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, entity.ConcertSearchStatusFailed).Return(nil).Once()
+
+		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
+		require.Error(t, err)
+
+		sent := d.analytics.sent(usecase.EventConcertSearchCompleted)
+		require.Len(t, sent, 1)
+		assert.Equal(t, "failed", sent[0]["outcome"])
+		assert.Equal(t, "unknown", sent[0]["error_code"])
 	})
 
 	t.Run("new concerts found on a first follow", func(t *testing.T) {
