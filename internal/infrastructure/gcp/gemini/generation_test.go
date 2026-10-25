@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -152,7 +153,9 @@ func TestSearch_ReportsPermanentFailure(t *testing.T) {
 	})
 
 	_, err := s.Search(context.Background(), &entity.Artist{ID: "a", Name: "A"}, nil, time.Now())
-	require.Error(t, err)
+	// A 403 is a denial, such as a spent spend cap, not missing credentials:
+	// the code the pipeline signal reports as error_code.
+	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
 
 	reported := reporter.reported()
 	require.Len(t, reported, 1)
