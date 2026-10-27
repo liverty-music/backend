@@ -16,7 +16,6 @@ import (
 // workflow and schedule on it, then call Launch.
 type Runtime struct {
 	ctx    dbos.Context
-	pool   *pgxpool.Pool
 	admin  *admin
 	logger *logging.Logger
 }
@@ -45,7 +44,7 @@ func NewRuntime(ctx context.Context, pool *pgxpool.Pool, logger *logging.Logger)
 	if err != nil {
 		return nil, err
 	}
-	r := &Runtime{ctx: dctx, pool: pool, logger: logger}
+	r := &Runtime{ctx: dctx, logger: logger}
 	if _, err := dbos.RegisterQueue(dctx, DefaultQueue); err != nil {
 		return nil, toAppErr(err, "register the default workflow queue")
 	}
@@ -95,12 +94,6 @@ func (r *Runtime) Launch() error {
 // workflow interrupted here is recovered by the next Launch.
 func (r *Runtime) Close() error {
 	return toAppErr(dbos.Shutdown(r.ctx, 30*time.Second), "shut down the workflow runtime")
-}
-
-// Client returns the Client the worker uses for its own reports and for the
-// `workflow` subcommands.
-func (r *Runtime) Client() *Client {
-	return &Client{c: r.ctx, pool: r.pool}
 }
 
 // registered adapts a usecase workflow method to DBOS. Each is registered as

@@ -1,6 +1,11 @@
 package workflow
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/dbos-inc/dbos-transact-golang/dbos"
+)
 
 // ShortenStepRetries makes failed steps retry after base, at most max apart,
 // for tests that cannot wait the production intervals. It returns a function
@@ -17,4 +22,14 @@ func SetClock(r *Runtime, now func() time.Time) {
 	r.admin.mu.Lock()
 	defer r.admin.mu.Unlock()
 	r.admin.now = now
+}
+
+// TriggerSchedule runs the named schedule now instead of at its next tick and
+// returns the run's workflow id.
+func TriggerSchedule(c *Client, name string) (string, error) {
+	handle, err := dbos.TriggerSchedule[json.RawMessage](c.c, name)
+	if err != nil {
+		return "", toAppErr(err, "trigger schedule "+name)
+	}
+	return handle.GetWorkflowID(), nil
 }

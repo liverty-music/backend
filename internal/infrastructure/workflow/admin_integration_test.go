@@ -59,7 +59,7 @@ func needsAdminGauge(t *testing.T, reader *sdkmetric.ManualReader, name, status 
 func runSchedule(t *testing.T, client *workflow.Client, name string) {
 	t.Helper()
 	ctx := context.Background()
-	id, err := client.TriggerSchedule(ctx, name)
+	id, err := workflow.TriggerSchedule(client, name)
 	require.NoError(t, err)
 	var n int
 	require.NoError(t, client.Await(ctx, id, waitLimit, &n))

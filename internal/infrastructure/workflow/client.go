@@ -188,12 +188,3 @@ func (c *Client) Fork(ctx context.Context, id string, startStep uint) (string, e
 func (c *Client) Delete(ctx context.Context, id string) error {
 	return toAppErr(dbos.DeleteWorkflows(c.c, []string{id}), "delete workflow "+id)
 }
-
-// TriggerSchedule runs the named schedule now instead of at its next tick.
-func (c *Client) TriggerSchedule(ctx context.Context, name string) (string, error) {
-	handle, err := dbos.TriggerSchedule[json.RawMessage](c.c, name)
-	if err != nil {
-		return "", toAppErr(err, "trigger schedule "+name)
-	}
-	return handle.GetWorkflowID(), nil
-}
