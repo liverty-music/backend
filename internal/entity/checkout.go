@@ -245,7 +245,8 @@ type CheckoutRepository interface {
 	//  - ResourceExhausted: not enough tickets remain, or not enough listings
 	//    are free.
 	//  - FailedPrecondition: the per-account limit would be exceeded.
-	//  - NotFound: no TicketType has the id.
+	//  - NotFound: no TicketType has the id, or the user does not exist, also
+	//    when it was deleted while the call waited.
 	//  - Internal: database failure.
 	GetOrCreateHeld(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int, now time.Time, resaleDeadline *time.Time) (*Checkout, error)
 
@@ -265,6 +266,15 @@ type CheckoutRepository interface {
 	//  - NotFound: no Checkout has the reference.
 	//  - Internal: database failure.
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*Checkout, error)
+
+	// ListByUser returns every Checkout of the user, in every status and for
+	// every TicketType, newest first. It returns an empty slice when there is
+	// none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database failure.
+	ListByUser(ctx context.Context, userID UserID) ([]*Checkout, error)
 
 	// SetAuthorization stores the card authorization ID of a Held Checkout; it
 	// changes no other attribute. With the same reference already set it

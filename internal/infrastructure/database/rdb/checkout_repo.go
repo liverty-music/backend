@@ -33,6 +33,8 @@ const checkoutColumns = `
 const (
 	checkoutGetQuery                      = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE id = $1`
 	checkoutGetByCardAuthorizationIDQuery = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE card_authorization_id = $1`
+	// checkoutListByUserQuery orders newest first by the UUIDv7 id.
+	checkoutListByUserQuery = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE user_id = $1 ORDER BY id DESC`
 	// checkoutHeldOfUserQuery locks the user's Held checkout of the ticket type
 	// (at most one, by the partial unique index), lapsed or not.
 	checkoutHeldOfUserQuery = `
@@ -141,9 +143,9 @@ func NewCheckoutRepository(db *Database) *CheckoutRepository {
 }
 
 // GetOrCreateHeld returns the user's holding checkout of the same kind with
-// the same count, or creates a new Held one under the ticket type's row lock:
-// a stock checkout when resaleDeadline is nil, otherwise a resale checkout
-// that holds the oldest free listings.
+// the same count, or creates a new Held one under the user's shared deletion
+// lock and the ticket type's row lock: a stock checkout when resaleDeadline
+// is nil, otherwise a resale checkout that holds the oldest free listings.
 func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error) {
 	resale := resaleDeadline != nil
 	attrs := []slog.Attr{slog.String("ticket_type_id", string(ticketTypeID)), slog.String("user_id", string(userID)), slog.Bool("resale", resale)}
@@ -154,6 +156,9 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID e
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockUserForCreate(ctx, tx, userID); err != nil {
+		return nil, err
+	}
 	_, ticketType, err := lockTicketType(ctx, tx, ticketTypeID, now)
 	if err != nil {
 		return nil, toAppErr(err, "failed to lock ticket type", attrs...)
@@ -479,6 +484,29 @@ func (r *CheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context,
 	}
 	return apperr.New(codes.FailedPrecondition, "checkout is not an ended checkout with a card authorization",
 		slog.String("checkout_id", string(id)))
+}
+
+// ListByUser returns every checkout of the user, newest first.
+func (r *CheckoutRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Checkout, error) {
+	attrs := slog.String("user_id", string(userID))
+	rows, err := r.db.Pool.Query(ctx, checkoutListByUserQuery, string(userID))
+	if err != nil {
+		return nil, toAppErr(err, "failed to list checkouts of the user", attrs)
+	}
+	defer rows.Close()
+
+	checkouts := []*entity.Checkout{}
+	for rows.Next() {
+		c, err := scanCheckout(rows)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan checkout of the user", attrs)
+		}
+		checkouts = append(checkouts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate checkouts of the user", attrs)
+	}
+	return checkouts, nil
 }
 
 // ListDue returns the lapsed holds, the card authorizations to give back and the

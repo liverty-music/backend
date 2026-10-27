@@ -250,6 +250,20 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	Delete(ctx context.Context, id string) error
 
+	// SerializeDeletion runs fn while holding an exclusive lock keyed on the
+	// user. LotteryEntryRepository.Create, CheckoutRepository.GetOrCreateHeld
+	// and ResaleListingRepository.Create hold the same key shared while they
+	// store, and store nothing once the user is gone, so a deletion that
+	// checks what blocks it inside fn never misses a record created
+	// concurrently. The lock is released when fn returns, and also when the
+	// process holding it dies.
+	//
+	// # Possible errors
+	//
+	//  - Internal: the lock could not be taken.
+	//  - Any error returned by fn, unchanged.
+	SerializeDeletion(ctx context.Context, id string, fn func(ctx context.Context) error) error
+
 	// UpdatePreferredLanguage sets the user's preferred display language.
 	// Performs a focused UPDATE on the preferred_language column and returns
 	// the refreshed user entity.

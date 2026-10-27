@@ -605,3 +605,62 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
+
+// insertCheckoutOf stores a checkout of one ticket of the ticket type for the
+// user in the given status, held until holdExpire, with the card
+// authorization, commit and capture times that status requires, and returns
+// its id.
+func insertCheckoutOf(t *testing.T, ticketTypeID entity.TicketTypeID, userID entity.UserID, status entity.CheckoutStatus, holdExpire time.Time) entity.CheckoutID {
+	t.Helper()
+	id := entity.NewID()
+	var authorization, commitAt, captureAt any
+	switch status {
+	case entity.CheckoutStatusCommitted:
+		authorization, commitAt = "pi_"+id, holdExpire.Add(-time.Minute)
+	case entity.CheckoutStatusCompleted:
+		authorization, commitAt, captureAt = "pi_"+id, holdExpire.Add(-time.Minute), holdExpire
+	}
+	_, err := testDB.Pool.Exec(context.Background(), `
+		INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, card_authorization_id, status, hold_expire_at, commit_at, capture_at)
+		VALUES ($1, $2, $3, 1, 3000, $4, $5, $6, $7, $8)
+	`, id, string(ticketTypeID), string(userID), authorization, int16(status), holdExpire, commitAt, captureAt)
+	require.NoError(t, err)
+	return entity.CheckoutID(id)
+}
+
+func TestCheckoutRepository_ListByUser(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	cleanDatabase(t)
+	repo := rdb.NewCheckoutRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("two checkouts", func(t *testing.T) {
+		// @spec components/entity/checkout/list-by-user "Two checkouts"
+		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		userID := entity.UserID(seedFanUser(t))
+		now := time.Now()
+		completed := insertCheckoutOf(t, tt.ID, userID, entity.CheckoutStatusCompleted, now.AddDate(0, -1, 0))
+		held := insertCheckoutOf(t, tt.ID, userID, entity.CheckoutStatusHeld, now.Add(14*time.Minute))
+		insertCheckoutOf(t, tt.ID, entity.UserID(seedFanUser(t)), entity.CheckoutStatusHeld, now.Add(14*time.Minute)) // another user
+
+		got, err := repo.ListByUser(ctx, userID)
+
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Equal(t, held, got[0].ID)
+		assert.Equal(t, entity.CheckoutStatusHeld, got[0].Status)
+		assert.Equal(t, completed, got[1].ID)
+		assert.Equal(t, entity.CheckoutStatusCompleted, got[1].Status)
+	})
+
+	t.Run("never checked out", func(t *testing.T) {
+		// @spec components/entity/checkout/list-by-user "Never checked out"
+		got, err := repo.ListByUser(ctx, entity.UserID(seedFanUser(t)))
+
+		require.NoError(t, err)
+		assert.NotNil(t, got)
+		assert.Empty(t, got)
+	})
+}

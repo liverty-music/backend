@@ -284,7 +284,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// The consumer's UserUseCase handles the passkey events and sends the
 	// verification resends the fan API announces (ReissueEmailVerification);
 	// it never deletes users.
-	userUC := usecase.NewUserUseCase(userRepo, nil, nil, eventPublisher, emailVerifier, nil, nil,
+	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, eventPublisher, emailVerifier, nil, nil,
 		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
 

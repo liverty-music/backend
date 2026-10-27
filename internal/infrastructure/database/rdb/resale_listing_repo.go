@@ -74,7 +74,8 @@ func NewResaleListingRepository(db *Database) *ResaleListingRepository {
 	return &ResaleListingRepository{db: db}
 }
 
-// Create stores a Listed listing under the ticket's row lock.
+// Create stores a Listed listing under the user's shared deletion lock and
+// the ticket's row lock.
 func (r *ResaleListingRepository) Create(ctx context.Context, listing *entity.ResaleListing) (*entity.ResaleListing, error) {
 	attrs := []slog.Attr{slog.String("ticket_id", string(listing.TicketID))}
 	tx, err := r.db.Pool.Begin(ctx)
@@ -88,6 +89,9 @@ func (r *ResaleListingRepository) Create(ctx context.Context, listing *entity.Re
 		status  int16
 		admitAt sql.NullTime
 	)
+	if err := lockUserForCreate(ctx, tx, listing.UserID); err != nil {
+		return nil, err
+	}
 	if err := tx.QueryRow(ctx, resaleListingLockTicketQuery, string(listing.TicketID)).Scan(&status, &admitAt); err != nil {
 		return nil, toAppErr(err, "failed to lock ticket", attrs...)
 	}

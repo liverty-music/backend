@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	rpcmocks "github.com/liverty-music/backend/internal/adapter/rpc/mocks"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
@@ -33,10 +34,19 @@ const (
 
 func newUserHandler(t *testing.T) (*rpc.UserHandler, *mocks.MockUserUseCase) {
 	t.Helper()
+	h, userUC, _ := newUserHandlerWithFreshSignIn(t)
+	return h, userUC
+}
+
+// newUserHandlerWithFreshSignIn also returns the mocked fresh-sign-in check,
+// which fails the test when called without an expectation.
+func newUserHandlerWithFreshSignIn(t *testing.T) (*rpc.UserHandler, *mocks.MockUserUseCase, *rpcmocks.MockFreshSignInVerifier) {
+	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	userUC := mocks.NewMockUserUseCase(t)
-	return rpc.NewUserHandler(userUC, logger), userUC
+	freshSignIn := rpcmocks.NewMockFreshSignInVerifier(t)
+	return rpc.NewUserHandler(userUC, freshSignIn, logger), userUC, freshSignIn
 }
 
 // newUserBoundaryClient serves the fan UserService behind the consumer
@@ -70,8 +80,10 @@ func TestUserHandler_NotSignedIn(t *testing.T) {
 		_, langErr := client.SetPreferredLanguage(ctx, &userv1.SetPreferredLanguageRequest{PreferredLanguage: "en"})
 		_, homeErr := client.SetHome(ctx, &userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}})
 		_, resendErr := client.ResendEmailVerification(ctx, &userv1.ResendEmailVerificationRequest{})
+		_, blockersErr := client.ListDeletionBlockers(ctx, &userv1.ListDeletionBlockersRequest{})
+		_, deleteErr := client.Delete(ctx, &userv1.DeleteRequest{IdToken: "id-token"})
 
-		for _, err := range []error{getErr, createErr, updateErr, langErr, homeErr, resendErr} {
+		for _, err := range []error{getErr, createErr, updateErr, langErr, homeErr, resendErr, blockersErr, deleteErr} {
 			assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 		}
 	})
@@ -498,5 +510,108 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 				assert.ErrorIs(t, err, tc.wantErr)
 			})
 		}
+	})
+}
+
+func TestUserHandler_ListDeletionBlockers(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/adapter/fan/api/rpc/user "Caller holds an upcoming ticket"
+	t.Run("return the caller's upcoming ticket blocker", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		userUC.EXPECT().ListDeletionBlockers(mock.Anything, testCallerUserID).
+			Return([]entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindUpcomingTicket, Count: 1}}, nil).Once()
+
+		resp, err := h.ListDeletionBlockers(authedCtx(testCallerExtID), &userv1.ListDeletionBlockersRequest{})
+
+		require.NoError(t, err)
+		require.Len(t, resp.GetBlockers(), 1)
+		assert.Equal(t, entitypb.DeletionBlocker_KIND_UPCOMING_TICKET, resp.GetBlockers()[0].GetKind())
+		assert.Equal(t, int32(1), resp.GetBlockers()[0].GetCount())
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "Nothing in progress"
+	t.Run("return no blocker when nothing is in progress", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		userUC.EXPECT().ListDeletionBlockers(mock.Anything, testCallerUserID).Return([]entity.DeletionBlocker{}, nil).Once()
+
+		resp, err := h.ListDeletionBlockers(authedCtx(testCallerExtID), &userv1.ListDeletionBlockersRequest{})
+
+		require.NoError(t, err)
+		assert.Empty(t, resp.GetBlockers())
+	})
+
+	t.Run("return NOT_FOUND when the caller has no User", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).
+			Return(nil, apperr.New(apperr.ErrNotFound.Code, "user not found")).Once()
+
+		_, err := h.ListDeletionBlockers(authedCtx(testCallerExtID), &userv1.ListDeletionBlockersRequest{})
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+func TestUserHandler_Delete(t *testing.T) {
+	t.Parallel()
+	const idToken = "id-token"
+
+	// @spec components/adapter/fan/api/rpc/user "Deleting only oneself"
+	// @spec components/adapter/fan/api/rpc/user "Fresh sign-in"
+	t.Run("delete the caller's own User after checking the caller's fresh sign-in", func(t *testing.T) {
+		t.Parallel()
+		h, userUC, freshSignIn := newUserHandlerWithFreshSignIn(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		freshSignIn.EXPECT().VerifyFreshSignIn(mock.Anything, idToken, testCallerExtID).Return(nil).Once()
+		userUC.EXPECT().Delete(mock.Anything, testCallerUserID).Return(nil).Once()
+
+		_, err := h.Delete(authedCtx(testCallerExtID), &userv1.DeleteRequest{IdToken: idToken})
+
+		require.NoError(t, err)
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "Old sign-in"
+	// @spec components/adapter/fan/api/rpc/user "Proof of another identity"
+	t.Run("return PERMISSION_DENIED and delete nothing when the proof fails the check", func(t *testing.T) {
+		t.Parallel()
+		// The mock fails the test if UserUseCase.Delete runs.
+		h, userUC, freshSignIn := newUserHandlerWithFreshSignIn(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		freshSignIn.EXPECT().VerifyFreshSignIn(mock.Anything, idToken, testCallerExtID).
+			Return(apperr.New(apperr.ErrPermissionDenied.Code, "the sign-in is not fresh")).Once()
+
+		_, err := h.Delete(authedCtx(testCallerExtID), &userv1.DeleteRequest{IdToken: idToken})
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "No proof"
+	t.Run("return INVALID_ARGUMENT without a proof and run no usecase", func(t *testing.T) {
+		t.Parallel()
+		// The mocks fail the test if the check or a usecase runs.
+		h, _, _ := newUserHandlerWithFreshSignIn(t)
+
+		_, err := newUserBoundaryClient(t, h).Delete(withFanToken(&userv1.DeleteRequest{}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "Caller with an upcoming ticket"
+	t.Run("return the usecase's FAILED_PRECONDITION for a caller with a blocker", func(t *testing.T) {
+		t.Parallel()
+		h, userUC, freshSignIn := newUserHandlerWithFreshSignIn(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		freshSignIn.EXPECT().VerifyFreshSignIn(mock.Anything, idToken, testCallerExtID).Return(nil).Once()
+		userUC.EXPECT().Delete(mock.Anything, testCallerUserID).
+			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "user has activity in progress")).Once()
+
+		_, err := h.Delete(authedCtx(testCallerExtID), &userv1.DeleteRequest{IdToken: idToken})
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 }

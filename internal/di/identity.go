@@ -60,10 +60,13 @@ var AdminConsoleAPIProcedures = []string{
 }
 
 // FanAPIProcedures are the identity-service procedures the fan API may call:
-// only confirming an email address with the code from its verification email,
-// which needs a code only the address owner has.
+// confirming an email address with the code from its verification email, and
+// removing the identity of a fan who deletes their own account. The fan API
+// checks that fan's fresh sign-in before it calls; the identity service does
+// not repeat the check, since only the fan API reaches this listener.
 var FanAPIProcedures = []string{
 	backenduserv1connect.UserServiceVerifyEmailProcedure,
+	backenduserv1connect.UserServiceDeleteIdentityProcedure,
 }
 
 // InitializeIdentityApp creates the identity service with its

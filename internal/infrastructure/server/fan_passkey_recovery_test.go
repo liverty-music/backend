@@ -45,7 +45,7 @@ func newFanPasskeyRecoveryTestServer(t *testing.T) (userv1connect.UserServiceCli
 	userUC := usecasemocks.NewMockUserUseCase(t)
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
-			userv1connect.RegisterUserServiceHandler(s, rpc.NewUserHandler(userUC, logger))
+			userv1connect.RegisterUserServiceHandler(s, rpc.NewUserHandler(userUC, nil, logger))
 		},
 	}
 	srv := server.NewConnectServer(testServerSettings(fanOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)

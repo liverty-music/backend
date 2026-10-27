@@ -131,8 +131,8 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 }
 
 // provideIdentityClients builds the identity-service clients this workload
-// uses: the fan identity remover on the admin workload and the email code
-// verifier on the fan workload, each nil elsewhere. The organizer and
+// uses: the fan identity remover on the admin and fan workloads and the email
+// code verifier on the fan workload, each nil elsewhere. The organizer and
 // reception workloads reach no identity-provider operation. The API builds no
 // email sender: verification emails are sent by the event consumer. It logs
 // which clients were built so their absence is visible.
@@ -266,6 +266,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
 	checkoutRepo := rdb.NewCheckoutRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
+	resaleListingRepo := rdb.NewResaleListingRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	scannerRepo := rdb.NewScannerRepository(db)
 	admissionRepo := rdb.NewAdmissionRepository(db)
@@ -314,9 +315,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	// Infrastructure - fan identity removal (admin workload) and email
-	// verification (fan workload) through the identity service; nil elsewhere
-	// and in local dev without the identity service.
+	// Infrastructure - fan identity removal (admin and fan workloads) and
+	// email verification (fan workload) through the identity service; nil
+	// elsewhere and in local dev without the identity service.
 	identityRemover, emailCodes := provideIdentityClients(ctx, cfg, logger)
 
 	// Business metrics
@@ -325,7 +326,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{
+		Tickets:        ticketRepo,
+		Events:         eventRepo,
+		ResaleListings: resaleListingRepo,
+		LotteryEntries: lotteryEntryRepo,
+		Checkouts:      checkoutRepo,
+		Orders:         orderRepo,
+		Now:            time.Now,
+	}, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -477,7 +486,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// type, another fan buys it through the checkout above, and the refund
 	// job pays the listing fan back within a minute and announces it; the
 	// event consumer sends the sold email.
-	resaleListingRepo := rdb.NewResaleListingRepository(db)
 	resaleListingUC := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings:   resaleListingRepo,
 		Tickets:    ticketRepo,
@@ -654,7 +662,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Consumer RPC handlers (protected by authn middleware)
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
-			userconnect.RegisterUserServiceHandler(s, rpc.NewUserHandler(userUC, logger))
+			userconnect.RegisterUserServiceHandler(s, rpc.NewUserHandler(userUC, jwtValidator.NewFreshSignInVerifier(cfg.FanClientID, time.Now), logger))
 		},
 		func(s *connect.Server) {
 			artistconnect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))

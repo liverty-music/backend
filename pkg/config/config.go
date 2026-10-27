@@ -110,10 +110,16 @@ type ServerConfig struct {
 	// IdentityServiceURL is the identity service's listener for this
 	// workload (h2c): on the admin workload http://identity:9101, for fan
 	// identity removal and Organization provisioning; on the fan workload
-	// http://identity:9102, for email verification. No API workload holds an
-	// identity-provider credential. Required outside local on the admin and
-	// fan workloads; unset elsewhere.
+	// http://identity:9102, for email verification and the removal of the
+	// caller's own identity. No API workload holds an identity-provider
+	// credential. Required outside local on the admin and fan workloads; unset
+	// elsewhere.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
+
+	// FanClientID is the fan app's client id at the sign-in service: the
+	// audience of the ID token that proves a fan's fresh sign-in before the
+	// fan deletes their account. Required outside local on the fan workload.
+	FanClientID string `envconfig:"FAN_OIDC_CLIENT_ID"`
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
 	// Project-Granted to each Organizer's Organization and used as the role
@@ -1045,9 +1051,9 @@ var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer, Workl
 
 // validateWorkloadSettings requires, outside local, every setting the API
 // servers use. Each deployment runs all five listeners, so the requirements
-// are the same for every workload except what only the admin workload needs
-// for fan identity removal and Organization provisioning: the identity
-// service's URL.
+// are the same for every workload except the identity service's URL, which the
+// admin and fan workloads need, the Organizer console project id on the admin
+// workload, and the fan app's client id on the fan workload.
 func (c *ServerConfig) validateWorkloadSettings() error {
 	if c.Workload == "" {
 		return fmt.Errorf("API_WORKLOAD is required outside local (allowed: %s)", strings.Join(apiWorkloads, ", "))
@@ -1079,7 +1085,10 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
 		)
 	case WorkloadFan:
-		required = append(required, envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL})
+		required = append(required,
+			envVar{"FAN_OIDC_CLIENT_ID", c.FanClientID},
+			envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
+		)
 	}
 	if err := requireSet(required...); err != nil {
 		return err
@@ -1115,14 +1124,15 @@ func (c *ServerConfig) ProvisionsOrganizers() bool {
 }
 
 // RemovesIdentities reports whether this process removes fan identities
-// through the identity service: outside local only the admin workload, whose
-// IDENTITY_SERVICE_URL is the admin console API's listener; local whenever
-// the identity service's URL is set.
+// through the identity service: outside local the admin workload, for an
+// admin's removal of a fan, and the fan workload, for a fan's removal of
+// their own account, each through its own listener; local whenever the
+// identity service's URL is set.
 func (c *ServerConfig) RemovesIdentities() bool {
 	if c.IsLocal() {
 		return c.IdentityServiceURL != ""
 	}
-	return c.Workload == WorkloadAdmin
+	return c.Workload == WorkloadAdmin || c.Workload == WorkloadFan
 }
 
 // VerifiesEmails reports whether this process confirms email addresses

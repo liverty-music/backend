@@ -64,6 +64,7 @@ packages:
   github.com/liverty-music/backend/internal/adapter/rpc:
     interfaces:
       EmailVerificationCodes: {}
+      FreshSignInVerifier: {}
   github.com/liverty-music/backend/internal/infrastructure/mail:
     interfaces:
       EmailVerificationCodeIssuer: {}

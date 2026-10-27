@@ -916,6 +916,7 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 		cfg.IdentityServiceURL = "http://identity:9101"
 	case WorkloadFan:
 		cfg.IdentityServiceURL = "http://identity:9102"
+		cfg.FanClientID = "fan-client"
 	}
 	return cfg
 }
@@ -986,6 +987,11 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			name:    "reject a fan workload without the identity service",
 			mutate:  func(c *ServerConfig) { c.IdentityServiceURL = "" },
 			wantErr: "IDENTITY_SERVICE_URL",
+		},
+		{
+			name:    "reject a fan workload without the fan app's client id",
+			mutate:  func(c *ServerConfig) { c.FanClientID = "" },
+			wantErr: "FAN_OIDC_CLIENT_ID",
 		},
 	}
 
