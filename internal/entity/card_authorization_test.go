@@ -11,8 +11,8 @@ import (
 func TestCardAuthorizationPurchase_AcceptsCardBrand(t *testing.T) {
 	t.Parallel()
 
-	lotteryEntry := entity.CardAuthorizationPurchase{LotteryEntryID: "entry-1"}
-	checkout := entity.CardAuthorizationPurchase{CheckoutID: "checkout-1"}
+	lotteryEntry := entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry}
+	checkout := entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1"}
 
 	t.Run("American Express on a lottery entry", func(t *testing.T) {
 		t.Parallel()
@@ -39,8 +39,8 @@ func TestCardAuthorizationPurchase_AcceptsCardBrand(t *testing.T) {
 func TestCardAuthorization_Confirm(t *testing.T) {
 	t.Parallel()
 
-	lotteryEntry := entity.CardAuthorizationPurchase{LotteryEntryID: "entry-1"}
-	checkout := entity.CardAuthorizationPurchase{CheckoutID: "checkout-1"}
+	lotteryEntry := entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry}
+	checkout := entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1"}
 	authorized := func(amount int64, brand entity.CardBrand) *entity.CardAuthorization {
 		return &entity.CardAuthorization{ID: "pi_1", Amount: amount, CardBrand: brand, Status: entity.CardAuthorizationStatusAuthorized}
 	}

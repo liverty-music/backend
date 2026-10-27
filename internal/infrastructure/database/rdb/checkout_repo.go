@@ -27,7 +27,7 @@ var _ entity.CheckoutRepository = (*CheckoutRepository)(nil)
 const checkoutColumns = `
 	id, ticket_type_id, user_id, ticket_count, amount,
 	card_authorization_id, card_authorization_release_at, status, hold_expire_at,
-	commit_at, capture_at, resale
+	commit_at, capture_at, resale, referral_code
 `
 
 const (
@@ -82,7 +82,11 @@ const (
 		UPDATE checkouts SET card_authorization_id = $2
 		WHERE id = $1 AND status = 1 AND (card_authorization_id IS NULL OR card_authorization_id = $2)
 	`
-	checkoutCommitQuery = `
+	// checkoutSetReferralCodeQuery sets the code of a Held checkout only; the
+	// status check and the write are one statement.
+	checkoutSetReferralCodeQuery = `UPDATE checkouts SET referral_code = $2 WHERE id = $1 AND status = 1`
+	checkoutExistsQuery          = `SELECT EXISTS (SELECT 1 FROM checkouts WHERE id = $1)`
+	checkoutCommitQuery          = `
 		UPDATE checkouts SET status = 2, commit_at = $2
 		WHERE id = $1 AND status = 1 AND hold_expire_at > $2
 	`
@@ -285,6 +289,28 @@ func (r *CheckoutRepository) SetCardAuthorization(ctx context.Context, id entity
 	}
 	return apperr.New(codes.FailedPrecondition, "checkout is not Held or has another card authorization",
 		slog.String("checkout_id", string(id)))
+}
+
+// SetReferralCode sets the referral code of a Held checkout; any other
+// checkout is left unchanged.
+func (r *CheckoutRepository) SetReferralCode(ctx context.Context, id entity.CheckoutID, code entity.ReferralCode) error {
+	attrs := slog.String("checkout_id", string(id))
+	tag, err := r.db.Pool.Exec(ctx, checkoutSetReferralCodeQuery, string(id), string(code))
+	if err != nil {
+		return toAppErr(err, "failed to set checkout referral code", attrs)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var exists bool
+	if err := r.db.Pool.QueryRow(ctx, checkoutExistsQuery, string(id)).Scan(&exists); err != nil {
+		return toAppErr(err, "failed to read checkout", attrs)
+	}
+	if !exists {
+		return apperr.New(codes.FailedPrecondition, "the checkout does not exist", attrs)
+	}
+	// A checkout that is no longer Held keeps its code.
+	return nil
 }
 
 // Commit makes a holding checkout Committed and, for a stock checkout, adds
@@ -501,14 +527,14 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	var (
 		c                                      entity.Checkout
 		id, ticketTypeID, userID               string
-		cardAuthorizationID                    sql.NullString
+		cardAuthorizationID, referralCode      sql.NullString
 		authReleasedAt, committedAt, captureAt sql.NullTime
 		status                                 int16
 	)
 	if err := row.Scan(
 		&id, &ticketTypeID, &userID, &c.TicketCount, &c.Amount,
 		&cardAuthorizationID, &authReleasedAt, &status, &c.HoldExpireTime,
-		&committedAt, &captureAt, &c.Resale,
+		&committedAt, &captureAt, &c.Resale, &referralCode,
 	); err != nil {
 		return nil, err
 	}
@@ -522,6 +548,10 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	c.CardAuthorizationReleaseTime = optionalTime(authReleasedAt)
 	c.CommitTime = optionalTime(committedAt)
 	c.CaptureTime = optionalTime(captureAt)
+	if referralCode.Valid {
+		code := entity.ReferralCode(referralCode.String)
+		c.ReferralCode = &code
+	}
 	return &c, nil
 }
 

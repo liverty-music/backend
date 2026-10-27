@@ -37,7 +37,7 @@ func (p *NoopCardAuthorizationRepository) errPaymentNotConfigured(ctx context.Co
 // Unavailable.
 func (p *NoopCardAuthorizationRepository) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	return nil, p.errPaymentNotConfigured(ctx, "create",
-		slog.String("purchase_id", purchase.ID()), slog.Int64("amount_jpy", amountJPY))
+		slog.String("ticket_type_id", string(purchase.TicketTypeID)), slog.Int64("amount_jpy", amountJPY))
 }
 
 // Get implements [entity.CardAuthorizationRepository]; it always fails with

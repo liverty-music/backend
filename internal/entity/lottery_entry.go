@@ -13,8 +13,7 @@ type LotteryEntryID string
 // the proto enum liverty_music.entity.v1.LotteryEntryState and the stored
 // state.
 //
-//	Draft --> Entered --> Won | Lost
-//	Draft | Entered --> Withdrawn
+//	[*] --> Entered --> Won | Lost
 type LotteryEntryState int8
 
 const (
@@ -32,17 +31,6 @@ const (
 	// LotteryEntryStateLost means the draw did not allocate tickets to the
 	// entry. Its card authorization is released.
 	LotteryEntryStateLost LotteryEntryState = 3
-
-	// LotteryEntryStateWithdrawn means the entry ended before the draw: the fan
-	// withdrew it, replaced a Draft with another count, or left a Draft
-	// unconfirmed until the draw. Any card authorization is released. A new entry may be
-	// started while the window is open.
-	LotteryEntryStateWithdrawn LotteryEntryState = 4
-
-	// LotteryEntryStateDraft is the entry being built: it may carry a card authorization
-	// but has not been confirmed, takes no part in the draw and is not
-	// tallied.
-	LotteryEntryStateDraft LotteryEntryState = 5
 )
 
 // String returns the lowercase state name.
@@ -54,10 +42,6 @@ func (s LotteryEntryState) String() string {
 		return "won"
 	case LotteryEntryStateLost:
 		return "lost"
-	case LotteryEntryStateWithdrawn:
-		return "withdrawn"
-	case LotteryEntryStateDraft:
-		return "draft"
 	default:
 		return "UNSPECIFIED"
 	}
@@ -65,9 +49,9 @@ func (s LotteryEntryState) String() string {
 
 // LotteryEntry is one fan account's entry into the lottery for one
 // TicketType: a request for a companion group of tickets allocated
-// all-or-nothing, and the card authorization placed for the amount until the draw. The
-// fan's 本人確認 (identity check) details are the User's full name and phone
-// number.
+// all-or-nothing, made when the fan confirms an authorized card authorization
+// for the amount, which holds the amount until the draw. The fan's 本人確認
+// (identity check) details are the User's full name and phone number.
 //
 // Mirrors liverty_music.entity.v1.LotteryEntry.
 type LotteryEntry struct {
@@ -85,8 +69,8 @@ type LotteryEntry struct {
 	TicketCount int
 
 	// CardAuthorizationID is the payment provider's ID for the entry's
-	// CardAuthorization (e.g. a Stripe "pi_..."); empty on a Draft until the
-	// card authorization is opened, and set from Entered on.
+	// CardAuthorization (e.g. a Stripe "pi_..."); set at creation. One card
+	// authorization makes at most one entry.
 	CardAuthorizationID string
 
 	// State is the entry's lifecycle state.
@@ -96,49 +80,32 @@ type LotteryEntry struct {
 	// random draw order; nil before the draw and set only by the draw. It
 	// orders the losers for official resale.
 	DrawPosition *int
+
+	// ReferralCode is the code of the link the fan came from, carried by the
+	// card authorization the entry was made from; nil without one. Set at
+	// creation and never changed.
+	ReferralCode *ReferralCode
 }
 
-// NewLotteryEntry returns a Draft entry with a generated UUIDv7 id, no
-// authorization and no draw position.
-func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, ticketCount int) *LotteryEntry {
+// NewLotteryEntry returns an Entered entry with a generated UUIDv7 id, the
+// card authorization it is made from, the optional referral code and no draw
+// position.
+func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, ticketCount int, cardAuthorizationID string, code *ReferralCode) *LotteryEntry {
 	return &LotteryEntry{
-		ID:           LotteryEntryID(NewID()),
-		TicketTypeID: ticketTypeID,
-		UserID:       userID,
-		TicketCount:  ticketCount,
-		State:        LotteryEntryStateDraft,
+		ID:                  LotteryEntryID(NewID()),
+		TicketTypeID:        ticketTypeID,
+		UserID:              userID,
+		TicketCount:         ticketCount,
+		CardAuthorizationID: cardAuthorizationID,
+		State:               LotteryEntryStateEntered,
+		ReferralCode:        code,
 	}
 }
 
-// HasCardAuthorization reports whether a CardAuthorization is recorded on the
-// entry.
-func (e *LotteryEntry) HasCardAuthorization() bool {
-	return e.CardAuthorizationID != ""
-}
-
-// IsConfirmable reports whether the entry can become Entered: it is a Draft
-// with an authorization.
-func (e *LotteryEntry) IsConfirmable() bool {
-	return e.State == LotteryEntryStateDraft && e.HasCardAuthorization()
-}
-
-// IsActive reports whether the entry counts as the account's entry for its
-// ticket type: every state except Withdrawn.
-func (e *LotteryEntry) IsActive() bool {
-	return e.State != LotteryEntryStateWithdrawn
-}
-
-// IsWithdrawable reports whether the entry can be withdrawn: it is a Draft or
-// Entered, so the draw has not run for it.
-func (e *LotteryEntry) IsWithdrawable() bool {
-	return e.State == LotteryEntryStateDraft || e.State == LotteryEntryStateEntered
-}
-
-// LotteryEntryStats are the counts of one TicketType's Entered, Won and Lost
-// entries for the Organizer's view of its sale. Draft and Withdrawn entries
-// are not counted.
+// LotteryEntryStats are the counts of one TicketType's entries for the
+// Organizer's view of its sale.
 type LotteryEntryStats struct {
-	// EntryCount is the number of Entered, Won and Lost entries.
+	// EntryCount is the number of entries.
 	EntryCount int
 
 	// TicketCount is the sum of those entries' requested ticket
@@ -191,31 +158,23 @@ type DrawLoserRow struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type LotteryEntryRepository interface {
-	// GetOrCreateDraft returns the user's Draft for the TicketType when its
-	// ticket count equals count, changing nothing. When the user has
-	// a Draft with another count, it makes that Draft Withdrawn and creates a
-	// new Draft in the same step; with no active entry it creates a new
-	// Draft. Checking and creating are one indivisible step, so two concurrent
-	// calls leave at most one active entry per user and TicketType.
+	// Create stores the new Entered entry and returns it. When an entry
+	// already holds the entry's card authorization, it stores nothing and
+	// returns that entry, also after the sale's end time. Checking and
+	// storing are one indivisible step: two concurrent calls for the same
+	// user and TicketType, or for the same card authorization, store one
+	// entry, and no entry is stored once the sale's end time has passed by
+	// the database clock.
 	//
 	// # Possible errors
 	//
-	//  - AlreadyExists: the user has an Entered, Won or Lost entry for the
-	//    TicketType; nothing changed.
-	//  - FailedPrecondition: the TicketType does not exist.
+	//  - AlreadyExists: the user already has an entry for the TicketType;
+	//    nothing is stored.
+	//  - FailedPrecondition: the TicketType does not exist, or its sale's end
+	//    time has passed; nothing is stored.
+	//  - Unavailable: the wait for a concurrent call or a lock timed out.
 	//  - Internal: database failure.
-	GetOrCreateDraft(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int) (*LotteryEntry, error)
-
-	// SetCardAuthorization records the Draft's CardAuthorization. Recording the
-	// same one again succeeds without a change. It changes no other attribute.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the entry is not a Draft, or already has another
-	//    CardAuthorization.
-	//  - NotFound: no entry has the id.
-	//  - Internal: database failure.
-	SetCardAuthorization(ctx context.Context, id LotteryEntryID, cardAuthorizationID string) error
+	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
 
 	// Get returns the entry with the given id, in any state.
 	//
@@ -235,26 +194,25 @@ type LotteryEntryRepository interface {
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*LotteryEntry, error)
 
 	// ListByTicketTypeAndUser returns every entry of the user for the
-	// TicketType, in every state, newest first. It returns an empty slice when
-	// there is none.
+	// TicketType, in every state, newest first: at most one. It returns an
+	// empty slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
 	ListByTicketTypeAndUser(ctx context.Context, ticketTypeID TicketTypeID, userID UserID) ([]*LotteryEntry, error)
 
-	// ListUndrawnForTicketType returns every Draft and Entered entry of the
-	// TicketType, in no particular order: the Entered entries the draw draws
-	// and the Drafts it withdraws. It returns an empty slice when there is
-	// none.
+	// ListUndrawnForTicketType returns every Entered entry of the TicketType,
+	// in no particular order: the entries the draw draws. It returns an empty
+	// slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
 	ListUndrawnForTicketType(ctx context.Context, ticketTypeID TicketTypeID) ([]*LotteryEntry, error)
 
-	// GetStatsByTicketType counts the TicketType's Entered, Won and Lost
-	// entries. A TicketType without entries yields all counts zero.
+	// GetStatsByTicketType counts the TicketType's entries. A TicketType
+	// without entries yields all counts zero.
 	//
 	// # Possible errors
 	//
@@ -262,22 +220,14 @@ type LotteryEntryRepository interface {
 	GetStatsByTicketType(ctx context.Context, ticketTypeID TicketTypeID) (LotteryEntryStats, error)
 
 	// PersistDrawOutcome records one sale's draw in one transaction: every
-	// winner Won and every loser Lost with its draw position, every
-	// unconfirmed Draft in withdrawnDrafts Withdrawn, across all TicketTypes of
-	// the sale, and the sale's draw time. With no winners, losers or Drafts it
-	// only sets the draw time. On failure nothing is recorded.
+	// winner Won and every loser Lost with its draw position, across all
+	// TicketTypes of the sale, and the sale's draw time. With no winners and
+	// no losers it only sets the draw time. On failure nothing is recorded.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: saleID is empty.
+	//  - NotFound: the sale does not exist.
 	//  - Internal: database failure.
-	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, winners []DrawWinnerRow, losers []DrawLoserRow, withdrawnDrafts []LotteryEntryID) error
-
-	// UpdateState sets the entry's state; it changes no other attribute.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no entry has the id.
-	//  - Internal: database failure.
-	UpdateState(ctx context.Context, id LotteryEntryID, state LotteryEntryState) error
+	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, winners []DrawWinnerRow, losers []DrawLoserRow) error
 }

@@ -56,6 +56,10 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		case "40001", "40P01": // serialization_failure, deadlock_detected
 			return apperr.Wrap(err, codes.Aborted, msg, attrs...)
 
+		// Lock wait bounded by lock_timeout (Class 55)
+		case "55P03": // lock_not_available
+			return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+
 		// Connection errors (Class 08)
 		case "08000", "08003", "08006", "08001", "08004", "08007", "08P01":
 			// connection_exception, connection_does_not_exist, connection_failure,

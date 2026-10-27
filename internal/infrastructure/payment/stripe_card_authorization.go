@@ -3,7 +3,8 @@
 // model shared by a lottery sale's entries and a first-come checkout: a
 // CardAuthorization is a Stripe PaymentIntent with capture_method=manual,
 // opened at AuthorizeCard, read at Confirm, and captured (a win, a committed
-// checkout) or released (a loss, a withdrawal, a lapsed hold).
+// checkout) or released (a loss, a rejected entry, a lapsed hold). The
+// PaymentIntent's metadata carries the purchase it pays for.
 //
 // Secret provisioning: the Stripe secret key value is sourced from GCP Secret
 // Manager via ESO (ExternalSecretOperator) and injected into the pod as an
@@ -17,6 +18,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,8 +42,10 @@ var _ entity.CardAuthorizationRepository = (*StripeCardAuthorizationRepository)(
 
 // CardAuthorizationPolicy is what differs between the purchases a card
 // authorization pays for: the prefix of every idempotency key it sends, so the
-// keys of a lottery entry never collide with a checkout's. The accepted card
-// brands are the entity rule [entity.CardAuthorizationPurchase.AcceptsCardBrand].
+// keys of a lottery entry never collide with a checkout's. Only a Checkout's
+// Create sends a key; a lottery entry's Create opens a new card authorization
+// each time. The accepted card brands are the entity rule
+// [entity.CardAuthorizationPurchase.AcceptsCardBrand].
 type CardAuthorizationPolicy struct {
 	// KeyPrefix prefixes every idempotency key, e.g. "lottery-capture:pi_...".
 	KeyPrefix string
@@ -97,9 +101,21 @@ func newStripeCardAuthorizationRepository(secretKey, apiURL string, policy CardA
 	}
 }
 
+// PaymentIntent metadata keys that carry the purchase a card authorization
+// pays for.
+const (
+	metadataCheckoutID   = "checkout_id"
+	metadataUserID       = "user_id"
+	metadataTicketTypeID = "ticket_type_id"
+	metadataTicketCount  = "ticket_count"
+	metadataEventID      = "event_id"
+	metadataReferralCode = "referral_code"
+)
+
 // Create implements [entity.CardAuthorizationRepository]. The PaymentIntent
-// carries the purchase's ids as metadata, and its idempotency key is the
-// purchase's id, so a retried Create returns the same PaymentIntent.
+// carries the purchase as metadata. A Checkout's idempotency key is its id, so
+// a retried Create returns the same PaymentIntent; a lottery entry's Create
+// sends no key and opens a new PaymentIntent each time.
 func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if amountJPY <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "amountJPY must be positive")
@@ -121,12 +137,20 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 			params.AddMetadata(key, value)
 		}
 	}
-	addMetadata("lottery_entry_id", string(purchase.LotteryEntryID))
-	addMetadata("checkout_id", string(purchase.CheckoutID))
-	addMetadata("ticket_type_id", string(purchase.TicketTypeID))
-	addMetadata("event_id", purchase.EventID)
-	if id := purchase.ID(); id != "" {
-		params.SetIdempotencyKey(p.policy.idempotencyKey("authorize", id))
+	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
+		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
+	}
+	addMetadata(metadataUserID, string(purchase.UserID))
+	addMetadata(metadataTicketTypeID, string(purchase.TicketTypeID))
+	if purchase.TicketCount > 0 {
+		addMetadata(metadataTicketCount, strconv.Itoa(purchase.TicketCount))
+	}
+	addMetadata(metadataEventID, purchase.EventID)
+	if purchase.ReferralCode != nil {
+		addMetadata(metadataReferralCode, string(*purchase.ReferralCode))
+	}
+	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout && purchase.CheckoutID != "" {
+		params.SetIdempotencyKey(p.policy.idempotencyKey("authorize", string(purchase.CheckoutID)))
 	}
 
 	pi, err := p.client.V1PaymentIntents.Create(ctx, params)
@@ -136,8 +160,8 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 
 	p.logger.Info(ctx, "Stripe PaymentIntent created",
 		slog.String("payment_intent_id", pi.ID),
-		slog.String("lottery_entry_id", string(purchase.LotteryEntryID)),
 		slog.String("checkout_id", string(purchase.CheckoutID)),
+		slog.String("ticket_type_id", string(purchase.TicketTypeID)),
 		slog.Int64("amount_jpy", amountJPY),
 	)
 	return cardAuthorization(pi), nil
@@ -246,11 +270,41 @@ func cardAuthorization(pi *stripe.PaymentIntent) *entity.CardAuthorization {
 		CardBrand: extractCardBrand(pi),
 		Status:    cardAuthorizationStatus(pi.Status),
 		Secret:    pi.ClientSecret,
+		Purchase:  purchaseFromMetadata(pi.Metadata),
 	}
 	if a.Status == entity.CardAuthorizationStatusCaptured {
 		a.CapturedPayment = capturedPayment(pi)
 	}
 	return a
+}
+
+// purchaseFromMetadata maps a PaymentIntent's metadata back to the purchase it
+// pays for: a Checkout when checkout_id is present, a lottery entry when the
+// fan and the TicketType are, and an unspecified purchase otherwise (a
+// PaymentIntent the platform did not open for a purchase).
+func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPurchase {
+	purchase := entity.CardAuthorizationPurchase{
+		CheckoutID:   entity.CheckoutID(metadata[metadataCheckoutID]),
+		UserID:       entity.UserID(metadata[metadataUserID]),
+		TicketTypeID: entity.TicketTypeID(metadata[metadataTicketTypeID]),
+		EventID:      metadata[metadataEventID],
+	}
+	// The count is written by Create as 1 to 10; parsing it as 32 bits keeps it
+	// in range for the proto's int32.
+	if count, err := strconv.ParseInt(metadata[metadataTicketCount], 10, 32); err == nil {
+		purchase.TicketCount = int(count)
+	}
+	if code, ok := metadata[metadataReferralCode]; ok && code != "" {
+		c := entity.ReferralCode(code)
+		purchase.ReferralCode = &c
+	}
+	switch {
+	case purchase.CheckoutID != "":
+		purchase.Purpose = entity.CardAuthorizationPurposeCheckout
+	case purchase.UserID != "" && purchase.TicketTypeID != "":
+		purchase.Purpose = entity.CardAuthorizationPurposeLotteryEntry
+	}
+	return purchase
 }
 
 // cardAuthorizationStatus maps a PaymentIntent status: requires_capture is

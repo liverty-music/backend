@@ -19,8 +19,8 @@ import (
 var _ lotteryentryv1connect.LotteryEntryServiceHandler = (*LotteryEntryHandler)(nil)
 
 // LotteryEntryHandler implements the fan-facing LotteryEntryService: a
-// signed-in fan starts, authorizes, confirms, withdraws and reads their own
-// lottery entries. The fan is always the caller; a request never names a
+// signed-in fan authorizes their card for a ticket count, confirms the entry
+// and reads their own lottery entries. The fan is always the caller; a request never names a
 // User. Requests are validated by the protovalidate interceptor before this
 // handler runs.
 type LotteryEntryHandler struct {
@@ -53,26 +53,9 @@ func callerUserID(ctx context.Context, userUC usecase.UserUseCase) (entity.UserI
 	return entity.UserID(user.ID), nil
 }
 
-// Start begins the caller's Draft entry for a TicketType, or resumes it.
-func (h *LotteryEntryHandler) Start(
-	ctx context.Context,
-	req *lotteryentryv1.StartRequest,
-) (*lotteryentryv1.StartResponse, error) {
-	userID, err := callerUserID(ctx, h.userUC)
-	if err != nil {
-		return nil, err
-	}
-
-	entry, err := h.lotteryEntryUC.Start(ctx, entity.TicketTypeID(req.GetTicketTypeId().GetValue()), userID, int(req.GetTicketCount()),
-		mapper.ReferralCodeFromProto(req.GetReferralCode()))
-	if err != nil {
-		return nil, err
-	}
-	return &lotteryentryv1.StartResponse{LotteryEntry: mapper.LotteryEntryToProto(entry)}, nil
-}
-
-// AuthorizeCard stores the caller's full name and phone number and opens the card
-// authorization for their Draft, returning its card authorization secret.
+// AuthorizeCard stores the caller's full name and phone number and opens the
+// card authorization for a lottery entry of a ticket count, returning its id
+// and its card authorization secret.
 func (h *LotteryEntryHandler) AuthorizeCard(
 	ctx context.Context,
 	req *lotteryentryv1.AuthorizeCardRequest,
@@ -82,15 +65,19 @@ func (h *LotteryEntryHandler) AuthorizeCard(
 		return nil, err
 	}
 
-	secret, err := h.lotteryEntryUC.AuthorizeCard(ctx, entity.LotteryEntryID(req.GetLotteryEntryId().GetValue()), userID,
-		req.GetFullName().GetValue(), req.GetPhoneNumber().GetValue())
+	authorization, err := h.lotteryEntryUC.AuthorizeCard(ctx, entity.TicketTypeID(req.GetTicketTypeId().GetValue()), userID,
+		int(req.GetTicketCount()), req.GetFullName().GetValue(), req.GetPhoneNumber().GetValue(),
+		mapper.ReferralCodeFromProto(req.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}
-	return &lotteryentryv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}, nil
+	return &lotteryentryv1.AuthorizeCardResponse{
+		CardAuthorizationId:     &entityv1.CardAuthorizationId{Value: authorization.ID},
+		CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: authorization.Secret},
+	}, nil
 }
 
-// Confirm makes the caller's authorized Draft Entered.
+// Confirm makes the caller's entry from their authorized card authorization.
 func (h *LotteryEntryHandler) Confirm(
 	ctx context.Context,
 	req *lotteryentryv1.ConfirmRequest,
@@ -100,31 +87,15 @@ func (h *LotteryEntryHandler) Confirm(
 		return nil, err
 	}
 
-	entry, err := h.lotteryEntryUC.Confirm(ctx, entity.LotteryEntryID(req.GetLotteryEntryId().GetValue()), userID)
+	entry, err := h.lotteryEntryUC.Confirm(ctx, req.GetCardAuthorizationId().GetValue(), &userID)
 	if err != nil {
 		return nil, err
 	}
 	return &lotteryentryv1.ConfirmResponse{LotteryEntry: mapper.LotteryEntryToProto(entry)}, nil
 }
 
-// Withdraw withdraws the caller's own Draft or Entered entry.
-func (h *LotteryEntryHandler) Withdraw(
-	ctx context.Context,
-	req *lotteryentryv1.WithdrawRequest,
-) (*lotteryentryv1.WithdrawResponse, error) {
-	userID, err := callerUserID(ctx, h.userUC)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := h.lotteryEntryUC.Withdraw(ctx, entity.LotteryEntryID(req.GetLotteryEntryId().GetValue()), userID); err != nil {
-		return nil, err
-	}
-	return &lotteryentryv1.WithdrawResponse{}, nil
-}
-
-// ListByTicketType returns the caller's entries for a TicketType, withdrawn
-// ones included, newest first.
+// ListByTicketType returns the caller's entries for a TicketType, newest
+// first.
 func (h *LotteryEntryHandler) ListByTicketType(
 	ctx context.Context,
 	req *lotteryentryv1.ListByTicketTypeRequest,

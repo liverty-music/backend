@@ -22,13 +22,14 @@ import (
 // real local Postgres AND the real Stripe test API, minus the auth/browser
 // shell. It drives:
 //
-//	a Lottery ticket type of 2 tickets → 3 fans each Start, Authorize (real
-//	card authorization) and Confirm, and a 4th fan leaves an authorized Draft → draw →
-//	exactly 2 winners captured, 1 loser released with its draw position, and
-//	the Draft withdrawn with its card authorization released.
+//	a Lottery ticket type of 2 tickets → 3 fans each AuthorizeCard (real card
+//	authorization), complete card authentication and Confirm, and a 4th fan
+//	authorizes but never authenticates → draw → exactly 2 winners captured
+//	and 1 loser released with its draw position; the 4th fan has no entry.
 //
-// Winners' PaymentIntents must end `succeeded` (captured); the loser's and the
-// Draft's must end `canceled` (card authorization released). Opt-in: runs only with
+// Winners' PaymentIntents must end `succeeded` (captured); the loser's must
+// end `canceled` (card authorization released); the 4th fan's is never
+// charged. Opt-in: runs only with
 // STRIPE_INTEGRATION_TEST=1, a test-mode key, and a local DB. make check / CI
 // skip it.
 func TestLotteryPipeline_Integration(t *testing.T) {
@@ -50,43 +51,41 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	entryRepo := rdb.NewLotteryEntryRepository(testDB)
 	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
-	// A fixed clock inside the sale's window so every step passes the window
-	// check deterministically.
-	now := saleWindowStart.Add(time.Hour)
-	clock := usecase.Clock(func() time.Time { return now })
-	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewReferralRepository(testDB), rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
-		rdb.NewUserRepository(testDB), stripePort, &recordingPublisher{}, clock, logger)
-
 	// -- a Lottery ticket type of 2 tickets, so 3 single-ticket entries force one loss --
 	const (
 		quantity = 2
 		entrants = 3
 	)
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, quantity, 1)
+	// The entry is stored only before the end time by the database clock, so
+	// the window is placed around it and the use case reads the same time.
+	setSaleEndByDatabaseClock(t, tt.TicketSaleID, 24*time.Hour)
+	now := time.Now()
+	clock := usecase.Clock(func() time.Time { return now })
+	uc := usecase.NewLotteryEntryUseCase(saleRepo, entryRepo, rdb.NewTicketRepository(testDB), rdb.NewIdentityVerificationRepository(testDB),
+		rdb.NewUserRepository(testDB), stripePort, &recordingPublisher{}, clock, logger)
 
-	// enter starts, authorizes and (when confirm) confirms one fan's entry.
-	enter := func(confirm bool) entity.LotteryEntryID {
+	// enter authorizes one fan's card, completes card authentication and
+	// confirms the entry.
+	enter := func() entity.LotteryEntryID {
 		t.Helper()
 		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-		draft, err := uc.Start(ctx, tt.ID, userID, 1, nil)
+		authorization, err := uc.AuthorizeCard(ctx, tt.ID, userID, 1, "Test Fan", "+819012345678", nil)
 		require.NoError(t, err)
-		_, err = uc.AuthorizeCard(ctx, draft.ID, userID, "Test Fan", "+819012345678")
+		confirmCardAuthorization(t, key, authorization.ID) // → requires_capture
+		entered, err := uc.Confirm(ctx, authorization.ID, &userID)
 		require.NoError(t, err)
-		authorized, err := entryRepo.Get(ctx, draft.ID)
-		require.NoError(t, err)
-		confirmCardAuthorization(t, key, authorized.CardAuthorizationID) // → requires_capture
-		if confirm {
-			entered, err := uc.Confirm(ctx, draft.ID, userID)
-			require.NoError(t, err)
-			require.Equal(t, entity.LotteryEntryStateEntered, entered.State)
-		}
-		return draft.ID
+		require.Equal(t, entity.LotteryEntryStateEntered, entered.State)
+		return entered.ID
 	}
 	entryIDs := make([]entity.LotteryEntryID, 0, entrants)
 	for range entrants {
-		entryIDs = append(entryIDs, enter(true))
+		entryIDs = append(entryIDs, enter())
 	}
-	draftID := enter(false)
+	// A 4th fan authorizes but never completes card authentication.
+	abandonedFan := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+	abandoned, err := uc.AuthorizeCard(ctx, tt.ID, abandonedFan, 1, "Test Fan", "+819012345678", nil)
+	require.NoError(t, err)
 
 	// -- run the draw --
 	require.NoError(t, uc.RunDraw(ctx, tt.TicketSaleID))
@@ -113,11 +112,11 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	assert.Equal(t, quantity, won, "winners must exactly fill quantity (no oversell)")
 	assert.Equal(t, entrants-quantity, lost, "the remaining entrants must lose")
 
-	draft, err := entryRepo.Get(ctx, draftID)
+	none, err := entryRepo.ListByTicketTypeAndUser(ctx, tt.ID, abandonedFan)
 	require.NoError(t, err)
-	assert.Equal(t, entity.LotteryEntryStateWithdrawn, draft.State, "an unconfirmed draft is withdrawn at the draw")
-	assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, draft.CardAuthorizationID),
-		"the draft's card authorization must be released")
+	assert.Empty(t, none, "a fan who never authenticated has no entry")
+	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, piStatus(t, key, abandoned.ID),
+		"the unauthenticated card authorization holds nothing")
 
 	sale, err := saleRepo.Get(ctx, tt.TicketSaleID, now)
 	require.NoError(t, err)

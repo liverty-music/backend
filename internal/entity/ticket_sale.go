@@ -7,6 +7,12 @@ import (
 	"unicode/utf8"
 )
 
+// LotteryDrawDelay is how long after a Lottery sale's end time its draw
+// starts. A lottery entry is stored only before the end time by the database
+// clock, in one transaction whose waits are bounded to 10 seconds, so a draw
+// that starts this long after the end time reads every entry made in time.
+const LotteryDrawDelay = time.Minute
+
 // TicketSaleID is the opaque identifier for a single TicketSale.
 //
 // Mirrors liverty_music.entity.v1.TicketSaleId.value (a UUID string).
@@ -332,8 +338,8 @@ type TicketSaleRepository interface {
 	ListByEvent(ctx context.Context, eventID string, at time.Time) ([]*TicketSale, error)
 
 	// ListDueForDraw returns every Organizer's Lottery sale whose end time is
-	// at or before now and that is not drawn, each with all of its
-	// TicketTypes. A discovered sale is never returned: the platform takes no
+	// at least [LotteryDrawDelay] before now and that is not drawn, each with
+	// all of its TicketTypes. A discovered sale is never returned: the platform takes no
 	// entries for it. It returns an empty slice when none is due.
 	//
 	// # Possible errors

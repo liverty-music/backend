@@ -13,7 +13,10 @@ import (
 	stripe "github.com/stripe/stripe-go/v87"
 	stripewh "github.com/stripe/stripe-go/v87/webhook"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -21,12 +24,22 @@ import (
 // the handler depends on.
 type stripeWebhookUseCase interface {
 	HandleEvent(ctx context.Context, event usecase.StripeWebhookEvent) error
+	ApplyOnce(ctx context.Context, providerEventID string, eventType usecase.StripeEventType, apply func(ctx context.Context) error) error
+}
+
+// lotteryEntryConfirmer is the subset of [usecase.LotteryEntryUseCase] that
+// the handler depends on.
+type lotteryEntryConfirmer interface {
+	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)
 }
 
 // StripeWebhookHandler serves `POST /stripe-webhook`. It verifies the
 // Stripe-Signature header against the configured webhook signing secret (using
 // the Stripe SDK's webhook.ConstructEvent) and then dispatches the parsed event
-// to [usecase.StripeWebhookService].
+// to [usecase.StripeWebhookService]. A notice that a card authorization became
+// Authorized (payment_intent.amount_capturable_updated) goes straight to
+// [usecase.LotteryEntryUseCase.Confirm] without a calling fan, applied at most
+// once through [usecase.StripeWebhookService.ApplyOnce].
 //
 // # Public endpoint provisioning
 //
@@ -47,9 +60,10 @@ type stripeWebhookUseCase interface {
 // (Stripe's default). Requests with an invalid signature or expired timestamps
 // are rejected 401. The signing secret is never logged.
 type StripeWebhookHandler struct {
-	signingSecret string
-	webhookSvc    stripeWebhookUseCase
-	logger        *logging.Logger
+	signingSecret  string
+	webhookSvc     stripeWebhookUseCase
+	lotteryEntries lotteryEntryConfirmer
+	logger         *logging.Logger
 }
 
 // NewStripeWebhookHandler constructs a handler for Stripe webhook events.
@@ -61,12 +75,14 @@ type StripeWebhookHandler struct {
 func NewStripeWebhookHandler(
 	signingSecret string,
 	webhookSvc stripeWebhookUseCase,
+	lotteryEntries lotteryEntryConfirmer,
 	logger *logging.Logger,
 ) *StripeWebhookHandler {
 	return &StripeWebhookHandler{
-		signingSecret: signingSecret,
-		webhookSvc:    webhookSvc,
-		logger:        logger,
+		signingSecret:  signingSecret,
+		webhookSvc:     webhookSvc,
+		lotteryEntries: lotteryEntries,
+		logger:         logger,
 	}
 }
 
@@ -131,7 +147,15 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		ReceivedAt:        time.Now().UTC(),
 	}
 
-	if err := h.webhookSvc.HandleEvent(ctx, parsed); err != nil {
+	var dispatchErr error
+	if parsed.Type == usecase.StripeEventPaymentIntentAmountCapturableUpdated {
+		dispatchErr = h.webhookSvc.ApplyOnce(ctx, parsed.ProviderEventID, parsed.Type, func(ctx context.Context) error {
+			return h.confirmLotteryEntry(ctx, parsed)
+		})
+	} else {
+		dispatchErr = h.webhookSvc.HandleEvent(ctx, parsed)
+	}
+	if err := dispatchErr; err != nil {
 		h.logger.Error(ctx, "stripe webhook: dispatch error", err,
 			slog.String("event_id", event.ID),
 			slog.String("event_type", string(event.Type)),
@@ -144,6 +168,38 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("{}")); err != nil && !errors.Is(err, http.ErrHandlerTimeout) {
 		h.logger.Error(ctx, "stripe webhook: failed to write response", err)
+	}
+}
+
+// confirmLotteryEntry runs LotteryEntryUseCase.Confirm for a card
+// authorization the payment provider reports Authorized, without a calling
+// fan. A rejection (PermissionDenied, FailedPrecondition, InvalidArgument) is
+// acknowledged: Confirm has already released what it rejected, or the card
+// authorization is not a lottery entry's. Any other failure is returned as
+// Internal so the provider delivers the notice again.
+func (h *StripeWebhookHandler) confirmLotteryEntry(ctx context.Context, event usecase.StripeWebhookEvent) error {
+	if event.ProviderPaymentID == "" {
+		h.logger.Warn(ctx, "stripe webhook: amount_capturable_updated without a PaymentIntent id; skipped",
+			slog.String("event_id", event.ProviderEventID))
+		return nil
+	}
+	_, err := h.lotteryEntries.Confirm(ctx, event.ProviderPaymentID, nil)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, apperr.ErrPermissionDenied),
+		errors.Is(err, apperr.ErrFailedPrecondition),
+		errors.Is(err, apperr.ErrInvalidArgument):
+		h.logger.Info(ctx, "stripe webhook: card authorization not made into a lottery entry; acknowledged",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID),
+			slog.Any("error", err),
+		)
+		return nil
+	default:
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to confirm the lottery entry",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
 	}
 }
 
@@ -176,7 +232,8 @@ type chargeObjectData struct {
 // Returns empty strings for non-charge events or on parse failure.
 func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event stripe.Event) (providerChargeID, providerPaymentID string) {
 	// For payment_intent.* events the data.object is the PaymentIntent itself.
-	if string(event.Type) == string(usecase.StripeEventPaymentIntentSucceeded) {
+	switch usecase.StripeEventType(event.Type) {
+	case usecase.StripeEventPaymentIntentSucceeded, usecase.StripeEventPaymentIntentAmountCapturableUpdated:
 		var pi struct {
 			ID string `json:"id"`
 		}

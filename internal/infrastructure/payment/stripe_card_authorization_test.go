@@ -27,12 +27,13 @@ type stubResponse struct {
 
 // stripeStub is a minimal Stripe PaymentIntents API. Each operation answers
 // with its canned response; an operation without one answers 404. It records
-// the idempotency keys and the create form.
+// the idempotency keys and the create forms (the last one in createForm).
 type stripeStub struct {
 	mu                                sync.Mutex
 	create, retrieve, capture, cancel *stubResponse
 	keys                              []string
 	createForm                        url.Values
+	createForms                       []url.Values
 	captures, cancels                 int
 }
 
@@ -53,6 +54,7 @@ func (s *stripeStub) handler(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/payment_intents"):
 		raw, _ := io.ReadAll(r.Body)
 		s.createForm, _ = url.ParseQuery(string(raw))
+		s.createForms = append(s.createForms, s.createForm)
 		resp = s.create
 	case r.Method == http.MethodGet:
 		resp = s.retrieve
@@ -114,6 +116,10 @@ func unreachable(t *testing.T) (*payment.StripeCardAuthorizationRepository, cont
 
 func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 	t.Parallel()
+	checkout := entity.CardAuthorizationPurchase{
+		Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1",
+		UserID: "user-1", TicketTypeID: "type-1", EventID: "event-1", TicketCount: 2,
+	}
 
 	t.Run("card authorization opened for a checkout", func(t *testing.T) {
 		t.Parallel()
@@ -121,9 +127,7 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 6000, "jpy", ""))}
 		repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
 
-		got, err := repo.Create(context.Background(), entity.CardAuthorizationPurchase{
-			CheckoutID: "checkout-1", TicketTypeID: "type-1", EventID: "event-1",
-		}, 6000)
+		got, err := repo.Create(context.Background(), checkout, 6000)
 
 		require.NoError(t, err)
 		assert.Equal(t, "pi_stub", got.ID)
@@ -134,7 +138,9 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 		assert.Equal(t, "jpy", stub.createForm.Get("currency"))
 		assert.Equal(t, "manual", stub.createForm.Get("capture_method"), "nothing is charged until capture")
 		assert.Equal(t, "checkout-1", stub.createForm.Get("metadata[checkout_id]"))
+		assert.Equal(t, "user-1", stub.createForm.Get("metadata[user_id]"))
 		assert.Equal(t, "type-1", stub.createForm.Get("metadata[ticket_type_id]"))
+		assert.Equal(t, "2", stub.createForm.Get("metadata[ticket_count]"))
 		assert.Equal(t, "event-1", stub.createForm.Get("metadata[event_id]"))
 		assert.Zero(t, stub.captures)
 	})
@@ -142,19 +148,55 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 	t.Run("retried after a lost response", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/card-authorization/create "Retried after a lost response"
-		// The idempotency key is the purchase's id, so Stripe replays the first
+		// The idempotency key is the Checkout's id, so Stripe replays the first
 		// PaymentIntent for a retried Create.
+		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 6000, "jpy", ""))}
+		repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
+
+		_, err := repo.Create(context.Background(), checkout, 6000)
+		require.NoError(t, err)
+		_, err = repo.Create(context.Background(), checkout, 6000)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"ticket-sale-authorize:checkout-1", "ticket-sale-authorize:checkout-1"}, stub.keys)
+	})
+
+	t.Run("lottery entry authorized again", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization/create "Lottery entry authorized again"
+		// A lottery entry's Create sets no idempotency key of its own (the
+		// Stripe client adds a random one per call for its network retries):
+		// each call opens a new PaymentIntent carrying its own count.
 		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 16000, "jpy", ""))}
 		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
-		purchase := entity.CardAuthorizationPurchase{LotteryEntryID: "entry-1"}
+		code := entity.ReferralCode("member-a")
+		entry := func(count int) entity.CardAuthorizationPurchase {
+			return entity.CardAuthorizationPurchase{
+				Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketTypeID: "type-1",
+				EventID: "event-1", TicketCount: count, ReferralCode: &code,
+			}
+		}
 
-		_, err := repo.Create(context.Background(), purchase, 16000)
+		_, err := repo.Create(context.Background(), entry(2), 16000)
 		require.NoError(t, err)
-		_, err = repo.Create(context.Background(), purchase, 16000)
+		_, err = repo.Create(context.Background(), entry(3), 24000)
 		require.NoError(t, err)
 
-		assert.Equal(t, []string{"lottery-authorize:entry-1", "lottery-authorize:entry-1"}, stub.keys)
-		assert.Equal(t, "entry-1", stub.createForm.Get("metadata[lottery_entry_id]"))
+		require.Len(t, stub.keys, 2)
+		assert.NotEqual(t, stub.keys[0], stub.keys[1], "each call is a new attempt")
+		for _, key := range stub.keys {
+			assert.NotContains(t, key, "authorize", "no purchase-derived key is sent")
+		}
+		require.Len(t, stub.createForms, 2)
+		for i, count := range []string{"2", "3"} {
+			form := stub.createForms[i]
+			assert.Equal(t, count, form.Get("metadata[ticket_count]"))
+			assert.Equal(t, "user-1", form.Get("metadata[user_id]"))
+			assert.Equal(t, "type-1", form.Get("metadata[ticket_type_id]"))
+			assert.Equal(t, "event-1", form.Get("metadata[event_id]"))
+			assert.Equal(t, "member-a", form.Get("metadata[referral_code]"))
+			assert.Empty(t, form.Get("metadata[checkout_id]"))
+		}
 	})
 
 	t.Run("non-positive amount", func(t *testing.T) {
@@ -164,7 +206,7 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 			stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 1, "jpy", ""))}
 			repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
 
-			_, err := repo.Create(context.Background(), entity.CardAuthorizationPurchase{CheckoutID: "checkout-1"}, amount)
+			_, err := repo.Create(context.Background(), checkout, amount)
 
 			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			assert.Nil(t, stub.createForm, "no card authorization is opened")
@@ -176,7 +218,7 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 		// @spec components/entity/card-authorization/create "Payment provider unavailable"
 		repo, ctx := unreachable(t)
 
-		_, err := repo.Create(ctx, entity.CardAuthorizationPurchase{CheckoutID: "checkout-1"}, 6000)
+		_, err := repo.Create(ctx, checkout, 6000)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
@@ -201,7 +243,11 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 	t.Run("authorized card authorization", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/card-authorization/get "Authorized card authorization"
-		stub := &stripeStub{retrieve: ok(paymentIntentBody("requires_capture", 16000, "jpy", "visa"))}
+		body := paymentIntentBody("requires_capture", 16000, "jpy", "visa")
+		body["metadata"] = map[string]any{
+			"user_id": "user-1", "ticket_type_id": "type-1", "ticket_count": "2", "event_id": "event-1", "referral_code": "member-a",
+		}
+		stub := &stripeStub{retrieve: ok(body)}
 		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
 
 		got, err := repo.Get(context.Background(), "pi_stub")
@@ -210,6 +256,11 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		assert.Equal(t, entity.CardAuthorizationStatusAuthorized, got.Status)
 		assert.Equal(t, int64(16000), got.Amount)
 		assert.Equal(t, entity.CardBrand("visa"), got.CardBrand)
+		code := entity.ReferralCode("member-a")
+		assert.Equal(t, entity.CardAuthorizationPurchase{
+			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketTypeID: "type-1",
+			EventID: "event-1", TicketCount: 2, ReferralCode: &code,
+		}, got.Purchase, "the purchase it was opened with")
 		assert.Zero(t, stub.captures, "nothing is charged")
 		// @spec components/entity/card-authorization/get "Not captured"
 		assert.Nil(t, got.CapturedPayment)
@@ -241,6 +292,33 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusReleased, got.Status)
 		assert.Nil(t, got.CapturedPayment)
+	})
+
+	t.Run("checkout's purchase", func(t *testing.T) {
+		t.Parallel()
+		body := paymentIntentBody("requires_capture", 6000, "jpy", "visa")
+		body["metadata"] = map[string]any{
+			"checkout_id": "checkout-1", "user_id": "user-1", "ticket_type_id": "type-1", "ticket_count": "2", "event_id": "event-1",
+		}
+		repo := newStubRepo(t, &stripeStub{retrieve: ok(body)}, payment.CheckoutCardAuthorizationPolicy)
+
+		got, err := repo.Get(context.Background(), "pi_stub")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.CardAuthorizationPurchase{
+			Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1", UserID: "user-1",
+			TicketTypeID: "type-1", EventID: "event-1", TicketCount: 2,
+		}, got.Purchase)
+	})
+
+	t.Run("payment intent without a purchase", func(t *testing.T) {
+		t.Parallel()
+		repo := newStubRepo(t, &stripeStub{retrieve: ok(paymentIntentBody("requires_capture", 6000, "jpy", "visa"))}, payment.LotteryCardAuthorizationPolicy)
+
+		got, err := repo.Get(context.Background(), "pi_stub")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.CardAuthorizationPurposeUnspecified, got.Purchase.Purpose)
 	})
 
 	t.Run("foreign currency", func(t *testing.T) {

@@ -770,47 +770,40 @@ COMMENT ON COLUMN ticket_types.resale_open_at IS 'When official resale opened: t
 CREATE INDEX IF NOT EXISTS idx_ticket_types_event_id ON ticket_types(event_id);
 COMMENT ON INDEX idx_ticket_types_event_id IS 'Optimizes listing the sales of an event through its ticket types';
 
--- Lottery entries: a fan's entry into the lottery for one ticket type. One row
--- per attempt; a new entry after withdrawal creates a fresh row. The partial
--- unique index enforces at most one active (non-withdrawn) entry per
--- (ticket_type_id, user_id).
+-- Lottery entries: a fan's entry into the lottery for one ticket type, made
+-- Entered when the fan confirms an authorized card authorization. At most one
+-- entry per (ticket_type_id, user_id), and one per card authorization.
 CREATE TABLE IF NOT EXISTS lottery_entries (
     id                     UUID     PRIMARY KEY,
     ticket_type_id         UUID     NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
     user_id                UUID     NOT NULL,
     ticket_count           INT      NOT NULL,
-    card_authorization_id  TEXT,
+    card_authorization_id  TEXT     NOT NULL,
     state                  SMALLINT NOT NULL,
     draw_position          BIGINT,
+    referral_code          TEXT,
     CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_lottery_entries_ticket_count_positive CHECK (ticket_count > 0),
-    CONSTRAINT chk_lottery_entries_state CHECK (state BETWEEN 1 AND 5),
-    CONSTRAINT chk_lottery_entries_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
-    CONSTRAINT chk_lottery_entries_authorized_from_entered CHECK (card_authorization_id IS NOT NULL OR state IN (4, 5))
+    CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3)),
+    CONSTRAINT chk_lottery_entries_card_authorization_id_not_empty CHECK (card_authorization_id <> ''),
+    CONSTRAINT chk_lottery_entries_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$')
 );
 
-COMMENT ON TABLE lottery_entries IS 'Fan entries into the lottery of a ticket type. One row per attempt; a new entry after withdrawal creates a fresh row. State: 1=Entered, 2=Won, 3=Lost, 4=Withdrawn, 5=Draft.';
+COMMENT ON TABLE lottery_entries IS 'Fan entries into the lottery of a ticket type, made Entered when the fan confirms an authorized card authorization; at most one per (ticket type, user). State: 1=Entered, 2=Won, 3=Lost.';
 COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN lottery_entries.ticket_type_id IS 'The ticket type entered; its sale''s method is Lottery';
 COMMENT ON COLUMN lottery_entries.user_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN lottery_entries.ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
-COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL on a Draft until the card authorization is opened, and on an entry withdrawn as a Draft; required from Entered on';
-COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (captured), 3=Lost (card authorization released), 4=Withdrawn (fan-cancelled or abandoned Draft, card authorization released), 5=Draft (before confirmation; takes no part in the draw)';
+COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...) the entry was made from; set at creation, unique';
+COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (captured), 3=Lost (card authorization released)';
 COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; the draw order of the losers for official resale.';
+COMMENT ON COLUMN lottery_entries.referral_code IS 'The referral code the card authorization was opened with, from the ?ref= of the link the fan followed: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; set at creation and never changed';
 
--- Partial unique index: at most one active entry per (ticket_type_id, user_id).
--- "Active" means every state but Withdrawn (4): Draft, Entered, Won and Lost.
--- A Withdrawn row is excluded so the fan can enter again after withdrawal.
--- Won and Lost are included because they represent a concluded draw outcome
--- that still uniquely identifies this fan's participation.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_active
-    ON lottery_entries(ticket_type_id, user_id)
-    WHERE state <> 4;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_ticket_type_user ON lottery_entries(ticket_type_id, user_id);
+COMMENT ON INDEX uq_lottery_entries_ticket_type_user IS 'At most one entry per (ticket type, user), in any state; also serves listing a ticket type''s entries (draw batch load, stats)';
 
-COMMENT ON INDEX uq_lottery_entries_active IS 'At most one active (Draft/Entered/Won/Lost) entry per (ticket type, user). Withdrawn (4) is excluded so the fan can enter again. Won/Lost are included: a concluded draw outcome still uniquely identifies participation.';
-
-CREATE INDEX IF NOT EXISTS idx_lottery_entries_ticket_type_id ON lottery_entries(ticket_type_id);
-COMMENT ON INDEX idx_lottery_entries_ticket_type_id IS 'Optimizes listing all entries for a given ticket type (draw batch load)';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_card_authorization_id ON lottery_entries(card_authorization_id);
+COMMENT ON INDEX uq_lottery_entries_card_authorization_id IS 'At most one entry per card authorization; the lookup of GetByCardAuthorizationID';
 
 -- Checkouts: one fan's first-come purchase in progress on a ticket type. A
 -- hold lasts exactly 15 minutes and is never extended. A charged checkout
@@ -828,6 +821,7 @@ CREATE TABLE IF NOT EXISTS checkouts (
     commit_at                 TIMESTAMPTZ,
     capture_at                TIMESTAMPTZ,
     resale                    BOOLEAN     NOT NULL DEFAULT FALSE,
+    referral_code             TEXT,
     CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_checkouts_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
     CONSTRAINT chk_checkouts_amount_positive CHECK (amount > 0),
@@ -836,7 +830,8 @@ CREATE TABLE IF NOT EXISTS checkouts (
     CONSTRAINT chk_checkouts_release_needs_card_authorization CHECK (card_authorization_release_at IS NULL OR card_authorization_id IS NOT NULL),
     CONSTRAINT chk_checkouts_commit_time CHECK (status NOT IN (2, 3) OR commit_at IS NOT NULL),
     CONSTRAINT chk_checkouts_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
-    CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
+    CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL),
+    CONSTRAINT chk_checkouts_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$')
 );
 
 COMMENT ON TABLE checkouts IS 'One fan''s first-come purchase in progress on a ticket type: holds a count of tickets for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
@@ -851,6 +846,7 @@ COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Complet
 COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
 COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
 COMMENT ON COLUMN checkouts.resale IS 'True for a resale checkout: it holds resale_listings rows of its ticket type instead of the ticket type''s stock, and never changes sold_count. Fixed at creation';
+COMMENT ON COLUMN checkouts.referral_code IS 'The referral code of the last link the fan followed before paying, from its ?ref=: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; replaced only while Held';
 COMMENT ON COLUMN checkouts.capture_at IS 'When the card authorization (card_authorization_id) was captured; set once, and a row with it is never Expired or Released';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_held ON checkouts(ticket_type_id, user_id) WHERE status = 1;
@@ -915,34 +911,6 @@ COMMENT ON INDEX uq_orders_checkout_id IS 'One order per checkout — the issuan
 
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders';
-
--- Referrals: the referral code a checkout or a lottery entry was started with,
--- from the ?ref= of the link the fan followed. At most one per source; the
--- code changes only while the source is open (Held checkout, Draft entry). A
--- purchase without a code has no row. The Order is reached through its source.
-CREATE TABLE IF NOT EXISTS referrals (
-    id                UUID        PRIMARY KEY,
-    checkout_id       UUID        REFERENCES checkouts(id) ON DELETE CASCADE,
-    lottery_entry_id  UUID        REFERENCES lottery_entries(id) ON DELETE CASCADE,
-    code              TEXT        NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL,
-    CONSTRAINT chk_referrals_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_referrals_one_source CHECK ((checkout_id IS NULL) <> (lottery_entry_id IS NULL)),
-    CONSTRAINT chk_referrals_code CHECK (code ~ '^[a-z0-9-]{1,32}$')
-);
-
-COMMENT ON TABLE referrals IS 'The referral code one checkout or one lottery entry was started with, from the ?ref= of the link the fan followed. At most one row per source, removed with its source; a purchase without a code has no row.';
-COMMENT ON COLUMN referrals.id IS 'Unique referral identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN referrals.checkout_id IS 'The checkout started with the code; NULL when the source is a lottery entry; unique';
-COMMENT ON COLUMN referrals.lottery_entry_id IS 'The lottery entry started with the code; NULL when the source is a checkout; unique';
-COMMENT ON COLUMN referrals.code IS 'The referral code: 1 to 32 lowercase ASCII letters, digits or hyphens. Replaced only while the source is a Held checkout or a Draft entry';
-COMMENT ON COLUMN referrals.created_at IS 'When the source was first started with a code; kept when the code is replaced';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_referrals_checkout_id ON referrals(checkout_id) WHERE checkout_id IS NOT NULL;
-COMMENT ON INDEX uq_referrals_checkout_id IS 'At most one referral per checkout; the conflict target of Record and the join from orders.checkout_id';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_referrals_lottery_entry_id ON referrals(lottery_entry_id) WHERE lottery_entry_id IS NOT NULL;
-COMMENT ON INDEX uq_referrals_lottery_entry_id IS 'At most one referral per lottery entry; the conflict target of Record and the join from orders.lottery_entry_id';
 
 -- Tickets: account-bound covered tickets (特定興行入場券) issued from a won
 -- lottery entry or a completed checkout. One order issues the N tickets of its

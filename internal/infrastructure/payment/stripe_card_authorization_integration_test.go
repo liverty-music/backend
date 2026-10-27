@@ -29,15 +29,19 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 	lottery := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, mustLogger(t))
 	checkout := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, mustLogger(t))
 	const amountJPY int64 = 6000
+	fanID, ticketTypeID, eventID := entity.NewID(), entity.NewID(), entity.NewID()
 
 	// open opens a card authorization for a fresh checkout, so every subtest
 	// has its own idempotency keys.
 	open := func(t *testing.T, repo *payment.StripeCardAuthorizationRepository) (*entity.CardAuthorization, entity.CardAuthorizationPurchase) {
 		t.Helper()
 		purchase := entity.CardAuthorizationPurchase{
+			Purpose:      entity.CardAuthorizationPurposeCheckout,
 			CheckoutID:   entity.CheckoutID(entity.NewID()),
+			UserID:       entity.UserID(entity.NewID()),
 			TicketTypeID: entity.TicketTypeID(entity.NewID()),
 			EventID:      entity.NewID(),
+			TicketCount:  2,
 		}
 		got, err := repo.Create(ctx, purchase, amountJPY)
 		require.NoError(t, err)
@@ -46,6 +50,8 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 	}
 
 	t.Run("opened and retried after a lost response", func(t *testing.T) {
+		// @spec components/entity/card-authorization/create "Card authorization opened"
+		// @spec components/entity/card-authorization/create "Retried after a lost response"
 		opened, purchase := open(t, checkout)
 		pi := retrievePaymentIntent(t, key, opened.ID)
 		assert.Equal(t, amountJPY, pi.Amount)
@@ -70,9 +76,56 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusAuthorized, authorized.Status)
 		require.NoError(t, authorized.Confirm(purchase, amountJPY), "a checkout accepts American Express")
-		assert.Error(t, authorized.Confirm(entity.CardAuthorizationPurchase{LotteryEntryID: "entry-1"}, amountJPY),
+		assert.Error(t, authorized.Confirm(entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry}, amountJPY),
 			"a lottery entry does not")
+		assert.Equal(t, purchase, authorized.Purchase, "the checkout it was opened for")
 		require.NoError(t, checkout.Release(ctx, opened.ID))
+	})
+
+	t.Run("lottery entry authorized again, then read", func(t *testing.T) {
+		// @spec components/entity/card-authorization/create "Lottery entry authorized again"
+		// @spec components/entity/card-authorization/get "Waiting for card authentication"
+		// @spec components/entity/card-authorization/get "Authorized card authorization"
+		code := entity.ReferralCode("member-a")
+		entry := func(count int) entity.CardAuthorizationPurchase {
+			return entity.CardAuthorizationPurchase{
+				Purpose:      entity.CardAuthorizationPurposeLotteryEntry,
+				UserID:       entity.UserID(fanID),
+				TicketTypeID: entity.TicketTypeID(ticketTypeID),
+				EventID:      eventID,
+				TicketCount:  count,
+				ReferralCode: &code,
+			}
+		}
+		two, err := lottery.Create(ctx, entry(2), 16000)
+		require.NoError(t, err)
+		three, err := lottery.Create(ctx, entry(3), 24000)
+		require.NoError(t, err)
+		require.NotEqual(t, two.ID, three.ID, "each call opens a new card authorization")
+
+		pending, err := lottery.Get(ctx, two.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CardAuthorizationStatusPending, pending.Status)
+		assert.Equal(t, two.Secret, pending.Secret)
+		assert.Equal(t, entry(2), pending.Purchase)
+
+		confirmWith(t, key, three.ID, "pm_card_visa")
+		authorized, err := lottery.Get(ctx, three.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CardAuthorizationStatusAuthorized, authorized.Status)
+		assert.Equal(t, int64(24000), authorized.Amount)
+		assert.Equal(t, entity.CardBrand("visa"), authorized.CardBrand)
+		assert.Equal(t, entry(3), authorized.Purchase)
+		assert.Nil(t, authorized.CapturedPayment, "nothing is charged")
+
+		require.NoError(t, lottery.Release(ctx, two.ID))
+		require.NoError(t, lottery.Release(ctx, three.ID))
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		// @spec components/entity/card-authorization/get "Unknown id"
+		_, err := lottery.Get(ctx, "pi_does_not_exist")
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("capture once, then read the captured payment", func(t *testing.T) {

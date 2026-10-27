@@ -48,70 +48,59 @@ type EventPublishStatePort interface {
 	GetEventOrganizerID(ctx context.Context, eventID string) (string, error)
 }
 
-// LotteryEntryUseCase lets a fan enter the lottery of a TicketType — start a Draft,
-// open the card authorization, confirm — and withdraw, shows the fan their entries, and
-// draws every Lottery sale once its window has closed.
+// LotteryEntryUseCase lets a fan enter the lottery of a TicketType — open the
+// card authorization for a ticket count, then confirm it into an entry — shows
+// the fan their entries, and draws every Lottery sale once its window has
+// closed.
 type LotteryEntryUseCase interface {
-	// Start begins the fan's Draft entry for a TicketType of an open Lottery
-	// sale, or resumes it when the count is the same, after checking the
-	// count, the sale's verification requirement and the per-account limit
-	// against the fan's Issued tickets for the event. Nothing is held on the
-	// card.
+	// AuthorizeCard checks that the fan may enter the TicketType's open
+	// Lottery sale with count tickets (the count, the sale's verification
+	// requirement, the per-account limit against the fan's Issued tickets for
+	// the event, and no entry of the fan for the TicketType yet), stores the
+	// fan's full name and phone number on their User, and opens a card
+	// authorization for the lottery entry of the fan, the TicketType, the count
+	// and the code, for the TicketType's price times count. It returns the card
+	// authorization with its id and its card authorization secret, which must
+	// not be stored. It stores no entry; authorizing again opens a new card
+	// authorization. The code is not checked against any list or the event's
+	// Series.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: the TicketType does not exist.
-	//  - InvalidArgument: the count is not 1 to the per-account limit.
+	//  - InvalidArgument: the count is not 1 to the per-account limit, or the
+	//    name or phone number is missing or breaks the personal details rule.
 	//  - FailedPrecondition: the sale is not a Lottery, its window is not
-	//    open, the fan has no Active IdentityVerification when the sale requires one, the count
-	//    does not fit the per-account limit with the tickets the fan holds, or
-	//    the fan already has an Entered, Won or Lost entry.
-	//  - The error of [entity.ReferralRepository.Record], unchanged; the
-	//    Draft stays, so starting again resumes it and records the code again.
-	//
-	// When code is not nil, the returned Draft's Referral is recorded with
-	// it; a nil code records nothing and keeps an existing Referral. The code
-	// is not checked against any list or the event's Series.
-	Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error)
-
-	// AuthorizeCard stores the fan's full name and phone number on their User and
-	// opens the card authorization for their own Draft, or reuses it, and returns
-	// its card authorization secret, which must not be stored. Nothing is
-	// captured.
-	//
-	// # Possible errors
-	//
-	//  - PermissionDenied: the entry does not exist or is another fan's.
-	//  - FailedPrecondition: the entry is not a Draft, or the sale's window is
-	//    not open.
-	//  - InvalidArgument: the name or phone number is missing or breaks the
-	//    personal details rule.
+	//    open, the fan has no Active IdentityVerification when the sale
+	//    requires one, the count does not fit the per-account limit with the
+	//    tickets the fan holds, or the fan already has an entry.
 	//  - Unavailable: card payments cannot be reached.
-	AuthorizeCard(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName, phoneNumber string) (string, error)
+	AuthorizeCard(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error)
 
-	// Confirm makes the fan's own authorized Draft Entered after verifying its
-	// card authorization for the amount, and returns it. An Entered entry is returned
-	// unchanged.
+	// Confirm makes the Entered entry from an Authorized card authorization
+	// for a lottery entry and returns it, or returns the entry the card
+	// authorization already made. caller is the fan who confirms; nil when the
+	// payment provider reports the card authorization Authorized, and then a
+	// Checkout's card authorization is left as it is and Confirm returns no
+	// entry and no error. An Authorized card authorization that Confirm
+	// rejects is released before Confirm fails; one an entry holds is never
+	// released. Nothing is captured.
 	//
 	// # Possible errors
 	//
-	//  - PermissionDenied: the entry does not exist or is another fan's.
-	//  - FailedPrecondition: the entry is not an authorized Draft, or the
-	//    sale's window is not open.
-	//  - Errors of reading the card authorization, unchanged.
-	Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error)
-
-	// Withdraw releases the card authorization of the fan's own Draft or Entered entry,
-	// when it has one, and then makes it Withdrawn. It works until the draw
-	// runs, also after the window has closed.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the entry does not exist.
-	//  - PermissionDenied: the entry is another fan's.
-	//  - FailedPrecondition: the entry is Won, Lost or Withdrawn.
-	//  - Errors of releasing the card authorization, unchanged; the entry keeps its state.
-	Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error
+	//  - PermissionDenied: the card authorization does not exist, is not for a
+	//    lottery entry, or is not the caller's.
+	//  - FailedPrecondition: the card authorization is Pending, Captured or
+	//    Released (nothing is released), or it was rejected and released: the
+	//    TicketType no longer exists, the card brand is not accepted, the fan
+	//    already has another entry for the TicketType, or the sale's end time
+	//    has passed.
+	//  - InvalidArgument: the amount differs from the TicketType's price times
+	//    the count; the card authorization was released.
+	//  - Errors of reading the card authorization or the TicketType, of
+	//    storing the entry, or of releasing a rejected card authorization,
+	//    unchanged.
+	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)
 
 	// ListByTicketType returns the fan's entries for the TicketType, in
 	// every state, newest first; an empty slice when there is none.
@@ -129,11 +118,10 @@ type LotteryEntryUseCase interface {
 	//  - Errors of listing the due sales, unchanged; nothing is drawn.
 	DrawDueSales(ctx context.Context) error
 
-	// RunDraw draws one closed Lottery sale: for each TicketType it releases
-	// the card authorizations of its Drafts, draws the Entered entries against the
-	// TicketType's quantity in an unpredictable order, captures each winner's
-	// card authorization and releases every other, and records the whole sale's outcome
-	// with the sale drawn. A winner whose capture fails is released and
+	// RunDraw draws one closed Lottery sale: for each TicketType it draws the
+	// Entered entries against the TicketType's quantity in an unpredictable
+	// order, captures each winner's card authorization and releases every
+	// other, and records the whole sale's outcome with the sale drawn. A winner whose capture fails is released and
 	// recorded Lost. It creates no Order or Ticket.
 	//
 	// # Possible errors
@@ -147,7 +135,6 @@ type LotteryEntryUseCase interface {
 type lotteryEntryUseCase struct {
 	saleRepo                 entity.TicketSaleRepository
 	entryRepo                entity.LotteryEntryRepository
-	referralRepo             entity.ReferralRepository
 	ticketRepo               entity.TicketRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
@@ -166,7 +153,6 @@ var _ LotteryEntryUseCase = (*lotteryEntryUseCase)(nil)
 func NewLotteryEntryUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
-	referralRepo entity.ReferralRepository,
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
@@ -175,14 +161,13 @@ func NewLotteryEntryUseCase(
 	clock Clock,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, referralRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, publisher, clock, cryptoSeededRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, publisher, clock, cryptoSeededRand, logger)
 }
 
 // newLotteryUseCase constructs the use case with the draw's random source.
 func newLotteryUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
-	referralRepo entity.ReferralRepository,
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
@@ -195,7 +180,6 @@ func newLotteryUseCase(
 	return &lotteryEntryUseCase{
 		saleRepo:                 saleRepo,
 		entryRepo:                entryRepo,
-		referralRepo:             referralRepo,
 		ticketRepo:               ticketRepo,
 		identityVerificationRepo: identityVerificationRepo,
 		userRepo:                 userRepo,
@@ -207,8 +191,8 @@ func newLotteryUseCase(
 	}
 }
 
-// Start implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error) {
+// AuthorizeCard implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error) {
 	now := uc.clock()
 	sale, tt, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, now)
 	if err != nil {
@@ -218,6 +202,12 @@ func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.Ti
 		return nil, apperr.New(codes.FailedPrecondition, "the ticket type is not sold by lottery")
 	}
 	if err := tt.ValidateTicketCount(count); err != nil {
+		return nil, apperr.New(codes.InvalidArgument, err.Error())
+	}
+	if fullName == "" || phoneNumber == "" {
+		return nil, apperr.New(codes.InvalidArgument, "full name and phone number are required")
+	}
+	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
 		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
 	if !sale.IsOpenAt(now) {
@@ -239,19 +229,26 @@ func (uc *lotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.Ti
 	if !tt.FitsPerAccountLimit(held, count) {
 		return nil, apperr.New(codes.FailedPrecondition, "the tickets would exceed the per-account limit for the event")
 	}
-	entry, err := uc.entryRepo.GetOrCreateDraft(ctx, ticketTypeID, userID, count)
+	// Advisory: LotteryEntry.Create is the guard, but refusing here spares the
+	// fan a card authentication that Confirm would release.
+	entries, err := uc.entryRepo.ListByTicketTypeAndUser(ctx, ticketTypeID, userID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrAlreadyExists) {
-			return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this ticket type")
-		}
 		return nil, err
 	}
-	if code != nil {
-		if err := uc.referralRepo.Record(ctx, entity.ReferralSource{LotteryEntryID: entry.ID}, *code, now); err != nil {
-			return nil, err
-		}
+	if len(entries) > 0 {
+		return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this ticket type")
 	}
-	return entry, nil
+	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
+		return nil, err
+	}
+	return uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
+		Purpose:      entity.CardAuthorizationPurposeLotteryEntry,
+		UserID:       userID,
+		TicketTypeID: ticketTypeID,
+		EventID:      tt.EventID,
+		TicketCount:  count,
+		ReferralCode: code,
+	}, tt.AmountFor(count))
 }
 
 // checkVerification fails with FailedPrecondition when the sale requires
@@ -273,128 +270,89 @@ func (uc *lotteryEntryUseCase) checkVerification(ctx context.Context, sale *enti
 	return nil
 }
 
-// ownEntry reads the entry and fails with PermissionDenied, without revealing
-// whether it exists, unless it is the fan's.
-func (uc *lotteryEntryUseCase) ownEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error) {
-	entry, err := uc.entryRepo.Get(ctx, entryID)
+// Confirm implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error) {
+	notCallers := func() error {
+		return apperr.New(codes.PermissionDenied, "the card authorization is not the caller's lottery entry",
+			slog.String("card_authorization_id", cardAuthorizationID))
+	}
+	authorization, err := uc.cardAuthorizations.Get(ctx, cardAuthorizationID)
 	if err != nil {
 		if isNotFound(err) {
-			return nil, apperr.New(codes.PermissionDenied, "the entry is not the caller's")
+			return nil, notCallers()
 		}
 		return nil, err
 	}
-	if entry.UserID != userID {
-		return nil, apperr.New(codes.PermissionDenied, "the entry is not the caller's")
-	}
-	return entry, nil
-}
-
-// openTicketType reads the entry's TicketType and its sale and fails with
-// FailedPrecondition when the sale's window is not open at now.
-func (uc *lotteryEntryUseCase) openTicketType(ctx context.Context, entry *entity.LotteryEntry, now time.Time) (*entity.TicketType, error) {
-	sale, tt, err := uc.saleRepo.GetTicketType(ctx, entry.TicketTypeID, now)
-	if err != nil {
-		return nil, err
-	}
-	if !sale.IsOpenAt(now) {
-		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")
-	}
-	return tt, nil
-}
-
-// AuthorizeCard implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName, phoneNumber string) (string, error) {
-	entry, err := uc.ownEntry(ctx, entryID, userID)
-	if err != nil {
-		return "", err
-	}
-	if entry.State != entity.LotteryEntryStateDraft {
-		return "", apperr.New(codes.FailedPrecondition, "only a draft entry can be authorized")
-	}
-	now := uc.clock()
-	tt, err := uc.openTicketType(ctx, entry, now)
-	if err != nil {
-		return "", err
-	}
-	if fullName == "" || phoneNumber == "" {
-		return "", apperr.New(codes.InvalidArgument, "full name and phone number are required")
-	}
-	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
-		return "", apperr.New(codes.InvalidArgument, err.Error())
-	}
-	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
-		return "", err
-	}
-	if entry.HasCardAuthorization() {
-		// A declined card retries the same card authorization.
-		authorization, err := uc.cardAuthorizations.Get(ctx, entry.CardAuthorizationID)
-		if err != nil {
-			return "", err
+	purchase := authorization.Purchase
+	if !purchase.IsLotteryEntry() {
+		if caller == nil && purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
+			// The notice of a Checkout's card authorization: its own
+			// Confirm settles it.
+			return nil, nil
 		}
-		return authorization.Secret, nil
+		return nil, notCallers()
 	}
-	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
-		LotteryEntryID: entry.ID,
-		TicketTypeID:   entry.TicketTypeID,
-		EventID:        tt.EventID,
-	}, tt.AmountFor(entry.TicketCount))
-	if err != nil {
-		return "", err
+	if caller != nil && purchase.UserID != *caller {
+		return nil, notCallers()
 	}
-	if err := uc.entryRepo.SetCardAuthorization(ctx, entry.ID, authorization.ID); err != nil {
-		return "", err
-	}
-	return authorization.Secret, nil
-}
 
-// Confirm implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error) {
-	entry, err := uc.ownEntry(ctx, entryID, userID)
-	if err != nil {
-		return nil, err
-	}
-	if entry.State == entity.LotteryEntryStateEntered {
+	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
+	if err == nil {
 		return entry, nil
 	}
-	if !entry.IsConfirmable() {
-		return nil, apperr.New(codes.FailedPrecondition, "only an authorized draft entry can be confirmed")
+	if !isNotFound(err) {
+		return nil, err
 	}
-	tt, err := uc.openTicketType(ctx, entry, uc.clock())
+	if authorization.Status != entity.CardAuthorizationStatusAuthorized {
+		return nil, apperr.New(codes.FailedPrecondition,
+			"the card authorization is not authorized; card authentication must complete first",
+			slog.String("card_authorization_id", cardAuthorizationID))
+	}
+
+	_, tt, err := uc.saleRepo.GetTicketType(ctx, purchase.TicketTypeID, uc.clock())
 	if err != nil {
+		if isNotFound(err) {
+			return nil, uc.reject(ctx, cardAuthorizationID,
+				apperr.New(codes.FailedPrecondition, "the ticket type no longer exists"))
+		}
 		return nil, err
 	}
-	authorization, err := uc.cardAuthorizations.Get(ctx, entry.CardAuthorizationID)
+	if err := authorization.Confirm(purchase, tt.AmountFor(purchase.TicketCount)); err != nil {
+		return nil, uc.reject(ctx, cardAuthorizationID, err)
+	}
+
+	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(
+		purchase.TicketTypeID, purchase.UserID, purchase.TicketCount, cardAuthorizationID, purchase.ReferralCode))
 	if err != nil {
+		switch {
+		case errors.Is(err, apperr.ErrAlreadyExists):
+			return nil, uc.reject(ctx, cardAuthorizationID,
+				apperr.Wrap(err, codes.FailedPrecondition, "the fan has already entered this ticket type"))
+		case errors.Is(err, apperr.ErrFailedPrecondition):
+			return nil, uc.reject(ctx, cardAuthorizationID, err)
+		}
 		return nil, err
 	}
-	if err := authorization.Confirm(entity.CardAuthorizationPurchase{LotteryEntryID: entry.ID}, tt.AmountFor(entry.TicketCount)); err != nil {
-		return nil, err
-	}
-	if err := uc.entryRepo.UpdateState(ctx, entry.ID, entity.LotteryEntryStateEntered); err != nil {
-		return nil, err
-	}
-	entry.State = entity.LotteryEntryStateEntered
 	return entry, nil
 }
 
-// Withdraw implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error {
-	entry, err := uc.entryRepo.Get(ctx, entryID)
-	if err != nil {
+// reject releases an Authorized card authorization that Confirm refused and
+// returns the refusal, or the release's failure so the rejection is tried
+// again.
+func (uc *lotteryEntryUseCase) reject(ctx context.Context, cardAuthorizationID string, refusal error) error {
+	if err := uc.cardAuthorizations.Release(ctx, cardAuthorizationID); err != nil {
+		uc.logger.Warn(ctx, "confirm: releasing a rejected card authorization failed",
+			slog.String("card_authorization_id", cardAuthorizationID),
+			slog.Any("refusal", refusal),
+			slog.Any("error", err),
+		)
 		return err
 	}
-	if entry.UserID != userID {
-		return apperr.New(codes.PermissionDenied, "the entry is not the caller's")
-	}
-	if !entry.IsWithdrawable() {
-		return apperr.New(codes.FailedPrecondition, "the entry can no longer be withdrawn")
-	}
-	if entry.HasCardAuthorization() {
-		if err := uc.cardAuthorizations.Release(ctx, entry.CardAuthorizationID); err != nil {
-			return err
-		}
-	}
-	return uc.entryRepo.UpdateState(ctx, entryID, entity.LotteryEntryStateWithdrawn)
+	uc.logger.Info(ctx, "confirm: rejected card authorization released",
+		slog.String("card_authorization_id", cardAuthorizationID),
+		slog.Any("refusal", refusal),
+	)
+	return refusal
 }
 
 // ListByTicketType implements [LotteryEntryUseCase].
@@ -433,7 +391,6 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 	var (
 		winners []entity.DrawWinnerRow
 		losers  []entity.DrawLoserRow
-		drafts  []entity.LotteryEntryID
 		results []entity.LotteryEntryDrawnData
 	)
 	drawTime := uc.clock()
@@ -444,19 +401,11 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 		}
 		refs := make(map[entity.LotteryEntryID]string, len(entries))
 		users := make(map[entity.LotteryEntryID]entity.UserID, len(entries))
-		var entered []entity.DrawEntry
+		entered := make([]entity.DrawEntry, 0, len(entries))
 		for _, e := range entries {
-			switch e.State {
-			case entity.LotteryEntryStateDraft:
-				drafts = append(drafts, e.ID)
-				if e.HasCardAuthorization() {
-					uc.release(ctx, saleID, e.ID, e.CardAuthorizationID)
-				}
-			case entity.LotteryEntryStateEntered:
-				refs[e.ID] = e.CardAuthorizationID
-				users[e.ID] = e.UserID
-				entered = append(entered, entity.DrawEntry{ID: e.ID, TicketCount: e.TicketCount})
-			}
+			refs[e.ID] = e.CardAuthorizationID
+			users[e.ID] = e.UserID
+			entered = append(entered, entity.DrawEntry{ID: e.ID, TicketCount: e.TicketCount})
 		}
 
 		drawn := func(id entity.LotteryEntryID, state entity.LotteryEntryState, captureFailed bool) {
@@ -498,14 +447,13 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 		}
 	}
 
-	if err := uc.entryRepo.PersistDrawOutcome(ctx, saleID, winners, losers, drafts); err != nil {
+	if err := uc.entryRepo.PersistDrawOutcome(ctx, saleID, winners, losers); err != nil {
 		return err
 	}
 	uc.logger.Info(ctx, "draw completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("ticket_sale_id", string(saleID)),
 		slog.Int("winner_count", len(winners)),
 		slog.Int("loser_count", len(losers)),
-		slog.Int("withdrawn_draft_count", len(drafts)),
 	)...)
 
 	// Report each entry's result for product analytics. A failed publish is

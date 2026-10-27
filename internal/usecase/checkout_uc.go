@@ -38,12 +38,12 @@ type CheckoutUseCase interface {
 	//    per-account limit.
 	//  - ResourceExhausted: not enough tickets remain, or not enough resale
 	//    listings are free.
-	//  - The error of [entity.ReferralRepository.Record], unchanged; the hold
-	//    stays, so starting again resumes it and records the code again.
+	//  - The error of [entity.CheckoutRepository.SetReferralCode], unchanged;
+	//    the hold stays, so starting again resumes it and sets the code again.
 	//
-	// When code is not nil, the returned Checkout's Referral is recorded with
-	// it; a nil code records nothing and keeps an existing Referral. The code
-	// is not checked against any list or the event's Series.
+	// When code is not nil, it is set as the returned Checkout's referral
+	// code; a nil code sets nothing and keeps an existing code. The code is
+	// not checked against any list or the event's Series.
 	Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode) (*entity.Checkout, error)
 
 	// Get returns the fan's own Checkout as of now: a Held Checkout whose hold
@@ -81,7 +81,6 @@ type CheckoutUseCase interface {
 // checkoutUseCase implements [CheckoutUseCase].
 type checkoutUseCase struct {
 	checkoutRepo             entity.CheckoutRepository
-	referralRepo             entity.ReferralRepository
 	saleRepo                 entity.TicketSaleRepository
 	userRepo                 entity.UserRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
@@ -99,7 +98,6 @@ var _ CheckoutUseCase = (*checkoutUseCase)(nil)
 // CheckoutDeps are the dependencies of [NewCheckoutUseCase]. All are required.
 type CheckoutDeps struct {
 	CheckoutRepo             entity.CheckoutRepository
-	ReferralRepo             entity.ReferralRepository
 	SaleRepo                 entity.TicketSaleRepository
 	UserRepo                 entity.UserRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
@@ -115,7 +113,6 @@ type CheckoutDeps struct {
 func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 	return &checkoutUseCase{
 		checkoutRepo:             d.CheckoutRepo,
-		referralRepo:             d.ReferralRepo,
 		saleRepo:                 d.SaleRepo,
 		userRepo:                 d.UserRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
@@ -175,8 +172,11 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, tick
 		return nil, err
 	}
 	if code != nil {
-		if err := uc.referralRepo.Record(ctx, entity.ReferralSource{CheckoutID: checkout.ID}, *code, now); err != nil {
+		if err := uc.checkoutRepo.SetReferralCode(ctx, checkout.ID, *code); err != nil {
 			return nil, err
+		}
+		if checkout.Status == entity.CheckoutStatusHeld {
+			checkout.ReferralCode = code
 		}
 	}
 	return checkout, nil
@@ -271,9 +271,12 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 		return "", err
 	}
 	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
+		Purpose:      entity.CardAuthorizationPurposeCheckout,
 		CheckoutID:   checkout.ID,
+		UserID:       checkout.UserID,
 		TicketTypeID: checkout.TicketTypeID,
 		EventID:      ticketType.EventID,
+		TicketCount:  checkout.TicketCount,
 	}, checkout.Amount)
 	if err != nil {
 		return "", err

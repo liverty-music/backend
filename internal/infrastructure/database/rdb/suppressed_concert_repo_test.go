@@ -125,11 +125,11 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			otherEventID, seriesID, venueID)
 		discoveredID := uuid.NewV7().String()
 		exec(t, `INSERT INTO ticket_sales (id, series_id, method, sale_start_at, sale_end_at, discovered_at) VALUES ($1, $2, 2, now(), now() + interval '1 day', now())`, discoveredID, seriesID)
-		// A sale only for the deleted event, with a lottery entry, and a sale
-		// that also offers the other event.
+		// A sale only for the deleted event, with a lost lottery entry, and a
+		// sale that also offers the other event.
 		onlyType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 10, 4)
 		entryID := entity.NewID()
-		exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, state) VALUES ($1, $2, $3, 1, 5)`,
+		exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state) VALUES ($1, $2, $3, 1, 'pi_lost', 3)`,
 			entryID, string(onlyType.ID), seedFanUser(t))
 		sharedType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		otherTypeID := entity.NewID()
@@ -303,13 +303,6 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			setup: func(t *testing.T, o deletableOrganizer) {
 				exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 					VALUES ($1, $2, $3, 1, 'pi_entered', 1)`, entity.NewID(), string(o.typeID), seedFanUser(t))
-			},
-		},
-		{
-			// @spec components/entity/concert/delete-and-suppress "Concert with a draft entry holding a card authorization"
-			name: "concert with a draft entry holding a card authorization",
-			setup: func(t *testing.T, o deletableOrganizer) {
-				seedDraftEntryWithAuthorization(t, o.typeID, seedFanUser(t))
 			},
 		},
 		{

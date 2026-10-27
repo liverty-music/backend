@@ -26,7 +26,7 @@ func TestNoopCardAuthorizationRepository(t *testing.T) {
 	repo := payment.NewNoopCardAuthorizationRepository(mustLogger(t))
 	ctx := context.Background()
 
-	_, err := repo.Create(ctx, entity.CardAuthorizationPurchase{CheckoutID: "checkout-1"}, 6000)
+	_, err := repo.Create(ctx, entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1"}, 6000)
 	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	_, err = repo.Get(ctx, "pi_1")
 	assert.ErrorIs(t, err, apperr.ErrUnavailable)

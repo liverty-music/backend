@@ -45,6 +45,21 @@ const (
 	// shape eventOrderIDsSubquery expects.
 	orderListByEventQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id IN (` + eventOrderIDsSubquery + `) ORDER BY pay_at, id`
 	orderGetEventIDQuery  = `SELECT ` + orderEventIDColumn + ` FROM orders o WHERE o.id = $1`
+	// orderListReferralStatsByEventQuery counts the event's Paid orders
+	// (status 1) per referral code of their source; a NULL code is the direct
+	// group. Tickets are the source's ticket count. COLLATE "C" compares codes
+	// character by character.
+	orderListReferralStatsByEventQuery = `
+		SELECT coalesce(c.referral_code, le.referral_code),
+		       count(*)::int, sum(coalesce(c.ticket_count, le.ticket_count))::int, sum(o.amount)::bigint
+		FROM orders o
+		LEFT JOIN checkouts c        ON c.id = o.checkout_id
+		LEFT JOIN lottery_entries le ON le.id = o.lottery_entry_id
+		JOIN ticket_types tt         ON tt.id = coalesce(c.ticket_type_id, le.ticket_type_id)
+		WHERE tt.event_id = $1 AND o.status = 1
+		GROUP BY 1
+		ORDER BY count(*) DESC, coalesce(c.referral_code, le.referral_code) COLLATE "C"
+	`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -222,4 +237,35 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	o.Payment.Provider = entity.PaymentProvider(provider)
 	o.Status = entity.OrderStatus(status)
 	return &o, nil
+}
+
+// ListReferralStatsByEvent counts the event's Paid Orders per referral code
+// of their source.
+func (r *OrderRepository) ListReferralStatsByEvent(ctx context.Context, eventID string) ([]entity.ReferralCodeStats, error) {
+	attrs := slog.String("event_id", eventID)
+	rows, err := r.db.Pool.Query(ctx, orderListReferralStatsByEventQuery, eventID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list referral stats", attrs)
+	}
+	defer rows.Close()
+
+	stats := []entity.ReferralCodeStats{}
+	for rows.Next() {
+		var (
+			code sql.NullString
+			s    entity.ReferralCodeStats
+		)
+		if err := rows.Scan(&code, &s.OrderCount, &s.TicketCount, &s.Amount); err != nil {
+			return nil, toAppErr(err, "failed to scan referral stats", attrs)
+		}
+		if code.Valid {
+			c := entity.ReferralCode(code.String)
+			s.Code = &c
+		}
+		stats = append(stats, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate referral stats", attrs)
+	}
+	return stats, nil
 }
