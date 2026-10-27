@@ -332,6 +332,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		ResaleListings: resaleListingRepo,
 		LotteryEntries: lotteryEntryRepo,
 		Checkouts:      checkoutRepo,
+		Orders:         orderRepo,
 		Now:            time.Now,
 	}, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()

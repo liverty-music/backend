@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ type userTestDeps struct {
 	listingRepo     *mocks.MockResaleListingRepository
 	entryRepo       *mocks.MockLotteryEntryRepository
 	checkoutRepo    *mocks.MockCheckoutRepository
+	orderRepo       *mocks.MockOrderRepository
 	emailVerifier   *mocks.MockEmailVerifier
 	emailCodes      *mocks.MockEmailCodeVerifier
 	identityRemover *mocks.MockIdentityRemover
@@ -45,6 +47,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		listingRepo:     mocks.NewMockResaleListingRepository(t),
 		entryRepo:       mocks.NewMockLotteryEntryRepository(t),
 		checkoutRepo:    mocks.NewMockCheckoutRepository(t),
+		orderRepo:       mocks.NewMockOrderRepository(t),
 		emailVerifier:   mocks.NewMockEmailVerifier(t),
 		emailCodes:      mocks.NewMockEmailCodeVerifier(t),
 		identityRemover: mocks.NewMockIdentityRemover(t),
@@ -55,6 +58,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		ResaleListings: d.listingRepo,
 		LotteryEntries: d.entryRepo,
 		Checkouts:      d.checkoutRepo,
+		Orders:         d.orderRepo,
 		Now:            func() time.Time { return userTestNow },
 	}, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, newTestLogger(t))
 	return d
@@ -1151,6 +1155,9 @@ type deletionReads struct {
 	listings  []*entity.ResaleListing
 	entries   []*entity.LotteryEntry
 	checkouts []*entity.Checkout
+	// issued are the Won entries that have an Order; every other Won entry
+	// has none.
+	issued []entity.LotteryEntryID
 }
 
 // expect makes the read mocks return r for the deletion test user.
@@ -1162,6 +1169,16 @@ func (r deletionReads) expect(ctx context.Context, d *userTestDeps) {
 	}
 	d.listingRepo.EXPECT().ListByUser(ctx, uid).Return(r.listings, nil).Once()
 	d.entryRepo.EXPECT().ListByUser(ctx, uid).Return(r.entries, nil).Once()
+	for _, e := range r.entries {
+		if e.State != entity.LotteryEntryStateWon {
+			continue
+		}
+		if slices.Contains(r.issued, e.ID) {
+			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(&entity.Order{ID: entity.OrderID("o-" + string(e.ID)), LotteryEntryID: e.ID}, nil).Once()
+		} else {
+			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(nil, apperr.New(codes.NotFound, "no order")).Once()
+		}
+	}
 	d.checkoutRepo.EXPECT().ListByUser(ctx, uid).Return(r.checkouts, nil).Once()
 }
 
@@ -1241,6 +1258,23 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 			want: []entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindPaymentInProgress, Count: 1}},
 		},
 		{
+			// @spec components/usecase/user/list-deletion-blockers "Win being charged"
+			name:  "counts a won entry with no order as a payment in progress",
+			reads: deletionReads{entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}}},
+			want:  []entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindPaymentInProgress, Count: 1}},
+		},
+		{
+			// @spec components/usecase/user/list-deletion-blockers "Win already issued"
+			name: "ignores a won entry with an order whose ticket is for a past event",
+			reads: deletionReads{
+				tickets: []*entity.Ticket{issuedTicketFor("t1", "e1")},
+				events:  []*entity.Event{eventOn("e1", -1)},
+				entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}},
+				issued:  []entity.LotteryEntryID{"le1"},
+			},
+			want: []entity.DeletionBlocker{},
+		},
+		{
 			// @spec components/usecase/user/list-deletion-blockers "Lapsed hold"
 			name: "ignores a held checkout whose hold expired 10 minutes ago",
 			reads: deletionReads{checkouts: []*entity.Checkout{
@@ -1258,9 +1292,10 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 			want: []entity.DeletionBlocker{},
 		},
 		{
-			name: "ignores completed, expired and released checkouts and won entries",
+			name: "ignores completed, expired and released checkouts and issued wins",
 			reads: deletionReads{
 				entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}},
+				issued:  []entity.LotteryEntryID{"le1"},
 				checkouts: []*entity.Checkout{
 					{ID: "c1", Status: entity.CheckoutStatusCompleted},
 					{ID: "c2", Status: entity.CheckoutStatusExpired},
@@ -1391,6 +1426,12 @@ func TestUserUseCase_Delete(t *testing.T) {
 			// @spec components/usecase/user/delete "User paying for tickets"
 			name:    "refuses a user with a committed checkout",
 			reads:   &deletionReads{checkouts: []*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}}},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/user/delete "User whose win is being charged"
+			name:    "refuses a user with a won entry that has no order yet",
+			reads:   &deletionReads{entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}}},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{

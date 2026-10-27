@@ -105,8 +105,9 @@ type UserUseCase interface {
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming
-	// ticket, listed resale, pending lottery entry, payment in progress, or
-	// an empty slice. Delete applies the same rule.
+	// ticket, listed resale, pending lottery entry, payment in progress (a
+	// Checkout being paid, or a Won entry with no Order yet), or an empty
+	// slice. Delete applies the same rule.
 	//
 	// # Possible errors
 	//
@@ -259,6 +260,7 @@ type DeletionBlockerReads struct {
 	ResaleListings entity.ResaleListingRepository
 	LotteryEntries entity.LotteryEntryRepository
 	Checkouts      entity.CheckoutRepository
+	Orders         entity.OrderRepository
 	// Now is the clock (time.Now in production).
 	Now Clock
 }
@@ -579,8 +581,19 @@ func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]e
 		return nil, err
 	}
 	for _, e := range entries {
-		if e.State == entity.LotteryEntryStateEntered {
+		switch e.State {
+		case entity.LotteryEntryStateEntered:
 			counts[entity.DeletionBlockerKindPendingLotteryEntry]++
+		case entity.LotteryEntryStateWon:
+			// A win with no Order is not charged yet: its issuance still
+			// charges the card and reads the User.
+			_, err := reads.Orders.GetByLotteryEntryID(ctx, e.ID)
+			switch {
+			case errors.Is(err, apperr.ErrNotFound):
+				counts[entity.DeletionBlockerKindPaymentInProgress]++
+			case err != nil:
+				return nil, err
+			}
 		}
 	}
 

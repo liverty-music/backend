@@ -15,8 +15,9 @@ const (
 	// DeletionBlockerKindPendingLotteryEntry is a LotteryEntry in state
 	// Entered, awaiting its draw.
 	DeletionBlockerKindPendingLotteryEntry DeletionBlockerKind = 3
-	// DeletionBlockerKindPaymentInProgress is a Checkout being paid:
-	// Committed, or Held before its hold expiry.
+	// DeletionBlockerKindPaymentInProgress is a payment in progress: a
+	// Checkout Committed, or Held before its hold expiry, or a LotteryEntry in
+	// state Won whose Order is not issued yet.
 	DeletionBlockerKindPaymentInProgress DeletionBlockerKind = 4
 )
 
