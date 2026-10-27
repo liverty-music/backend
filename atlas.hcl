@@ -16,6 +16,16 @@ env "local" {
   migration {
     dir = "file://k8s/atlas/base/migrations"
   }
+
+  // Schema `dbos` holds the DBOS Transact system tables. Its migrations are
+  // the SQL DBOS prints (k8s/atlas/base/migrations/*_dbos_*.sql), not a diff
+  // of schema.sql, so schema.sql leaves it out; without this, every
+  // `migrate diff` would end with DROP SCHEMA "dbos" CASCADE.
+  diff {
+    skip {
+      drop_schema = true
+    }
+  }
 }
 
 // Define the "ci" environment for continuous integration.

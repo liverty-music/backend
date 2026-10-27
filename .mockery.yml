@@ -89,6 +89,7 @@ packages:
       EventPublishStatePort: {}
       EventPublisher: {}
       FeatureFlagEvaluator: {}
+      Flow: {}
       FollowUseCase: {}
       IdentityVerificationUseCase: {}
       IdentityVerifier: {}
@@ -115,3 +116,4 @@ packages:
       UserUseCase: {}
       VenueUseCase: {}
       WalletPublicKeyUseCase: {}
+      Workflows: {}

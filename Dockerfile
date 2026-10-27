@@ -32,9 +32,9 @@ COPY . .
 # See https://protobuf.dev/reference/go/faq#namespace-conflict
 
 # --- Static binaries (every target except series-image-consumer) ---
-# One `go build` for all eight CGO-free binaries: the packages they share
+# One `go build` for all nine CGO-free binaries: the packages they share
 # (internal/..., the generated SDKs, every dependency) compile once instead of
-# once per image, and Bake builds this stage once for all eight targets. With
+# once per image, and Bake builds this stage once for all nine targets. With
 # several main packages and a directory `-o`, go build writes each binary as
 # /out/<last path element>. No main package carries a default.pgo, so
 # `-pgo=auto` changes nothing today; it stays so a profile can be dropped in.
@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     ./cmd/api \
     ./cmd/consumer \
     ./cmd/identity \
+    ./cmd/worker \
     ./cmd/job/concert-discovery \
     ./cmd/job/artist-image-sync \
     ./cmd/job/official-site-refresh \
@@ -102,6 +103,15 @@ FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659ecea
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/identity /identity
 ENTRYPOINT ["/identity"]
+
+# --- Workflow worker target ---
+# The only process that runs durable workflows. An admin also runs
+# `/worker workflow ...` in its Pod (cloud-provisioning runbook
+# workflow-needs-admin.md).
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS worker
+ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
+COPY --from=build-static /out/worker /worker
+ENTRYPOINT ["/worker"]
 
 # --- Series Image Consumer target (libvips / CGO) ---
 # Unlike every other target, the series-image-consumer links libvips (a C library),

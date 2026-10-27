@@ -6,8 +6,8 @@ name: Deploy Backend
 #                         One job (`build-dev-images`) decides "build vs
 #                         inherit" over the pushed range (event.before..sha):
 #                           * build:   one Bake run (docker-bake.hcl) builds
-#                                      all 9 images (api, consumer, identity,
-#                                      concert-discovery, artist-image-sync,
+#                                      all 10 images (api, consumer, identity,
+#                                      worker, concert-discovery, artist-image-sync,
 #                                      official-site-refresh,
 #                                      sales-phase-discovery, sales-reminders,
 #                                      series-image-consumer), pushing
@@ -76,7 +76,7 @@ jobs:
       SERVICE_ACCOUNT: ${{ vars.SERVICE_ACCOUNT }}
       # The images of docker-bake.hcl, and of the release matrix below. The
       # inherit path copies exactly these.
-      IMAGES: api consumer identity concert-discovery artist-image-sync official-site-refresh sales-phase-discovery sales-reminders series-image-consumer
+      IMAGES: api consumer identity worker concert-discovery artist-image-sync official-site-refresh sales-phase-discovery sales-reminders series-image-consumer
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -277,7 +277,7 @@ jobs:
       # AR error during digest-resolve) does NOT cancel the other 8. Partial
       # success is the expected steady state on release events: per the
       # retag runbook, an admin can `gh run rerun --job <job-id>` the
-      # single failing matrix entry. The 8 successful entries' prod AR
+      # single failing matrix entry. The 9 successful entries' prod AR
       # writes are idempotent because `crane copy` to an existing
       # immutable tag at the same digest is a no-op.
       fail-fast: false
@@ -298,6 +298,10 @@ jobs:
           # identity-provider credentials.
           - name: identity
             target: identity
+          # worker: the workflow worker, the only process that runs durable
+          # workflows.
+          - name: worker
+            target: worker
           - name: concert-discovery
             target: concert-discovery
           - name: artist-image-sync
@@ -503,7 +507,7 @@ jobs:
   # auto-syncs). Per OpenSpec change `automate-prod-pin-bump` (D5): this is a
   # SEPARATE job gated on `build-and-push` succeeding as a whole. With
   # `fail-fast: false`, the matrix job's `result` is `success` ONLY when every
-  # one of the 9 entries passed, so a partially-failed retag (e.g. 8/9 images)
+  # one of the 10 entries passed, so a partially-failed retag (e.g. 9/10 images)
   # never bumps the pin to a release tag whose prod images are incomplete
   # (which would ImagePullBackOff in prod).
   #

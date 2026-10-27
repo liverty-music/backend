@@ -56,6 +56,23 @@ Production migrations are handled by the **Atlas Kubernetes Operator** — the b
 
 Migration workflow (local generation, operator deployment, kustomization update): see the `db-migration-workflow` skill.
 
+### Durable workflows
+
+A process that must survive a stopped process is a workflow, not a sweeper: a usecase method `func(ctx context.Context, f usecase.Flow, in In) (Out, error)` whose ordered steps run through `f.Step` (or `usecase.Step`), registered by a stable name with `workflow.Register` in the workflow worker (`cmd/worker`). Other workloads only start, signal and await workflows through `usecase.Workflows`. The engine is DBOS Transact (`internal/infrastructure/workflow`); usecases never import it. A resumed run replays the recorded results of completed steps, so it must take the same path as the first run:
+
+- Read every value that can change between runs (the clock, new ids, random numbers, rows) inside a step, never in the workflow body.
+- Keep step names stable; a step is matched by its position and name.
+- Change the steps of a registered workflow only under `if patched, err := f.Patched(ctx, "<change>")`. Once no run started before the patch is left, replace that call with `f.DeprecatePatch(ctx, "<change>")`, and remove it in a later change. Never change the application version for it.
+- Return a business outcome (a card that can no longer be charged) as the workflow's result. An error ends the workflow and pages an admin (`workflow.needs_admin`).
+- Return errors from `Flow` and `Workflows` as they are. A conflict (another execution owns the workflow, `dbos.ErrConflictingWorkflowID`) or a cancellation must reach DBOS, never be swallowed or retried in the usecase.
+- A child workflow that must outlive its parent is started with `context.WithoutCancel(ctx)`.
+- A step that fails with `Unavailable` or `DeadlineExceeded` is retried up to the workflow's deadline (pass `usecase.WithDeadline` when the work must end by a time); any other error is not retried. An external call's idempotency key names the business operation (`refund:<order>`), not the workflow run.
+- A queue's settings live only in code, where the queue is registered; never change them at runtime, because the next start of the worker overwrites them.
+
+**Upgrading `github.com/dbos-inc/dbos-transact-golang`**: the workloads never migrate the `dbos` schema themselves (`SkipMigrations`), and a worker whose schema is behind refuses to start. Before bumping the module, add an Atlas migration holding the output of `go run github.com/dbos-inc/dbos-transact-golang/cmd/dbos@<new version> migrate --print-migrations <first new number>` between the `-- BEGIN/END dbos migrate --print-migrations <n>` markers (see `20261027120000_create_dbos_schema.sql`), with `-- atlas:txmode none` at the top. `TestDBOSMigrationsMatchModule` fails until the committed SQL matches the module, and names the number to print. These migrations have no counterpart in `schema.sql`; `atlas.hcl` keeps `migrate diff` from dropping the `dbos` schema.
+
+A workflow that needs an admin, and the `workflow` subcommands that resolve it, are in the cloud-provisioning runbook `docs/runbooks/workflow-needs-admin.md`.
+
 ### Gemini A/B Evaluation Harness
 
 See `internal/infrastructure/gcp/gemini/AGENTS.md`.

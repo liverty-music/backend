@@ -220,6 +220,14 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("only fan-api reaches the workflow tables in schema dbos", func(t *testing.T) {
+		for _, role := range append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...) {
+			want := role == "fan-api@test.iam"
+			assert.Equal(t, want, hasSchemaPrivilege(t, ctx, conn, role, "dbos", "USAGE"), "USAGE on schema dbos for %s", role)
+			assert.Equal(t, want, hasTablePrivilegeIn(t, ctx, conn, role, "dbos", "workflow_status", "SELECT"), "SELECT on dbos.workflow_status for %s", role)
+		}
+	})
 }
 
 // setupGrantsDatabase creates the fake IAM roles, empties the scratch
@@ -303,6 +311,7 @@ func resetGrantsDatabase(t *testing.T, ctx context.Context, conn *pgx.Conn, role
 	}
 	_, err := conn.Exec(ctx, `
 		DROP SCHEMA IF EXISTS app CASCADE;
+		DROP SCHEMA IF EXISTS dbos CASCADE;
 		DROP SCHEMA IF EXISTS atlas_schema_revisions CASCADE;
 		DROP SCHEMA IF EXISTS public CASCADE;
 		CREATE SCHEMA public;`)
@@ -333,6 +342,20 @@ func hasSchemaUsage(t *testing.T, ctx context.Context, conn *pgx.Conn, role stri
 	t.Helper()
 	var ok bool
 	require.NoError(t, conn.QueryRow(ctx, `SELECT has_schema_privilege($1, 'app', 'USAGE')`, role).Scan(&ok))
+	return ok
+}
+
+func hasSchemaPrivilege(t *testing.T, ctx context.Context, conn *pgx.Conn, role, schema, privilege string) bool {
+	t.Helper()
+	var ok bool
+	require.NoError(t, conn.QueryRow(ctx, `SELECT has_schema_privilege($1, $2, $3)`, role, schema, privilege).Scan(&ok))
+	return ok
+}
+
+func hasTablePrivilegeIn(t *testing.T, ctx context.Context, conn *pgx.Conn, role, schema, table, privilege string) bool {
+	t.Helper()
+	var ok bool
+	require.NoError(t, conn.QueryRow(ctx, `SELECT has_table_privilege($1, $2 || '.' || $3, $4)`, role, schema, table, privilege).Scan(&ok))
 	return ok
 }
 
