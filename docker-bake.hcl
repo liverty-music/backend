@@ -22,6 +22,7 @@ variable "images" {
     { name = "api", target = "server" },
     { name = "consumer", target = "consumer" },
     { name = "identity", target = "identity" },
+    { name = "worker", target = "worker" },
     { name = "concert-discovery", target = "concert-discovery" },
     { name = "artist-image-sync", target = "artist-image-sync" },
     { name = "official-site-refresh", target = "official-site-refresh" },

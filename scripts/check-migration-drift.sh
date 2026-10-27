@@ -70,7 +70,14 @@ check_schema_in_sync() {
 
   while IFS= read -r file; do
     case "$file" in
-      k8s/atlas/base/migrations/*.sql) migration_changed=true ;;
+      k8s/atlas/base/migrations/*.sql)
+        # A DBOS system-table migration (schema `dbos`) has no counterpart in
+        # schema.sql: DBOS owns that schema, and atlas.hcl keeps `migrate diff`
+        # from dropping it. Every other migration needs a schema.sql change.
+        if [ -f "$REPO_ROOT/$file" ] && grep -q '^-- BEGIN dbos migrate --print-migrations ' "$REPO_ROOT/$file"; then
+          continue
+        fi
+        migration_changed=true ;;
       internal/infrastructure/database/rdb/schema/schema.sql) schema_changed=true ;;
     esac
   done < <(cd "$REPO_ROOT" && $diff_cmd 2>/dev/null || true)

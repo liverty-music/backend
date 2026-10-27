@@ -376,6 +376,7 @@ func setupScratchDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, func(to
 	reset := func() {
 		_, err := conn.Exec(ctx, `
 			DROP SCHEMA IF EXISTS app CASCADE;
+			DROP SCHEMA IF EXISTS dbos CASCADE;
 			DROP SCHEMA IF EXISTS atlas_schema_revisions CASCADE;
 			DROP SCHEMA IF EXISTS public CASCADE;
 			CREATE SCHEMA public;`)

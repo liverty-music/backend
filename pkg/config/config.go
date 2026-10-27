@@ -75,6 +75,14 @@ type BaseConfig struct {
 	GoroutineLeak GoroutineLeakConfig `envconfig:""`
 }
 
+// WorkerConfig is the configuration of the workflow worker (cmd/worker). It
+// reads the fan workload's ConfigMap and Secrets, so it runs as the same
+// database identity as the code its workflows take over; it needs only the
+// base settings itself.
+type WorkerConfig struct {
+	BaseConfig
+}
+
 // ServerConfig is the configuration for the API server workload.
 type ServerConfig struct {
 	BaseConfig
@@ -878,7 +886,7 @@ func requireSet(vars ...envVar) error {
 // LoggingConfig is loadable on its own so a process can build its logger
 // before, and independently of, its workload config.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig | SeriesImageConsumerConfig | IdentityConfig | LoggingConfig
+	ServerConfig | JobConfig | ConsumerConfig | SeriesImageConsumerConfig | IdentityConfig | WorkerConfig | LoggingConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.

@@ -43,6 +43,13 @@ func NewTracedPool(pool *pgxpool.Pool, dbNamespace, serverAddress string) *Trace
 	return tp
 }
 
+// Raw returns the pgx pool under tp, for a library that takes one: DBOS keeps
+// its workflow state over the process's own pool. Queries made through it carry
+// no span.
+func (tp *TracedPool) Raw() *pgxpool.Pool {
+	return tp.inner
+}
+
 func (tp *TracedPool) registerPoolMetrics(pool *pgxpool.Pool) {
 	meter := otel.Meter(tracerName)
 	_, _ = meter.Int64ObservableGauge("db.pool.active_connections",
