@@ -289,8 +289,10 @@ func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPu
 		TicketTypeID: entity.TicketTypeID(metadata[metadataTicketTypeID]),
 		EventID:      metadata[metadataEventID],
 	}
-	if count, err := strconv.Atoi(metadata[metadataTicketCount]); err == nil {
-		purchase.TicketCount = count
+	// The count is written by Create as 1 to 10; parsing it as 32 bits keeps it
+	// in range for the proto's int32.
+	if count, err := strconv.ParseInt(metadata[metadataTicketCount], 10, 32); err == nil {
+		purchase.TicketCount = int(count)
 	}
 	if code, ok := metadata[metadataReferralCode]; ok && code != "" {
 		c := entity.ReferralCode(code)
