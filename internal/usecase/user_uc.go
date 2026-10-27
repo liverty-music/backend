@@ -105,9 +105,9 @@ type UserUseCase interface {
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming
-	// ticket, listed resale, pending lottery entry, payment in progress (a
-	// Checkout being paid, or a Won entry with no Order yet), or an empty
-	// slice. Delete applies the same rule.
+	// ticket, listed resale (open, before its deadline), pending lottery
+	// entry, payment in progress (a Checkout being paid, or a Won entry with
+	// no Order yet), or an empty slice. Delete applies the same rule.
 	//
 	// # Possible errors
 	//
@@ -543,25 +543,33 @@ func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]e
 	now := reads.Now()
 	counts := map[entity.DeletionBlockerKind]int{}
 
+	// events caches each Event read, since several records name the same one.
+	events := map[string]*entity.Event{}
+	eventOf := func(id string) (*entity.Event, error) {
+		if e, ok := events[id]; ok {
+			return e, nil
+		}
+		e, err := reads.Events.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		events[id] = e
+		return e, nil
+	}
+
 	tickets, err := reads.Tickets.ListByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	passed := map[string]bool{}
 	for _, t := range tickets {
 		if t.Status != entity.TicketStatusIssued {
 			continue
 		}
-		over, read := passed[t.EventID]
-		if !read {
-			event, err := reads.Events.Get(ctx, t.EventID)
-			if err != nil {
-				return nil, err
-			}
-			over = event.HasPassedAt(now)
-			passed[t.EventID] = over
+		event, err := eventOf(t.EventID)
+		if err != nil {
+			return nil, err
 		}
-		if !over {
+		if !event.HasPassedAt(now) {
 			counts[entity.DeletionBlockerKindUpcomingTicket]++
 		}
 	}
@@ -571,7 +579,17 @@ func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]e
 		return nil, err
 	}
 	for _, l := range listings {
-		if l.Status == entity.ResaleListingStatusListed {
+		if l.Status != entity.ResaleListingStatusListed {
+			continue
+		}
+		// A Listed listing past its deadline is expired: it can no longer be
+		// bought, and its stored status never changes. An event without a
+		// start time has no resale, so its listing is not open either.
+		event, err := eventOf(l.EventID)
+		if err != nil {
+			return nil, err
+		}
+		if deadline, ok := entity.ResaleDeadlineOf(event); ok && l.IsOpenAt(now, deadline) {
 			counts[entity.DeletionBlockerKindListedResale]++
 		}
 	}

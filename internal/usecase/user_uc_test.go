@@ -1148,6 +1148,20 @@ func eventOn(id string, days int) *entity.Event {
 	return &entity.Event{ID: id, LocalDate: time.Date(y, m, d+days, 0, 0, 0, 0, time.UTC)}
 }
 
+// eventStartingIn returns an event that starts the given duration after
+// userTestNow, so its resale deadline is 3 hours before that.
+func eventStartingIn(id string, d time.Duration) *entity.Event {
+	start := userTestNow.Add(d)
+	y, m, day := start.In(time.FixedZone("Asia/Tokyo", 9*60*60)).Date()
+	return &entity.Event{ID: id, LocalDate: time.Date(y, m, day, 0, 0, 0, 0, time.UTC), StartTime: &start}
+}
+
+// listedFor returns a Listed resale listing of the deletion test user for a
+// ticket of the event.
+func listedFor(id, eventID string) *entity.ResaleListing {
+	return &entity.ResaleListing{ID: entity.ResaleListingID(id), EventID: eventID, Status: entity.ResaleListingStatusListed}
+}
+
 // deletionReads are what the deletion tests' User has; a nil list is empty.
 type deletionReads struct {
 	tickets   []*entity.Ticket
@@ -1234,9 +1248,21 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/user/list-deletion-blockers "Listed resale"
-			name:  "counts a listed resale listing",
-			reads: deletionReads{listings: []*entity.ResaleListing{{ID: "l1", Status: entity.ResaleListingStatusListed}}},
-			want:  []entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindListedResale, Count: 1}},
+			name: "counts a listed resale listing before its deadline",
+			reads: deletionReads{
+				events:   []*entity.Event{eventStartingIn("e1", 7*24*time.Hour)},
+				listings: []*entity.ResaleListing{listedFor("l1", "e1")},
+			},
+			want: []entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindListedResale, Count: 1}},
+		},
+		{
+			// @spec components/usecase/user/list-deletion-blockers "Expired listing"
+			name: "ignores a listed resale listing past its deadline",
+			reads: deletionReads{
+				events:   []*entity.Event{eventStartingIn("e1", 2*time.Hour)},
+				listings: []*entity.ResaleListing{listedFor("l1", "e1")},
+			},
+			want: []entity.DeletionBlocker{},
 		},
 		{
 			// @spec components/usecase/user/list-deletion-blockers "Entry awaiting its draw"
@@ -1308,8 +1334,8 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 			name: "returns every kind the user has in a fixed order",
 			reads: deletionReads{
 				tickets:   []*entity.Ticket{issuedTicketFor("t1", "e1")},
-				events:    []*entity.Event{eventOn("e1", 3)},
-				listings:  []*entity.ResaleListing{{ID: "l1", Status: entity.ResaleListingStatusListed}},
+				events:    []*entity.Event{eventStartingIn("e1", 3*24*time.Hour)},
+				listings:  []*entity.ResaleListing{listedFor("l1", "e1")},
 				entries:   []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateEntered}},
 				checkouts: []*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}},
 			},
@@ -1412,8 +1438,11 @@ func TestUserUseCase_Delete(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/user/delete "User with a listed resale"
-			name:    "refuses a user with a listed resale",
-			reads:   &deletionReads{listings: []*entity.ResaleListing{{ID: "l1", Status: entity.ResaleListingStatusListed}}},
+			name: "refuses a user with a listed resale",
+			reads: &deletionReads{
+				events:   []*entity.Event{eventStartingIn("e1", 7*24*time.Hour)},
+				listings: []*entity.ResaleListing{listedFor("l1", "e1")},
+			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
