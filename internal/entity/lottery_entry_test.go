@@ -11,49 +11,17 @@ func TestNewLotteryEntry(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry "New entry"
-	e := entity.NewLotteryEntry("type-1", "user-1", 2)
+	code := entity.ReferralCode("member-a")
+	e := entity.NewLotteryEntry("type-1", "user-1", 2, "pi_1", &code)
 
 	assert.NotEmpty(t, e.ID)
-	assert.Equal(t, entity.LotteryEntryStateDraft, e.State)
-	assert.False(t, e.HasCardAuthorization())
+	assert.Equal(t, entity.LotteryEntryStateEntered, e.State)
+	assert.Equal(t, "pi_1", e.CardAuthorizationID)
 	assert.Nil(t, e.DrawPosition)
 	assert.Equal(t, entity.TicketTypeID("type-1"), e.TicketTypeID)
 	assert.Equal(t, entity.UserID("user-1"), e.UserID)
 	assert.Equal(t, 2, e.TicketCount)
-}
-
-func TestLotteryEntry_IsConfirmable(t *testing.T) {
-	t.Parallel()
-
-	cardAuthorizationID := "pi_1"
-	tests := []struct {
-		name  string
-		entry *entity.LotteryEntry
-		want  bool
-	}{
-		{
-			// @spec components/entity/lottery-entry "Draft with a card authorization"
-			name:  "authorized draft",
-			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, CardAuthorizationID: cardAuthorizationID},
-			want:  true,
-		},
-		{
-			// @spec components/entity/lottery-entry "Draft without a card authorization"
-			name:  "draft without a card authorization",
-			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft},
-		},
-		// @spec components/entity/lottery-entry "Already entered"
-		{name: "entered", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, CardAuthorizationID: cardAuthorizationID}},
-		{name: "won", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWon, CardAuthorizationID: cardAuthorizationID}},
-		{name: "lost", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateLost, CardAuthorizationID: cardAuthorizationID}},
-		{name: "withdrawn", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWithdrawn, CardAuthorizationID: cardAuthorizationID}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, tt.entry.IsConfirmable())
-		})
-	}
+	assert.Equal(t, &code, e.ReferralCode)
 }
 
 func TestLotteryEntry_TicketCount(t *testing.T) {
@@ -87,54 +55,6 @@ func TestLotteryEntry_TicketCount(t *testing.T) {
 	}
 }
 
-func TestLotteryEntry_IsActive(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		state entity.LotteryEntryState
-		want  bool
-	}{
-		// @spec components/entity/lottery-entry "Withdrawn entry is not active"
-		{name: "withdrawn", state: entity.LotteryEntryStateWithdrawn, want: false},
-		// @spec components/entity/lottery-entry "Draft or drawn entry is active"
-		{name: "draft", state: entity.LotteryEntryStateDraft, want: true},
-		{name: "won", state: entity.LotteryEntryStateWon, want: true},
-		{name: "lost", state: entity.LotteryEntryStateLost, want: true},
-		{name: "entered", state: entity.LotteryEntryStateEntered, want: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, (&entity.LotteryEntry{State: tt.state}).IsActive())
-		})
-	}
-}
-
-func TestLotteryEntry_IsWithdrawable(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		state entity.LotteryEntryState
-		want  bool
-	}{
-		// @spec components/entity/lottery-entry "Draft or entered entry"
-		{name: "draft", state: entity.LotteryEntryStateDraft, want: true},
-		{name: "entered", state: entity.LotteryEntryStateEntered, want: true},
-		// @spec components/entity/lottery-entry "Drawn or withdrawn entry"
-		{name: "won", state: entity.LotteryEntryStateWon, want: false},
-		{name: "lost", state: entity.LotteryEntryStateLost, want: false},
-		{name: "withdrawn", state: entity.LotteryEntryStateWithdrawn, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, (&entity.LotteryEntry{State: tt.state}).IsWithdrawable())
-		})
-	}
-}
-
 func TestLotteryEntryState_Values(t *testing.T) {
 	t.Parallel()
 
@@ -143,6 +63,4 @@ func TestLotteryEntryState_Values(t *testing.T) {
 	assert.EqualValues(t, 1, entity.LotteryEntryStateEntered)
 	assert.EqualValues(t, 2, entity.LotteryEntryStateWon)
 	assert.EqualValues(t, 3, entity.LotteryEntryStateLost)
-	assert.EqualValues(t, 4, entity.LotteryEntryStateWithdrawn)
-	assert.EqualValues(t, 5, entity.LotteryEntryStateDraft)
 }

@@ -53,8 +53,6 @@ func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEv
 	exec(`INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, card_authorization_id, status, hold_expire_at, commit_at, capture_at, resale)
 		VALUES ($1, $2, $3, 1, 5000, $4, 3, $5, $5, $5, TRUE)`,
 		e.checkoutID, string(e.typeID), buyerID, "pi_checkout_"+e.checkoutID, at)
-	exec(`INSERT INTO referrals (id, checkout_id, code, created_at) VALUES ($1, $2, 'remove-test', $3)`,
-		entity.NewID(), e.checkoutID, at)
 	exec(`INSERT INTO orders (id, user_id, checkout_id, provider, provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, 1, $4, $5, 5000, 'JPY', $6)`,
 		e.checkoutOrderID, buyerID, e.checkoutID, "pi_"+e.checkoutOrderID, int16(entity.OrderStatusRefunded), at)
@@ -65,18 +63,6 @@ func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEv
 		VALUES ($1, $2, $3, $4, 5000, 2, $5, $6, $6)`,
 		e.resaleListingID, e.lottery.ticketID, buyerID, string(e.typeID), e.checkoutID, at)
 	return e
-}
-
-// seedDraftEntryWithAuthorization seeds a Draft lottery entry on the ticket
-// type whose card authorization is already open (the lottery path opens it
-// before the entry is confirmed); seedLotteryEntryWithState seeds a Draft
-// without one.
-func seedDraftEntryWithAuthorization(t *testing.T, typeID entity.TicketTypeID, userID string) {
-	t.Helper()
-	id := entity.NewID()
-	_, err := testDB.Pool.Exec(context.Background(), `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
-		VALUES ($1, $2, $3, 1, $4, $5)`, id, string(typeID), userID, "pi_draft_"+id, int16(entity.LotteryEntryStateDraft))
-	require.NoError(t, err)
 }
 
 // eventRecordTablesQuery lists every table that holds a foreign key to the

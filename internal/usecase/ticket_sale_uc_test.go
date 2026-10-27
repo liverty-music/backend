@@ -28,7 +28,7 @@ func saleTime(month time.Month, day, hour, minute int) time.Time {
 type ticketSaleFixture struct {
 	sales      *entitymocks.MockTicketSaleRepository
 	entries    *entitymocks.MockLotteryEntryRepository
-	referrals  *entitymocks.MockReferralRepository
+	orders     *entitymocks.MockOrderRepository
 	series     *entitymocks.MockSeriesRepository
 	organizers *entitymocks.MockOrganizerRepository
 	events     *ucmocks.MockEventPublishStatePort
@@ -41,7 +41,7 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 	f := &ticketSaleFixture{
 		sales:      entitymocks.NewMockTicketSaleRepository(t),
 		entries:    entitymocks.NewMockLotteryEntryRepository(t),
-		referrals:  entitymocks.NewMockReferralRepository(t),
+		orders:     entitymocks.NewMockOrderRepository(t),
 		series:     entitymocks.NewMockSeriesRepository(t),
 		organizers: entitymocks.NewMockOrganizerRepository(t),
 		events:     ucmocks.NewMockEventPublishStatePort(t),
@@ -54,7 +54,7 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 		s := saleTime(11, 20, 19, 0)
 		return &s, nil
 	}}
-	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.entries, f.referrals, f.series, f.organizers, f.events, eventStart, fixedClock(now))
+	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.entries, f.orders, f.series, f.organizers, f.events, eventStart, fixedClock(now))
 	return f
 }
 
@@ -437,7 +437,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{presale, general}, nil)
 		stats := entity.LotteryEntryStats{EntryCount: 120, TicketCount: 200, WonEntryCount: 80, WonTicketCount: 150, LostEntryCount: 40}
 		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.TicketTypes[0].ID).Return(stats, nil)
-		f.referrals.EXPECT().ListStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
@@ -461,7 +461,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1")
 		sale.TicketTypes[0].SoldCount, sale.TicketTypes[0].HeldCount = 100, 6
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{sale}, nil)
-		f.referrals.EXPECT().ListStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
@@ -480,7 +480,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{}, nil)
-		f.referrals.EXPECT().ListStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
@@ -501,7 +501,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 			{OrderCount: 40, TicketCount: 70, Amount: 210000},
 			{Code: &memberA, OrderCount: 12, TicketCount: 20, Amount: 60000},
 		}
-		f.referrals.EXPECT().ListStatsByEvent(mock.Anything, "event-1").Return(stats, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(stats, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
@@ -515,7 +515,7 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{}, nil)
-		f.referrals.EXPECT().ListStatsByEvent(mock.Anything, "event-1").Return(nil, apperr.ErrInternal)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, apperr.ErrInternal)
 
 		_, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 

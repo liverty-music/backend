@@ -48,25 +48,27 @@ func (_m *MockLotteryEntryUseCase) EXPECT() *MockLotteryEntryUseCase_Expecter {
 }
 
 // AuthorizeCard provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) AuthorizeCard(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName string, phoneNumber string) (string, error) {
-	ret := _mock.Called(ctx, entryID, userID, fullName, phoneNumber)
+func (_mock *MockLotteryEntryUseCase) AuthorizeCard(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, fullName string, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error) {
+	ret := _mock.Called(ctx, ticketTypeID, userID, count, fullName, phoneNumber, code)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AuthorizeCard")
 	}
 
-	var r0 string
+	var r0 *entity.CardAuthorization
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.UserID, string, string) (string, error)); ok {
-		return returnFunc(ctx, entryID, userID, fullName, phoneNumber)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, string, string, *entity.ReferralCode) (*entity.CardAuthorization, error)); ok {
+		return returnFunc(ctx, ticketTypeID, userID, count, fullName, phoneNumber, code)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.UserID, string, string) string); ok {
-		r0 = returnFunc(ctx, entryID, userID, fullName, phoneNumber)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, string, string, *entity.ReferralCode) *entity.CardAuthorization); ok {
+		r0 = returnFunc(ctx, ticketTypeID, userID, count, fullName, phoneNumber, code)
 	} else {
-		r0 = ret.Get(0).(string)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.CardAuthorization)
+		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.LotteryEntryID, entity.UserID, string, string) error); ok {
-		r1 = returnFunc(ctx, entryID, userID, fullName, phoneNumber)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, string, string, *entity.ReferralCode) error); ok {
+		r1 = returnFunc(ctx, ticketTypeID, userID, count, fullName, phoneNumber, code)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -80,35 +82,45 @@ type MockLotteryEntryUseCase_AuthorizeCard_Call struct {
 
 // AuthorizeCard is a helper method to define mock.On call
 //   - ctx context.Context
-//   - entryID entity.LotteryEntryID
+//   - ticketTypeID entity.TicketTypeID
 //   - userID entity.UserID
+//   - count int
 //   - fullName string
 //   - phoneNumber string
-func (_e *MockLotteryEntryUseCase_Expecter) AuthorizeCard(ctx any, entryID any, userID any, fullName any, phoneNumber any) *MockLotteryEntryUseCase_AuthorizeCard_Call {
-	return &MockLotteryEntryUseCase_AuthorizeCard_Call{Call: _e.mock.On("AuthorizeCard", ctx, entryID, userID, fullName, phoneNumber)}
+//   - code *entity.ReferralCode
+func (_e *MockLotteryEntryUseCase_Expecter) AuthorizeCard(ctx any, ticketTypeID any, userID any, count any, fullName any, phoneNumber any, code any) *MockLotteryEntryUseCase_AuthorizeCard_Call {
+	return &MockLotteryEntryUseCase_AuthorizeCard_Call{Call: _e.mock.On("AuthorizeCard", ctx, ticketTypeID, userID, count, fullName, phoneNumber, code)}
 }
 
-func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) Run(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName string, phoneNumber string)) *MockLotteryEntryUseCase_AuthorizeCard_Call {
+func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, fullName string, phoneNumber string, code *entity.ReferralCode)) *MockLotteryEntryUseCase_AuthorizeCard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 entity.LotteryEntryID
+		var arg1 entity.TicketTypeID
 		if args[1] != nil {
-			arg1 = args[1].(entity.LotteryEntryID)
+			arg1 = args[1].(entity.TicketTypeID)
 		}
 		var arg2 entity.UserID
 		if args[2] != nil {
 			arg2 = args[2].(entity.UserID)
 		}
-		var arg3 string
+		var arg3 int
 		if args[3] != nil {
-			arg3 = args[3].(string)
+			arg3 = args[3].(int)
 		}
 		var arg4 string
 		if args[4] != nil {
 			arg4 = args[4].(string)
+		}
+		var arg5 string
+		if args[5] != nil {
+			arg5 = args[5].(string)
+		}
+		var arg6 *entity.ReferralCode
+		if args[6] != nil {
+			arg6 = args[6].(*entity.ReferralCode)
 		}
 		run(
 			arg0,
@@ -116,24 +128,26 @@ func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) Run(run func(ctx context.C
 			arg2,
 			arg3,
 			arg4,
+			arg5,
+			arg6,
 		)
 	})
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) Return(s string, err error) *MockLotteryEntryUseCase_AuthorizeCard_Call {
-	_c.Call.Return(s, err)
+func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) Return(cardAuthorization *entity.CardAuthorization, err error) *MockLotteryEntryUseCase_AuthorizeCard_Call {
+	_c.Call.Return(cardAuthorization, err)
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) RunAndReturn(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName string, phoneNumber string) (string, error)) *MockLotteryEntryUseCase_AuthorizeCard_Call {
+func (_c *MockLotteryEntryUseCase_AuthorizeCard_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, fullName string, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error)) *MockLotteryEntryUseCase_AuthorizeCard_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Confirm provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error) {
-	ret := _mock.Called(ctx, entryID, userID)
+func (_mock *MockLotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error) {
+	ret := _mock.Called(ctx, cardAuthorizationID, caller)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Confirm")
@@ -141,18 +155,18 @@ func (_mock *MockLotteryEntryUseCase) Confirm(ctx context.Context, entryID entit
 
 	var r0 *entity.LotteryEntry
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.UserID) (*entity.LotteryEntry, error)); ok {
-		return returnFunc(ctx, entryID, userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) (*entity.LotteryEntry, error)); ok {
+		return returnFunc(ctx, cardAuthorizationID, caller)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.UserID) *entity.LotteryEntry); ok {
-		r0 = returnFunc(ctx, entryID, userID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) *entity.LotteryEntry); ok {
+		r0 = returnFunc(ctx, cardAuthorizationID, caller)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.LotteryEntry)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.LotteryEntryID, entity.UserID) error); ok {
-		r1 = returnFunc(ctx, entryID, userID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *entity.UserID) error); ok {
+		r1 = returnFunc(ctx, cardAuthorizationID, caller)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -166,25 +180,25 @@ type MockLotteryEntryUseCase_Confirm_Call struct {
 
 // Confirm is a helper method to define mock.On call
 //   - ctx context.Context
-//   - entryID entity.LotteryEntryID
-//   - userID entity.UserID
-func (_e *MockLotteryEntryUseCase_Expecter) Confirm(ctx any, entryID any, userID any) *MockLotteryEntryUseCase_Confirm_Call {
-	return &MockLotteryEntryUseCase_Confirm_Call{Call: _e.mock.On("Confirm", ctx, entryID, userID)}
+//   - cardAuthorizationID string
+//   - caller *entity.UserID
+func (_e *MockLotteryEntryUseCase_Expecter) Confirm(ctx any, cardAuthorizationID any, caller any) *MockLotteryEntryUseCase_Confirm_Call {
+	return &MockLotteryEntryUseCase_Confirm_Call{Call: _e.mock.On("Confirm", ctx, cardAuthorizationID, caller)}
 }
 
-func (_c *MockLotteryEntryUseCase_Confirm_Call) Run(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID)) *MockLotteryEntryUseCase_Confirm_Call {
+func (_c *MockLotteryEntryUseCase_Confirm_Call) Run(run func(ctx context.Context, cardAuthorizationID string, caller *entity.UserID)) *MockLotteryEntryUseCase_Confirm_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 entity.LotteryEntryID
+		var arg1 string
 		if args[1] != nil {
-			arg1 = args[1].(entity.LotteryEntryID)
+			arg1 = args[1].(string)
 		}
-		var arg2 entity.UserID
+		var arg2 *entity.UserID
 		if args[2] != nil {
-			arg2 = args[2].(entity.UserID)
+			arg2 = args[2].(*entity.UserID)
 		}
 		run(
 			arg0,
@@ -200,7 +214,7 @@ func (_c *MockLotteryEntryUseCase_Confirm_Call) Return(lotteryEntry *entity.Lott
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_Confirm_Call {
+func (_c *MockLotteryEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_Confirm_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -383,155 +397,6 @@ func (_c *MockLotteryEntryUseCase_RunDraw_Call) Return(err error) *MockLotteryEn
 }
 
 func (_c *MockLotteryEntryUseCase_RunDraw_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID) error) *MockLotteryEntryUseCase_RunDraw_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Start provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error) {
-	ret := _mock.Called(ctx, ticketTypeID, userID, count, code)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Start")
-	}
-
-	var r0 *entity.LotteryEntry
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) (*entity.LotteryEntry, error)); ok {
-		return returnFunc(ctx, ticketTypeID, userID, count, code)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) *entity.LotteryEntry); ok {
-		r0 = returnFunc(ctx, ticketTypeID, userID, count, code)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.LotteryEntry)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, *entity.ReferralCode) error); ok {
-		r1 = returnFunc(ctx, ticketTypeID, userID, count, code)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockLotteryEntryUseCase_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
-type MockLotteryEntryUseCase_Start_Call struct {
-	*mock.Call
-}
-
-// Start is a helper method to define mock.On call
-//   - ctx context.Context
-//   - ticketTypeID entity.TicketTypeID
-//   - userID entity.UserID
-//   - count int
-//   - code *entity.ReferralCode
-func (_e *MockLotteryEntryUseCase_Expecter) Start(ctx any, ticketTypeID any, userID any, count any, code any) *MockLotteryEntryUseCase_Start_Call {
-	return &MockLotteryEntryUseCase_Start_Call{Call: _e.mock.On("Start", ctx, ticketTypeID, userID, count, code)}
-}
-
-func (_c *MockLotteryEntryUseCase_Start_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode)) *MockLotteryEntryUseCase_Start_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.TicketTypeID
-		if args[1] != nil {
-			arg1 = args[1].(entity.TicketTypeID)
-		}
-		var arg2 entity.UserID
-		if args[2] != nil {
-			arg2 = args[2].(entity.UserID)
-		}
-		var arg3 int
-		if args[3] != nil {
-			arg3 = args[3].(int)
-		}
-		var arg4 *entity.ReferralCode
-		if args[4] != nil {
-			arg4 = args[4].(*entity.ReferralCode)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_Start_Call) Return(lotteryEntry *entity.LotteryEntry, err error) *MockLotteryEntryUseCase_Start_Call {
-	_c.Call.Return(lotteryEntry, err)
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, code *entity.ReferralCode) (*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_Start_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Withdraw provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error {
-	ret := _mock.Called(ctx, entryID, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Withdraw")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.UserID) error); ok {
-		r0 = returnFunc(ctx, entryID, userID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockLotteryEntryUseCase_Withdraw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Withdraw'
-type MockLotteryEntryUseCase_Withdraw_Call struct {
-	*mock.Call
-}
-
-// Withdraw is a helper method to define mock.On call
-//   - ctx context.Context
-//   - entryID entity.LotteryEntryID
-//   - userID entity.UserID
-func (_e *MockLotteryEntryUseCase_Expecter) Withdraw(ctx any, entryID any, userID any) *MockLotteryEntryUseCase_Withdraw_Call {
-	return &MockLotteryEntryUseCase_Withdraw_Call{Call: _e.mock.On("Withdraw", ctx, entryID, userID)}
-}
-
-func (_c *MockLotteryEntryUseCase_Withdraw_Call) Run(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID)) *MockLotteryEntryUseCase_Withdraw_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.LotteryEntryID
-		if args[1] != nil {
-			arg1 = args[1].(entity.LotteryEntryID)
-		}
-		var arg2 entity.UserID
-		if args[2] != nil {
-			arg2 = args[2].(entity.UserID)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_Withdraw_Call) Return(err error) *MockLotteryEntryUseCase_Withdraw_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_Withdraw_Call) RunAndReturn(run func(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error) *MockLotteryEntryUseCase_Withdraw_Call {
 	_c.Call.Return(run)
 	return _c
 }

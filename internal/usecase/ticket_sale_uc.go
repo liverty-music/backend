@@ -85,7 +85,7 @@ type OwnEventSales struct {
 	// Sales are the event's sales in start order.
 	Sales []*TicketSaleView
 	// ReferralCodeStats are the event's Paid Orders per referral code, as
-	// [entity.ReferralRepository.ListStatsByEvent] gives them.
+	// [entity.OrderRepository.ListReferralStatsByEvent] gives them.
 	ReferralCodeStats []entity.ReferralCodeStats
 }
 
@@ -160,7 +160,7 @@ type TicketSaleUseCase interface {
 type ticketSaleUseCase struct {
 	saleRepo      entity.TicketSaleRepository
 	entryRepo     entity.LotteryEntryRepository
-	referralRepo  entity.ReferralRepository
+	orderRepo     entity.OrderRepository
 	seriesRepo    entity.SeriesRepository
 	organizerRepo entity.OrganizerRepository
 	eventState    EventPublishStatePort
@@ -175,7 +175,7 @@ var _ TicketSaleUseCase = (*ticketSaleUseCase)(nil)
 func NewTicketSaleUseCase(
 	saleRepo entity.TicketSaleRepository,
 	entryRepo entity.LotteryEntryRepository,
-	referralRepo entity.ReferralRepository,
+	orderRepo entity.OrderRepository,
 	seriesRepo entity.SeriesRepository,
 	organizerRepo entity.OrganizerRepository,
 	eventState EventPublishStatePort,
@@ -185,7 +185,7 @@ func NewTicketSaleUseCase(
 	return &ticketSaleUseCase{
 		saleRepo:      saleRepo,
 		entryRepo:     entryRepo,
-		referralRepo:  referralRepo,
+		orderRepo:     orderRepo,
 		seriesRepo:    seriesRepo,
 		organizerRepo: organizerRepo,
 		eventState:    eventState,
@@ -412,7 +412,7 @@ func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, ev
 		}
 		views = append(views, view)
 	}
-	referralStats, err := uc.referralRepo.ListStatsByEvent(ctx, eventID)
+	referralStats, err := uc.orderRepo.ListReferralStatsByEvent(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}

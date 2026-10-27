@@ -40,7 +40,6 @@ packages:
       PasskeyRegistrationLinkSender: {}
       PushNotificationSender: {}
       PushSubscriptionRepository: {}
-      ReferralRepository: {}
       RejectedConcertRepository: {}
       RejectedScanRepository: {}
       ResaleListingRepository: {}

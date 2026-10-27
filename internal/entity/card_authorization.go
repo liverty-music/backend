@@ -28,8 +28,8 @@ const (
 
 // CardAuthorization is the authorization placed on a fan's card for the
 // amount of one purchase, a LotteryEntry or a Checkout. The payment provider
-// holds it and is its only record; a LotteryEntry or a Checkout refers to it by
-// its id.
+// holds it and is its only record, with the purchase it pays for; a
+// LotteryEntry or a Checkout refers to it by its id.
 type CardAuthorization struct {
 	// ID is the payment provider's ID for the card authorization (a Stripe
 	// "pi_..."), 1 to 255 characters.
@@ -48,28 +48,49 @@ type CardAuthorization struct {
 	// CapturedPayment is the payment an Order records; set only when Status is
 	// Captured.
 	CapturedPayment *CapturedPayment
+	// Purchase is what the card authorization pays for, fixed at creation.
+	Purchase CardAuthorizationPurchase
 }
 
-// CardAuthorizationPurchase is the purchase a CardAuthorization pays for:
-// exactly one of a LotteryEntry and a Checkout, with the TicketType and event
-// it buys. It never carries personal data.
+// CardAuthorizationPurpose is the kind of purchase a CardAuthorization pays
+// for.
+type CardAuthorizationPurpose int
+
+const (
+	// CardAuthorizationPurposeUnspecified is a card authorization the platform
+	// did not open for a purchase it knows.
+	CardAuthorizationPurposeUnspecified CardAuthorizationPurpose = iota
+	// CardAuthorizationPurposeCheckout pays for a first-come Checkout.
+	CardAuthorizationPurposeCheckout
+	// CardAuthorizationPurposeLotteryEntry pays for a lottery entry, which is
+	// made from it at Confirm.
+	CardAuthorizationPurposeLotteryEntry
+)
+
+// CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
+// Checkout, or a lottery entry of a fan for a ticket count of a TicketType,
+// with the TicketType's event. It never carries personal data.
 type CardAuthorizationPurchase struct {
-	// LotteryEntryID is the lottery entry, when that is the purchase.
-	LotteryEntryID LotteryEntryID
-	// CheckoutID is the checkout, when that is the purchase.
+	// Purpose is the kind of purchase.
+	Purpose CardAuthorizationPurpose
+	// CheckoutID is the checkout; set only for a Checkout.
 	CheckoutID CheckoutID
+	// UserID is the fan who pays.
+	UserID UserID
 	// TicketTypeID is the purchase's TicketType.
 	TicketTypeID TicketTypeID
 	// EventID is the TicketType's event.
 	EventID string
+	// TicketCount is the number of tickets paid for.
+	TicketCount int
+	// ReferralCode is the code of the link the fan came from; set only for a
+	// lottery entry, and nil without one.
+	ReferralCode *ReferralCode
 }
 
-// ID returns the id of the purchase: the checkout's or the lottery entry's.
-func (p CardAuthorizationPurchase) ID() string {
-	if p.CheckoutID != "" {
-		return string(p.CheckoutID)
-	}
-	return string(p.LotteryEntryID)
+// IsLotteryEntry reports whether the purchase is a lottery entry.
+func (p CardAuthorizationPurchase) IsLotteryEntry() bool {
+	return p.Purpose == CardAuthorizationPurposeLotteryEntry
 }
 
 // AcceptsCardBrand reports whether a card of the brand may pay for the
@@ -77,7 +98,7 @@ func (p CardAuthorizationPurchase) ID() string {
 // American Express ([IsAcceptedCardBrand]); an unknown brand is accepted for
 // both.
 func (p CardAuthorizationPurchase) AcceptsCardBrand(brand CardBrand) bool {
-	return p.CheckoutID != "" || IsAcceptedCardBrand(brand)
+	return p.Purpose == CardAuthorizationPurposeCheckout || IsAcceptedCardBrand(brand)
 }
 
 // Confirm returns nil when the card authorization confirms the purchase: it is
@@ -106,12 +127,13 @@ func (a *CardAuthorization) Confirm(purchase CardAuthorizationPurchase, expected
 
 // CardAuthorizationRepository opens, reads, captures and releases the
 // CardAuthorizations held by the payment provider. Each operation is
-// idempotent per card authorization (and Create per purchase).
+// idempotent per card authorization, and Create per Checkout.
 type CardAuthorizationRepository interface {
-	// Create opens a Pending CardAuthorization in yen for amountJPY for the
-	// purchase, charging nothing until Capture runs, and returns it with its
-	// card authorization secret. Repeating it for the same purchase returns
-	// the same CardAuthorization.
+	// Create opens a Pending CardAuthorization in yen for amountJPY that
+	// carries the purchase, charging nothing until Capture runs, and returns
+	// it with its card authorization secret. Repeating it for the same
+	// Checkout returns the same CardAuthorization; each call for a lottery
+	// entry opens a new one.
 	//
 	// # Possible errors
 	//
@@ -121,9 +143,9 @@ type CardAuthorizationRepository interface {
 	Create(ctx context.Context, purchase CardAuthorizationPurchase, amountJPY int64) (*CardAuthorization, error)
 
 	// Get returns the CardAuthorization with its card authorization secret,
-	// amount, card brand and status as the payment provider reports them now,
-	// and, when it is Captured, the captured payment an Order records. It never
-	// charges the card.
+	// the purchase it was opened with, its amount, card brand and status as
+	// the payment provider reports them now, and, when it is Captured, the
+	// captured payment an Order records. It never charges the card.
 	//
 	// # Possible errors
 	//

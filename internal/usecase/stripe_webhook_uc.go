@@ -35,6 +35,11 @@ const (
 	// a checkout's capture or a lottery win's capture at the draw. It drives
 	// the fulfillment that announces the paid Order.
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
+	// StripeEventPaymentIntentAmountCapturableUpdated fires when a card
+	// authorization becomes Authorized: the fan completed card authentication.
+	// The webhook adapter routes it to [LotteryEntryUseCase.Confirm] through
+	// [StripeWebhookService.ApplyOnce], not to HandleEvent.
+	StripeEventPaymentIntentAmountCapturableUpdated StripeEventType = "payment_intent.amount_capturable_updated"
 )
 
 // OrderRefunder refunds an Order under the refund policy. OrderUseCase
@@ -95,6 +100,18 @@ type StripeWebhookService interface {
 	//
 	//  - Internal: database or payment-provider failure during dispatch.
 	HandleEvent(ctx context.Context, event StripeWebhookEvent) error
+
+	// ApplyOnce runs apply for the provider event at most once: it skips a
+	// provider event id already recorded as processed, and records it after
+	// apply succeeds. A failed apply is not recorded, so a redelivery runs it
+	// again. It lets the webhook adapter route a notice to another usecase
+	// with the same at-most-once handling as HandleEvent.
+	//
+	// # Possible errors
+	//
+	//  - The error of apply, unchanged.
+	//  - Internal: reading or recording the processed event failed.
+	ApplyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error
 }
 
 // stripeWebhookService implements [StripeWebhookService].
@@ -136,40 +153,47 @@ func NewStripeWebhookService(
 
 // HandleEvent implements [StripeWebhookService].
 func (s *stripeWebhookService) HandleEvent(ctx context.Context, event StripeWebhookEvent) error {
-	// -- idempotency fast-path: skip duplicate deliveries immediately. --
 	// TODO: for very high throughput, move dispatch to an async queue and call
 	// HandleEvent from a worker. The current synchronous model is safe but
 	// couples Stripe's 30-second response timeout to our processing latency.
-	// The idempotency check here stays as-is; the queue handles back-pressure.
-	already, err := s.processedRepo.IsProcessed(ctx, event.ProviderEventID)
+	// The idempotency check stays as-is; the queue handles back-pressure.
+	return s.ApplyOnce(ctx, event.ProviderEventID, event.Type, func(ctx context.Context) error {
+		return s.dispatch(ctx, event)
+	})
+}
+
+// ApplyOnce implements [StripeWebhookService].
+func (s *stripeWebhookService) ApplyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error {
+	// -- idempotency fast-path: skip duplicate deliveries immediately. --
+	already, err := s.processedRepo.IsProcessed(ctx, providerEventID)
 	if err != nil {
 		return err
 	}
 	if already {
 		s.logger.Info(ctx, "stripe webhook: duplicate event; already applied (idempotent skip)",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("event_type", string(event.Type)),
+			slog.String("event_id", providerEventID),
+			slog.String("event_type", string(eventType)),
 		)
 		return nil
 	}
 
-	// Dispatch first. On failure the event is NOT marked processed so Stripe
-	// retries. Fix #4: MarkProcessed failure now propagates (returns an error
-	// → 500) so the idempotency table is durably written before we return 200.
-	// Combined with idempotent dispatch, a double delivery on retry is safe.
-	if err := s.dispatch(ctx, event); err != nil {
+	// Apply first. On failure the event is NOT marked processed so Stripe
+	// retries. A MarkProcessed failure propagates (an error → 500) so the
+	// idempotency row is durably written before we return 200. Combined with
+	// an idempotent apply, a double delivery on retry is safe.
+	if err := apply(ctx); err != nil {
 		return err
 	}
 
 	// -- durably record the event as processed. --
-	// Fix #4: propagate MarkProcessed failures instead of swallowing them.
 	// If MarkProcessed fails we return an error → HTTP 500 → Stripe retries.
 	// The retry hits the idempotency fast-path (if the row was written by a
-	// concurrent winner) or re-dispatches (idempotent) and re-attempts the write.
-	if err := s.processedRepo.MarkProcessed(ctx, event.ProviderEventID); err != nil {
+	// concurrent winner) or applies again (idempotent) and re-attempts the
+	// write.
+	if err := s.processedRepo.MarkProcessed(ctx, providerEventID); err != nil {
 		s.logger.Error(ctx, "stripe webhook: failed to mark event as processed; returning 500 so Stripe retries", err,
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("event_type", string(event.Type)),
+			slog.String("event_id", providerEventID),
+			slog.String("event_type", string(eventType)),
 		)
 		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to record processed event")
 	}

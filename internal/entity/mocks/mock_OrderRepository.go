@@ -654,6 +654,74 @@ func (_c *MockOrderRepository_ListByUser_Call) RunAndReturn(run func(ctx context
 	return _c
 }
 
+// ListReferralStatsByEvent provides a mock function for the type MockOrderRepository
+func (_mock *MockOrderRepository) ListReferralStatsByEvent(ctx context.Context, eventID string) ([]entity.ReferralCodeStats, error) {
+	ret := _mock.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListReferralStatsByEvent")
+	}
+
+	var r0 []entity.ReferralCodeStats
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]entity.ReferralCodeStats, error)); ok {
+		return returnFunc(ctx, eventID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []entity.ReferralCodeStats); ok {
+		r0 = returnFunc(ctx, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]entity.ReferralCodeStats)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderRepository_ListReferralStatsByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReferralStatsByEvent'
+type MockOrderRepository_ListReferralStatsByEvent_Call struct {
+	*mock.Call
+}
+
+// ListReferralStatsByEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockOrderRepository_Expecter) ListReferralStatsByEvent(ctx any, eventID any) *MockOrderRepository_ListReferralStatsByEvent_Call {
+	return &MockOrderRepository_ListReferralStatsByEvent_Call{Call: _e.mock.On("ListReferralStatsByEvent", ctx, eventID)}
+}
+
+func (_c *MockOrderRepository_ListReferralStatsByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockOrderRepository_ListReferralStatsByEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_ListReferralStatsByEvent_Call) Return(referralCodeStatss []entity.ReferralCodeStats, err error) *MockOrderRepository_ListReferralStatsByEvent_Call {
+	_c.Call.Return(referralCodeStatss, err)
+	return _c
+}
+
+func (_c *MockOrderRepository_ListReferralStatsByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]entity.ReferralCodeStats, error)) *MockOrderRepository_ListReferralStatsByEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MarkConfirmationSent provides a mock function for the type MockOrderRepository
 func (_mock *MockOrderRepository) MarkConfirmationSent(ctx context.Context, id entity.OrderID, at time.Time) error {
 	ret := _mock.Called(ctx, id, at)

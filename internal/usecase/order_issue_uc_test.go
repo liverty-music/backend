@@ -353,8 +353,7 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 		t.Parallel()
 
 		for _, state := range []entity.LotteryEntryState{
-			entity.LotteryEntryStateDraft, entity.LotteryEntryStateEntered,
-			entity.LotteryEntryStateLost, entity.LotteryEntryStateWithdrawn,
+			entity.LotteryEntryStateEntered, entity.LotteryEntryStateLost,
 		} {
 			t.Run(state.String(), func(t *testing.T) {
 				t.Parallel()

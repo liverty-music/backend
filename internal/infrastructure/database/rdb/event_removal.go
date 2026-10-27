@@ -46,9 +46,9 @@ const (
 	// eventRemovalBlockersQuery reports, for the events bound to $1, whether
 	// any has a Paid Order, a Settlement that is not Reversed, or a purchase in
 	// progress: a Held or Committed checkout, an Expired or Released checkout
-	// whose card authorization is not yet released, an Entered lottery entry, a
-	// Draft lottery entry whose card authorization is open, or a Won lottery
-	// entry whose Order is not yet issued (its payment is captured).
+	// whose card authorization is not yet released, an Entered lottery entry,
+	// or a Won lottery entry whose Order is not yet issued (its payment is
+	// captured).
 	eventRemovalBlockersQuery = `
 		SELECT
 			EXISTS (
@@ -70,8 +70,7 @@ const (
 				JOIN ticket_types tt ON tt.id = le.ticket_type_id
 				WHERE tt.event_id = ANY($1::uuid[])
 				  AND (le.state = $8
-				       OR (le.state = $9 AND le.card_authorization_id IS NOT NULL)
-				       OR (le.state = $10 AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.lottery_entry_id = le.id)))
+				       OR (le.state = $9 AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.lottery_entry_id = le.id)))
 			)
 	`
 	selectEventTicketSaleIDsQuery = `
@@ -140,8 +139,7 @@ func lockAndCheckEventRemoval(ctx context.Context, tx pgx.Tx, eventIDs []string)
 		int16(entity.OrderStatusPaid), int16(entity.SettlementStatusReversed),
 		int16(entity.CheckoutStatusHeld), int16(entity.CheckoutStatusCommitted),
 		int16(entity.CheckoutStatusExpired), int16(entity.CheckoutStatusReleased),
-		int16(entity.LotteryEntryStateEntered), int16(entity.LotteryEntryStateDraft),
-		int16(entity.LotteryEntryStateWon),
+		int16(entity.LotteryEntryStateEntered), int16(entity.LotteryEntryStateWon),
 	).Scan(&paidOrder, &unreversedSettlement, &purchaseInProgress); err != nil {
 		return toAppErr(err, "failed to check event removal blockers")
 	}

@@ -293,10 +293,11 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	repo := rdb.NewTicketSaleRepository(testDB)
 	ctx := context.Background()
 	end := saleWindowStart.Add(7 * 24 * time.Hour)
-	now := end.Add(time.Minute)
+	now := end.Add(2 * time.Minute)
 
 	closed := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t)))
-	closedAtNow := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now, seedPublishedEvent(t)))
+	closedAMinuteAgo := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now.Add(-time.Minute), seedPublishedEvent(t)))
+	justClosed := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now.Add(-30*time.Second), seedPublishedEvent(t)))
 	open := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now.Add(time.Second), seedPublishedEvent(t)))
 	drawn := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t)))
 	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`, string(drawn.ID), now)
@@ -314,13 +315,18 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 
 	t.Run("closed and undrawn", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-due-for-draw "Closed and undrawn"
-		assert.Contains(t, ids, closed.ID)
-		assert.Contains(t, ids, closedAtNow.ID, "an end time at the instant is due")
+		assert.Contains(t, ids, closed.ID, "ended 2 minutes before the instant")
+		assert.Contains(t, ids, closedAMinuteAgo.ID, "an end time 1 minute before the instant is due")
 		for _, s := range got {
 			if s.ID == closed.ID {
 				assert.ElementsMatch(t, ticketTypeIDs(closed.TicketTypes), ticketTypeIDs(s.TicketTypes))
 			}
 		}
+	})
+
+	t.Run("just closed", func(t *testing.T) {
+		// @spec components/entity/ticket-sale/list-due-for-draw "Just closed"
+		assert.NotContains(t, ids, justClosed.ID)
 	})
 
 	t.Run("still open", func(t *testing.T) {

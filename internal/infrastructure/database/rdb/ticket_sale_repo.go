@@ -54,9 +54,10 @@ const (
 		WHERE EXISTS (SELECT 1 FROM ticket_types tt WHERE tt.ticket_sale_id = ts.id AND tt.event_id = $1)
 		ORDER BY ts.sale_start_at, ts.id
 	`
-	// ticketSaleListDueForDrawQuery skips discovered sales: the platform
-	// takes no entries for them, and drawing one would break
-	// chk_ticket_sales_discovered.
+	// ticketSaleListDueForDrawQuery returns the undrawn Lottery sales that
+	// ended at or before $1, the instant entity.LotteryDrawDelay before now.
+	// It skips discovered sales: the platform takes no entries for them, and
+	// drawing one would break chk_ticket_sales_discovered.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.draw_at IS NULL
@@ -231,10 +232,10 @@ func (r *TicketSaleRepository) ListByEvent(ctx context.Context, eventID string, 
 	return sales, nil
 }
 
-// ListDueForDraw returns every Lottery sale that has ended at or before now
-// and is not drawn.
+// ListDueForDraw returns every Lottery sale that ended at least
+// entity.LotteryDrawDelay before now and is not drawn.
 func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time) ([]*entity.TicketSale, error) {
-	sales, err := listTicketSales(ctx, r.db.Pool, now, ticketSaleListDueForDrawQuery, now)
+	sales, err := listTicketSales(ctx, r.db.Pool, now, ticketSaleListDueForDrawQuery, now.Add(-entity.LotteryDrawDelay))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list ticket sales due for draw")
 	}

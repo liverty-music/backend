@@ -328,6 +328,19 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	ListByEvent(ctx context.Context, eventID string) ([]*Order, error)
 
+	// ListReferralStatsByEvent counts the event's Paid Orders per referral
+	// code of their source, a Checkout or a LotteryEntry on a TicketType of
+	// the event, with the Orders whose source has no referral code as one
+	// direct group (nil Code). Only groups with at least one Order are
+	// returned, the most Orders first, then by code compared character by
+	// character. An event without Paid Orders, or unknown, yields an empty
+	// list.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	ListReferralStatsByEvent(ctx context.Context, eventID string) ([]ReferralCodeStats, error)
+
 	// GetEventID returns the id of the Event the Order is for: the Event of
 	// the TicketType its LotteryEntry or Checkout was for.
 	//

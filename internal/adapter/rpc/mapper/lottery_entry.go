@@ -6,21 +6,19 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// LotteryEntryToProto maps a domain LotteryEntry to Protobuf. The
-// card authorization is set only once it is opened.
+// LotteryEntryToProto maps a domain LotteryEntry to Protobuf. The referral
+// code is not part of the proto entry: no screen reads it.
 func LotteryEntryToProto(e *entity.LotteryEntry) *entityv1.LotteryEntry {
 	if e == nil {
 		return nil
 	}
 	pb := &entityv1.LotteryEntry{
-		Id:           &entityv1.LotteryEntryId{Value: string(e.ID)},
-		TicketTypeId: &entityv1.TicketTypeId{Value: string(e.TicketTypeID)},
-		UserId:       &entityv1.UserId{Value: string(e.UserID)},
-		TicketCount:  int32(e.TicketCount),
-		State:        lotteryEntryStateToProto(e.State),
-	}
-	if e.CardAuthorizationID != "" {
-		pb.CardAuthorizationId = &entityv1.CardAuthorizationId{Value: e.CardAuthorizationID}
+		Id:                  &entityv1.LotteryEntryId{Value: string(e.ID)},
+		TicketTypeId:        &entityv1.TicketTypeId{Value: string(e.TicketTypeID)},
+		UserId:              &entityv1.UserId{Value: string(e.UserID)},
+		TicketCount:         int32(e.TicketCount),
+		State:               lotteryEntryStateToProto(e.State),
+		CardAuthorizationId: &entityv1.CardAuthorizationId{Value: e.CardAuthorizationID},
 	}
 	if e.DrawPosition != nil {
 		pos := int64(*e.DrawPosition)
@@ -49,10 +47,6 @@ func lotteryEntryStateToProto(s entity.LotteryEntryState) entityv1.LotteryEntryS
 		return entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WON
 	case entity.LotteryEntryStateLost:
 		return entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST
-	case entity.LotteryEntryStateWithdrawn:
-		return entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WITHDRAWN
-	case entity.LotteryEntryStateDraft:
-		return entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_DRAFT
 	default:
 		return entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_UNSPECIFIED
 	}

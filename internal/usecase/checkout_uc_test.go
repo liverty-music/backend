@@ -19,7 +19,6 @@ import (
 // checkoutFixture holds the mocks of a CheckoutUseCase under test.
 type checkoutFixture struct {
 	checkouts             *entitymocks.MockCheckoutRepository
-	referrals             *entitymocks.MockReferralRepository
 	sales                 *entitymocks.MockTicketSaleRepository
 	users                 *entitymocks.MockUserRepository
 	identityVerifications *entitymocks.MockIdentityVerificationRepository
@@ -34,7 +33,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 	t.Helper()
 	f := &checkoutFixture{
 		checkouts:             entitymocks.NewMockCheckoutRepository(t),
-		referrals:             entitymocks.NewMockReferralRepository(t),
 		sales:                 entitymocks.NewMockTicketSaleRepository(t),
 		users:                 entitymocks.NewMockUserRepository(t),
 		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
@@ -45,7 +43,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             f.checkouts,
-		ReferralRepo:             f.referrals,
 		SaleRepo:                 f.sales,
 		UserRepo:                 f.users,
 		IdentityVerificationRepo: f.identityVerifications,
@@ -390,7 +387,8 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		updateDetails := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).
 			Return(&entity.User{ID: "fan-1", FullName: name, PhoneNumber: phone}, nil).Call
 		createHold := f.auth.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
-			CheckoutID: "checkout-1", TicketTypeID: "tt-1", EventID: "event-1",
+			Purpose:    entity.CardAuthorizationPurposeCheckout,
+			CheckoutID: "checkout-1", UserID: "fan-1", TicketTypeID: "tt-1", EventID: "event-1", TicketCount: 2,
 		}, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil).NotBefore(updateDetails)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil).NotBefore(createHold)
 
@@ -612,11 +610,10 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 	})
 }
 
-func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
+func TestCheckoutUseCase_Start_SetsReferralCode(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
-	source := entity.ReferralSource{CheckoutID: "checkout-1"}
 	// startsOnSale makes tt-1 OnSale and GetOrCreateHeld return checkout.
 	startsOnSale := func(f *checkoutFixture, checkout *entity.Checkout) {
 		sale, _ := firstComeTicketType(150, 0, 0)
@@ -631,42 +628,46 @@ func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
 		f := newCheckoutFixture(t, now)
 		checkout := fanCheckout(now)
 		startsOnSale(f, checkout)
-		f.referrals.EXPECT().Record(mock.Anything, source, entity.ReferralCode("member-a"), now).Return(nil)
+		f.checkouts.EXPECT().SetReferralCode(mock.Anything, entity.CheckoutID("checkout-1"), entity.ReferralCode("member-a")).Return(nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, code("member-a"))
 
 		require.NoError(t, err)
 		assert.Same(t, checkout, got)
+		assert.Equal(t, code("member-a"), got.ReferralCode)
 	})
 
 	t.Run("another link before confirming", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/checkout/start "Another link before confirming"
-		// The Held Checkout already has member-a; Record replaces it.
 		f := newCheckoutFixture(t, now)
 		checkout := fanCheckout(now.Add(-5 * time.Minute))
+		checkout.ReferralCode = code("member-a")
 		startsOnSale(f, checkout)
-		f.referrals.EXPECT().Record(mock.Anything, source, entity.ReferralCode("member-b"), now).Return(nil)
+		f.checkouts.EXPECT().SetReferralCode(mock.Anything, entity.CheckoutID("checkout-1"), entity.ReferralCode("member-b")).Return(nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, code("member-b"))
 
 		require.NoError(t, err)
 		assert.Same(t, checkout, got)
+		assert.Equal(t, code("member-b"), got.ReferralCode)
 	})
 
 	t.Run("started again without a code", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/checkout/start "Started again without a code"
-		// No Record call: the Referral holding member-a stays as it is.
+		// No SetReferralCode call: the code member-a stays as it is.
 		f := newCheckoutFixture(t, now)
 		checkout := fanCheckout(now.Add(-5 * time.Minute))
+		checkout.ReferralCode = code("member-a")
 		startsOnSale(f, checkout)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
 
 		require.NoError(t, err)
 		assert.Same(t, checkout, got)
-		f.referrals.AssertNotCalled(t, "Record", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Equal(t, code("member-a"), got.ReferralCode)
+		f.checkouts.AssertNotCalled(t, "SetReferralCode", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("no code", func(t *testing.T) {
@@ -675,10 +676,11 @@ func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
 		f := newCheckoutFixture(t, now)
 		startsOnSale(f, fanCheckout(now))
 
-		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
+		got, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, nil)
 
 		require.NoError(t, err)
-		f.referrals.AssertNotCalled(t, "Record", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Nil(t, got.ReferralCode)
+		f.checkouts.AssertNotCalled(t, "SetReferralCode", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("sale not open with a code", func(t *testing.T) {
@@ -692,14 +694,14 @@ func TestCheckoutUseCase_Start_RecordsReferral(t *testing.T) {
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, code("member-a"))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		f.referrals.AssertNotCalled(t, "Record", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		f.checkouts.AssertNotCalled(t, "SetReferralCode", mock.Anything, mock.Anything, mock.Anything)
 	})
 
-	t.Run("record failure fails start", func(t *testing.T) {
+	t.Run("setting the code fails the start", func(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutFixture(t, now)
 		startsOnSale(f, fanCheckout(now))
-		f.referrals.EXPECT().Record(mock.Anything, source, entity.ReferralCode("member-a"), now).Return(apperr.ErrInternal)
+		f.checkouts.EXPECT().SetReferralCode(mock.Anything, entity.CheckoutID("checkout-1"), entity.ReferralCode("member-a")).Return(apperr.ErrInternal)
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2, code("member-a"))
 

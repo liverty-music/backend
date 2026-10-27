@@ -377,7 +377,6 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 		ids := []entity.LotteryEntryID{}
 		for _, state := range []entity.LotteryEntryState{
 			entity.LotteryEntryStateEntered, entity.LotteryEntryStateLost,
-			entity.LotteryEntryStateWithdrawn, entity.LotteryEntryStateDraft,
 		} {
 			ids = append(ids, insertLotteryEntry(t, tt.ID, newUserID(), 1, state).ID)
 		}

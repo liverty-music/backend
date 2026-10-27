@@ -104,6 +104,9 @@ type Checkout struct {
 	// Resale is true for a resale Checkout: it holds ResaleListings of its
 	// TicketType instead of the TicketType's stock. Fixed at creation.
 	Resale bool
+	// ReferralCode is the code of the last link the fan followed before
+	// paying; nil without one. It changes only while the Checkout is Held.
+	ReferralCode *ReferralCode
 }
 
 // NewCheckout returns a Held Checkout for count tickets of ticketType, with a
@@ -273,6 +276,18 @@ type CheckoutRepository interface {
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
 	SetCardAuthorization(ctx context.Context, id CheckoutID, cardAuthorizationID string) error
+
+	// SetReferralCode sets the referral code of a Held Checkout, replacing an
+	// earlier one. A Checkout that is not Held is left unchanged and the call
+	// succeeds, so a start that races a commit never alters a committed
+	// Checkout. Checking the status and setting the code are one indivisible
+	// step.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: no Checkout has the id.
+	//  - Internal: database failure.
+	SetReferralCode(ctx context.Context, id CheckoutID, code ReferralCode) error
 
 	// Commit makes a holding Checkout Committed at now and, for a Checkout
 	// that holds stock, adds its count to the ticket type's sold count and sets

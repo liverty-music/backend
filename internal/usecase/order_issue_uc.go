@@ -281,7 +281,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 		if err != nil {
 			return nil, err
 		}
-		if err := authorization.Confirm(entity.CardAuthorizationPurchase{CheckoutID: checkout.ID}, checkout.Amount); err != nil {
+		if err := authorization.Confirm(entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: checkout.ID}, checkout.Amount); err != nil {
 			return nil, err
 		}
 		// 5. Commit while holding.

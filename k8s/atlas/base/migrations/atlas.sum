@@ -1,4 +1,4 @@
-h1:ScowZLknfD/WKWIEWIEGi+blk0Mi8s0xRIWFCWkw3JQ=
+h1:kgipwKO60isz/DRTpnR6b4tL1Kxs60byt0h+KmcIowM=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -118,3 +118,4 @@ h1:ScowZLknfD/WKWIEWIEGi+blk0Mi8s0xRIWFCWkw3JQ=
 20261020081056_create_resale_listings.sql h1:Na2ObNWMmIYvfy6p/2xLIZ3RWIvHAsPOXIL5bqSR4fE=
 20261022014500_users_email_lower_index.sql h1:1BJBlwDdHEw0qjR1bmOEboSOiToJk1ITNbmiX+bjVSw=
 20261022014600_create_passkeys.sql h1:/6mv0ryadBTyrcQl2DUWmJNsC0f3m1yWLqma0jtjZqg=
+20261027043053_enter_lottery_at_confirm.sql h1:2HjQfVSgHP0LtlT+PQxq85F1tYG8uBTWN2XKADXD4u8=
