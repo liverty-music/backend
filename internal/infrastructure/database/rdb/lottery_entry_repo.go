@@ -68,6 +68,12 @@ const (
 		WHERE ticket_type_id = $1 AND user_id = $2
 		ORDER BY id DESC
 	`
+	// lotteryEntryListByUserQuery orders newest first by the UUIDv7 id.
+	lotteryEntryListByUserQuery = `
+		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
+		WHERE user_id = $1
+		ORDER BY id DESC
+	`
 	lotteryEntryListUndrawnQuery = `
 		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
 		WHERE ticket_type_id = $1 AND state = 1
@@ -98,8 +104,8 @@ const (
 )
 
 // Create stores the new Entered entry, or returns the entry that already
-// holds its card authorization, in one transaction under the card
-// authorization's advisory lock.
+// holds its card authorization, in one transaction under the user's shared
+// deletion lock and the card authorization's advisory lock.
 func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
 	attrs := []slog.Attr{
 		slog.String("ticket_type_id", string(entry.TicketTypeID)),
@@ -117,6 +123,9 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 		if _, err := tx.Exec(ctx, "SET LOCAL "+setting+" = '"+lotteryEntryCreateTimeout+"'"); err != nil {
 			return nil, toAppErr(err, "failed to bound lottery entry creation", attrs...)
 		}
+	}
+	if err := lockUserForCreate(ctx, tx, entry.UserID); err != nil {
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, lotteryEntryCreateLockQuery, entry.CardAuthorizationID); err != nil {
 		return nil, toAppErr(err, "failed to lock the card authorization", attrs...)
@@ -185,6 +194,15 @@ func (r *LotteryEntryRepository) ListByTicketTypeAndUser(ctx context.Context, ti
 	if err != nil {
 		return nil, toAppErr(err, "failed to list lottery entries of the user",
 			slog.String("ticket_type_id", string(ticketTypeID)), slog.String("user_id", string(userID)))
+	}
+	return entries, nil
+}
+
+// ListByUser returns every entry of the user, newest first.
+func (r *LotteryEntryRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+	entries, err := r.list(ctx, lotteryEntryListByUserQuery, string(userID))
+	if err != nil {
+		return nil, toAppErr(err, "failed to list lottery entries of the user", slog.String("user_id", string(userID)))
 	}
 	return entries, nil
 }

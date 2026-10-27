@@ -28,13 +28,30 @@ var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 // caller's User and the resend rate limit live in UserUseCase.
 type UserHandler struct {
 	userUseCase usecase.UserUseCase
+	freshSignIn FreshSignInVerifier
 	logger      *logging.Logger
 }
 
-// NewUserHandler creates a new user handler.
-func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *UserHandler {
+// FreshSignInVerifier checks the proof that the caller signed in within the
+// last 5 minutes, which Delete requires.
+type FreshSignInVerifier interface {
+	// VerifyFreshSignIn checks that idToken is a validly signed ID token the
+	// sign-in service issued to the fan app for a sign-in of the identity
+	// providerUserID within the last 5 minutes.
+	//
+	// # Possible errors
+	//
+	//  - PermissionDenied: any of the checks fails.
+	//  - Unavailable: the sign-in service's keys cannot be fetched.
+	VerifyFreshSignIn(ctx context.Context, idToken, providerUserID string) error
+}
+
+// NewUserHandler creates a new user handler. freshSignIn checks Delete's
+// proof of a fresh sign-in.
+func NewUserHandler(userUseCase usecase.UserUseCase, freshSignIn FreshSignInVerifier, logger *logging.Logger) *UserHandler {
 	return &UserHandler{
 		userUseCase: userUseCase,
+		freshSignIn: freshSignIn,
 		logger:      logger,
 	}
 }
@@ -233,4 +250,43 @@ func (h *UserHandler) VerifyEmail(ctx context.Context, req *userv1.VerifyEmailRe
 		return nil, err
 	}
 	return &userv1.VerifyEmailResponse{}, nil
+}
+
+// ListDeletionBlockers returns what currently stops the caller's own User
+// from being deleted.
+func (h *UserHandler) ListDeletionBlockers(ctx context.Context, _ *userv1.ListDeletionBlockersRequest) (*userv1.ListDeletionBlockersResponse, error) {
+	providerUserID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := h.userUseCase.ResolveCaller(ctx, providerUserID)
+	if err != nil {
+		return nil, err
+	}
+	blockers, err := h.userUseCase.ListDeletionBlockers(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &userv1.ListDeletionBlockersResponse{Blockers: mapper.DeletionBlockersToProto(blockers)}, nil
+}
+
+// Delete removes the caller's own User once the request proves a sign-in by
+// the caller within the last 5 minutes. A missing proof is rejected by the
+// server's protovalidate interceptor before the handler runs.
+func (h *UserHandler) Delete(ctx context.Context, req *userv1.DeleteRequest) (*userv1.DeleteResponse, error) {
+	providerUserID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := h.userUseCase.ResolveCaller(ctx, providerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.freshSignIn.VerifyFreshSignIn(ctx, req.GetIdToken(), providerUserID); err != nil {
+		return nil, err
+	}
+	if err := h.userUseCase.Delete(ctx, user.ID); err != nil {
+		return nil, err
+	}
+	return &userv1.DeleteResponse{}, nil
 }

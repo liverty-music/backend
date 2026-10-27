@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	backendorganizationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/backend/organization/v1/organizationv1connect"
 	backenduserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/backend/user/v1/userv1connect"
@@ -297,7 +298,7 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		users := mocks.NewMockUserRepository(t)
 		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, nil, nil, nil, nil, client, nil, usecase.PasskeyMailers{}, logger)
+		uc := usecase.NewUserUseCase(users, usecase.DeletionBlockerReads{}, nil, nil, client, nil, usecase.PasskeyMailers{}, logger)
 
 		require.NoError(t, uc.VerifyEmail(ctx, fan.ID, "ABC123"))
 
@@ -332,14 +333,22 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		t.Parallel()
 		f := &fakeIdentityService{}
 		users := mocks.NewMockUserRepository(t)
-		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil).Once()
+		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil)
+		users.EXPECT().SerializeDeletion(mock.Anything, fan.ID, mock.Anything).
+			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Once()
 		users.EXPECT().Delete(mock.Anything, fan.ID).Return(nil).Once()
 		tickets := mocks.NewMockTicketRepository(t)
 		tickets.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
-		orders := mocks.NewMockOrderRepository(t)
-		orders.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		listings := mocks.NewMockResaleListingRepository(t)
+		listings.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		entries := mocks.NewMockLotteryEntryRepository(t)
+		entries.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		checkouts := mocks.NewMockCheckoutRepository(t)
+		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, tickets, orders, nil, nil, nil, client, usecase.PasskeyMailers{}, logger)
+		uc := usecase.NewUserUseCase(users, usecase.DeletionBlockerReads{
+			Tickets: tickets, ResaleListings: listings, LotteryEntries: entries, Checkouts: checkouts, Now: time.Now,
+		}, nil, nil, nil, client, usecase.PasskeyMailers{}, logger)
 
 		require.NoError(t, uc.Delete(ctx, fan.ID))
 

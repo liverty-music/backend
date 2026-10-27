@@ -376,6 +376,69 @@ func (_c *MockUserRepository_GetByProviderUserID_Call) RunAndReturn(run func(ctx
 	return _c
 }
 
+// SerializeDeletion provides a mock function for the type MockUserRepository
+func (_mock *MockUserRepository) SerializeDeletion(ctx context.Context, id string, fn func(ctx context.Context) error) error {
+	ret := _mock.Called(ctx, id, fn)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SerializeDeletion")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, func(ctx context.Context) error) error); ok {
+		r0 = returnFunc(ctx, id, fn)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockUserRepository_SerializeDeletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SerializeDeletion'
+type MockUserRepository_SerializeDeletion_Call struct {
+	*mock.Call
+}
+
+// SerializeDeletion is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - fn func(ctx context.Context) error
+func (_e *MockUserRepository_Expecter) SerializeDeletion(ctx any, id any, fn any) *MockUserRepository_SerializeDeletion_Call {
+	return &MockUserRepository_SerializeDeletion_Call{Call: _e.mock.On("SerializeDeletion", ctx, id, fn)}
+}
+
+func (_c *MockUserRepository_SerializeDeletion_Call) Run(run func(ctx context.Context, id string, fn func(ctx context.Context) error)) *MockUserRepository_SerializeDeletion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 func(ctx context.Context) error
+		if args[2] != nil {
+			arg2 = args[2].(func(ctx context.Context) error)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_SerializeDeletion_Call) Return(err error) *MockUserRepository_SerializeDeletion_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockUserRepository_SerializeDeletion_Call) RunAndReturn(run func(ctx context.Context, id string, fn func(ctx context.Context) error) error) *MockUserRepository_SerializeDeletion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateHome provides a mock function for the type MockUserRepository
 func (_mock *MockUserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	ret := _mock.Called(ctx, id, home)

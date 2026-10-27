@@ -348,14 +348,14 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 
 	t.Run("won without order", func(t *testing.T) {
 		// @spec components/entity/order/list-lottery-entry-ids-awaiting-issuance "Won without order"
-		won := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
+		won := insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateWon)
 
 		assert.Contains(t, awaiting(t), won.ID)
 	})
 
 	t.Run("already issued", func(t *testing.T) {
 		// @spec components/entity/order/list-lottery-entry-ids-awaiting-issuance "Already issued"
-		won := insertLotteryEntry(t, tt.ID, newUserID(), 1, entity.LotteryEntryStateWon)
+		won := insertLotteryEntry(t, tt.ID, newUserID(t), 1, entity.LotteryEntryStateWon)
 		order := &entity.Order{
 			ID:             entity.OrderID(entity.NewID()),
 			UserID:         won.UserID,
@@ -378,7 +378,7 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 		for _, state := range []entity.LotteryEntryState{
 			entity.LotteryEntryStateEntered, entity.LotteryEntryStateLost,
 		} {
-			ids = append(ids, insertLotteryEntry(t, tt.ID, newUserID(), 1, state).ID)
+			ids = append(ids, insertLotteryEntry(t, tt.ID, newUserID(t), 1, state).ID)
 		}
 
 		got := awaiting(t)

@@ -172,6 +172,8 @@ type LotteryEntryRepository interface {
 	//    nothing is stored.
 	//  - FailedPrecondition: the TicketType does not exist, or its sale's end
 	//    time has passed; nothing is stored.
+	//  - NotFound: the user does not exist, also when it was deleted while
+	//    the call waited; nothing is stored.
 	//  - Unavailable: the wait for a concurrent call or a lock timed out.
 	//  - Internal: database failure.
 	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
@@ -201,6 +203,14 @@ type LotteryEntryRepository interface {
 	//
 	//  - Internal: database failure.
 	ListByTicketTypeAndUser(ctx context.Context, ticketTypeID TicketTypeID, userID UserID) ([]*LotteryEntry, error)
+
+	// ListByUser returns every entry of the user, for every TicketType and in
+	// every state, newest first. It returns an empty slice when there is none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database failure.
+	ListByUser(ctx context.Context, userID UserID) ([]*LotteryEntry, error)
 
 	// ListUndrawnForTicketType returns every Entered entry of the TicketType,
 	// in no particular order: the entries the draw draws. It returns an empty

@@ -107,6 +107,14 @@ const (
 	deleteUserQuery = `
 		DELETE FROM users WHERE id = $1
 	`
+
+	// userDeletionLockQuery and userCreateLockQuery take the user's
+	// transaction-scoped advisory lock, exclusive for a deletion and shared
+	// for a create of a record that blocks one; both are released at commit
+	// or rollback, and when the session ends.
+	userDeletionLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('user:' || $1, 0))`
+	userCreateLockQuery   = `SELECT pg_advisory_xact_lock_shared(hashtextextended('user:' || $1, 0))`
+	userExistsQuery       = `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`
 )
 
 // NewUserRepository creates a new user repository instance.
@@ -469,6 +477,42 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 	)
 
 	return user, nil
+}
+
+// SerializeDeletion runs fn while holding the user's deletion lock
+// exclusively, taken in a transaction on its own connection. fn's own reads
+// and writes run on other connections, so they never wait for this lock.
+func (r *UserRepository) SerializeDeletion(ctx context.Context, id string, fn func(ctx context.Context) error) error {
+	attrs := slog.String("user_id", id)
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin user deletion lock", attrs)
+	}
+	// Rollback releases the lock; it is the only way the transaction ends.
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := tx.Exec(ctx, userDeletionLockQuery, id); err != nil {
+		return toAppErr(err, "failed to lock user deletion", attrs)
+	}
+	return fn(ctx)
+}
+
+// lockUserForCreate holds the user's deletion lock shared for the rest of tx
+// and confirms the user still exists, so a record created in tx never
+// outlives a deletion of its user (UserRepository.SerializeDeletion).
+func lockUserForCreate(ctx context.Context, tx pgx.Tx, userID entity.UserID) error {
+	attrs := slog.String("user_id", string(userID))
+	if _, err := tx.Exec(ctx, userCreateLockQuery, string(userID)); err != nil {
+		return toAppErr(err, "failed to lock the user against deletion", attrs)
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, userExistsQuery, string(userID)).Scan(&exists); err != nil {
+		return toAppErr(err, "failed to check the user exists", attrs)
+	}
+	if !exists {
+		return apperr.New(codes.NotFound, "the user does not exist", attrs)
+	}
+	return nil
 }
 
 // Delete removes a user from the database.

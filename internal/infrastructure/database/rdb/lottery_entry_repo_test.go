@@ -28,10 +28,11 @@ func insertLotteryEntry(t *testing.T, ticketTypeID entity.TicketTypeID, userID e
 	return e
 }
 
-// newUserID returns a fresh user id; lottery_entries.user_id has no foreign
-// key.
-func newUserID() entity.UserID {
-	return entity.UserID(entity.NewID())
+// newUserID seeds a fan user and returns its id: LotteryEntry.Create stores
+// nothing for a user that does not exist.
+func newUserID(t *testing.T) entity.UserID {
+	t.Helper()
+	return entity.UserID(seedFanUser(t))
 }
 
 // seedLotterySaleOfTwoEvents stores a Lottery sale with ticket types for two
@@ -84,7 +85,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Entry stored"
 		tt := openLotteryTicketType(t)
 		code := entity.ReferralCode("member-a")
-		entry := newEntry(tt.ID, newUserID(), 2, &code)
+		entry := newEntry(tt.ID, newUserID(t), 2, &code)
 
 		got, err := repo.Create(ctx, entry)
 
@@ -103,7 +104,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Second entry"
 		for _, state := range []entity.LotteryEntryState{entity.LotteryEntryStateEntered, entity.LotteryEntryStateWon, entity.LotteryEntryStateLost} {
 			tt := openLotteryTicketType(t)
-			userID := newUserID()
+			userID := newUserID(t)
 			first := insertLotteryEntry(t, tt.ID, userID, 2, state)
 
 			_, err := repo.Create(ctx, newEntry(tt.ID, userID, 3, nil))
@@ -118,7 +119,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 	t.Run("double tap", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Double tap"
 		tt := openLotteryTicketType(t)
-		userID := newUserID()
+		userID := newUserID(t)
 
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
@@ -148,7 +149,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 	t.Run("same card authorization again", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Same card authorization again"
 		tt := openLotteryTicketType(t)
-		entry := newEntry(tt.ID, newUserID(), 2, nil)
+		entry := newEntry(tt.ID, newUserID(t), 2, nil)
 		first, err := repo.Create(ctx, entry)
 		require.NoError(t, err)
 
@@ -187,7 +188,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Entry for another event of the same sale"
 		sale := seedLotterySaleOfTwoEvents(t)
 		setSaleEndByDatabaseClock(t, sale.ID, 24*time.Hour)
-		userID := newUserID()
+		userID := newUserID(t)
 		insertLotteryEntry(t, sale.TicketTypes[0].ID, userID, 2, entity.LotteryEntryStateEntered)
 
 		got, err := repo.Create(ctx, newEntry(sale.TicketTypes[1].ID, userID, 2, nil))
@@ -201,7 +202,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "After the end time"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 		setSaleEndByDatabaseClock(t, tt.TicketSaleID, -time.Second)
-		userID := newUserID()
+		userID := newUserID(t)
 
 		_, err := repo.Create(ctx, newEntry(tt.ID, userID, 2, nil))
 
@@ -213,7 +214,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 
 	t.Run("unknown ticket type", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Unknown ticket type"
-		entry := newEntry(entity.TicketTypeID(entity.NewID()), newUserID(), 2, nil)
+		entry := newEntry(entity.TicketTypeID(entity.NewID()), newUserID(t), 2, nil)
 
 		_, err := repo.Create(ctx, entry)
 
@@ -235,7 +236,7 @@ func TestLotteryEntryRepository_Get(t *testing.T) {
 	t.Run("existing entry", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/get "Existing entry"
 		for _, state := range []entity.LotteryEntryState{entity.LotteryEntryStateEntered, entity.LotteryEntryStateWon, entity.LotteryEntryStateLost} {
-			e := insertLotteryEntry(t, tt.ID, newUserID(), 3, state)
+			e := insertLotteryEntry(t, tt.ID, newUserID(t), 3, state)
 
 			got, err := repo.Get(ctx, e.ID)
 
@@ -263,7 +264,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 
 	t.Run("charged win", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Charged win"
-		won := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
+		won := insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateWon)
 
 		got, err := repo.GetByCardAuthorizationID(ctx, won.CardAuthorizationID)
 
@@ -291,10 +292,10 @@ func TestLotteryEntryRepository_ListByTicketTypeAndUser(t *testing.T) {
 		// @spec components/entity/lottery-entry/list-by-ticket-type-and-user "Entry of the user"
 		sale := seedLotterySaleOfTwoEvents(t)
 		tt, other := sale.TicketTypes[0], sale.TicketTypes[1]
-		userID := newUserID()
+		userID := newUserID(t)
 		entered := insertLotteryEntry(t, tt.ID, userID, 2, entity.LotteryEntryStateEntered)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered) // another user
-		insertLotteryEntry(t, other.ID, userID, 2, entity.LotteryEntryStateEntered)   // another ticket type
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateEntered) // another user
+		insertLotteryEntry(t, other.ID, userID, 2, entity.LotteryEntryStateEntered)    // another ticket type
 
 		got, err := repo.ListByTicketTypeAndUser(ctx, tt.ID, userID)
 
@@ -306,7 +307,40 @@ func TestLotteryEntryRepository_ListByTicketTypeAndUser(t *testing.T) {
 		// @spec components/entity/lottery-entry/list-by-ticket-type-and-user "Never entered"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
-		got, err := repo.ListByTicketTypeAndUser(ctx, tt.ID, newUserID())
+		got, err := repo.ListByTicketTypeAndUser(ctx, tt.ID, newUserID(t))
+
+		require.NoError(t, err)
+		assert.NotNil(t, got)
+		assert.Empty(t, got)
+	})
+}
+
+func TestLotteryEntryRepository_ListByUser(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	cleanDatabase(t)
+	repo := rdb.NewLotteryEntryRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("entries for two ticket types", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/list-by-user "Entries for two ticket types"
+		sale := seedLotterySaleOfTwoEvents(t)
+		tt, other := sale.TicketTypes[0], sale.TicketTypes[1]
+		userID := newUserID(t)
+		entered := insertLotteryEntry(t, tt.ID, userID, 2, entity.LotteryEntryStateEntered)
+		lost := insertLotteryEntry(t, other.ID, userID, 1, entity.LotteryEntryStateLost)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateEntered) // another user
+
+		got, err := repo.ListByUser(ctx, userID)
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.LotteryEntry{lost, entered}, got)
+	})
+
+	t.Run("never entered", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/list-by-user "Never entered"
+		got, err := repo.ListByUser(ctx, newUserID(t))
 
 		require.NoError(t, err)
 		assert.NotNil(t, got)
@@ -326,11 +360,11 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 		// @spec components/entity/lottery-entry/list-undrawn-for-ticket-type "Mixed states"
 		sale := seedLotterySaleOfTwoEvents(t)
 		tt, other := sale.TicketTypes[0], sale.TicketTypes[1]
-		a := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
-		b := insertLotteryEntry(t, tt.ID, newUserID(), 1, entity.LotteryEntryStateEntered)
-		insertLotteryEntry(t, tt.ID, newUserID(), 3, entity.LotteryEntryStateWon)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateLost)
-		insertLotteryEntry(t, other.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
+		a := insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		b := insertLotteryEntry(t, tt.ID, newUserID(t), 1, entity.LotteryEntryStateEntered)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 3, entity.LotteryEntryStateWon)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateLost)
+		insertLotteryEntry(t, other.ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
 		got, err := repo.ListUndrawnForTicketType(ctx, tt.ID)
 
@@ -341,8 +375,8 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 	t.Run("no candidates", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/list-undrawn-for-ticket-type "No candidates"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateLost)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateWon)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateLost)
 
 		got, err := repo.ListUndrawnForTicketType(ctx, tt.ID)
 
@@ -363,9 +397,9 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	t.Run("after the draw", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "After the draw"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
-		insertLotteryEntry(t, tt.ID, newUserID(), 4, entity.LotteryEntryStateLost)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateWon)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateWon)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 4, entity.LotteryEntryStateLost)
 
 		got, err := repo.GetStatsByTicketType(ctx, tt.ID)
 
@@ -378,8 +412,8 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	t.Run("before the draw", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "Before the draw"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
-		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
-		insertLotteryEntry(t, tt.ID, newUserID(), 3, entity.LotteryEntryStateEntered)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		insertLotteryEntry(t, tt.ID, newUserID(t), 3, entity.LotteryEntryStateEntered)
 
 		got, err := repo.GetStatsByTicketType(ctx, tt.ID)
 
@@ -427,9 +461,9 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Outcome recorded"
 		sale := seedLotterySaleOfTwoEvents(t)
 		a, b := sale.TicketTypes[0], sale.TicketTypes[1]
-		winA := insertLotteryEntry(t, a.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
-		loseA := insertLotteryEntry(t, a.ID, newUserID(), 4, entity.LotteryEntryStateEntered)
-		winB := insertLotteryEntry(t, b.ID, newUserID(), 1, entity.LotteryEntryStateEntered)
+		winA := insertLotteryEntry(t, a.ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		loseA := insertLotteryEntry(t, a.ID, newUserID(t), 4, entity.LotteryEntryStateEntered)
+		winB := insertLotteryEntry(t, b.ID, newUserID(t), 1, entity.LotteryEntryStateEntered)
 		before := time.Now()
 
 		err := repo.PersistDrawOutcome(ctx, sale.ID,
@@ -457,8 +491,8 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 	t.Run("failure leaves nothing recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Failure leaves nothing recorded"
 		sale := seedLotterySaleOfTwoEvents(t)
-		winner := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
-		loser := insertLotteryEntry(t, sale.TicketTypes[1].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
+		winner := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		loser := insertLotteryEntry(t, sale.TicketTypes[1].ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		// The last write fails: a FirstCome sale cannot be drawn
 		// (chk_ticket_sales_draw_lottery_only).
 		firstCome := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 4)
@@ -477,7 +511,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 	t.Run("unknown sale", func(t *testing.T) {
 		sale := seedLotterySaleOfTwoEvents(t)
-		winner := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
+		winner := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
 		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()),
 			[]entity.DrawWinnerRow{{LotteryEntryID: winner.ID, CardAuthorizationID: winner.CardAuthorizationID, DrawPosition: 0}},
@@ -491,7 +525,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 	t.Run("empty draw", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Empty draw"
 		sale := seedLotterySaleOfTwoEvents(t)
-		bystander := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
+		bystander := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
 		require.NoError(t, repo.PersistDrawOutcome(ctx, sale.ID, nil, nil))
 

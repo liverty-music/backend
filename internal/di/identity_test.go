@@ -130,18 +130,35 @@ func TestIdentityListeners(t *testing.T) {
 	})
 
 	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan API asks for another operation"
-	t.Run("the fan API listener refuses DeleteIdentity and SendEmailVerification and changes nothing", func(t *testing.T) {
+	t.Run("the fan API listener refuses SendEmailVerification and every Organization procedure and changes nothing", func(t *testing.T) {
 		t.Parallel()
 		ev := rpcmocks.NewMockEmailVerificationCodes(t) // no expectation: a call fails the test
+		orgs := mocks.NewMockOrganizationRepository(t)
+		ts := identityListener(t, di.FanAPIProcedures, ev, mocks.NewMockIdentityRemover(t), orgs)
+		transport := connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))
+
+		_, err := backenduserv1connect.NewUserServiceClient(transport).
+			SendEmailVerification(context.Background(), &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userID})
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+		_, err = backendorganizationv1connect.NewOrganizationServiceClient(transport).
+			Delete(context.Background(), &backendorganizationv1.DeleteRequest{
+				ProviderOrganizerId: &entityv1.Organizer_ProviderOrganizerId{Value: "org-1"},
+			})
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
+	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan deletes their account"
+	t.Run("the fan API listener serves DeleteIdentity", func(t *testing.T) {
+		t.Parallel()
 		ir := mocks.NewMockIdentityRemover(t)
-		ts := identityListener(t, di.FanAPIProcedures, ev, ir, mocks.NewMockOrganizationRepository(t))
+		ir.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		ts := identityListener(t, di.FanAPIProcedures, rpcmocks.NewMockEmailVerificationCodes(t), ir, mocks.NewMockOrganizationRepository(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
-		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 
-		_, err = client.SendEmailVerification(context.Background(), &backenduserv1.SendEmailVerificationRequest{ProviderUserId: userID})
-		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+		assert.NoError(t, err)
 	})
 
 	t.Run("the fan API listener serves VerifyEmail", func(t *testing.T) {

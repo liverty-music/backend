@@ -240,6 +240,74 @@ func (_c *MockUserUseCase_Get_Call) RunAndReturn(run func(ctx context.Context, i
 	return _c
 }
 
+// GetByEmail provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	ret := _mock.Called(ctx, email)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByEmail")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*entity.User, error)); ok {
+		return returnFunc(ctx, email)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *entity.User); ok {
+		r0 = returnFunc(ctx, email)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, email)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockUserUseCase_GetByEmail_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByEmail'
+type MockUserUseCase_GetByEmail_Call struct {
+	*mock.Call
+}
+
+// GetByEmail is a helper method to define mock.On call
+//   - ctx context.Context
+//   - email string
+func (_e *MockUserUseCase_Expecter) GetByEmail(ctx any, email any) *MockUserUseCase_GetByEmail_Call {
+	return &MockUserUseCase_GetByEmail_Call{Call: _e.mock.On("GetByEmail", ctx, email)}
+}
+
+func (_c *MockUserUseCase_GetByEmail_Call) Run(run func(ctx context.Context, email string)) *MockUserUseCase_GetByEmail_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_GetByEmail_Call) Return(user *entity.User, err error) *MockUserUseCase_GetByEmail_Call {
+	_c.Call.Return(user, err)
+	return _c
+}
+
+func (_c *MockUserUseCase_GetByEmail_Call) RunAndReturn(run func(ctx context.Context, email string) (*entity.User, error)) *MockUserUseCase_GetByEmail_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetByProviderUserID provides a mock function for the type MockUserUseCase
 func (_mock *MockUserUseCase) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error) {
 	ret := _mock.Called(ctx, providerUserID)
@@ -304,6 +372,74 @@ func (_c *MockUserUseCase_GetByProviderUserID_Call) Return(user *entity.User, er
 }
 
 func (_c *MockUserUseCase_GetByProviderUserID_Call) RunAndReturn(run func(ctx context.Context, providerUserID string) (*entity.User, error)) *MockUserUseCase_GetByProviderUserID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListDeletionBlockers provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]entity.DeletionBlocker, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDeletionBlockers")
+	}
+
+	var r0 []entity.DeletionBlocker
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]entity.DeletionBlocker, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []entity.DeletionBlocker); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]entity.DeletionBlocker)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockUserUseCase_ListDeletionBlockers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDeletionBlockers'
+type MockUserUseCase_ListDeletionBlockers_Call struct {
+	*mock.Call
+}
+
+// ListDeletionBlockers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *MockUserUseCase_Expecter) ListDeletionBlockers(ctx any, id any) *MockUserUseCase_ListDeletionBlockers_Call {
+	return &MockUserUseCase_ListDeletionBlockers_Call{Call: _e.mock.On("ListDeletionBlockers", ctx, id)}
+}
+
+func (_c *MockUserUseCase_ListDeletionBlockers_Call) Run(run func(ctx context.Context, id string)) *MockUserUseCase_ListDeletionBlockers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_ListDeletionBlockers_Call) Return(deletionBlockers []entity.DeletionBlocker, err error) *MockUserUseCase_ListDeletionBlockers_Call {
+	_c.Call.Return(deletionBlockers, err)
+	return _c
+}
+
+func (_c *MockUserUseCase_ListDeletionBlockers_Call) RunAndReturn(run func(ctx context.Context, id string) ([]entity.DeletionBlocker, error)) *MockUserUseCase_ListDeletionBlockers_Call {
 	_c.Call.Return(run)
 	return _c
 }

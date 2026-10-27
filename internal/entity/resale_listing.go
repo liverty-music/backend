@@ -190,7 +190,8 @@ type ResaleListingRepository interface {
 	//
 	//  - AlreadyExists: the Ticket already has a Listed listing.
 	//  - FailedPrecondition: the Ticket is not Issued or has an admit time.
-	//  - NotFound: no Ticket has the id.
+	//  - NotFound: no Ticket has the id, or the listing's user does not
+	//    exist, also when it was deleted while the call waited.
 	//  - Internal: database failure.
 	Create(ctx context.Context, listing *ResaleListing) (*ResaleListing, error)
 

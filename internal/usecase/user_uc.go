@@ -85,21 +85,43 @@ type UserUseCase interface {
 	//  - NotFound: no user exists for providerUserID.
 	Update(ctx context.Context, providerUserID string, fullName, phoneNumber *string) (*entity.User, error)
 
-	// Delete permanently removes a fan user at an admin's request: first the
-	// user's sign-in identity, then the user record with everything it owns.
-	// The user's Orders, Tickets and lottery entries are kept. Nothing is
-	// removed while the user holds an Issued Ticket or has an Order that is not
-	// Refunded. An identity that is already gone counts as removed, so calling
-	// Delete again completes a deletion whose record removal failed.
+	// Delete permanently removes a fan user, at the fan's own request or an
+	// admin's: first the user's sign-in identity, then the user record with
+	// everything it owns. The user's Orders, Tickets, Checkouts, lottery
+	// entries and resale listings are kept. Nothing is removed while
+	// ListDeletionBlockers returns any blocker; the check and the removal run
+	// under the user's deletion lock (User.SerializeDeletion), so no blocker
+	// is created meanwhile. An identity that is already gone counts as
+	// removed, so calling Delete again completes a deletion whose record
+	// removal failed.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	//  - FailedPrecondition: If the user holds an Issued Ticket or has an Order
-	//    that is not Refunded.
+	//  - FailedPrecondition: If the user has a deletion blocker.
 	//  - Internal: If the identity could not be removed, or identity removal
 	//    is not configured.
 	Delete(ctx context.Context, id string) error
+
+	// ListDeletionBlockers returns what currently stops the user from being
+	// deleted: one blocker per kind the user has, in the order upcoming
+	// ticket, listed resale, pending lottery entry, payment in progress, or
+	// an empty slice. Delete applies the same rule.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	//  - Any failure of the reads, with its own code.
+	ListDeletionBlockers(ctx context.Context, id string) ([]entity.DeletionBlocker, error)
+
+	// GetByEmail returns the user registered with the address, letter case
+	// ignored.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the address is empty.
+	//  - NotFound: If no user has the address.
+	GetByEmail(ctx context.Context, email string) (*entity.User, error)
 
 	// ResolveCaller returns the caller's own User, identified by providerUserID
 	// (the Zitadel subject claim). A request never names a User id, so a
@@ -228,11 +250,23 @@ const (
 	verifyEmailWindow = 60 * time.Minute
 )
 
+// DeletionBlockerReads are the reads that tell whether a user can be deleted
+// (UserUseCase.ListDeletionBlockers). Only the API processes that delete users
+// set them; elsewhere they are empty.
+type DeletionBlockerReads struct {
+	Tickets        entity.TicketRepository
+	Events         entity.EventRepository
+	ResaleListings entity.ResaleListingRepository
+	LotteryEntries entity.LotteryEntryRepository
+	Checkouts      entity.CheckoutRepository
+	// Now is the clock (time.Now in production).
+	Now Clock
+}
+
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
 	userRepo        entity.UserRepository
-	ticketRepo      entity.TicketRepository
-	orderRepo       entity.OrderRepository
+	deletionReads   DeletionBlockerReads
 	publisher       EventPublisher
 	emailVerifier   entity.EmailVerifier
 	emailCodes      entity.EmailCodeVerifier
@@ -261,8 +295,8 @@ type userUseCase struct {
 var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
-// It requires a user repository for data persistence, the ticket and order
-// repositories that deletion checks for live purchases, a publisher for domain
+// It requires a user repository for data persistence, the reads that deletion
+// checks for activity in progress, a publisher for domain
 // events, an email verifier for triggering verification emails and an
 // identity remover for deletion (both nil when the Zitadel API client is not
 // configured, e.g. local dev), the passkey email senders (empty outside the
@@ -270,8 +304,7 @@ var _ UserUseCase = (*userUseCase)(nil)
 // codes; it is nil outside the fan API.
 func NewUserUseCase(
 	userRepo entity.UserRepository,
-	ticketRepo entity.TicketRepository,
-	orderRepo entity.OrderRepository,
+	deletionReads DeletionBlockerReads,
 	publisher EventPublisher,
 	emailVerifier entity.EmailVerifier,
 	emailCodes entity.EmailCodeVerifier,
@@ -281,8 +314,7 @@ func NewUserUseCase(
 ) UserUseCase {
 	return &userUseCase{
 		userRepo:               userRepo,
-		ticketRepo:             ticketRepo,
-		orderRepo:              orderRepo,
+		deletionReads:          deletionReads,
 		publisher:              publisher,
 		emailVerifier:          emailVerifier,
 		emailCodes:             emailCodes,
@@ -462,40 +494,32 @@ func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home
 	return user, nil
 }
 
-// Delete removes the user's identity and then the user, after checking that
-// the user holds no Issued Ticket and has no Order that is not Refunded.
+// Delete removes the user's identity and then the user under the user's
+// deletion lock, after checking that the user has no deletion blocker.
 func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 	user, err := uc.userRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-
-	tickets, err := uc.ticketRepo.ListByUser(ctx, entity.UserID(id))
-	if err != nil {
-		return err
-	}
-	for _, t := range tickets {
-		if t.Status == entity.TicketStatusIssued {
-			return apperr.New(codes.FailedPrecondition, "user holds an issued ticket", slog.String("user_id", id))
-		}
-	}
-	orders, err := uc.orderRepo.ListByUser(ctx, entity.UserID(id))
-	if err != nil {
-		return err
-	}
-	for _, o := range orders {
-		if o.Status != entity.OrderStatusRefunded {
-			return apperr.New(codes.FailedPrecondition, "user has an order that is not refunded", slog.String("user_id", id))
-		}
-	}
-
 	if uc.identityRemover == nil {
 		return apperr.New(codes.Internal, "identity removal is not configured")
 	}
-	if err := uc.identityRemover.DeleteIdentity(ctx, user.ProviderUserID); err != nil {
-		return err
-	}
-	if err := uc.userRepo.Delete(ctx, id); err != nil {
+
+	err = uc.userRepo.SerializeDeletion(ctx, id, func(ctx context.Context) error {
+		blockers, err := uc.ListDeletionBlockers(ctx, id)
+		if err != nil {
+			return err
+		}
+		if len(blockers) > 0 {
+			return apperr.New(codes.FailedPrecondition, "user has activity in progress",
+				slog.String("user_id", id), slog.Int("blocker_kinds", len(blockers)))
+		}
+		if err := uc.identityRemover.DeleteIdentity(ctx, user.ProviderUserID); err != nil {
+			return err
+		}
+		return uc.userRepo.Delete(ctx, id)
+	})
+	if err != nil {
 		return err
 	}
 
@@ -505,6 +529,88 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 	)
 
 	return nil
+}
+
+// ListDeletionBlockers counts the user's activity in progress by kind.
+func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]entity.DeletionBlocker, error) {
+	if _, err := uc.userRepo.Get(ctx, id); err != nil {
+		return nil, err
+	}
+	reads := uc.deletionReads
+	userID := entity.UserID(id)
+	now := reads.Now()
+	counts := map[entity.DeletionBlockerKind]int{}
+
+	tickets, err := reads.Tickets.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	passed := map[string]bool{}
+	for _, t := range tickets {
+		if t.Status != entity.TicketStatusIssued {
+			continue
+		}
+		over, read := passed[t.EventID]
+		if !read {
+			event, err := reads.Events.Get(ctx, t.EventID)
+			if err != nil {
+				return nil, err
+			}
+			over = event.HasPassedAt(now)
+			passed[t.EventID] = over
+		}
+		if !over {
+			counts[entity.DeletionBlockerKindUpcomingTicket]++
+		}
+	}
+
+	listings, err := reads.ResaleListings.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range listings {
+		if l.Status == entity.ResaleListingStatusListed {
+			counts[entity.DeletionBlockerKindListedResale]++
+		}
+	}
+
+	entries, err := reads.LotteryEntries.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.State == entity.LotteryEntryStateEntered {
+			counts[entity.DeletionBlockerKindPendingLotteryEntry]++
+		}
+	}
+
+	checkouts, err := reads.Checkouts.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range checkouts {
+		if c.Status == entity.CheckoutStatusCommitted || c.IsHoldingAt(now) {
+			counts[entity.DeletionBlockerKindPaymentInProgress]++
+		}
+	}
+
+	blockers := []entity.DeletionBlocker{}
+	for _, kind := range []entity.DeletionBlockerKind{
+		entity.DeletionBlockerKindUpcomingTicket,
+		entity.DeletionBlockerKindListedResale,
+		entity.DeletionBlockerKindPendingLotteryEntry,
+		entity.DeletionBlockerKindPaymentInProgress,
+	} {
+		if n := counts[kind]; n > 0 {
+			blockers = append(blockers, entity.DeletionBlocker{Kind: kind, Count: n})
+		}
+	}
+	return blockers, nil
+}
+
+// GetByEmail returns the user registered with the address.
+func (uc *userUseCase) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	return uc.userRepo.GetByEmail(ctx, email)
 }
 
 // Update implements [UserUseCase]. It merges the given values with the

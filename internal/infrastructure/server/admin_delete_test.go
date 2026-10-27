@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
@@ -218,6 +219,103 @@ func TestAdminServer_UserDelete(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+		})
+	}
+}
+
+func TestAdminServer_UserGetByEmail(t *testing.T) {
+	t.Parallel()
+
+	const fanEmail = "fan@example.com"
+	fan := &entity.User{ID: deleteUserID, Email: fanEmail, Name: "Fan", ProviderUserID: "zitadel-fan-1"}
+	tests := []struct {
+		name         string
+		token        string
+		email        *entityv1.Email
+		setup        func(uc *usecasemocks.MockUserUseCase)
+		wantCode     connect.Code
+		wantBlockers []*entityv1.DeletionBlocker
+	}{
+		{
+			// @spec components/adapter/admin/api/rpc/user "Non-admin looks up a user"
+			name:     "returns PermissionDenied for a non-admin and runs no usecase",
+			token:    deleteNonAdminToken,
+			email:    &entityv1.Email{Value: fanEmail},
+			setup:    func(*usecasemocks.MockUserUseCase) {},
+			wantCode: connect.CodePermissionDenied,
+		},
+		{
+			// @spec components/adapter/admin/api/rpc/user "Admin finds a fan"
+			name:  "returns the User with its upcoming ticket blocker",
+			token: deleteAdminToken,
+			email: &entityv1.Email{Value: fanEmail},
+			setup: func(uc *usecasemocks.MockUserUseCase) {
+				uc.EXPECT().GetByEmail(mock.Anything, fanEmail).Return(fan, nil).Once()
+				uc.EXPECT().ListDeletionBlockers(mock.Anything, deleteUserID).
+					Return([]entity.DeletionBlocker{{Kind: entity.DeletionBlockerKindUpcomingTicket, Count: 2}}, nil).Once()
+			},
+			wantBlockers: []*entityv1.DeletionBlocker{{Kind: entityv1.DeletionBlocker_KIND_UPCOMING_TICKET, Count: 2}},
+		},
+		{
+			// @spec components/adapter/admin/api/rpc/user "Fan with nothing in progress"
+			name:  "returns the User and no blocker",
+			token: deleteAdminToken,
+			email: &entityv1.Email{Value: fanEmail},
+			setup: func(uc *usecasemocks.MockUserUseCase) {
+				uc.EXPECT().GetByEmail(mock.Anything, fanEmail).Return(fan, nil).Once()
+				uc.EXPECT().ListDeletionBlockers(mock.Anything, deleteUserID).Return([]entity.DeletionBlocker{}, nil).Once()
+			},
+			wantBlockers: []*entityv1.DeletionBlocker{},
+		},
+		{
+			// @spec components/adapter/admin/api/rpc/user "Unregistered address"
+			name:  "returns NotFound for an address no User has",
+			token: deleteAdminToken,
+			email: &entityv1.Email{Value: "nobody@example.com"},
+			setup: func(uc *usecasemocks.MockUserUseCase) {
+				uc.EXPECT().GetByEmail(mock.Anything, "nobody@example.com").
+					Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+			},
+			wantCode: connect.CodeNotFound,
+		},
+		{
+			// @spec components/adapter/admin/api/rpc/user "Malformed address"
+			name:     "returns InvalidArgument for a malformed address and runs no usecase",
+			token:    deleteAdminToken,
+			email:    &entityv1.Email{Value: "not-an-address"},
+			setup:    func(*usecasemocks.MockUserUseCase) {},
+			wantCode: connect.CodeInvalidArgument,
+		},
+		{
+			name:     "returns InvalidArgument without an address and runs no usecase",
+			token:    deleteAdminToken,
+			setup:    func(*usecasemocks.MockUserUseCase) {},
+			wantCode: connect.CodeInvalidArgument,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			userUC := usecasemocks.NewMockUserUseCase(t)
+			tt.setup(userUC)
+			ts := newTestAdminDeleteServer(t, usecasemocks.NewMockOrganizerUseCase(t), userUC)
+
+			req := &adminuserv1.GetByEmailRequest{Email: tt.email}
+			resp, err := adminuserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).GetByEmail(withBearer(context.Background(), tt.token), req)
+
+			if tt.wantCode != 0 {
+				assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, deleteUserID, resp.GetUser().GetId().GetValue())
+			assert.Equal(t, fanEmail, resp.GetUser().GetEmail().GetValue())
+			assert.Equal(t, "Fan", resp.GetUser().GetName())
+			require.Len(t, resp.GetBlockers(), len(tt.wantBlockers))
+			for i, want := range tt.wantBlockers {
+				assert.Equal(t, want.GetKind(), resp.GetBlockers()[i].GetKind())
+				assert.Equal(t, want.GetCount(), resp.GetBlockers()[i].GetCount())
+			}
 		})
 	}
 }

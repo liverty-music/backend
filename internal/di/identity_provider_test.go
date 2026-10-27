@@ -66,10 +66,10 @@ func TestProvideIdentityClients_None(t *testing.T) {
 	assert.Equal(t, "identity-provider clients built", entries[0]["msg"])
 	assert.Equal(t, "none", entries[0]["clients"])
 
-	userUC := usecase.NewUserUseCase(nil, nil, nil, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	server := connect.NewServer()
 	assert.NotPanics(t, func() {
-		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, logger))
+		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, nil, logger))
 		adminuserconnect.RegisterUserServiceHandler(server, rpc.NewAdminUserHandler(userUC, logger))
 	})
 }
@@ -94,9 +94,10 @@ func TestProvideIdentityClients(t *testing.T) {
 			want: want{remover: true},
 		},
 		{
-			name: "fan verifies emails and removes no identity",
+			// A fan removes their own identity when deleting their account.
+			name: "fan verifies emails and removes identities",
 			cfg:  &config.ServerConfig{Environment: "production", Workload: config.WorkloadFan, IdentityServiceURL: "http://identity:9102"},
-			want: want{emailCodes: true},
+			want: want{remover: true, emailCodes: true},
 		},
 		{
 			name: "local with the identity service does both",
