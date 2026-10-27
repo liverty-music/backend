@@ -55,13 +55,15 @@ type gaugeKey struct {
 
 // admin runs the worker's two schedules: the report of workflows that need an
 // admin, which feeds the workflow.needs_admin gauge, and the deletion of old
-// successful workflows. Its state is the gauge's last values and the workflows
-// already logged; both start empty when the worker does.
+// successful workflows. Its state is the registered workflow names, the
+// gauge's last values and the workflows already logged; the values and the
+// logged workflows start empty when the worker does.
 type admin struct {
 	logger *logging.Logger
 
 	mu     sync.Mutex
 	now    func() time.Time
+	names  []string
 	counts map[gaugeKey]int64
 	logged map[string]bool
 }
@@ -96,7 +98,18 @@ func newAdmin(logger *logging.Logger) (*admin, error) {
 // register registers the two schedule workflows and their schedules. They
 // are plain functions, not usecase workflows: DBOS schedules address a
 // workflow by its plain name.
+// track adds a registered workflow to the gauge, which reports 0 for it in
+// every status until one of its runs needs an admin. A series at 0 shows the
+// report runs and the metric arrives, which no series at all would not.
+func (a *admin) track(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.names = append(a.names, name)
+}
+
 func (a *admin) register(r *Runtime) error {
+	a.track(ReportScheduleName)
+	a.track(RetentionScheduleName)
 	dbos.RegisterWorkflow(r.ctx, a.reportNeedsAdmin, dbos.WithWorkflowName(ReportScheduleName))
 	dbos.RegisterWorkflow(r.ctx, a.deleteOld, dbos.WithWorkflowName(RetentionScheduleName))
 	err := dbos.ApplySchedules(r.ctx, []dbos.ScheduleSpec{
@@ -121,10 +134,15 @@ func (a *admin) reportNeedsAdmin(ctx dbos.Context, _ dbos.ScheduledWorkflowInput
 
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		// A series that had workflows and has none now reports 0, so the alert
-		// closes.
+		// Every registered workflow reports 0 in every status, and a series that
+		// had workflows and has none now drops back to 0, so the alert closes.
 		for k := range a.counts {
 			a.counts[k] = 0
+		}
+		for _, name := range a.names {
+			for _, status := range needsAdminStatuses {
+				a.counts[gaugeKey{name: name, status: string(status)}] = 0
+			}
 		}
 		for _, s := range statuses {
 			a.counts[gaugeKey{name: s.Name, status: string(s.Status)}]++

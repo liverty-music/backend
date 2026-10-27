@@ -151,5 +151,6 @@ func ownStatus(ctx dbos.Context) (dbos.WorkflowStatus, error) {
 // same names on every start: a stored workflow is resumed by its name.
 func Register[In, Out any](r *Runtime, name string, fn func(context.Context, usecase.Flow, In) (Out, error)) {
 	w := &registered[In, Out]{name: name, fn: fn}
+	r.admin.track(name)
 	dbos.RegisterWorkflow(r.ctx, w.run, dbos.WithInstance(w), dbos.WithWorkflowName(name))
 }

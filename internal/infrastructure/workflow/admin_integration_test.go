@@ -97,6 +97,17 @@ func TestAdmin_UnexpectedErrorIsReported(t *testing.T) {
 	_, logs := startWorkerWithLogs(t, dsn, func(rt *workflow.Runtime) { workflow.Register(rt, "fails", fails) })
 	client := newClient(t, dsn)
 
+	// Before anything fails, every registered workflow reads 0, so the gauge
+	// shows the report runs and the alert has data.
+	runSchedule(t, client, workflow.ReportScheduleName)
+	for _, name := range []string{"fails", workflow.ReportScheduleName, workflow.RetentionScheduleName} {
+		for _, status := range []string{"ERROR", "MAX_RECOVERY_ATTEMPTS_EXCEEDED", "CANCELLED"} {
+			value, ok := needsAdminGauge(t, reader, name, status)
+			require.True(t, ok, "a series for %s %s", name, status)
+			assert.Equal(t, int64(0), value, "%s %s", name, status)
+		}
+	}
+
 	require.NoError(t, client.Start(ctx, "fails", "unexpected-error", ""))
 	var got string
 	err := client.Await(ctx, "unexpected-error", waitLimit, &got)
