@@ -80,7 +80,7 @@ func run(bootLogger *logging.Logger) error {
 	// SearchNewConcerts calls the external API, deduplicates, and publishes
 	// a concert.discovered.v1 event. Concert persistence, notification, and
 	// venue enrichment are handled asynchronously by event consumers.
-	totalFailed := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
+	result := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
 		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		return err
 	})
@@ -92,26 +92,37 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
-	logSummary(ctx, app.Logger, len(artists), totalFailed)
+	logSummary(ctx, app.Logger, len(artists), result)
 
 	return nil
 }
 
-// logSummary writes the run's summary line, marked for analytics.
-func logSummary(ctx context.Context, logger *logging.Logger, attempted, failed int) {
+// searchResult is how far a run got: the artists it reached, the searches
+// that failed, and whether it stopped after consecutive failures.
+type searchResult struct {
+	Attempted     int
+	Failed        int
+	CircuitBroken bool
+}
+
+// logSummary writes the run's summary line, marked for analytics. Artists the
+// run did not reach are not counted as succeeded.
+func logSummary(ctx context.Context, logger *logging.Logger, followed int, result searchResult) {
 	logger.Info(ctx, "concert discovery job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
-		slog.Int("artists_attempted", attempted),
-		slog.Int("artists_succeeded", attempted-failed),
-		slog.Int("failures", failed),
+		slog.Int("followed_artists", followed),
+		slog.Int("artists_attempted", result.Attempted),
+		slog.Int("artists_succeeded", result.Attempted-result.Failed),
+		slog.Int("failures", result.Failed),
+		slog.Bool("circuit_broken", result.CircuitBroken),
 	)...)
 }
 
 // searchArtists runs search for each artist in its own trace, linked to the
 // run span in ctx, so the search's log lines and the events it publishes
 // carry that artist's trace id. It stops on cancellation or after
-// maxConsecutiveErrors failures in a row, and returns the number of failures.
-func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entity.Artist, search func(context.Context, *entity.Artist) error) int {
-	var totalFailed int
+// maxConsecutiveErrors failures in a row, and returns how far it got.
+func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entity.Artist, search func(context.Context, *entity.Artist) error) searchResult {
+	var result searchResult
 	var consecutiveErrors int
 
 	for _, artist := range artists {
@@ -121,6 +132,7 @@ func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entit
 			break
 		}
 
+		result.Attempted++
 		itemCtx, span := telemetry.StartJobItem(ctx, "concert_search.artist",
 			attribute.String("artist.id", artist.ID),
 		)
@@ -136,12 +148,13 @@ func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entit
 		span.End()
 
 		if err != nil {
-			totalFailed++
+			result.Failed++
 			consecutiveErrors++
 			if consecutiveErrors >= maxConsecutiveErrors {
 				logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
 					slog.Int("consecutive_errors", consecutiveErrors),
 				)
+				result.CircuitBroken = true
 				break
 			}
 			continue
@@ -150,5 +163,5 @@ func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entit
 		consecutiveErrors = 0
 	}
 
-	return totalFailed
+	return result
 }

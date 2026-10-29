@@ -78,7 +78,7 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("count", len(artists)),
 	)
 
-	totalFailed := discoverArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
+	result := discoverArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
 		_, err := app.TicketSaleDiscUC.DiscoverForArtist(ctx, artist)
 		return err
 	})
@@ -89,25 +89,38 @@ func run(bootLogger *logging.Logger) error {
 		)
 	}
 
+	// Artists the run did not reach are not counted as succeeded.
 	app.Logger.Info(ctx, "sales-phase-discovery: complete", analyticslog.Attrs(analyticslog.TopicJobResult,
-		slog.Int("artists_attempted", len(artists)),
-		slog.Int("artists_succeeded", len(artists)-totalFailed),
-		slog.Int("failures", totalFailed),
+		slog.Int("followed_artists", len(artists)),
+		slog.Int("artists_attempted", result.Attempted),
+		slog.Int("artists_succeeded", result.Attempted-result.Failed),
+		slog.Int("failures", result.Failed),
+		slog.Bool("circuit_broken", result.CircuitBroken),
 	)...)
 	return nil
+}
+
+// discoverResult is how far a run got: the artists it reached, the searches
+// that failed, and whether it stopped after consecutive failures.
+type discoverResult struct {
+	Attempted     int
+	Failed        int
+	CircuitBroken bool
 }
 
 // discoverArtists runs discover for each artist in its own trace, linked to
 // the run span in ctx, so the search's log lines and the events it publishes
 // carry that artist's trace id. It stops on cancellation or after
-// maxConsecutiveErrors failures in a row, and returns the number of failures.
-func discoverArtists(ctx context.Context, logger *logging.Logger, artists []*entity.Artist, discover func(context.Context, *entity.Artist) error) int {
-	var totalFailed, consecutiveErrors int
+// maxConsecutiveErrors failures in a row, and returns how far it got.
+func discoverArtists(ctx context.Context, logger *logging.Logger, artists []*entity.Artist, discover func(context.Context, *entity.Artist) error) discoverResult {
+	var result discoverResult
+	var consecutiveErrors int
 	for _, artist := range artists {
 		if ctx.Err() != nil {
 			break
 		}
 
+		result.Attempted++
 		itemCtx, span := telemetry.StartJobItem(ctx, "ticket_sale_search.artist",
 			attribute.String("artist.id", artist.ID),
 		)
@@ -123,17 +136,18 @@ func discoverArtists(ctx context.Context, logger *logging.Logger, artists []*ent
 		span.End()
 
 		if err != nil {
-			totalFailed++
+			result.Failed++
 			consecutiveErrors++
 			if consecutiveErrors >= maxConsecutiveErrors {
 				logger.Error(ctx, "sales-phase-discovery: circuit breaker activated", nil,
 					slog.Int("consecutive_errors", consecutiveErrors),
 				)
+				result.CircuitBroken = true
 				break
 			}
 			continue
 		}
 		consecutiveErrors = 0
 	}
-	return totalFailed
+	return result
 }
