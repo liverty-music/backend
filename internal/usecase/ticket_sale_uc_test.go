@@ -435,8 +435,8 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		stockA := &entity.TicketStock{ID: "stock-a", EventID: "event-1", SeatTypeID: "seat-a", Quantity: 200, SeatType: &entity.SeatType{ID: "seat-a", Name: "A席", Price: 6000}}
 		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketStock{stockS, stockA}, nil)
 		sStats := entity.LotteryEntryStats{EntryCount: 412, TicketCount: 1200, WonEntryCount: 318, WonTicketCount: 120, LostEntryCount: 94}
-		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.ID, stockS.ID).Return(sStats, nil)
-		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.ID, stockA.ID).Return(entity.LotteryEntryStats{}, nil)
+		f.entries.EXPECT().GetStatsByTicketSaleAndTicketStock(mock.Anything, presale.ID, stockS.ID).Return(sStats, nil)
+		f.entries.EXPECT().GetStatsByTicketSaleAndTicketStock(mock.Anything, presale.ID, stockA.ID).Return(entity.LotteryEntryStats{}, nil)
 		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return([]entity.ReferralCodeStats{}, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")

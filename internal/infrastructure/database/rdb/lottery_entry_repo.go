@@ -77,14 +77,14 @@ const (
 	`
 	lotteryEntryGetQuery                      = lotteryEntrySelect + ` WHERE le.id = $1`
 	lotteryEntryGetByCardAuthorizationIDQuery = lotteryEntrySelect + ` WHERE o.card_authorization_id = $1`
-	// lotteryEntryListByTicketTypeAndUserQuery orders newest first: ids are
+	// lotteryEntryListByTicketSaleAndUserQuery orders newest first: ids are
 	// UUIDv7, so id order is creation order.
-	lotteryEntryListByTicketTypeAndUserQuery = lotteryEntrySelect + `
+	lotteryEntryListByTicketSaleAndUserQuery = lotteryEntrySelect + `
 		WHERE le.ticket_sale_id = $1 AND o.user_id = $2
 		ORDER BY le.id DESC
 	`
 	lotteryEntryListByUserQuery  = lotteryEntrySelect + ` WHERE o.user_id = $1 ORDER BY le.id DESC`
-	lotteryEntryListUndrawnQuery = lotteryEntrySelect + `
+	lotteryEntryListEnteredQuery = lotteryEntrySelect + `
 		WHERE le.ticket_sale_id = $1 AND o.ticket_stock_id = $2 AND le.state = 1
 	`
 	lotteryEntryStatsQuery = `
@@ -238,10 +238,10 @@ func (r *LotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, c
 	return entry, nil
 }
 
-// ListByTicketTypeAndUser returns the user's entries in the sale, newest
+// ListByTicketSaleAndUser returns the user's entries in the sale, newest
 // first.
-func (r *LotteryEntryRepository) ListByTicketTypeAndUser(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
-	entries, err := r.list(ctx, lotteryEntryListByTicketTypeAndUserQuery, string(saleID), string(userID))
+func (r *LotteryEntryRepository) ListByTicketSaleAndUser(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+	entries, err := r.list(ctx, lotteryEntryListByTicketSaleAndUserQuery, string(saleID), string(userID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list lottery entries of the user",
 			slog.String("ticket_sale_id", string(saleID)), slog.String("user_id", string(userID)))
@@ -258,19 +258,19 @@ func (r *LotteryEntryRepository) ListByUser(ctx context.Context, userID entity.U
 	return entries, nil
 }
 
-// ListUndrawnForTicketType returns every Entered entry of the sale for the
-// stock.
-func (r *LotteryEntryRepository) ListUndrawnForTicketType(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) ([]*entity.LotteryEntry, error) {
-	entries, err := r.list(ctx, lotteryEntryListUndrawnQuery, string(saleID), string(stockID))
+// ListEnteredByTicketSaleAndTicketStock returns every Entered entry of the
+// sale for the stock.
+func (r *LotteryEntryRepository) ListEnteredByTicketSaleAndTicketStock(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) ([]*entity.LotteryEntry, error) {
+	entries, err := r.list(ctx, lotteryEntryListEnteredQuery, string(saleID), string(stockID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to list undrawn lottery entries",
+		return nil, toAppErr(err, "failed to list entered lottery entries",
 			slog.String("ticket_sale_id", string(saleID)), slog.String("ticket_stock_id", string(stockID)))
 	}
 	return entries, nil
 }
 
-// GetStatsByTicketType counts the sale's entries for the stock.
-func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) (entity.LotteryEntryStats, error) {
+// GetStatsByTicketSaleAndTicketStock counts the sale's entries for the stock.
+func (r *LotteryEntryRepository) GetStatsByTicketSaleAndTicketStock(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) (entity.LotteryEntryStats, error) {
 	var s entity.LotteryEntryStats
 	if err := r.db.Pool.QueryRow(ctx, lotteryEntryStatsQuery, string(saleID), string(stockID)).Scan(
 		&s.EntryCount, &s.TicketCount, &s.WonEntryCount, &s.WonTicketCount, &s.LostEntryCount,
