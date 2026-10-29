@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -246,83 +247,114 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 	repo := rdb.NewArtistRepository(testDB)
 	ctx := context.Background()
+	const age = 7 * 24 * time.Hour
+	daysAgo := func(n int) time.Time { return time.Now().Add(-time.Duration(n) * 24 * time.Hour) }
+	fanart := &entity.Fanart{
+		ArtistThumb: []entity.FanartImage{
+			{ID: "1", URL: "https://example.com/thumb.jpg", Likes: 1, Lang: "en"},
+		},
+	}
 
-	t.Run("returns artists with no fanart first then stale", func(t *testing.T) {
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Never-checked and stale artists"
+	t.Run("Never-checked and stale artists", func(t *testing.T) {
 		cleanDatabase(t)
+		userID := seedUser(t, "Fan", "fan-fanart-stale@example.com", "ext-fan-fanart-stale")
+		staleID := seedArtist(t, "Stale", "50000000-0000-0000-0000-00000000aa01")
+		neverID := seedArtist(t, "Never", "50000000-0000-0000-0000-00000000aa02")
+		followArtist(t, userID, staleID)
+		require.NoError(t, repo.UpdateFanart(ctx, staleID, fanart, daysAgo(8)))
 
-		// Create three artists.
-		created, err := repo.Create(ctx,
-			entity.NewArtist("No Fanart", "50000000-0000-0000-0000-00000000aa01"),
-			entity.NewArtist("Stale Fanart", "50000000-0000-0000-0000-00000000aa02"),
-			entity.NewArtist("Fresh Fanart", "50000000-0000-0000-0000-00000000aa03"),
-		)
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
+
 		require.NoError(t, err)
-
-		staleFanart := &entity.Fanart{
-			ArtistThumb: []entity.FanartImage{
-				{ID: "1", URL: "https://example.com/old.jpg", Likes: 1, Lang: "en"},
-			},
-		}
-
-		freshFanart := &entity.Fanart{
-			ArtistThumb: []entity.FanartImage{
-				{ID: "2", URL: "https://example.com/new.jpg", Likes: 2, Lang: "en"},
-			},
-		}
-
-		// Stale: synced 10 days ago.
-		staleTime := time.Now().Add(-10 * 24 * time.Hour)
-		err = repo.UpdateFanart(ctx, created[1].ID, staleFanart, staleTime)
-		require.NoError(t, err)
-
-		// Fresh: synced 1 day ago.
-		freshTime := time.Now().Add(-1 * 24 * time.Hour)
-		err = repo.UpdateFanart(ctx, created[2].ID, freshFanart, freshTime)
-		require.NoError(t, err)
-
-		// Query with 7-day stale threshold.
-		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 10)
-		require.NoError(t, err)
-
-		// Should return "No Fanart" (NULL) and "Stale Fanart" (10 days old).
-		// "Fresh Fanart" (1 day old) should not appear.
-		require.Len(t, got, 2)
-		assert.Equal(t, "No Fanart", got[0].Name)
-		assert.Equal(t, "Stale Fanart", got[1].Name)
+		assert.Equal(t, []string{"Never", "Stale"}, artistNames(got))
+		assert.Equal(t, neverID, got[0].ID)
+		assert.Nil(t, got[0].FanartSyncTime)
+		require.NotNil(t, got[1].FanartSyncTime)
 	})
 
-	t.Run("respects limit", func(t *testing.T) {
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Never-checked artist nobody follows"
+	t.Run("Never-checked artist nobody follows", func(t *testing.T) {
 		cleanDatabase(t)
+		artistID := seedArtist(t, "Unfollowed Never", "50000000-0000-0000-0000-00000000bb01")
 
-		_, err := repo.Create(ctx,
-			entity.NewArtist("A", "11000000-0000-0000-0000-00000000bb01"),
-			entity.NewArtist("B", "11000000-0000-0000-0000-00000000bb02"),
-			entity.NewArtist("C", "11000000-0000-0000-0000-00000000bb03"),
-		)
-		require.NoError(t, err)
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
 
-		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 2)
 		require.NoError(t, err)
-		assert.Len(t, got, 2)
+		require.Len(t, got, 1)
+		assert.Equal(t, artistID, got[0].ID)
 	})
 
-	t.Run("returns empty when all are fresh", func(t *testing.T) {
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Stale artist nobody follows"
+	t.Run("Stale artist nobody follows", func(t *testing.T) {
 		cleanDatabase(t)
+		artistID := seedArtist(t, "Unfollowed Stale", "50000000-0000-0000-0000-00000000cc01")
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(30)))
 
-		created, err := repo.Create(ctx,
-			entity.NewArtist("Fresh", "f0000000-0000-0000-0000-00000000cc01"),
-		)
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
+
 		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
 
-		freshFanart := &entity.Fanart{
-			ArtistThumb: []entity.FanartImage{
-				{ID: "1", URL: "https://example.com/fresh.jpg", Likes: 1, Lang: "en"},
-			},
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Artist followed by several fans"
+	t.Run("Artist followed by several fans", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "Popular", "50000000-0000-0000-0000-00000000dd01")
+		for i := range 3 {
+			userID := seedUser(t, fmt.Sprintf("Fan %d", i), fmt.Sprintf("fan-fanart-%d@example.com", i), fmt.Sprintf("ext-fan-fanart-%d", i))
+			followArtist(t, userID, artistID)
 		}
-		err = repo.UpdateFanart(ctx, created[0].ID, freshFanart, time.Now())
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(8)))
+
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Popular"}, artistNames(got))
+	})
+
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Recently checked artist without images"
+	t.Run("Recently checked artist without images", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "Fan", "fan-fanart-recent@example.com", "ext-fan-fanart-recent")
+		artistID := seedArtist(t, "No Images", "50000000-0000-0000-0000-00000000ee01")
+		followArtist(t, userID, artistID)
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, nil, daysAgo(2)))
+
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	// @spec components/entity/artist/list-stale-or-missing-fanart "More due artists than the limit"
+	t.Run("More due artists than the limit", func(t *testing.T) {
+		cleanDatabase(t)
+		artists := make([]*entity.Artist, 600)
+		for i := range artists {
+			artists[i] = entity.NewArtist(fmt.Sprintf("Due %03d", i), fmt.Sprintf("50000000-0000-0000-0000-000000000%03d", i))
+		}
+		_, err := repo.Create(ctx, artists...)
 		require.NoError(t, err)
 
-		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 10)
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 500)
+
+		require.NoError(t, err)
+		assert.Len(t, got, 500)
+	})
+
+	// @spec components/entity/artist/list-stale-or-missing-fanart "Nothing due"
+	t.Run("Nothing due", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "Fan", "fan-fanart-none@example.com", "ext-fan-fanart-none")
+		followedID := seedArtist(t, "Fresh Followed", "50000000-0000-0000-0000-00000000ff01")
+		unfollowedID := seedArtist(t, "Old Unfollowed", "50000000-0000-0000-0000-00000000ff02")
+		followArtist(t, userID, followedID)
+		require.NoError(t, repo.UpdateFanart(ctx, followedID, fanart, time.Now()))
+		require.NoError(t, repo.UpdateFanart(ctx, unfollowedID, fanart, daysAgo(30)))
+
+		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
+
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})

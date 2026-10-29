@@ -193,10 +193,12 @@ type ArtistRepository interface {
 	//   - Internal: database execution failure.
 	UpdateFanart(ctx context.Context, id string, fanart *Fanart, syncTime time.Time) error
 
-	// ListStaleOrMissingFanart returns artists that need a fanart.tv sync,
-	// prioritizing artists with no fanart data (NULL) over stale entries.
-	// staleDuration defines how old fanart_synced_at must be to qualify.
-	// limit caps the number of returned artists.
+	// ListStaleOrMissingFanart returns the artists whose images are due for a
+	// check: artists never checked, whoever registered them, and artists
+	// followed by at least one user whose last check is older than
+	// staleDuration. An artist nobody follows keeps the images of its last
+	// check. Artists are returned never-checked first and then oldest check
+	// first, each at most once, and at most limit artists.
 	//
 	// # Possible errors:
 	//
