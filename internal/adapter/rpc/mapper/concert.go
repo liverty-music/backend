@@ -117,6 +117,10 @@ func EventToProto(e *entity.Event) *entityv1.Event {
 	if e.PublishState != nil {
 		proto.PublishState = publishStateToProto(*e.PublishState)
 	}
+	if e.PerAccountLimit != nil {
+		limit := int32(*e.PerAccountLimit)
+		proto.PerAccountLimit = &limit
+	}
 	return proto
 }
 

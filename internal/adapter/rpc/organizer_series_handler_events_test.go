@@ -62,6 +62,44 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		assert.Nil(t, inputs[1].EventID)
 	})
 
+	t.Run("pass each date's per-account limit to Update and return it", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerSeriesHandlerDeps(t)
+		expectCaller(d)
+		var inputs []*usecase.DraftEventInput
+		six := 6
+		returned := authoredEvent("event-1", "series-1", 1)
+		returned.PerAccountLimit = &six
+		d.seriesUC.EXPECT().Update(mock.Anything, testOrganizerID, "series-1", mock.Anything, mock.Anything, []string{"artist-1"}).
+			Run(func(_ context.Context, _, _ string, _ *entity.Series, in []*usecase.DraftEventInput, _ []string) {
+				inputs = in
+			}).
+			Return(&entity.Series{ID: "series-1", Type: entity.SeriesTypeTour}, concertsOf([]*entity.Event{returned}, []*entity.Artist{{ID: "artist-1"}}), nil).Once()
+		limit := int32(6)
+
+		resp, err := d.handler.Update(orgCtx(testProviderOrganizerID), &organizerseriesv1.UpdateRequest{
+			SeriesId: &entityv1.SeriesId{Value: "series-1"},
+			Draft: &organizerseriesv1.SeriesDraft{
+				Title:      &entityv1.Title{Value: "TOUR"},
+				Type:       entityv1.SeriesType_SERIES_TYPE_TOUR,
+				Visibility: entityv1.Visibility_VISIBILITY_PUBLIC,
+				ArtistIds:  []*entityv1.ArtistId{{Value: "artist-1"}},
+				Events: []*organizerseriesv1.EventDraft{
+					{EventId: &entityv1.EventId{Value: "event-1"}, VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 1}}, PerAccountLimit: &limit},
+					{VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 8}}},
+				},
+			},
+		})
+
+		require.NoError(t, err)
+		require.Len(t, inputs, 2)
+		require.NotNil(t, inputs[0].PerAccountLimit)
+		assert.Equal(t, 6, *inputs[0].PerAccountLimit)
+		assert.Nil(t, inputs[1].PerAccountLimit, "a date without a limit takes the default")
+		require.Len(t, resp.GetConcerts(), 1)
+		assert.Equal(t, int32(6), resp.GetConcerts()[0].GetEvent().GetPerAccountLimit())
+	})
+
 	t.Run("pass the named event ids to Publish and return each date's own state", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerSeriesHandlerDeps(t)
