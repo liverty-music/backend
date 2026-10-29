@@ -929,25 +929,25 @@ COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card aut
 -- restrict_violation (23001) when an order that is not Void names the stock,
 -- or when a Void order's checkout has not released its card authorization.
 CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
 BEGIN
-  PERFORM 1 FROM app.ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
+  PERFORM 1 FROM ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
   IF NOT FOUND THEN
     RETURN FALSE;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
+  IF EXISTS (SELECT 1 FROM orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
     RAISE EXCEPTION 'ticket stock % is named by an order that is not void', p_ticket_stock_id USING ERRCODE = '23001';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.orders o JOIN app.checkouts c ON c.order_id = o.id
+    SELECT 1 FROM orders o JOIN checkouts c ON c.order_id = o.id
     WHERE o.ticket_stock_id = p_ticket_stock_id AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL
   ) THEN
     RAISE EXCEPTION 'ticket stock % has a void order whose card authorization is not released', p_ticket_stock_id USING ERRCODE = '23001';
   END IF;
-  DELETE FROM app.checkouts WHERE order_id IN (SELECT id FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM public.lottery_entries WHERE order_id IN (SELECT id FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id;
-  DELETE FROM app.ticket_stocks WHERE id = p_ticket_stock_id;
+  DELETE FROM checkouts WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM lottery_entries WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM orders WHERE ticket_stock_id = p_ticket_stock_id;
+  DELETE FROM ticket_stocks WHERE id = p_ticket_stock_id;
   RETURN TRUE;
 END
 $$;

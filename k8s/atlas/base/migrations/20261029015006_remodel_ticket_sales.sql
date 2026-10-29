@@ -132,26 +132,29 @@ DROP TABLE "ticket_types";
 -- missing stock. Returns false when no stock has the id. Raises
 -- restrict_violation (23001) when an order that is not Void names the stock,
 -- or when a Void order's checkout has not released its card authorization.
+-- Its search_path names app and public: production keeps every table in app,
+-- while a database migrated without the operator's search_path (CI's test-db)
+-- has the older tables, orders and lottery_entries among them, in public.
 CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
 BEGIN
-  PERFORM 1 FROM app.ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
+  PERFORM 1 FROM ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
   IF NOT FOUND THEN
     RETURN FALSE;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
+  IF EXISTS (SELECT 1 FROM orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
     RAISE EXCEPTION 'ticket stock % is named by an order that is not void', p_ticket_stock_id USING ERRCODE = '23001';
   END IF;
   IF EXISTS (
-    SELECT 1 FROM public.orders o JOIN app.checkouts c ON c.order_id = o.id
+    SELECT 1 FROM orders o JOIN checkouts c ON c.order_id = o.id
     WHERE o.ticket_stock_id = p_ticket_stock_id AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL
   ) THEN
     RAISE EXCEPTION 'ticket stock % has a void order whose card authorization is not released', p_ticket_stock_id USING ERRCODE = '23001';
   END IF;
-  DELETE FROM app.checkouts WHERE order_id IN (SELECT id FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM public.lottery_entries WHERE order_id IN (SELECT id FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM public.orders WHERE ticket_stock_id = p_ticket_stock_id;
-  DELETE FROM app.ticket_stocks WHERE id = p_ticket_stock_id;
+  DELETE FROM checkouts WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM lottery_entries WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM orders WHERE ticket_stock_id = p_ticket_stock_id;
+  DELETE FROM ticket_stocks WHERE id = p_ticket_stock_id;
   RETURN TRUE;
 END
 $$;
@@ -169,11 +172,11 @@ BEGIN
   FOR iam_role IN
     SELECT rolname FROM pg_roles WHERE rolname LIKE 'organizer-console-api@%.iam'
   LOOP
-    EXECUTE format('GRANT INSERT, DELETE ON app.seat_types TO %I', iam_role);
-    EXECUTE format('GRANT INSERT ON app.ticket_stocks TO %I', iam_role);
-    EXECUTE format('GRANT INSERT ON app.ticket_sale_events TO %I', iam_role);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION app.delete_ticket_stock(UUID) TO %I', iam_role);
-    EXECUTE format('GRANT UPDATE (per_account_limit) ON app.events TO %I', iam_role);
+    EXECUTE format('GRANT INSERT, DELETE ON seat_types TO %I', iam_role);
+    EXECUTE format('GRANT INSERT ON ticket_stocks TO %I', iam_role);
+    EXECUTE format('GRANT INSERT ON ticket_sale_events TO %I', iam_role);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION delete_ticket_stock(UUID) TO %I', iam_role);
+    EXECUTE format('GRANT UPDATE (per_account_limit) ON events TO %I', iam_role);
   END LOOP;
 END
 $$;
