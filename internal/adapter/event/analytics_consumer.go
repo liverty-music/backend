@@ -233,7 +233,7 @@ func (c *AnalyticsConsumer) HandleOrderPaid(msg *message.Message) error {
 
 // HandleLotteryEntryDrawn forwards the ORDER.lottery_entry_drawn NATS subject
 // as the catalogue event usecase.EventTicketLotteryResult at the draw time.
-// Properties: lottery_entry_id, ticket_sale_id, ticket_type_id, result,
+// Properties: lottery_entry_id, ticket_sale_id, ticket_stock_id, result,
 // capture_failed.
 func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error {
 	var data entity.LotteryEntryDrawnData
@@ -241,7 +241,7 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 		return fact{distinctID: data.UserID, at: data.DrawTime, props: usecase.AnalyticsProperties{
 			"lottery_entry_id": data.LotteryEntryID,
 			"ticket_sale_id":   data.TicketSaleID,
-			"ticket_type_id":   data.TicketTypeID,
+			"ticket_stock_id":  data.TicketStockID,
 			"result":           data.Result,
 			"capture_failed":   data.CaptureFailed,
 		}}
@@ -250,14 +250,14 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 
 // HandleCheckoutExpired forwards the ORDER.checkout_expired NATS subject as
 // the catalogue event usecase.EventCheckoutExpired at the hold's expiry.
-// Properties: checkout_id, ticket_type_id, ticket_count.
+// Properties: checkout_id, ticket_stock_id, ticket_count.
 func (c *AnalyticsConsumer) HandleCheckoutExpired(msg *message.Message) error {
 	var data entity.CheckoutExpiredData
 	return c.forward(msg, entity.SubjectCheckoutExpired, &data, usecase.EventCheckoutExpired, func() fact {
 		return fact{distinctID: data.UserID, at: data.HoldExpireTime, props: usecase.AnalyticsProperties{
-			"checkout_id":    data.CheckoutID,
-			"ticket_type_id": data.TicketTypeID,
-			"ticket_count":   data.TicketCount,
+			"checkout_id":     data.CheckoutID,
+			"ticket_stock_id": data.TicketStockID,
+			"ticket_count":    data.TicketCount,
 		}}
 	})
 }

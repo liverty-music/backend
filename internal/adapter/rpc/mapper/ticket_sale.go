@@ -9,15 +9,11 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
-// TicketSaleToProto maps a TicketSale, with its TicketTypes as the reader saw
-// them, to Protobuf. withCounts sets each TicketType's quantity and, for a
-// FirstCome sale, its sold and held counts, which only the owning Organizer
-// may see.
-func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.TicketSale {
-	if v == nil || v.Sale == nil {
+// TicketSaleToProto maps a TicketSale with the events it names to Protobuf.
+func TicketSaleToProto(s *entity.TicketSale) *entityv1.TicketSale {
+	if s == nil {
 		return nil
 	}
-	s := v.Sale
 	pb := &entityv1.TicketSale{
 		Id:                      &entityv1.TicketSaleId{Value: string(s.ID)},
 		SeriesId:                &entityv1.SeriesId{Value: s.SeriesID},
@@ -26,25 +22,20 @@ func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.Tic
 		SaleStartTime:           timestamppb.New(s.SaleStartTime),
 		SaleEndTime:             timestamppb.New(s.SaleEndTime),
 		VerificationRequirement: verificationRequirementToProto(s.VerificationRequirement),
-		TicketTypes:             make([]*entityv1.TicketType, 0, len(v.TicketTypes)),
+		EventIds:                make([]*entityv1.EventId, 0, len(s.EventIDs)),
 	}
-	if s.DrawTime != nil {
-		pb.DrawTime = timestamppb.New(*s.DrawTime)
-	}
-	for _, tv := range v.TicketTypes {
-		if tt := TicketTypeToProto(tv, withCounts); tt != nil {
-			pb.TicketTypes = append(pb.TicketTypes, tt)
-		}
+	for _, id := range s.EventIDs {
+		pb.EventIds = append(pb.EventIds, &entityv1.EventId{Value: id})
 	}
 	return pb
 }
 
 // TicketSalesToProto maps the sales of a list to Protobuf; see
 // [TicketSaleToProto].
-func TicketSalesToProto(views []*usecase.TicketSaleView, withCounts bool) []*entityv1.TicketSale {
-	out := make([]*entityv1.TicketSale, 0, len(views))
-	for _, v := range views {
-		if pb := TicketSaleToProto(v, withCounts); pb != nil {
+func TicketSalesToProto(sales []*entity.TicketSale) []*entityv1.TicketSale {
+	out := make([]*entityv1.TicketSale, 0, len(sales))
+	for _, s := range sales {
+		if pb := TicketSaleToProto(s); pb != nil {
 			out = append(out, pb)
 		}
 	}
@@ -102,8 +93,7 @@ func VerificationRequirementFromProto(r entityv1.VerificationRequirement) entity
 }
 
 // CreateTicketSaleInputFromProto maps an organizer Create request to the use
-// case input. A missing end time stays nil, and a missing per-account limit
-// is 0, which the use case reads as the default.
+// case input.
 func CreateTicketSaleInputFromProto(req *organizerticketsalev1.CreateRequest) usecase.CreateTicketSaleInput {
 	in := usecase.CreateTicketSaleInput{
 		SeriesID:                req.GetSeriesId().GetValue(),
@@ -111,19 +101,13 @@ func CreateTicketSaleInputFromProto(req *organizerticketsalev1.CreateRequest) us
 		Method:                  TicketSaleMethodFromProto(req.GetMethod()),
 		SaleStart:               req.GetSaleStartTime().AsTime(),
 		VerificationRequirement: VerificationRequirementFromProto(req.GetVerificationRequirement()),
-		TicketTypes:             make([]usecase.TicketTypeInput, 0, len(req.GetTicketTypes())),
+		EventIDs:                make([]string, 0, len(req.GetEventIds())),
 	}
 	if req.GetSaleEndTime() != nil {
-		end := req.GetSaleEndTime().AsTime()
-		in.SaleEnd = &end
+		in.SaleEnd = req.GetSaleEndTime().AsTime()
 	}
-	for _, d := range req.GetTicketTypes() {
-		in.TicketTypes = append(in.TicketTypes, usecase.TicketTypeInput{
-			EventID:         d.GetEventId().GetValue(),
-			Price:           d.GetPrice().GetValue(),
-			Quantity:        int(d.GetQuantity()),
-			PerAccountLimit: int(d.GetPerAccountLimit()),
-		})
+	for _, id := range req.GetEventIds() {
+		in.EventIDs = append(in.EventIDs, id.GetValue())
 	}
 	return in
 }

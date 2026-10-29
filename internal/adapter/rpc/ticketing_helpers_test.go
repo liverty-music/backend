@@ -23,14 +23,15 @@ import (
 
 // IDs shared by the ticketing handler tests.
 const (
-	tkSeriesID     = "019a0000-0000-7000-8000-0000000000c1"
-	tkSaleID       = "019a0000-0000-7000-8000-0000000000c2"
-	tkTicketTypeID = "019a0000-0000-7000-8000-0000000000c3"
-	tkEntryID      = "019a0000-0000-7000-8000-0000000000c4"
-	tkCheckoutID   = "019a0000-0000-7000-8000-0000000000c5"
-	tkOrderID      = "019a0000-0000-7000-8000-0000000000c6"
-	tkFanSub       = "ext-fan"
-	tkFanUserID    = "019a0000-0000-7000-8000-0000000000c7"
+	tkSeriesID   = "019a0000-0000-7000-8000-0000000000c1"
+	tkSaleID     = "019a0000-0000-7000-8000-0000000000c2"
+	tkStockID    = "019a0000-0000-7000-8000-0000000000c3"
+	tkEntryID    = "019a0000-0000-7000-8000-0000000000c4"
+	tkCheckoutID = "019a0000-0000-7000-8000-0000000000c5"
+	tkOrderID    = "019a0000-0000-7000-8000-0000000000c6"
+	tkFanSub     = "ext-fan"
+	tkFanUserID  = "019a0000-0000-7000-8000-0000000000c7"
+	tkSeatTypeID = "019a0000-0000-7000-8000-0000000000c8"
 )
 
 // serveValidated serves one Connect service behind the production error

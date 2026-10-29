@@ -94,7 +94,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	logger := newTestLogger(t)
 
 	var mu sync.Mutex
-	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PayTime: time.Now()}
+	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PayTime: new(time.Now())}
 	orders := entitymocks.NewMockOrderRepository(t)
 	orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
 		mu.Lock()

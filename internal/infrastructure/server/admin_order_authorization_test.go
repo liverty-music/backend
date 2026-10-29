@@ -203,7 +203,7 @@ func TestAdminServer_OrderListByEvent(t *testing.T) {
 		orders := usecasemocks.NewMockOrderUseCase(t)
 		orders.EXPECT().ListByEvent(mock.Anything, eventID).Return([]*entity.Order{{
 			ID: adminOrderOrderID, UserID: "019a0000-0000-7000-8000-0000000000f3", CheckoutID: "019a0000-0000-7000-8000-0000000000f4",
-			Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY", PayTime: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+			Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY", PayTime: new(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)),
 		}}, nil)
 		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})
 

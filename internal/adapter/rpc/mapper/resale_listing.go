@@ -9,22 +9,23 @@ import (
 )
 
 // ResaleListingToProto maps a listing, with its deadline and its status when
-// read, to Protobuf. Only the fan's own side is mapped: never the Checkout
-// that holds it or anything about the fan who bought it.
+// read, to Protobuf. Only the fan's own side is mapped: never anything about
+// the fan who bought it.
 func ResaleListingToProto(v *usecase.ResaleListingAt) *entityv1.ResaleListing {
 	if v == nil || v.Listing == nil {
 		return nil
 	}
 	l := v.Listing
 	pb := &entityv1.ResaleListing{
-		Id:           &entityv1.ResaleListingId{Value: string(l.ID)},
-		TicketId:     &entityv1.TicketId{Value: string(l.TicketID)},
-		Price:        &entityv1.TicketTypePrice{Value: l.Price},
-		Fee:          l.Fee(),
-		RefundAmount: l.RefundAmount(),
-		Status:       resaleListingStatusToProto(v.Status),
-		CreateTime:   timestamppb.New(l.CreateTime),
-		DeadlineTime: timestamppb.New(v.Deadline),
+		Id:            &entityv1.ResaleListingId{Value: string(l.ID)},
+		TicketId:      &entityv1.TicketId{Value: string(l.TicketID)},
+		Price:         &entityv1.SeatTypePrice{Value: l.Price},
+		Fee:           l.Fee(),
+		RefundAmount:  l.RefundAmount(),
+		Status:        resaleListingStatusToProto(v.Status),
+		CreateTime:    timestamppb.New(l.CreateTime),
+		DeadlineTime:  timestamppb.New(v.Deadline),
+		TicketStockId: &entityv1.TicketStockId{Value: string(l.TicketStockID)},
 	}
 	if l.SoldTime != nil {
 		pb.SoldTime = timestamppb.New(*l.SoldTime)

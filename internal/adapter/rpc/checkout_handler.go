@@ -39,7 +39,7 @@ func NewCheckoutHandler(
 	return &CheckoutHandler{checkoutUC: checkoutUC, orderUC: orderUC, userUC: userUC, logger: logger}
 }
 
-// Start holds tickets of a TicketType for the caller for 15 minutes.
+// Start holds tickets of a TicketStock for the caller for 15 minutes.
 func (h *CheckoutHandler) Start(
 	ctx context.Context,
 	req *checkoutv1.StartRequest,
@@ -49,12 +49,12 @@ func (h *CheckoutHandler) Start(
 		return nil, err
 	}
 
-	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketTypeID(req.GetTicketTypeId().GetValue()), int(req.GetTicketCount()),
+	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketStockID(req.GetTicketStockId().GetValue()), int(req.GetTicketCount()),
 		mapper.ReferralCodeFromProto(req.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}
-	return &checkoutv1.StartResponse{Checkout: mapper.CheckoutToProto(checkout)}, nil
+	return &checkoutv1.StartResponse{Checkout: mapper.CheckoutToProto(checkout), Order: mapper.OrderToProto(checkout.Order)}, nil
 }
 
 // Get returns the caller's Checkout as it stands now.
@@ -71,7 +71,7 @@ func (h *CheckoutHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return &checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout)}, nil
+	return &checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout), Order: mapper.OrderToProto(checkout.Order)}, nil
 }
 
 // AuthorizeCard stores the caller's full name and phone number and opens the card

@@ -46,9 +46,10 @@ func TestOrderHandler_Get(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/order "Fan reads their order"
 		client, uc, users := newOrderClient(t, signedInAs(tkFanSub))
 		expectFan(users)
+		payTime := time.Unix(1_700_000_000, 0)
 		uc.EXPECT().Get(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).Return(&entity.Order{
-			ID: tkOrderID, UserID: tkFanUserID, LotteryEntryID: tkEntryID, Status: entity.OrderStatusPaid,
-			Amount: 10000, Currency: "JPY", PayTime: time.Unix(1_700_000_000, 0),
+			ID: tkOrderID, UserID: tkFanUserID, TicketStockID: tkStockID, TicketCount: 2, LotteryEntryID: tkEntryID,
+			Status: entity.OrderStatusPaid, Amount: 10000, Currency: "JPY", PayTime: &payTime,
 		}, nil)
 
 		resp, err := client.Get(ctx, getReq())

@@ -61,8 +61,8 @@ func TestResaleListingHandler(t *testing.T) {
 		return &usecase.ResaleListingAt{
 			Listing: &entity.ResaleListing{
 				ID: rlListingID, TicketID: rlTicketID, OrderID: tkOrderID, UserID: tkFanUserID, EventID: "event-1",
-				TicketTypeID: tkTicketTypeID, Price: 5000, Status: entity.ResaleListingStatusListed,
-				CheckoutID: tkCheckoutID, CreateTime: created,
+				TicketStockID: tkStockID, Price: 5000, Status: entity.ResaleListingStatusListed,
+				CreateTime: created,
 			},
 			Deadline: deadline,
 			Status:   entity.ResaleListingStatusListed,

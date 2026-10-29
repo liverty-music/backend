@@ -28,15 +28,26 @@ func NewTicketSaleHandler(ticketSaleUC usecase.TicketSaleUseCase, logger *loggin
 	return &TicketSaleHandler{ticketSaleUC: ticketSaleUC, logger: logger}
 }
 
-// ListByEvent returns an event's sales in start order, each with its
-// TicketType for the event and, for a first-come one, its state now.
+// ListByEvent returns an event's sales in start order and the event's
+// TicketStocks with their SeatTypes and states, without counts, and its
+// per-account limit.
 func (h *TicketSaleHandler) ListByEvent(
 	ctx context.Context,
 	req *ticketsalev1.ListByEventRequest,
 ) (*ticketsalev1.ListByEventResponse, error) {
-	views, err := h.ticketSaleUC.ListByEvent(ctx, req.GetEventId().GetValue())
+	sales, err := h.ticketSaleUC.ListByEvent(ctx, req.GetEventId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.ListByEventResponse{TicketSales: mapper.TicketSalesToProto(views, false)}, nil
+	stocks, seatTypes := mapper.FanTicketStocksToProto(sales.Stocks)
+	resp := &ticketsalev1.ListByEventResponse{
+		TicketSales:  mapper.TicketSalesToProto(sales.Sales),
+		TicketStocks: stocks,
+		SeatTypes:    seatTypes,
+	}
+	if sales.PerAccountLimit != nil {
+		limit := int32(*sales.PerAccountLimit)
+		resp.PerAccountLimit = &limit
+	}
+	return resp, nil
 }

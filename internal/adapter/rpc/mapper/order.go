@@ -13,18 +13,30 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 		return nil
 	}
 	pb := &entityv1.Order{
-		Id:     &entityv1.OrderId{Value: string(order.ID)},
-		UserId: &entityv1.UserId{Value: string(order.UserID)},
+		Id:            &entityv1.OrderId{Value: string(order.ID)},
+		UserId:        &entityv1.UserId{Value: string(order.UserID)},
+		TicketStockId: &entityv1.TicketStockId{Value: string(order.TicketStockID)},
+		TicketCount:   int32(order.TicketCount),
 		Payment: &entityv1.Payment{
-			Provider:          paymentProviderToProto(order.Payment.Provider),
-			ProviderPaymentId: &entityv1.Payment_ProviderPaymentId{Value: order.Payment.ProviderPaymentID},
-			CardBrand:         order.Payment.CardBrand,
-			CardLast4:         order.Payment.CardLast4,
+			Provider:  paymentProviderToProto(order.Payment.Provider),
+			CardBrand: order.Payment.CardBrand,
+			CardLast4: order.Payment.CardLast4,
 		},
 		Status:   orderStatusToProto(order.Status),
 		Amount:   order.Amount,
 		Currency: order.Currency,
-		PayTime:  timestamppb.New(order.PayTime),
+	}
+	if order.ReferralCode != nil {
+		pb.ReferralCode = &entityv1.ReferralCode{Value: string(*order.ReferralCode)}
+	}
+	if order.CardAuthorizationID != "" {
+		pb.CardAuthorizationId = &entityv1.CardAuthorizationId{Value: order.CardAuthorizationID}
+	}
+	if order.Payment.ProviderPaymentID != "" {
+		pb.Payment.ProviderPaymentId = &entityv1.Payment_ProviderPaymentId{Value: order.Payment.ProviderPaymentID}
+	}
+	if order.PayTime != nil {
+		pb.PayTime = timestamppb.New(*order.PayTime)
 	}
 	if order.Payment.ProviderPaymentMethodID != "" {
 		pb.Payment.ProviderPaymentMethodId = &entityv1.Payment_ProviderPaymentMethodId{Value: order.Payment.ProviderPaymentMethodID}
@@ -63,8 +75,10 @@ func orderStatusToProto(s entity.OrderStatus) entityv1.OrderStatus {
 		return entityv1.OrderStatus_ORDER_STATUS_PAID
 	case entity.OrderStatusRefunded:
 		return entityv1.OrderStatus_ORDER_STATUS_REFUNDED
-	case entity.OrderStatusFailed:
-		return entityv1.OrderStatus_ORDER_STATUS_FAILED
+	case entity.OrderStatusPending:
+		return entityv1.OrderStatus_ORDER_STATUS_PENDING
+	case entity.OrderStatusVoid:
+		return entityv1.OrderStatus_ORDER_STATUS_VOID
 	default:
 		return entityv1.OrderStatus_ORDER_STATUS_UNSPECIFIED
 	}
