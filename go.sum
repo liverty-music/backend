@@ -8,12 +8,8 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.1-20261015154428-c661e2
 buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.1-20261015154428-c661e2f1fba9.1/go.mod h1:pVB3IEfwKJXmCm52sj5ssEM6UQ9dOGKA6locMEkWNOk=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261015154428-c661e2f1fba9.2 h1:NsoxKZ9Vr9+f/Fw0DVj95nG5EYUeMd1s6Fy1j3UUCa0=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261015154428-c661e2f1fba9.2/go.mod h1:v7IaNcBKy5G3G8gpG2m92P0R3HK2qtMGclWzf+1Aut4=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261027073428-c4f8ed6410a6.1 h1:Su0UT1d5DeN2pbWz3U9GqH2db/onrAJTPPePzNXIvYQ=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261027073428-c4f8ed6410a6.1/go.mod h1:IQ/qAGDlyNzeQ1JxRY6Auz0nJyb1sVu5tbpYT96kWBQ=
 buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261029013006-08f6a5f4a07b.1 h1:aqIPJ3D35u67G1YVklLamUDDb0Ch+2Ucai0yg2grwuY=
 buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261029013006-08f6a5f4a07b.1/go.mod h1:bFewsxydTYvjHa+Igphj8mnRjEMCi//JcCLqWnaxMuA=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261027073428-c4f8ed6410a6.2 h1:0yQBEf9N+xbLq+/NUDFegwqe6CYJh6OvQ/EGcb41rvk=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261027073428-c4f8ed6410a6.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261029013006-08f6a5f4a07b.2 h1:bzSfRsPTIcBpiajRpJHuzsEAvgiXHFEmRGyF1s6vwLw=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261029013006-08f6a5f4a07b.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.12-20241007202033-cf42259fcbfc.2 h1:9xw8g8Q6zHLC7CO/jtpl2UK0kQticxIG+mI6N86f2/M=
@@ -193,8 +189,8 @@ github.com/go-delve/delve v1.27.2 h1:dhcjFjiVoQI53uwsG7EqYiMhdvFuywsBZx4KDOK+sYE
 github.com/go-delve/delve v1.27.2/go.mod h1:nkFriKZ7rywF+tspcCgJeouzq6b0krJlJiGp15T81hA=
 github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62 h1:IGtvsNyIuRjl04XAOFGACozgUD7A82UffYxZt4DWbvA=
 github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62/go.mod h1:biJCRbqp51wS+I92HMqn5H8/A0PAhxn2vyOT+JqhiGI=
-github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz3kA=
-github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
+github.com/go-jose/go-jose/v4 v4.1.6 h1:sNRkftxFJxwsILiQukqp5z83QBSmntVwmgRY7AqBDO4=
+github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.4 h1:tG4xh9yMsRCAiodLVTxyrkzSZ9+o0L1Kg/+cPVcbP/8=
 github.com/go-logr/logr v1.4.4/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
