@@ -118,7 +118,7 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 	t.Parallel()
 	checkout := entity.CardAuthorizationPurchase{
 		Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1",
-		UserID: "user-1", TicketTypeID: "type-1", EventID: "event-1", TicketCount: 2,
+		UserID: "user-1", TicketStockID: "stock-1", EventID: "event-1", TicketCount: 2,
 	}
 
 	t.Run("card authorization opened for a checkout", func(t *testing.T) {
@@ -139,7 +139,8 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 		assert.Equal(t, "manual", stub.createForm.Get("capture_method"), "nothing is charged until capture")
 		assert.Equal(t, "checkout-1", stub.createForm.Get("metadata[checkout_id]"))
 		assert.Equal(t, "user-1", stub.createForm.Get("metadata[user_id]"))
-		assert.Equal(t, "type-1", stub.createForm.Get("metadata[ticket_type_id]"))
+		assert.Equal(t, "stock-1", stub.createForm.Get("metadata[ticket_stock_id]"))
+		assert.Empty(t, stub.createForm.Get("metadata[ticket_sale_id]"))
 		assert.Equal(t, "2", stub.createForm.Get("metadata[ticket_count]"))
 		assert.Equal(t, "event-1", stub.createForm.Get("metadata[event_id]"))
 		assert.Zero(t, stub.captures)
@@ -172,7 +173,7 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 		code := entity.ReferralCode("member-a")
 		entry := func(count int) entity.CardAuthorizationPurchase {
 			return entity.CardAuthorizationPurchase{
-				Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketTypeID: "type-1",
+				Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketSaleID: "sale-1", TicketStockID: "stock-1",
 				EventID: "event-1", TicketCount: count, ReferralCode: &code,
 			}
 		}
@@ -192,7 +193,8 @@ func TestStripeCardAuthorizationRepository_Create(t *testing.T) {
 			form := stub.createForms[i]
 			assert.Equal(t, count, form.Get("metadata[ticket_count]"))
 			assert.Equal(t, "user-1", form.Get("metadata[user_id]"))
-			assert.Equal(t, "type-1", form.Get("metadata[ticket_type_id]"))
+			assert.Equal(t, "sale-1", form.Get("metadata[ticket_sale_id]"))
+			assert.Equal(t, "stock-1", form.Get("metadata[ticket_stock_id]"))
 			assert.Equal(t, "event-1", form.Get("metadata[event_id]"))
 			assert.Equal(t, "member-a", form.Get("metadata[referral_code]"))
 			assert.Empty(t, form.Get("metadata[checkout_id]"))
@@ -245,7 +247,7 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		// @spec components/entity/card-authorization/get "Authorized card authorization"
 		body := paymentIntentBody("requires_capture", 16000, "jpy", "visa")
 		body["metadata"] = map[string]any{
-			"user_id": "user-1", "ticket_type_id": "type-1", "ticket_count": "2", "event_id": "event-1", "referral_code": "member-a",
+			"user_id": "user-1", "ticket_sale_id": "sale-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1", "referral_code": "member-a",
 		}
 		stub := &stripeStub{retrieve: ok(body)}
 		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
@@ -258,7 +260,7 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		assert.Equal(t, entity.CardBrand("visa"), got.CardBrand)
 		code := entity.ReferralCode("member-a")
 		assert.Equal(t, entity.CardAuthorizationPurchase{
-			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketTypeID: "type-1",
+			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "user-1", TicketSaleID: "sale-1", TicketStockID: "stock-1",
 			EventID: "event-1", TicketCount: 2, ReferralCode: &code,
 		}, got.Purchase, "the purchase it was opened with")
 		assert.Zero(t, stub.captures, "nothing is charged")
@@ -298,7 +300,7 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		t.Parallel()
 		body := paymentIntentBody("requires_capture", 6000, "jpy", "visa")
 		body["metadata"] = map[string]any{
-			"checkout_id": "checkout-1", "user_id": "user-1", "ticket_type_id": "type-1", "ticket_count": "2", "event_id": "event-1",
+			"checkout_id": "checkout-1", "user_id": "user-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1",
 		}
 		repo := newStubRepo(t, &stripeStub{retrieve: ok(body)}, payment.CheckoutCardAuthorizationPolicy)
 
@@ -307,7 +309,7 @@ func TestStripeCardAuthorizationRepository_Get(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationPurchase{
 			Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1", UserID: "user-1",
-			TicketTypeID: "type-1", EventID: "event-1", TicketCount: 2,
+			TicketStockID: "stock-1", EventID: "event-1", TicketCount: 2,
 		}, got.Purchase)
 	})
 

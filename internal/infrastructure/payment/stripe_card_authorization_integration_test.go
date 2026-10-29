@@ -29,19 +29,19 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 	lottery := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, mustLogger(t))
 	checkout := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, mustLogger(t))
 	const amountJPY int64 = 6000
-	fanID, ticketTypeID, eventID := entity.NewID(), entity.NewID(), entity.NewID()
+	fanID, saleID, ticketStockID, eventID := entity.NewID(), entity.NewID(), entity.NewID(), entity.NewID()
 
 	// open opens a card authorization for a fresh checkout, so every subtest
 	// has its own idempotency keys.
 	open := func(t *testing.T, repo *payment.StripeCardAuthorizationRepository) (*entity.CardAuthorization, entity.CardAuthorizationPurchase) {
 		t.Helper()
 		purchase := entity.CardAuthorizationPurchase{
-			Purpose:      entity.CardAuthorizationPurposeCheckout,
-			CheckoutID:   entity.CheckoutID(entity.NewID()),
-			UserID:       entity.UserID(entity.NewID()),
-			TicketTypeID: entity.TicketTypeID(entity.NewID()),
-			EventID:      entity.NewID(),
-			TicketCount:  2,
+			Purpose:       entity.CardAuthorizationPurposeCheckout,
+			CheckoutID:    entity.CheckoutID(entity.NewID()),
+			UserID:        entity.UserID(entity.NewID()),
+			TicketStockID: entity.TicketStockID(entity.NewID()),
+			EventID:       entity.NewID(),
+			TicketCount:   2,
 		}
 		got, err := repo.Create(ctx, purchase, amountJPY)
 		require.NoError(t, err)
@@ -89,12 +89,13 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		code := entity.ReferralCode("member-a")
 		entry := func(count int) entity.CardAuthorizationPurchase {
 			return entity.CardAuthorizationPurchase{
-				Purpose:      entity.CardAuthorizationPurposeLotteryEntry,
-				UserID:       entity.UserID(fanID),
-				TicketTypeID: entity.TicketTypeID(ticketTypeID),
-				EventID:      eventID,
-				TicketCount:  count,
-				ReferralCode: &code,
+				Purpose:       entity.CardAuthorizationPurposeLotteryEntry,
+				UserID:        entity.UserID(fanID),
+				TicketSaleID:  entity.TicketSaleID(saleID),
+				TicketStockID: entity.TicketStockID(ticketStockID),
+				EventID:       eventID,
+				TicketCount:   count,
+				ReferralCode:  &code,
 			}
 		}
 		two, err := lottery.Create(ctx, entry(2), 16000)
