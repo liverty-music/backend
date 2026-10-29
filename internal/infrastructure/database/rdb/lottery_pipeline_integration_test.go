@@ -114,7 +114,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	assert.Equal(t, quantity, won, "winners must exactly fill quantity (no oversell)")
 	assert.Equal(t, entrants-quantity, lost, "the remaining entrants must lose")
 
-	none, err := entryRepo.ListByTicketTypeAndUser(ctx, f.SaleID, abandonedFan)
+	none, err := entryRepo.ListByTicketSaleAndUser(ctx, f.SaleID, abandonedFan)
 	require.NoError(t, err)
 	assert.Empty(t, none, "a fan who never authenticated has no entry")
 	held, err := orderRepo.GetHeldForEvent(ctx, abandonedFan, f.EventID, nil, now)
@@ -123,9 +123,9 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, piStatus(t, key, abandoned.ID),
 		"the unauthenticated card authorization holds nothing")
 
-	undrawn, err := entryRepo.ListUndrawnForTicketType(ctx, f.SaleID, f.ID)
+	entered, err := entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
 	require.NoError(t, err)
-	assert.Empty(t, undrawn, "the sale is drawn: no entry is Entered")
+	assert.Empty(t, entered, "the sale is drawn: no entry is Entered")
 }
 
 // lotteryEntryDeps wires the lottery entry use case over the real

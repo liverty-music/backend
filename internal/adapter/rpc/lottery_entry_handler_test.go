@@ -115,7 +115,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/lottery-entry "Not signed in"
 		f := newLotteryEntryFixture(t, func(c context.Context) context.Context { return c })
 
-		_, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
+		_, err := f.client.ListByTicketSale(ctx, &lotteryentryv1.ListByTicketSaleRequest{
 			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID},
 		})
 
@@ -156,14 +156,14 @@ func TestLotteryEntryHandler(t *testing.T) {
 		assert.Equal(t, cardAuthorizationID, resp.GetOrder().GetCardAuthorizationId().GetValue())
 	})
 
-	t.Run("list by ticket type returns the caller's entries", func(t *testing.T) {
+	t.Run("list by ticket sale returns the caller's entries", func(t *testing.T) {
 		t.Parallel()
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().ListByTicketType(mock.Anything, entity.TicketSaleID(tkSaleID), entity.UserID(tkFanUserID)).
+		f.lottery.EXPECT().ListByTicketSale(mock.Anything, entity.TicketSaleID(tkSaleID), entity.UserID(tkFanUserID)).
 			Return([]*entity.LotteryEntry{entered}, nil)
 
-		resp, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
+		resp, err := f.client.ListByTicketSale(ctx, &lotteryentryv1.ListByTicketSaleRequest{
 			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID},
 		})
 
@@ -250,7 +250,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		{
 			name: "list without a ticket sale",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{})
+				_, err := c.ListByTicketSale(ctx, &lotteryentryv1.ListByTicketSaleRequest{})
 				return err
 			},
 		},

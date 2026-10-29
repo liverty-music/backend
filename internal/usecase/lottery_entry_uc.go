@@ -103,7 +103,7 @@ type LotteryEntryUseCase interface {
 	//    unchanged.
 	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)
 
-	// ListByTicketType returns the fan's entries in the Lottery sale, at most
+	// ListByTicketSale returns the fan's entries in the Lottery sale, at most
 	// one for each event it names, each with its Order, in every state, newest
 	// first; an empty slice when there is none. The name is kept until the
 	// rename that follows remodel-ticket-sales (design D11).
@@ -111,7 +111,7 @@ type LotteryEntryUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the sale does not exist.
-	ListByTicketType(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)
+	ListByTicketSale(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)
 
 	// DrawDueSales runs [LotteryEntryUseCase.RunDraw] for every Lottery sale due
 	// now. A failed draw is logged and stays due for the next run.
@@ -261,7 +261,7 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 // hasEntryForEvent reports whether the fan has an entry, in any state, in the
 // sale for a TicketStock of the event.
 func (uc *lotteryEntryUseCase) hasEntryForEvent(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, eventID string, now time.Time) (bool, error) {
-	entries, err := uc.entryRepo.ListByTicketTypeAndUser(ctx, saleID, userID)
+	entries, err := uc.entryRepo.ListByTicketSaleAndUser(ctx, saleID, userID)
 	if err != nil || len(entries) == 0 {
 		return false, err
 	}
@@ -399,12 +399,12 @@ func (uc *lotteryEntryUseCase) reject(ctx context.Context, cardAuthorizationID s
 	return refusal
 }
 
-// ListByTicketType implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) ListByTicketType(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+// ListByTicketSale implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) ListByTicketSale(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
 	if _, err := uc.saleRepo.Get(ctx, saleID); err != nil {
 		return nil, err
 	}
-	return uc.entryRepo.ListByTicketTypeAndUser(ctx, saleID, userID)
+	return uc.entryRepo.ListByTicketSaleAndUser(ctx, saleID, userID)
 }
 
 // DrawDueSales implements [LotteryEntryUseCase].
@@ -444,7 +444,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 			return err
 		}
 		for _, listed := range stocks {
-			entries, err := uc.entryRepo.ListUndrawnForTicketType(ctx, saleID, listed.ID)
+			entries, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, saleID, listed.ID)
 			if err != nil {
 				return err
 			}

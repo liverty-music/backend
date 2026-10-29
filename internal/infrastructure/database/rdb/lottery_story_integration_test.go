@@ -295,10 +295,10 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 	s.published.paid = nil
 }
 
-// ownEntry returns the fan's entry as ListByTicketType shows it.
+// ownEntry returns the fan's entry as ListByTicketSale shows it.
 func (s *lotteryStory) ownEntry(saleID entity.TicketSaleID, fan entity.UserID, id entity.LotteryEntryID) *entity.LotteryEntry {
 	s.t.Helper()
-	entries, err := s.lottery.ListByTicketType(s.ctx, saleID, fan)
+	entries, err := s.lottery.ListByTicketSale(s.ctx, saleID, fan)
 	require.NoError(s.t, err)
 	for _, e := range entries {
 		if e.ID == id {
@@ -343,7 +343,7 @@ func (s *lotteryStory) assertOrderVoid(id entity.LotteryEntryID) {
 // assertNoEntry asserts the fan has no entry in the sale.
 func (s *lotteryStory) assertNoEntry(saleID entity.TicketSaleID, fan entity.UserID) {
 	s.t.Helper()
-	entries, err := s.lottery.ListByTicketType(s.ctx, saleID, fan)
+	entries, err := s.lottery.ListByTicketSale(s.ctx, saleID, fan)
 	require.NoError(s.t, err)
 	assert.Empty(s.t, entries, "the fan has no entry")
 }
@@ -475,7 +475,7 @@ func TestLotteryStory_CountChangedBeforeConfirming(t *testing.T) {
 	entered, err := s.lottery.Confirm(s.ctx, three.ID, &fan)
 	require.NoError(t, err)
 
-	entries, err := s.lottery.ListByTicketType(s.ctx, sale, fan)
+	entries, err := s.lottery.ListByTicketSale(s.ctx, sale, fan)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "the fan has one entry")
 	assert.Equal(t, entered.ID, entries[0].ID)
@@ -649,7 +649,7 @@ func TestLotteryStory_SecondEntryIntoTheSameSale(t *testing.T) {
 
 	_, err := s.lottery.AuthorizeCard(s.ctx, sale, stock.ID, fan, 1, storyFanName, storyFanPhone, nil)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the second entry is refused")
-	entries, err := s.lottery.ListByTicketType(s.ctx, sale, fan)
+	entries, err := s.lottery.ListByTicketSale(s.ctx, sale, fan)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "the fan keeps one entry")
 	assert.Equal(t, first.ID, entries[0].ID)

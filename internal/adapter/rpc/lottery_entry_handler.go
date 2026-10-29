@@ -95,18 +95,18 @@ func (h *LotteryEntryHandler) Confirm(
 	return &lotteryentryv1.ConfirmResponse{LotteryEntry: mapper.LotteryEntryToProto(entry), Order: mapper.OrderToProto(entry.Order)}, nil
 }
 
-// ListByTicketType returns the caller's entries in a lottery sale, newest
+// ListByTicketSale returns the caller's entries in a lottery sale, newest
 // first, with their Orders.
-func (h *LotteryEntryHandler) ListByTicketType(
+func (h *LotteryEntryHandler) ListByTicketSale(
 	ctx context.Context,
-	req *lotteryentryv1.ListByTicketTypeRequest,
-) (*lotteryentryv1.ListByTicketTypeResponse, error) {
+	req *lotteryentryv1.ListByTicketSaleRequest,
+) (*lotteryentryv1.ListByTicketSaleResponse, error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := h.lotteryEntryUC.ListByTicketType(ctx, entity.TicketSaleID(req.GetTicketSaleId().GetValue()), userID)
+	entries, err := h.lotteryEntryUC.ListByTicketSale(ctx, entity.TicketSaleID(req.GetTicketSaleId().GetValue()), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,5 +116,5 @@ func (h *LotteryEntryHandler) ListByTicketType(
 			orders = append(orders, o)
 		}
 	}
-	return &lotteryentryv1.ListByTicketTypeResponse{LotteryEntries: mapper.LotteryEntriesToProto(entries), Orders: orders}, nil
+	return &lotteryentryv1.ListByTicketSaleResponse{LotteryEntries: mapper.LotteryEntriesToProto(entries), Orders: orders}, nil
 }

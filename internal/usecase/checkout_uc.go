@@ -200,7 +200,7 @@ func (uc *checkoutUseCase) checkLotteriesDrawn(ctx context.Context, sales []*ent
 		if sale.Method != entity.TicketSaleMethodLottery || sale.IsNotYetOverAt(now) {
 			continue
 		}
-		undrawn, err := uc.entryRepo.ListUndrawnForTicketType(ctx, sale.ID, stock.ID)
+		undrawn, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, sale.ID, stock.ID)
 		if err != nil {
 			return err
 		}

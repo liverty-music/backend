@@ -276,12 +276,12 @@ func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
-// ListByTicketType provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) ListByTicketType(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+// ListByTicketSale provides a mock function for the type MockLotteryEntryUseCase
+func (_mock *MockLotteryEntryUseCase) ListByTicketSale(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
 	ret := _mock.Called(ctx, saleID, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListByTicketType")
+		panic("no return value specified for ListByTicketSale")
 	}
 
 	var r0 []*entity.LotteryEntry
@@ -304,20 +304,20 @@ func (_mock *MockLotteryEntryUseCase) ListByTicketType(ctx context.Context, sale
 	return r0, r1
 }
 
-// MockLotteryEntryUseCase_ListByTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByTicketType'
-type MockLotteryEntryUseCase_ListByTicketType_Call struct {
+// MockLotteryEntryUseCase_ListByTicketSale_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByTicketSale'
+type MockLotteryEntryUseCase_ListByTicketSale_Call struct {
 	*mock.Call
 }
 
-// ListByTicketType is a helper method to define mock.On call
+// ListByTicketSale is a helper method to define mock.On call
 //   - ctx context.Context
 //   - saleID entity.TicketSaleID
 //   - userID entity.UserID
-func (_e *MockLotteryEntryUseCase_Expecter) ListByTicketType(ctx any, saleID any, userID any) *MockLotteryEntryUseCase_ListByTicketType_Call {
-	return &MockLotteryEntryUseCase_ListByTicketType_Call{Call: _e.mock.On("ListByTicketType", ctx, saleID, userID)}
+func (_e *MockLotteryEntryUseCase_Expecter) ListByTicketSale(ctx any, saleID any, userID any) *MockLotteryEntryUseCase_ListByTicketSale_Call {
+	return &MockLotteryEntryUseCase_ListByTicketSale_Call{Call: _e.mock.On("ListByTicketSale", ctx, saleID, userID)}
 }
 
-func (_c *MockLotteryEntryUseCase_ListByTicketType_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID)) *MockLotteryEntryUseCase_ListByTicketType_Call {
+func (_c *MockLotteryEntryUseCase_ListByTicketSale_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID)) *MockLotteryEntryUseCase_ListByTicketSale_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -340,12 +340,12 @@ func (_c *MockLotteryEntryUseCase_ListByTicketType_Call) Run(run func(ctx contex
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_ListByTicketType_Call) Return(lotteryEntrys []*entity.LotteryEntry, err error) *MockLotteryEntryUseCase_ListByTicketType_Call {
+func (_c *MockLotteryEntryUseCase_ListByTicketSale_Call) Return(lotteryEntrys []*entity.LotteryEntry, err error) *MockLotteryEntryUseCase_ListByTicketSale_Call {
 	_c.Call.Return(lotteryEntrys, err)
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_ListByTicketType_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_ListByTicketType_Call {
+func (_c *MockLotteryEntryUseCase_ListByTicketSale_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_ListByTicketSale_Call {
 	_c.Call.Return(run)
 	return _c
 }

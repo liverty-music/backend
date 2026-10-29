@@ -159,7 +159,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 			SaleStartTime: coSaleStart.Add(-72 * time.Hour), SaleEndTime: coSaleStart, EventIDs: []string{"event-1"},
 		}
 		expectStartReads(f, coStock(150, 0, 0), presale, coSale())
-		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, entity.TicketSaleID("sale-pre"), entity.TicketStockID("stock-1")).
+		f.entries.EXPECT().ListEnteredByTicketSaleAndTicketStock(mock.Anything, entity.TicketSaleID("sale-pre"), entity.TicketStockID("stock-1")).
 			Return([]*entity.LotteryEntry{{ID: "entry-1"}}, nil)
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "stock-1", 2, nil)
@@ -175,7 +175,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 			SaleStartTime: coSaleStart.Add(-72 * time.Hour), SaleEndTime: coSaleStart, EventIDs: []string{"event-1"},
 		}
 		expectStartReads(f, coStock(150, 120, 0), presale, coSale())
-		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, entity.TicketSaleID("sale-pre"), entity.TicketStockID("stock-1")).Return(nil, nil)
+		f.entries.EXPECT().ListEnteredByTicketSaleAndTicketStock(mock.Anything, entity.TicketSaleID("sale-pre"), entity.TicketStockID("stock-1")).Return(nil, nil)
 		expectFitReads(f, 4, nil, nil, entity.HeldTickets{})
 		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketStockID("stock-1"), entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, (*entity.ReferralCode)(nil), now).Return(fanCheckout(now), nil)
 

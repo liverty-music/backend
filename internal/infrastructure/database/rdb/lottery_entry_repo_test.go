@@ -180,7 +180,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 
 				assert.ErrorIs(t, err, apperr.ErrAlreadyExists, state.String())
 			}
-			all, err := repo.ListByTicketTypeAndUser(ctx, f.SaleID, userID)
+			all, err := repo.ListByTicketSaleAndUser(ctx, f.SaleID, userID)
 			require.NoError(t, err)
 			assert.Equal(t, []*entity.LotteryEntry{first}, all, "nothing is stored")
 			assert.Equal(t, 1, countOrdersOfUser(t, userID), "no Order is stored")
@@ -212,7 +212,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		}
 		assert.Equal(t, 1, stored)
 		assert.Equal(t, 1, refused)
-		all, err := repo.ListByTicketTypeAndUser(ctx, f.SaleID, userID)
+		all, err := repo.ListByTicketSaleAndUser(ctx, f.SaleID, userID)
 		require.NoError(t, err)
 		assert.Len(t, all, 1)
 		assert.Equal(t, 1, countOrdersOfUser(t, userID))
@@ -231,7 +231,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		assert.Equal(t, b.ID, got.Order.TicketStockID)
 		assert.Equal(t, entity.LotteryEntryStateEntered, got.State)
 		assert.Equal(t, entity.OrderStatusPending, orderStatus(t, got.OrderID))
-		all, err := repo.ListByTicketTypeAndUser(ctx, saleID, userID)
+		all, err := repo.ListByTicketSaleAndUser(ctx, saleID, userID)
 		require.NoError(t, err)
 		assert.Len(t, all, 2)
 	})
@@ -281,7 +281,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		require.NoError(t, errs[1])
 		assert.Equal(t, results[0].ID, results[1].ID)
 		assert.Equal(t, results[0].OrderID, results[1].OrderID)
-		all, err := repo.ListByTicketTypeAndUser(ctx, other.SaleID, userID)
+		all, err := repo.ListByTicketSaleAndUser(ctx, other.SaleID, userID)
 		require.NoError(t, err)
 		assert.Len(t, all, 1)
 		assert.Equal(t, 2, countOrdersOfUser(t, userID))
@@ -298,7 +298,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		_, err := repo.Create(ctx, newEntry(presale, general, winner, 1, nil))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		all, err := repo.ListByTicketTypeAndUser(ctx, general, winner)
+		all, err := repo.ListByTicketSaleAndUser(ctx, general, winner)
 		require.NoError(t, err)
 		assert.Empty(t, all, "nothing is stored")
 		assert.Equal(t, 1, countOrdersOfUser(t, winner), "only the presale Order exists")
@@ -346,7 +346,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		_, err := repo.Create(ctx, newEntry(aSeat, aSeat.SaleID, userID, 1, nil))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		all, err := repo.ListByTicketTypeAndUser(ctx, aSeat.SaleID, userID)
+		all, err := repo.ListByTicketSaleAndUser(ctx, aSeat.SaleID, userID)
 		require.NoError(t, err)
 		assert.Empty(t, all, "nothing is stored")
 
@@ -364,7 +364,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		_, err := repo.Create(ctx, newEntry(f, f.SaleID, userID, 2, nil))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		all, err := repo.ListByTicketTypeAndUser(ctx, f.SaleID, userID)
+		all, err := repo.ListByTicketSaleAndUser(ctx, f.SaleID, userID)
 		require.NoError(t, err)
 		assert.Empty(t, all)
 		assert.Zero(t, countOrdersOfUser(t, userID), "no Order is stored")
@@ -444,7 +444,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_ListByTicketTypeAndUser(t *testing.T) {
+func TestLotteryEntryRepository_ListByTicketSaleAndUser(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -453,14 +453,14 @@ func TestLotteryEntryRepository_ListByTicketTypeAndUser(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("entry of the user", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/list-by-ticket-type-and-user "Entry of the user"
+		// @spec components/entity/lottery-entry/list-by-ticket-sale-and-user "Entry of the user"
 		saleID, a, b := seedLotteryOfTwoEvents(t)
 		userID := newUserID(t)
 		entered := insertLotteryEntry(t, a, saleID, userID, 2, entity.LotteryEntryStateEntered)
 		insertLotteryEntry(t, a, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered) // another user
 		insertLotteryEntry(t, b, b.SaleID, userID, 2, entity.LotteryEntryStateEntered)     // another sale
 
-		got, err := repo.ListByTicketTypeAndUser(ctx, saleID, userID)
+		got, err := repo.ListByTicketSaleAndUser(ctx, saleID, userID)
 
 		require.NoError(t, err)
 		assert.Equal(t, []*entity.LotteryEntry{entered}, got)
@@ -472,18 +472,18 @@ func TestLotteryEntryRepository_ListByTicketTypeAndUser(t *testing.T) {
 		first := insertLotteryEntry(t, a, saleID, userID, 2, entity.LotteryEntryStateWon)
 		second := insertLotteryEntry(t, b, saleID, userID, 1, entity.LotteryEntryStateLost)
 
-		got, err := repo.ListByTicketTypeAndUser(ctx, saleID, userID)
+		got, err := repo.ListByTicketSaleAndUser(ctx, saleID, userID)
 
 		require.NoError(t, err)
 		assert.Equal(t, []*entity.LotteryEntry{second, first}, got, "newest first")
 	})
 
 	t.Run("never entered", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/list-by-ticket-type-and-user "Never entered"
+		// @spec components/entity/lottery-entry/list-by-ticket-sale-and-user "Never entered"
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered) // another user
 
-		got, err := repo.ListByTicketTypeAndUser(ctx, f.SaleID, newUserID(t))
+		got, err := repo.ListByTicketSaleAndUser(ctx, f.SaleID, newUserID(t))
 
 		require.NoError(t, err)
 		assert.NotNil(t, got)
@@ -524,7 +524,7 @@ func TestLotteryEntryRepository_ListByUser(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
+func TestLotteryEntryRepository_ListEnteredByTicketSaleAndTicketStock(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -533,7 +533,7 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("mixed states", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/list-undrawn-for-ticket-type "Mixed states"
+		// @spec components/entity/lottery-entry/list-entered-by-ticket-sale-and-ticket-stock "Mixed states"
 		saleID, a, b := seedLotteryOfTwoEvents(t)
 		x := insertLotteryEntry(t, a, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		y := insertLotteryEntry(t, a, saleID, newUserID(t), 1, entity.LotteryEntryStateEntered)
@@ -543,19 +543,19 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 		otherSale := seedSale(t, a.EventID, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(time.Hour))
 		insertLotteryEntry(t, a, otherSale, newUserID(t), 2, entity.LotteryEntryStateEntered) // another sale
 
-		got, err := repo.ListUndrawnForTicketType(ctx, saleID, a.ID)
+		got, err := repo.ListEnteredByTicketSaleAndTicketStock(ctx, saleID, a.ID)
 
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []*entity.LotteryEntry{x, y}, got)
 	})
 
 	t.Run("no candidates", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/list-undrawn-for-ticket-type "No candidates"
+		// @spec components/entity/lottery-entry/list-entered-by-ticket-sale-and-ticket-stock "No candidates"
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateLost)
 
-		got, err := repo.ListUndrawnForTicketType(ctx, f.SaleID, f.ID)
+		got, err := repo.ListEnteredByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
 
 		require.NoError(t, err)
 		assert.NotNil(t, got)
@@ -563,7 +563,7 @@ func TestLotteryEntryRepository_ListUndrawnForTicketType(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
+func TestLotteryEntryRepository_GetStatsByTicketSaleAndTicketStock(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -572,13 +572,13 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("after the draw", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "After the draw"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-sale-and-ticket-stock "After the draw"
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 4, entity.LotteryEntryStateLost)
 
-		got, err := repo.GetStatsByTicketType(ctx, f.SaleID, f.ID)
+		got, err := repo.GetStatsByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStats{
@@ -587,7 +587,7 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	})
 
 	t.Run("before the draw", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "Before the draw"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-sale-and-ticket-stock "Before the draw"
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		insertLotteryEntry(t, f, f.SaleID, newUserID(t), 3, entity.LotteryEntryStateEntered)
@@ -595,19 +595,19 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 		otherSale := seedSale(t, f.EventID, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(time.Hour))
 		insertLotteryEntry(t, f, otherSale, newUserID(t), 4, entity.LotteryEntryStateEntered)
 
-		got, err := repo.GetStatsByTicketType(ctx, f.SaleID, f.ID)
+		got, err := repo.GetStatsByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStats{EntryCount: 2, TicketCount: 5}, got)
 	})
 
 	t.Run("no entries", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "No entries"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-sale-and-ticket-stock "No entries"
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		other := seedStockForEvent(t, f.EventID, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, other, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
-		got, err := repo.GetStatsByTicketType(ctx, f.SaleID, f.ID)
+		got, err := repo.GetStatsByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStats{}, got)

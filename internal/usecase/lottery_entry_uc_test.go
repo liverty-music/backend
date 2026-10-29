@@ -148,7 +148,7 @@ func (f *lotteryFixture) holds(held entity.HeldTickets) {
 // hasEntries makes the fan's entries in sale-l the given ones, with stock-1 as
 // the only stock of event-1.
 func (f *lotteryFixture) hasEntries(entries ...*entity.LotteryEntry) {
-	f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return(entries, nil).Maybe()
+	f.entries.EXPECT().ListByTicketSaleAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return(entries, nil).Maybe()
 	f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{leStock(100, 0)}, nil).Maybe()
 }
 
@@ -684,7 +684,7 @@ func TestLotteryEntryUseCase_Confirm(t *testing.T) {
 	})
 }
 
-func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
+func TestLotteryEntryUseCase_ListByTicketSale(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -692,11 +692,11 @@ func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
 		name  string
 		state entity.LotteryEntryState
 	}{
-		// @spec components/usecase/lottery-entry/list-by-ticket-type "Entered entry"
+		// @spec components/usecase/lottery-entry/list-by-ticket-sale "Entered entry"
 		{name: "entered entry", state: entity.LotteryEntryStateEntered},
-		// @spec components/usecase/lottery-entry/list-by-ticket-type "Fan won"
+		// @spec components/usecase/lottery-entry/list-by-ticket-sale "Fan won"
 		{name: "fan won", state: entity.LotteryEntryStateWon},
-		// @spec components/usecase/lottery-entry/list-by-ticket-type "Fan lost"
+		// @spec components/usecase/lottery-entry/list-by-ticket-sale "Fan lost"
 		{name: "fan lost", state: entity.LotteryEntryStateLost},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -704,9 +704,9 @@ func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
 			f := newLotteryFixture(t, duringWindow, 1)
 			entry := lotteryEntry("entry-1", "stock-1", "fan-1", tt.state, 2, "pi_1")
 			f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-l")).Return(lotterySale(entity.VerificationRequirementNone), nil)
-			f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return([]*entity.LotteryEntry{entry}, nil)
+			f.entries.EXPECT().ListByTicketSaleAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return([]*entity.LotteryEntry{entry}, nil)
 
-			got, err := f.uc.ListByTicketType(ctx, "sale-l", "fan-1")
+			got, err := f.uc.ListByTicketSale(ctx, "sale-l", "fan-1")
 
 			require.NoError(t, err)
 			require.Len(t, got, 1)
@@ -718,12 +718,12 @@ func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
 
 	t.Run("never entered", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/list-by-ticket-type "Never entered"
+		// @spec components/usecase/lottery-entry/list-by-ticket-sale "Never entered"
 		f := newLotteryFixture(t, duringWindow, 1)
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-l")).Return(lotterySale(entity.VerificationRequirementNone), nil)
-		f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return([]*entity.LotteryEntry{}, nil)
+		f.entries.EXPECT().ListByTicketSaleAndUser(mock.Anything, entity.TicketSaleID("sale-l"), entity.UserID("fan-1")).Return([]*entity.LotteryEntry{}, nil)
 
-		got, err := f.uc.ListByTicketType(ctx, "sale-l", "fan-1")
+		got, err := f.uc.ListByTicketSale(ctx, "sale-l", "fan-1")
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -734,7 +734,7 @@ func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing")).Return(nil, apperr.ErrNotFound)
 
-		_, err := f.uc.ListByTicketType(ctx, "missing", "fan-1")
+		_, err := f.uc.ListByTicketSale(ctx, "missing", "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -780,7 +780,7 @@ func (f *lotteryFixture) closedSaleWith(id entity.TicketSaleID, stocks ...drawSt
 	listed := make([]*entity.TicketStock, 0, len(stocks))
 	for _, s := range stocks {
 		listed = append(listed, s.stock)
-		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, id, s.stock.ID).Return(s.entries, nil)
+		f.entries.EXPECT().ListEnteredByTicketSaleAndTicketStock(mock.Anything, id, s.stock.ID).Return(s.entries, nil)
 		if len(s.entries) > 0 {
 			f.stocks.EXPECT().Get(mock.Anything, s.stock.ID, mock.Anything).Return(s.stock, nil)
 		}

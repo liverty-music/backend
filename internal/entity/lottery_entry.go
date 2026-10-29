@@ -208,7 +208,7 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*LotteryEntry, error)
 
-	// ListByTicketTypeAndUser returns the user's entries in the sale, at most
+	// ListByTicketSaleAndUser returns the user's entries in the sale, at most
 	// one for each event the sale names, in every state, newest first. It
 	// returns an empty slice when there is none. The name is kept until the
 	// rename that follows remodel-ticket-sales (design D11).
@@ -216,7 +216,7 @@ type LotteryEntryRepository interface {
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	ListByTicketTypeAndUser(ctx context.Context, saleID TicketSaleID, userID UserID) ([]*LotteryEntry, error)
+	ListByTicketSaleAndUser(ctx context.Context, saleID TicketSaleID, userID UserID) ([]*LotteryEntry, error)
 
 	// ListByUser returns every entry whose Order's user is the user, for every
 	// sale and in every state, newest first. It returns an empty slice when
@@ -227,22 +227,23 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*LotteryEntry, error)
 
-	// ListUndrawnForTicketType returns every Entered entry of the sale whose
-	// Order is of the stock, in no particular order: the entries the draw of
-	// the stock draws. It returns an empty slice when there is none.
+	// ListEnteredByTicketSaleAndTicketStock returns every Entered entry of the
+	// sale whose Order is of the stock, in no particular order: the entries the
+	// draw of the stock draws. It returns an empty slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	ListUndrawnForTicketType(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) ([]*LotteryEntry, error)
+	ListEnteredByTicketSaleAndTicketStock(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) ([]*LotteryEntry, error)
 
-	// GetStatsByTicketType counts the sale's entries whose Order is of the
-	// stock. A stock without entries in the sale yields all counts zero.
+	// GetStatsByTicketSaleAndTicketStock counts the sale's entries whose Order
+	// is of the stock. A stock without entries in the sale yields all counts
+	// zero.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	GetStatsByTicketType(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) (LotteryEntryStats, error)
+	GetStatsByTicketSaleAndTicketStock(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) (LotteryEntryStats, error)
 
 	// PersistDrawOutcome records one sale's draw in one transaction, under the
 	// row lock of every TicketStock it draws, taken in id order: every winner

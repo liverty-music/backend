@@ -346,7 +346,7 @@ func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, ev
 			continue
 		}
 		for _, stock := range stocks {
-			stats, err := uc.entryRepo.GetStatsByTicketType(ctx, sale.ID, stock.ID)
+			stats, err := uc.entryRepo.GetStatsByTicketSaleAndTicketStock(ctx, sale.ID, stock.ID)
 			if err != nil {
 				return nil, err
 			}

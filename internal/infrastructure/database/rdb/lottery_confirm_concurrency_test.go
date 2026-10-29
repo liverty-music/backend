@@ -65,7 +65,7 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	require.NoError(t, errs[0])
 	require.NoError(t, errs[1])
 	assert.Equal(t, got[0].ID, got[1].ID, "both return the one entry")
-	stored, err := entries.ListByTicketTypeAndUser(ctx, f.SaleID, fan)
+	stored, err := entries.ListByTicketSaleAndUser(ctx, f.SaleID, fan)
 	require.NoError(t, err)
 	require.Len(t, stored, 1, "one entry is made")
 	assert.Equal(t, cardAuthorizationID, stored[0].Order.CardAuthorizationID)
