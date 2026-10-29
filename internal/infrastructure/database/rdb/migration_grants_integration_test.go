@@ -66,7 +66,9 @@ type organizerTableWrites struct {
 // 20261012000000_one_name_per_concept.sql and
 // 20261012220000_rename_reception_links_to_scanners.sql rename the tables and
 // columns, and the privileges follow them; 20261013000000_event_publish_state.sql
-// drops the draft tables and the series state columns with their privileges).
+// drops the draft tables and the series state columns with their privileges;
+// 20261029015006_remodel_ticket_sales.sql drops ticket_types with its
+// privileges and grants the seat type, ticket stock and sale event writes).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, delete: true, updateColumns: []string{
@@ -74,7 +76,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	}},
 	"venues": {insert: true},
 	"events": {insert: true, delete: true, updateColumns: []string{
-		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_at", "open_at",
+		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_at", "open_at", "per_account_limit",
 	}},
 	"concert_artists":    {insert: true, delete: true},
 	"ticket_journeys":    {insert: true},
@@ -84,7 +86,9 @@ var organizerWrites = map[string]organizerTableWrites{
 	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_synced_at"}},
 	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoked_at"}},
 	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
-	"ticket_types":       {insert: true, updateColumns: []string{"price", "quantity", "per_account_limit"}},
+	"seat_types":         {insert: true, delete: true},
+	"ticket_stocks":      {insert: true},
+	"ticket_sale_events": {insert: true},
 }
 
 // receptionTableAccess is the access of the reception-api role to one app
@@ -156,6 +160,13 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 		for _, table := range []string{"admissions", "rejected_scans", "orders", "users", "identity_verifications"} {
 			assert.False(t, hasAnyColumnPrivilege(t, ctx, conn, grantsOrganizerRole, table, "UPDATE"), "UPDATE on %s", table)
 			assert.False(t, hasTablePrivilege(t, ctx, conn, grantsOrganizerRole, table, "DELETE"), "DELETE on %s", table)
+		}
+	})
+
+	t.Run("only organizer-console-api executes delete_ticket_stock", func(t *testing.T) {
+		assert.True(t, canExecute(t, ctx, conn, grantsOrganizerRole, "app.delete_ticket_stock(uuid)"))
+		for _, role := range append([]string{grantsZitadelRole, grantsReceptionRole}, grantsReadWriteRoles...) {
+			assert.False(t, canExecute(t, ctx, conn, role, "app.delete_ticket_stock(uuid)"), "EXECUTE by %s", role)
 		}
 	})
 
@@ -356,6 +367,13 @@ func hasTablePrivilegeIn(t *testing.T, ctx context.Context, conn *pgx.Conn, role
 	t.Helper()
 	var ok bool
 	require.NoError(t, conn.QueryRow(ctx, `SELECT has_table_privilege($1, $2 || '.' || $3, $4)`, role, schema, table, privilege).Scan(&ok))
+	return ok
+}
+
+func canExecute(t *testing.T, ctx context.Context, conn *pgx.Conn, role, function string) bool {
+	t.Helper()
+	var ok bool
+	require.NoError(t, conn.QueryRow(ctx, `SELECT has_function_privilege($1, $2, 'EXECUTE')`, role, function).Scan(&ok))
 	return ok
 }
 
