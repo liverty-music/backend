@@ -50,10 +50,12 @@ const (
 		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
-		WHERE fanart_synced_at IS NULL OR fanart_synced_at < $1
-		ORDER BY fanart_synced_at ASC NULLS FIRST
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		FROM artists a
+		WHERE a.fanart_synced_at IS NULL
+		   OR (a.fanart_synced_at < $1
+		       AND EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id))
+		ORDER BY a.fanart_synced_at ASC NULLS FIRST, a.id ASC
 		LIMIT $2
 	`
 	getOfficialSiteQuery = `
@@ -328,9 +330,9 @@ func (r *ArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *
 	return nil
 }
 
-// ListStaleOrMissingFanart returns artists needing a fanart.tv sync.
-// Artists with no fanart data (NULL) are returned first, followed by those
-// with stale data older than staleDuration.
+// ListStaleOrMissingFanart returns artists whose images are due for a check:
+// never checked, or followed by at least one user and last checked longer ago
+// than staleDuration. Never-checked artists come first, then the oldest checks.
 func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error) {
 	staleThreshold := time.Now().Add(-staleDuration)
 
