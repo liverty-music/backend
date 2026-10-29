@@ -59,7 +59,7 @@ func SetupTelemetry(ctx context.Context, telCfg config.TelemetryConfig, environm
 }
 
 func setupTracerProvider(ctx context.Context, telCfg config.TelemetryConfig, res *resource.Resource) (*sdktrace.TracerProvider, error) {
-	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(telCfg.SamplerRatio))
+	sampler := sdktrace.ParentBased(clientRootDrop{root: sdktrace.TraceIDRatioBased(telCfg.SamplerRatio)})
 
 	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
