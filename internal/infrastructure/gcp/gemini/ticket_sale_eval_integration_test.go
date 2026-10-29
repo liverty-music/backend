@@ -37,11 +37,10 @@ import (
 var spEvalNow = time.Date(2026, 10, 5, 15, 0, 0, 0, jst)
 
 type spEvalExpected struct {
-	SeriesID          string
-	Method            entity.TicketSaleMethod
-	ApplyStartTime    string
-	ApplyEndTime      string // "" when the sale has no stated end
-	LotteryResultTime string
+	SeriesID       string
+	Method         entity.TicketSaleMethod
+	ApplyStartTime string
+	ApplyEndTime   string
 }
 
 type spEvalCase struct {
@@ -78,11 +77,9 @@ var spEvalCases = []spEvalCase{
 		// clubgnu.com/10th_KICKOFF/: CLUB GNU 最速先行 and 2次受付 (lottery).
 		Expected: []spEvalExpected{
 			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-10-05T18:00:00+09:00", ApplyEndTime: "2026-10-22T23:59:00+09:00",
-				LotteryResultTime: "2026-11-03T15:00:00+09:00"},
+				ApplyStartTime: "2026-10-05T18:00:00+09:00", ApplyEndTime: "2026-10-22T23:59:00+09:00"},
 			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00",
-				LotteryResultTime: "2026-12-02T15:00:00+09:00"},
+				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00"},
 		},
 	},
 	{
@@ -123,13 +120,10 @@ var spEvalCases = []spEvalCase{
 					"2026-12-15", "2026-12-16", "2026-12-19", "2026-12-20", "2026-12-27", "2026-12-28"),
 			}},
 		},
-		// Both upcoming sales are first-come "until sold out" with no stated end.
-		Expected: []spEvalExpected{
-			{SeriesID: "019f8cd8-774e-77ea-9047-973899a4b6a6", Method: entity.TicketSaleMethodFirstCome,
-				ApplyStartTime: "2026-10-05T18:30:00+09:00"},
-			{SeriesID: "019f8cd8-774e-77ea-9047-973899a4b6a6", Method: entity.TicketSaleMethodFirstCome,
-				ApplyStartTime: "2026-10-06T14:00:00+09:00"},
-		},
+		// Both upcoming sales (2026-10-05 18:30 and 2026-10-06 14:00) are
+		// first-come "until sold out" with no stated end, so neither is
+		// returned (search-published-sales "First-come sale until sold out").
+		Expected: []spEvalExpected{},
 	},
 }
 
@@ -165,9 +159,6 @@ func spEvalScore(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) 
 		c := got[idx]
 		if !spEvalSame(e.ApplyEndTime, c.SaleEndTime) {
 			wrong = append(wrong, e.ApplyStartTime+" apply_end="+c.SaleEndTime.Format(time.RFC3339)+" want "+e.ApplyEndTime)
-		}
-		if e.LotteryResultTime != "" && !spEvalSame(e.LotteryResultTime, c.LotteryResultTime) {
-			wrong = append(wrong, e.ApplyStartTime+" lottery_result="+c.LotteryResultTime.Format(time.RFC3339)+" want "+e.LotteryResultTime)
 		}
 	}
 	for _, u := range used {

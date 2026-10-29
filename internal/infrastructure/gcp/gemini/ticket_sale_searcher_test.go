@@ -121,13 +121,13 @@ func textResponse(text string, finish genai.FinishReason, extra ...*genai.Part) 
 	}
 }
 
-func phase(series, method, start string, end, result any) map[string]any {
+func phase(series, name, method, start, end string) map[string]any {
 	return map[string]any{
-		"series_id":           series,
-		"method":              method,
-		"apply_start_time":    start,
-		"apply_end_time":      end,
-		"lottery_result_time": result,
+		"series_id":        series,
+		"name":             name,
+		"method":           method,
+		"apply_start_time": start,
+		"apply_end_time":   end,
 	}
 }
 
@@ -172,7 +172,7 @@ func TestTicketSaleSearcher_BuildsRequest(t *testing.T) {
 	require.True(t, ok)
 	items := schema["properties"].(map[string]any)["phases"].(map[string]any)["items"].(map[string]any)
 	assert.ElementsMatch(t,
-		[]string{"series_id", "method", "apply_start_time", "apply_end_time", "lottery_result_time"},
+		[]string{"series_id", "name", "method", "apply_start_time", "apply_end_time"},
 		items["required"])
 	seriesProp := items["properties"].(map[string]any)["series_id"].(map[string]any)
 	assert.Equal(t, []string{spTourA, spTourB}, seriesProp["enum"])
@@ -200,13 +200,13 @@ func TestTicketSaleSearcher_Checks(t *testing.T) {
 			// The input names both tours; the sales are attributed to tour A only.
 			name: "Two rounds announced ahead",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", nil),
-				phase(spTourA, "lottery", "2026-11-10T18:00:00+09:00", "2026-11-19T23:59:00+09:00", nil),
+				phase(spTourA, "抽選", "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00"),
+				phase(spTourA, "抽選", "lottery", "2026-11-10T18:00:00+09:00", "2026-11-19T23:59:00+09:00"),
 			},
 			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodLottery,
+				{SeriesID: spTourA, Name: "抽選", Method: entity.TicketSaleMethodLottery,
 					SaleStartTime: time.Date(2026, 10, 6, 18, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 10, 22, 23, 59, 0, 0, jst)},
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodLottery,
+				{SeriesID: spTourA, Name: "抽選", Method: entity.TicketSaleMethodLottery,
 					SaleStartTime: time.Date(2026, 11, 10, 18, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 11, 19, 23, 59, 0, 0, jst)},
 			},
 		},
@@ -214,57 +214,45 @@ func TestTicketSaleSearcher_Checks(t *testing.T) {
 			// @spec components/entity/ticket-sale/search-published-sales "Sale already open"
 			name: "Sale already open",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-04T18:00:00+09:00", "2026-10-12T23:59:00+09:00", nil),
+				phase(spTourA, "抽選", "lottery", "2026-10-04T18:00:00+09:00", "2026-10-12T23:59:00+09:00"),
 			},
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Sale abroad"
 			name: "Sale abroad",
 			phases: []map[string]any{
-				phase(spTourB, "first_come", "2026-11-01T12:00:00+08:00", nil, nil),
+				phase(spTourB, "一般発売", "first_come", "2026-11-01T12:00:00+08:00", "2026-11-03T23:00:00+08:00"),
 			},
 			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourB, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: time.Date(2026, 11, 1, 13, 0, 0, 0, jst)},
+				{SeriesID: spTourB, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
+					SaleStartTime: time.Date(2026, 11, 1, 13, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 11, 4, 0, 0, 0, 0, jst)},
 			},
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Year omitted"
 			name: "Year omitted",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-11-10T18:00:00+09:00", "2026-11-19T23:59:00+09:00", nil),
+				phase(spTourA, "抽選", "lottery", "2026-11-10T18:00:00+09:00", "2026-11-19T23:59:00+09:00"),
 			},
 			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodLottery,
+				{SeriesID: spTourA, Name: "抽選", Method: entity.TicketSaleMethodLottery,
 					SaleStartTime: time.Date(2026, 11, 10, 18, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 11, 19, 23, 59, 0, 0, jst)},
 			},
 		},
 		{
 			name: "year mistaken into the past is dropped",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2025-11-10T18:00:00+09:00", "2025-11-19T23:59:00+09:00", nil),
+				phase(spTourA, "抽選", "lottery", "2025-11-10T18:00:00+09:00", "2025-11-19T23:59:00+09:00"),
 			},
 		},
 		{
-			// @spec components/entity/ticket-sale/search-published-sales "Lottery with a published result date"
-			name: "Lottery with a published result date",
+			// @spec components/entity/ticket-sale/search-published-sales "Lottery with its application period"
+			name: "Lottery with its application period",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", "2026-11-03T15:00:00+09:00"),
+				phase(spTourA, "オフィシャル先行", "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00"),
 			},
 			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodLottery,
-					SaleStartTime:     time.Date(2026, 10, 6, 18, 0, 0, 0, jst),
-					SaleEndTime:       time.Date(2026, 10, 22, 23, 59, 0, 0, jst),
-					LotteryResultTime: time.Date(2026, 11, 3, 15, 0, 0, 0, jst)},
-			},
-		},
-		{
-			// @spec components/entity/ticket-sale/search-published-sales "Lottery without a published result date"
-			name: "Lottery without a published result date",
-			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", nil),
-			},
-			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodLottery,
+				{SeriesID: spTourA, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 					SaleStartTime: time.Date(2026, 10, 6, 18, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 10, 22, 23, 59, 0, 0, jst)},
 			},
 		},
@@ -272,76 +260,67 @@ func TestTicketSaleSearcher_Checks(t *testing.T) {
 			// @spec components/entity/ticket-sale/search-published-sales "First-come sale until sold out"
 			name: "First-come sale until sold out",
 			phases: []map[string]any{
-				phase(spTourA, "first_come", "2026-10-06T18:30:00+09:00", nil, nil),
+				phase(spTourA, "FC先着先行", "first_come", "2026-10-06T18:30:00+09:00", ""),
 			},
-			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourA, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: time.Date(2026, 10, 6, 18, 30, 0, 0, jst)},
+		},
+		{
+			// @spec components/entity/ticket-sale/search-published-sales "Sale without a name"
+			name: "Sale without a name",
+			phases: []map[string]any{
+				phase(spTourA, "", "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00"),
 			},
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Lottery without a stated close"
 			name: "Lottery without a stated close",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-06T18:00:00+09:00", nil, nil),
+				phase(spTourA, "抽選", "lottery", "2026-10-06T18:00:00+09:00", ""),
 			},
 		},
 		{
-			// @spec components/entity/ticket-sale/search-published-sales "Method not stated"
-			name: "Method not stated",
+			name: "method not stated is dropped",
 			phases: []map[string]any{
-				phase(spTourA, "", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", nil),
+				phase(spTourA, "一般発売", "", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00"),
 			},
 		},
 		{
-			// @spec components/entity/ticket-sale/search-published-sales "Nothing usable found"
-			name: "Nothing usable found",
+			name: "nothing found",
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Close before open"
 			name: "Close before open",
 			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-11-10T10:00:00+09:00", "2026-11-05T10:00:00+09:00", nil),
-			},
-		},
-		{
-			name: "result before close is dropped",
-			phases: []map[string]any{
-				phase(spTourA, "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", "2026-10-20T15:00:00+09:00"),
-			},
-		},
-		{
-			name: "result on a first-come sale is dropped",
-			phases: []map[string]any{
-				phase(spTourA, "first_come", "2026-10-06T18:00:00+09:00", nil, "2026-10-20T15:00:00+09:00"),
+				phase(spTourA, "抽選", "lottery", "2026-11-10T10:00:00+09:00", "2026-11-05T10:00:00+09:00"),
 			},
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Opening after the last show"
 			name: "Opening after the last show",
 			phases: []map[string]any{
-				phase(spTourB, "first_come", "2027-01-10T10:00:00+09:00", nil, nil),
+				phase(spTourB, "一般発売", "first_come", "2027-01-10T10:00:00+09:00", "2027-01-12T23:59:00+09:00"),
 			},
 		},
 		{
 			name: "opening on the last show day is kept",
 			phases: []map[string]any{
-				phase(spTourB, "first_come", "2026-12-20T10:00:00+09:00", nil, nil),
+				phase(spTourB, "一般発売", "first_come", "2026-12-20T10:00:00+09:00", "2026-12-20T12:00:00+09:00"),
 			},
 			want: []*entity.DiscoveredTicketSale{
-				{SeriesID: spTourB, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: time.Date(2026, 12, 20, 10, 0, 0, 0, jst)},
+				{SeriesID: spTourB, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
+					SaleStartTime: time.Date(2026, 12, 20, 10, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 12, 20, 12, 0, 0, 0, jst)},
 			},
 		},
 		{
 			// @spec components/entity/ticket-sale/search-published-sales "Unattributable sale"
 			name: "Unattributable sale",
 			phases: []map[string]any{
-				phase("01a06ba9-ef6a-7d7d-81de-d1b11b945026", "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00", nil),
+				phase("01a06ba9-ef6a-7d7d-81de-d1b11b945026", "抽選", "lottery", "2026-10-06T18:00:00+09:00", "2026-10-22T23:59:00+09:00"),
 			},
 		},
 		{
 			name: "unparseable start is dropped",
 			phases: []map[string]any{
-				phase(spTourA, "first_come", "11月10日 18:00", nil, nil),
+				phase(spTourA, "一般発売", "first_come", "11月10日 18:00", "2026-11-12T23:59:00+09:00"),
 			},
 		},
 	}
@@ -358,10 +337,10 @@ func TestTicketSaleSearcher_Checks(t *testing.T) {
 			require.Len(t, got, len(tt.want))
 			for i, w := range tt.want {
 				assert.Equal(t, w.SeriesID, got[i].SeriesID)
+				assert.Equal(t, w.Name, got[i].Name)
 				assert.Equal(t, w.Method, got[i].Method)
 				assert.True(t, w.SaleStartTime.Equal(got[i].SaleStartTime), "apply start: got %s", got[i].SaleStartTime)
 				assert.True(t, w.SaleEndTime.Equal(got[i].SaleEndTime), "apply end: got %s", got[i].SaleEndTime)
-				assert.True(t, w.LotteryResultTime.Equal(got[i].LotteryResultTime), "lottery result: got %s", got[i].LotteryResultTime)
 			}
 		})
 	}
@@ -498,15 +477,15 @@ func TestTicketSaleSearcher_LogsSearchQueries(t *testing.T) {
 func TestTicketSaleSearcher_ParseCandidateTimes(t *testing.T) {
 	t.Parallel()
 
-	start := "2026-10-06T18:30:00+09:00"
-	f := &fakeGemini{resp: jsonResponse(t, phase(spTourA, "first_come", start, nil, nil))}
+	start, end := "2026-10-06T18:30:00+09:00", "2026-10-08T23:59:00+09:00"
+	f := &fakeGemini{resp: jsonResponse(t, phase(spTourA, "一般発売", "first_come", start, end))}
 	s := newTestTicketSaleSearcher(t, f, nil)
 
 	got, err := s.SearchPublishedSales(context.Background(), spInput())
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.True(t, mustTime(t, start).Equal(got[0].SaleStartTime))
-	assert.True(t, got[0].SaleEndTime.IsZero())
+	assert.True(t, mustTime(t, end).Equal(got[0].SaleEndTime))
 }
 
 // @spec components/entity/ticket-sale/search-published-sales "Invalid request recovered without the tool report"
@@ -518,7 +497,7 @@ func TestTicketSaleSearcher_InvalidRequestRetriedWithoutToolReport(t *testing.T)
 		if call == 1 {
 			return nil, genai.APIError{Code: http.StatusBadRequest, Status: "INVALID_ARGUMENT", Message: "bad request"}
 		}
-		return jsonResponse(t, phase(spTourB, "lottery", "2026-10-10T12:00:00+09:00", "2026-10-15T23:59:00+09:00", nil)), nil
+		return jsonResponse(t, phase(spTourB, "抽選", "lottery", "2026-10-10T12:00:00+09:00", "2026-10-15T23:59:00+09:00")), nil
 	}}
 	s := newTestTicketSaleSearcher(t, f, &logs)
 
@@ -584,10 +563,10 @@ func TestTicketSaleSearcher_ReportsDiscardedSale(t *testing.T) {
 	t.Parallel()
 
 	resp := jsonResponse(t,
-		phase(spTourA, salesMethodLottery, "2026-11-01T12:00:00+09:00", "2026-11-10T23:59:00+09:00", nil),
-		phase(spTourB, salesMethodFirstCome, "2026-11-20T10:00:00+09:00", nil, nil),
+		phase(spTourA, "抽選", salesMethodLottery, "2026-11-01T12:00:00+09:00", "2026-11-10T23:59:00+09:00"),
+		phase(spTourB, "一般発売", salesMethodFirstCome, "2026-11-20T10:00:00+09:00", "2026-11-22T23:59:00+09:00"),
 		// Opened before spNow: discarded.
-		phase(spTourB, salesMethodFirstCome, "2026-10-01T10:00:00+09:00", nil, nil),
+		phase(spTourB, "一般発売", salesMethodFirstCome, "2026-10-01T10:00:00+09:00", "2026-10-31T23:59:00+09:00"),
 	)
 	resp.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 50, ToolUsePromptTokenCount: 300}
 	f := &fakeGemini{resp: resp}
