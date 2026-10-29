@@ -57,6 +57,14 @@ type stubOrderRepo struct {
 	getByLotteryEntryIDFn    func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
 	getByProviderPaymentIDFn func(ctx context.Context, providerPaymentID string) (*entity.Order, error)
 	updateStatusFn           func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
+	getEventIDFn             func(ctx context.Context, id entity.OrderID) (string, error)
+}
+
+func (s *stubOrderRepo) GetEventID(ctx context.Context, id entity.OrderID) (string, error) {
+	if s.getEventIDFn != nil {
+		return s.getEventIDFn(ctx, id)
+	}
+	return "event-1", nil
 }
 
 func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
@@ -186,35 +194,32 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 	})
 }
 
-// lotterySaleRepo returns a sale repository whose ticket type "tt-lottery"
-// belongs to a drawn Lottery sale of event-1 with the given verification
-// requirement.
+// lotterySaleRepo returns a sale repository whose drawn Lottery sale
+// "sale-lottery" of event-1 has the given verification requirement.
 func lotterySaleRepo(t *testing.T, req entity.VerificationRequirement) *entitymocks.MockTicketSaleRepository {
 	t.Helper()
-	drawTime := time.Date(2026, 9, 12, 12, 1, 0, 0, time.UTC)
 	sale := &entity.TicketSale{
 		ID: "sale-lottery", SeriesID: "series-1", Name: "抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:           time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC),
 		SaleEndTime:             time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC),
 		VerificationRequirement: req,
-		DrawTime:                &drawTime,
+		EventIDs:                []string{"event-1"},
 	}
-	tt := &entity.TicketType{ID: "tt-lottery", TicketSaleID: sale.ID, EventID: "event-1", Price: 5000, Quantity: 100, PerAccountLimit: 4}
-	sale.TicketTypes = []*entity.TicketType{tt}
 	sales := entitymocks.NewMockTicketSaleRepository(t)
-	sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("tt-lottery"), mock.Anything).Return(sale, tt, nil).Maybe()
+	sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-lottery")).Return(sale, nil).Maybe()
 	return sales
 }
 
-// wonEntry returns user-1's Won entry "entry-1" for 2 tickets of tt-lottery.
+// wonEntry returns user-1's Won entry "entry-1" of sale-lottery with its
+// Pending Order for 2 tickets of stock-1, paid by pi_won_1.
 func wonEntry() *entity.LotteryEntry {
 	return &entity.LotteryEntry{
-		ID:                  "entry-1",
-		TicketTypeID:        "tt-lottery",
-		UserID:              "user-1",
-		TicketCount:         2,
-		CardAuthorizationID: "pi_won_1",
-		State:               entity.LotteryEntryStateWon,
+		ID: "entry-1", OrderID: "order-entry-1", TicketSaleID: "sale-lottery", State: entity.LotteryEntryStateWon,
+		Order: &entity.Order{
+			ID: "order-entry-1", UserID: "user-1", TicketStockID: "stock-1", TicketCount: 2, Amount: 16000,
+			Currency: "JPY", CardAuthorizationID: "pi_won_1", Status: entity.OrderStatusPending,
+			Payment: entity.Payment{Provider: entity.PaymentProviderStripe}, LotteryEntryID: "entry-1",
+		},
 	}
 }
 
@@ -276,7 +281,9 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, "4242", order.Payment.CardLast4)
 		assert.Equal(t, int64(16000), order.Amount)
 		assert.Equal(t, "JPY", order.Currency)
-		assert.Equal(t, now, order.PayTime)
+		require.NotNil(t, order.PayTime)
+		assert.Equal(t, now, *order.PayTime)
+		assert.Equal(t, entity.OrderID("order-entry-1"), order.ID, "the Pending Order is the one made Paid")
 
 		// Exactly N covered tickets, all bound to the entry's user for the
 		// ticket type's event; no IdentityVerification, since the sale required none.
@@ -308,17 +315,17 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 	t.Run("is idempotent: an existing Order is returned without re-issuing", func(t *testing.T) {
 		t.Parallel()
 
-		existing := &entity.Order{ID: "order-existing", LotteryEntryID: "entry-1", Status: entity.OrderStatusPaid}
-		orderRepo := &stubOrderRepo{getByLotteryEntryIDFn: func(_ context.Context, _ entity.LotteryEntryID) (*entity.Order, error) {
-			return existing, nil
-		}}
+		entry := wonEntry()
+		entry.Order.Status = entity.OrderStatusPaid
+		entries := entitymocks.NewMockLotteryEntryRepository(t)
+		entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(entry, nil)
 		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
 
-		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, clock: fixedClock(now)})
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, entryRepo: entries, clock: fixedClock(now)})
 
 		order, err := uc.IssueFromCapturedWin(context.Background(), "entry-1")
 		require.NoError(t, err)
-		assert.Same(t, existing, order)
+		assert.Same(t, entry.Order, order)
 		assert.False(t, *issueCalled, "must not re-issue when an Order already exists")
 	})
 
@@ -326,15 +333,11 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 	t.Run("on a concurrent issuance race it re-reads and returns the winning Order", func(t *testing.T) {
 		t.Parallel()
 
-		raceOrder := &entity.Order{ID: "order-race", LotteryEntryID: "entry-1", Status: entity.OrderStatusPaid}
-		// First lookup (idempotency check) → NotFound; second (after the
-		// AlreadyExists race) → the order the concurrent writer created.
-		calls := 0
-		orderRepo := &stubOrderRepo{getByLotteryEntryIDFn: func(_ context.Context, _ entity.LotteryEntryID) (*entity.Order, error) {
-			calls++
-			if calls == 1 {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-			}
+		raceOrder := &entity.Order{ID: "order-entry-1", LotteryEntryID: "entry-1", Status: entity.OrderStatusPaid}
+		// The concurrent run made the Order Paid first, so Issue reports
+		// AlreadyExists and the Order is read again.
+		orderRepo := &stubOrderRepo{getFn: func(_ context.Context, id entity.OrderID) (*entity.Order, error) {
+			assert.Equal(t, entity.OrderID("order-entry-1"), id)
 			return raceOrder, nil
 		}}
 		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, _ []*entity.Ticket, _ *entity.Settlement) error {
@@ -579,7 +582,7 @@ func TestOrderUseCase_IssueDueWins(t *testing.T) {
 				return nil, apperr.New(apperr.ErrUnavailable.Code, "db down")
 			}
 			entry := wonEntry()
-			entry.ID = id
+			entry.ID, entry.Order.LotteryEntryID = id, id
 			return entry, nil
 		})
 

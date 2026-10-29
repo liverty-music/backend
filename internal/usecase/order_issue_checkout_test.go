@@ -33,8 +33,8 @@ type checkoutIssuanceFixture struct {
 	uc                    usecase.OrderUseCase
 }
 
-// newCheckoutIssuanceFixture builds the fixture whose ticket type "tt-1"
-// belongs to a FirstCome sale with the given verification requirement.
+// newCheckoutIssuanceFixture builds the fixture whose Checkouts belong to the
+// FirstCome sale "sale-1" of event-1 with the given verification requirement.
 func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.VerificationRequirement) *checkoutIssuanceFixture {
 	t.Helper()
 	f := &checkoutIssuanceFixture{
@@ -59,11 +59,12 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 			return fn(ctx)
 		}).Maybe()
 	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", PlatformFeeRateBps: 800}, nil).Maybe()
-	sale, tt := firstComeTicketType(150, 0, 2)
+	sale := coSale()
 	if len(req) > 0 {
 		sale.VerificationRequirement = req[0]
 	}
-	f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("tt-1"), mock.Anything).Return(sale, tt, nil).Maybe()
+	f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1")).Return(sale, nil).Maybe()
+	f.orders.EXPECT().GetEventID(mock.Anything, mock.Anything).Return("event-1", nil).Maybe()
 	f.uc = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             f.issuance,
 		OrderRepo:                f.orders,
@@ -105,7 +106,7 @@ func authorizedPI() *entity.CardAuthorization {
 // authorizedCheckout is fan-1's holding, authorized checkout of 2 x 3000.
 func authorizedCheckout() *entity.Checkout {
 	c := fanCheckout(coStart)
-	c.CardAuthorizationID = "pi_1"
+	c.Order.CardAuthorizationID = "pi_1"
 	return c
 }
 
@@ -133,7 +134,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		held := authorizedCheckout()
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(held, nil).Once()
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
@@ -176,7 +176,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		// @spec components/usecase/order/issue-from-checkout "Hold lapsed before placing"
 		f := newCheckoutIssuanceFixture(t, coStart.Add(16*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
@@ -188,7 +187,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		// @spec components/usecase/order/issue-from-checkout "Concert cancelled during the checkout"
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(false, nil)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
@@ -201,7 +199,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		// @spec components/usecase/order/issue-from-checkout "Card not yet authenticated"
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.authorizesAs(&entity.CardAuthorization{ID: "pi_1", Amount: 6000, Status: entity.CardAuthorizationStatusPending})
 
@@ -230,14 +227,14 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		paid := committedCopy(authorizedCheckout(), true)
 		paid.Status = entity.CheckoutStatusCompleted
+		paid.Order.Status = entity.OrderStatusPaid
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(paid, nil)
-		existing := &entity.Order{ID: "order-1", CheckoutID: "checkout-1"}
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(existing, nil)
 
 		order, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
 		require.NoError(t, err)
-		assert.Same(t, existing, order)
+		assert.Same(t, paid.Order, order)
+		f.issuance.AssertNotCalled(t, "Issue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("card no longer chargeable", func(t *testing.T) {
@@ -246,7 +243,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.auth.EXPECT().Capture(mock.Anything, "pi_1").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card authorization was released"))
 		f.checkouts.EXPECT().RevertCommit(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil)
@@ -262,7 +258,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.auth.EXPECT().Capture(mock.Anything, "pi_1").
 			Return(apperr.New(apperr.ErrUnavailable.Code, "outcome not known yet"))
 
@@ -277,7 +272,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		charged := committedCopy(authorizedCheckout(), true)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(charged, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(apperr.New(apperr.ErrUnavailable.Code, "db down")).Once()
 
@@ -297,9 +291,8 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		charged := committedCopy(authorizedCheckout(), true)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(charged, nil)
 		winner := &entity.Order{ID: "order-1", CheckoutID: "checkout-1"}
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound).Once()
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrAlreadyExists)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(winner, nil).Once()
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(winner, nil).Once()
 
 		order, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
@@ -311,7 +304,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeNotHeld, nil)
@@ -326,7 +318,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementJPKIOnly)
 		held := authorizedCheckout()
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(held, nil).Once()
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		f.authorizesAs(authorizedPI())
@@ -355,7 +346,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		// @spec components/usecase/order/issue-from-checkout "IdentityVerification gone before confirm"
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
@@ -370,7 +360,6 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(authorizedCheckout(), false), nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)
@@ -391,7 +380,6 @@ func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{committed}, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil).Once()
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.auth.EXPECT().Capture(mock.Anything, "pi_1").Return(nil).Once()
 		f.checkouts.EXPECT().RecordCapture(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -407,7 +395,6 @@ func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 		charged := committedCopy(authorizedCheckout(), true)
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{charged}, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(charged, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		// No Capture expectation: the card is not charged again.
@@ -426,7 +413,6 @@ func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed, bad, good}, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-bad")).Return(nil, apperr.ErrInternal)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(good, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		require.NoError(t, f.uc.IssueDueCheckouts(context.Background()))
@@ -441,7 +427,6 @@ func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 		charged := committedCopy(authorizedCheckout(), true)
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{charged}, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(charged, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
 
 		require.NoError(t, f.uc.IssueDueCheckouts(context.Background()))
@@ -460,7 +445,6 @@ func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 func TestOrderUseCase_FulfillPayment(t *testing.T) {
 	t.Parallel()
 	now := coStart.Add(12 * time.Minute)
-	checkoutOrder := &entity.Order{ID: "order-1", UserID: fan1, CheckoutID: "checkout-1", Amount: 6000, Currency: "JPY"}
 
 	t.Run("checkout charged", func(t *testing.T) {
 		t.Parallel()
@@ -468,9 +452,9 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
+		completed.Order.Status = entity.OrderStatusPaid
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
 		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, &entity.OrderPaidData{
 			OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY", CheckoutID: "checkout-1",
 		}).Return(nil).Once()
@@ -483,14 +467,16 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		// @spec components/usecase/order/fulfill-payment "Lottery win charged"
 		f := newCheckoutIssuanceFixture(t, now)
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(nil, apperr.ErrNotFound)
+		paidAt := now.Add(-time.Hour)
 		entry := &entity.LotteryEntry{
-			ID: "entry-1", TicketTypeID: "tt-1", UserID: "user-1", TicketCount: 2,
-			CardAuthorizationID: "pi_won", State: entity.LotteryEntryStateWon,
+			ID: "entry-1", OrderID: "order-2", TicketSaleID: "sale-l", State: entity.LotteryEntryStateWon,
+			Order: &entity.Order{
+				ID: "order-2", UserID: "user-1", TicketCount: 2, Amount: 10000, Currency: "JPY", LotteryEntryID: "entry-1",
+				CardAuthorizationID: "pi_won", Status: entity.OrderStatusPaid, PayTime: &paidAt,
+			},
 		}
 		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(entry, nil)
-		paidAt := now.Add(-time.Hour)
-		winOrder := &entity.Order{ID: "order-2", UserID: entry.UserID, LotteryEntryID: entry.ID, Amount: 10000, Currency: "JPY", PayTime: paidAt}
-		f.orders.EXPECT().GetByLotteryEntryID(mock.Anything, entry.ID).Return(winOrder, nil)
+		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(entry, nil)
 		// The announcement carries the Order's pay time, the same on every
 		// re-publish, for the analytics event time.
 		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, &entity.OrderPaidData{
@@ -510,9 +496,9 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
+		completed.Order.Status = entity.OrderStatusPaid
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil).Twice()
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil).Twice()
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil).Twice()
 		wm := &capturingPublisher{}
 		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, mock.Anything).
 			RunAndReturn(messaging.NewEventPublisher(wm).PublishEvent).Twice()
@@ -535,9 +521,9 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
+		completed.Order.Status = entity.OrderStatusPaid
 		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
-		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
 		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrderPaid, mock.Anything).Return(errors.New("nats down"))
 
 		assert.Error(t, f.uc.FulfillPayment(context.Background(), "pi_1"))

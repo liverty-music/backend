@@ -20,8 +20,6 @@ const (
 	// here, the evening before the window, so it still arrives before the sale
 	// opens.
 	preQuietAlertHour = quietStartHour - 1
-	// resultDayNotifyHour is the hour of day at which RESULT_DAY fires (09:00 in the user's TZ).
-	resultDayNotifyHour = 9
 	// fallbackTimeZone is used when a user has no time_zone set.
 	fallbackTimeZone = "Asia/Tokyo"
 )
@@ -121,23 +119,17 @@ func (uc *ticketSaleReminderUseCase) ScanDueReminders(ctx context.Context) (int,
 var allStages = []entity.ReminderStage{
 	entity.ReminderStageApplyOpen,
 	entity.ReminderStageApplyClose24H,
-	entity.ReminderStageResultDay,
 }
 
 // saleAudience returns the fans to remind of a sale, each with the event the
 // reminder links them to. A discovered sale reaches every fan tracking an
 // event of its series. An Organizer's sale reaches only the fans tracking an
-// event it offers a TicketType for, because it may cover only some events of
-// the tour.
+// event it names, because it may cover only some events of the tour.
 func (uc *ticketSaleReminderUseCase) saleAudience(ctx context.Context, sale *entity.TicketSale) ([]*entity.SeriesTracker, error) {
 	if sale.IsDiscovered() {
 		return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
 	}
-	eventIDs := make([]string, len(sale.TicketTypes))
-	for i, tt := range sale.TicketTypes {
-		eventIDs[i] = tt.EventID
-	}
-	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, eventIDs)
+	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
 }
 
 // processSale evaluates all reminder stages for one sale and returns the
@@ -280,8 +272,6 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 //   - APPLY_CLOSE_24H, Lottery: anchor = end - 24h; expiry = end. The next
 //     08:00 after an anchor in quiet hours is always before the end, because
 //     the anchor is 24 hours before it.
-//   - RESULT_DAY, Lottery with a result time: fires at 09:00 in tz on the day
-//     of the result time and expires at the end of that local day.
 //
 // Every stage other than the first-come APPLY_OPEN that falls in the quiet
 // window (22:00–08:00 in tz) fires at the next 08:00.
@@ -302,12 +292,6 @@ func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *
 		}
 	case entity.ReminderStageApplyClose24H:
 		expiry = sale.SaleEndTime
-	case entity.ReminderStageResultDay:
-		// 09:00 in the USER's timezone on the calendar day of the result time,
-		// valid only through the end of that local day.
-		local := base.In(tz)
-		base = time.Date(local.Year(), local.Month(), local.Day(), resultDayNotifyHour, 0, 0, 0, tz)
-		expiry = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, tz)
 	}
 
 	// First-sight guard: a discovered sale whose anchor was already in the
@@ -373,9 +357,6 @@ func buildReminderPayload(
 		key, at = copyApplyOpenLottery, sale.SaleEndTime
 	case stage == entity.ReminderStageApplyClose24H:
 		key, at = copyApplyClose24HLottery, sale.SaleEndTime
-	case stage == entity.ReminderStageResultDay:
-		key = copyResultDayLottery
-		at, _ = sale.ResultTime()
 	default:
 		return entity.NewNotificationPayload("", "", url, tag)
 	}

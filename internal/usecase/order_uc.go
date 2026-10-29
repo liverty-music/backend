@@ -84,28 +84,28 @@ type OrderUseCase interface {
 	//  - Internal: database or payment provider failure.
 	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
 
-	// IssueFromCapturedWin creates the Order from ④'s captured winning payment,
-	// issues the N account-bound covered tickets for the won lottery entry
-	// (bound to the user's IdentityVerification when the sale requires verification) and
-	// records a Held Settlement (one split paying the event's Organizer at its
-	// platform fee rate).
+	// IssueFromCapturedWin makes the Pending Order of the won lottery entry
+	// Paid from its captured payment, issues the N account-bound covered
+	// tickets (bound to the user's IdentityVerification when the sale requires
+	// verification) and records a Held Settlement (one split paying the
+	// event's Organizer at its platform fee rate).
 	//
-	// It is IDEMPOTENT: a replayed Won-captured signal (or a retry) creates the
-	// Order once and issues tickets exactly once for the same entry — on a
-	// replay it returns the already-created Order unchanged.
+	// It is IDEMPOTENT: a replayed Won-captured signal (or a retry) issues
+	// tickets exactly once for the same entry — on a replay it returns the
+	// already Paid Order unchanged.
 	//
 	// # Possible errors
 	//
 	//  - FailedPrecondition: the entry is not Won, or its payment is not
-	//    captured — no Order is created.
+	//    captured — nothing changes.
 	//  - NotFound: no entry with the given ID exists, the event's Organizer
 	//    cannot be resolved, or the sale requires verification and the user
-	//    has no IdentityVerification — no Order is created.
+	//    has no IdentityVerification — nothing changes.
 	//  - Internal: persistence failure after capture.
 	IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
 
-	// IssueDueWins issues Orders + tickets for every Won lottery entry that
-	// does not yet have an Order. A per-entry failure is logged and skipped so
+	// IssueDueWins issues the tickets of every Won lottery entry whose Order is
+	// still Pending. A per-entry failure is logged and skipped so
 	// one bad entry never blocks the rest of the sweep.
 	//
 	// # Possible errors
@@ -114,11 +114,12 @@ type OrderUseCase interface {
 	IssueDueWins(ctx context.Context) error
 
 	// IssueFromCheckout finishes a checkout: while its hold lasts it commits
-	// the held tickets, charges the card once and issues the Order and its
-	// tickets, bound to the user's IdentityVerification when the sale requires verification.
-	// caller is the fan placing the order, or nil for the stalled-checkout job
-	// and the payment webhook. Calls for the same Checkout run one after the
-	// other, and a Checkout that already has an Order returns it.
+	// the held tickets, charges the card once and makes its Pending Order Paid
+	// with its tickets, bound to the user's IdentityVerification when the sale
+	// requires verification. caller is the fan placing the order, or nil for
+	// the stalled-checkout job and the payment webhook. Calls for the same
+	// Checkout run one after the other, and a Checkout whose Order is already
+	// Paid returns it.
 	//
 	// # Possible errors
 	//

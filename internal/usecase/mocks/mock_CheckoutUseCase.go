@@ -257,8 +257,8 @@ func (_c *MockCheckoutUseCase_ReleaseExpired_Call) RunAndReturn(run func(ctx con
 }
 
 // Start provides a mock function for the type MockCheckoutUseCase
-func (_mock *MockCheckoutUseCase) Start(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode) (*entity.Checkout, error) {
-	ret := _mock.Called(ctx, userID, ticketTypeID, count, code)
+func (_mock *MockCheckoutUseCase) Start(ctx context.Context, userID entity.UserID, stockID entity.TicketStockID, count int, code *entity.ReferralCode) (*entity.Checkout, error) {
+	ret := _mock.Called(ctx, userID, stockID, count, code)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Start")
@@ -266,18 +266,18 @@ func (_mock *MockCheckoutUseCase) Start(ctx context.Context, userID entity.UserI
 
 	var r0 *entity.Checkout
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.TicketTypeID, int, *entity.ReferralCode) (*entity.Checkout, error)); ok {
-		return returnFunc(ctx, userID, ticketTypeID, count, code)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.TicketStockID, int, *entity.ReferralCode) (*entity.Checkout, error)); ok {
+		return returnFunc(ctx, userID, stockID, count, code)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.TicketTypeID, int, *entity.ReferralCode) *entity.Checkout); ok {
-		r0 = returnFunc(ctx, userID, ticketTypeID, count, code)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.TicketStockID, int, *entity.ReferralCode) *entity.Checkout); ok {
+		r0 = returnFunc(ctx, userID, stockID, count, code)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Checkout)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.UserID, entity.TicketTypeID, int, *entity.ReferralCode) error); ok {
-		r1 = returnFunc(ctx, userID, ticketTypeID, count, code)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.UserID, entity.TicketStockID, int, *entity.ReferralCode) error); ok {
+		r1 = returnFunc(ctx, userID, stockID, count, code)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -292,14 +292,14 @@ type MockCheckoutUseCase_Start_Call struct {
 // Start is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID entity.UserID
-//   - ticketTypeID entity.TicketTypeID
+//   - stockID entity.TicketStockID
 //   - count int
 //   - code *entity.ReferralCode
-func (_e *MockCheckoutUseCase_Expecter) Start(ctx any, userID any, ticketTypeID any, count any, code any) *MockCheckoutUseCase_Start_Call {
-	return &MockCheckoutUseCase_Start_Call{Call: _e.mock.On("Start", ctx, userID, ticketTypeID, count, code)}
+func (_e *MockCheckoutUseCase_Expecter) Start(ctx any, userID any, stockID any, count any, code any) *MockCheckoutUseCase_Start_Call {
+	return &MockCheckoutUseCase_Start_Call{Call: _e.mock.On("Start", ctx, userID, stockID, count, code)}
 }
 
-func (_c *MockCheckoutUseCase_Start_Call) Run(run func(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode)) *MockCheckoutUseCase_Start_Call {
+func (_c *MockCheckoutUseCase_Start_Call) Run(run func(ctx context.Context, userID entity.UserID, stockID entity.TicketStockID, count int, code *entity.ReferralCode)) *MockCheckoutUseCase_Start_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -309,9 +309,9 @@ func (_c *MockCheckoutUseCase_Start_Call) Run(run func(ctx context.Context, user
 		if args[1] != nil {
 			arg1 = args[1].(entity.UserID)
 		}
-		var arg2 entity.TicketTypeID
+		var arg2 entity.TicketStockID
 		if args[2] != nil {
-			arg2 = args[2].(entity.TicketTypeID)
+			arg2 = args[2].(entity.TicketStockID)
 		}
 		var arg3 int
 		if args[3] != nil {
@@ -337,7 +337,7 @@ func (_c *MockCheckoutUseCase_Start_Call) Return(checkout *entity.Checkout, err 
 	return _c
 }
 
-func (_c *MockCheckoutUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID, ticketTypeID entity.TicketTypeID, count int, code *entity.ReferralCode) (*entity.Checkout, error)) *MockCheckoutUseCase_Start_Call {
+func (_c *MockCheckoutUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID, stockID entity.TicketStockID, count int, code *entity.ReferralCode) (*entity.Checkout, error)) *MockCheckoutUseCase_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

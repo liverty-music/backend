@@ -16,7 +16,6 @@ const (
 	copyApplyOpenFirstCome   = "apply_open_first_come"
 	copyApplyOpenLottery     = "apply_open_lottery"
 	copyApplyClose24HLottery = "apply_close_24h_lottery"
-	copyResultDayLottery     = "result_day_lottery"
 )
 
 // ticketSaleCopy is one notification's title and sentence. The sentence holds
@@ -34,7 +33,6 @@ var ticketSaleCopies = map[string]map[string]ticketSaleCopy{
 		copyApplyOpenFirstCome:   {"まもなく先着販売開始", "%sからチケットの先着販売スタート!!"},
 		copyApplyOpenLottery:     {"チケット申し込み受付開始", "チケットの抽選申し込みがスタートしました!! 締切は%s"},
 		copyApplyClose24HLottery: {"抽選の申し込み締切が近づいています", "チケットの抽選申し込み締切は%s!!"},
-		copyResultDayLottery:     {"本日 抽選結果発表", "本日%sにチケットの抽選結果発表!!"},
 	},
 	"en": {
 		copyAnnounceFirstCome:    {"First-Come Ticket Sale", "Ticket sale (first come) starts %s!"},
@@ -42,7 +40,6 @@ var ticketSaleCopies = map[string]map[string]ticketSaleCopy{
 		copyApplyOpenFirstCome:   {"First-Come Sale Starting Soon", "Ticket sale (first come) starts %s!"},
 		copyApplyOpenLottery:     {"Ticket Lottery Open", "Ticket lottery entry is open! Closes %s."},
 		copyApplyClose24HLottery: {"Ticket Lottery Closing Soon", "Ticket lottery entry closes %s!"},
-		copyResultDayLottery:     {"Lottery Results Today", "Ticket lottery results are out today at %s!"},
 	},
 }
 

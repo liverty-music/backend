@@ -11,50 +11,37 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// TicketTypeView is a TicketType with where it stands at the time it was
-// read.
-type TicketTypeView struct {
-	// TicketType is the ticket type, with its sold and held counts for a
-	// FirstCome sale.
-	TicketType *entity.TicketType
-	// State is the TicketType's state at the time of the read. FirstCome
-	// only; Unspecified for a Lottery sale.
-	State entity.TicketTypeState
-	// LowStock reports whether the TicketType is OnSale with at most a tenth
-	// of its quantity left. FirstCome only.
-	LowStock bool
-	// ResaleOpen reports whether the TicketType's official resale is open.
-	// FirstCome only; set by [TicketSaleUseCase.ListByEvent].
+// TicketStockView is a TicketStock of an event as a fan sees it, with whether
+// its official resale is open at the time it was read. Its state and LowStock
+// come from [entity.TicketStock.State] and [entity.TicketStock.IsLowStock].
+type TicketStockView struct {
+	// Stock is the stock with its SeatType and its counts at the read.
+	Stock *entity.TicketStock
+	// ResaleOpen reports whether the stock's official resale is open.
 	ResaleOpen bool
-	// ResaleAvailable reports whether resale is open and a listing is free.
-	// FirstCome only; set by [TicketSaleUseCase.ListByEvent].
-	ResaleAvailable bool
-	// Stats are the entry stats of the TicketType. Set only for a Lottery
-	// sale read by its Organizer ([TicketSaleUseCase.ListOwnByEvent]).
-	Stats *entity.LotteryEntryStats
 }
 
-// TicketSaleView is a TicketSale with its TicketTypes as the reader sees them.
-type TicketSaleView struct {
-	// Sale is the sale. Its TicketTypes are the ones shown, in the same order
-	// as TicketTypes.
-	Sale *entity.TicketSale
-	// TicketTypes are the shown TicketTypes with where they stand.
-	TicketTypes []*TicketTypeView
+// EventSales is what a fan sees of an event's sales: the sales, and once for
+// the event the TicketStocks every sale sells and the per-account limit.
+type EventSales struct {
+	// Sales are the event's sales in start order.
+	Sales []*entity.TicketSale
+	// Stocks are the event's TicketStocks, highest price first.
+	Stocks []*TicketStockView
+	// PerAccountLimit is the event's per-account limit; nil when Sales is
+	// empty.
+	PerAccountLimit *int
 }
 
-// TicketTypeInput is what one TicketType of a new sale offers for one event.
-type TicketTypeInput struct {
-	// EventID is the event the TicketType admits to; an event of the sale's
-	// Series.
-	EventID string
-	// Price is one ticket's tax-inclusive price in yen.
-	Price int64
-	// Quantity is the number of tickets offered.
-	Quantity int
-	// PerAccountLimit is optional; 0 means none was given, and the limit is
-	// [entity.TicketTypeDefaultPerAccountLimit].
-	PerAccountLimit int
+// StockEntryStats are the entry stats of one Lottery sale for one TicketStock
+// of the event.
+type StockEntryStats struct {
+	// SaleID is the Lottery sale.
+	SaleID entity.TicketSaleID
+	// Stock is the TicketStock, with its SeatType.
+	Stock *entity.TicketStock
+	// Stats are the counts of the sale's entries for the stock.
+	Stats entity.LotteryEntryStats
 }
 
 // CreateTicketSaleInput is what an Organizer sets on a new sale.
@@ -67,23 +54,24 @@ type CreateTicketSaleInput struct {
 	Method entity.TicketSaleMethod
 	// SaleStart is when the window opens.
 	SaleStart time.Time
-	// SaleEnd is when the window closes. Required for a Lottery sale; for a
-	// FirstCome sale nil means the earliest start time of the events it
-	// covers.
-	SaleEnd *time.Time
+	// SaleEnd is when the window closes; required.
+	SaleEnd time.Time
 	// VerificationRequirement is whether a fan must hold an Active IdentityVerification; the
 	// zero value is None.
 	VerificationRequirement entity.VerificationRequirement
-	// TicketTypes are what the sale offers, one per event; at least one.
-	TicketTypes []TicketTypeInput
+	// EventIDs are the events the sale sells; at least one.
+	EventIDs []string
 }
 
-// OwnEventSales is what an event's Organizer sees of its sales: the sales
-// with their TicketTypes, and beside them the event's purchases per referral
-// code.
+// OwnEventSales is what an event's Organizer sees of its sales: the sales,
+// the entry stats of each Lottery sale for each TicketStock of the event, and
+// beside them the event's purchases per referral code.
 type OwnEventSales struct {
 	// Sales are the event's sales in start order.
-	Sales []*TicketSaleView
+	Sales []*entity.TicketSale
+	// LotteryEntryStats are the entry stats of the Lottery sales above, one
+	// per sale and TicketStock of the event.
+	LotteryEntryStats []*StockEntryStats
 	// ReferralCodeStats are the event's Paid Orders per referral code, as
 	// [entity.OrderRepository.ListReferralStatsByEvent] gives them.
 	ReferralCodeStats []entity.ReferralCodeStats
@@ -93,31 +81,30 @@ type OwnEventSales struct {
 // on the published events of its Series and change them, and shows the
 // sales of an event to fans and to its Organizer.
 type TicketSaleUseCase interface {
-	// Create stores a new sale and its TicketTypes for the Organizer's Series
-	// and returns it, not drawn. Every event must be the Series', published
-	// and timed; the sale must end before every event starts (a FirstCome
-	// sale may end at the start); the Organizer must have complete business
-	// details; and the sale must not overlap another sale of any of its
-	// events.
+	// Create stores a new sale naming its events for the Organizer's Series
+	// and returns it, not drawn. Every event must be the Series', published,
+	// timed and stocked; a Lottery sale must end before every event starts
+	// and a FirstCome sale no later than any; the Organizer must have
+	// complete business details; and the sale must not overlap another sale
+	// of any of its events.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: no TicketType, a Lottery sale without an end time,
-	//    a TicketType's event outside the Series, or values that break the
-	//    TicketSale or TicketType rules.
+	//  - InvalidArgument: no event, no end time, an event outside the Series,
+	//    or values that break the TicketSale rules.
 	//  - PermissionDenied: the Series does not exist or is another
 	//    Organizer's.
-	//  - FailedPrecondition: an event is not published or has no start time,
-	//    the end time is too late for an event, the Organizer has no complete
-	//    business details, or the window overlaps another sale of an event.
-	Create(ctx context.Context, organizerID string, in CreateTicketSaleInput) (*TicketSaleView, error)
+	//  - FailedPrecondition: an event is not published, has no start time or
+	//    has no TicketStock, the end time is too late for an event, the
+	//    Organizer has no complete business details, or the window overlaps
+	//    another sale of an event.
+	Create(ctx context.Context, organizerID string, in CreateTicketSaleInput) (*entity.TicketSale, error)
 
 	// ListOwnByEvent returns every sale of one of the Organizer's events, in
-	// start order, with all of their TicketTypes: a Lottery TicketType with its
-	// entry stats, a FirstCome TicketType with its counts and state now.
-	// Beside the sales it returns the event's purchases per referral code. The
-	// sales are empty when the event has no sale, and the purchases per code
-	// when the event has no Paid Order.
+	// start order, and for each Lottery sale the entry stats of each
+	// TicketStock of the event. Beside the sales it returns the event's
+	// purchases per referral code. The sales are empty when the event has no
+	// sale, and the purchases per code when the event has no Paid Order.
 	//
 	// # Possible errors
 	//
@@ -125,12 +112,11 @@ type TicketSaleUseCase interface {
 	ListOwnByEvent(ctx context.Context, organizerID, eventID string) (*OwnEventSales, error)
 
 	// ListByEvent returns, for anyone, the sales of a published event in start
-	// order, each with only its TicketType for the event; a FirstCome
-	// TicketType with its state, LowStock, whether its resale is open and
-	// whether resale is available now, against the event's resale deadline.
-	// It returns an empty slice when the event has no sale, is not published,
-	// or does not exist.
-	ListByEvent(ctx context.Context, eventID string) ([]*TicketSaleView, error)
+	// order and, once for the event, its TicketStocks with their SeatTypes,
+	// states, LowStock and whether their resale is open now, and the event's
+	// per-account limit. It returns no sale and no stock when the event has no
+	// sale, is not published, or does not exist.
+	ListByEvent(ctx context.Context, eventID string) (*EventSales, error)
 
 	// SetWindow moves the window of one of the Organizer's sales and returns
 	// the updated sale. A Lottery sale's window moves only before it opens.
@@ -142,7 +128,7 @@ type TicketSaleUseCase interface {
 	//  - InvalidArgument: the window breaks the TicketSale rules.
 	//  - FailedPrecondition: a Lottery sale has opened, the end time is too
 	//    late for an event, or the window overlaps another sale of an event.
-	SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*TicketSaleView, error)
+	SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*entity.TicketSale, error)
 
 	// SetVerificationRequirement changes whether fans taking part in one of
 	// the Organizer's sales must hold an Active IdentityVerification, at any time, and returns
@@ -153,16 +139,18 @@ type TicketSaleUseCase interface {
 	//  - InvalidArgument: no sale is given.
 	//  - NotFound: the sale does not exist.
 	//  - PermissionDenied: the sale's Series is another Organizer's.
-	SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*TicketSaleView, error)
+	SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error)
 }
 
 // ticketSaleUseCase implements [TicketSaleUseCase].
 type ticketSaleUseCase struct {
 	saleRepo      entity.TicketSaleRepository
+	stockRepo     entity.TicketStockRepository
 	entryRepo     entity.LotteryEntryRepository
 	orderRepo     entity.OrderRepository
 	seriesRepo    entity.SeriesRepository
 	organizerRepo entity.OrganizerRepository
+	eventRepo     entity.EventRepository
 	eventState    EventPublishStatePort
 	eventStart    EventStartTimeRepository
 	clock         Clock
@@ -174,20 +162,24 @@ var _ TicketSaleUseCase = (*ticketSaleUseCase)(nil)
 // NewTicketSaleUseCase constructs a TicketSaleUseCase.
 func NewTicketSaleUseCase(
 	saleRepo entity.TicketSaleRepository,
+	stockRepo entity.TicketStockRepository,
 	entryRepo entity.LotteryEntryRepository,
 	orderRepo entity.OrderRepository,
 	seriesRepo entity.SeriesRepository,
 	organizerRepo entity.OrganizerRepository,
+	eventRepo entity.EventRepository,
 	eventState EventPublishStatePort,
 	eventStart EventStartTimeRepository,
 	clock Clock,
 ) TicketSaleUseCase {
 	return &ticketSaleUseCase{
 		saleRepo:      saleRepo,
+		stockRepo:     stockRepo,
 		entryRepo:     entryRepo,
 		orderRepo:     orderRepo,
 		seriesRepo:    seriesRepo,
 		organizerRepo: organizerRepo,
+		eventRepo:     eventRepo,
 		eventState:    eventState,
 		eventStart:    eventStart,
 		clock:         clock,
@@ -215,15 +207,6 @@ func authoredEvents(ctx context.Context, seriesRepo entity.SeriesRepository, org
 		return nil, errNotOwnSeries()
 	}
 	return entity.EventsOf(concerts), nil
-}
-
-// eventIDsOf returns the events the sale's TicketTypes admit to, in order.
-func eventIDsOf(sale *entity.TicketSale) []string {
-	ids := make([]string, 0, len(sale.TicketTypes))
-	for _, tt := range sale.TicketTypes {
-		ids = append(ids, tt.EventID)
-	}
-	return ids
 }
 
 // eventStartTimes reads the start time of each event, failing with
@@ -260,9 +243,9 @@ func checkEndBeforeEvents(method entity.TicketSaleMethod, end time.Time, starts 
 // checkNoOverlap fails with FailedPrecondition when sale's window overlaps
 // the window of another sale of any of its events. The sale's own stored
 // window is not compared.
-func (uc *ticketSaleUseCase) checkNoOverlap(ctx context.Context, sale *entity.TicketSale, now time.Time) error {
-	for _, eventID := range eventIDsOf(sale) {
-		others, err := uc.saleRepo.ListByEvent(ctx, eventID, now)
+func (uc *ticketSaleUseCase) checkNoOverlap(ctx context.Context, sale *entity.TicketSale) error {
+	for _, eventID := range sale.EventIDs {
+		others, err := uc.saleRepo.ListByEvent(ctx, eventID)
 		if err != nil {
 			return err
 		}
@@ -276,42 +259,27 @@ func (uc *ticketSaleUseCase) checkNoOverlap(ctx context.Context, sale *entity.Ti
 }
 
 // Create implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in CreateTicketSaleInput) (*TicketSaleView, error) {
-	if len(in.TicketTypes) == 0 {
-		return nil, apperr.New(codes.InvalidArgument, "a sale needs at least one ticket type")
+func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in CreateTicketSaleInput) (*entity.TicketSale, error) {
+	if len(in.EventIDs) == 0 {
+		return nil, apperr.New(codes.InvalidArgument, "a sale needs at least one event")
 	}
-	if in.Method == entity.TicketSaleMethodLottery && in.SaleEnd == nil {
-		return nil, apperr.New(codes.InvalidArgument, "a lottery sale needs an end time")
+	if in.SaleEnd.IsZero() {
+		return nil, apperr.New(codes.InvalidArgument, "a sale needs an end time")
 	}
-	sale := entity.NewTicketSale(in.SeriesID, in.Name, in.Method, in.SaleStart, time.Time{})
+	sale := entity.NewTicketSale(in.SeriesID, in.Name, in.Method, in.SaleStart, in.SaleEnd, in.EventIDs...)
 	sale.VerificationRequirement = in.VerificationRequirement
-	for _, t := range in.TicketTypes {
-		entity.NewTicketType(sale, t.EventID, t.Price, t.Quantity, t.PerAccountLimit)
-	}
-	// Without an end time the window is checked once the events' start
-	// times are read.
-	if in.SaleEnd != nil {
-		sale.SaleEndTime = *in.SaleEnd
-		if err := sale.Validate(); err != nil {
-			return nil, apperr.New(codes.InvalidArgument, err.Error())
-		}
+	if err := sale.Validate(); err != nil {
+		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
 
 	events, err := authoredEvents(ctx, uc.seriesRepo, organizerID, in.SeriesID)
 	if err != nil {
 		return nil, err
 	}
-	ofSeries := make(map[string]struct{}, len(events))
-	for _, e := range events {
-		ofSeries[e.ID] = struct{}{}
+	if err := sale.CheckEventsOfSeries(events); err != nil {
+		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
-	eventIDs := eventIDsOf(sale)
-	for _, id := range eventIDs {
-		if _, ok := ofSeries[id]; !ok {
-			return nil, apperr.New(codes.InvalidArgument, "a ticket type's event is not an event of the series")
-		}
-	}
-	for _, id := range eventIDs {
+	for _, id := range sale.EventIDs {
 		published, err := uc.eventState.IsEventPublished(ctx, id)
 		if err != nil {
 			return nil, err
@@ -320,19 +288,18 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale is not published")
 		}
 	}
-	starts, err := uc.eventStartTimes(ctx, eventIDs)
+	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
 	if err != nil {
 		return nil, err
 	}
-	if in.SaleEnd == nil {
-		sale.SaleEndTime = starts[0]
-		for _, s := range starts[1:] {
-			if s.Before(sale.SaleEndTime) {
-				sale.SaleEndTime = s
-			}
+	now := uc.clock()
+	for _, id := range sale.EventIDs {
+		stocks, err := uc.stockRepo.ListByEvent(ctx, id, now)
+		if err != nil {
+			return nil, err
 		}
-		if err := sale.Validate(); err != nil {
-			return nil, apperr.New(codes.InvalidArgument, err.Error())
+		if len(stocks) == 0 {
+			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale has no ticket stock")
 		}
 	}
 	if err := checkEndBeforeEvents(sale.Method, sale.SaleEndTime, starts); err != nil {
@@ -347,38 +314,10 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 		return nil, apperr.New(codes.FailedPrecondition, "the organizer has no complete business details")
 	}
 
-	now := uc.clock()
-	if err := uc.checkNoOverlap(ctx, sale, now); err != nil {
+	if err := uc.checkNoOverlap(ctx, sale); err != nil {
 		return nil, err
 	}
-	created, err := uc.saleRepo.Create(ctx, sale)
-	if err != nil {
-		return nil, err
-	}
-	return saleViewAt(created, created.TicketTypes, now), nil
-}
-
-// saleViewAt returns the sale showing ticketTypes, with the state and
-// LowStock of each FirstCome TicketType at now.
-func saleViewAt(sale *entity.TicketSale, ticketTypes []*entity.TicketType, now time.Time) *TicketSaleView {
-	shown := *sale
-	shown.TicketTypes = ticketTypes
-	view := &TicketSaleView{Sale: &shown, TicketTypes: make([]*TicketTypeView, 0, len(ticketTypes))}
-	for _, tt := range ticketTypes {
-		view.TicketTypes = append(view.TicketTypes, ticketTypeViewAt(sale, tt, now))
-	}
-	return view
-}
-
-// ticketTypeViewAt returns tt with, for a FirstCome sale, its state and
-// LowStock at now.
-func ticketTypeViewAt(sale *entity.TicketSale, tt *entity.TicketType, now time.Time) *TicketTypeView {
-	view := &TicketTypeView{TicketType: tt}
-	if sale.Method == entity.TicketSaleMethodFirstCome {
-		view.State = tt.StateAt(sale, now)
-		view.LowStock = tt.IsLowStockAt(sale, now)
-	}
-	return view
+	return uc.saleRepo.Create(ctx, sale)
 }
 
 // ListOwnByEvent implements [TicketSaleUseCase].
@@ -393,104 +332,76 @@ func (uc *ticketSaleUseCase) ListOwnByEvent(ctx context.Context, organizerID, ev
 	if owner != organizerID {
 		return nil, apperr.New(codes.PermissionDenied, "the event is not the organizer's")
 	}
-	now := uc.clock()
-	sales, err := uc.saleRepo.ListByEvent(ctx, eventID, now)
+	sales, err := uc.saleRepo.ListByEvent(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
-	views := make([]*TicketSaleView, 0, len(sales))
+	stocks, err := uc.stockRepo.ListByEvent(ctx, eventID, uc.clock())
+	if err != nil {
+		return nil, err
+	}
+	out := &OwnEventSales{Sales: sales, LotteryEntryStats: []*StockEntryStats{}}
 	for _, sale := range sales {
-		view := saleViewAt(sale, sale.TicketTypes, now)
-		if sale.Method == entity.TicketSaleMethodLottery {
-			for _, ttv := range view.TicketTypes {
-				stats, err := uc.entryRepo.GetStatsByTicketType(ctx, ttv.TicketType.ID)
-				if err != nil {
-					return nil, err
-				}
-				ttv.Stats = &stats
-			}
+		if sale.Method != entity.TicketSaleMethodLottery {
+			continue
 		}
-		views = append(views, view)
+		for _, stock := range stocks {
+			stats, err := uc.entryRepo.GetStatsByTicketType(ctx, sale.ID, stock.ID)
+			if err != nil {
+				return nil, err
+			}
+			out.LotteryEntryStats = append(out.LotteryEntryStats, &StockEntryStats{SaleID: sale.ID, Stock: stock, Stats: stats})
+		}
 	}
-	referralStats, err := uc.orderRepo.ListReferralStatsByEvent(ctx, eventID)
+	out.ReferralCodeStats, err = uc.orderRepo.ListReferralStatsByEvent(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
-	return &OwnEventSales{Sales: views, ReferralCodeStats: referralStats}, nil
+	return out, nil
 }
 
 // ListByEvent implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) ListByEvent(ctx context.Context, eventID string) ([]*TicketSaleView, error) {
+func (uc *ticketSaleUseCase) ListByEvent(ctx context.Context, eventID string) (*EventSales, error) {
+	empty := &EventSales{Sales: []*entity.TicketSale{}, Stocks: []*TicketStockView{}}
 	published, err := uc.eventState.IsEventPublished(ctx, eventID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return []*TicketSaleView{}, nil
+			return empty, nil
 		}
 		return nil, err
 	}
 	if !published {
-		return []*TicketSaleView{}, nil
+		return empty, nil
+	}
+	sales, err := uc.saleRepo.ListByEvent(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if len(sales) == 0 {
+		return empty, nil
+	}
+	event, err := uc.eventRepo.Get(ctx, eventID)
+	if err != nil {
+		return nil, err
 	}
 	now := uc.clock()
-	sales, err := uc.saleRepo.ListByEvent(ctx, eventID, now)
+	stocks, err := uc.stockRepo.ListByEvent(ctx, eventID, now)
 	if err != nil {
 		return nil, err
 	}
-	deadline, err := uc.resaleDeadline(ctx, eventID, sales)
-	if err != nil {
-		return nil, err
+	deadline, hasDeadline := entity.ResaleDeadlineOf(event)
+	views := make([]*TicketStockView, 0, len(stocks))
+	for _, stock := range stocks {
+		views = append(views, &TicketStockView{Stock: stock, ResaleOpen: hasDeadline && stock.IsResaleOpenAt(now, deadline)})
 	}
-	views := make([]*TicketSaleView, 0, len(sales))
-	for _, sale := range sales {
-		var forEvent []*entity.TicketType
-		for _, tt := range sale.TicketTypes {
-			if tt.EventID == eventID {
-				forEvent = append(forEvent, tt)
-			}
-		}
-		view := saleViewAt(sale, forEvent, now)
-		if deadline != nil && sale.Method == entity.TicketSaleMethodFirstCome {
-			for _, ttv := range view.TicketTypes {
-				ttv.ResaleOpen = ttv.TicketType.IsResaleOpenAt(now, *deadline)
-				ttv.ResaleAvailable = ttv.TicketType.IsResaleAvailableAt(now, *deadline)
-			}
-		}
-		views = append(views, view)
-	}
-	return views, nil
-}
-
-// resaleDeadline returns the event's resale deadline, 3 hours before its
-// start time, when one of the event's sales has a TicketType whose resale
-// opened; nil otherwise, or when the event has no start time (then it has no
-// resale).
-func (uc *ticketSaleUseCase) resaleDeadline(ctx context.Context, eventID string, sales []*entity.TicketSale) (*time.Time, error) {
-	opened := false
-	for _, sale := range sales {
-		for _, tt := range sale.TicketTypes {
-			if tt.EventID == eventID && tt.ResaleOpenTime != nil {
-				opened = true
-			}
-		}
-	}
-	if !opened {
-		return nil, nil
-	}
-	start, err := uc.eventStart.GetEventStartTime(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{StartTime: start})
-	if !ok {
-		return nil, nil
-	}
-	return &deadline, nil
+	limit := event.Limit()
+	return &EventSales{Sales: sales, Stocks: views, PerAccountLimit: &limit}, nil
 }
 
 // ownSale reads the sale and fails with PermissionDenied unless its Series is
 // the Organizer's.
-func (uc *ticketSaleUseCase) ownSale(ctx context.Context, organizerID string, saleID entity.TicketSaleID, now time.Time) (*entity.TicketSale, error) {
-	sale, err := uc.saleRepo.Get(ctx, saleID, now)
+func (uc *ticketSaleUseCase) ownSale(ctx context.Context, organizerID string, saleID entity.TicketSaleID) (*entity.TicketSale, error) {
+	sale, err := uc.saleRepo.Get(ctx, saleID)
 	if err != nil {
 		return nil, err
 	}
@@ -501,19 +412,18 @@ func (uc *ticketSaleUseCase) ownSale(ctx context.Context, organizerID string, sa
 }
 
 // SetWindow implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*TicketSaleView, error) {
-	now := uc.clock()
-	sale, err := uc.ownSale(ctx, organizerID, saleID, now)
+func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*entity.TicketSale, error) {
+	sale, err := uc.ownSale(ctx, organizerID, saleID)
 	if err != nil {
 		return nil, err
 	}
-	if sale.Method == entity.TicketSaleMethodLottery && !now.Before(sale.SaleStartTime) {
+	if sale.Method == entity.TicketSaleMethodLottery && !uc.clock().Before(sale.SaleStartTime) {
 		return nil, apperr.New(codes.FailedPrecondition, "a lottery sale's window cannot change once it has opened")
 	}
 	if err := sale.ValidateWindow(saleStart, saleEnd); err != nil {
 		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
-	starts, err := uc.eventStartTimes(ctx, eventIDsOf(sale))
+	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -522,28 +432,19 @@ func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, 
 	}
 	moved := *sale
 	moved.SaleStartTime, moved.SaleEndTime = saleStart, saleEnd
-	if err := uc.checkNoOverlap(ctx, &moved, now); err != nil {
+	if err := uc.checkNoOverlap(ctx, &moved); err != nil {
 		return nil, err
 	}
-	updated, err := uc.saleRepo.SetWindow(ctx, saleID, saleStart, saleEnd, now)
-	if err != nil {
-		return nil, err
-	}
-	return saleViewAt(updated, updated.TicketTypes, now), nil
+	return uc.saleRepo.SetWindow(ctx, saleID, saleStart, saleEnd)
 }
 
 // SetVerificationRequirement implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*TicketSaleView, error) {
+func (uc *ticketSaleUseCase) SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error) {
 	if saleID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "ticket_sale_id is required")
 	}
-	now := uc.clock()
-	if _, err := uc.ownSale(ctx, organizerID, saleID, now); err != nil {
+	if _, err := uc.ownSale(ctx, organizerID, saleID); err != nil {
 		return nil, err
 	}
-	updated, err := uc.saleRepo.SetVerificationRequirement(ctx, saleID, req, now)
-	if err != nil {
-		return nil, err
-	}
-	return saleViewAt(updated, updated.TicketTypes, now), nil
+	return uc.saleRepo.SetVerificationRequirement(ctx, saleID, req)
 }

@@ -32,25 +32,25 @@ type ResaleListingAt struct {
 // resale (公式リセール), withdraw them and read them, plus the job that refunds
 // and notifies the fans whose tickets sold.
 type ResaleListingUseCase interface {
-	// Create lists one of the fan's tickets while its first-come TicketType's
-	// resale is open, and returns the Listed listing.
+	// Create lists one of the fan's tickets, bought first come or won in a
+	// lottery, while its TicketStock's resale is open, and returns the Listed
+	// listing.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: the Ticket is not among the fan's (non-revealing).
-	//  - FailedPrecondition: the Ticket is Voided or admitted, its Order did
-	//    not come from a Checkout, its concert is not published, or its
-	//    TicketType's resale is not open.
+	//  - FailedPrecondition: the Ticket is Voided or admitted, its concert is
+	//    not published, or its TicketStock's resale is not open.
 	//  - AlreadyExists: the Ticket already has a Listed listing.
 	Create(ctx context.Context, userID entity.UserID, ticketID entity.TicketID) (*ResaleListingAt, error)
 
-	// Withdraw takes back the fan's free listing and returns it as read again.
+	// Withdraw takes back the fan's open listing and returns it as read again.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: the listing does not exist or is another fan's
 	//    (non-revealing).
-	//  - FailedPrecondition: the listing is held, Sold, Cancelled or expired.
+	//  - FailedPrecondition: the listing is Sold, Cancelled or expired.
 	Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleListingID) (*ResaleListingAt, error)
 
 	// List returns the fan's listings, newest first, each with its deadline;
@@ -76,8 +76,7 @@ type ResaleListingDeps struct {
 	Listings   entity.ResaleListingRepository
 	Tickets    entity.TicketRepository
 	Orders     entity.OrderRepository
-	Checkouts  entity.CheckoutRepository
-	Sales      entity.TicketSaleRepository
+	Stocks     entity.TicketStockRepository
 	EventState EventPublishStatePort
 	Events     entity.EventRepository
 	// Publisher announces each refund (ORDER.resale_listing_refunded); the
@@ -124,14 +123,9 @@ func (uc *resaleListingUseCase) Create(ctx context.Context, userID entity.UserID
 	if err != nil {
 		return nil, err
 	}
-	if order.CheckoutID == "" {
-		return nil, apperr.New(codes.FailedPrecondition, "only a ticket bought first come can be resold")
-	}
-	checkout, err := uc.Checkouts.Get(ctx, order.CheckoutID)
-	if err != nil {
-		return nil, err
-	}
-	_, ticketType, err := uc.Sales.GetTicketType(ctx, checkout.TicketTypeID, now)
+	// A ticket bought first come and a ticket won in a lottery are listed
+	// alike: both are of the Order's TicketStock.
+	stock, err := uc.Stocks.Get(ctx, order.TicketStockID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -146,11 +140,11 @@ func (uc *resaleListingUseCase) Create(ctx context.Context, userID entity.UserID
 	if err != nil {
 		return nil, err
 	}
-	if !ticketType.IsResaleOpenAt(now, deadline) {
-		return nil, apperr.New(codes.FailedPrecondition, "the ticket type's resale is not open")
+	if !stock.IsResaleOpenAt(now, deadline) {
+		return nil, apperr.New(codes.FailedPrecondition, "the ticket stock's resale is not open")
 	}
 
-	listing, err := uc.Listings.Create(ctx, entity.NewResaleListing(ticket, ticketType, now))
+	listing, err := uc.Listings.Create(ctx, entity.NewResaleListing(ticket, stock.ID, stock.SeatType, now))
 	if err != nil {
 		return nil, err
 	}
