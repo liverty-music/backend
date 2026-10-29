@@ -117,8 +117,8 @@ func (_c *MockTicketSaleRepository_Create_Call) RunAndReturn(run func(ctx contex
 }
 
 // Get provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) Get(ctx context.Context, id entity.TicketSaleID, at time.Time) (*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, id, at)
+func (_mock *MockTicketSaleRepository) Get(ctx context.Context, id entity.TicketSaleID) (*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Get")
@@ -126,18 +126,18 @@ func (_mock *MockTicketSaleRepository) Get(ctx context.Context, id entity.Ticket
 
 	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time) (*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, id, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID) (*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, id)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, id, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID) *entity.TicketSale); ok {
+		r0 = returnFunc(ctx, id)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, time.Time) error); ok {
-		r1 = returnFunc(ctx, id, at)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID) error); ok {
+		r1 = returnFunc(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -152,12 +152,11 @@ type MockTicketSaleRepository_Get_Call struct {
 // Get is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.TicketSaleID
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) Get(ctx any, id any, at any) *MockTicketSaleRepository_Get_Call {
-	return &MockTicketSaleRepository_Get_Call{Call: _e.mock.On("Get", ctx, id, at)}
+func (_e *MockTicketSaleRepository_Expecter) Get(ctx any, id any) *MockTicketSaleRepository_Get_Call {
+	return &MockTicketSaleRepository_Get_Call{Call: _e.mock.On("Get", ctx, id)}
 }
 
-func (_c *MockTicketSaleRepository_Get_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, at time.Time)) *MockTicketSaleRepository_Get_Call {
+func (_c *MockTicketSaleRepository_Get_Call) Run(run func(ctx context.Context, id entity.TicketSaleID)) *MockTicketSaleRepository_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -167,14 +166,9 @@ func (_c *MockTicketSaleRepository_Get_Call) Run(run func(ctx context.Context, i
 		if args[1] != nil {
 			arg1 = args[1].(entity.TicketSaleID)
 		}
-		var arg2 time.Time
-		if args[2] != nil {
-			arg2 = args[2].(time.Time)
-		}
 		run(
 			arg0,
 			arg1,
-			arg2,
 		)
 	})
 	return _c
@@ -185,96 +179,14 @@ func (_c *MockTicketSaleRepository_Get_Call) Return(ticketSale *entity.TicketSal
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_Get_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, at time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_Get_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetTicketType provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) GetTicketType(ctx context.Context, id entity.TicketTypeID, at time.Time) (*entity.TicketSale, *entity.TicketType, error) {
-	ret := _mock.Called(ctx, id, at)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetTicketType")
-	}
-
-	var r0 *entity.TicketSale
-	var r1 *entity.TicketType
-	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, time.Time) (*entity.TicketSale, *entity.TicketType, error)); ok {
-		return returnFunc(ctx, id, at)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, id, at)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.TicketSale)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, time.Time) *entity.TicketType); ok {
-		r1 = returnFunc(ctx, id, at)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*entity.TicketType)
-		}
-	}
-	if returnFunc, ok := ret.Get(2).(func(context.Context, entity.TicketTypeID, time.Time) error); ok {
-		r2 = returnFunc(ctx, id, at)
-	} else {
-		r2 = ret.Error(2)
-	}
-	return r0, r1, r2
-}
-
-// MockTicketSaleRepository_GetTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTicketType'
-type MockTicketSaleRepository_GetTicketType_Call struct {
-	*mock.Call
-}
-
-// GetTicketType is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id entity.TicketTypeID
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) GetTicketType(ctx any, id any, at any) *MockTicketSaleRepository_GetTicketType_Call {
-	return &MockTicketSaleRepository_GetTicketType_Call{Call: _e.mock.On("GetTicketType", ctx, id, at)}
-}
-
-func (_c *MockTicketSaleRepository_GetTicketType_Call) Run(run func(ctx context.Context, id entity.TicketTypeID, at time.Time)) *MockTicketSaleRepository_GetTicketType_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.TicketTypeID
-		if args[1] != nil {
-			arg1 = args[1].(entity.TicketTypeID)
-		}
-		var arg2 time.Time
-		if args[2] != nil {
-			arg2 = args[2].(time.Time)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockTicketSaleRepository_GetTicketType_Call) Return(ticketSale *entity.TicketSale, ticketType *entity.TicketType, err error) *MockTicketSaleRepository_GetTicketType_Call {
-	_c.Call.Return(ticketSale, ticketType, err)
-	return _c
-}
-
-func (_c *MockTicketSaleRepository_GetTicketType_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketTypeID, at time.Time) (*entity.TicketSale, *entity.TicketType, error)) *MockTicketSaleRepository_GetTicketType_Call {
+func (_c *MockTicketSaleRepository_Get_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID) (*entity.TicketSale, error)) *MockTicketSaleRepository_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ListByEvent provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) ListByEvent(ctx context.Context, eventID string, at time.Time) ([]*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, eventID, at)
+func (_mock *MockTicketSaleRepository) ListByEvent(ctx context.Context, eventID string) ([]*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, eventID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByEvent")
@@ -282,18 +194,18 @@ func (_mock *MockTicketSaleRepository) ListByEvent(ctx context.Context, eventID 
 
 	var r0 []*entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, eventID, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, eventID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) []*entity.TicketSale); ok {
-		r0 = returnFunc(ctx, eventID, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.TicketSale); ok {
+		r0 = returnFunc(ctx, eventID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time) error); ok {
-		r1 = returnFunc(ctx, eventID, at)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, eventID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -308,12 +220,11 @@ type MockTicketSaleRepository_ListByEvent_Call struct {
 // ListByEvent is a helper method to define mock.On call
 //   - ctx context.Context
 //   - eventID string
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) ListByEvent(ctx any, eventID any, at any) *MockTicketSaleRepository_ListByEvent_Call {
-	return &MockTicketSaleRepository_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID, at)}
+func (_e *MockTicketSaleRepository_Expecter) ListByEvent(ctx any, eventID any) *MockTicketSaleRepository_ListByEvent_Call {
+	return &MockTicketSaleRepository_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID)}
 }
 
-func (_c *MockTicketSaleRepository_ListByEvent_Call) Run(run func(ctx context.Context, eventID string, at time.Time)) *MockTicketSaleRepository_ListByEvent_Call {
+func (_c *MockTicketSaleRepository_ListByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockTicketSaleRepository_ListByEvent_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -323,14 +234,9 @@ func (_c *MockTicketSaleRepository_ListByEvent_Call) Run(run func(ctx context.Co
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 time.Time
-		if args[2] != nil {
-			arg2 = args[2].(time.Time)
-		}
 		run(
 			arg0,
 			arg1,
-			arg2,
 		)
 	})
 	return _c
@@ -341,7 +247,7 @@ func (_c *MockTicketSaleRepository_ListByEvent_Call) Return(ticketSales []*entit
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string, at time.Time) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListByEvent_Call {
+func (_c *MockTicketSaleRepository_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListByEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -557,8 +463,8 @@ func (_c *MockTicketSaleRepository_ListWithPendingMilestones_Call) RunAndReturn(
 }
 
 // SetVerificationRequirement provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) SetVerificationRequirement(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time) (*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, id, req, at)
+func (_mock *MockTicketSaleRepository) SetVerificationRequirement(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, id, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetVerificationRequirement")
@@ -566,18 +472,18 @@ func (_mock *MockTicketSaleRepository) SetVerificationRequirement(ctx context.Co
 
 	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) (*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, id, req, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement) (*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, id, req)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, id, req, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement) *entity.TicketSale); ok {
+		r0 = returnFunc(ctx, id, req)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) error); ok {
-		r1 = returnFunc(ctx, id, req, at)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement) error); ok {
+		r1 = returnFunc(ctx, id, req)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -593,12 +499,11 @@ type MockTicketSaleRepository_SetVerificationRequirement_Call struct {
 //   - ctx context.Context
 //   - id entity.TicketSaleID
 //   - req entity.VerificationRequirement
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) SetVerificationRequirement(ctx any, id any, req any, at any) *MockTicketSaleRepository_SetVerificationRequirement_Call {
-	return &MockTicketSaleRepository_SetVerificationRequirement_Call{Call: _e.mock.On("SetVerificationRequirement", ctx, id, req, at)}
+func (_e *MockTicketSaleRepository_Expecter) SetVerificationRequirement(ctx any, id any, req any) *MockTicketSaleRepository_SetVerificationRequirement_Call {
+	return &MockTicketSaleRepository_SetVerificationRequirement_Call{Call: _e.mock.On("SetVerificationRequirement", ctx, id, req)}
 }
 
-func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time)) *MockTicketSaleRepository_SetVerificationRequirement_Call {
+func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement)) *MockTicketSaleRepository_SetVerificationRequirement_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -612,15 +517,10 @@ func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) Run(run func
 		if args[2] != nil {
 			arg2 = args[2].(entity.VerificationRequirement)
 		}
-		var arg3 time.Time
-		if args[3] != nil {
-			arg3 = args[3].(time.Time)
-		}
 		run(
 			arg0,
 			arg1,
 			arg2,
-			arg3,
 		)
 	})
 	return _c
@@ -631,14 +531,14 @@ func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) Return(ticke
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetVerificationRequirement_Call {
+func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetVerificationRequirement_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SetWindow provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time, at time.Time) (*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, id, saleStart, saleEnd, at)
+func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, id, saleStart, saleEnd)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetWindow")
@@ -646,18 +546,18 @@ func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.
 
 	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) (*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, id, saleStart, saleEnd, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) (*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, id, saleStart, saleEnd)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, id, saleStart, saleEnd, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) *entity.TicketSale); ok {
+		r0 = returnFunc(ctx, id, saleStart, saleEnd)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) error); ok {
-		r1 = returnFunc(ctx, id, saleStart, saleEnd, at)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) error); ok {
+		r1 = returnFunc(ctx, id, saleStart, saleEnd)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -674,12 +574,11 @@ type MockTicketSaleRepository_SetWindow_Call struct {
 //   - id entity.TicketSaleID
 //   - saleStart time.Time
 //   - saleEnd time.Time
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) SetWindow(ctx any, id any, saleStart any, saleEnd any, at any) *MockTicketSaleRepository_SetWindow_Call {
-	return &MockTicketSaleRepository_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, id, saleStart, saleEnd, at)}
+func (_e *MockTicketSaleRepository_Expecter) SetWindow(ctx any, id any, saleStart any, saleEnd any) *MockTicketSaleRepository_SetWindow_Call {
+	return &MockTicketSaleRepository_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, id, saleStart, saleEnd)}
 }
 
-func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time, at time.Time)) *MockTicketSaleRepository_SetWindow_Call {
+func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time)) *MockTicketSaleRepository_SetWindow_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -697,16 +596,11 @@ func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Cont
 		if args[3] != nil {
 			arg3 = args[3].(time.Time)
 		}
-		var arg4 time.Time
-		if args[4] != nil {
-			arg4 = args[4].(time.Time)
-		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
-			arg4,
 		)
 	})
 	return _c
@@ -717,89 +611,7 @@ func (_c *MockTicketSaleRepository_SetWindow_Call) Return(ticketSale *entity.Tic
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_SetWindow_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time, at time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetWindow_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateTicketType provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) UpdateTicketType(ctx context.Context, ticketType *entity.TicketType, at time.Time) (*entity.TicketSale, *entity.TicketType, error) {
-	ret := _mock.Called(ctx, ticketType, at)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateTicketType")
-	}
-
-	var r0 *entity.TicketSale
-	var r1 *entity.TicketType
-	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.TicketType, time.Time) (*entity.TicketSale, *entity.TicketType, error)); ok {
-		return returnFunc(ctx, ticketType, at)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.TicketType, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, ticketType, at)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.TicketSale)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.TicketType, time.Time) *entity.TicketType); ok {
-		r1 = returnFunc(ctx, ticketType, at)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*entity.TicketType)
-		}
-	}
-	if returnFunc, ok := ret.Get(2).(func(context.Context, *entity.TicketType, time.Time) error); ok {
-		r2 = returnFunc(ctx, ticketType, at)
-	} else {
-		r2 = ret.Error(2)
-	}
-	return r0, r1, r2
-}
-
-// MockTicketSaleRepository_UpdateTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateTicketType'
-type MockTicketSaleRepository_UpdateTicketType_Call struct {
-	*mock.Call
-}
-
-// UpdateTicketType is a helper method to define mock.On call
-//   - ctx context.Context
-//   - ticketType *entity.TicketType
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) UpdateTicketType(ctx any, ticketType any, at any) *MockTicketSaleRepository_UpdateTicketType_Call {
-	return &MockTicketSaleRepository_UpdateTicketType_Call{Call: _e.mock.On("UpdateTicketType", ctx, ticketType, at)}
-}
-
-func (_c *MockTicketSaleRepository_UpdateTicketType_Call) Run(run func(ctx context.Context, ticketType *entity.TicketType, at time.Time)) *MockTicketSaleRepository_UpdateTicketType_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 *entity.TicketType
-		if args[1] != nil {
-			arg1 = args[1].(*entity.TicketType)
-		}
-		var arg2 time.Time
-		if args[2] != nil {
-			arg2 = args[2].(time.Time)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockTicketSaleRepository_UpdateTicketType_Call) Return(ticketSale *entity.TicketSale, ticketType1 *entity.TicketType, err error) *MockTicketSaleRepository_UpdateTicketType_Call {
-	_c.Call.Return(ticketSale, ticketType1, err)
-	return _c
-}
-
-func (_c *MockTicketSaleRepository_UpdateTicketType_Call) RunAndReturn(run func(ctx context.Context, ticketType *entity.TicketType, at time.Time) (*entity.TicketSale, *entity.TicketType, error)) *MockTicketSaleRepository_UpdateTicketType_Call {
+func (_c *MockTicketSaleRepository_SetWindow_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetWindow_Call {
 	_c.Call.Return(run)
 	return _c
 }

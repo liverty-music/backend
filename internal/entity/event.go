@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -48,12 +49,43 @@ type Event struct {
 	// Set for an Event of a first-party series; nil for an Event of a
 	// discovered series.
 	PublishState *PublishState
+	// PerAccountLimit is the most tickets one account may hold for the event,
+	// across every TicketSale, SeatType and official resale of it: 1 to 10.
+	// Set for an Event of a first-party series; nil for an Event of a
+	// discovered series.
+	PerAccountLimit *int
+}
+
+const (
+	// EventDefaultPerAccountLimit is the per-account limit of an Event created
+	// without one.
+	EventDefaultPerAccountLimit = 4
+	// EventMaxPerAccountLimit is the highest per-account limit: one
+	// AdmissionCode presents at most 10 tickets, and a companion group enters
+	// together with one code.
+	EventMaxPerAccountLimit = 10
+)
+
+// HeldTickets is what one account holds for one event: the issued Tickets of
+// its Paid Orders plus the ticket counts of its Pending Orders, and the
+// SeatType they are all of. SeatTypeID is nil exactly when Count is 0.
+type HeldTickets struct {
+	// Count is the number of tickets held.
+	Count int
+	// SeatTypeID is the SeatType of every ticket held; nil when none is held.
+	SeatTypeID *SeatTypeID
 }
 
 // NewAuthoredEvent returns a new Event of a first-party series. It starts
-// DRAFT: it holds no slot and is not a [Concert] until it is published.
-func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDate time.Time, startTime, openTime *time.Time) *Event {
+// DRAFT: it holds no slot and is not a [Concert] until it is published. A nil
+// perAccountLimit means none was given, and the limit is
+// [EventDefaultPerAccountLimit].
+func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDate time.Time, startTime, openTime *time.Time, perAccountLimit *int) *Event {
 	state := PublishStateDraft
+	limit := EventDefaultPerAccountLimit
+	if perAccountLimit != nil {
+		limit = *perAccountLimit
+	}
 	return &Event{
 		ID:              NewID(),
 		SeriesID:        seriesID,
@@ -63,7 +95,39 @@ func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDa
 		StartTime:       startTime,
 		OpenTime:        openTime,
 		PublishState:    &state,
+		PerAccountLimit: &limit,
 	}
+}
+
+// ValidatePerAccountLimit reports whether the per-account limit, when set, is
+// 1 to 10. The entity layer returns stdlib errors; callers wrap them with an
+// apperr code.
+func (e *Event) ValidatePerAccountLimit() error {
+	if e.PerAccountLimit != nil && (*e.PerAccountLimit < 1 || *e.PerAccountLimit > EventMaxPerAccountLimit) {
+		return errors.New("per-account limit must be 1 to 10")
+	}
+	return nil
+}
+
+// Limit returns the per-account limit, or [EventDefaultPerAccountLimit] for
+// an Event that has none.
+func (e *Event) Limit() int {
+	if e.PerAccountLimit == nil {
+		return EventDefaultPerAccountLimit
+	}
+	return *e.PerAccountLimit
+}
+
+// Fits reports whether an application by an account for count tickets of the
+// seat type fits the event, given what the account holds for it: the held
+// tickets plus count are at most the per-account limit, and every held ticket
+// is of that seat type. An account that holds no ticket for the event may
+// apply for any seat type.
+func (e *Event) Fits(held HeldTickets, seatTypeID SeatTypeID, count int) bool {
+	if held.SeatTypeID != nil && *held.SeatTypeID != seatTypeID {
+		return false
+	}
+	return held.Count+count <= e.Limit()
 }
 
 // HasPublishState reports whether the event is in the given publish state. An
@@ -123,19 +187,23 @@ func (e *Event) HasEventPage(series *Series) bool {
 
 // CheckChange returns FailedPrecondition when next would change what the
 // event's publish state fixes. A DRAFT event may change freely. A PUBLISHED
-// event keeps its Venue and local date; its open time may change, and its
-// start time may change only while no ticket sale offers it (onSale false). A
-// CANCELLED event may not change at all.
+// event keeps its Venue, local date and per-account limit; its open time may
+// change, and its start time may change only while no ticket sale names it
+// (onSale false). A CANCELLED event may not change at all.
 func (e *Event) CheckChange(next *Event, onSale bool) error {
 	switch {
 	case e.HasPublishState(PublishStateCancelled):
 		if next.VenueID != e.VenueID || !next.LocalDate.Equal(e.LocalDate) ||
-			!sameOptionalTime(next.StartTime, e.StartTime) || !sameOptionalTime(next.OpenTime, e.OpenTime) {
+			!sameOptionalTime(next.StartTime, e.StartTime) || !sameOptionalTime(next.OpenTime, e.OpenTime) ||
+			next.Limit() != e.Limit() {
 			return apperr.New(codes.FailedPrecondition, "a cancelled event cannot change")
 		}
 	case e.HasPublishState(PublishStatePublished):
 		if next.VenueID != e.VenueID || !next.LocalDate.Equal(e.LocalDate) {
 			return apperr.New(codes.FailedPrecondition, "the venue and date of a published event cannot change; cancel it and add a new date")
+		}
+		if next.Limit() != e.Limit() {
+			return apperr.New(codes.FailedPrecondition, "the per-account limit of a published event cannot change")
 		}
 		if onSale && !sameOptionalTime(next.StartTime, e.StartTime) {
 			return apperr.New(codes.FailedPrecondition, "the start time of an event on sale cannot change")

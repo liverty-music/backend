@@ -11,48 +11,43 @@ func TestNewLotteryEntry(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry "New entry"
-	code := entity.ReferralCode("member-a")
-	e := entity.NewLotteryEntry("type-1", "user-1", 2, "pi_1", &code)
+	order := &entity.Order{ID: "order-1", Status: entity.OrderStatusPending, CardAuthorizationID: "pi_1"}
+	e := entity.NewLotteryEntry(order, "sale-1")
 
 	assert.NotEmpty(t, e.ID)
 	assert.Equal(t, entity.LotteryEntryStateEntered, e.State)
-	assert.Equal(t, "pi_1", e.CardAuthorizationID)
+	assert.Equal(t, order.ID, e.OrderID)
+	assert.Equal(t, "pi_1", e.Order.CardAuthorizationID)
 	assert.Nil(t, e.DrawPosition)
-	assert.Equal(t, entity.TicketTypeID("type-1"), e.TicketTypeID)
-	assert.Equal(t, entity.UserID("user-1"), e.UserID)
-	assert.Equal(t, 2, e.TicketCount)
-	assert.Equal(t, &code, e.ReferralCode)
+	assert.Equal(t, entity.TicketSaleID("sale-1"), e.TicketSaleID)
+	assert.Equal(t, e.ID, order.LotteryEntryID)
+	assert.NoError(t, order.ValidateSource())
 }
 
-func TestLotteryEntry_TicketCount(t *testing.T) {
+func TestValidateLotteryEntrySale(t *testing.T) {
 	t.Parallel()
 
-	ticketType := &entity.TicketType{PerAccountLimit: 4}
-	tests := []struct {
-		name  string
-		count int
-		valid bool
-	}{
-		// @spec components/entity/lottery-entry "Count within the limit"
-		{name: "count within the limit", count: 2, valid: true},
-		// @spec components/entity/lottery-entry "Zero tickets"
-		{name: "zero tickets requested", count: 0},
-		// @spec components/entity/lottery-entry "Count over the limit"
-		{name: "count over the limit", count: 5},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	stock := entity.NewTicketStock("event-1", "seat-s", 150)
 
-			err := ticketType.ValidateTicketCount(tt.count)
+	t.Run("lottery sale of the event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry "Lottery sale of the event"
+		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1")
+		assert.NoError(t, entity.ValidateLotteryEntrySale(sale, stock))
+	})
 
-			if tt.valid {
-				assert.NoError(t, err)
-				return
-			}
-			assert.Error(t, err)
-		})
-	}
+	t.Run("first-come sale", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry "First-come sale"
+		sale := entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-1")
+		assert.Error(t, entity.ValidateLotteryEntrySale(sale, stock))
+	})
+
+	t.Run("lottery sale of another event", func(t *testing.T) {
+		t.Parallel()
+		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-2")
+		assert.Error(t, entity.ValidateLotteryEntrySale(sale, stock))
+	})
 }
 
 func TestLotteryEntryState_Values(t *testing.T) {

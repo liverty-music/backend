@@ -62,10 +62,12 @@ func ResaleFee(price int64) int64 {
 }
 
 // ResaleListing is a fan's offer of one of their Tickets for official resale
-// (公式リセール) at face value, after the Ticket's first-come TicketType sold
-// out. Another fan buys it through a resale Checkout of the same TicketType;
-// the listing's Ticket is then Voided, the other fan receives a new Ticket,
-// and the listing's user is refunded the price minus the resale fee.
+// (公式リセール) at face value, after the Ticket's TicketStock sold out,
+// whether the Ticket was bought first come or won in a lottery. When another
+// fan buys it, the listing's Ticket is Voided, the other fan receives a new
+// Ticket, and the listing's user is refunded the price minus the resale fee.
+// Until buying listed tickets ships (resell-tickets-by-lottery), listings are
+// made but not bought.
 //
 // Mirrors liverty_music.entity.v1.ResaleListing.
 type ResaleListing struct {
@@ -81,19 +83,13 @@ type ResaleListing struct {
 	// EventID is the event the Ticket admits to, whose start time sets the
 	// listing's deadline.
 	EventID string
-	// TicketTypeID is the FirstCome TicketType the Ticket was bought from.
-	TicketTypeID TicketTypeID
+	// TicketStockID is the TicketStock the Ticket is of.
+	TicketStockID TicketStockID
 	// Price is the Ticket's face value (券面価格) in yen, tax-inclusive: the
-	// ticket type's price when listed.
+	// price of the stock's SeatType.
 	Price int64
 	// Status is the stored lifecycle status; never Expired.
 	Status ResaleListingStatus
-	// CheckoutID is the resale Checkout that last held the listing; empty
-	// until one holds it.
-	CheckoutID CheckoutID
-	// Checkout is the Checkout named by CheckoutID, read with the listing; nil
-	// when the listing has none.
-	Checkout *Checkout
 	// CreateTime is when the fan listed the Ticket.
 	CreateTime time.Time
 	// SoldTime is when another fan's Order bought it; nil unless Sold.
@@ -112,18 +108,19 @@ type ResaleListing struct {
 }
 
 // NewResaleListing returns a Listed ResaleListing with a generated UUIDv7 id
-// for the ticket, priced at the ticket type's price, created at now.
-func NewResaleListing(ticket *Ticket, ticketType *TicketType, now time.Time) *ResaleListing {
+// for the ticket of the stock, priced at the seat type's price, created at
+// now.
+func NewResaleListing(ticket *Ticket, stockID TicketStockID, seatType *SeatType, now time.Time) *ResaleListing {
 	return &ResaleListing{
-		ID:           ResaleListingID(NewID()),
-		TicketID:     ticket.ID,
-		OrderID:      ticket.OrderID,
-		UserID:       ticket.UserID,
-		EventID:      ticket.EventID,
-		TicketTypeID: ticketType.ID,
-		Price:        ticketType.Price,
-		Status:       ResaleListingStatusListed,
-		CreateTime:   now,
+		ID:            ResaleListingID(NewID()),
+		TicketID:      ticket.ID,
+		OrderID:       ticket.OrderID,
+		UserID:        ticket.UserID,
+		EventID:       ticket.EventID,
+		TicketStockID: stockID,
+		Price:         seatType.Price,
+		Status:        ResaleListingStatusListed,
+		CreateTime:    now,
 	}
 }
 
@@ -154,17 +151,10 @@ func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 	return l.Status
 }
 
-// IsFreeAt reports whether the listing can be held by a new Checkout or
-// withdrawn at t: it is open, and it has no Checkout or its Checkout is
-// neither holding at t nor Committed.
-func (l *ResaleListing) IsFreeAt(t, deadline time.Time) bool {
-	if !l.IsOpenAt(t, deadline) {
-		return false
-	}
-	if l.Checkout == nil {
-		return true
-	}
-	return !l.Checkout.IsHoldingAt(t) && l.Checkout.Status != CheckoutStatusCommitted
+// IsWithdrawableAt reports whether the fan can withdraw the listing at t: it
+// is open at t.
+func (l *ResaleListing) IsWithdrawableAt(t, deadline time.Time) bool {
+	return l.IsOpenAt(t, deadline)
 }
 
 // ResaleListingSoldEmail is the finished "your ticket sold" message for one
@@ -195,8 +185,7 @@ type ResaleListingRepository interface {
 	//  - Internal: database failure.
 	Create(ctx context.Context, listing *ResaleListing) (*ResaleListing, error)
 
-	// Get returns the listing with the given id, with its Checkout when it
-	// has one.
+	// Get returns the listing with the given id.
 	//
 	// # Possible errors
 	//
@@ -204,15 +193,13 @@ type ResaleListingRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id ResaleListingID) (*ResaleListing, error)
 
-	// Withdraw makes a listing that is free at now Withdrawn with that
+	// Withdraw makes a listing that is open at now Withdrawn with that
 	// withdraw time; the deadline is read from its Ticket's event. A Withdrawn
-	// listing is left unchanged. Checking and withdrawing are one indivisible
-	// step with every hold of the listing.
+	// listing is left unchanged.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the listing is held by a holding or Committed
-	//    Checkout, Sold, Cancelled or expired.
+	//  - FailedPrecondition: the listing is Sold, Cancelled or expired.
 	//  - NotFound: no listing has the id.
 	//  - Internal: database failure.
 	Withdraw(ctx context.Context, id ResaleListingID, now time.Time) error

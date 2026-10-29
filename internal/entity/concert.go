@@ -564,26 +564,27 @@ type ConcertRepository interface {
 	ListCatalogByArtist(ctx context.Context, artistID string) ([]*Concert, error)
 	// Delete removes a published event by id. The delete cascades through the
 	// database's ON DELETE CASCADE foreign keys to every row scoped to the
-	// event alone (the 1:1 concerts row, concert_artists, ticket_journeys, and
-	// ticket_types). Rows that outlive the event but still reference it
-	// — tickets and settlements — are protected by ON DELETE RESTRICT, so the
-	// delete fails instead of orphaning them when any exist. The event's series
-	// and the series' discovered ticket sales are untouched either way: a
-	// discovered sale has no ticket type, so deleting one event never removes
-	// it. It is idempotent: deleting an id that no longer exists is a no-op
+	// event alone (the 1:1 concerts row, concert_artists, ticket_journeys,
+	// ticket_sale_events and ticket_stocks). Rows that outlive the event but
+	// still reference it — orders, tickets and settlements — are protected by
+	// ON DELETE RESTRICT, so the delete fails instead of orphaning them when
+	// any exist. The event's series and the series' discovered ticket sales
+	// are untouched either way: a discovered sale names no event, so deleting
+	// one event never removes it. It is idempotent: deleting an id that no longer exists is a no-op
 	// success.
 	Delete(ctx context.Context, eventID string) error
 	// DeleteAndSuppress removes a published event by id together with every
 	// record that depends only on it: its performers, Concert and ticket
-	// journeys; its TicketTypes with their lottery entries and Checkouts; the
-	// Refunded and Failed Orders of those, with their Tickets and the Tickets'
-	// ResaleListings; the Reversed Settlements; the event's Scanners with their
-	// admissions and rejected scans; every Organizer's TicketSale the removal
-	// leaves without a TicketType; and the event's first-party Series when it
-	// is left with no event. A discovered Series and its discovered TicketSales
-	// stay. In the same transaction it records a suppression entry for the
-	// event's (venue_id, local_event_date, start_at) so a later discovery run
-	// does not auto-publish or re-stage it.
+	// journeys; its TicketStocks with their Void and Refunded Orders and those
+	// Orders' lottery entries and Checkouts; the Tickets of those Orders and
+	// the Tickets' ResaleListings; the Reversed Settlements of those Orders;
+	// the event's Scanners with their admissions and rejected scans; every
+	// Organizer's TicketSale the removal leaves naming no event; and the
+	// event's first-party Series, with its SeatTypes, when it is left with no
+	// event. A discovered Series and its discovered TicketSales stay. In the
+	// same transaction it records a suppression entry for the event's
+	// (venue_id, local_event_date, start_at) so a later discovery run does not
+	// auto-publish or re-stage it.
 	//
 	// It is idempotent: an id that no longer exists, or a DRAFT event, is a
 	// no-op success that records no suppression, and a repeated suppression of
@@ -592,11 +593,8 @@ type ConcertRepository interface {
 	// # Possible errors
 	//
 	//  - FailedPrecondition: the event has a Paid Order, a Settlement that is
-	//    not Reversed, or a purchase in progress (a Held or Committed Checkout,
-	//    an Expired or Released Checkout whose card authorization is not yet
-	//    released, an Entered lottery entry, a Draft lottery entry whose card
-	//    authorization is open, or a Won lottery entry whose Order is not yet
-	//    issued).
+	//    not Reversed, or a purchase in progress (a Pending Order, or a Void
+	//    Order whose card authorization is not yet released).
 	DeleteAndSuppress(ctx context.Context, eventID string) error
 }
 

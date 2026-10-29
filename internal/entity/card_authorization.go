@@ -28,8 +28,8 @@ const (
 
 // CardAuthorization is the authorization placed on a fan's card for the
 // amount of one purchase, a LotteryEntry or a Checkout. The payment provider
-// holds it and is its only record, with the purchase it pays for; a
-// LotteryEntry or a Checkout refers to it by its id.
+// holds it and is its only record, with the purchase it pays for; the
+// purchase's Order refers to it by its id.
 type CardAuthorization struct {
 	// ID is the payment provider's ID for the card authorization (a Stripe
 	// "pi_..."), 1 to 255 characters.
@@ -68,8 +68,10 @@ const (
 )
 
 // CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
-// Checkout, or a lottery entry of a fan for a ticket count of a TicketType,
-// with the TicketType's event. It never carries personal data.
+// Checkout, or a lottery entry of a fan in a Lottery TicketSale for a ticket
+// count of a TicketStock, with the stock's event. It carries what the lottery
+// entry and its Order are made from at Confirm. It never carries personal
+// data.
 type CardAuthorizationPurchase struct {
 	// Purpose is the kind of purchase.
 	Purpose CardAuthorizationPurpose
@@ -77,9 +79,12 @@ type CardAuthorizationPurchase struct {
 	CheckoutID CheckoutID
 	// UserID is the fan who pays.
 	UserID UserID
-	// TicketTypeID is the purchase's TicketType.
-	TicketTypeID TicketTypeID
-	// EventID is the TicketType's event.
+	// TicketSaleID is the Lottery sale a lottery entry is made for; empty for
+	// a Checkout.
+	TicketSaleID TicketSaleID
+	// TicketStockID is the purchase's TicketStock.
+	TicketStockID TicketStockID
+	// EventID is the TicketStock's event.
 	EventID string
 	// TicketCount is the number of tickets paid for.
 	TicketCount int

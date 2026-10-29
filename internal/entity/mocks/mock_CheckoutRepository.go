@@ -257,8 +257,8 @@ func (_c *MockCheckoutRepository_GetByCardAuthorizationID_Call) RunAndReturn(run
 }
 
 // GetOrCreateHeld provides a mock function for the type MockCheckoutRepository
-func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error) {
-	ret := _mock.Called(ctx, ticketTypeID, userID, count, now, resaleDeadline)
+func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity.TicketStockID, saleID entity.TicketSaleID, userID entity.UserID, count int, referralCode *entity.ReferralCode, now time.Time) (*entity.Checkout, error) {
+	ret := _mock.Called(ctx, stockID, saleID, userID, count, referralCode, now)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOrCreateHeld")
@@ -266,18 +266,18 @@ func (_mock *MockCheckoutRepository) GetOrCreateHeld(ctx context.Context, ticket
 
 	var r0 *entity.Checkout
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) (*entity.Checkout, error)); ok {
-		return returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketStockID, entity.TicketSaleID, entity.UserID, int, *entity.ReferralCode, time.Time) (*entity.Checkout, error)); ok {
+		return returnFunc(ctx, stockID, saleID, userID, count, referralCode, now)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) *entity.Checkout); ok {
-		r0 = returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketStockID, entity.TicketSaleID, entity.UserID, int, *entity.ReferralCode, time.Time) *entity.Checkout); ok {
+		r0 = returnFunc(ctx, stockID, saleID, userID, count, referralCode, now)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Checkout)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, entity.UserID, int, time.Time, *time.Time) error); ok {
-		r1 = returnFunc(ctx, ticketTypeID, userID, count, now, resaleDeadline)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketStockID, entity.TicketSaleID, entity.UserID, int, *entity.ReferralCode, time.Time) error); ok {
+		r1 = returnFunc(ctx, stockID, saleID, userID, count, referralCode, now)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -291,40 +291,45 @@ type MockCheckoutRepository_GetOrCreateHeld_Call struct {
 
 // GetOrCreateHeld is a helper method to define mock.On call
 //   - ctx context.Context
-//   - ticketTypeID entity.TicketTypeID
+//   - stockID entity.TicketStockID
+//   - saleID entity.TicketSaleID
 //   - userID entity.UserID
 //   - count int
+//   - referralCode *entity.ReferralCode
 //   - now time.Time
-//   - resaleDeadline *time.Time
-func (_e *MockCheckoutRepository_Expecter) GetOrCreateHeld(ctx any, ticketTypeID any, userID any, count any, now any, resaleDeadline any) *MockCheckoutRepository_GetOrCreateHeld_Call {
-	return &MockCheckoutRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, ticketTypeID, userID, count, now, resaleDeadline)}
+func (_e *MockCheckoutRepository_Expecter) GetOrCreateHeld(ctx any, stockID any, saleID any, userID any, count any, referralCode any, now any) *MockCheckoutRepository_GetOrCreateHeld_Call {
+	return &MockCheckoutRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, stockID, saleID, userID, count, referralCode, now)}
 }
 
-func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time)) *MockCheckoutRepository_GetOrCreateHeld_Call {
+func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, stockID entity.TicketStockID, saleID entity.TicketSaleID, userID entity.UserID, count int, referralCode *entity.ReferralCode, now time.Time)) *MockCheckoutRepository_GetOrCreateHeld_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 entity.TicketTypeID
+		var arg1 entity.TicketStockID
 		if args[1] != nil {
-			arg1 = args[1].(entity.TicketTypeID)
+			arg1 = args[1].(entity.TicketStockID)
 		}
-		var arg2 entity.UserID
+		var arg2 entity.TicketSaleID
 		if args[2] != nil {
-			arg2 = args[2].(entity.UserID)
+			arg2 = args[2].(entity.TicketSaleID)
 		}
-		var arg3 int
+		var arg3 entity.UserID
 		if args[3] != nil {
-			arg3 = args[3].(int)
+			arg3 = args[3].(entity.UserID)
 		}
-		var arg4 time.Time
+		var arg4 int
 		if args[4] != nil {
-			arg4 = args[4].(time.Time)
+			arg4 = args[4].(int)
 		}
-		var arg5 *time.Time
+		var arg5 *entity.ReferralCode
 		if args[5] != nil {
-			arg5 = args[5].(*time.Time)
+			arg5 = args[5].(*entity.ReferralCode)
+		}
+		var arg6 time.Time
+		if args[6] != nil {
+			arg6 = args[6].(time.Time)
 		}
 		run(
 			arg0,
@@ -333,6 +338,7 @@ func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Run(run func(ctx context.
 			arg3,
 			arg4,
 			arg5,
+			arg6,
 		)
 	})
 	return _c
@@ -343,7 +349,7 @@ func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) Return(checkout *entity.C
 	return _c
 }
 
-func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) RunAndReturn(run func(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, now time.Time, resaleDeadline *time.Time) (*entity.Checkout, error)) *MockCheckoutRepository_GetOrCreateHeld_Call {
+func (_c *MockCheckoutRepository_GetOrCreateHeld_Call) RunAndReturn(run func(ctx context.Context, stockID entity.TicketStockID, saleID entity.TicketSaleID, userID entity.UserID, count int, referralCode *entity.ReferralCode, now time.Time) (*entity.Checkout, error)) *MockCheckoutRepository_GetOrCreateHeld_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -861,69 +867,6 @@ func (_c *MockCheckoutRepository_SetCardAuthorization_Call) Return(err error) *M
 }
 
 func (_c *MockCheckoutRepository_SetCardAuthorization_Call) RunAndReturn(run func(ctx context.Context, id entity.CheckoutID, cardAuthorizationID string) error) *MockCheckoutRepository_SetCardAuthorization_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SetReferralCode provides a mock function for the type MockCheckoutRepository
-func (_mock *MockCheckoutRepository) SetReferralCode(ctx context.Context, id entity.CheckoutID, code entity.ReferralCode) error {
-	ret := _mock.Called(ctx, id, code)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetReferralCode")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, entity.ReferralCode) error); ok {
-		r0 = returnFunc(ctx, id, code)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockCheckoutRepository_SetReferralCode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetReferralCode'
-type MockCheckoutRepository_SetReferralCode_Call struct {
-	*mock.Call
-}
-
-// SetReferralCode is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id entity.CheckoutID
-//   - code entity.ReferralCode
-func (_e *MockCheckoutRepository_Expecter) SetReferralCode(ctx any, id any, code any) *MockCheckoutRepository_SetReferralCode_Call {
-	return &MockCheckoutRepository_SetReferralCode_Call{Call: _e.mock.On("SetReferralCode", ctx, id, code)}
-}
-
-func (_c *MockCheckoutRepository_SetReferralCode_Call) Run(run func(ctx context.Context, id entity.CheckoutID, code entity.ReferralCode)) *MockCheckoutRepository_SetReferralCode_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.CheckoutID
-		if args[1] != nil {
-			arg1 = args[1].(entity.CheckoutID)
-		}
-		var arg2 entity.ReferralCode
-		if args[2] != nil {
-			arg2 = args[2].(entity.ReferralCode)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCheckoutRepository_SetReferralCode_Call) Return(err error) *MockCheckoutRepository_SetReferralCode_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockCheckoutRepository_SetReferralCode_Call) RunAndReturn(run func(ctx context.Context, id entity.CheckoutID, code entity.ReferralCode) error) *MockCheckoutRepository_SetReferralCode_Call {
 	_c.Call.Return(run)
 	return _c
 }

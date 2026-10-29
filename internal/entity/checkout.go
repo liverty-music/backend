@@ -3,7 +3,6 @@ package entity
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -64,32 +63,26 @@ const CheckoutHoldDuration = 15 * time.Minute
 // uncompleted before the stalled-checkout job finishes it.
 const CheckoutStalledCommitAge = time.Minute
 
-// Checkout is one fan's purchase in progress on a TicketType of a FirstCome
-// TicketSale: it holds a count of tickets for 15 minutes while the fan
-// confirms their 本人確認 (identity check) details and authorizes their card.
-// It ends with the tickets committed, charged and issued, or with the hold
-// released and any card authorization given back. The fan's full name and phone number
-// are the User's.
+// Checkout is how one fan's Order is bought first come, first served: during
+// a FirstCome TicketSale it holds the Order's tickets of its TicketStock for
+// 15 minutes while the fan confirms their 本人確認 (identity check) details and
+// authorizes their card. It ends with the tickets committed, charged and
+// issued, or with the hold released, any card authorization given back and
+// the Order Void. The fan, the TicketStock, the ticket count, the amount, the
+// card authorization and the referral code are the Order's. The fan's full
+// name and phone number are the User's.
 //
 // Mirrors liverty_music.entity.v1.Checkout.
 type Checkout struct {
 	// ID is the surrogate primary key (UUIDv7).
 	ID CheckoutID
-	// TicketTypeID is the TicketType this checkout buys from; its sale's
-	// method is FirstCome.
-	TicketTypeID TicketTypeID
-	// UserID is the fan checking out.
-	UserID UserID
-	// TicketCount is the number of tickets held, 1 to the ticket type's
-	// per-account limit.
-	TicketCount int
-	// Amount is the ticket type's price × TicketCount in yen, fixed at creation.
-	Amount int64
-	// CardAuthorizationID is the payment provider's ID for the card authorization
-	// (a Stripe "pi_..." id); empty until the fan authorizes, then set once.
-	CardAuthorizationID string
-	// AuthorizationReleaseTime is when the card authorization was given back without a
-	// charge; nil unless released. Set once.
+	// OrderID is the Order the checkout buys; one Checkout per Order.
+	OrderID OrderID
+	// TicketSaleID is the FirstCome TicketSale the checkout buys from; it
+	// names the event of the Order's TicketStock.
+	TicketSaleID TicketSaleID
+	// CardAuthorizationReleaseTime is when the Order's card authorization was
+	// given back without a charge; nil unless released. Set once.
 	CardAuthorizationReleaseTime *time.Time
 	// Status is the checkout's lifecycle status.
 	Status CheckoutStatus
@@ -98,74 +91,49 @@ type Checkout struct {
 	// CommitTime is when the tickets were committed; nil until committed and
 	// kept when a commit is given back.
 	CommitTime *time.Time
-	// CaptureTime is when the card authorization (CardAuthorizationID) was charged; nil
+	// CaptureTime is when the Order's card authorization was charged; nil
 	// until charged. Set once.
 	CaptureTime *time.Time
-	// Resale is true for a resale Checkout: it holds ResaleListings of its
-	// TicketType instead of the TicketType's stock. Fixed at creation.
-	Resale bool
-	// ReferralCode is the code of the last link the fan followed before
-	// paying; nil without one. It changes only while the Checkout is Held.
-	ReferralCode *ReferralCode
+
+	// Order is the Order the checkout buys, read with every Checkout.
+	Order *Order
 }
 
-// NewCheckout returns a Held Checkout for count tickets of ticketType, with a
-// generated UUIDv7 id, an amount of the ticket type's price × count and a hold
-// expiry 15 minutes after now.
-func NewCheckout(ticketType *TicketType, userID UserID, count int, now time.Time) *Checkout {
-	return &Checkout{
+// NewCheckout returns a Held Checkout of the sale that buys order, with a
+// generated UUIDv7 id and a hold expiry 15 minutes after now, and names it as
+// order's source.
+func NewCheckout(order *Order, saleID TicketSaleID, now time.Time) *Checkout {
+	c := &Checkout{
 		ID:             CheckoutID(NewID()),
-		TicketTypeID:   ticketType.ID,
-		UserID:         userID,
-		TicketCount:    count,
-		Amount:         ticketType.AmountFor(count),
+		OrderID:        order.ID,
+		TicketSaleID:   saleID,
 		Status:         CheckoutStatusHeld,
 		HoldExpireTime: now.Add(CheckoutHoldDuration),
+		Order:          order,
 	}
-}
-
-// NewResaleCheckout returns a Held resale Checkout for count tickets of
-// ticketType, like [NewCheckout], except that its hold expires at the resale
-// deadline when that is earlier than 15 minutes after now, so no resale hold
-// lasts into admission.
-func NewResaleCheckout(ticketType *TicketType, userID UserID, count int, now, deadline time.Time) *Checkout {
-	c := NewCheckout(ticketType, userID, count, now)
-	c.Resale = true
-	if deadline.Before(c.HoldExpireTime) {
-		c.HoldExpireTime = deadline
-	}
+	order.CheckoutID = c.ID
 	return c
 }
 
-// ValidateResaleListings reports whether the listings can be the ones a
-// resale Checkout holds: exactly as many as its ticket count, all of its
-// TicketType and none whose user is the Checkout's user. A Checkout that
-// holds stock holds no listing. The entity layer returns stdlib errors;
-// callers wrap them with an apperr code.
-func (r *Checkout) ValidateResaleListings(listings []*ResaleListing) error {
-	if !r.Resale {
-		if len(listings) > 0 {
-			return errors.New("a checkout that holds stock holds no listing")
-		}
-		return nil
+// ValidateCheckoutSale reports whether a Checkout can belong to sale for stock: a
+// FirstCome sale that names the stock's event. The entity layer returns
+// stdlib errors; callers wrap them with an apperr code.
+func ValidateCheckoutSale(sale *TicketSale, stock *TicketStock) error {
+	if sale == nil {
+		return errors.New("a checkout belongs to a ticket sale")
 	}
-	if len(listings) != r.TicketCount {
-		return fmt.Errorf("a resale checkout for %d tickets must hold %d listings, not %d", r.TicketCount, r.TicketCount, len(listings))
+	if sale.Method != TicketSaleMethodFirstCome {
+		return errors.New("a checkout belongs to a first-come sale")
 	}
-	for _, l := range listings {
-		if l.TicketTypeID != r.TicketTypeID {
-			return errors.New("a resale checkout holds only listings of its ticket type")
-		}
-		if l.UserID == r.UserID {
-			return errors.New("a resale checkout never holds its own user's listing")
-		}
+	if !sale.NamesEvent(stock.EventID) {
+		return errors.New("a checkout's sale must name the event of its ticket stock")
 	}
 	return nil
 }
 
 // IsHoldingAt reports whether the Checkout is Held and t is before its hold
-// expiry. Only holding Checkouts count against a ticket type's remaining tickets,
-// and only a holding Checkout can be committed.
+// expiry. Only holding Checkouts count in a TicketStock's held count, and only
+// a holding Checkout can be committed.
 func (r *Checkout) IsHoldingAt(t time.Time) bool {
 	return r.Status == CheckoutStatusHeld && t.Before(r.HoldExpireTime)
 }
@@ -214,41 +182,34 @@ const (
 	CommitOutcomeNotHeld CommitOutcome = 2
 )
 
-// CheckoutRepository persists Checkouts and keeps the ticket type's sold count
-// in step with them. Implementations live in internal/infrastructure/database/rdb/.
+// CheckoutRepository persists Checkouts together with their Orders. Every read
+// returns the Checkout with its Order. Implementations live in
+// internal/infrastructure/database/rdb/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type CheckoutRepository interface {
-	// GetOrCreateHeld returns the user's holding Checkout for the ticket type
-	// when its count equals count, changing nothing; otherwise it creates a new
-	// Held Checkout, in one indivisible step under the ticket type's row lock.
-	// The new one is created only when the remaining count at now, counting the
-	// user's own holding Checkout as free, is at least count, and when count
-	// fits the per-account limit counting the user's Issued Tickets for the
-	// ticket type's event and the tickets on the user's Committed Checkouts for
-	// the ticket type that are not issued yet. On creation, the user's holding
-	// Checkout for the ticket type becomes Released and a lapsed Held one
-	// becomes Expired. On failure nothing changes.
-	//
-	// With a resaleDeadline it holds resale listings instead of stock: it
-	// returns the user's holding resale Checkout with the same count
-	// unchanged, and otherwise creates a resale Checkout (hold expiry at the
-	// deadline at the latest) only when at least count of the ticket type's
-	// listings are free at now, not counting the user's own listings and
-	// counting those of the user's own holding Checkout as free. The new
-	// Checkout holds the free listings with the oldest create times. Picking
-	// and holding them is one indivisible step with every other hold and
-	// withdrawal of them.
+	// GetOrCreateHeld returns the user's holding Checkout of the sale for the
+	// stock when its Order's count equals count, changing nothing; otherwise
+	// it creates a new Held Checkout of the sale with its Pending Order for
+	// the stock, the user, the count and the referral code. It creates one
+	// only when the stock's remaining count at now, counting the user's own
+	// holding Checkout for the stock as free, is at least count, and when the
+	// application fits the stock's event for the user
+	// ([Event.Fits], with [OrderRepository.GetHeldForEvent] leaving out the
+	// Order of the user's holding Checkout that is replaced). On creation, the
+	// user's holding Checkout for the stock becomes Released, a lapsed Held one
+	// Expired, and the Order of each Void. It locks the user's users row, then
+	// the stock's row, so it is serialized with every other Order creation by
+	// the user and with every change of the stock. On failure nothing changes.
 	//
 	// # Possible errors
 	//
-	//  - ResourceExhausted: not enough tickets remain, or not enough listings
-	//    are free.
-	//  - FailedPrecondition: the per-account limit would be exceeded.
-	//  - NotFound: no TicketType has the id, or the user does not exist, also
+	//  - ResourceExhausted: not enough tickets remain.
+	//  - FailedPrecondition: the application does not fit the event.
+	//  - NotFound: no TicketStock has the id, or the user does not exist, also
 	//    when it was deleted while the call waited.
 	//  - Internal: database failure.
-	GetOrCreateHeld(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int, now time.Time, resaleDeadline *time.Time) (*Checkout, error)
+	GetOrCreateHeld(ctx context.Context, stockID TicketStockID, saleID TicketSaleID, userID UserID, count int, referralCode *ReferralCode, now time.Time) (*Checkout, error)
 
 	// Get returns the Checkout with the given id, whatever its status.
 	//
@@ -258,55 +219,41 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id CheckoutID) (*Checkout, error)
 
-	// GetByCardAuthorizationID returns the Checkout that references the given
-	// card authorization.
+	// GetByCardAuthorizationID returns the Checkout whose Order's card
+	// authorization has the given id.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no Checkout has the reference.
+	//  - NotFound: there is none.
 	//  - Internal: database failure.
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*Checkout, error)
 
-	// ListByUser returns every Checkout of the user, in every status and for
-	// every TicketType, newest first. It returns an empty slice when there is
-	// none.
+	// ListByUser returns every Checkout whose Order's user is the user, in
+	// every status and for every TicketStock, newest first. It returns an
+	// empty slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*Checkout, error)
 
-	// SetAuthorization stores the card authorization ID of a Held Checkout; it
-	// changes no other attribute. With the same reference already set it
-	// changes nothing and succeeds.
+	// SetCardAuthorization stores the card authorization as the card
+	// authorization of the Checkout's Order while the Checkout is Held. With
+	// the same card authorization already set it changes nothing and succeeds.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the Checkout has another reference or is not Held.
+	//  - FailedPrecondition: the Order has another card authorization or the
+	//    Checkout is not Held.
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
 	SetCardAuthorization(ctx context.Context, id CheckoutID, cardAuthorizationID string) error
 
-	// SetReferralCode sets the referral code of a Held Checkout, replacing an
-	// earlier one. A Checkout that is not Held is left unchanged and the call
-	// succeeds, so a start that races a commit never alters a committed
-	// Checkout. Checking the status and setting the code are one indivisible
-	// step.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: no Checkout has the id.
-	//  - Internal: database failure.
-	SetReferralCode(ctx context.Context, id CheckoutID, code ReferralCode) error
-
-	// Commit makes a holding Checkout Committed at now and, for a Checkout
-	// that holds stock, adds its count to the ticket type's sold count and sets
-	// the ticket type's resale open time to now when that first makes the sold
-	// count equal the quantity. A resale Checkout leaves the sold count alone.
-	// It is one indivisible step that succeeds only while
-	// the Checkout is Held and before its hold expiry. A Committed or
-	// Completed Checkout reports Committed without a change; any other
-	// reports NotHeld.
+	// Commit makes a holding Checkout Committed at now under its stock's row
+	// lock; its Order's ticket count then counts in the stock's sold count. It
+	// is one indivisible step that succeeds only while the Checkout is Held
+	// and before its hold expiry. A Committed or Completed Checkout reports
+	// Committed without a change; any other reports NotHeld.
 	//
 	// # Possible errors
 	//
@@ -315,8 +262,8 @@ type CheckoutRepository interface {
 	Commit(ctx context.Context, id CheckoutID, now time.Time) (CommitOutcome, error)
 
 	// Release makes a Held Checkout whose hold expired at or before now
-	// Expired, in one indivisible step, and reports whether it changed it. Any
-	// other Checkout is left unchanged.
+	// Expired and its Order Void, in one indivisible step, and reports whether
+	// it changed it. Any other Checkout is left unchanged.
 	//
 	// # Possible errors
 	//
@@ -324,11 +271,9 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	Release(ctx context.Context, id CheckoutID, now time.Time) (bool, error)
 
-	// RevertCommit makes a Committed, uncharged Checkout Released and, for a
-	// Checkout that holds stock, takes its count off the ticket type's sold
-	// count, in one indivisible step, keeping its committed time and the resale
-	// open time. A resale Checkout's listings become free again. A Checkout
-	// that is not Committed is left unchanged.
+	// RevertCommit makes a Committed, uncharged Checkout Released and its
+	// Order Void under its stock's row lock, in one indivisible step, keeping
+	// its commit time. A Checkout that is not Committed is left unchanged.
 	//
 	// # Possible errors
 	//
@@ -338,8 +283,8 @@ type CheckoutRepository interface {
 	RevertCommit(ctx context.Context, id CheckoutID) error
 
 	// RecordCapture stores the capture time of a Committed Checkout; the
-	// charged payment is its card authorization. It changes nothing when a capture time
-	// is set.
+	// charged payment is its Order's card authorization. It changes nothing
+	// when a capture time is set.
 	//
 	// # Possible errors
 	//
@@ -348,22 +293,22 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	RecordCapture(ctx context.Context, id CheckoutID, at time.Time) error
 
-	// RecordAuthorizationRelease sets the authorization release time of an
-	// Expired or Released Checkout that has an authorization reference. It
-	// changes nothing when the time is already set.
+	// RecordCardAuthorizationRelease sets the card authorization release time
+	// of an Expired or Released Checkout whose Order has a card authorization.
+	// It changes nothing when the time is already set.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the Checkout is in another status or has no
-	//    authorization reference.
+	//  - FailedPrecondition: the Checkout is in another status or its Order
+	//    has no card authorization.
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
 	RecordCardAuthorizationRelease(ctx context.Context, id CheckoutID, at time.Time) error
 
 	// ListDue returns, oldest hold first, the Held Checkouts whose hold expired
-	// at or before now, the Expired and Released Checkouts with an
-	// authorization reference and no authorization release time, and the
-	// Committed Checkouts committed more than 1 minute before now.
+	// at or before now, the Expired and Released Checkouts whose Order has a
+	// card authorization and that have no card authorization release time,
+	// and the Committed Checkouts committed more than 1 minute before now.
 	//
 	// # Possible errors
 	//

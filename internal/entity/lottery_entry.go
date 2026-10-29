@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"errors"
 )
 
 // LotteryEntryID is the opaque identifier for a single LotteryEntry.
@@ -47,63 +48,72 @@ func (s LotteryEntryState) String() string {
 	}
 }
 
-// LotteryEntry is one fan account's entry into the lottery for one
-// TicketType: a request for a companion group of tickets allocated
-// all-or-nothing, made when the fan confirms an authorized card authorization
-// for the amount, which holds the amount until the draw. The fan's 本人確認
-// (identity check) details are the User's full name and phone number.
+// LotteryEntry is how one fan's Order takes part in a Lottery TicketSale: a
+// request for a companion group of tickets of the Order's TicketStock,
+// allocated all-or-nothing, made when the fan confirms an authorized card
+// authorization for the Order's amount, which holds the amount until the
+// draw. A fan enters a sale at most once for each event it names. The fan,
+// the TicketStock, the ticket count, the card authorization and the referral
+// code are the Order's; the fan's 本人確認 (identity check) details are the
+// User's full name and phone number.
 //
 // Mirrors liverty_music.entity.v1.LotteryEntry.
 type LotteryEntry struct {
 	// ID is the surrogate primary key (UUIDv7).
 	ID LotteryEntryID
 
-	// TicketTypeID is the TicketType entered; its sale's method is Lottery.
-	TicketTypeID TicketTypeID
+	// OrderID is the Order the entry applies for; one entry per Order.
+	OrderID OrderID
 
-	// UserID is the fan account that entered.
-	UserID UserID
-
-	// TicketCount is the companion-group size, allocated
-	// all-or-nothing: 1 to the ticket type's per-account limit.
-	TicketCount int
-
-	// CardAuthorizationID is the payment provider's ID for the entry's
-	// CardAuthorization (e.g. a Stripe "pi_..."); set at creation. One card
-	// authorization makes at most one entry.
-	CardAuthorizationID string
+	// TicketSaleID is the Lottery TicketSale entered; it names the event of
+	// the Order's TicketStock.
+	TicketSaleID TicketSaleID
 
 	// State is the entry's lifecycle state.
 	State LotteryEntryState
 
-	// DrawPosition is the entry's zero-based position in its ticket type's
-	// random draw order; nil before the draw and set only by the draw. It
-	// orders the losers for official resale.
+	// DrawPosition is the entry's zero-based position in its sale's random
+	// draw order for its TicketStock; nil before the draw and set only by the
+	// draw. It orders the losers for official resale.
 	DrawPosition *int
 
-	// ReferralCode is the code of the link the fan came from, carried by the
-	// card authorization the entry was made from; nil without one. Set at
-	// creation and never changed.
-	ReferralCode *ReferralCode
+	// Order is the Order the entry applies for, read with every entry.
+	Order *Order
 }
 
-// NewLotteryEntry returns an Entered entry with a generated UUIDv7 id, the
-// card authorization it is made from, the optional referral code and no draw
-// position.
-func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, ticketCount int, cardAuthorizationID string, code *ReferralCode) *LotteryEntry {
-	return &LotteryEntry{
-		ID:                  LotteryEntryID(NewID()),
-		TicketTypeID:        ticketTypeID,
-		UserID:              userID,
-		TicketCount:         ticketCount,
-		CardAuthorizationID: cardAuthorizationID,
-		State:               LotteryEntryStateEntered,
-		ReferralCode:        code,
+// NewLotteryEntry returns an Entered entry of the sale for order, with a
+// generated UUIDv7 id and no draw position, and names it as order's source.
+// order carries the card authorization the entry is made from.
+func NewLotteryEntry(order *Order, saleID TicketSaleID) *LotteryEntry {
+	e := &LotteryEntry{
+		ID:           LotteryEntryID(NewID()),
+		OrderID:      order.ID,
+		TicketSaleID: saleID,
+		State:        LotteryEntryStateEntered,
+		Order:        order,
 	}
+	order.LotteryEntryID = e.ID
+	return e
 }
 
-// LotteryEntryStats are the counts of one TicketType's entries for the
-// Organizer's view of its sale.
+// ValidateLotteryEntrySale reports whether an entry can belong to sale for
+// stock: a Lottery sale that names the stock's event. The entity layer
+// returns stdlib errors; callers wrap them with an apperr code.
+func ValidateLotteryEntrySale(sale *TicketSale, stock *TicketStock) error {
+	if sale == nil {
+		return errors.New("a lottery entry belongs to a ticket sale")
+	}
+	if sale.Method != TicketSaleMethodLottery {
+		return errors.New("a lottery entry belongs to a lottery sale")
+	}
+	if !sale.NamesEvent(stock.EventID) {
+		return errors.New("a lottery entry's sale must name the event of its ticket stock")
+	}
+	return nil
+}
+
+// LotteryEntryStats are the counts of one sale's entries for one TicketStock,
+// for the Organizer's view of the sale.
 type LotteryEntryStats struct {
 	// EntryCount is the number of entries.
 	EntryCount int
@@ -129,8 +139,8 @@ type DrawWinnerRow struct {
 	// LotteryEntryID is the winning entry.
 	LotteryEntryID LotteryEntryID
 
-	// CardAuthorizationID is the entry's CardAuthorization, which the draw
-	// captures.
+	// CardAuthorizationID is the card authorization of the entry's Order,
+	// which the draw captures.
 	CardAuthorizationID string
 
 	// DrawPosition is the entry's zero-based position in the draw order.
@@ -144,8 +154,8 @@ type DrawLoserRow struct {
 	// LotteryEntryID is the losing entry.
 	LotteryEntryID LotteryEntryID
 
-	// CardAuthorizationID is the entry's CardAuthorization, which the draw
-	// releases.
+	// CardAuthorizationID is the card authorization of the entry's Order,
+	// which the draw releases.
 	CardAuthorizationID string
 
 	// DrawPosition is the entry's zero-based position in the draw order; it
@@ -153,25 +163,28 @@ type DrawLoserRow struct {
 	DrawPosition int
 }
 
-// LotteryEntryRepository persists [LotteryEntry] records. Implementations live
-// in internal/infrastructure/database/rdb/.
+// LotteryEntryRepository persists [LotteryEntry] records together with their
+// Orders. Every read returns the entry with its Order. Implementations live in
+// internal/infrastructure/database/rdb/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type LotteryEntryRepository interface {
-	// Create stores the new Entered entry and returns it. When an entry
-	// already holds the entry's card authorization, it stores nothing and
-	// returns that entry, also after the sale's end time. Checking and
-	// storing are one indivisible step: two concurrent calls for the same
-	// user and TicketType, or for the same card authorization, store one
-	// entry, and no entry is stored once the sale's end time has passed by
-	// the database clock.
+	// Create stores the new Entered entry together with its Pending Order
+	// (entry.Order, which carries the card authorization) and returns them.
+	// When an Order already holds the card authorization, it stores nothing
+	// and returns that Order's entry, also after the sale's end time. It locks
+	// the user's users row first, so checking and storing are one indivisible
+	// step with every other creation of an Order by the user, and no entry is
+	// stored once the sale's end time has passed by the database clock.
 	//
 	// # Possible errors
 	//
-	//  - AlreadyExists: the user already has an entry for the TicketType;
-	//    nothing is stored.
-	//  - FailedPrecondition: the TicketType does not exist, or its sale's end
-	//    time has passed; nothing is stored.
+	//  - AlreadyExists: the user already has an entry in the sale for the
+	//    stock's event, of any stock of that event; nothing is stored.
+	//  - FailedPrecondition: the application does not fit the stock's event
+	//    ([Event.Fits] with [OrderRepository.GetHeldForEvent]), the sale or
+	//    the stock does not exist, or the sale's end time has passed; nothing
+	//    is stored.
 	//  - NotFound: the user does not exist, also when it was deleted while
 	//    the call waited; nothing is stored.
 	//  - Unavailable: the wait for a concurrent call or a lock timed out.
@@ -186,53 +199,57 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id LotteryEntryID) (*LotteryEntry, error)
 
-	// GetByCardAuthorizationID returns the entry whose card authorization has the given
-	// reference.
+	// GetByCardAuthorizationID returns the entry whose Order's card
+	// authorization has the given id.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no entry has the reference.
+	//  - NotFound: there is none.
 	//  - Internal: database failure.
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*LotteryEntry, error)
 
-	// ListByTicketTypeAndUser returns every entry of the user for the
-	// TicketType, in every state, newest first: at most one. It returns an
-	// empty slice when there is none.
+	// ListByTicketTypeAndUser returns the user's entries in the sale, at most
+	// one for each event the sale names, in every state, newest first. It
+	// returns an empty slice when there is none. The name is kept until the
+	// rename that follows remodel-ticket-sales (design D11).
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	ListByTicketTypeAndUser(ctx context.Context, ticketTypeID TicketTypeID, userID UserID) ([]*LotteryEntry, error)
+	ListByTicketTypeAndUser(ctx context.Context, saleID TicketSaleID, userID UserID) ([]*LotteryEntry, error)
 
-	// ListByUser returns every entry of the user, for every TicketType and in
-	// every state, newest first. It returns an empty slice when there is none.
+	// ListByUser returns every entry whose Order's user is the user, for every
+	// sale and in every state, newest first. It returns an empty slice when
+	// there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*LotteryEntry, error)
 
-	// ListUndrawnForTicketType returns every Entered entry of the TicketType,
-	// in no particular order: the entries the draw draws. It returns an empty
-	// slice when there is none.
+	// ListUndrawnForTicketType returns every Entered entry of the sale whose
+	// Order is of the stock, in no particular order: the entries the draw of
+	// the stock draws. It returns an empty slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	ListUndrawnForTicketType(ctx context.Context, ticketTypeID TicketTypeID) ([]*LotteryEntry, error)
+	ListUndrawnForTicketType(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) ([]*LotteryEntry, error)
 
-	// GetStatsByTicketType counts the TicketType's entries. A TicketType
-	// without entries yields all counts zero.
+	// GetStatsByTicketType counts the sale's entries whose Order is of the
+	// stock. A stock without entries in the sale yields all counts zero.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database failure.
-	GetStatsByTicketType(ctx context.Context, ticketTypeID TicketTypeID) (LotteryEntryStats, error)
+	GetStatsByTicketType(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) (LotteryEntryStats, error)
 
-	// PersistDrawOutcome records one sale's draw in one transaction: every
-	// winner Won and every loser Lost with its draw position, across all
-	// TicketTypes of the sale, and the sale's draw time. With no winners and
-	// no losers it only sets the draw time. On failure nothing is recorded.
+	// PersistDrawOutcome records one sale's draw in one transaction, under the
+	// row lock of every TicketStock it draws, taken in id order: every winner
+	// Won and every loser Lost with its draw position and its Order Void,
+	// across all TicketStocks of the sale's events. A given entry that is no
+	// longer Entered is left unchanged, so recording the same outcome again
+	// changes nothing. On failure nothing is recorded.
 	//
 	// # Possible errors
 	//

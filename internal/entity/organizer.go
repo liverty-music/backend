@@ -298,19 +298,17 @@ type OrganizerRepository interface {
 	SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error
 
 	// Delete permanently removes, in one transaction, a deactivated Organizer
-	// together with its first-party Series with their TicketSales, and their
-	// Events (with each Event's TicketTypes, lottery entries, Checkouts, ticket
-	// journeys, performers, Scanners, admissions and rejected scans), the
-	// Refunded and Failed Orders, their Tickets with the Tickets' ResaleListings
-	// and their Reversed Settlements for those Events, its SeriesImage records,
-	// its artist associations and its payout-account record. It removes nothing
-	// when the Organizer is not deactivated, when any of its Events has a Paid
-	// Order, a Settlement that is not Reversed, or a purchase in progress (a
-	// Held or Committed Checkout, an Expired or Released Checkout whose card
-	// authorization is not yet released, an Entered lottery entry, a Draft
-	// lottery entry whose card authorization is open, or a Won lottery entry
-	// whose Order is not yet issued), or when the Organizer has a
-	// payout-account record.
+	// together with its first-party Series with their SeatTypes and
+	// TicketSales, and their Events (with each Event's TicketStocks, ticket
+	// journeys, performers, Scanners, admissions and rejected scans), the Void
+	// and Refunded Orders for those Events with their lottery entries,
+	// Checkouts and Tickets, the Tickets' ResaleListings and the Orders'
+	// Reversed Settlements, its SeriesImage records, its artist associations
+	// and its payout-account record. It removes nothing when the Organizer is
+	// not deactivated, when any of its Events has a Paid Order, a Settlement
+	// that is not Reversed, or a purchase in progress (a Pending Order, or a
+	// Void Order whose card authorization is not yet released), or when the
+	// Organizer has a payout-account record.
 	//
 	// With dryRun it runs the same checks and removes nothing, so a caller can
 	// learn whether deletion is blocked before removing anything kept outside

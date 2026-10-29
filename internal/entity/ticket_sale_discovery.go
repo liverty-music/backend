@@ -10,16 +10,15 @@ import (
 type DiscoveredTicketSale struct {
 	// SeriesID is the series the sale is attributed to.
 	SeriesID string
+	// Name is the sale's name as its page gives it. Empty when the pages do not
+	// say.
+	Name string
 	// Method is how tickets are allocated.
 	Method TicketSaleMethod
 	// SaleStartTime is when the sale opens. Zero when the pages do not say.
 	SaleStartTime time.Time
-	// SaleEndTime is when the sale closes. Required for a Lottery; zero on a
-	// FirstCome sale that ends when tickets run out.
+	// SaleEndTime is when the sale closes. Zero when the pages do not say.
 	SaleEndTime time.Time
-	// LotteryResultTime is when the lottery result is announced. Zero when not
-	// announced, and always zero on a FirstCome sale.
-	LotteryResultTime time.Time
 }
 
 // TicketSale returns the discovered TicketSale with the given discovered time
@@ -27,14 +26,11 @@ type DiscoveredTicketSale struct {
 func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 	sale := &TicketSale{
 		SeriesID:       d.SeriesID,
+		Name:           d.Name,
 		Method:         d.Method,
 		SaleStartTime:  d.SaleStartTime,
 		SaleEndTime:    d.SaleEndTime,
 		DiscoveredTime: &discovered,
-	}
-	if !d.LotteryResultTime.IsZero() {
-		result := d.LotteryResultTime
-		sale.LotteryResultTime = &result
 	}
 	return sale
 }
