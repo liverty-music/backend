@@ -21,7 +21,9 @@ import (
 
 // The story tests of stories/win-tickets-in-a-lottery run the fan's whole
 // lottery journey against a real local Postgres and the real Stripe test API:
-// the Organizer creates the sale with TicketSaleUseCase.Create, fans enter
+// the Organizer stocks a SeatType for the event with SeatTypeUseCase.Create
+// and TicketStockUseCase.Create and creates the sale with
+// TicketSaleUseCase.Create, fans enter
 // with LotteryEntryUseCase AuthorizeCard and Confirm (card authentication
 // stands in as a server-side confirmation with a non-3DS test card), the draw
 // job (DrawDueSales) runs once the injected clock passes the window's end, and
@@ -81,6 +83,8 @@ type lotteryStory struct {
 	seriesID    string
 	eventID     string
 
+	seatTypes usecase.SeatTypeUseCase
+	stocks    usecase.TicketStockUseCase
 	sales     usecase.TicketSaleUseCase
 	lottery   usecase.LotteryEntryUseCase
 	issuance  usecase.OrderUseCase
@@ -89,7 +93,6 @@ type lotteryStory struct {
 	webhooks  usecase.StripeWebhookService
 	published *recordingPublisher
 
-	entryRepo   *rdb.LotteryEntryRepository
 	orderRepo   entity.OrderRepository
 	userRepo    *rdb.UserRepository
 	journeyRepo *rdb.TicketJourneyRepository
@@ -97,7 +100,8 @@ type lotteryStory struct {
 
 // newLotteryStory skips unless the Stripe test API and the local database are
 // available, empties the database, and seeds an Organizer with complete
-// business details and one published, timed event of its Series.
+// business details and one published, timed event of its Series with a
+// per-account limit of 4.
 func newLotteryStory(t *testing.T) *lotteryStory {
 	t.Helper()
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
@@ -121,7 +125,6 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		// The Organizer sets the sale up a day before it opens.
 		now:         storyWindowStart.Add(-24 * time.Hour),
 		published:   &recordingPublisher{},
-		entryRepo:   rdb.NewLotteryEntryRepository(testDB),
 		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
 		userRepo:    rdb.NewUserRepository(testDB),
 		journeyRepo: rdb.NewTicketJourneyRepository(testDB),
@@ -130,32 +133,42 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 
 	clock := usecase.Clock(func() time.Time { return s.now })
 	saleRepo := rdb.NewTicketSaleRepository(testDB)
+	stockRepo := rdb.NewTicketStockRepository(testDB)
+	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
+	entryRepo := rdb.NewLotteryEntryRepository(testDB)
+	eventRepo := rdb.NewEventRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB)
+	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
-	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, s.orderRepo, rdb.NewSeriesRepository(testDB), organizerRepo,
-		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, ticketRepo, identityVerificationRepo, s.userRepo, cardAuthorizations, s.published, clock, logger)
+	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
+	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
+	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
+		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
+	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, s.published, clock, logger))
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
 		OrderRepo:                s.orderRepo,
-		EntryRepo:                s.entryRepo,
-		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
+		EntryRepo:                entryRepo,
+		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
 		TicketSaleRepo:           saleRepo,
+		TicketRepo:               ticketRepo,
 		EventState:               eventState,
+		EventRepo:                eventRepo,
 		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger),
 		Publisher:                s.published,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
-		rdb.NewEventRepository(testDB), rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
+		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
 		rdb.NewRejectedScanRepository(testDB), s.published, logger)
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.published, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
@@ -187,28 +200,36 @@ func (s *lotteryStory) seedOrganizerEvent() {
 
 	s.eventID = uuid.NewV7().String()
 	_, err = testDB.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED')
+		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED', 4)
 	`, s.eventID, s.seriesID, seedVenue(t, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
 	require.NoError(t, err)
 }
 
-// createLottery has the Organizer create a Lottery sale of the event open
-// from start to end, with one TicketType, and returns that TicketType.
-func (s *lotteryStory) createLottery(name string, start, end time.Time, price int64, quantity, limit int) *entity.TicketType {
+// stock has the Organizer add a SeatType of the price to the Series and stock
+// the event with quantity tickets of it, and returns the TicketStock.
+func (s *lotteryStory) stock(name string, price int64, quantity int) *entity.TicketStock {
 	s.t.Helper()
-	view, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
+	seatType, err := s.seatTypes.Create(s.ctx, s.organizerID, s.seriesID, name, price)
+	require.NoError(s.t, err)
+	stock, err := s.stocks.Create(s.ctx, s.organizerID, s.eventID, seatType.ID, quantity)
+	require.NoError(s.t, err)
+	return stock
+}
+
+// createLottery has the Organizer create a Lottery sale naming the event,
+// open from start to end, and returns it.
+func (s *lotteryStory) createLottery(name string, start, end time.Time) entity.TicketSaleID {
+	s.t.Helper()
+	sale, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
 		SeriesID:  s.seriesID,
 		Name:      name,
 		Method:    entity.TicketSaleMethodLottery,
 		SaleStart: start,
-		SaleEnd:   &end,
-		TicketTypes: []usecase.TicketTypeInput{{
-			EventID: s.eventID, Price: price, Quantity: quantity, PerAccountLimit: limit,
-		}},
+		SaleEnd:   end,
+		EventIDs:  []string{s.eventID},
 	})
 	require.NoError(s.t, err)
-	require.Len(s.t, view.TicketTypes, 1)
-	return view.TicketTypes[0].TicketType
+	return sale.ID
 }
 
 // newFan signs a new fan up.
@@ -217,28 +238,28 @@ func (s *lotteryStory) newFan() entity.UserID {
 	return entity.UserID(seedUser(s.t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 }
 
-// authorizeCard opens the fan's card authorization for count tickets with the
-// code.
-func (s *lotteryStory) authorizeCard(ttID entity.TicketTypeID, fan entity.UserID, count int, code *entity.ReferralCode) *entity.CardAuthorization {
+// authorizeCard opens the fan's card authorization for count tickets of the
+// stock in the sale with the code.
+func (s *lotteryStory) authorizeCard(saleID entity.TicketSaleID, stockID entity.TicketStockID, fan entity.UserID, count int, code *entity.ReferralCode) *entity.CardAuthorization {
 	s.t.Helper()
-	authorization, err := s.lottery.AuthorizeCard(s.ctx, ttID, fan, count, storyFanName, storyFanPhone, code)
+	authorization, err := s.lottery.AuthorizeCard(s.ctx, saleID, stockID, fan, count, storyFanName, storyFanPhone, code)
 	require.NoError(s.t, err)
 	return authorization
 }
 
 // authorize opens the fan's card authorization for count tickets and
 // completes card authentication, leaving it Authorized.
-func (s *lotteryStory) authorize(ttID entity.TicketTypeID, fan entity.UserID, count int, code *entity.ReferralCode) *entity.CardAuthorization {
+func (s *lotteryStory) authorize(saleID entity.TicketSaleID, stockID entity.TicketStockID, fan entity.UserID, count int, code *entity.ReferralCode) *entity.CardAuthorization {
 	s.t.Helper()
-	authorization := s.authorizeCard(ttID, fan, count, code)
+	authorization := s.authorizeCard(saleID, stockID, fan, count, code)
 	confirmCardAuthorization(s.t, s.key, authorization.ID)
 	return authorization
 }
 
-// enter makes the fan's confirmed entry for count tickets.
-func (s *lotteryStory) enter(ttID entity.TicketTypeID, fan entity.UserID, count int) *entity.LotteryEntry {
+// enter makes the fan's confirmed entry for count tickets of the stock.
+func (s *lotteryStory) enter(saleID entity.TicketSaleID, stockID entity.TicketStockID, fan entity.UserID, count int) *entity.LotteryEntry {
 	s.t.Helper()
-	authorization := s.authorize(ttID, fan, count, nil)
+	authorization := s.authorize(saleID, stockID, fan, count, nil)
 	entered, err := s.lottery.Confirm(s.ctx, authorization.ID, &fan)
 	require.NoError(s.t, err)
 	require.Equal(s.t, entity.LotteryEntryStateEntered, entered.State)
@@ -264,7 +285,7 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 		require.NoError(s.t, s.webhooks.HandleEvent(s.ctx, usecase.StripeWebhookEvent{
 			ProviderEventID:   "evt_" + uuid.NewV7().String(),
 			Type:              usecase.StripeEventPaymentIntentSucceeded,
-			ProviderPaymentID: e.CardAuthorizationID,
+			ProviderPaymentID: e.Order.CardAuthorizationID,
 			ReceivedAt:        s.now,
 		}))
 	}
@@ -275,9 +296,9 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 }
 
 // ownEntry returns the fan's entry as ListByTicketType shows it.
-func (s *lotteryStory) ownEntry(ttID entity.TicketTypeID, fan entity.UserID, id entity.LotteryEntryID) *entity.LotteryEntry {
+func (s *lotteryStory) ownEntry(saleID entity.TicketSaleID, fan entity.UserID, id entity.LotteryEntryID) *entity.LotteryEntry {
 	s.t.Helper()
-	entries, err := s.lottery.ListByTicketType(s.ctx, ttID, fan)
+	entries, err := s.lottery.ListByTicketType(s.ctx, saleID, fan)
 	require.NoError(s.t, err)
 	for _, e := range entries {
 		if e.ID == id {
@@ -311,50 +332,62 @@ func (s *lotteryStory) paymentIntent(cardAuthorizationID string) *stripe.Payment
 	return pi
 }
 
-// assertNoOrder asserts the entry produced no Order.
-func (s *lotteryStory) assertNoOrder(id entity.LotteryEntryID) {
+// assertOrderVoid asserts the entry's Order will never be paid.
+func (s *lotteryStory) assertOrderVoid(id entity.LotteryEntryID) {
 	s.t.Helper()
-	_, err := s.orderRepo.GetByLotteryEntryID(s.ctx, id)
-	assert.ErrorIs(s.t, err, apperr.ErrNotFound, "no Order may exist for the entry")
+	order, err := s.orderRepo.GetByLotteryEntryID(s.ctx, id)
+	require.NoError(s.t, err)
+	assert.Equal(s.t, entity.OrderStatusVoid, order.Status, "the entry's Order is Void")
 }
 
-// assertNoEntry asserts the fan has no entry for the ticket type.
-func (s *lotteryStory) assertNoEntry(ttID entity.TicketTypeID, fan entity.UserID) {
+// assertNoEntry asserts the fan has no entry in the sale.
+func (s *lotteryStory) assertNoEntry(saleID entity.TicketSaleID, fan entity.UserID) {
 	s.t.Helper()
-	entries, err := s.lottery.ListByTicketType(s.ctx, ttID, fan)
+	entries, err := s.lottery.ListByTicketType(s.ctx, saleID, fan)
 	require.NoError(s.t, err)
 	assert.Empty(s.t, entries, "the fan has no entry")
 }
 
-// winPresale runs a presale the fan wins with count tickets: entry, draw and
-// issuance. It returns the end of the presale window.
-func (s *lotteryStory) winPresale(fan entity.UserID, count int) time.Time {
+// winPresale runs a presale of the stock the fan wins with count tickets:
+// entry, draw and issuance. It returns the end of the presale window.
+func (s *lotteryStory) winPresale(stock *entity.TicketStock, fan entity.UserID, count int) time.Time {
 	s.t.Helper()
 	end := storyWindowStart.Add(2 * 24 * time.Hour)
-	presale := s.createLottery("先行抽選", storyWindowStart, end, 8000, 100, 4)
+	presale := s.createLottery("先行抽選", storyWindowStart, end)
 	s.now = storyWindowStart.Add(time.Hour)
-	entry := s.enter(presale.ID, fan, count)
+	entry := s.enter(presale, stock.ID, fan, count)
 	s.closeAndDraw(end)
-	require.Equal(s.t, entity.LotteryEntryStateWon, s.ownEntry(presale.ID, fan, entry.ID).State)
+	require.Equal(s.t, entity.LotteryEntryStateWon, s.ownEntry(presale, fan, entry.ID).State)
 	s.issueWins(entry)
 	require.Len(s.t, s.eventTickets(fan), count)
 	return end
 }
 
+// openGeneralSale has the Organizer create a general Lottery sale opening a
+// day after the presale's end, and moves the clock an hour into it.
+func (s *lotteryStory) openGeneralSale(presaleEnd time.Time) entity.TicketSaleID {
+	s.t.Helper()
+	start := presaleEnd.Add(24 * time.Hour)
+	general := s.createLottery("一般抽選", start, start.Add(3*24*time.Hour))
+	s.now = start.Add(time.Hour)
+	return general
+}
+
 func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Demand within quantity"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	s.now = storyWindowStart.Add(time.Hour)
 	fan := s.newFan()
-	entry := s.enter(tt.ID, fan, 2)
+	entry := s.enter(sale, stock.ID, fan, 2)
 
 	// -- within 2 minutes of the close: Won and 16000 yen charged --
 	s.closeAndDraw(end)
-	assert.Equal(t, entity.LotteryEntryStateWon, s.ownEntry(tt.ID, fan, entry.ID).State)
-	pi := s.paymentIntent(entry.CardAuthorizationID)
+	assert.Equal(t, entity.LotteryEntryStateWon, s.ownEntry(sale, fan, entry.ID).State)
+	pi := s.paymentIntent(entry.Order.CardAuthorizationID)
 	assert.Equal(t, stripe.PaymentIntentStatusSucceeded, pi.Status)
 	assert.Equal(t, int64(16000), pi.AmountReceived, "16000 yen is charged")
 
@@ -375,6 +408,7 @@ func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 	}
 	order, err := s.orderRepo.GetByLotteryEntryID(s.ctx, entry.ID)
 	require.NoError(t, err)
+	assert.Equal(t, entity.OrderStatusPaid, order.Status)
 	assert.Equal(t, int64(16000), order.Amount)
 	journey, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
 	require.NoError(t, err)
@@ -384,8 +418,9 @@ func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 func TestLotteryStory_OversubscribedSale(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Oversubscribed sale"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 4)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 4, 4)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	// -- entries for 12 tickets against 4: exactly one entry of 4 is admitted --
 	s.now = storyWindowStart.Add(time.Hour)
@@ -396,14 +431,14 @@ func TestLotteryStory_OversubscribedSale(t *testing.T) {
 	var entries []fanEntry
 	for range 3 {
 		fan := s.newFan()
-		entries = append(entries, fanEntry{fan: fan, entry: s.enter(tt.ID, fan, 4)})
+		entries = append(entries, fanEntry{fan: fan, entry: s.enter(sale, stock.ID, fan, 4)})
 	}
 
 	s.closeAndDraw(end)
 	var won []*entity.LotteryEntry
 	var lost []fanEntry
 	for _, fe := range entries {
-		switch got := s.ownEntry(tt.ID, fe.fan, fe.entry.ID); got.State {
+		switch got := s.ownEntry(sale, fe.fan, fe.entry.ID); got.State {
 		case entity.LotteryEntryStateWon:
 			won = append(won, fe.entry)
 		case entity.LotteryEntryStateLost:
@@ -418,34 +453,35 @@ func TestLotteryStory_OversubscribedSale(t *testing.T) {
 
 	// -- each fan not admitted: Lost, card authorization released, no Ticket --
 	for _, fe := range lost {
-		pi := s.paymentIntent(fe.entry.CardAuthorizationID)
+		pi := s.paymentIntent(fe.entry.Order.CardAuthorizationID)
 		assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 		assert.Zero(t, pi.AmountReceived, "the fan is not charged")
 		assert.Empty(t, s.eventTickets(fe.fan), "the fan holds no Ticket for the event")
-		s.assertNoOrder(fe.entry.ID)
+		s.assertOrderVoid(fe.entry.ID)
 	}
 }
 
 func TestLotteryStory_CountChangedBeforeConfirming(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Count changed before confirming"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	s.now = storyWindowStart.Add(time.Hour)
 	fan := s.newFan()
-	two := s.authorizeCard(tt.ID, fan, 2, nil) // the fan goes back before authenticating
-	three := s.authorize(tt.ID, fan, 3, nil)
+	two := s.authorizeCard(sale, stock.ID, fan, 2, nil) // the fan goes back before authenticating
+	three := s.authorize(sale, stock.ID, fan, 3, nil)
 	entered, err := s.lottery.Confirm(s.ctx, three.ID, &fan)
 	require.NoError(t, err)
 
-	entries, err := s.lottery.ListByTicketType(s.ctx, tt.ID, fan)
+	entries, err := s.lottery.ListByTicketType(s.ctx, sale, fan)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "the fan has one entry")
 	assert.Equal(t, entered.ID, entries[0].ID)
 	assert.Equal(t, entity.LotteryEntryStateEntered, entries[0].State)
-	assert.Equal(t, 3, entries[0].TicketCount)
-	assert.Equal(t, three.ID, entries[0].CardAuthorizationID)
+	assert.Equal(t, 3, entries[0].Order.TicketCount)
+	assert.Equal(t, three.ID, entries[0].Order.CardAuthorizationID)
 	pi := s.paymentIntent(two.ID)
 	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, pi.Status, "nothing is held for 2 tickets")
 	assert.Zero(t, pi.AmountCapturable)
@@ -455,21 +491,22 @@ func TestLotteryStory_CountChangedBeforeConfirming(t *testing.T) {
 func TestLotteryStory_BrowserClosedAfterCardAuthentication(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Browser closed after card authentication"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	s.now = storyWindowStart.Add(time.Hour)
 	fan := s.newFan()
-	authorization := s.authorize(tt.ID, fan, 2, nil)
+	authorization := s.authorize(sale, stock.ID, fan, 2, nil)
 	// The browser closes: the payment provider's notice runs Confirm without
 	// the fan.
 	entered, err := s.lottery.Confirm(s.ctx, authorization.ID, nil)
 	require.NoError(t, err)
-	assert.Equal(t, entity.LotteryEntryStateEntered, s.ownEntry(tt.ID, fan, entered.ID).State)
+	assert.Equal(t, entity.LotteryEntryStateEntered, s.ownEntry(sale, fan, entered.ID).State)
 
 	// -- the entry takes part in the draw --
 	s.closeAndDraw(end)
-	got := s.ownEntry(tt.ID, fan, entered.ID)
+	got := s.ownEntry(sale, fan, entered.ID)
 	assert.Equal(t, entity.LotteryEntryStateWon, got.State)
 	assert.NotNil(t, got.DrawPosition)
 }
@@ -477,23 +514,24 @@ func TestLotteryStory_BrowserClosedAfterCardAuthentication(t *testing.T) {
 func TestLotteryStory_EntryMadeOnlyAfterTheWindowClosed(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Entry made only after the window closed"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	// A window that has already ended by the database clock: the fan
 	// completes card authentication 10 seconds before the end time, and the
 	// confirmation reaches the platform only after it.
 	end := time.Now().Add(-time.Minute)
 	start := end.Add(-24 * time.Hour)
 	s.now = start.Add(-24 * time.Hour)
-	tt := s.createLottery("抽選", start, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", start, end)
 
 	s.now = end.Add(-10 * time.Second)
 	fan := s.newFan()
-	authorization := s.authorize(tt.ID, fan, 2, nil)
+	authorization := s.authorize(sale, stock.ID, fan, 2, nil)
 
 	s.now = end.Add(5 * time.Second)
 	_, err := s.lottery.Confirm(s.ctx, authorization.ID, &fan)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 
-	s.assertNoEntry(tt.ID, fan)
+	s.assertNoEntry(sale, fan)
 	pi := s.paymentIntent(authorization.ID)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived, "the fan is never charged")
@@ -501,22 +539,23 @@ func TestLotteryStory_EntryMadeOnlyAfterTheWindowClosed(t *testing.T) {
 	// The payment provider's notice, arriving later still, changes nothing.
 	_, err = s.lottery.Confirm(s.ctx, authorization.ID, nil)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-	s.assertNoEntry(tt.ID, fan)
+	s.assertNoEntry(sale, fan)
 }
 
 func TestLotteryStory_CardAuthenticationAbandoned(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Card authentication abandoned"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	s.now = storyWindowStart.Add(time.Hour)
 	fan := s.newFan()
-	authorization := s.authorizeCard(tt.ID, fan, 2, nil) // the fan leaves before card authentication
+	authorization := s.authorizeCard(sale, stock.ID, fan, 2, nil) // the fan leaves before card authentication
 
 	s.closeAndDraw(end)
 	s.issueWins()
-	s.assertNoEntry(tt.ID, fan)
+	s.assertNoEntry(sale, fan)
 	pi := s.paymentIntent(authorization.ID)
 	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, pi.Status, "nothing is held on the card")
 	assert.Zero(t, pi.AmountReceived, "the fan is never charged")
@@ -525,25 +564,26 @@ func TestLotteryStory_CardAuthenticationAbandoned(t *testing.T) {
 
 // TestLotteryStory_EntryFromAReferralLink checks the lottery sentence of
 // stories/attribute-a-purchase-to-a-referral-link: an entry authorized with a
-// code carries it, and once it won and its Order exists the Organizer's sales
-// count the Order under that code.
+// code carries it on its Order, and once the Order is Paid the Organizer's
+// sales count it under that code.
 func TestLotteryStory_EntryFromAReferralLink(t *testing.T) {
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
-	tt := s.createLottery("抽選", storyWindowStart, end, 8000, 100, 0)
+	sale := s.createLottery("抽選", storyWindowStart, end)
 
 	s.now = storyWindowStart.Add(time.Hour)
 	fan := s.newFan()
 	code := entity.ReferralCode("member-a")
-	authorization := s.authorize(tt.ID, fan, 2, &code)
+	authorization := s.authorize(sale, stock.ID, fan, 2, &code)
 	entered, err := s.lottery.Confirm(s.ctx, authorization.ID, &fan)
 	require.NoError(t, err)
-	require.NotNil(t, entered.ReferralCode)
-	assert.Equal(t, code, *entered.ReferralCode, "the entry carries the code it was authorized with")
+	require.NotNil(t, entered.Order.ReferralCode)
+	assert.Equal(t, code, *entered.Order.ReferralCode, "the entry's Order carries the code it was authorized with")
 
 	own, err := s.sales.ListOwnByEvent(s.ctx, s.organizerID, s.eventID)
 	require.NoError(t, err)
-	assert.Empty(t, own.ReferralCodeStats, "an entry without an Order is not counted")
+	assert.Empty(t, own.ReferralCodeStats, "a Pending Order is not counted")
 
 	s.closeAndDraw(end)
 	s.issueWins(entered)
@@ -555,31 +595,62 @@ func TestLotteryStory_EntryFromAReferralLink(t *testing.T) {
 func TestLotteryStory_PresaleWinnerAtTheLimit(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Presale winner at the limit"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	fan := s.newFan()
-	presaleEnd := s.winPresale(fan, 4)
+	general := s.openGeneralSale(s.winPresale(stock, fan, 4))
 
-	generalStart := presaleEnd.Add(24 * time.Hour)
-	general := s.createLottery("一般抽選", generalStart, generalStart.Add(3*24*time.Hour), 8000, 100, 4)
-	s.now = generalStart.Add(time.Hour)
-
-	_, err := s.lottery.AuthorizeCard(s.ctx, general.ID, fan, 1, storyFanName, storyFanPhone, nil)
+	_, err := s.lottery.AuthorizeCard(s.ctx, general, stock.ID, fan, 1, storyFanName, storyFanPhone, nil)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the entry into the general sale is refused")
-	entries, err := s.lottery.ListByTicketType(s.ctx, general.ID, fan)
-	require.NoError(t, err)
-	assert.Empty(t, entries, "no entry is made in the general sale")
+	s.assertNoEntry(general, fan)
 	assert.Len(t, s.eventTickets(fan), 4, "the fan still holds 4 Tickets")
 }
 
 func TestLotteryStory_PresaleWinnerBelowTheLimit(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Presale winner below the limit"
 	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
 	fan := s.newFan()
-	presaleEnd := s.winPresale(fan, 2)
+	general := s.openGeneralSale(s.winPresale(stock, fan, 2))
 
-	generalStart := presaleEnd.Add(24 * time.Hour)
-	general := s.createLottery("一般抽選", generalStart, generalStart.Add(3*24*time.Hour), 8000, 100, 4)
-	s.now = generalStart.Add(time.Hour)
+	entered := s.enter(general, stock.ID, fan, 2)
+	assert.Equal(t, entity.LotteryEntryStateEntered, s.ownEntry(general, fan, entered.ID).State, "the entry is made")
+}
 
-	entered := s.enter(general.ID, fan, 2)
-	assert.Equal(t, entity.LotteryEntryStateEntered, s.ownEntry(general.ID, fan, entered.ID).State, "the entry is made")
+func TestLotteryStory_PresaleWinnerPicksAnotherSeatType(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Presale winner picks another seat type"
+	s := newLotteryStory(t)
+	sSeat := s.stock("S席", 8000, 100)
+	aSeat := s.stock("A席", 6000, 100)
+	fan := s.newFan()
+	general := s.openGeneralSale(s.winPresale(sSeat, fan, 2))
+
+	_, err := s.lottery.AuthorizeCard(s.ctx, general, aSeat.ID, fan, 1, storyFanName, storyFanPhone, nil)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the entry for A席 is refused")
+	s.assertNoEntry(general, fan)
+	tickets := s.eventTickets(fan)
+	require.Len(t, tickets, 2, "the fan still holds 2 Tickets")
+	for _, tk := range tickets {
+		order, err := s.orderRepo.Get(s.ctx, tk.OrderID)
+		require.NoError(t, err)
+		assert.Equal(t, sSeat.ID, order.TicketStockID, "the fan's Tickets are S席")
+	}
+}
+
+func TestLotteryStory_SecondEntryIntoTheSameSale(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Second entry into the same sale"
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	fan := s.newFan()
+	first := s.enter(sale, stock.ID, fan, 2)
+
+	_, err := s.lottery.AuthorizeCard(s.ctx, sale, stock.ID, fan, 1, storyFanName, storyFanPhone, nil)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the second entry is refused")
+	entries, err := s.lottery.ListByTicketType(s.ctx, sale, fan)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the fan keeps one entry")
+	assert.Equal(t, first.ID, entries[0].ID)
 }

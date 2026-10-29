@@ -42,7 +42,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 		Visibility:  &vis,
 	}
 	listed := "Zepp Haneda"
-	draftEvent := entity.NewAuthoredEvent(series.ID, venueID, &listed, time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC), nil, nil)
+	draftEvent := entity.NewAuthoredEvent(series.ID, venueID, &listed, time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC), nil, nil, nil)
 	require.NoError(t, repo.CreateDraft(ctx, series, []*entity.Event{draftEvent}, []string{artistID}))
 
 	wantVenue := &entity.Venue{

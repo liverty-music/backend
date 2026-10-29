@@ -14,16 +14,15 @@ import (
 )
 
 // deletableOrganizer holds the ids of an Organizer seeded with one published
-// Series, one Event (with a performer, a lottery TicketType of a TicketSale
-// and a Scanner),
-// a cover SeriesImage, a second SeriesImage no Series uses, and one associated Artist that
-// a fan follows.
+// Series, one Event (with a performer, a lottery TicketStock of a SeatType
+// sold by a TicketSale, and a Scanner), a cover SeriesImage, a second
+// SeriesImage no Series uses, and one associated Artist that a fan follows.
 type deletableOrganizer struct {
 	organizerID string
 	seriesID    string
 	eventID     string
 	saleID      entity.TicketSaleID
-	typeID      entity.TicketTypeID
+	stock       *stockFixture
 	coverID     string
 	unusedID    string
 	artistID    string
@@ -58,7 +57,7 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 	venueID := seedVenue(t, "delete-venue-"+uuid.NewV7().String())
 	exec(`INSERT INTO series (id, title, type, organizer_id, visibility) VALUES ($1, 'Delete Tour', 'SINGLE', $2, 'PUBLIC')`,
 		o.seriesID, o.organizerID)
-	exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state) VALUES ($1, $2, $3, '2026-11-20', 'PUBLISHED')`,
+	exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit) VALUES ($1, $2, $3, '2026-11-20', 'PUBLISHED', 4)`,
 		o.eventID, o.seriesID, venueID)
 	exec(`INSERT INTO concerts (event_id) VALUES ($1)`, o.eventID)
 	exec(`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`, o.eventID, o.artistID)
@@ -66,9 +65,9 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 		o.coverID, o.organizerID, o.unusedID)
 	exec(`INSERT INTO series_cover_images (series_id, series_image_id) VALUES ($1, $2)`, o.seriesID, o.coverID)
 
-	tt := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodLottery, 100, 4)
-	o.saleID, o.typeID = tt.TicketSaleID, tt.ID
-	o.scannerID = seedScanner(t, o.eventID).ID
+	o.stock = seedStockForEvent(t, o.eventID, entity.TicketSaleMethodLottery, 100, 4)
+	o.saleID = o.stock.SaleID
+	o.scannerID = seedEventScanner(t, o.eventID)
 	exec(`INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scanned_at) VALUES ($1, $2, $3, 1, now())`,
 		uuid.NewV7().String(), o.eventID, string(o.scannerID))
 	return o
@@ -95,14 +94,9 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 	}
 
 	userID := seedUser(t, "delete-fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-	entryID := entity.NewID()
-	exec(`INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
-		VALUES ($1, $2, $3, 1, $4, 2)`, entryID, string(o.typeID), userID, "pi_entry_"+entryID)
-	p := seededPurchase{orderID: entity.NewID(), ticketID: entity.NewID(), settlementID: entity.NewID()}
-	paidAt := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
-	exec(`INSERT INTO orders (id, user_id, lottery_entry_id, provider, provider_payment_id, status, amount, currency, pay_at)
-		VALUES ($1, $2, $3, 1, $4, $5, 5000, 'JPY', $6)`,
-		p.orderID, userID, entryID, "pi_"+p.orderID, int16(orderStatus), paidAt)
+	p := seededPurchase{ticketID: entity.NewID(), settlementID: entity.NewID()}
+	_, p.orderID = insertStockEntry(t, o.stock, userID, orderStatus, entity.LotteryEntryStateWon, 1)
+	paidAt := issuedTicketsTime
 	ticketStatus := entity.TicketStatusIssued
 	if orderStatus == entity.OrderStatusRefunded {
 		ticketStatus = entity.TicketStatusVoided
@@ -112,7 +106,7 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 		p.ticketID, p.orderID, userID, o.eventID, int16(ticketStatus), paidAt)
 	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		p.settlementID, p.orderID, o.organizerID, o.eventID, int16(settlementStatus), paidAt)
-	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 4000)`,
+	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 2500)`,
 		p.settlementID, o.organizerID)
 	if admitted {
 		exec(`UPDATE tickets SET admit_at = $2 WHERE id = $1`, p.ticketID, paidAt)
@@ -122,12 +116,66 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 	return p
 }
 
+// removableEvent is a CANCELLED first-party Event whose every purchase is
+// finished: a row in every table that holds a key to the Event's records.
+type removableEvent struct {
+	deletableOrganizer
+	// lottery is the Refunded Order of a Won lottery entry, with a Voided,
+	// admitted Ticket and a Reversed Settlement.
+	lottery seededPurchase
+	// checkoutID is a Completed checkout of a first-come stock with a
+	// Refunded Order and a Voided Ticket.
+	checkoutID      string
+	checkoutOrderID string
+	checkoutTicket  string
+	// resaleListingID is the Sold listing of the lottery Ticket.
+	resaleListingID string
+}
+
+// seedRemovableEvent seeds a removableEvent for an Organizer in the given
+// status.
+func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEvent {
+	t.Helper()
+	ctx := context.Background()
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := testDB.Pool.Exec(ctx, query, args...)
+		require.NoError(t, err)
+	}
+
+	e := removableEvent{deletableOrganizer: seedDeletableOrganizer(t, status)}
+	exec(`UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, e.eventID)
+	e.lottery = seedPurchase(t, e.deletableOrganizer, entity.OrderStatusRefunded, entity.SettlementStatusReversed, true)
+	exec(`INSERT INTO ticket_journeys (user_id, event_id, status) VALUES ($1, $2, 1)`, e.followerID, e.eventID)
+
+	buyerID := saleFan(t)
+	at := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	firstCome := seedStockForEvent(t, e.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+	e.checkoutID, e.checkoutOrderID = insertStockCheckout(t, firstCome, buyerID, entity.OrderStatusRefunded, entity.CheckoutStatusCompleted, 1, at, true, nil)
+	e.checkoutTicket = entity.NewID()
+	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+		e.checkoutTicket, e.checkoutOrderID, buyerID, e.eventID, int16(entity.TicketStatusVoided), at)
+	e.resaleListingID = entity.NewID()
+	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at, sold_at)
+		VALUES ($1, $2, $3, $4, 3000, 2, $5, $5)`,
+		e.resaleListingID, e.lottery.ticketID, e.followerID, string(e.stock.ID), at)
+	return e
+}
+
 // rowExists reports whether query (a SELECT 1 … WHERE … bound to arg) finds a row.
 func rowExists(t *testing.T, query string, arg any) bool {
 	t.Helper()
 	var exists bool
 	require.NoError(t, testDB.Pool.QueryRow(context.Background(), `SELECT EXISTS (`+query+`)`, arg).Scan(&exists))
 	return exists
+}
+
+// seedEventScanner creates a Scanner for the event and returns its id.
+func seedEventScanner(t *testing.T, eventID string) entity.ScannerID {
+	t.Helper()
+	scanner, err := rdb.NewScannerRepository(testDB).Create(context.Background(), entity.NewScanner(eventID))
+	require.NoError(t, err)
+	return scanner.ID
 }
 
 // assertOrganizerRecords asserts whether the Organizer's own records exist, and
@@ -143,7 +191,8 @@ func assertOrganizerRecords(t *testing.T, o deletableOrganizer, wantExist bool) 
 		"event":         {`SELECT 1 FROM events WHERE id = $1`, o.eventID},
 		"performer":     {`SELECT 1 FROM concert_artists WHERE event_id = $1`, o.eventID},
 		"ticket sale":   {`SELECT 1 FROM ticket_sales WHERE id = $1`, string(o.saleID)},
-		"ticket type":   {`SELECT 1 FROM ticket_types WHERE id = $1`, string(o.typeID)},
+		"ticket stock":  {`SELECT 1 FROM ticket_stocks WHERE id = $1`, string(o.stock.ID)},
+		"seat type":     {`SELECT 1 FROM seat_types WHERE id = $1`, string(o.stock.SeatType.ID)},
 		"cover image":   {`SELECT 1 FROM series_images WHERE id = $1`, o.coverID},
 		"unused image":  {`SELECT 1 FROM series_images WHERE id = $1`, o.unusedID},
 		"cover link":    {`SELECT 1 FROM series_cover_images WHERE series_id = $1`, o.seriesID},
@@ -206,6 +255,18 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 		assert.False(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, e.checkoutID), "checkout")
 	})
 
+	t.Run("deletes an abandoned application with its entry", func(t *testing.T) {
+		// @spec components/entity/organizer/delete "Abandoned application"
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+		entryID, orderID := insertStockEntry(t, o.stock, o.followerID, entity.OrderStatusVoid, entity.LotteryEntryStateLost, 1)
+
+		require.NoError(t, repo.Delete(ctx, o.organizerID, false))
+
+		assertOrganizerRecords(t, o, false)
+		assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, orderID), "void order")
+		assert.False(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE id = $1`, entryID), "lost entry")
+	})
+
 	t.Run("a dry run removes nothing", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		p := seedPurchase(t, o, entity.OrderStatusRefunded, entity.SettlementStatusReversed, false)
@@ -256,10 +317,7 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			name: "an entered lottery entry",
 			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
 				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
-				_, err := testDB.Pool.Exec(context.Background(),
-					`INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state) VALUES ($1, $2, $3, 1, 'pi_entered', 1)`,
-					entity.NewID(), string(o.typeID), o.followerID)
-				require.NoError(t, err)
+				insertStockEntry(t, o.stock, o.followerID, entity.OrderStatusPending, entity.LotteryEntryStateEntered, 1)
 				return o, nil
 			},
 		},
@@ -268,7 +326,16 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			name: "a won lottery entry awaiting its order",
 			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
 				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
-				seedLotteryEntryWithState(t, o.typeID, o.followerID, entity.LotteryEntryStateWon, 1)
+				insertStockEntry(t, o.stock, o.followerID, entity.OrderStatusPending, entity.LotteryEntryStateWon, 1)
+				return o, nil
+			},
+		},
+		{
+			name: "an expired checkout whose card authorization is not released",
+			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
+				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+				f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+				insertStockCheckout(t, f, o.followerID, entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, saleWindowStart, true, nil)
 				return o, nil
 			},
 		},
@@ -303,52 +370,39 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 }
 
 // TestOrganizerRepository_DeleteWithTicketSale covers an Organizer whose
-// event was sold first come: its checkouts and sale are removed with it, and a
-// charged checkout that has no Order blocks the deletion, since its money was
-// taken without a purchase record to refund.
+// event was sold first come: its sale and ended checkouts are removed with
+// it, and a committed checkout's Pending Order blocks the deletion.
 func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
 	repo := rdb.NewOrganizerRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB)
 	start := saleWindowStart.Add(time.Hour)
-
-	seedType := func(t *testing.T, o deletableOrganizer) *entity.TicketType {
-		t.Helper()
-		return seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-	}
+	released := start.Add(time.Minute)
 
 	t.Run("removes the sale and its ended checkouts", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
-		tt := seedType(t, o)
-		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start, nil)
-		require.NoError(t, err)
-		_, err = checkouts.Release(ctx, c.ID, start.Add(time.Hour))
-		require.NoError(t, err)
+		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		checkoutID, orderID := insertStockCheckout(t, f, o.followerID, entity.OrderStatusVoid, entity.CheckoutStatusReleased, 2, start, true, &released)
 
 		require.NoError(t, repo.Delete(ctx, o.organizerID, false))
 
-		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_sales WHERE id = $1`, string(tt.TicketSaleID)), "ticket sale")
-		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_types WHERE id = $1`, string(tt.ID)), "ticket type")
-		_, err = checkouts.Get(ctx, c.ID)
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_sales WHERE id = $1`, string(f.SaleID)), "ticket sale")
+		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "ticket stock")
+		assert.False(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "checkout")
+		assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, orderID), "void order")
 	})
 
-	t.Run("refuses a charged checkout without an order", func(t *testing.T) {
+	t.Run("refuses a committed checkout's pending order", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
-		tt := seedType(t, o)
-		c, err := checkouts.GetOrCreateHeld(ctx, tt.ID, entity.UserID(o.followerID), 2, start, nil)
-		require.NoError(t, err)
-		_, err = checkouts.Commit(ctx, c.ID, start.Add(time.Minute))
-		require.NoError(t, err)
-		require.NoError(t, checkouts.RecordCapture(ctx, c.ID, start.Add(2*time.Minute)))
+		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		checkoutID, _ := insertStockCheckout(t, f, o.followerID, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 2, start, true, nil)
 
-		err = repo.Delete(ctx, o.organizerID, false)
+		err := repo.Delete(ctx, o.organizerID, false)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		_, err = checkouts.Get(ctx, c.ID)
-		assert.NoError(t, err, "nothing is removed")
+		assert.True(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "nothing is removed")
+		assertOrganizerRecords(t, o, true)
 	})
 }

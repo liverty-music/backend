@@ -27,9 +27,16 @@ func NewLotteryEntryRepository(db *Database) *LotteryEntryRepository {
 	return &LotteryEntryRepository{db: db}
 }
 
-// lotteryEntryColumns selects a lottery_entries row.
-const lotteryEntryColumns = `
-	id, ticket_type_id, user_id, ticket_count, card_authorization_id, state, draw_position, referral_code
+// lotteryEntrySelect reads lottery entries (aliased le) with their orders
+// (aliased o), in the column order scanLotteryEntry expects; a WHERE follows.
+const lotteryEntrySelect = `
+	SELECT le.id, le.order_id, le.ticket_sale_id, le.state, le.draw_position,
+		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
+		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
+		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
+		le.id, NULL::uuid
+	FROM lottery_entries le
+	JOIN orders o ON o.id = le.order_id
 `
 
 // lotteryEntryCreateTimeout bounds every wait of Create's transaction: a lock
@@ -43,74 +50,89 @@ const (
 	// authorization: a transaction-scoped advisory lock keyed on its id,
 	// released at commit or rollback.
 	lotteryEntryCreateLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('lottery-entry-card-authorization:' || $1, 0))`
-	// lotteryEntryInsertQuery inserts an Entered entry only while the ticket
-	// type exists and its sale's end time has not passed by the database
-	// clock; no row is inserted otherwise. uq_lottery_entries_ticket_type_user
-	// rejects a second entry of the user for the ticket type, waiting for a
-	// concurrent insert to commit first.
+	// lotteryEntrySaleOfStockQuery reads, for the Lottery sale $1 and the
+	// stock $2, whether the sale names the stock's event; no row when either
+	// does not exist or the sale is not a Lottery.
+	lotteryEntrySaleOfStockQuery = `
+		SELECT EXISTS (SELECT 1 FROM ticket_sale_events tse WHERE tse.ticket_sale_id = ts.id AND tse.event_id = s.event_id)
+		FROM ticket_sales ts, ticket_stocks s
+		WHERE ts.id = $1 AND s.id = $2 AND ts.method = 2
+	`
+	// lotteryEntryOfUserForEventQuery reports whether the user ($2) has an
+	// entry in the sale ($1) for a stock of the event ($3).
+	lotteryEntryOfUserForEventQuery = `
+		SELECT EXISTS (
+			SELECT 1 FROM lottery_entries le
+			JOIN orders o ON o.id = le.order_id
+			JOIN ticket_stocks s ON s.id = o.ticket_stock_id
+			WHERE le.ticket_sale_id = $1 AND o.user_id = $2 AND s.event_id = $3
+		)
+	`
+	// lotteryEntryInsertQuery inserts an Entered entry only while its sale's
+	// end time has not passed by the database clock; no row otherwise.
 	lotteryEntryInsertQuery = `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state, referral_code)
-		SELECT $1, tt.id, $3, $4, $5, 1, $6
-		FROM ticket_types tt
-		JOIN ticket_sales ts ON ts.id = tt.ticket_sale_id
-		WHERE tt.id = $2 AND clock_timestamp() < ts.sale_end_at
+		INSERT INTO lottery_entries (id, order_id, ticket_sale_id, state)
+		SELECT $1, $2, ts.id, 1 FROM ticket_sales ts
+		WHERE ts.id = $3 AND clock_timestamp() < ts.sale_end_at
 	`
-	lotteryEntryGetQuery = `SELECT ` + lotteryEntryColumns + ` FROM lottery_entries WHERE id = $1`
-	// lotteryEntryGetByCardAuthorizationIDQuery reads the one entry made from
-	// the card authorization (uq_lottery_entries_card_authorization_id).
-	lotteryEntryGetByCardAuthorizationIDQuery = `
-		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries WHERE card_authorization_id = $1
-	`
+	lotteryEntryGetQuery                      = lotteryEntrySelect + ` WHERE le.id = $1`
+	lotteryEntryGetByCardAuthorizationIDQuery = lotteryEntrySelect + ` WHERE o.card_authorization_id = $1`
 	// lotteryEntryListByTicketTypeAndUserQuery orders newest first: ids are
 	// UUIDv7, so id order is creation order.
-	lotteryEntryListByTicketTypeAndUserQuery = `
-		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
-		WHERE ticket_type_id = $1 AND user_id = $2
-		ORDER BY id DESC
+	lotteryEntryListByTicketTypeAndUserQuery = lotteryEntrySelect + `
+		WHERE le.ticket_sale_id = $1 AND o.user_id = $2
+		ORDER BY le.id DESC
 	`
-	// lotteryEntryListByUserQuery orders newest first by the UUIDv7 id.
-	lotteryEntryListByUserQuery = `
-		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
-		WHERE user_id = $1
-		ORDER BY id DESC
-	`
-	lotteryEntryListUndrawnQuery = `
-		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
-		WHERE ticket_type_id = $1 AND state = 1
+	lotteryEntryListByUserQuery  = lotteryEntrySelect + ` WHERE o.user_id = $1 ORDER BY le.id DESC`
+	lotteryEntryListUndrawnQuery = lotteryEntrySelect + `
+		WHERE le.ticket_sale_id = $1 AND o.ticket_stock_id = $2 AND le.state = 1
 	`
 	lotteryEntryStatsQuery = `
 		SELECT
 			COUNT(*),
-			COALESCE(SUM(ticket_count), 0),
-			COUNT(*) FILTER (WHERE state = 2),
-			COALESCE(SUM(ticket_count) FILTER (WHERE state = 2), 0),
-			COUNT(*) FILTER (WHERE state = 3)
-		FROM lottery_entries
-		WHERE ticket_type_id = $1
+			COALESCE(SUM(o.ticket_count), 0),
+			COUNT(*) FILTER (WHERE le.state = 2),
+			COALESCE(SUM(o.ticket_count) FILTER (WHERE le.state = 2), 0),
+			COUNT(*) FILTER (WHERE le.state = 3)
+		FROM lottery_entries le
+		JOIN orders o ON o.id = le.order_id
+		WHERE le.ticket_sale_id = $1 AND o.ticket_stock_id = $2
 	`
-
-	// lotteryEntrySetOutcomeQuery sets the state of every entry in $1 to $3
-	// with the matching draw position of $2.
+	lotteryEntrySaleExistsQuery = `SELECT EXISTS (SELECT 1 FROM ticket_sales WHERE id = $1)`
+	// lotteryEntryLockDrawnStocksQuery takes, in id order, the row lock of
+	// every stock the entries $1 are of (design D5).
+	lotteryEntryLockDrawnStocksQuery = `
+		SELECT 1 FROM ticket_stocks
+		WHERE id IN (SELECT o.ticket_stock_id FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE le.id = ANY($1::uuid[]))
+		ORDER BY id
+		FOR UPDATE
+	`
+	// lotteryEntrySetOutcomeQuery sets the state of every entry in $1 that is
+	// still Entered to $3 with the matching draw position of $2, and returns
+	// the orders of the entries it changed.
 	lotteryEntrySetOutcomeQuery = `
 		UPDATE lottery_entries AS le
 		SET state = $3, draw_position = u.position
 		FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bigint[]) AS position) AS u
-		WHERE le.id = u.id
+		WHERE le.id = u.id AND le.state = 1
+		RETURNING le.order_id
 	`
-	// ticketSaleStampDrawQuery marks the sale drawn, the last write of the
-	// draw's transaction; chk_ticket_sales_draw_lottery_only rejects a
-	// FirstCome sale.
-	ticketSaleStampDrawQuery = `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`
+	lotteryEntryVoidOrdersQuery = `UPDATE orders SET status = 5 WHERE id = ANY($1::uuid[]) AND status = 4`
 )
 
-// Create stores the new Entered entry, or returns the entry that already
-// holds its card authorization, in one transaction under the user's shared
-// deletion lock and the card authorization's advisory lock.
+// Create stores the new Entered entry with its Pending Order, or returns the
+// entry whose Order already holds the card authorization, in one transaction
+// under the user's row lock and the card authorization's advisory lock.
 func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
+	order := entry.Order
 	attrs := []slog.Attr{
-		slog.String("ticket_type_id", string(entry.TicketTypeID)),
-		slog.String("user_id", string(entry.UserID)),
-		slog.String("card_authorization_id", entry.CardAuthorizationID),
+		slog.String("ticket_sale_id", string(entry.TicketSaleID)),
+		slog.String("ticket_stock_id", string(order.TicketStockID)),
+		slog.String("user_id", string(order.UserID)),
+		slog.String("card_authorization_id", order.CardAuthorizationID),
+	}
+	if order.CardAuthorizationID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "a lottery entry is made for an order with its card authorization", attrs...)
 	}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -124,13 +146,13 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 			return nil, toAppErr(err, "failed to bound lottery entry creation", attrs...)
 		}
 	}
-	if err := lockUserForCreate(ctx, tx, entry.UserID); err != nil {
+	if err := lockUserForOrder(ctx, tx, order.UserID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryCreateLockQuery, entry.CardAuthorizationID); err != nil {
+	if _, err := tx.Exec(ctx, lotteryEntryCreateLockQuery, order.CardAuthorizationID); err != nil {
 		return nil, toAppErr(err, "failed to lock the card authorization", attrs...)
 	}
-	holder, err := scanLotteryEntry(tx.QueryRow(ctx, lotteryEntryGetByCardAuthorizationIDQuery, entry.CardAuthorizationID))
+	holder, err := scanLotteryEntry(tx.QueryRow(ctx, lotteryEntryGetByCardAuthorizationIDQuery, order.CardAuthorizationID))
 	switch {
 	case err == nil:
 		// The entry made from the card authorization already exists.
@@ -139,20 +161,48 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 		return nil, toAppErr(err, "failed to read the entry of the card authorization", attrs...)
 	}
 
-	var code any
-	if entry.ReferralCode != nil {
-		code = string(*entry.ReferralCode)
-	}
-	tag, err := tx.Exec(ctx, lotteryEntryInsertQuery,
-		string(entry.ID), string(entry.TicketTypeID), string(entry.UserID), entry.TicketCount, entry.CardAuthorizationID, code)
-	if err != nil {
-		if IsUniqueViolation(err) {
-			return nil, apperr.Wrap(err, codes.AlreadyExists, "the user has already entered for the ticket type", attrs...)
+	var namesEvent bool
+	if err := tx.QueryRow(ctx, lotteryEntrySaleOfStockQuery, string(entry.TicketSaleID), string(order.TicketStockID)).Scan(&namesEvent); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(codes.FailedPrecondition, "the lottery sale or the ticket stock does not exist", attrs...)
 		}
+		return nil, toAppErr(err, "failed to read the entry's sale", attrs...)
+	}
+	if !namesEvent {
+		return nil, apperr.New(codes.FailedPrecondition, "the sale does not name the stock's event", attrs...)
+	}
+	stock, err := getTicketStock(ctx, tx, order.TicketStockID, time.Now())
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the entry's stock", attrs...)
+	}
+	var entered bool
+	if err := tx.QueryRow(ctx, lotteryEntryOfUserForEventQuery, string(entry.TicketSaleID), string(order.UserID), stock.EventID).Scan(&entered); err != nil {
+		return nil, toAppErr(err, "failed to read the user's entries", attrs...)
+	}
+	if entered {
+		return nil, apperr.New(codes.AlreadyExists, "the user has already entered the sale for the event", attrs...)
+	}
+	event, err := eventLimit(ctx, tx, stock.EventID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the event's per-account limit", attrs...)
+	}
+	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, time.Now())
+	if err != nil {
+		return nil, toAppErr(err, "failed to count the user's tickets", attrs...)
+	}
+	if !event.Fits(held, stock.SeatTypeID, order.TicketCount) {
+		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
+	}
+
+	if err := insertPendingOrder(ctx, tx, order); err != nil {
+		return nil, toAppErr(err, "failed to insert the entry's order", attrs...)
+	}
+	tag, err := tx.Exec(ctx, lotteryEntryInsertQuery, string(entry.ID), string(order.ID), string(entry.TicketSaleID))
+	if err != nil {
 		return nil, toAppErr(err, "failed to insert lottery entry", attrs...)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, apperr.New(codes.FailedPrecondition, "the ticket type does not exist or its sale has ended", attrs...)
+		return nil, apperr.New(codes.FailedPrecondition, "the sale has ended", attrs...)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit lottery entry creation", attrs...)
@@ -160,7 +210,7 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	r.db.logger.Info(ctx, "lottery entry created",
 		slog.String("entityType", "lottery_entry"),
 		slog.String("lottery_entry_id", string(entry.ID)),
-		slog.String("ticket_type_id", string(entry.TicketTypeID)),
+		slog.String("ticket_sale_id", string(entry.TicketSaleID)),
 	)
 	created := *entry
 	created.State = entity.LotteryEntryStateEntered
@@ -177,7 +227,8 @@ func (r *LotteryEntryRepository) Get(ctx context.Context, id entity.LotteryEntry
 	return entry, nil
 }
 
-// GetByCardAuthorizationID returns the entry that references the card authorization.
+// GetByCardAuthorizationID returns the entry whose order has the card
+// authorization.
 func (r *LotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.LotteryEntry, error) {
 	entry, err := scanLotteryEntry(r.db.Pool.QueryRow(ctx, lotteryEntryGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
@@ -187,13 +238,13 @@ func (r *LotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, c
 	return entry, nil
 }
 
-// ListByTicketTypeAndUser returns every entry of the user for the ticket
-// type, newest first.
-func (r *LotteryEntryRepository) ListByTicketTypeAndUser(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
-	entries, err := r.list(ctx, lotteryEntryListByTicketTypeAndUserQuery, string(ticketTypeID), string(userID))
+// ListByTicketTypeAndUser returns the user's entries in the sale, newest
+// first.
+func (r *LotteryEntryRepository) ListByTicketTypeAndUser(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+	entries, err := r.list(ctx, lotteryEntryListByTicketTypeAndUserQuery, string(saleID), string(userID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list lottery entries of the user",
-			slog.String("ticket_type_id", string(ticketTypeID)), slog.String("user_id", string(userID)))
+			slog.String("ticket_sale_id", string(saleID)), slog.String("user_id", string(userID)))
 	}
 	return entries, nil
 }
@@ -207,30 +258,31 @@ func (r *LotteryEntryRepository) ListByUser(ctx context.Context, userID entity.U
 	return entries, nil
 }
 
-// ListUndrawnForTicketType returns every Entered entry of the ticket type.
-func (r *LotteryEntryRepository) ListUndrawnForTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID) ([]*entity.LotteryEntry, error) {
-	entries, err := r.list(ctx, lotteryEntryListUndrawnQuery, string(ticketTypeID))
+// ListUndrawnForTicketType returns every Entered entry of the sale for the
+// stock.
+func (r *LotteryEntryRepository) ListUndrawnForTicketType(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) ([]*entity.LotteryEntry, error) {
+	entries, err := r.list(ctx, lotteryEntryListUndrawnQuery, string(saleID), string(stockID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list undrawn lottery entries",
-			slog.String("ticket_type_id", string(ticketTypeID)))
+			slog.String("ticket_sale_id", string(saleID)), slog.String("ticket_stock_id", string(stockID)))
 	}
 	return entries, nil
 }
 
-// GetStatsByTicketType counts the ticket type's entries.
-func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.LotteryEntryStats, error) {
+// GetStatsByTicketType counts the sale's entries for the stock.
+func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID) (entity.LotteryEntryStats, error) {
 	var s entity.LotteryEntryStats
-	if err := r.db.Pool.QueryRow(ctx, lotteryEntryStatsQuery, string(ticketTypeID)).Scan(
+	if err := r.db.Pool.QueryRow(ctx, lotteryEntryStatsQuery, string(saleID), string(stockID)).Scan(
 		&s.EntryCount, &s.TicketCount, &s.WonEntryCount, &s.WonTicketCount, &s.LostEntryCount,
 	); err != nil {
-		return entity.LotteryEntryStats{}, toAppErr(err, "failed to get ticket type stats",
-			slog.String("ticket_type_id", string(ticketTypeID)))
+		return entity.LotteryEntryStats{}, toAppErr(err, "failed to get lottery entry stats",
+			slog.String("ticket_sale_id", string(saleID)), slog.String("ticket_stock_id", string(stockID)))
 	}
 	return s, nil
 }
 
-// PersistDrawOutcome records winners, losers and the sale's draw time in one
-// transaction.
+// PersistDrawOutcome records winners and losers, and voids the losers'
+// orders, in one transaction under the row locks of the drawn stocks.
 func (r *LotteryEntryRepository) PersistDrawOutcome(
 	ctx context.Context,
 	saleID entity.TicketSaleID,
@@ -249,13 +301,36 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var exists bool
+	if err := tx.QueryRow(ctx, lotteryEntrySaleExistsQuery, string(saleID)).Scan(&exists); err != nil {
+		return toAppErr(err, "failed to read the drawn sale", attrs...)
+	}
+	if !exists {
+		return apperr.New(codes.NotFound, "ticket sale not found", attrs...)
+	}
+	ids := make([]string, 0, len(winners)+len(losers))
+	for _, w := range winners {
+		ids = append(ids, string(w.LotteryEntryID))
+	}
+	for _, l := range losers {
+		ids = append(ids, string(l.LotteryEntryID))
+	}
+	if _, err := tx.Exec(ctx, lotteryEntryLockDrawnStocksQuery, ids); err != nil {
+		return toAppErr(err, "failed to lock the drawn stocks", attrs...)
+	}
+
 	if len(winners) > 0 {
 		ids, positions := make([]string, len(winners)), make([]int64, len(winners))
 		for i, w := range winners {
 			ids[i], positions[i] = string(w.LotteryEntryID), int64(w.DrawPosition)
 		}
-		if _, err := tx.Exec(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateWon)); err != nil {
+		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateWon))
+		if err != nil {
 			return toAppErr(err, "failed to record the winners", append(attrs, slog.Int("winner_count", len(winners)))...)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return toAppErr(err, "failed to record the winners", attrs...)
 		}
 	}
 	if len(losers) > 0 {
@@ -263,18 +338,17 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		for i, l := range losers {
 			ids[i], positions[i] = string(l.LotteryEntryID), int64(l.DrawPosition)
 		}
-		if _, err := tx.Exec(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateLost)); err != nil {
+		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateLost))
+		if err != nil {
 			return toAppErr(err, "failed to record the losers", append(attrs, slog.Int("loser_count", len(losers)))...)
 		}
-	}
-	// The draw time is the last write, so a crash before it leaves the sale
-	// due and the whole outcome is retried on the next sweep.
-	tag, err := tx.Exec(ctx, ticketSaleStampDrawQuery, string(saleID), time.Now().UTC())
-	if err != nil {
-		return toAppErr(err, "failed to set the sale's draw time", attrs...)
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "ticket sale not found", attrs...)
+		lostOrders, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return toAppErr(err, "failed to record the losers", attrs...)
+		}
+		if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, lostOrders); err != nil {
+			return toAppErr(err, "failed to void the losers' orders", attrs...)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit draw outcome transaction", attrs...)
@@ -289,8 +363,8 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 	return nil
 }
 
-// list runs a query selecting lotteryEntryColumns and returns its rows, or an
-// empty slice when there is none.
+// list runs a lotteryEntrySelect query and returns its rows, or an empty
+// slice when there is none.
 func (r *LotteryEntryRepository) list(ctx context.Context, query string, args ...any) ([]*entity.LotteryEntry, error) {
 	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -308,30 +382,28 @@ func (r *LotteryEntryRepository) list(ctx context.Context, query string, args ..
 	return entries, nil
 }
 
-// scanLotteryEntry maps one row selected with lotteryEntryColumns.
-// draw_position is NULL until the draw, and referral_code without a code.
+// scanLotteryEntry maps one row selected with lotteryEntrySelect.
+// draw_position is NULL until the draw.
 func scanLotteryEntry(row pgx.Row) (*entity.LotteryEntry, error) {
 	var (
-		e                        entity.LotteryEntry
-		id, ticketTypeID, userID string
-		state                    int16
-		drawPosition             sql.NullInt64
-		referralCode             sql.NullString
+		e                   entity.LotteryEntry
+		id, orderID, saleID string
+		state               int16
+		drawPosition        sql.NullInt64
+		orderCols           orderColumns
 	)
-	if err := row.Scan(&id, &ticketTypeID, &userID, &e.TicketCount, &e.CardAuthorizationID, &state, &drawPosition, &referralCode); err != nil {
+	dest := append([]any{&id, &orderID, &saleID, &state, &drawPosition}, orderCols.dest()...)
+	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
 	e.ID = entity.LotteryEntryID(id)
-	e.TicketTypeID = entity.TicketTypeID(ticketTypeID)
-	e.UserID = entity.UserID(userID)
+	e.OrderID = entity.OrderID(orderID)
+	e.TicketSaleID = entity.TicketSaleID(saleID)
 	e.State = entity.LotteryEntryState(state)
 	if drawPosition.Valid {
 		position := int(drawPosition.Int64)
 		e.DrawPosition = &position
 	}
-	if referralCode.Valid {
-		code := entity.ReferralCode(referralCode.String)
-		e.ReferralCode = &code
-	}
+	e.Order = orderCols.order()
 	return &e, nil
 }

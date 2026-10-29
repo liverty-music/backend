@@ -12,34 +12,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// seedOrderForSettlement issues a Paid order together with its Held
-// settlement, atomically, via IssuanceRepository.Issue (backend#468: Issue now
-// creates the Order, its Tickets, and its Settlement together). Returns the
-// created Order and Settlement so callers can exercise ListHeld/MarkReleased
-// against a real settlement row.
+// seedOrderForSettlement issues the Pending Order of the Won lottery entry
+// with its Held settlement, atomically, via IssuanceRepository.Issue, which
+// makes the Order Paid and stores its Settlement together (backend#468).
+// Returns the Paid Order and the Settlement so callers can exercise
+// ListHeld/MarkReleased against a real settlement row.
 func seedOrderForSettlement(
 	t *testing.T,
 	issuanceRepo *rdb.IssuanceRepository,
 	lotteryEntryID entity.LotteryEntryID,
-	userID, organizerID, eventID string,
+	organizerID, eventID string,
 	settledAt time.Time,
 ) (*entity.Order, *entity.Settlement) {
 	t.Helper()
-	order := &entity.Order{
-		ID:             entity.OrderID(entity.NewID()),
-		UserID:         entity.UserID(userID),
-		LotteryEntryID: lotteryEntryID,
-		Payment: entity.Payment{
-			Provider:          entity.PaymentProviderStripe,
-			ProviderPaymentID: "pi_settlement_itest_" + entity.NewID(),
-			CardBrand:         "visa",
-			CardLast4:         "4242",
-		},
-		Status:   entity.OrderStatusPaid,
-		Amount:   10000,
-		Currency: "JPY",
-		PayTime:  settledAt,
+	ctx := context.Background()
+	order, err := rdb.NewOrderRepository(testDB).GetByLotteryEntryID(ctx, lotteryEntryID)
+	require.NoError(t, err)
+	order.Payment = entity.Payment{
+		Provider:          entity.PaymentProviderStripe,
+		ProviderPaymentID: "pi_settlement_itest_" + entity.NewID(),
+		CardBrand:         "visa",
+		CardLast4:         "4242",
 	}
+	order.PayTime = &settledAt
 	settlement := &entity.Settlement{
 		ID:          entity.SettlementID(entity.NewID()),
 		OrderID:     order.ID,
@@ -48,20 +43,16 @@ func seedOrderForSettlement(
 		Status:      entity.SettlementStatusHeld,
 		CreateTime:  settledAt,
 	}
-	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil, settlement))
+	require.NoError(t, issuanceRepo.Issue(ctx, order, nil, settlement))
+	order.Status = entity.OrderStatusPaid
 	return order, settlement
 }
 
-// seedWonEntryForSettlement inserts a Won lottery entry of userID for the
-// ticket type and returns its id.
-func seedWonEntryForSettlement(t *testing.T, ticketTypeID entity.TicketTypeID, userID string) entity.LotteryEntryID {
+// seedWonEntryForSettlement stores a Won lottery entry of userID for 2
+// tickets of the stock, with its Pending Order, and returns the entry's id.
+func seedWonEntryForSettlement(t *testing.T, f *stockFixture, userID string) entity.LotteryEntryID {
 	t.Helper()
-	id := entity.NewID()
-	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
-		VALUES ($1, $2, $3, 2, $4, 2)`, id, string(ticketTypeID), userID, "pi_entry_"+id)
-	require.NoError(t, err)
-	return entity.LotteryEntryID(id)
+	return seedLotteryEntryWithState(t, f, userID, entity.LotteryEntryStateWon, 2)
 }
 
 // insertSettlementSplit inserts a settlement_splits row directly, since no
@@ -78,7 +69,7 @@ func insertSettlementSplit(t *testing.T, id entity.SettlementID, payeeOrganizerI
 
 // TestSettlementRepository_Integration exercises the Settlement payout
 // persistence against a real local Postgres: the Held settlement Order.Issue
-// creates (backend#468), ListHeld, and MarkReleased — both the happy path
+// stores with the Paid Order (backend#468), ListHeld, and MarkReleased — both the happy path
 // and, per #477, the atomicity of the status flip together with every
 // split's provider_payout_id update.
 func TestSettlementRepository_Integration(t *testing.T) {
@@ -91,16 +82,16 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	settlementRepo := rdb.NewSettlementRepository(testDB)
 
 	eventID := seedPublishedEvent(t)
-	ticketType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 4)
+	stock := seedStockForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 4)
 	userID := seedUser(t, "settlement-fan", entity.NewID()+"@example.test", entity.NewID())
-	entryID := seedWonEntryForSettlement(t, ticketType.ID, userID)
+	entryID := seedWonEntryForSettlement(t, stock, userID)
 
 	organizerID := entity.NewID()
 	settledAt := time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC)
 
 	// -- Order.Issue creates the Held settlement atomically with the Order
 	//    (backend#468). --
-	_, created := seedOrderForSettlement(t, issuanceRepo, entryID, userID, organizerID, eventID, settledAt)
+	_, created := seedOrderForSettlement(t, issuanceRepo, entryID, organizerID, eventID, settledAt)
 	assert.Equal(t, entity.SettlementStatusHeld, created.Status)
 
 	// -- ListHeld includes the freshly created settlement. --
@@ -149,11 +140,10 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	// leaving the settlement Held with no split touched (atomicity).
 	// @spec components/entity/settlement/mark-released "Failure changes nothing"
 	t.Run("MarkReleased rolls back the status flip when a split update fails", func(t *testing.T) {
-		// A fresh user and entry avoid the uq_lottery_entries_active conflict
-		// with the outer test's Won entry on the same ticket type.
+		// A fresh user keeps one entry per user, sale and event.
 		otherUserID := seedUser(t, "settlement-fan-2", entity.NewID()+"@example.test", entity.NewID())
-		otherEntryID := seedWonEntryForSettlement(t, ticketType.ID, otherUserID)
-		_, created := seedOrderForSettlement(t, issuanceRepo, otherEntryID, otherUserID, organizerID, eventID, settledAt)
+		otherEntryID := seedWonEntryForSettlement(t, stock, otherUserID)
+		_, created := seedOrderForSettlement(t, issuanceRepo, otherEntryID, organizerID, eventID, settledAt)
 
 		payeeOK := entity.NewID()
 		payeeBad := entity.NewID()

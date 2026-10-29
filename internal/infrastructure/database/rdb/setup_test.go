@@ -50,11 +50,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// testDBName is the integration-test database: TEST_DB_NAME when set (to
+// run several suites side by side on one server), else the compose service's
+// test-db.
+func testDBName() string {
+	if name := os.Getenv("TEST_DB_NAME"); name != "" {
+		return name
+	}
+	return "test-db"
+}
+
 func setupTestDatabase() *rdb.Database {
 	dbCfg := config.DatabaseConfig{
 		Host:    "localhost",
 		Port:    testDBPort(),
-		Name:    "test-db",
+		Name:    testDBName(),
 		User:    "test-user",
 		SSLMode: "disable",
 		// Same search_path as production (app, public): migrations that set
@@ -175,41 +185,93 @@ func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 // inside its window.
 var saleWindowStart = time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
 
-// seedTicketType creates, for a new published event, a TicketSale of the
-// given method over the event's Series, open from saleWindowStart for 20
-// days, offering one TicketType of quantity tickets at 3000 yen.
-func seedTicketType(t *testing.T, method entity.TicketSaleMethod, quantity, limit int) *entity.TicketType {
-	t.Helper()
-	return seedTicketTypeForEvent(t, seedPublishedEvent(t), method, quantity, limit)
+// stockFixture is a seeded TicketStock with the sale seeded to sell it.
+type stockFixture struct {
+	ID       entity.TicketStockID
+	SaleID   entity.TicketSaleID
+	EventID  string
+	SeatType *entity.SeatType
+	Quantity int
+	// Limit is the per-account limit of the stock's event.
+	Limit int
 }
 
-// seedTicketTypeForEvent creates a TicketSale of the given method over the
-// event's Series, open from saleWindowStart for 20 days, offering one
-// TicketType of quantity tickets at 3000 yen for the event.
-func seedTicketTypeForEvent(t *testing.T, eventID string, method entity.TicketSaleMethod, quantity, limit int) *entity.TicketType {
+// Price is the price of one ticket of the stock.
+func (f *stockFixture) Price() int64 { return f.SeatType.Price }
+
+// seedStock creates, for a new published event, a seat type of 3000 yen, a
+// stock of quantity tickets of it, and a TicketSale of the given method
+// naming the event, open from saleWindowStart for 20 days; the event's
+// per-account limit becomes limit.
+func seedStock(t *testing.T, method entity.TicketSaleMethod, quantity, limit int) *stockFixture {
+	t.Helper()
+	return seedStockForEvent(t, seedPublishedEvent(t), method, quantity, limit)
+}
+
+// seedStockForEvent creates, for the event, a new seat type of 3000 yen, a
+// stock of quantity tickets of it, and a TicketSale of the given method
+// naming the event, open from saleWindowStart for 20 days; the event's
+// per-account limit becomes limit (a discovered event keeps none).
+func seedStockForEvent(t *testing.T, eventID string, method entity.TicketSaleMethod, quantity, limit int) *stockFixture {
 	t.Helper()
 	ctx := context.Background()
 	var seriesID string
-	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID))
+	require.NoError(t, testDB.Pool.QueryRow(ctx,
+		`UPDATE events SET per_account_limit = CASE WHEN publish_state IS NULL THEN NULL ELSE $2::int END WHERE id = $1 RETURNING series_id`, eventID, limit).Scan(&seriesID))
 
+	// The random tail of a UUIDv7 keeps names unique within a Series; its
+	// head is the timestamp.
+	suffix := entity.NewID()
+	seatType := entity.NewSeatType(seriesID, "S席 "+suffix[len(suffix)-8:], 3000)
+	_, err := testDB.Pool.Exec(ctx, `INSERT INTO seat_types (id, series_id, name, price) VALUES ($1, $2, $3, $4)`,
+		string(seatType.ID), seriesID, seatType.Name, seatType.Price)
+	require.NoError(t, err)
+	stockID := entity.TicketStockID(entity.NewID())
+	_, err = testDB.Pool.Exec(ctx, `INSERT INTO ticket_stocks (id, event_id, seat_type_id, quantity) VALUES ($1, $2, $3, $4)`,
+		string(stockID), eventID, string(seatType.ID), quantity)
+	require.NoError(t, err)
+	saleID := seedSale(t, eventID, method, saleWindowStart, saleWindowStart.Add(20*24*time.Hour))
+	return &stockFixture{ID: stockID, SaleID: saleID, EventID: eventID, SeatType: seatType, Quantity: quantity, Limit: limit}
+}
+
+// seedSale creates a TicketSale of the given method and window naming the
+// event.
+func seedSale(t *testing.T, eventID string, method entity.TicketSaleMethod, start, end time.Time) entity.TicketSaleID {
+	t.Helper()
+	ctx := context.Background()
 	name := "一般発売"
 	if method == entity.TicketSaleMethodLottery {
 		name = "抽選"
 	}
-	sale := entity.NewTicketSale(seriesID, name, method, saleWindowStart, saleWindowStart.Add(20*24*time.Hour))
+	id := entity.NewID()
 	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO ticket_sales (id, series_id, name, method, sale_start_at, sale_end_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, string(sale.ID), seriesID, sale.Name, int16(sale.Method), sale.SaleStartTime, sale.SaleEndTime)
+		SELECT $1, series_id, $3, $4, $5, $6 FROM events WHERE id = $2
+	`, id, eventID, name, int16(method), start, end)
 	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `INSERT INTO ticket_sale_events (ticket_sale_id, event_id) VALUES ($1, $2)`, id, eventID)
+	require.NoError(t, err)
+	return entity.TicketSaleID(id)
+}
 
-	tt := entity.NewTicketType(sale, eventID, 3000, quantity, limit)
-	_, err = testDB.Pool.Exec(ctx, `
-		INSERT INTO ticket_types (id, ticket_sale_id, event_id, price, quantity, per_account_limit)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, string(tt.ID), string(tt.TicketSaleID), tt.EventID, tt.Price, tt.Quantity, tt.PerAccountLimit)
+// seedPaidOrder stores a Paid order of n tickets of the stock for the user,
+// paid at payTime, with the Won lottery entry in the stock's sale that names
+// it, and returns the order's id. It stands in for a won and issued entry.
+func seedPaidOrder(t *testing.T, f *stockFixture, userID string, n int, payTime time.Time) entity.OrderID {
+	t.Helper()
+	ctx := context.Background()
+	orderID := entity.NewID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider,
+			provider_payment_id, status, amount, currency, pay_at)
+		VALUES ($1, $2, $3, $4, $5, 1, $5, 1, $6, 'JPY', $7)`,
+		orderID, userID, string(f.ID), n, "pi_"+orderID, f.Price()*int64(n), payTime)
 	require.NoError(t, err)
-	return tt
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, 2, $2, $3)`,
+		entity.NewID(), orderID, string(f.SaleID))
+	require.NoError(t, err)
+	return entity.OrderID(orderID)
 }
 
 // issuedTicketsTime is the issue time of the first ticket seedIssuedTickets
@@ -217,46 +279,41 @@ func seedTicketTypeForEvent(t *testing.T, eventID string, method entity.TicketSa
 var issuedTicketsTime = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
 // seedIssuedTickets issues n Issued tickets of eventID to userID, through a
-// lottery TicketType of the event, a Won lottery entry and a Paid order, and
+// new lottery stock of the event, a Won lottery entry and a Paid order, and
 // returns their ids in issue order.
 func seedIssuedTickets(t *testing.T, eventID, userID string, n int) []entity.TicketID {
 	t.Helper()
-	ctx := context.Background()
-	tt := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 10)
+	f := seedStockForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 10)
+	return seedIssuedTicketsOf(t, f, userID, n)
+}
 
-	entryID := entity.NewID()
-	_, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
-		VALUES ($1, $2, $3, $4, $5, 2)`,
-		entryID, string(tt.ID), userID, n, "pi_entry_"+entryID)
-	require.NoError(t, err)
-
-	orderID := entity.NewID()
-	_, err = testDB.Pool.Exec(ctx, `
-		INSERT INTO orders (id, user_id, lottery_entry_id, provider, provider_payment_id, status, amount, currency, pay_at)
-		VALUES ($1, $2, $3, 1, $4, 1, $5, 'JPY', $6)`,
-		orderID, userID, entryID, "pi_"+orderID, 3000*n, issuedTicketsTime)
-	require.NoError(t, err)
-
+// seedIssuedTicketsOf issues n Issued tickets of the stock to userID through
+// a Paid order, and returns their ids in issue order.
+func seedIssuedTicketsOf(t *testing.T, f *stockFixture, userID string, n int) []entity.TicketID {
+	t.Helper()
+	orderID := seedPaidOrder(t, f, userID, n, issuedTicketsTime)
 	ids := make([]entity.TicketID, 0, n)
 	for i := range n {
 		id := entity.NewID()
-		_, err := testDB.Pool.Exec(ctx, `
+		_, err := testDB.Pool.Exec(context.Background(), `
 			INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at)
 			VALUES ($1, $2, $3, $4, 1, $5)`,
-			id, orderID, userID, eventID, issuedTicketsTime.Add(time.Duration(i)*time.Second))
+			id, string(orderID), userID, f.EventID, issuedTicketsTime.Add(time.Duration(i)*time.Second))
 		require.NoError(t, err)
 		ids = append(ids, entity.TicketID(id))
 	}
 	return ids
 }
 
-// setTicketTypeSold sets a ticket type's sold count directly, standing in for
-// committed checkouts.
-func setTicketTypeSold(t *testing.T, id entity.TicketTypeID, sold int) {
+// setStockSold makes sold tickets of the stock sold, through Paid orders of
+// other fans, standing in for won and issued entries.
+func setStockSold(t *testing.T, f *stockFixture, sold int) {
 	t.Helper()
-	_, err := testDB.Pool.Exec(context.Background(), `UPDATE ticket_types SET sold_count = $2 WHERE id = $1`, string(id), sold)
-	require.NoError(t, err)
+	for sold > 0 {
+		n := min(sold, 10)
+		seedPaidOrder(t, f, entity.NewID(), n, issuedTicketsTime)
+		sold -= n
+	}
 }
 
 func cleanTables(db *rdb.Database) {
@@ -264,7 +321,10 @@ func cleanTables(db *rdb.Database) {
 	tables := []string{
 		"identity_verifications",
 		"lottery_entries",
-		"ticket_types",
+		"checkouts",
+		"orders",
+		"ticket_stocks",
+		"seat_types",
 		"ticket_sales",
 		"ticket_journeys",
 		"push_subscriptions",

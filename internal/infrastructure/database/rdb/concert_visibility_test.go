@@ -69,7 +69,7 @@ func (f *visibilityFixture) event(seriesID, venueID string, day int, state strin
 	if state != "" {
 		st = &state
 	}
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state) VALUES ($1, $2, $3, $4, $5::event_publish_state)`,
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5::event_publish_state, CASE WHEN $5::event_publish_state IS NULL THEN NULL ELSE 4 END)`,
 		id, seriesID, venueID, f.today.AddDate(0, 0, day), st)
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, id)
 	for _, a := range artistIDs {

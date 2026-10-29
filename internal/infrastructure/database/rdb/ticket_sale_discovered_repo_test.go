@@ -29,11 +29,11 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 	oct5At16 := time.Date(2026, 10, 5, 16, 0, 0, 0, jst)
 	oct5At18 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
 	oct22Close := time.Date(2026, 10, 22, 23, 59, 0, 0, jst)
-	nov3Result := time.Date(2026, 11, 3, 15, 0, 0, 0, jst)
 
 	lottery := func(seriesID string, start time.Time) *entity.DiscoveredTicketSale {
 		return &entity.DiscoveredTicketSale{
 			SeriesID:      seriesID,
+			Name:          "先行抽選",
 			Method:        entity.TicketSaleMethodLottery,
 			SaleStartTime: start,
 			SaleEndTime:   oct22Close,
@@ -61,29 +61,28 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		sales := listOf(t, seriesID)
 		require.Len(t, sales, 1)
 		assert.True(t, oct5At18.Equal(sales[0].SaleStartTime))
+		assert.True(t, oct22Close.Equal(sales[0].SaleEndTime))
 		assert.True(t, sales[0].IsDiscovered())
-		assert.Empty(t, sales[0].Name)
-		assert.Empty(t, sales[0].TicketTypes)
+		assert.Equal(t, "先行抽選", sales[0].Name)
+		assert.Empty(t, sales[0].EventIDs)
 		assert.NoError(t, sales[0].Validate(), "a stored discovered sale reads back valid")
 	})
 
-	// @spec components/entity/ticket-sale/upsert-discovered "Re-discovery with more detail"
-	t.Run("Re-discovery with more detail", func(t *testing.T) {
+	// @spec components/entity/ticket-sale/upsert-discovered "Re-discovery with a new name"
+	t.Run("Re-discovery with a new name", func(t *testing.T) {
 		cleanDatabase(t)
 		seriesID := seedSeriesOnly(t, "Tour")
-
 		firstID, _ := upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At18))
 
-		detailed := lottery(seriesID, oct5At18)
-		detailed.LotteryResultTime = nov3Result
-		id, outcome := upsertDiscovered(t, repo, ctx, detailed)
+		renamed := lottery(seriesID, oct5At16)
+		renamed.Name = "オフィシャル先行"
+		id, outcome := upsertDiscovered(t, repo, ctx, renamed)
+
 		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
 		assert.Equal(t, firstID, id)
-
 		sales := listOf(t, seriesID)
 		require.Len(t, sales, 1)
-		require.NotNil(t, sales[0].LotteryResultTime)
-		assert.True(t, nov3Result.Equal(*sales[0].LotteryResultTime))
+		assert.Equal(t, "オフィシャル先行", sales[0].Name)
 	})
 
 	// @spec components/entity/ticket-sale/upsert-discovered "Different start dates stay separate"
@@ -95,6 +94,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 
 		nov10 := &entity.DiscoveredTicketSale{
 			SeriesID:      seriesID,
+			Name:          "二次先行",
 			Method:        entity.TicketSaleMethodLottery,
 			SaleStartTime: time.Date(2026, 11, 10, 12, 0, 0, 0, jst),
 			SaleEndTime:   time.Date(2026, 11, 20, 23, 59, 0, 0, jst),
@@ -114,8 +114,10 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 
 		firstCome := &entity.DiscoveredTicketSale{
 			SeriesID:      seriesID,
+			Name:          "一般発売",
 			Method:        entity.TicketSaleMethodFirstCome,
 			SaleStartTime: oct5At18,
+			SaleEndTime:   oct22Close,
 		}
 		_, outcome := upsertDiscovered(t, repo, ctx, firstCome)
 		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
@@ -134,37 +136,49 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
 	})
 
-	// @spec components/entity/ticket-sale/upsert-discovered "Omitted value clears the stored one"
-	t.Run("Omitted value clears the stored one", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
+	skipped := []struct {
+		name string
+		sale func(seriesID string) *entity.DiscoveredTicketSale
+	}{
+		{
+			// @spec components/entity/ticket-sale/upsert-discovered "Unknown start"
+			name: "Unknown start",
+			sale: func(seriesID string) *entity.DiscoveredTicketSale {
+				s := lottery(seriesID, time.Time{})
+				return s
+			},
+		},
+		{
+			// @spec components/entity/ticket-sale/upsert-discovered "First-come sale until sold out"
+			name: "First-come sale until sold out",
+			sale: func(seriesID string) *entity.DiscoveredTicketSale {
+				return &entity.DiscoveredTicketSale{
+					SeriesID: seriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStartTime: oct5At18,
+				}
+			},
+		},
+		{
+			name: "Lottery without a close",
+			sale: func(seriesID string) *entity.DiscoveredTicketSale {
+				s := lottery(seriesID, oct5At18)
+				s.SaleEndTime = time.Time{}
+				return s
+			},
+		},
+	}
+	for _, tc := range skipped {
+		t.Run(tc.name, func(t *testing.T) {
+			cleanDatabase(t)
+			seriesID := seedSeriesOnly(t, "Tour")
 
-		withResult := lottery(seriesID, oct5At18)
-		withResult.LotteryResultTime = nov3Result
-		upsertDiscovered(t, repo, ctx, withResult)
+			saleID, outcome, err := repo.UpsertDiscovered(ctx, tc.sale(seriesID))
 
-		_, outcome := upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At18))
-		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
-
-		sales := listOf(t, seriesID)
-		require.Len(t, sales, 1)
-		assert.Nil(t, sales[0].LotteryResultTime)
-	})
-
-	// @spec components/entity/ticket-sale/upsert-discovered "Unknown start"
-	t.Run("Unknown start", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-
-		saleID, outcome, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID,
-			Method:   entity.TicketSaleMethodLottery,
+			require.NoError(t, err)
+			assert.Equal(t, entity.UpsertOutcomeSkipped, outcome)
+			assert.Empty(t, saleID)
+			assert.Empty(t, listOf(t, seriesID))
 		})
-		require.NoError(t, err)
-		assert.Equal(t, entity.UpsertOutcomeSkipped, outcome)
-		assert.Empty(t, saleID)
-		assert.Empty(t, listOf(t, seriesID))
-	})
+	}
 
 	// @spec components/entity/ticket-sale/upsert-discovered "Sale no longer discovered"
 	t.Run("Sale no longer discovered", func(t *testing.T) {
@@ -185,6 +199,18 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		assertAppErrCode(t, err, codes.InvalidArgument)
 	})
 
+	// @spec components/entity/ticket-sale/upsert-discovered "No name"
+	t.Run("No name", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		unnamed := lottery(seriesID, oct5At18)
+		unnamed.Name = ""
+
+		_, _, err := repo.UpsertDiscovered(ctx, unnamed)
+		assertAppErrCode(t, err, codes.InvalidArgument)
+		assert.Empty(t, listOf(t, seriesID))
+	})
+
 	// @spec components/entity/ticket-sale/upsert-discovered "Unknown series"
 	t.Run("Unknown series", func(t *testing.T) {
 		cleanDatabase(t)
@@ -200,20 +226,6 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 
 		_, _, err := repo.UpsertDiscovered(ctx, lottery(seriesID, oct5At18))
 		assertAppErrCode(t, err, codes.FailedPrecondition)
-		assert.Empty(t, listOf(t, seriesID))
-	})
-
-	// @spec components/entity/ticket-sale/upsert-discovered "Lottery without a close"
-	t.Run("Lottery without a close", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-
-		_, _, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
-			SeriesID:      seriesID,
-			Method:        entity.TicketSaleMethodLottery,
-			SaleStartTime: oct5At18,
-		})
-		assertAppErrCode(t, err, codes.InvalidArgument)
 		assert.Empty(t, listOf(t, seriesID))
 	})
 }
@@ -236,7 +248,7 @@ func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
 
 	before := time.Now().UTC().Add(-time.Second)
 	upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-		SeriesID: seriesID, Method: entity.TicketSaleMethodLottery,
+		SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: t0, SaleEndTime: t0.Add(72 * time.Hour),
 	})
 	after := time.Now().UTC().Add(time.Second)
@@ -250,7 +262,7 @@ func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
 	first := *sales[0].DiscoveredTime
 
 	upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-		SeriesID: seriesID, Method: entity.TicketSaleMethodLottery,
+		SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: t0, SaleEndTime: t0.Add(96 * time.Hour),
 	})
 
@@ -278,11 +290,11 @@ func TestTicketSaleRepository_ListBySeries(t *testing.T) {
 		oct5 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
 		// Insert the later one first so the order comes from the query.
 		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodLottery,
+			SeriesID: seriesID, Name: "二次先行", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: nov10, SaleEndTime: nov10.Add(72 * time.Hour),
 		})
 		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodLottery,
+			SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: oct5, SaleEndTime: oct5.Add(72 * time.Hour),
 		})
 
@@ -293,7 +305,7 @@ func TestTicketSaleRepository_ListBySeries(t *testing.T) {
 		assert.True(t, nov10.Equal(sales[1].SaleStartTime))
 	})
 
-	t.Run("an Organizer's sale comes with its ticket types", func(t *testing.T) {
+	t.Run("an Organizer's sale comes with its events", func(t *testing.T) {
 		cleanDatabase(t)
 		eventID := seedPublishedEvent(t)
 		created := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(5*24*time.Hour), eventID))
@@ -303,7 +315,7 @@ func TestTicketSaleRepository_ListBySeries(t *testing.T) {
 		require.Len(t, sales, 1)
 		assert.Equal(t, created.ID, sales[0].ID)
 		assert.False(t, sales[0].IsDiscovered())
-		assert.Len(t, sales[0].TicketTypes, 1)
+		assert.Equal(t, []string{eventID}, sales[0].EventIDs)
 	})
 
 	// @spec components/entity/ticket-sale/list-by-series "Series with no sale"
@@ -335,38 +347,29 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	lookback := 2 * time.Hour
 	const day = 24 * time.Hour
 
-	ids := func(sales []*entity.TicketSale) []entity.TicketSaleID {
-		out := make([]entity.TicketSaleID, 0, len(sales))
-		for _, s := range sales {
-			out = append(out, s.ID)
-		}
-		return out
+	discovered := func(t *testing.T, method entity.TicketSaleMethod, start, end time.Time) entity.TicketSaleID {
+		t.Helper()
+		id, _ := upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			SeriesID: seedSeriesOnly(t, "Tour"), Name: "オフィシャル先行", Method: method,
+			SaleStartTime: start, SaleEndTime: end,
+		})
+		return id
 	}
 
-	// @spec components/entity/ticket-sale/list-with-pending-milestones "Opened weeks ago, result tomorrow"
-	t.Run("Opened weeks ago, result tomorrow", func(t *testing.T) {
+	// @spec components/entity/ticket-sale/list-with-pending-milestones "Opened days ago, closes tomorrow"
+	t.Run("Opened days ago, closes tomorrow", func(t *testing.T) {
 		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-		id, _ := upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodLottery,
-			SaleStartTime:     now.Add(-21 * day),
-			SaleEndTime:       now.Add(-14 * day),
-			LotteryResultTime: now.Add(day),
-		})
+		id := discovered(t, entity.TicketSaleMethodLottery, now.Add(-10*day), now.Add(day))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
-		assert.Equal(t, []entity.TicketSaleID{id}, ids(sales))
+		assert.Equal(t, []entity.TicketSaleID{id}, saleIDs(sales))
 	})
 
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Opens beyond the lookahead"
 	t.Run("Opens beyond the lookahead", func(t *testing.T) {
 		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome,
-			SaleStartTime: now.Add(10 * day),
-		})
+		discovered(t, entity.TicketSaleMethodFirstCome, now.Add(10*day), now.Add(12*day))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
@@ -376,11 +379,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "All milestones long past"
 	t.Run("All milestones long past", func(t *testing.T) {
 		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome,
-			SaleStartTime: now.Add(-3 * time.Hour),
-		})
+		discovered(t, entity.TicketSaleMethodFirstCome, now.Add(-5*time.Hour), now.Add(-3*time.Hour))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
@@ -390,15 +389,11 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Latest milestone just past"
 	t.Run("Latest milestone just past", func(t *testing.T) {
 		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "Tour")
-		id, _ := upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
-			SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome,
-			SaleStartTime: now.Add(-1 * time.Hour),
-		})
+		id := discovered(t, entity.TicketSaleMethodFirstCome, now.Add(-5*time.Hour), now.Add(-time.Hour))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
-		assert.Equal(t, []entity.TicketSaleID{id}, ids(sales))
+		assert.Equal(t, []entity.TicketSaleID{id}, saleIDs(sales))
 	})
 
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Organizer's sale opening tomorrow"
@@ -409,9 +404,8 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
-		require.Equal(t, []entity.TicketSaleID{sale.ID}, ids(sales))
-		require.Len(t, sales[0].TicketTypes, 1, "the sale comes with its ticket types")
-		assert.Equal(t, eventID, sales[0].TicketTypes[0].EventID)
+		require.Equal(t, []entity.TicketSaleID{sale.ID}, saleIDs(sales))
+		assert.Equal(t, []string{eventID}, sales[0].EventIDs, "the sale comes with its events")
 	})
 
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Organizer's sale of a cancelled Series"

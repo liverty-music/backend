@@ -340,7 +340,7 @@ func TestUserRepository_Delete(t *testing.T) {
 
 		assert.True(t, rowExists(t, `SELECT 1 FROM tickets WHERE id = $1`, string(ticketID)), "ticket")
 		assert.True(t, rowExists(t, `SELECT 1 FROM orders o JOIN tickets t ON t.order_id = o.id WHERE t.id = $1`, string(ticketID)), "order")
-		assert.True(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE user_id = $1`, user.ID), "lottery entry")
+		assert.True(t, rowExists(t, `SELECT 1 FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE o.user_id = $1`, user.ID), "lottery entry")
 	})
 
 	t.Run("reminder records go with the user", func(t *testing.T) {

@@ -78,7 +78,7 @@ const (
 	// id), so the editor can show and resend the picked place.
 	getAuthoredSeriesEventsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
-		       v.name, v.admin_area, v.google_place_id
+		       e.per_account_limit, v.name, v.admin_area, v.google_place_id
 		FROM events e
 		JOIN venues v ON v.id = e.venue_id
 		WHERE e.series_id = $1
@@ -433,9 +433,10 @@ func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, q rowQuerier
 		var ev entity.Event
 		var venue entity.Venue
 		var lvn, state, adminArea, placeID sql.NullString
+		var limit sql.NullInt32
 		if err := rows.Scan(
 			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime, &state,
-			&venue.Name, &adminArea, &placeID,
+			&limit, &venue.Name, &adminArea, &placeID,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan authored event")
 		}
@@ -444,6 +445,7 @@ func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, q rowQuerier
 			ev.ListedVenueName = &v
 		}
 		ev.PublishState = nullPublishState(state)
+		ev.PerAccountLimit = optionalInt(limit)
 		venue.ID = ev.VenueID
 		if adminArea.Valid {
 			v := adminArea.String

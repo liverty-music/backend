@@ -72,7 +72,7 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 	db, err := rdb.New(ctx, config.DatabaseConfig{
 		Host:              "localhost",
 		Port:              testDBPort(),
-		Name:              "test-db",
+		Name:              testDBName(),
 		User:              receptionTestRole,
 		SSLMode:           "disable",
 		Schema:            "app",

@@ -1346,7 +1346,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 			eventID := newTestID(t)
 			_, err = testDB.Pool.Exec(ctx,
-				"INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state) VALUES ($1, $2, $3, $4, $5)",
+				"INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::event_publish_state IS NULL THEN NULL ELSE 4 END)",
 				eventID, seriesID, venueID, date, publishState,
 			)
 			require.NoError(t, err)
