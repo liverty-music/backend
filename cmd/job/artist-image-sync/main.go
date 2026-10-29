@@ -80,6 +80,7 @@ func run(bootLogger *logging.Logger) error {
 	var totalAttempted int
 	var totalFailed int
 	var consecutiveErrors int
+	var circuitBroken bool
 
 	for _, artist := range artists {
 		if ctx.Err() != nil {
@@ -100,6 +101,7 @@ func run(bootLogger *logging.Logger) error {
 				app.Logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
 					slog.Int("consecutive_errors", consecutiveErrors),
 				)
+				circuitBroken = true
 				break
 			}
 			continue
@@ -118,6 +120,7 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("artists_attempted", totalAttempted),
 		slog.Int("artists_succeeded", totalAttempted-totalFailed),
 		slog.Int("failures", totalFailed),
+		slog.Bool("circuit_broken", circuitBroken),
 	)...)
 
 	return nil

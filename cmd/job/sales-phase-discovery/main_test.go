@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -27,13 +28,13 @@ func TestDiscoverArtists_OneTracePerArtist(t *testing.T) {
 	artists := []*entity.Artist{{ID: "a1"}, {ID: "a2"}, {ID: "a3"}}
 	seen := map[trace.TraceID]bool{}
 	runCtx, run := telemetry.StartJobRun(context.Background(), "sales-phase-discovery")
-	failed := discoverArtists(runCtx, logger, artists, func(ctx context.Context, _ *entity.Artist) error {
+	result := discoverArtists(runCtx, logger, artists, func(ctx context.Context, _ *entity.Artist) error {
 		seen[trace.SpanContextFromContext(ctx).TraceID()] = true
 		return nil
 	})
 	run.End()
 
-	assert.Zero(t, failed)
+	assert.Equal(t, discoverResult{Attempted: 3}, result)
 	var items int
 	for _, s := range recorder.Ended() {
 		if s.Name() != "ticket_sale_search.artist" {
@@ -46,4 +47,22 @@ func TestDiscoverArtists_OneTracePerArtist(t *testing.T) {
 	}
 	assert.Equal(t, 3, items)
 	assert.Len(t, seen, 3, "each artist has its own trace")
+}
+
+func TestDiscoverArtists_StopsAfterConsecutiveFailures(t *testing.T) {
+	t.Parallel()
+
+	logger, err := logging.New(logging.WithWriter(io.Discard))
+	require.NoError(t, err)
+
+	artists := []*entity.Artist{{ID: "a1"}, {ID: "a2"}, {ID: "a3"}, {ID: "a4"}, {ID: "a5"}, {ID: "a6"}}
+	result := discoverArtists(context.Background(), logger, artists, func(_ context.Context, artist *entity.Artist) error {
+		if artist.ID == "a1" {
+			return nil
+		}
+		return errors.New("search failed")
+	})
+
+	assert.Equal(t, discoverResult{Attempted: 4, Failed: 3, CircuitBroken: true}, result,
+		"the run stops at the third failure in a row and does not reach a5 and a6")
 }
