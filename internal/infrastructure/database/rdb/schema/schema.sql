@@ -220,7 +220,10 @@ CREATE TABLE IF NOT EXISTS events (
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
     publish_state event_publish_state,
-    CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    per_account_limit INTEGER,
+    CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_events_per_account_limit CHECK (per_account_limit BETWEEN 1 AND 10),
+    CONSTRAINT chk_events_per_account_limit_first_party CHECK ((publish_state IS NULL) = (per_account_limit IS NULL))
 );
 
 COMMENT ON TABLE events IS 'A single performance occurring on a specific date at a specific venue. Belongs to exactly one parent series.';
@@ -232,6 +235,7 @@ COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
 COMMENT ON COLUMN events.publish_state IS 'Publish lifecycle of an event of a first-party series (DRAFT / PUBLISHED / CANCELLED). NULL exactly for an event of a discovered series; the series repository, the only writer of first-party events, always sets it. A DRAFT event is not a concert and holds no slot of uq_events_natural_key.';
+COMMENT ON COLUMN events.per_account_limit IS 'Most tickets one account may hold for the event across every ticket sale, seat type and official resale of it: 1 to 10 (one AdmissionCode presents at most 10 tickets), 4 when the Organizer gives none. Set exactly on an event of a first-party series; fixed once the event is PUBLISHED (checked by the application)';
 
 -- Physical identity of every event that is not DRAFT. A partial unique index,
 -- not a constraint, so DRAFT rows stay out of the key space.
@@ -646,46 +650,38 @@ COMMENT ON INDEX idx_identity_verifications_user_id IS 'Optimizes lookup of a us
 -- ============================================================
 
 -- Ticket sales: one sale opportunity (受付) over the events of one Series. An
--- Organizer's sale (discovered_at IS NULL) has a name, a verification
--- requirement and a ticket_types row for each event it offers. A discovered
--- sale (discovered_at IS NOT NULL) belongs to a Series without an Organizer and
--- is only reported to fans: it has no name and no ticket types, may have a
--- lottery result time, and a first-come one may have no end. Re-discovery
--- converges on (series_id, method, sale start date in Japan time).
+-- Organizer's sale (discovered_at IS NULL) has a verification requirement and
+-- names the events it sells in ticket_sale_events; it sells every ticket stock
+-- of those events. A discovered sale (discovered_at IS NOT NULL) belongs to a
+-- Series without an Organizer, names no event and is only reported to fans.
+-- Every sale has a name and an end time. Re-discovery converges on (series_id,
+-- method, sale start date in Japan time).
 CREATE TABLE IF NOT EXISTS ticket_sales (
     id                       UUID        PRIMARY KEY,
     series_id                UUID        NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    name                     TEXT,
+    name                     TEXT        NOT NULL,
     method                   SMALLINT    NOT NULL,
     sale_start_at            TIMESTAMPTZ NOT NULL,
-    sale_end_at              TIMESTAMPTZ,
+    sale_end_at              TIMESTAMPTZ NOT NULL,
     verification_requirement SMALLINT    NOT NULL DEFAULT 0,
-    draw_at                  TIMESTAMPTZ,
-    lottery_result_at        TIMESTAMPTZ,
     discovered_at            TIMESTAMPTZ,
     sale_start_date_jst      DATE GENERATED ALWAYS AS ((sale_start_at AT TIME ZONE 'Asia/Tokyo')::date) STORED,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
-    CONSTRAINT chk_ticket_sales_name_by_kind CHECK ((discovered_at IS NULL) = (name IS NOT NULL)),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
-    CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at IS NULL OR sale_end_at > sale_start_at),
-    CONSTRAINT chk_ticket_sales_end_required CHECK (sale_end_at IS NOT NULL OR (discovered_at IS NOT NULL AND method = 1)),
+    CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
     CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
-    CONSTRAINT chk_ticket_sales_draw_lottery_only CHECK (draw_at IS NULL OR method = 2),
-    CONSTRAINT chk_ticket_sales_lottery_result CHECK (lottery_result_at IS NULL OR (discovered_at IS NOT NULL AND method = 2 AND lottery_result_at >= sale_end_at)),
-    CONSTRAINT chk_ticket_sales_discovered CHECK (discovered_at IS NULL OR (verification_requirement = 0 AND draw_at IS NULL))
+    CONSTRAINT chk_ticket_sales_discovered CHECK (discovered_at IS NULL OR verification_requirement = 0)
 );
 
-COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: an allocation method and a window. An Organizer''s sale (discovered_at NULL) also has a name and a verification requirement, and its per-event price, quantity and limit are ticket_types rows. A discovered sale (discovered_at set) belongs to a Series without an Organizer, has no name and no ticket types, and is only reported to fans.';
+COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method and a window. An Organizer''s sale (discovered_at NULL) also has a verification requirement and names its events in ticket_sale_events; it sells every ticket stock of those events. A discovered sale (discovered_at set) belongs to a Series without an Organizer, names no event and is only reported to fans. A closed Organizer''s lottery is drawn once none of its lottery entries is Entered.';
 COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
-COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and Organizers (1-100 characters), e.g. ファンクラブ先行 or 一般発売; required on an Organizer''s sale, NULL on a discovered sale';
+COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and Organizers (1-100 characters), e.g. ファンクラブ先行 or 一般発売; a discovered sale takes the name its page gives it';
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
-COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at. On an Organizer''s sale required, 1 to 14 days after the start for a lottery, and before the start of every event the sale covers (checked by the application). NULL only on a discovered first-come sale that ends when tickets run out';
+COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at. On an Organizer''s sale 1 to 14 days after the start for a lottery, and no later than the start of every event the sale covers (checked by the application)';
 COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required); always 0 on a discovered sale';
-COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until the draw runs, for a first-come sale and for a discovered sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
-COMMENT ON COLUMN ticket_sales.lottery_result_at IS 'When the lottery result is announced (当落発表), as published on the official pages; a discovered lottery only, not before sale_end_at, NULL when not announced';
 COMMENT ON COLUMN ticket_sales.discovered_at IS 'When discovery first stored the sale; set on insert and never updated. NULL exactly on an Organizer''s sale. The reminder scan uses it as the first-sight guard: a stage whose anchor is before discovered_at is not sent.';
 COMMENT ON COLUMN ticket_sales.sale_start_date_jst IS 'Calendar date of sale_start_at in Asia/Tokyo; part of the discovered-sale convergence key';
 
@@ -695,6 +691,21 @@ COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_sales_discovered_convergence
     ON ticket_sales(series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL;
 COMMENT ON INDEX uq_ticket_sales_discovered_convergence IS 'One discovered sale per (series, method, start date in Japan time): re-discovery updates it in place. Partial, so an Organizer may open two sales of one Series on the same day for different events. Upserts infer it with ON CONFLICT (series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL.';
+
+-- Ticket sale events: the events an Organizer's sale sells. The sale sells
+-- every ticket stock of these events, including a stock created while it runs.
+CREATE TABLE IF NOT EXISTS ticket_sale_events (
+    ticket_sale_id UUID NOT NULL REFERENCES ticket_sales(id) ON DELETE CASCADE,
+    event_id       UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    PRIMARY KEY (ticket_sale_id, event_id)
+);
+
+COMMENT ON TABLE ticket_sale_events IS 'The events an Organizer''s ticket sale sells: at least one per Organizer''s sale, each an event of the sale''s Series (checked by the application). A discovered sale has none.';
+COMMENT ON COLUMN ticket_sale_events.ticket_sale_id IS 'The Organizer''s sale';
+COMMENT ON COLUMN ticket_sale_events.event_id IS 'An event the sale sells; every ticket stock of it is sold by the sale';
+
+CREATE INDEX IF NOT EXISTS idx_ticket_sale_events_event_id ON ticket_sale_events(event_id);
+COMMENT ON INDEX idx_ticket_sale_events_event_id IS 'Optimizes listing the sales of an event';
 
 -- Ticket sale reminders sent-log
 -- Tracks which reminder stages have already been sent to each user for a
@@ -707,14 +718,14 @@ CREATE TABLE IF NOT EXISTS ticket_sale_reminders (
     sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_ticket_sale_reminders UNIQUE (user_id, ticket_sale_id, stage),
     CONSTRAINT chk_ticket_sale_reminders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage BETWEEN 1 AND 10)
+    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage IN (1, 2))
 );
 
 COMMENT ON TABLE ticket_sale_reminders IS 'Sent-log for ticket sale reminder notifications, for discovered and Organizer''s sales alike. UNIQUE (user_id, ticket_sale_id, stage) prevents duplicate dispatches.';
 COMMENT ON COLUMN ticket_sale_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sale_reminders.user_id IS 'Reference to the user who received the reminder';
 COMMENT ON COLUMN ticket_sale_reminders.ticket_sale_id IS 'Reference to the ticket sale this reminder relates to';
-COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only), 4=RESULT_DAY (09:00 on the day of the lottery''s result time). 3 was APPLY_CLOSE_1H and is unused.';
+COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only). 3 was APPLY_CLOSE_1H and 4 was RESULT_DAY; neither is used.';
 COMMENT ON COLUMN ticket_sale_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sale_reminders_user_id ON ticket_sale_reminders(user_id);
@@ -736,186 +747,217 @@ COMMENT ON TABLE ticket_sale_searches IS 'When each series was last searched for
 COMMENT ON COLUMN ticket_sale_searches.series_id IS 'The series that was searched';
 COMMENT ON COLUMN ticket_sale_searches.searched_at IS 'When the series was last searched successfully';
 
--- Ticket types: what one ticket sale offers for one event. For a first-come
--- sale, sold_count holds the tickets of the type's Committed and Completed
--- checkouts; held tickets are derived from the Held checkouts whose hold has
--- not expired.
-CREATE TABLE IF NOT EXISTS ticket_types (
-    id                UUID    PRIMARY KEY,
-    ticket_sale_id    UUID    NOT NULL REFERENCES ticket_sales(id) ON DELETE CASCADE,
-    event_id          UUID    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    price             BIGINT  NOT NULL,
-    quantity          INTEGER NOT NULL,
-    per_account_limit INTEGER NOT NULL,
-    sold_count        INTEGER NOT NULL DEFAULT 0,
-    resale_open_at    TIMESTAMPTZ,
-    CONSTRAINT chk_ticket_types_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_types_price CHECK (price BETWEEN 1 AND 1000000),
-    CONSTRAINT chk_ticket_types_quantity CHECK (quantity >= 1),
-    CONSTRAINT chk_ticket_types_per_account_limit CHECK (per_account_limit BETWEEN 1 AND 10 AND per_account_limit <= quantity),
-    CONSTRAINT chk_ticket_types_sold_count CHECK (sold_count BETWEEN 0 AND quantity),
-    CONSTRAINT uq_ticket_types_sale_event UNIQUE (ticket_sale_id, event_id)
+-- Seat types: a kind of ticket (席種) a Series sells, with its name and price.
+-- Neither changes once it is created.
+CREATE TABLE IF NOT EXISTS seat_types (
+    id        UUID   PRIMARY KEY,
+    series_id UUID   NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    name      TEXT   NOT NULL,
+    price     BIGINT NOT NULL,
+    CONSTRAINT chk_seat_types_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_seat_types_name_len CHECK (char_length(name) BETWEEN 1 AND 50),
+    CONSTRAINT chk_seat_types_price CHECK (price BETWEEN 1 AND 1000000),
+    CONSTRAINT uq_seat_types_series_name UNIQUE (series_id, name)
 );
 
-COMMENT ON TABLE ticket_types IS 'What one ticket sale offers for one event: a quantity at one tax-inclusive price with a per-account limit, and for a first-come sale the tickets sold. One per (sale, event).';
-COMMENT ON COLUMN ticket_types.id IS 'Unique ticket type identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN ticket_types.ticket_sale_id IS 'The sale that offers the ticket type';
-COMMENT ON COLUMN ticket_types.event_id IS 'The event the tickets admit to; an event of the sale''s Series (checked by the application)';
-COMMENT ON COLUMN ticket_types.price IS 'Price of one ticket in yen, tax-inclusive (税込); for a first-come sale fixed while any ticket is sold or held';
-COMMENT ON COLUMN ticket_types.quantity IS 'Tickets offered; for a first-come sale it can shrink only down to sold plus held';
-COMMENT ON COLUMN ticket_types.per_account_limit IS 'Most tickets one account may hold for the event once this sale is done, counting tickets it already holds; 1 to 10 and at most the quantity';
-COMMENT ON COLUMN ticket_types.sold_count IS 'Tickets on Committed and Completed checkouts (first-come only; stays 0 for a lottery); changed together with the checkout status under the ticket type row lock';
-COMMENT ON COLUMN ticket_types.resale_open_at IS 'When official resale opened: the commit time that first made sold_count equal quantity (first-come only). NULL until then; set once and never cleared, even when the quantity is raised or a commit is reverted';
+COMMENT ON TABLE seat_types IS 'A kind of ticket (席種) a Series sells, such as S席 or オールスタンディング: a name and the price of one ticket. Neither changes once it is created; a different price is a different seat type.';
+COMMENT ON COLUMN seat_types.id IS 'Unique seat type identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN seat_types.series_id IS 'The Series that sells the seat type';
+COMMENT ON COLUMN seat_types.name IS 'Name shown to fans and Organizers (1-50 characters), e.g. S席; unique within the Series';
+COMMENT ON COLUMN seat_types.price IS 'Price of one ticket in yen, tax-inclusive (税込): the face value of its tickets, 1 to 1,000,000';
 
-CREATE INDEX IF NOT EXISTS idx_ticket_types_event_id ON ticket_types(event_id);
-COMMENT ON INDEX idx_ticket_types_event_id IS 'Optimizes listing the sales of an event through its ticket types';
-
--- Lottery entries: a fan's entry into the lottery for one ticket type, made
--- Entered when the fan confirms an authorized card authorization. At most one
--- entry per (ticket_type_id, user_id), and one per card authorization.
-CREATE TABLE IF NOT EXISTS lottery_entries (
-    id                     UUID     PRIMARY KEY,
-    ticket_type_id         UUID     NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
-    user_id                UUID     NOT NULL,
-    ticket_count           INT      NOT NULL,
-    card_authorization_id  TEXT     NOT NULL,
-    state                  SMALLINT NOT NULL,
-    draw_position          BIGINT,
-    referral_code          TEXT,
-    CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_lottery_entries_ticket_count_positive CHECK (ticket_count > 0),
-    CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3)),
-    CONSTRAINT chk_lottery_entries_card_authorization_id_not_empty CHECK (card_authorization_id <> ''),
-    CONSTRAINT chk_lottery_entries_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$')
+-- Ticket stocks: the tickets of one seat type for one event. Every sale of the
+-- event sells from it. The sold and held counts are aggregated from its orders
+-- under this row's lock; no counter is stored.
+CREATE TABLE IF NOT EXISTS ticket_stocks (
+    id           UUID    PRIMARY KEY,
+    event_id     UUID    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    seat_type_id UUID    NOT NULL REFERENCES seat_types(id),
+    quantity     INTEGER NOT NULL,
+    CONSTRAINT chk_ticket_stocks_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_ticket_stocks_quantity CHECK (quantity >= 1),
+    CONSTRAINT uq_ticket_stocks_event_seat_type UNIQUE (event_id, seat_type_id)
 );
 
-COMMENT ON TABLE lottery_entries IS 'Fan entries into the lottery of a ticket type, made Entered when the fan confirms an authorized card authorization; at most one per (ticket type, user). State: 1=Entered, 2=Won, 3=Lost.';
-COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN lottery_entries.ticket_type_id IS 'The ticket type entered; its sale''s method is Lottery';
-COMMENT ON COLUMN lottery_entries.user_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN lottery_entries.ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
-COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...) the entry was made from; set at creation, unique';
-COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (captured), 3=Lost (card authorization released)';
-COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; the draw order of the losers for official resale.';
-COMMENT ON COLUMN lottery_entries.referral_code IS 'The referral code the card authorization was opened with, from the ?ref= of the link the fan followed: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; set at creation and never changed';
+COMMENT ON TABLE ticket_stocks IS 'The tickets of one seat type for one event, shared by every sale of the event. Its event, seat type and quantity never change. The sold count (Paid and Refunded orders, and Pending orders whose checkout is Committed or whose lottery entry is Won) and the held count (Pending orders whose checkout is holding) are aggregated from orders; every path that changes them first locks this row (SELECT ... FOR UPDATE).';
+COMMENT ON COLUMN ticket_stocks.id IS 'Unique ticket stock identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN ticket_stocks.event_id IS 'The event the tickets admit to; an event of the seat type''s Series (checked by the application)';
+COMMENT ON COLUMN ticket_stocks.seat_type_id IS 'The seat type of the tickets; a seat type cannot be deleted while a stock uses it (NO ACTION rather than RESTRICT, so deleting a Series removes its stocks through its events and its seat types in one statement)';
+COMMENT ON COLUMN ticket_stocks.quantity IS 'Tickets in the stock, at least 1; never changes';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_ticket_type_user ON lottery_entries(ticket_type_id, user_id);
-COMMENT ON INDEX uq_lottery_entries_ticket_type_user IS 'At most one entry per (ticket type, user), in any state; also serves listing a ticket type''s entries (draw batch load, stats)';
+CREATE INDEX IF NOT EXISTS idx_ticket_stocks_seat_type_id ON ticket_stocks(seat_type_id);
+COMMENT ON INDEX idx_ticket_stocks_seat_type_id IS 'Optimizes the foreign key check of a seat type delete';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_card_authorization_id ON lottery_entries(card_authorization_id);
-COMMENT ON INDEX uq_lottery_entries_card_authorization_id IS 'At most one entry per card authorization; the lookup of GetByCardAuthorizationID';
-
--- Checkouts: one fan's first-come purchase in progress on a ticket type. A
--- hold lasts exactly 15 minutes and is never extended. A charged checkout
--- (capture_at set) is never Expired or Released.
-CREATE TABLE IF NOT EXISTS checkouts (
-    id                        UUID        PRIMARY KEY,
-    ticket_type_id            UUID        NOT NULL REFERENCES ticket_types(id) ON DELETE RESTRICT,
-    user_id                   UUID        NOT NULL,
-    ticket_count              INTEGER     NOT NULL,
-    amount                    BIGINT      NOT NULL,
-    card_authorization_id     TEXT,
-    card_authorization_release_at TIMESTAMPTZ,
-    status                    SMALLINT    NOT NULL,
-    hold_expire_at            TIMESTAMPTZ NOT NULL,
-    commit_at                 TIMESTAMPTZ,
-    capture_at                TIMESTAMPTZ,
-    resale                    BOOLEAN     NOT NULL DEFAULT FALSE,
-    referral_code             TEXT,
-    CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_checkouts_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
-    CONSTRAINT chk_checkouts_amount_positive CHECK (amount > 0),
-    CONSTRAINT chk_checkouts_status CHECK (status BETWEEN 1 AND 5),
-    CONSTRAINT chk_checkouts_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
-    CONSTRAINT chk_checkouts_release_needs_card_authorization CHECK (card_authorization_release_at IS NULL OR card_authorization_id IS NOT NULL),
-    CONSTRAINT chk_checkouts_commit_time CHECK (status NOT IN (2, 3) OR commit_at IS NOT NULL),
-    CONSTRAINT chk_checkouts_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
-    CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL),
-    CONSTRAINT chk_checkouts_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$')
-);
-
-COMMENT ON TABLE checkouts IS 'One fan''s first-come purchase in progress on a ticket type: holds a count of tickets for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
-COMMENT ON COLUMN checkouts.id IS 'Unique checkout identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN checkouts.ticket_type_id IS 'The ticket type the checkout buys from; its sale''s method is FirstCome';
-COMMENT ON COLUMN checkouts.user_id IS 'The fan checking out (no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN checkouts.ticket_count IS 'Tickets held, 1 to the ticket type''s per-account limit';
-COMMENT ON COLUMN checkouts.amount IS 'Total to pay in yen: the ticket type price times ticket_count, fixed at creation';
-COMMENT ON COLUMN checkouts.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL until the fan authorizes, then set once';
-COMMENT ON COLUMN checkouts.card_authorization_release_at IS 'When the card authorization was released without a charge; NULL unless released';
-COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
-COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
-COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
-COMMENT ON COLUMN checkouts.resale IS 'True for a resale checkout: it holds resale_listings rows of its ticket type instead of the ticket type''s stock, and never changes sold_count. Fixed at creation';
-COMMENT ON COLUMN checkouts.referral_code IS 'The referral code of the last link the fan followed before paying, from its ?ref=: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; replaced only while Held';
-COMMENT ON COLUMN checkouts.capture_at IS 'When the card authorization (card_authorization_id) was captured; set once, and a row with it is never Expired or Released';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_held ON checkouts(ticket_type_id, user_id) WHERE status = 1;
-COMMENT ON INDEX uq_checkouts_held IS 'At most one Held checkout per (ticket type, user): a concurrent second insert loses and reads the winner';
-
-CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_type_status ON checkouts(ticket_type_id, status);
-COMMENT ON INDEX idx_checkouts_ticket_type_status IS 'Optimizes the held and per-user committed counts of a ticket type';
-
-CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND card_authorization_id IS NOT NULL AND card_authorization_release_at IS NULL);
-COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card authorizations to release and stalled commits';
-
--- Orders: the ⑤ purchase record for one won lottery entry or one completed
--- checkout. Created already paid from the captured payment (no pending state).
--- Stores only opaque provider references and display facets — never
--- PAN/CVC/expiry (PCI SAQ A).
+-- Orders: one fan's application for tickets of one ticket stock and, once its
+-- payment is captured, the purchase record. Created Pending when the fan applies
+-- through a lottery entry or a checkout, which names it; Paid when the payment
+-- is captured and its tickets issued; Void when it will never be paid. Stores
+-- only opaque provider references and display facets, never PAN/CVC/expiry
+-- (PCI SAQ A).
 CREATE TABLE IF NOT EXISTS orders (
     id                 UUID    PRIMARY KEY,
     user_id            UUID    NOT NULL,
-    lottery_entry_id   UUID    REFERENCES lottery_entries(id) ON DELETE RESTRICT,
     provider           SMALLINT NOT NULL,
-    provider_payment_id TEXT   NOT NULL,
+    provider_payment_id TEXT,
     provider_payment_method_id TEXT NOT NULL DEFAULT '',
     card_brand         TEXT    NOT NULL DEFAULT '',
     card_last4         TEXT    NOT NULL DEFAULT '',
     status             SMALLINT NOT NULL,
     amount             BIGINT  NOT NULL,
     currency           TEXT    NOT NULL,
-    pay_at             TIMESTAMPTZ NOT NULL,
+    pay_at             TIMESTAMPTZ,
     provider_refund_id TEXT    NOT NULL DEFAULT '',
-    checkout_id        UUID    REFERENCES checkouts(id) ON DELETE RESTRICT,
     confirmation_send_at TIMESTAMPTZ,
+    ticket_stock_id    UUID    NOT NULL REFERENCES ticket_stocks(id) ON DELETE RESTRICT,
+    ticket_count       INTEGER NOT NULL,
+    referral_code      TEXT,
+    card_authorization_id TEXT,
     CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
-    CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 3)),
+    CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 4, 5)),
     CONSTRAINT chk_orders_amount_positive CHECK (amount > 0),
     CONSTRAINT chk_orders_currency_len CHECK (char_length(currency) = 3),
-    CONSTRAINT chk_orders_one_source CHECK ((lottery_entry_id IS NULL) <> (checkout_id IS NULL))
+    CONSTRAINT chk_orders_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
+    CONSTRAINT chk_orders_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$'),
+    CONSTRAINT chk_orders_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
+    CONSTRAINT chk_orders_provider_payment_id_not_empty CHECK (provider_payment_id IS NULL OR provider_payment_id <> ''),
+    CONSTRAINT chk_orders_paid_payment_id CHECK ((status IN (1, 2)) = (provider_payment_id IS NOT NULL)),
+    CONSTRAINT chk_orders_paid_pay_time CHECK ((status IN (1, 2)) = (pay_at IS NOT NULL)),
+    CONSTRAINT chk_orders_paid_card_authorization CHECK (status NOT IN (1, 2) OR card_authorization_id IS NOT NULL)
 );
 
-COMMENT ON TABLE orders IS 'Purchase record for one won lottery entry or one completed checkout. Created already paid from the captured payment (status 1=Paid, 2=Refunded, 3=Failed; no pending). One order covers all tickets of its source.';
+COMMENT ON TABLE orders IS 'One fan''s application for tickets of one ticket stock and, once paid, its purchase record (status 1=Paid, 2=Refunded, 4=Pending, 5=Void). Created Pending by the lottery entry or checkout that names it; Paid when its payment is captured and its tickets issued; Void when it will never be paid. One order covers all tickets of its application.';
 COMMENT ON COLUMN orders.id IS 'Unique order identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN orders.user_id IS 'The fan who bought the tickets (no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN orders.lottery_entry_id IS 'The Won-captured lottery entry this order derives from; NULL when the source is a checkout; unique (one order per entry)';
+COMMENT ON COLUMN orders.user_id IS 'The fan who applied for the tickets (no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN orders.provider IS 'Payment provider: 1=Stripe, 2=KOMOJU';
-COMMENT ON COLUMN orders.provider_payment_id IS 'The payment provider''s ID for the captured payment (e.g. Stripe pi_...)';
+COMMENT ON COLUMN orders.provider_payment_id IS 'The payment provider''s ID for the captured payment (e.g. Stripe pi_...); set exactly on a Paid or Refunded order';
 COMMENT ON COLUMN orders.provider_payment_method_id IS 'The payment provider''s ID for the payment method (e.g. Stripe pm_...), optional';
 COMMENT ON COLUMN orders.card_brand IS 'Display-only card brand facet (e.g. visa); never the PAN';
 COMMENT ON COLUMN orders.card_last4 IS 'Display-only last four digits; never the full PAN';
-COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 3=Failed (capture-succeeded-but-issuance-refunded edge)';
-COMMENT ON COLUMN orders.amount IS 'Total captured amount in the currency smallest unit (yen total for JPY)';
+COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 4=Pending (applied, not yet paid), 5=Void (never paid). 3 was Failed and is unused';
+COMMENT ON COLUMN orders.amount IS 'Total to pay in the currency smallest unit (yen total for JPY): the seat type price times ticket_count, fixed at creation';
 COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
-COMMENT ON COLUMN orders.pay_at IS 'When the order was recorded as paid (after the draw''s capture or the checkout''s charge)';
-COMMENT ON COLUMN orders.checkout_id IS 'The Committed, charged checkout this order completes; NULL when the source is a lottery entry; unique (one order per checkout)';
+COMMENT ON COLUMN orders.pay_at IS 'When the payment was captured and the order became Paid; set exactly on a Paid or Refunded order';
 COMMENT ON COLUMN orders.confirmation_send_at IS 'When the purchase confirmation email was sent; NULL until sent. Set right after a successful send so a redelivered event sends nothing.';
 COMMENT ON COLUMN orders.provider_refund_id IS 'The payment provider''s ID for the refund (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_lottery_entry_id ON orders(lottery_entry_id);
-COMMENT ON INDEX uq_orders_lottery_entry_id IS 'One order per winning lottery entry — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_checkout_id ON orders(checkout_id);
-COMMENT ON INDEX uq_orders_checkout_id IS 'One order per checkout — the issuance idempotency guard for checkouts (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
+COMMENT ON COLUMN orders.ticket_stock_id IS 'The ticket stock the tickets are of, which gives their event and seat type';
+COMMENT ON COLUMN orders.ticket_count IS 'Tickets applied for, a companion group: 1 to the per-account limit of the stock''s event';
+COMMENT ON COLUMN orders.referral_code IS 'The referral code of the link the fan came from, from its ?ref=: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; set at creation and never changed';
+COMMENT ON COLUMN orders.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...) on the fan''s card for the amount; NULL until the fan authorizes, then set once; unique';
 
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
-COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders';
+COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders and the tickets a user holds for an event';
 
--- Tickets: account-bound covered tickets (特定興行入場券) issued from a won
--- lottery entry or a completed checkout. One order issues the N tickets of its
--- companion group. The face shows the user's current full name and phone
--- number (users row), not a copy.
+CREATE INDEX IF NOT EXISTS idx_orders_ticket_stock_status ON orders(ticket_stock_id, status);
+COMMENT ON INDEX idx_orders_ticket_stock_status IS 'Optimizes the sold and held counts of a ticket stock and the delete guard of a stock';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_card_authorization_id ON orders(card_authorization_id) WHERE card_authorization_id IS NOT NULL;
+COMMENT ON INDEX uq_orders_card_authorization_id IS 'At most one order per card authorization; the lookup of a lottery entry or checkout by its card authorization';
+
+-- Lottery entries: how one fan's order takes part in a lottery sale, made
+-- Entered when the fan confirms an authorized card authorization. One entry per
+-- order; one per (sale, event, user), checked by the application under the
+-- fan's users row lock.
+CREATE TABLE IF NOT EXISTS lottery_entries (
+    id                     UUID     PRIMARY KEY,
+    state                  SMALLINT NOT NULL,
+    draw_position          BIGINT,
+    order_id               UUID     NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+    ticket_sale_id         UUID     NOT NULL REFERENCES ticket_sales(id) ON DELETE RESTRICT,
+    CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3))
+);
+
+COMMENT ON TABLE lottery_entries IS 'How one fan''s order takes part in an Organizer''s lottery sale, made Entered when the fan confirms an authorized card authorization; one per order and at most one per (sale, event of the order''s stock, user), checked by the application under the users row lock. State: 1=Entered, 2=Won, 3=Lost.';
+COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (allocated), 3=Lost (not allocated; the order is Void)';
+COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the draw shuffle of the sale''s entries for the order''s ticket stock. NULL until the draw runs; the draw order of the losers for official resale.';
+COMMENT ON COLUMN lottery_entries.order_id IS 'The order the entry applies for: user, ticket stock, ticket count, referral code and card authorization; unique';
+COMMENT ON COLUMN lottery_entries.ticket_sale_id IS 'The lottery sale entered; a sale that names the event of the order''s ticket stock (checked by the application)';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_order_id ON lottery_entries(order_id);
+COMMENT ON INDEX uq_lottery_entries_order_id IS 'One lottery entry per order';
+
+CREATE INDEX IF NOT EXISTS idx_lottery_entries_ticket_sale_state ON lottery_entries(ticket_sale_id, state);
+COMMENT ON INDEX idx_lottery_entries_ticket_sale_state IS 'Optimizes listing a sale''s entries (draw batch load, stats, whether a closed lottery is drawn)';
+
+-- Checkouts: how one fan's order is bought first come during a first-come
+-- sale. A hold lasts exactly 15 minutes and is never extended. A charged
+-- checkout (capture_at set) is never Expired or Released.
+CREATE TABLE IF NOT EXISTS checkouts (
+    id                        UUID        PRIMARY KEY,
+    card_authorization_release_at TIMESTAMPTZ,
+    status                    SMALLINT    NOT NULL,
+    hold_expire_at            TIMESTAMPTZ NOT NULL,
+    commit_at                 TIMESTAMPTZ,
+    capture_at                TIMESTAMPTZ,
+    order_id                  UUID        NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+    ticket_sale_id            UUID        NOT NULL REFERENCES ticket_sales(id) ON DELETE RESTRICT,
+    CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_checkouts_status CHECK (status BETWEEN 1 AND 5),
+    CONSTRAINT chk_checkouts_commit_time CHECK (status NOT IN (2, 3) OR commit_at IS NOT NULL),
+    CONSTRAINT chk_checkouts_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
+    CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
+);
+
+COMMENT ON TABLE checkouts IS 'How one fan''s order is bought first come: during a first-come sale it holds the order''s tickets of its ticket stock for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
+COMMENT ON COLUMN checkouts.id IS 'Unique checkout identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN checkouts.card_authorization_release_at IS 'When the order''s card authorization was released without a charge; NULL unless released';
+COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
+COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
+COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
+COMMENT ON COLUMN checkouts.capture_at IS 'When the order''s card authorization was captured; set once, and a row with it is never Expired or Released';
+COMMENT ON COLUMN checkouts.order_id IS 'The order the checkout buys: user, ticket stock, ticket count, amount, referral code and card authorization; unique';
+COMMENT ON COLUMN checkouts.ticket_sale_id IS 'The first-come sale the checkout buys from; a sale that names the event of the order''s ticket stock (checked by the application)';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_order_id ON checkouts(order_id);
+COMMENT ON INDEX uq_checkouts_order_id IS 'One checkout per order';
+
+CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_sale_id ON checkouts(ticket_sale_id);
+COMMENT ON INDEX idx_checkouts_ticket_sale_id IS 'Optimizes the ON DELETE RESTRICT check of a sale delete';
+
+CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND card_authorization_release_at IS NULL);
+COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card authorizations to release and stalled commits';
+
+-- delete_ticket_stock removes a ticket stock with its Void orders and their
+-- checkouts and lottery entries (TicketStock.Delete). It runs as its owner so
+-- the organizer server, which may never delete orders, checkouts or lottery
+-- entries itself, can remove only Void ones of a stock it deletes. It locks the
+-- stock row first; an order inserted meanwhile takes a key-share lock on that
+-- row through its foreign key, so it either is seen here or fails on the
+-- missing stock. Returns false when no stock has the id. Raises
+-- restrict_violation (23001) when an order that is not Void names the stock,
+-- or when a Void order's checkout has not released its card authorization.
+CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
+BEGIN
+  PERFORM 1 FROM ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN FALSE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
+    RAISE EXCEPTION 'ticket stock % is named by an order that is not void', p_ticket_stock_id USING ERRCODE = '23001';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM orders o JOIN checkouts c ON c.order_id = o.id
+    WHERE o.ticket_stock_id = p_ticket_stock_id AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'ticket stock % has a void order whose card authorization is not released', p_ticket_stock_id USING ERRCODE = '23001';
+  END IF;
+  DELETE FROM checkouts WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM lottery_entries WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
+  DELETE FROM orders WHERE ticket_stock_id = p_ticket_stock_id;
+  DELETE FROM ticket_stocks WHERE id = p_ticket_stock_id;
+  RETURN TRUE;
+END
+$$;
+
+COMMENT ON FUNCTION delete_ticket_stock(UUID) IS 'TicketStock.Delete: removes a stock with its Void orders and their checkouts and lottery entries, refused (23001) while a live order names it or a Void order''s card authorization is not released. SECURITY DEFINER; EXECUTE is granted only to the organizer server.';
+REVOKE ALL ON FUNCTION delete_ticket_stock(UUID) FROM PUBLIC;
+
+-- Tickets: account-bound covered tickets (特定興行入場券) issued when their order
+-- becomes Paid. One order issues the N tickets of its companion group. The face
+-- shows the user's current full name and phone number (users row), not a copy.
 CREATE TABLE IF NOT EXISTS tickets (
     id                                UUID    PRIMARY KEY,
     order_id                          UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
@@ -931,7 +973,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE)
 );
 
-COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued from a won lottery entry or a completed checkout. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + user_id, whose current full name and phone number the face shows), and bound 本人確認.';
+COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued when their order becomes Paid. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + user_id, whose current full name and phone number the face shows), and bound 本人確認.';
 COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN tickets.order_id IS 'The order that issued this ticket';
 COMMENT ON COLUMN tickets.user_id IS 'The account the ticket is bound to; never changes (official resale voids the ticket and issues a new one)';
@@ -952,23 +994,21 @@ CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
 COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (check-in, cancellation)';
 
 -- Resale listings: a fan's offer of one ticket for official resale (公式リセール)
--- at face value, after the ticket's first-come ticket type sold out. A resale
--- checkout holds listings by pointing checkout_id at itself; a listing is free
--- again as soon as that checkout is neither holding nor Committed.
+-- at face value, after the ticket's ticket stock sold out, whether the ticket
+-- was bought first come or won in a lottery.
 CREATE TABLE IF NOT EXISTS resale_listings (
     id                  UUID        PRIMARY KEY,
     ticket_id           UUID        NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
     user_id             UUID        NOT NULL,
-    ticket_type_id      UUID        NOT NULL REFERENCES ticket_types(id) ON DELETE RESTRICT,
     price               BIGINT      NOT NULL,
     status              SMALLINT    NOT NULL,
-    checkout_id         UUID        REFERENCES checkouts(id) ON DELETE RESTRICT,
     created_at          TIMESTAMPTZ NOT NULL,
     sold_at             TIMESTAMPTZ,
     withdraw_at         TIMESTAMPTZ,
     provider_refund_id  TEXT,
     refund_at           TIMESTAMPTZ,
     sold_email_send_at  TIMESTAMPTZ,
+    ticket_stock_id     UUID        NOT NULL REFERENCES ticket_stocks(id) ON DELETE RESTRICT,
     CONSTRAINT chk_resale_listings_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_resale_listings_price CHECK (price BETWEEN 1 AND 1000000),
     CONSTRAINT chk_resale_listings_status CHECK (status BETWEEN 1 AND 4),
@@ -984,28 +1024,24 @@ COMMENT ON TABLE resale_listings IS 'A fan''s offer of one ticket for official r
 COMMENT ON COLUMN resale_listings.id IS 'Unique listing identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN resale_listings.ticket_id IS 'The ticket offered; its order (tickets.order_id) is the one whose charge the user is refunded from';
 COMMENT ON COLUMN resale_listings.user_id IS 'The fan offering it: the ticket''s user (no FK, as for checkouts.user_id)';
-COMMENT ON COLUMN resale_listings.ticket_type_id IS 'The first-come ticket type the ticket was bought from (order → checkout → ticket type), resolved when listed';
-COMMENT ON COLUMN resale_listings.price IS 'Face value in yen, tax-inclusive (税込): the ticket type''s price when listed';
+COMMENT ON COLUMN resale_listings.price IS 'Face value in yen, tax-inclusive (税込): the price of the ticket stock''s seat type';
 COMMENT ON COLUMN resale_listings.status IS 'Lifecycle: 1=Listed, 2=Sold, 3=Withdrawn, 4=Cancelled';
-COMMENT ON COLUMN resale_listings.checkout_id IS 'The resale checkout that last held the listing; NULL until one holds it. The listing is free when that checkout is neither holding nor Committed';
-COMMENT ON COLUMN resale_listings.created_at IS 'When the fan listed the ticket; the oldest Listed listing is held first';
+COMMENT ON COLUMN resale_listings.created_at IS 'When the fan listed the ticket';
 COMMENT ON COLUMN resale_listings.sold_at IS 'When another fan''s order bought it; set exactly when Sold';
 COMMENT ON COLUMN resale_listings.withdraw_at IS 'When the fan withdrew it; set exactly when Withdrawn';
 COMMENT ON COLUMN resale_listings.provider_refund_id IS 'The payment provider''s ID for the refund of the refund amount to the listing''s user (e.g. Stripe "re_..."); set once together with refund_at';
 COMMENT ON COLUMN resale_listings.refund_at IS 'When the listing''s user was refunded; set once together with provider_refund_id';
 COMMENT ON COLUMN resale_listings.sold_email_send_at IS 'When the email telling the user the ticket sold was sent; set once right after a successful send';
+COMMENT ON COLUMN resale_listings.ticket_stock_id IS 'The ticket stock the ticket is of (ticket → order → ticket stock), resolved when listed';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_resale_listings_listed_ticket ON resale_listings(ticket_id) WHERE status = 1;
 COMMENT ON INDEX uq_resale_listings_listed_ticket IS 'At most one Listed listing per ticket: a concurrent second listing loses with a unique violation';
 
-CREATE INDEX IF NOT EXISTS idx_resale_listings_listed_by_ticket_type ON resale_listings(ticket_type_id, created_at) WHERE status = 1;
-COMMENT ON INDEX idx_resale_listings_listed_by_ticket_type IS 'Optimizes the oldest-first pick of free listings and the free resale count of a ticket type';
+CREATE INDEX IF NOT EXISTS idx_resale_listings_listed_by_ticket_stock ON resale_listings(ticket_stock_id, created_at) WHERE status = 1;
+COMMENT ON INDEX idx_resale_listings_listed_by_ticket_stock IS 'Optimizes listing the open listings of a ticket stock, oldest first';
 
 CREATE INDEX IF NOT EXISTS idx_resale_listings_user_id ON resale_listings(user_id, created_at);
 COMMENT ON INDEX idx_resale_listings_user_id IS 'Optimizes a fan''s listings, newest first';
-
-CREATE INDEX IF NOT EXISTS idx_resale_listings_checkout_id ON resale_listings(checkout_id) WHERE checkout_id IS NOT NULL;
-COMMENT ON INDEX idx_resale_listings_checkout_id IS 'Optimizes reading the listings a resale checkout holds';
 
 CREATE INDEX IF NOT EXISTS idx_resale_listings_sold_unfinished ON resale_listings(sold_at) WHERE status = 2 AND (refund_at IS NULL OR sold_email_send_at IS NULL);
 COMMENT ON INDEX idx_resale_listings_sold_unfinished IS 'Optimizes ListSoldUnrefunded: Sold listings not yet refunded or not yet emailed';
@@ -1057,7 +1093,7 @@ CREATE TABLE IF NOT EXISTS settlements (
 COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (event start_time + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
 COMMENT ON COLUMN settlements.id IS 'Unique settlement identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN settlements.order_id IS 'The Order this settlement pays out; one settlement per order (unique index)';
-COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through the order''s lottery entry or checkout → ticket type → event.';
+COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through the order''s ticket stock → event → series.';
 COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check reads events.start_at without extra joins.';
 COMMENT ON COLUMN settlements.provider_charge_id IS 'The payment provider''s ID for the charge (e.g. Stripe "ch_...") resolved from the Order''s provider payment ID at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
 COMMENT ON COLUMN settlements.status IS 'Settlement lifecycle: 1=Held (gate not passed), 2=Released (Transfer(s) created), 3=Reversed (transfer_reversal clawback applied)';

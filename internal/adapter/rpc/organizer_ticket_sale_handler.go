@@ -60,11 +60,11 @@ func (h *OrganizerTicketSaleHandler) Create(
 		return nil, err
 	}
 
-	view, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req))
+	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req))
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
+	return &ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
 }
 
 // ListByEvent returns the sales of one of the caller's events with their
@@ -84,8 +84,8 @@ func (h *OrganizerTicketSaleHandler) ListByEvent(
 		return nil, err
 	}
 	return &ticketsalev1.ListByEventResponse{
-		TicketSales:       mapper.TicketSalesToProto(sales.Sales, true),
-		LotteryEntryStats: mapper.LotteryEntryStatsToProto(sales.Sales),
+		TicketSales:       mapper.TicketSalesToProto(sales.Sales),
+		LotteryEntryStats: mapper.LotteryEntryStatsToProto(sales.LotteryEntryStats),
 		ReferralCodeStats: mapper.ReferralCodeStatsToProto(sales.ReferralCodeStats),
 	}, nil
 }
@@ -100,13 +100,13 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 		return nil, err
 	}
 
-	view, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
+	sale, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
 		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
 		req.GetSaleStartTime().AsTime(), req.GetSaleEndTime().AsTime())
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
+	return &ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
 }
 
 // SetVerificationRequirement changes whether fans taking part in one of the
@@ -120,11 +120,11 @@ func (h *OrganizerTicketSaleHandler) SetVerificationRequirement(
 		return nil, err
 	}
 
-	view, err := h.ticketSaleUC.SetVerificationRequirement(ctx, organizer.ID,
+	sale, err := h.ticketSaleUC.SetVerificationRequirement(ctx, organizer.ID,
 		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
 		mapper.VerificationRequirementFromProto(req.GetVerificationRequirement()))
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(view, true)}, nil
+	return &ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
 }

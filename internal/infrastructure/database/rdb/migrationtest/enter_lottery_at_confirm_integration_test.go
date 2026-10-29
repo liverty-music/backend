@@ -13,6 +13,9 @@ import (
 // 20261027043053_enter_lottery_at_confirm.sql.
 const enterLotteryAtConfirmPrevious = "20261022014600"
 
+// enterLotteryAtConfirmVersion is 20261027043053_enter_lottery_at_confirm.sql.
+const enterLotteryAtConfirmVersion = "20261027043053"
+
 // TestMigration_EnterLotteryAtConfirm loads a Draft, a Withdrawn entry with a
 // Referral, an Entered entry with a Referral and a Checkout with a Referral,
 // applies 20261027043053_enter_lottery_at_confirm.sql and checks that the
@@ -79,7 +82,7 @@ func TestMigration_EnterLotteryAtConfirm(t *testing.T) {
 	mustExec(`INSERT INTO referrals (id, checkout_id, code, created_at) VALUES ($1, $2, 'member-b', $3)`,
 		checkoutReferral, checkoutID, start)
 
-	apply("")
+	apply(enterLotteryAtConfirmVersion)
 
 	t.Run("the Draft and the Withdrawn entry are deleted", func(t *testing.T) {
 		rows, err := conn.Query(ctx, `SELECT id::text FROM lottery_entries ORDER BY id`)

@@ -27,6 +27,8 @@ func saleTime(month time.Month, day, hour, minute int) time.Time {
 // event starts at 19:00 on 20 November unless starts says otherwise.
 type ticketSaleFixture struct {
 	sales      *entitymocks.MockTicketSaleRepository
+	stocks     *entitymocks.MockTicketStockRepository
+	eventRepo  *entitymocks.MockEventRepository
 	entries    *entitymocks.MockLotteryEntryRepository
 	orders     *entitymocks.MockOrderRepository
 	series     *entitymocks.MockSeriesRepository
@@ -40,6 +42,8 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 	t.Helper()
 	f := &ticketSaleFixture{
 		sales:      entitymocks.NewMockTicketSaleRepository(t),
+		stocks:     entitymocks.NewMockTicketStockRepository(t),
+		eventRepo:  entitymocks.NewMockEventRepository(t),
 		entries:    entitymocks.NewMockLotteryEntryRepository(t),
 		orders:     entitymocks.NewMockOrderRepository(t),
 		series:     entitymocks.NewMockSeriesRepository(t),
@@ -54,15 +58,28 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 		s := saleTime(11, 20, 19, 0)
 		return &s, nil
 	}}
-	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.entries, f.orders, f.series, f.organizers, f.events, eventStart, fixedClock(now))
+	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.stocks, f.entries, f.orders, f.series, f.organizers, f.eventRepo, f.events, eventStart, fixedClock(now))
 	return f
 }
 
-// ownSeries makes series-1 org-1's, with the given events, all published.
+// ownSeries makes series-1 org-1's, with the given events, all published and
+// stocked with S席.
 func (f *ticketSaleFixture) ownSeries(eventIDs ...string) {
 	f.seriesOwnedBy("org-1", eventIDs...)
 	for _, id := range eventIDs {
 		f.events.EXPECT().IsEventPublished(mock.Anything, id).Return(true, nil).Maybe()
+		f.stocks.EXPECT().ListByEvent(mock.Anything, id, mock.Anything).Return([]*entity.TicketStock{tsStock(id, 150, 0, 0)}, nil).Maybe()
+	}
+}
+
+// tsSeatS is the S席 seat type of series-1 at 8000 yen.
+var tsSeatS = &entity.SeatType{ID: "seat-s", SeriesID: "series-1", Name: "S席", Price: 8000}
+
+// tsStock returns the S席 stock of the event with the given counts.
+func tsStock(eventID string, quantity, sold, held int) *entity.TicketStock {
+	return &entity.TicketStock{
+		ID: entity.TicketStockID("stock-" + eventID), EventID: eventID, SeatTypeID: tsSeatS.ID,
+		Quantity: quantity, SoldCount: sold, HeldCount: held, SeatType: tsSeatS,
 	}
 }
 
@@ -90,7 +107,7 @@ func (f *ticketSaleFixture) organizer(complete bool) {
 
 // otherSales makes the event's existing sales the given ones.
 func (f *ticketSaleFixture) otherSales(eventID string, sales ...*entity.TicketSale) {
-	f.sales.EXPECT().ListByEvent(mock.Anything, eventID, mock.Anything).Return(sales, nil).Maybe()
+	f.sales.EXPECT().ListByEvent(mock.Anything, eventID).Return(sales, nil).Maybe()
 }
 
 // stores makes TicketSale.Create return the sale it is given.
@@ -99,34 +116,31 @@ func (f *ticketSaleFixture) stores() {
 		func(_ context.Context, s *entity.TicketSale) (*entity.TicketSale, error) { return s, nil })
 }
 
-// existingSale returns a sale of series-1 with one TicketType per event.
+// existingSale returns a sale of series-1 naming the events.
 func existingSale(name string, method entity.TicketSaleMethod, start, end time.Time, eventIDs ...string) *entity.TicketSale {
-	sale := entity.NewTicketSale("series-1", name, method, start, end)
-	for _, id := range eventIDs {
-		entity.NewTicketType(sale, id, 3000, 150, 4)
-	}
-	return sale
+	return entity.NewTicketSale("series-1", name, method, start, end, eventIDs...)
 }
 
 func lotteryInput() usecase.CreateTicketSaleInput {
 	end := saleTime(11, 11, 10, 0)
 	return usecase.CreateTicketSaleInput{
-		SeriesID:    "series-1",
-		Name:        "ファンクラブ先行",
-		Method:      entity.TicketSaleMethodLottery,
-		SaleStart:   saleTime(11, 1, 10, 0),
-		SaleEnd:     &end,
-		TicketTypes: []usecase.TicketTypeInput{{EventID: "event-1", Price: 8000, Quantity: 100}},
+		SeriesID:  "series-1",
+		Name:      "ファンクラブ先行",
+		Method:    entity.TicketSaleMethodLottery,
+		SaleStart: saleTime(11, 1, 10, 0),
+		SaleEnd:   end,
+		EventIDs:  []string{"event-1"},
 	}
 }
 
 func firstComeInput() usecase.CreateTicketSaleInput {
 	return usecase.CreateTicketSaleInput{
-		SeriesID:    "series-1",
-		Name:        "一般発売",
-		Method:      entity.TicketSaleMethodFirstCome,
-		SaleStart:   saleTime(11, 1, 10, 0),
-		TicketTypes: []usecase.TicketTypeInput{{EventID: "event-1", Price: 3000, Quantity: 150}},
+		SeriesID:  "series-1",
+		Name:      "一般発売",
+		Method:    entity.TicketSaleMethodFirstCome,
+		SaleStart: saleTime(11, 1, 10, 0),
+		SaleEnd:   saleTime(11, 20, 19, 0),
+		EventIDs:  []string{"event-1"},
 	}
 }
 
@@ -166,7 +180,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		f.ownSeries("event-1")
 		in := lotteryInput()
-		in.TicketTypes = append(in.TicketTypes, usecase.TicketTypeInput{EventID: "event-of-other-series", Price: 8000, Quantity: 100})
+		in.EventIDs = append(in.EventIDs, "event-of-other-series")
 
 		_, err := f.uc.Create(ctx, "org-1", in)
 
@@ -205,7 +219,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		in := lotteryInput()
 		in.SaleStart = saleTime(11, 10, 20, 0)
 		end := saleTime(11, 20, 20, 0)
-		in.SaleEnd = &end
+		in.SaleEnd = end
 
 		_, err := f.uc.Create(ctx, "org-1", in)
 
@@ -219,7 +233,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		in := lotteryInput()
 		in.SaleStart = saleTime(11, 10, 19, 0)
 		end := saleTime(11, 20, 19, 0)
-		in.SaleEnd = &end
+		in.SaleEnd = end
 
 		_, err := f.uc.Create(ctx, "org-1", in)
 
@@ -233,7 +247,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		f.ownSeries("event-1")
 		in := firstComeInput()
 		end := saleTime(11, 20, 19, 30)
-		in.SaleEnd = &end
+		in.SaleEnd = end
 
 		_, err := f.uc.Create(ctx, "org-1", in)
 
@@ -252,7 +266,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		view, err := f.uc.Create(ctx, "org-1", lotteryInput())
 
 		require.NoError(t, err)
-		assert.Equal(t, "ファンクラブ先行", view.Sale.Name)
+		assert.Equal(t, "ファンクラブ先行", view.Name)
 	})
 
 	t.Run("invalid configuration", func(t *testing.T) {
@@ -260,13 +274,10 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		// @spec components/usecase/ticket-sale/create "Invalid configuration"
 		fifteenDays := saleTime(11, 16, 10, 0)
 		cases := map[string]func(*usecase.CreateTicketSaleInput){
-			"window of 15 days": func(in *usecase.CreateTicketSaleInput) { in.SaleEnd = &fifteenDays },
-			"limit over the quantity": func(in *usecase.CreateTicketSaleInput) {
-				in.TicketTypes[0].Quantity, in.TicketTypes[0].PerAccountLimit = 2, 4
-			},
-			"price of 0":          func(in *usecase.CreateTicketSaleInput) { in.TicketTypes[0].Price = 0 },
-			"no ticket type":      func(in *usecase.CreateTicketSaleInput) { in.TicketTypes = nil },
-			"lottery without end": func(in *usecase.CreateTicketSaleInput) { in.SaleEnd = nil },
+			"window of 15 days": func(in *usecase.CreateTicketSaleInput) { in.SaleEnd = fifteenDays },
+			"empty name":        func(in *usecase.CreateTicketSaleInput) { in.Name = "" },
+			"no event":          func(in *usecase.CreateTicketSaleInput) { in.EventIDs = nil },
+			"event named twice": func(in *usecase.CreateTicketSaleInput) { in.EventIDs = []string{"event-1", "event-1"} },
 		}
 		for name, change := range cases {
 			t.Run(name, func(t *testing.T) {
@@ -320,7 +331,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		view, err := f.uc.Create(ctx, "org-1", in)
 
 		require.NoError(t, err)
-		assert.Equal(t, saleTime(11, 20, 10, 0), view.Sale.SaleStartTime)
+		assert.Equal(t, saleTime(11, 20, 10, 0), view.SaleStartTime)
 	})
 
 	t.Run("overlapping sale", func(t *testing.T) {
@@ -363,163 +374,119 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		f.otherSales("event-2")
 		f.stores()
 		in := lotteryInput()
-		in.TicketTypes = []usecase.TicketTypeInput{
-			{EventID: "event-1", Price: 8000, Quantity: 100},
-			{EventID: "event-2", Price: 8000, Quantity: 100},
-		}
+		in.EventIDs = []string{"event-1", "event-2"}
 
 		view, err := f.uc.Create(ctx, "org-1", in)
 
 		require.NoError(t, err)
-		assert.False(t, view.Sale.IsDrawn())
-		assert.Equal(t, entity.VerificationRequirementNone, view.Sale.VerificationRequirement)
-		assert.Equal(t, 10*24*time.Hour, view.Sale.SaleEndTime.Sub(view.Sale.SaleStartTime))
-		require.Len(t, view.TicketTypes, 2)
-		for _, ttv := range view.TicketTypes {
-			assert.Equal(t, 100, ttv.TicketType.Quantity)
-			assert.Equal(t, int64(8000), ttv.TicketType.Price)
-		}
+		assert.False(t, view.IsDrawnAt(now, 0), "not drawn: the window has not even opened")
+		assert.Equal(t, entity.VerificationRequirementNone, view.VerificationRequirement)
+		assert.Equal(t, 10*24*time.Hour, view.SaleEndTime.Sub(view.SaleStartTime))
+		assert.Equal(t, []string{"event-1", "event-2"}, view.EventIDs)
 	})
 
-	t.Run("first-come sale without an end time", func(t *testing.T) {
+	t.Run("no end time", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/create "First-come sale without an end time"
+		// @spec components/usecase/ticket-sale/create "No end time"
 		f := newTicketSaleFixture(t, now)
-		f.ownSeries("event-1")
-		f.organizer(true)
-		f.otherSales("event-1")
-		f.stores()
-
-		view, err := f.uc.Create(ctx, "org-1", firstComeInput())
-
-		require.NoError(t, err)
-		assert.Equal(t, saleTime(11, 20, 19, 0), view.Sale.SaleEndTime)
-		require.Len(t, view.TicketTypes, 1)
-		assert.Equal(t, 4, view.TicketTypes[0].TicketType.PerAccountLimit)
-		assert.Equal(t, 0, view.TicketTypes[0].TicketType.SoldCount)
-		assert.Equal(t, entity.TicketTypeStateNotYetOnSale, view.TicketTypes[0].State)
-	})
-
-	t.Run("first-come sale ends at the earliest event start", func(t *testing.T) {
-		t.Parallel()
-		f := newTicketSaleFixture(t, now)
-		f.ownSeries("event-1", "event-2")
-		early := saleTime(11, 18, 18, 0)
-		f.starts["event-2"] = &early
-		f.organizer(true)
-		f.otherSales("event-1")
-		f.otherSales("event-2")
-		f.stores()
 		in := firstComeInput()
-		in.TicketTypes = append(in.TicketTypes, usecase.TicketTypeInput{EventID: "event-2", Price: 3000, Quantity: 150})
+		in.SaleEnd = time.Time{}
 
-		view, err := f.uc.Create(ctx, "org-1", in)
+		_, err := f.uc.Create(ctx, "org-1", in)
 
-		require.NoError(t, err)
-		assert.Equal(t, early, view.Sale.SaleEndTime)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		f.sales.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	})
+
+	t.Run("event without a ticket stock", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/create "Event without a ticket stock"
+		f := newTicketSaleFixture(t, now)
+		f.seriesOwnedBy("org-1", "event-1")
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{}, nil)
+
+		_, err := f.uc.Create(ctx, "org-1", lotteryInput())
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		f.sales.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	})
 }
 
 func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	now := saleTime(11, 15, 12, 0)
+	now := saleTime(11, 12, 12, 0)
+
+	// ownsEvent makes event-1 org-1's.
+	ownsEvent := func(f *ticketSaleFixture) {
+		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
+	}
 
 	t.Run("drawn presale and upcoming general sale", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-own-by-event "Drawn presale and upcoming general sale"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
+		ownsEvent(f)
 		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
-		drawTime := saleTime(11, 10, 10, 1)
-		presale.DrawTime = &drawTime
-		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 18, 10, 0), saleTime(11, 20, 19, 0), "event-1")
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{presale, general}, nil)
-		stats := entity.LotteryEntryStats{EntryCount: 120, TicketCount: 200, WonEntryCount: 80, WonTicketCount: 150, LostEntryCount: 40}
-		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.TicketTypes[0].ID).Return(stats, nil)
-		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
+		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 15, 10, 0), saleTime(11, 20, 19, 0), "event-1")
+		f.otherSales("event-1", presale, general)
+		stockS := tsStock("event-1", 150, 120, 0)
+		stockA := &entity.TicketStock{ID: "stock-a", EventID: "event-1", SeatTypeID: "seat-a", Quantity: 200, SeatType: &entity.SeatType{ID: "seat-a", Name: "A席", Price: 6000}}
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketStock{stockS, stockA}, nil)
+		sStats := entity.LotteryEntryStats{EntryCount: 412, TicketCount: 1200, WonEntryCount: 318, WonTicketCount: 120, LostEntryCount: 94}
+		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.ID, stockS.ID).Return(sStats, nil)
+		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.ID, stockA.ID).Return(entity.LotteryEntryStats{}, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return([]entity.ReferralCodeStats{}, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
 		require.NoError(t, err)
-		views := got.Sales
-		require.Len(t, views, 2)
-		assert.Equal(t, presale.ID, views[0].Sale.ID)
-		assert.True(t, views[0].Sale.IsDrawn())
-		require.NotNil(t, views[0].TicketTypes[0].Stats)
-		assert.Equal(t, stats, *views[0].TicketTypes[0].Stats)
-		assert.Equal(t, general.ID, views[1].Sale.ID)
-		assert.Nil(t, views[1].TicketTypes[0].Stats)
-		assert.Equal(t, entity.TicketTypeStateNotYetOnSale, views[1].TicketTypes[0].State)
-	})
-
-	t.Run("owner checks first-come sales", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/ticket-sale/list-own-by-event "Owner checks first-come sales"
-		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1")
-		sale.TicketTypes[0].SoldCount, sale.TicketTypes[0].HeldCount = 100, 6
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{sale}, nil)
-		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
-
-		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
-
-		require.NoError(t, err)
-		require.Len(t, got.Sales, 1)
-		tt := got.Sales[0].TicketTypes[0]
-		assert.Equal(t, 150, tt.TicketType.Quantity)
-		assert.Equal(t, 100, tt.TicketType.SoldCount)
-		assert.Equal(t, 6, tt.TicketType.HeldCount)
-		assert.Equal(t, entity.TicketTypeStateOnSale, tt.State)
+		require.Len(t, got.Sales, 2)
+		assert.Equal(t, presale.ID, got.Sales[0].ID)
+		assert.Equal(t, general.ID, got.Sales[1].ID)
+		require.Len(t, got.LotteryEntryStats, 2, "one per TicketStock of the presale, none for the first-come sale")
+		assert.Equal(t, presale.ID, got.LotteryEntryStats[0].SaleID)
+		assert.Equal(t, stockS.ID, got.LotteryEntryStats[0].Stock.ID)
+		assert.Equal(t, entity.SeatTypeID("seat-s"), got.LotteryEntryStats[0].Stock.SeatTypeID)
+		assert.Equal(t, sStats, got.LotteryEntryStats[0].Stats)
+		assert.True(t, got.Sales[0].IsDrawnAt(now, sStats.EntryCount-sStats.WonEntryCount-sStats.LostEntryCount), "the presale is drawn")
 	})
 
 	t.Run("event without a sale", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-own-by-event "Event without a sale"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{}, nil)
-		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, nil)
+		ownsEvent(f)
+		f.otherSales("event-1")
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketStock{}, nil)
+		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return([]entity.ReferralCodeStats{}, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
 		require.NoError(t, err)
 		assert.Empty(t, got.Sales)
-		assert.Empty(t, got.ReferralCodeStats)
+		assert.Empty(t, got.LotteryEntryStats)
 	})
 
 	t.Run("purchases per referral code", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-own-by-event "Purchases per referral code"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1")
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{sale}, nil)
-		memberA := entity.ReferralCode("member-a")
+		ownsEvent(f)
+		f.otherSales("event-1", existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1"))
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketStock{tsStock("event-1", 150, 52, 0)}, nil)
+		code := entity.ReferralCode("member-a")
 		stats := []entity.ReferralCodeStats{
-			{OrderCount: 40, TicketCount: 70, Amount: 210000},
-			{Code: &memberA, OrderCount: 12, TicketCount: 20, Amount: 60000},
+			{OrderCount: 40, TicketCount: 80, Amount: 320000},
+			{Code: &code, OrderCount: 12, TicketCount: 24, Amount: 192000},
 		}
 		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(stats, nil)
 
 		got, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
 		require.NoError(t, err)
-		require.Len(t, got.Sales, 1)
 		assert.Equal(t, stats, got.ReferralCodeStats)
-	})
-
-	t.Run("referral stats failure", func(t *testing.T) {
-		t.Parallel()
-		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{}, nil)
-		f.orders.EXPECT().ListReferralStatsByEvent(mock.Anything, "event-1").Return(nil, apperr.ErrInternal)
-
-		_, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
-
-		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 
 	t.Run("another organizer's event", func(t *testing.T) {
@@ -527,20 +494,12 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		// @spec components/usecase/ticket-sale/list-own-by-event "Another Organizer's event"
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-2", nil)
+		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "missing").Return("", apperr.ErrNotFound)
 
 		_, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
-
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-	})
-
-	t.Run("unknown event is not revealed", func(t *testing.T) {
-		t.Parallel()
-		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("", apperr.ErrNotFound)
-
-		_, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
-
-		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+		_, err = f.uc.ListOwnByEvent(ctx, "org-1", "missing")
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied, "does not reveal whether it exists")
 	})
 }
 
@@ -548,132 +507,109 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	now := saleTime(11, 5, 12, 0)
+	start := saleTime(11, 20, 19, 0)
 
-	firstCome := func(sold, held int) *entity.TicketSale {
-		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1")
-		sale.TicketTypes[0].SoldCount, sale.TicketTypes[0].HeldCount = sold, held
-		return sale
+	// published makes event-1 published with its start time, a limit of 4,
+	// its sales and its stocks.
+	published := func(f *ticketSaleFixture, sales []*entity.TicketSale, stocks ...*entity.TicketStock) {
+		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.otherSales("event-1", sales...)
+		limit := 4
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start, PerAccountLimit: &limit}, nil).Maybe()
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return(stocks, nil).Maybe()
+	}
+	general := func() *entity.TicketSale {
+		return existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 0), "event-1")
 	}
 
-	t.Run("on sale with few left", func(t *testing.T) {
+	t.Run("available with few left", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/list-by-event "On sale with few left"
+		// @spec components/usecase/ticket-sale/list-by-event "Available with few left"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{firstCome(135, 0)}, nil)
+		published(f, []*entity.TicketSale{general()}, tsStock("event-1", 150, 135, 0))
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		require.Len(t, views, 1)
-		got := views[0].TicketTypes[0]
-		assert.Equal(t, entity.TicketTypeStateOnSale, got.State)
-		assert.True(t, got.LowStock)
-		assert.Equal(t, int64(3000), got.TicketType.Price)
+		require.Len(t, got.Sales, 1)
+		require.Len(t, got.Stocks, 1)
+		stock := got.Stocks[0].Stock
+		assert.Equal(t, entity.TicketStockStateAvailable, stock.State())
+		assert.True(t, stock.IsLowStock())
+		assert.Equal(t, int64(8000), stock.SeatType.Price)
+		assert.False(t, got.Stocks[0].ResaleOpen)
+		require.NotNil(t, got.PerAccountLimit)
+		assert.Equal(t, 4, *got.PerAccountLimit)
 	})
 
 	t.Run("last tickets in checkouts", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-by-event "Last tickets in checkouts"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{firstCome(140, 10)}, nil)
+		published(f, []*entity.TicketSale{general()}, tsStock("event-1", 150, 147, 3))
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		require.Len(t, views, 1)
-		assert.Equal(t, entity.TicketTypeStateAllHeld, views[0].TicketTypes[0].State)
+		assert.Equal(t, entity.TicketStockStateAllHeld, got.Stocks[0].Stock.State())
 	})
 
-	soldOutWithListings := func(free int) *entity.TicketSale {
-		sale := firstCome(150, 0)
-		opened := saleTime(11, 3, 20, 15)
-		sale.TicketTypes[0].ResaleOpenTime = &opened
-		sale.TicketTypes[0].FreeResaleCount = free
-		return sale
-	}
-
-	t.Run("sold out with a resale ticket", func(t *testing.T) {
+	t.Run("sold out before the resale deadline", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/list-by-event "Sold out with a resale ticket"
+		// @spec components/usecase/ticket-sale/list-by-event "Sold out before the resale deadline"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{soldOutWithListings(1)}, nil)
+		published(f, []*entity.TicketSale{general()}, tsStock("event-1", 150, 150, 0))
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		got := views[0].TicketTypes[0]
-		assert.Equal(t, entity.TicketTypeStateSoldOut, got.State)
-		assert.True(t, got.ResaleOpen)
-		assert.True(t, got.ResaleAvailable)
+		assert.Equal(t, entity.TicketStockStateSoldOut, got.Stocks[0].Stock.State())
+		assert.True(t, got.Stocks[0].ResaleOpen)
 	})
 
-	t.Run("sold out, every listing held", func(t *testing.T) {
+	t.Run("sold out after the resale deadline", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/ticket-sale/list-by-event "Sold out, every listing held"
-		f := newTicketSaleFixture(t, now)
+		f := newTicketSaleFixture(t, start.Add(-time.Hour))
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{soldOutWithListings(0)}, nil)
+		f.otherSales("event-1", general())
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start}, nil)
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{tsStock("event-1", 150, 150, 0)}, nil)
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		got := views[0].TicketTypes[0]
-		assert.Equal(t, entity.TicketTypeStateSoldOut, got.State)
-		assert.True(t, got.ResaleOpen)
-		assert.False(t, got.ResaleAvailable)
-	})
-
-	t.Run("resale closed at the deadline", func(t *testing.T) {
-		t.Parallel()
-		at := saleTime(11, 20, 16, 0) // 3 hours before the 19:00 start
-		f := newTicketSaleFixture(t, at)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", at).Return([]*entity.TicketSale{soldOutWithListings(1)}, nil)
-
-		views, err := f.uc.ListByEvent(ctx, "event-1")
-
-		require.NoError(t, err)
-		assert.False(t, views[0].TicketTypes[0].ResaleOpen)
-		assert.False(t, views[0].TicketTypes[0].ResaleAvailable)
+		assert.False(t, got.Stocks[0].ResaleOpen)
 	})
 
 	t.Run("tour presale seen from one date", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-by-event "Tour presale seen from one date"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		tour := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-2", "event-1", "event-3")
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{tour}, nil)
+		tour := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1", "event-2", "event-3")
+		// Only event-1's stocks are read.
+		published(f, []*entity.TicketSale{tour}, tsStock("event-1", 150, 0, 0))
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		require.Len(t, views, 1)
-		require.Len(t, views[0].TicketTypes, 1)
-		assert.Equal(t, "event-1", views[0].TicketTypes[0].TicketType.EventID)
-		require.Len(t, views[0].Sale.TicketTypes, 1)
-		assert.Equal(t, "event-1", views[0].Sale.TicketTypes[0].EventID)
-		assert.Len(t, tour.TicketTypes, 3, "the stored sale is not changed")
+		require.Len(t, got.Stocks, 1)
+		assert.Equal(t, "event-1", got.Stocks[0].Stock.EventID)
 	})
 
 	t.Run("presale and general sale", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/list-by-event "Presale and general sale"
 		f := newTicketSaleFixture(t, now)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
-		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 20, 0, 0), saleTime(11, 20, 19, 0), "event-1")
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{presale, general}, nil)
+		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
+		later := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 20, 10, 0), saleTime(11, 20, 19, 0), "event-1")
+		published(f, []*entity.TicketSale{presale, later}, tsStock("event-1", 150, 0, 0))
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		require.Len(t, views, 2)
-		assert.Equal(t, presale.ID, views[0].Sale.ID)
-		assert.Equal(t, general.ID, views[1].Sale.ID)
+		require.Len(t, got.Sales, 2)
+		assert.Equal(t, presale.ID, got.Sales[0].ID)
+		assert.Len(t, got.Stocks, 1, "the same stocks for both sales")
 	})
 
 	t.Run("concert cancelled", func(t *testing.T) {
@@ -682,10 +618,11 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(false, nil)
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		assert.Empty(t, views)
+		assert.Empty(t, got.Sales)
+		assert.Empty(t, got.Stocks)
 	})
 
 	t.Run("event without a sale", func(t *testing.T) {
@@ -693,12 +630,14 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 		// @spec components/usecase/ticket-sale/list-by-event "Event without a sale"
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{}, nil)
+		f.otherSales("event-1")
 
-		views, err := f.uc.ListByEvent(ctx, "event-1")
+		got, err := f.uc.ListByEvent(ctx, "event-1")
 
 		require.NoError(t, err)
-		assert.Empty(t, views)
+		assert.Empty(t, got.Sales)
+		assert.Empty(t, got.Stocks)
+		assert.Nil(t, got.PerAccountLimit)
 	})
 }
 
@@ -708,8 +647,8 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 
 	// setsWindow makes TicketSale.SetWindow return sale with the new window.
 	setsWindow := func(f *ticketSaleFixture, sale *entity.TicketSale, start, end time.Time) {
-		f.sales.EXPECT().SetWindow(mock.Anything, sale.ID, start, end, mock.Anything).RunAndReturn(
-			func(_ context.Context, _ entity.TicketSaleID, s, e, _ time.Time) (*entity.TicketSale, error) {
+		f.sales.EXPECT().SetWindow(mock.Anything, sale.ID, start, end).RunAndReturn(
+			func(_ context.Context, _ entity.TicketSaleID, s, e time.Time) (*entity.TicketSale, error) {
 				moved := *sale
 				moved.SaleStartTime, moved.SaleEndTime = s, e
 				return &moved, nil
@@ -721,7 +660,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "Another Organizer's sale"
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-2", "event-1")
 
 		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
@@ -733,7 +672,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/set-window "Unknown sale"
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
-		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing"), mock.Anything).Return(nil, apperr.ErrNotFound)
+		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing")).Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.SetWindow(ctx, "org-1", "missing", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
@@ -745,7 +684,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "Lottery sale before it opens"
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
@@ -753,7 +692,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
 		require.NoError(t, err)
-		assert.Equal(t, saleTime(11, 2, 10, 0), view.Sale.SaleStartTime)
+		assert.Equal(t, saleTime(11, 2, 10, 0), view.SaleStartTime)
 	})
 
 	t.Run("lottery sale already open", func(t *testing.T) {
@@ -761,7 +700,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "Lottery sale already open"
 		f := newTicketSaleFixture(t, saleTime(11, 3, 12, 0))
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
 		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 12, 10, 0))
@@ -774,7 +713,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "First-come sale extended while on sale"
 		f := newTicketSaleFixture(t, saleTime(11, 3, 12, 0))
 		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 15, 10, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 1, 10, 0), saleTime(11, 20, 18, 0))
@@ -782,7 +721,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 20, 18, 0))
 
 		require.NoError(t, err)
-		assert.Equal(t, saleTime(11, 20, 18, 0), view.Sale.SaleEndTime)
+		assert.Equal(t, saleTime(11, 20, 18, 0), view.SaleEndTime)
 	})
 
 	t.Run("moved onto another sale", func(t *testing.T) {
@@ -791,7 +730,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
 		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 15, 10, 0), saleTime(11, 20, 19, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, general.ID, mock.Anything).Return(general, nil)
+		f.sales.EXPECT().Get(mock.Anything, general.ID).Return(general, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		f.otherSales("event-1", presale, general)
 
@@ -805,7 +744,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "Moved within its own window"
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 2, 0, 0), saleTime(11, 9, 0, 0))
@@ -813,7 +752,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 0, 0), saleTime(11, 9, 0, 0))
 
 		require.NoError(t, err)
-		assert.Equal(t, saleTime(11, 9, 0, 0), view.Sale.SaleEndTime)
+		assert.Equal(t, saleTime(11, 9, 0, 0), view.SaleEndTime)
 	})
 
 	t.Run("ends after the show starts", func(t *testing.T) {
@@ -821,7 +760,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-window "Ends after the show starts"
 		f := newTicketSaleFixture(t, saleTime(11, 3, 12, 0))
 		sale := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 1, 10, 0), saleTime(11, 15, 10, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
 		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 30))
@@ -833,7 +772,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		t.Parallel()
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, mock.Anything).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
 		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 0, 0), saleTime(11, 16, 0, 0))
@@ -849,8 +788,8 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 
 	// updatesRequirement makes the update return sale with the requirement.
 	updatesRequirement := func(f *ticketSaleFixture, sale *entity.TicketSale, req entity.VerificationRequirement) {
-		f.sales.EXPECT().SetVerificationRequirement(mock.Anything, sale.ID, req, now).RunAndReturn(
-			func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) (*entity.TicketSale, error) {
+		f.sales.EXPECT().SetVerificationRequirement(mock.Anything, sale.ID, req).RunAndReturn(
+			func(context.Context, entity.TicketSaleID, entity.VerificationRequirement) (*entity.TicketSale, error) {
 				updated := *sale
 				updated.VerificationRequirement = req
 				return &updated, nil
@@ -862,14 +801,14 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-verification-requirement "Requirement tightened while open"
 		f := newTicketSaleFixture(t, now)
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, now).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		updatesRequirement(f, sale, entity.VerificationRequirementJPKIOnly)
 
 		view, err := f.uc.SetVerificationRequirement(ctx, "org-1", sale.ID, entity.VerificationRequirementJPKIOnly)
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.VerificationRequirementJPKIOnly, view.Sale.VerificationRequirement)
+		assert.Equal(t, entity.VerificationRequirementJPKIOnly, view.VerificationRequirement)
 	})
 
 	t.Run("after the draw", func(t *testing.T) {
@@ -877,23 +816,21 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-verification-requirement "After the draw"
 		f := newTicketSaleFixture(t, now)
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(10, 20, 0, 0), saleTime(10, 30, 0, 0), "event-1")
-		drawTime := saleTime(10, 30, 0, 1)
-		sale.DrawTime = &drawTime
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, now).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		updatesRequirement(f, sale, entity.VerificationRequirementVerifiedAny)
 
 		view, err := f.uc.SetVerificationRequirement(ctx, "org-1", sale.ID, entity.VerificationRequirementVerifiedAny)
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.VerificationRequirementVerifiedAny, view.Sale.VerificationRequirement)
+		assert.Equal(t, entity.VerificationRequirementVerifiedAny, view.VerificationRequirement)
 	})
 
 	t.Run("unknown sale", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/set-verification-requirement "Unknown sale"
 		f := newTicketSaleFixture(t, now)
-		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing"), now).Return(nil, apperr.ErrNotFound)
+		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing")).Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.SetVerificationRequirement(ctx, "org-1", "missing", entity.VerificationRequirementJPKIOnly)
 
@@ -905,7 +842,7 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-verification-requirement "Another Organizer's sale"
 		f := newTicketSaleFixture(t, now)
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 0, 0), saleTime(11, 10, 0, 0), "event-1")
-		f.sales.EXPECT().Get(mock.Anything, sale.ID, now).Return(sale, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-2", "event-1")
 
 		_, err := f.uc.SetVerificationRequirement(ctx, "org-1", sale.ID, entity.VerificationRequirementJPKIOnly)

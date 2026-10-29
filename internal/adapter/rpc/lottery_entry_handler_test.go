@@ -48,20 +48,25 @@ func TestLotteryEntryHandler(t *testing.T) {
 	const cardAuthorizationID = "pi_1"
 	authorizeReq := func(phone string) *lotteryentryv1.AuthorizeCardRequest {
 		return &lotteryentryv1.AuthorizeCardRequest{
-			TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID},
-			TicketCount:  2,
-			FullName:     &entityv1.FullName{Value: "山田太郎"},
-			PhoneNumber:  &entityv1.PhoneNumber{Value: phone},
+			TicketSaleId:  &entityv1.TicketSaleId{Value: tkSaleID},
+			TicketStockId: &entityv1.TicketStockId{Value: tkStockID},
+			TicketCount:   2,
+			FullName:      &entityv1.FullName{Value: "山田太郎"},
+			PhoneNumber:   &entityv1.PhoneNumber{Value: phone},
 		}
 	}
 	expectAuthorize := func(f *lotteryEntryFixture, code *entity.ReferralCode) {
-		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2,
+		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.TicketSaleID(tkSaleID), entity.TicketStockID(tkStockID), entity.UserID(tkFanUserID), 2,
 			"山田太郎", "+819012345678", code).
 			Return(&entity.CardAuthorization{ID: cardAuthorizationID, Secret: "pi_1_secret"}, nil)
 	}
 	entered := &entity.LotteryEntry{
-		ID: tkEntryID, TicketTypeID: tkTicketTypeID, UserID: tkFanUserID, TicketCount: 2,
-		CardAuthorizationID: cardAuthorizationID, State: entity.LotteryEntryStateEntered,
+		ID: tkEntryID, OrderID: tkOrderID, TicketSaleID: tkSaleID, State: entity.LotteryEntryStateEntered,
+		Order: &entity.Order{
+			ID: tkOrderID, UserID: tkFanUserID, TicketStockID: tkStockID, TicketCount: 2,
+			CardAuthorizationID: cardAuthorizationID, LotteryEntryID: tkEntryID,
+			Status: entity.OrderStatusPending, Amount: 6000, Currency: "JPY",
+		},
 	}
 
 	t.Run("fan authorizes their card", func(t *testing.T) {
@@ -111,7 +116,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f := newLotteryEntryFixture(t, func(c context.Context) context.Context { return c })
 
 		_, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
-			TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID},
+			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID},
 		})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
@@ -142,31 +147,38 @@ func TestLotteryEntryHandler(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_ENTERED, resp.GetLotteryEntry().GetState())
-		assert.Equal(t, tkFanUserID, resp.GetLotteryEntry().GetUserId().GetValue())
-		assert.Equal(t, cardAuthorizationID, resp.GetLotteryEntry().GetCardAuthorizationId().GetValue())
+		assert.Equal(t, tkOrderID, resp.GetLotteryEntry().GetOrderId().GetValue())
+		assert.Equal(t, tkSaleID, resp.GetLotteryEntry().GetTicketSaleId().GetValue())
+		// The entry's Order carries the fan, stock, count and card authorization.
+		assert.Equal(t, tkFanUserID, resp.GetOrder().GetUserId().GetValue())
+		assert.Equal(t, tkStockID, resp.GetOrder().GetTicketStockId().GetValue())
+		assert.Equal(t, int32(2), resp.GetOrder().GetTicketCount())
+		assert.Equal(t, cardAuthorizationID, resp.GetOrder().GetCardAuthorizationId().GetValue())
 	})
 
 	t.Run("list by ticket type returns the caller's entries", func(t *testing.T) {
 		t.Parallel()
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().ListByTicketType(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID)).
+		f.lottery.EXPECT().ListByTicketType(mock.Anything, entity.TicketSaleID(tkSaleID), entity.UserID(tkFanUserID)).
 			Return([]*entity.LotteryEntry{entered}, nil)
 
 		resp, err := f.client.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{
-			TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID},
+			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID},
 		})
 
 		require.NoError(t, err)
 		require.Len(t, resp.GetLotteryEntries(), 1)
 		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_ENTERED, resp.GetLotteryEntries()[0].GetState())
+		require.Len(t, resp.GetOrders(), 1)
+		assert.Equal(t, tkOrderID, resp.GetOrders()[0].GetId().GetValue())
 	})
 
 	t.Run("usecase errors are returned unchanged", func(t *testing.T) {
 		t.Parallel()
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID), 2,
+		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.TicketSaleID(tkSaleID), entity.TicketStockID(tkStockID), entity.UserID(tkFanUserID), 2,
 			"山田太郎", "+819012345678", (*entity.ReferralCode)(nil)).
 			Return(nil, apperr.New(codes.FailedPrecondition, "window closed"))
 
@@ -217,16 +229,26 @@ func TestLotteryEntryHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "authorize without a ticket type",
+			// @spec components/adapter/fan/api/rpc/lottery-entry "No stock"
+			name: "authorize without a ticket stock",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := authorizeReq("+819012345678")
-				req.TicketTypeId = nil
+				req.TicketStockId = nil
 				_, err := c.AuthorizeCard(ctx, req)
 				return err
 			},
 		},
 		{
-			name: "list without a ticket type",
+			name: "authorize without a ticket sale",
+			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
+				req := authorizeReq("+819012345678")
+				req.TicketSaleId = nil
+				_, err := c.AuthorizeCard(ctx, req)
+				return err
+			},
+		},
+		{
+			name: "list without a ticket sale",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				_, err := c.ListByTicketType(ctx, &lotteryentryv1.ListByTicketTypeRequest{})
 				return err

@@ -184,14 +184,14 @@ func forwardCases() []forwardCase {
 		{
 			name: "lottery result",
 			data: entity.LotteryEntryDrawnData{
-				LotteryEntryID: "entry-1", UserID: fanID, TicketSaleID: "sale-1", TicketTypeID: "tt-1",
+				LotteryEntryID: "entry-1", UserID: fanID, TicketSaleID: "sale-1", TicketStockID: "stock-1",
 				Result: "lost", CaptureFailed: true, DrawTime: factTime,
 			},
 			handle:   (*event.AnalyticsConsumer).HandleLotteryEntryDrawn,
 			wantName: usecase.EventTicketLotteryResult,
 			wantID:   fanID,
 			wantProps: usecase.AnalyticsProperties{
-				"lottery_entry_id": "entry-1", "ticket_sale_id": "sale-1", "ticket_type_id": "tt-1",
+				"lottery_entry_id": "entry-1", "ticket_sale_id": "sale-1", "ticket_stock_id": "stock-1",
 				"result": "lost", "capture_failed": true,
 			},
 			noTimeData: entity.LotteryEntryDrawnData{LotteryEntryID: "entry-1", UserID: fanID},
@@ -199,11 +199,11 @@ func forwardCases() []forwardCase {
 		},
 		{
 			name:       "checkout expired",
-			data:       entity.CheckoutExpiredData{CheckoutID: "checkout-1", UserID: fanID, TicketTypeID: "tt-1", TicketCount: 2, HoldExpireTime: factTime},
+			data:       entity.CheckoutExpiredData{CheckoutID: "checkout-1", UserID: fanID, TicketStockID: "stock-1", TicketCount: 2, HoldExpireTime: factTime},
 			handle:     (*event.AnalyticsConsumer).HandleCheckoutExpired,
 			wantName:   usecase.EventCheckoutExpired,
 			wantID:     fanID,
-			wantProps:  usecase.AnalyticsProperties{"checkout_id": "checkout-1", "ticket_type_id": "tt-1", "ticket_count": 2},
+			wantProps:  usecase.AnalyticsProperties{"checkout_id": "checkout-1", "ticket_stock_id": "stock-1", "ticket_count": 2},
 			noTimeData: entity.CheckoutExpiredData{CheckoutID: "checkout-1", UserID: fanID},
 			noKeyData:  entity.CheckoutExpiredData{CheckoutID: "checkout-1", HoldExpireTime: factTime},
 		},

@@ -1,4 +1,4 @@
-h1:jGFyZQMjaqx4fbei0kBBHW5DDp5B7MttPogB78eI8zc=
+h1:QAMY52sBlLQHRbUecaZqfmkxl3e9/xsHFPoRh2S47xA=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -120,3 +120,4 @@ h1:jGFyZQMjaqx4fbei0kBBHW5DDp5B7MttPogB78eI8zc=
 20261022014600_create_passkeys.sql h1:/6mv0ryadBTyrcQl2DUWmJNsC0f3m1yWLqma0jtjZqg=
 20261027043053_enter_lottery_at_confirm.sql h1:2HjQfVSgHP0LtlT+PQxq85F1tYG8uBTWN2XKADXD4u8=
 20261027120000_create_dbos_schema.sql h1:4juVAItux3uwUrPsmLbFNLU0Ra/g+6n5d2B3n2MI9UY=
+20261029015006_remodel_ticket_sales.sql h1:Eg/u+N8EWsWss4rx6hjHHSjYFbkhc4uwL++3l7RvCnY=

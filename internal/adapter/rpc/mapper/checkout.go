@@ -7,20 +7,18 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// CheckoutToProto maps a domain Checkout to Protobuf. A resale Checkout says
-// so; the listings it holds and their users are never mapped.
+// CheckoutToProto maps a domain Checkout to Protobuf; its Order is mapped
+// on its own with [OrderToProto].
 func CheckoutToProto(c *entity.Checkout) *entityv1.Checkout {
 	if c == nil {
 		return nil
 	}
 	pb := &entityv1.Checkout{
 		Id:             &entityv1.CheckoutId{Value: string(c.ID)},
-		TicketTypeId:   &entityv1.TicketTypeId{Value: string(c.TicketTypeID)},
-		TicketCount:    int32(c.TicketCount),
-		Amount:         c.Amount,
+		OrderId:        &entityv1.OrderId{Value: string(c.OrderID)},
+		TicketSaleId:   &entityv1.TicketSaleId{Value: string(c.TicketSaleID)},
 		Status:         checkoutStatusToProto(c.Status),
 		HoldExpireTime: timestamppb.New(c.HoldExpireTime),
-		Resale:         c.Resale,
 	}
 	if c.CommitTime != nil {
 		pb.CommitTime = timestamppb.New(*c.CommitTime)

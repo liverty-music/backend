@@ -24,7 +24,7 @@ var jst = func() *time.Location {
 	return loc
 }()
 
-// la is America/Los_Angeles, used for RESULT_DAY tz tests.
+// la is America/Los_Angeles, a fan time zone other than Japan time.
 var la = func() *time.Location {
 	loc, _ := time.LoadLocation("America/Los_Angeles")
 	return loc
@@ -39,7 +39,7 @@ func organizerLottery(start, end time.Time) *entity.TicketSale {
 	return &entity.TicketSale{
 		ID: "sale-org", SeriesID: "series-org", Name: "FC先行", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: start, SaleEndTime: end,
-		TicketTypes: []*entity.TicketType{{ID: "tt-tokyo", TicketSaleID: "sale-org", EventID: "event-tokyo"}},
+		EventIDs: []string{"event-tokyo"},
 	}
 }
 
@@ -52,19 +52,18 @@ func jstAt(y int, m time.Month, d, hh, mm int) time.Time {
 func TestScheduledFireTime(t *testing.T) {
 	t.Parallel()
 
-	// kickoff is a lottery opening 5 Oct 18:00, closing 22 Oct 23:59 and
-	// announcing results 3 Nov 15:00 (JST).
+	// kickoff is a lottery opening 5 Oct 18:00 and closing 22 Oct 23:59 (JST).
 	kickoff := &entity.TicketSale{
-		Method:            entity.TicketSaleMethodLottery,
-		SaleStartTime:     jstAt(2026, 10, 5, 18, 0),
-		SaleEndTime:       jstAt(2026, 10, 22, 23, 59),
-		LotteryResultTime: new(jstAt(2026, 11, 3, 15, 0)),
-		DiscoveredTime:    new(saleFarPast),
+		Method:         entity.TicketSaleMethodLottery,
+		SaleStartTime:  jstAt(2026, 10, 5, 18, 0),
+		SaleEndTime:    jstAt(2026, 10, 22, 23, 59),
+		DiscoveredTime: new(saleFarPast),
 	}
-	// firstCome opens 6 Oct 19:00 JST and ends when tickets run out.
+	// firstCome opens 6 Oct 19:00 JST and closes 10 Oct 23:59.
 	firstCome := &entity.TicketSale{
 		Method:         entity.TicketSaleMethodFirstCome,
 		SaleStartTime:  jstAt(2026, 10, 6, 19, 0),
+		SaleEndTime:    jstAt(2026, 10, 10, 23, 59),
 		DiscoveredTime: new(saleFarPast),
 	}
 
@@ -88,10 +87,6 @@ func TestScheduledFireTime(t *testing.T) {
 			name: "Lottery stages: APPLY_CLOSE_24H anchored 24h before the close", stage: entity.ReminderStageApplyClose24H, sale: kickoff, tz: jst,
 			wantTime: jstAt(2026, 10, 22, 8, 0), wantExpiry: jstAt(2026, 10, 22, 23, 59), wantOK: true,
 		},
-		{
-			name: "Lottery stages: RESULT_DAY on the result day", stage: entity.ReminderStageResultDay, sale: kickoff, tz: jst,
-			wantTime: jstAt(2026, 11, 3, 9, 0), wantExpiry: jstAt(2026, 11, 4, 0, 0), wantOK: true,
-		},
 
 		// @spec components/entity/ticket-sale-reminder "First-come stage"
 		// @spec components/usecase/ticket-sale/scan-due-reminders "First-come sale about to open"
@@ -105,17 +100,7 @@ func TestScheduledFireTime(t *testing.T) {
 				SaleEndTime: jstAt(2026, 10, 25, 23, 59), DiscoveredTime: new(saleFarPast)},
 			tz: jst, wantOK: false,
 		},
-		{
-			name: "First-come stage: no RESULT_DAY", stage: entity.ReminderStageResultDay, sale: firstCome, tz: jst, wantOK: false,
-		},
 
-		// @spec components/entity/ticket-sale-reminder "Lottery without a result time"
-		{
-			name: "Lottery without a result time: no RESULT_DAY", stage: entity.ReminderStageResultDay,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 5, 18, 0),
-				SaleEndTime: jstAt(2026, 10, 22, 23, 59), DiscoveredTime: new(saleFarPast)},
-			tz: jst, wantOK: false,
-		},
 		{
 			name: "undefined stage value 3 does not apply", stage: entity.ReminderStage(3), sale: kickoff, tz: jst, wantOK: false,
 		},
@@ -161,21 +146,6 @@ func TestScheduledFireTime(t *testing.T) {
 			tz: jst, wantTime: jstAt(2026, 10, 21, 12, 0), wantExpiry: jstAt(2026, 10, 22, 12, 0), wantOK: true,
 		},
 
-		// @spec components/usecase/ticket-sale/scan-due-reminders "Result day"
-		{
-			name: "Result day: 15 July 18:00 result is due 09:00 that day", stage: entity.ReminderStageResultDay,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 7, 1, 10, 0),
-				SaleEndTime: jstAt(2026, 7, 10, 23, 59), LotteryResultTime: new(jstAt(2026, 7, 15, 18, 0)), DiscoveredTime: new(saleFarPast)},
-			tz: jst, wantTime: jstAt(2026, 7, 15, 9, 0), wantExpiry: jstAt(2026, 7, 16, 0, 0), wantOK: true,
-		},
-		{
-			name: "result day in the fan's time zone (America/Los_Angeles)", stage: entity.ReminderStageResultDay,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 7, 1, 10, 0),
-				SaleEndTime: jstAt(2026, 7, 10, 23, 59), LotteryResultTime: new(jstAt(2026, 7, 15, 18, 0)), DiscoveredTime: new(saleFarPast)},
-			// 15 July 18:00 JST is 15 July 02:00 PDT.
-			tz: la, wantTime: time.Date(2026, 7, 15, 9, 0, 0, 0, la), wantExpiry: time.Date(2026, 7, 16, 0, 0, 0, 0, la), wantOK: true,
-		},
-
 		// @spec components/usecase/ticket-sale/scan-due-reminders "Milestone already past when the sale was discovered"
 		{
 			name: "Milestone already past when the sale was discovered", stage: entity.ReminderStageApplyOpen,
@@ -196,12 +166,6 @@ func TestScheduledFireTime(t *testing.T) {
 			tz: jst, wantTime: jstAt(2026, 10, 6, 21, 0), wantExpiry: jstAt(2026, 10, 7, 0, 0), wantOK: true,
 		},
 
-		// @spec components/usecase/ticket-sale/scan-due-reminders "Organizer's lottery result day"
-		{
-			name: "Organizer's lottery result day: due 09:00 on the closing day", stage: entity.ReminderStageResultDay,
-			sale: organizerLottery(jstAt(2026, 10, 5, 18, 0), jstAt(2026, 10, 12, 23, 59)),
-			tz:   jst, wantTime: jstAt(2026, 10, 12, 9, 0), wantExpiry: jstAt(2026, 10, 13, 0, 0), wantOK: true,
-		},
 		// @spec components/usecase/ticket-sale/scan-due-reminders "Organizer's sale created after it opened"
 		{
 			// No first-sight guard: an Organizer's sale has no discovered time.
@@ -232,11 +196,10 @@ func TestBuildReminderPayload(t *testing.T) {
 
 	const kickoffTitle = "King Gnu 10th Anniversary Opening Live “KICKOFF”"
 	lottery := &entity.TicketSale{
-		ID:                "sale-1",
-		Method:            entity.TicketSaleMethodLottery,
-		SaleStartTime:     jstAt(2026, 10, 5, 18, 0),
-		SaleEndTime:       jstAt(2026, 10, 22, 23, 59),
-		LotteryResultTime: new(jstAt(2026, 11, 3, 15, 0)),
+		ID:            "sale-1",
+		Method:        entity.TicketSaleMethodLottery,
+		SaleStartTime: jstAt(2026, 10, 5, 18, 0),
+		SaleEndTime:   jstAt(2026, 10, 22, 23, 59),
 	}
 	firstCome := &entity.TicketSale{
 		ID:            "sale-2",
@@ -275,16 +238,6 @@ func TestBuildReminderPayload(t *testing.T) {
 			name: "lottery opens in English", sale: lottery, stage: entity.ReminderStageApplyOpen, user: en,
 			wantTitle: "Ticket Lottery Open",
 			wantText:  "Ticket lottery entry is open! Closes Oct 22 (Thu) 23:59.\n" + kickoffTitle,
-		},
-		{
-			name: "result day in Japanese", sale: lottery, stage: entity.ReminderStageResultDay, user: ja,
-			wantTitle: "本日 抽選結果発表",
-			wantText:  "本日11/3(火) 15:00にチケットの抽選結果発表!!\n" + kickoffTitle,
-		},
-		{
-			name: "result day in English", sale: lottery, stage: entity.ReminderStageResultDay, user: en,
-			wantTitle: "Lottery Results Today",
-			wantText:  "Ticket lottery results are out today at Nov 3 (Tue) 15:00!\n" + kickoffTitle,
 		},
 		{
 			name: "first-come sale in Japanese", sale: firstCome, stage: entity.ReminderStageApplyOpen, user: ja,
@@ -526,17 +479,15 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 // once its moment has passed.
 //
 // @spec components/usecase/ticket-sale/scan-due-reminders "Application window closed before the open reminder was sent"
-// @spec components/usecase/ticket-sale/scan-due-reminders "Result day has ended"
 func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
 	sale := &entity.TicketSale{
 		ID: "sale-expired", SeriesID: "series-expired", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:     now.AddDate(0, 0, -30),
-		SaleEndTime:       now.AddDate(0, 0, -20),
-		LotteryResultTime: new(now.AddDate(0, 0, -10)),
-		DiscoveredTime:    new(now.AddDate(0, 0, -60)),
+		SaleStartTime:  now.AddDate(0, 0, -30),
+		SaleEndTime:    now.AddDate(0, 0, -20),
+		DiscoveredTime: new(now.AddDate(0, 0, -60)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: "Asia/Tokyo"}
 
@@ -556,14 +507,14 @@ func TestScanDueReminders_FanNoLongerListed(t *testing.T) {
 	now := time.Now()
 	sale := &entity.TicketSale{
 		ID: "sale-rd", SeriesID: "series-rd", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:     now.AddDate(0, 0, -20),
-		SaleEndTime:       now.AddDate(0, 0, -10),
-		LotteryResultTime: new(now),
-		DiscoveredTime:    new(now.AddDate(0, 0, -30)),
+		SaleStartTime:  now.AddDate(0, 0, -5),
+		SaleEndTime:    now.Add(12 * time.Hour),
+		DiscoveredTime: new(now.AddDate(0, 0, -30)),
 	}
 
 	d := newScanDeps(t, sale)
-	// The fan who tracked earlier is no longer returned on the result day.
+	// The fan who tracked earlier is no longer returned when the closing
+	// reminder becomes due.
 	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-rd").Return(nil, nil).Once()
 
 	published, err := d.uc.ScanDueReminders(context.Background())

@@ -59,26 +59,14 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			Name:          &entityv1.TicketSaleName{Value: "一般発売"},
 			Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME,
 			SaleStartTime: timestamppb.New(start),
-			TicketTypes: []*ticketsalev1.TicketTypeInput{{
-				EventId:  &entityv1.EventId{Value: testEventID},
-				Price:    &entityv1.TicketTypePrice{Value: 3000},
-				Quantity: 150,
-			}},
+			SaleEndTime:   timestamppb.New(end),
+			EventIds:      []*entityv1.EventId{{Value: testEventID}},
 		}
 	}
-	firstComeView := func(state entity.TicketTypeState) *usecase.TicketSaleView {
-		return &usecase.TicketSaleView{
-			Sale: &entity.TicketSale{
-				ID: tkSaleID, SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
-				SaleStartTime: start, SaleEndTime: end,
-			},
-			TicketTypes: []*usecase.TicketTypeView{{
-				TicketType: &entity.TicketType{
-					ID: tkTicketTypeID, TicketSaleID: tkSaleID, EventID: testEventID, Price: 3000,
-					Quantity: 150, PerAccountLimit: 4, SoldCount: 100, HeldCount: 6,
-				},
-				State: state,
-			}},
+	firstCome := func() *entity.TicketSale {
+		return &entity.TicketSale{
+			ID: tkSaleID, SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
+			SaleStartTime: start, SaleEndTime: end, EventIDs: []string{testEventID},
 		}
 	}
 
@@ -88,38 +76,40 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
-			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStart: start,
-			TicketTypes: []usecase.TicketTypeInput{{EventID: testEventID, Price: 3000, Quantity: 150}},
-		}).Return(firstComeView(entity.TicketTypeStateNotYetOnSale), nil)
+			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStart: start, SaleEnd: end,
+			EventIDs: []string{testEventID},
+		}).Return(firstCome(), nil)
 
 		resp, err := f.client.Create(context.Background(), createReq())
 
 		require.NoError(t, err)
 		sale := resp.GetTicketSale()
 		assert.Equal(t, tkSaleID, sale.GetId().GetValue())
-		require.Len(t, sale.GetTicketTypes(), 1)
-		assert.Equal(t, int32(150), sale.GetTicketTypes()[0].GetQuantity())
-		assert.Equal(t, entityv1.TicketTypeState_TICKET_TYPE_STATE_NOT_YET_ON_SALE, sale.GetTicketTypes()[0].GetState())
+		require.Len(t, sale.GetEventIds(), 1)
+		assert.Equal(t, testEventID, sale.GetEventIds()[0].GetValue())
 	})
 
-	t.Run("optional end time, limit and verification are passed on", func(t *testing.T) {
+	t.Run("lottery method and verification are passed on", func(t *testing.T) {
 		t.Parallel()
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
-		f.sales.EXPECT().Create(mock.Anything, "org-1", mock.MatchedBy(func(in usecase.CreateTicketSaleInput) bool {
-			return in.Method == entity.TicketSaleMethodLottery && in.SaleEnd != nil && in.SaleEnd.Equal(end) &&
-				in.VerificationRequirement == entity.VerificationRequirementJPKIOnly && in.TicketTypes[0].PerAccountLimit == 2
-		})).Return(firstComeView(entity.TicketTypeStateNotYetOnSale), nil)
+		const otherEventID = "019a0000-0000-7000-8000-0000000000e2"
+		lottery := firstCome()
+		lottery.Method, lottery.EventIDs = entity.TicketSaleMethodLottery, []string{testEventID, otherEventID}
+		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
+			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodLottery, SaleStart: start, SaleEnd: end,
+			VerificationRequirement: entity.VerificationRequirementJPKIOnly, EventIDs: []string{testEventID, otherEventID},
+		}).Return(lottery, nil)
 		req := createReq()
-		limit := int32(2)
 		req.Method = entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY
-		req.SaleEndTime = timestamppb.New(end)
 		req.VerificationRequirement = entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY
-		req.TicketTypes[0].PerAccountLimit = &limit
+		req.EventIds = append(req.EventIds, &entityv1.EventId{Value: otherEventID})
 
-		_, err := f.client.Create(context.Background(), req)
+		resp, err := f.client.Create(context.Background(), req)
 
 		require.NoError(t, err)
+		assert.Equal(t, entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY, resp.GetTicketSale().GetMethod())
+		assert.Len(t, resp.GetTicketSale().GetEventIds(), 2)
 	})
 
 	t.Run("member sees how many sold", func(t *testing.T) {
@@ -127,16 +117,22 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		// @spec components/adapter/organizer/api/rpc/ticket-sale "Member sees how many sold"
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
-		lottery := &usecase.TicketSaleView{
-			Sale: &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000d2", SeriesID: tkSeriesID, Name: "抽選",
-				Method: entity.TicketSaleMethodLottery, SaleStartTime: start.Add(-14 * 24 * time.Hour), SaleEndTime: start.Add(-7 * 24 * time.Hour)},
-			TicketTypes: []*usecase.TicketTypeView{{
-				TicketType: &entity.TicketType{ID: "019a0000-0000-7000-8000-0000000000d3", EventID: testEventID, Price: 3000, Quantity: 50, PerAccountLimit: 2},
-				Stats:      &entity.LotteryEntryStats{EntryCount: 80, TicketCount: 140, WonEntryCount: 30, WonTicketCount: 50, LostEntryCount: 50},
-			}},
+		const lotteryID = "019a0000-0000-7000-8000-0000000000d2"
+		lottery := &entity.TicketSale{
+			ID: lotteryID, SeriesID: tkSeriesID, Name: "抽選", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: start.Add(-14 * 24 * time.Hour), SaleEndTime: start.Add(-7 * 24 * time.Hour), EventIDs: []string{testEventID},
 		}
-		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).
-			Return(&usecase.OwnEventSales{Sales: []*usecase.TicketSaleView{lottery, firstComeView(entity.TicketTypeStateOnSale)}}, nil)
+		stock := &entity.TicketStock{
+			ID: tkStockID, EventID: testEventID, SeatTypeID: tkSeatTypeID, Quantity: 50,
+			SeatType: &entity.SeatType{ID: tkSeatTypeID, SeriesID: tkSeriesID, Name: "S席", Price: 8000},
+		}
+		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).Return(&usecase.OwnEventSales{
+			Sales: []*entity.TicketSale{lottery, firstCome()},
+			LotteryEntryStats: []*usecase.StockEntryStats{{
+				SaleID: lotteryID, Stock: stock,
+				Stats: entity.LotteryEntryStats{EntryCount: 80, TicketCount: 140, WonEntryCount: 30, WonTicketCount: 50, LostEntryCount: 50},
+			}},
+		}, nil)
 
 		resp, err := f.client.ListByEvent(context.Background(), &ticketsalev1.ListByEventRequest{
 			EventId: &entityv1.EventId{Value: testEventID},
@@ -144,19 +140,17 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, resp.GetTicketSales(), 2)
-		fc := resp.GetTicketSales()[1].GetTicketTypes()[0]
-		assert.Equal(t, int32(150), fc.GetQuantity())
-		assert.Equal(t, int32(100), fc.GetSoldCount())
-		assert.Equal(t, int32(6), fc.GetHeldCount())
-		assert.Equal(t, entityv1.TicketTypeState_TICKET_TYPE_STATE_ON_SALE, fc.GetState())
-		lt := resp.GetTicketSales()[0].GetTicketTypes()[0]
-		assert.Equal(t, int32(50), lt.GetQuantity())
-		assert.Nil(t, lt.SoldCount, "a lottery ticket type has no sold count")
+		assert.Equal(t, lotteryID, resp.GetTicketSales()[0].GetId().GetValue())
 		require.Len(t, resp.GetLotteryEntryStats(), 1)
 		stats := resp.GetLotteryEntryStats()[0]
-		assert.Equal(t, "019a0000-0000-7000-8000-0000000000d3", stats.GetTicketTypeId().GetValue())
+		assert.Equal(t, lotteryID, stats.GetTicketSaleId().GetValue())
+		assert.Equal(t, tkStockID, stats.GetTicketStockId().GetValue())
+		assert.Equal(t, tkSeatTypeID, stats.GetSeatTypeId().GetValue())
 		assert.Equal(t, int32(80), stats.GetEntryCount())
+		assert.Equal(t, int32(140), stats.GetTicketCount())
+		assert.Equal(t, int32(30), stats.GetWonEntryCount())
 		assert.Equal(t, int32(50), stats.GetWonTicketCount())
+		assert.Equal(t, int32(50), stats.GetLostEntryCount())
 		assert.Empty(t, resp.GetReferralCodeStats())
 	})
 
@@ -166,7 +160,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		f.resolvesTo("org-1")
 		memberA := entity.ReferralCode("member-a")
 		f.sales.EXPECT().ListOwnByEvent(mock.Anything, "org-1", testEventID).Return(&usecase.OwnEventSales{
-			Sales: []*usecase.TicketSaleView{firstComeView(entity.TicketTypeStateOnSale)},
+			Sales: []*entity.TicketSale{firstCome()},
 			ReferralCodeStats: []entity.ReferralCodeStats{
 				{Code: &memberA, OrderCount: 2, TicketCount: 5, Amount: 16250},
 				{OrderCount: 1, TicketCount: 1, Amount: 3250},
@@ -195,7 +189,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().SetWindow(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), start, end).
-			Return(firstComeView(entity.TicketTypeStateNotYetOnSale), nil)
+			Return(firstCome(), nil)
 
 		resp, err := f.client.SetWindow(context.Background(), &ticketsalev1.SetWindowRequest{
 			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: timestamppb.New(start), SaleEndTime: timestamppb.New(end),
@@ -210,7 +204,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().SetVerificationRequirement(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), entity.VerificationRequirementNone).
-			Return(firstComeView(entity.TicketTypeStateOnSale), nil)
+			Return(firstCome(), nil)
 
 		_, err := f.client.SetVerificationRequirement(context.Background(), &ticketsalev1.SetVerificationRequirementRequest{
 			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID},
@@ -268,30 +262,48 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		call func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error
 	}{
 		{
-			// @spec components/adapter/organizer/api/rpc/ticket-sale "Missing price"
-			name: "missing price",
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Sale without events"
+			name: "sale without events",
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
 				req := createReq()
-				req.TicketTypes[0].Price = nil
+				req.EventIds = nil
 				_, err := c.Create(ctx, req)
 				return err
 			},
 		},
 		{
-			// @spec components/adapter/organizer/api/rpc/ticket-sale "Sale without ticket types"
-			name: "sale without ticket types",
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Create without an end time"
+			name: "create without an end time",
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
 				req := createReq()
-				req.TicketTypes = nil
+				req.SaleEndTime = nil
 				_, err := c.Create(ctx, req)
 				return err
 			},
 		},
 		{
-			name: "ticket type without a quantity",
+			name: "create with a repeated event",
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
 				req := createReq()
-				req.TicketTypes[0].Quantity = 0
+				req.EventIds = append(req.EventIds, &entityv1.EventId{Value: testEventID})
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			name: "create without a series",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SeriesId = nil
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			name: "create without a start time",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = nil
 				_, err := c.Create(ctx, req)
 				return err
 			},

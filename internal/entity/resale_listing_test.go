@@ -121,52 +121,22 @@ func TestResaleListing_IsOpenAt(t *testing.T) {
 	}
 }
 
-func TestResaleListing_IsFreeAt(t *testing.T) {
+func TestResaleListing_IsWithdrawableAt(t *testing.T) {
 	t.Parallel()
 
 	deadline := at(16, 0, 0)
-	now := at(12, 0, 0)
-	holding := &entity.Checkout{Status: entity.CheckoutStatusHeld, HoldExpireTime: at(12, 10, 0)}
-	tests := []struct {
-		name     string
-		checkout *entity.Checkout
-		want     bool
-	}{
-		{
-			// @spec components/entity/resale-listing "Never held"
-			name: "never held", checkout: nil, want: true,
-		},
-		{
-			// @spec components/entity/resale-listing "Held by another fan"
-			name: "held by another fan", checkout: holding, want: false,
-		},
-		{
-			// @spec components/entity/resale-listing "Hold lapsed"
-			name: "hold lapsed", checkout: &entity.Checkout{Status: entity.CheckoutStatusExpired, HoldExpireTime: at(11, 50, 0)}, want: true,
-		},
-		{
-			name: "held but lapsed before the sweeper ran", checkout: &entity.Checkout{Status: entity.CheckoutStatusHeld, HoldExpireTime: at(11, 59, 0)}, want: true,
-		},
-		{
-			// @spec components/entity/resale-listing "Being charged"
-			name: "being charged", checkout: &entity.Checkout{Status: entity.CheckoutStatusCommitted, HoldExpireTime: at(11, 50, 0)}, want: false,
-		},
-		{
-			name: "commit given back", checkout: &entity.Checkout{Status: entity.CheckoutStatusReleased, HoldExpireTime: at(12, 10, 0)}, want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			l := &entity.ResaleListing{Status: entity.ResaleListingStatusListed, Checkout: tt.checkout}
-			assert.Equal(t, tt.want, l.IsFreeAt(now, deadline))
-		})
-	}
+	listed := &entity.ResaleListing{Status: entity.ResaleListingStatusListed}
 
-	t.Run("expired listing is not free", func(t *testing.T) {
+	t.Run("open listing", func(t *testing.T) {
 		t.Parallel()
-		l := &entity.ResaleListing{Status: entity.ResaleListingStatusListed}
-		assert.False(t, l.IsFreeAt(deadline, deadline))
+		// @spec components/entity/resale-listing "Open listing"
+		assert.True(t, listed.IsWithdrawableAt(at(12, 0, 0), deadline))
+	})
+
+	t.Run("expired listing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/resale-listing "Expired listing"
+		assert.False(t, listed.IsWithdrawableAt(deadline, deadline))
 	})
 }
 
@@ -174,14 +144,14 @@ func TestNewResaleListing(t *testing.T) {
 	t.Parallel()
 
 	ticket := &entity.Ticket{ID: "t1", OrderID: "o1", UserID: "u1", Status: entity.TicketStatusIssued}
-	tt := &entity.TicketType{ID: "tt1", Price: 5000}
-	l := entity.NewResaleListing(ticket, tt, at(12, 0, 0))
+	seatType := &entity.SeatType{ID: "seat-s", Price: 5000}
+	l := entity.NewResaleListing(ticket, "stock-1", seatType, at(12, 0, 0))
 
 	assert.NotEmpty(t, l.ID)
 	assert.Equal(t, entity.TicketID("t1"), l.TicketID)
 	assert.Equal(t, entity.OrderID("o1"), l.OrderID)
 	assert.Equal(t, entity.UserID("u1"), l.UserID)
-	assert.Equal(t, entity.TicketTypeID("tt1"), l.TicketTypeID)
+	assert.Equal(t, entity.TicketStockID("stock-1"), l.TicketStockID)
 	assert.Equal(t, int64(5000), l.Price)
 	assert.Equal(t, entity.ResaleListingStatusListed, l.Status)
 	assert.True(t, l.CreateTime.Equal(at(12, 0, 0)))

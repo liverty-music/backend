@@ -265,8 +265,10 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	jst := time.FixedZone("JST", 9*60*60)
 	searcher := &storySearcher{sales: []*entity.DiscoveredTicketSale{{
 		SeriesID:      banquet,
+		Name:          "一般発売",
 		Method:        entity.TicketSaleMethodFirstCome,
 		SaleStartTime: time.Date(2026, 10, 6, 19, 0, 0, 0, jst),
+		SaleEndTime:   time.Date(2026, 10, 20, 23, 59, 0, 0, jst),
 	}}}
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
@@ -353,12 +355,13 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	// A first-come sale opening in 10 minutes and a lottery that opened 10
 	// minutes ago, both known since yesterday.
 	_, _, err := sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
-		SeriesID: shadows, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: now.Add(10 * time.Minute),
+		SeriesID: shadows, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
+		SaleStartTime: now.Add(10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
 	})
 	require.NoError(t, err)
 	_, _, err = sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
-		SeriesID: kickoff, Method: entity.TicketSaleMethodLottery,
-		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10), LotteryResultTime: now.AddDate(0, 0, 20),
+		SeriesID: kickoff, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
 	})
 	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET discovered_at = NOW() - INTERVAL '1 day' WHERE discovered_at IS NOT NULL`)
@@ -415,9 +418,9 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 // @spec stories/get-reminded-of-ticket-sale-milestones "Organizer's first-come sale"
 // @spec stories/get-reminded-of-ticket-sale-milestones "Sale for another event of the tour"
 // @spec stories/get-reminded-of-ticket-sale-milestones "Series cancelled before the sale opens"
-// The later milestones of "Organizer's lottery reminders" (the close
-// reminder at 08:00 and the result day at 09:00 on the closing day) are
-// covered by TestScheduledFireTime in the usecase package.
+// The later milestone of "Organizer's lottery reminders" (the close reminder
+// 24 hours before the end) is covered by TestScheduledFireTime in the usecase
+// package.
 func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")

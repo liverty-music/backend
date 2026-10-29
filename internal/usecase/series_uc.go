@@ -35,6 +35,11 @@ type DraftEventInput struct {
 	LocalDate time.Time
 	StartTime *time.Time
 	OpenTime  *time.Time
+	// PerAccountLimit is the most tickets one account may hold for the event;
+	// nil when none is given. A new or DRAFT event then has the limit
+	// [entity.EventDefaultPerAccountLimit]; a PUBLISHED or CANCELLED event
+	// keeps its own.
+	PerAccountLimit *int
 }
 
 // SeriesUseCase defines the organizer-facing authoring surface for
@@ -278,6 +283,15 @@ func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEve
 // newDraftEvent resolves the venue of a new or DRAFT event input and returns
 // the event to store. The id is left as given: empty for a new date.
 func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID string, inp *DraftEventInput) (*entity.Event, error) {
+	limit := entity.EventDefaultPerAccountLimit
+	if inp.PerAccountLimit != nil {
+		limit = *inp.PerAccountLimit
+	}
+	// Checked before the venue is resolved, so a refused save creates no
+	// Venue.
+	if err := (&entity.Event{PerAccountLimit: &limit}).ValidatePerAccountLimit(); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+	}
 	venueID, err := uc.resolveVenueForInput(ctx, inp)
 	if err != nil {
 		return nil, fmt.Errorf("resolve venue for event on %s: %w", inp.LocalDate.Format("2006-01-02"), err)
@@ -293,6 +307,7 @@ func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID st
 		StartTime:       inp.StartTime,
 		OpenTime:        inp.OpenTime,
 		PublishState:    &draft,
+		PerAccountLimit: &limit,
 	}, nil
 }
 
@@ -472,13 +487,16 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 	next.LocalDate = inp.LocalDate
 	next.StartTime = inp.StartTime
 	next.OpenTime = inp.OpenTime
+	if inp.PerAccountLimit != nil {
+		next.PerAccountLimit = inp.PerAccountLimit
+	}
 	if !sameVenue(current, inp) {
 		next.VenueID = ""
 	}
 
 	onSale := false
 	if current.HasPublishState(entity.PublishStatePublished) && !sameInstant(current.StartTime, inp.StartTime) {
-		sales, err := uc.ticketSaleRepo.ListByEvent(ctx, current.ID, uc.now())
+		sales, err := uc.ticketSaleRepo.ListByEvent(ctx, current.ID)
 		if err != nil {
 			return nil, fmt.Errorf("list ticket sales of event %s: %w", current.ID, err)
 		}

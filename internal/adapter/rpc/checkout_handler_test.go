@@ -49,11 +49,15 @@ func TestCheckoutHandler(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	held := &entity.Checkout{
-		ID: tkCheckoutID, TicketTypeID: tkTicketTypeID, UserID: tkFanUserID, TicketCount: 2, Amount: 6000,
+		ID: tkCheckoutID, OrderID: tkOrderID, TicketSaleID: tkSaleID,
 		Status: entity.CheckoutStatusHeld, HoldExpireTime: time.Date(2026, 11, 1, 1, 15, 0, 0, time.UTC),
+		Order: &entity.Order{
+			ID: tkOrderID, UserID: tkFanUserID, TicketStockID: tkStockID, TicketCount: 2, CheckoutID: tkCheckoutID,
+			Status: entity.OrderStatusPending, Amount: 6000, Currency: "JPY",
+		},
 	}
 	startReq := func() *checkoutv1.StartRequest {
-		return &checkoutv1.StartRequest{TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID}, TicketCount: 2}
+		return &checkoutv1.StartRequest{TicketStockId: &entityv1.TicketStockId{Value: tkStockID}, TicketCount: 2}
 	}
 	authorizeReq := func(phone string) *checkoutv1.AuthorizeCardRequest {
 		return &checkoutv1.AuthorizeCardRequest{
@@ -68,35 +72,19 @@ func TestCheckoutHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/checkout "Fan starts a checkout"
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2, (*entity.ReferralCode)(nil)).Return(held, nil)
+		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketStockID(tkStockID), 2, (*entity.ReferralCode)(nil)).Return(held, nil)
 
 		resp, err := f.client.Start(ctx, startReq())
 
 		require.NoError(t, err)
 		assert.Equal(t, tkCheckoutID, resp.GetCheckout().GetId().GetValue())
 		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_HELD, resp.GetCheckout().GetStatus())
-		assert.Equal(t, tkTicketTypeID, resp.GetCheckout().GetTicketTypeId().GetValue())
-	})
-
-	t.Run("resale checkout started", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/checkout "Resale checkout started"
-		f := newCheckoutFixture(t, signedInAs(tkFanSub))
-		expectFan(f.users)
-		resale := *held
-		resale.TicketCount, resale.Amount, resale.Resale = 1, 3000, true
-		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 1, (*entity.ReferralCode)(nil)).Return(&resale, nil)
-		req := startReq()
-		req.TicketCount = 1
-
-		resp, err := f.client.Start(ctx, req)
-
-		require.NoError(t, err)
-		assert.True(t, resp.GetCheckout().GetResale())
-		// The Checkout has no field naming the listings it holds or their fans.
-		fields := resp.GetCheckout().ProtoReflect().Descriptor().Fields()
-		assert.Nil(t, fields.ByName("user_id"))
-		assert.Nil(t, fields.ByName("resale_listing_ids"))
+		assert.Equal(t, tkOrderID, resp.GetCheckout().GetOrderId().GetValue())
+		assert.Equal(t, tkSaleID, resp.GetCheckout().GetTicketSaleId().GetValue())
+		// The Pending Order created with the Checkout carries the stock and count.
+		assert.Equal(t, tkStockID, resp.GetOrder().GetTicketStockId().GetValue())
+		assert.Equal(t, int32(2), resp.GetOrder().GetTicketCount())
+		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PENDING, resp.GetOrder().GetStatus())
 	})
 
 	t.Run("referral code passed on", func(t *testing.T) {
@@ -105,13 +93,14 @@ func TestCheckoutHandler(t *testing.T) {
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
 		code := entity.ReferralCode("member-a")
-		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketTypeID(tkTicketTypeID), 2, &code).Return(held, nil)
+		f.checkouts.EXPECT().Start(mock.Anything, entity.UserID(tkFanUserID), entity.TicketStockID(tkStockID), 2, &code).Return(held, nil)
 		req := startReq()
 		req.ReferralCode = &entityv1.ReferralCode{Value: "member-a"}
 
-		_, err := f.client.Start(ctx, req)
+		resp, err := f.client.Start(ctx, req)
 
 		require.NoError(t, err)
+		assert.Equal(t, tkOrderID, resp.GetOrder().GetId().GetValue())
 	})
 
 	t.Run("guest tries to buy", func(t *testing.T) {
@@ -144,7 +133,8 @@ func TestCheckoutHandler(t *testing.T) {
 		resp, err := f.client.Get(ctx, &checkoutv1.GetRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}})
 
 		require.NoError(t, err)
-		assert.Equal(t, int64(6000), resp.GetCheckout().GetAmount())
+		assert.Equal(t, tkCheckoutID, resp.GetCheckout().GetId().GetValue())
+		assert.Equal(t, int64(6000), resp.GetOrder().GetAmount())
 	})
 
 	t.Run("fan authorizes", func(t *testing.T) {
@@ -167,7 +157,8 @@ func TestCheckoutHandler(t *testing.T) {
 		expectFan(f.users)
 		caller := entity.UserID(tkFanUserID)
 		f.issuance.EXPECT().IssueFromCheckout(mock.Anything, entity.CheckoutID(tkCheckoutID), &caller).Return(&entity.Order{
-			ID: tkOrderID, UserID: caller, CheckoutID: tkCheckoutID, Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY",
+			ID: tkOrderID, UserID: caller, TicketStockID: tkStockID, TicketCount: 2, CheckoutID: tkCheckoutID,
+			Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY",
 		}, nil)
 
 		resp, err := f.client.Confirm(ctx, &checkoutv1.ConfirmRequest{CheckoutId: &entityv1.CheckoutId{Value: tkCheckoutID}})
@@ -229,11 +220,18 @@ func TestCheckoutHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "start with a malformed ticket type",
+			name: "start with a malformed ticket stock",
 			call: func(c checkoutv1connect.CheckoutServiceClient) error {
 				_, err := c.Start(ctx, &checkoutv1.StartRequest{
-					TicketTypeId: &entityv1.TicketTypeId{Value: "not-a-uuid"}, TicketCount: 1,
+					TicketStockId: &entityv1.TicketStockId{Value: "not-a-uuid"}, TicketCount: 1,
 				})
+				return err
+			},
+		},
+		{
+			name: "start without a ticket stock",
+			call: func(c checkoutv1connect.CheckoutServiceClient) error {
+				_, err := c.Start(ctx, &checkoutv1.StartRequest{TicketCount: 1})
 				return err
 			},
 		},

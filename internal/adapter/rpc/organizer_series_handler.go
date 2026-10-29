@@ -103,6 +103,10 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 			t := ot.GetValue().AsTime()
 			inp.OpenTime = &t
 		}
+		if ev.HasPerAccountLimit() {
+			limit := int(ev.GetPerAccountLimit())
+			inp.PerAccountLimit = &limit
+		}
 		eventInputs = append(eventInputs, inp)
 	}
 	return s, eventInputs, artistIDs

@@ -23,7 +23,7 @@ func NewEventRepository(db *Database) *EventRepository {
 }
 
 const getEventQuery = `
-	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state
+	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state, per_account_limit
 	FROM events WHERE id = $1
 `
 
@@ -35,9 +35,10 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 		startAt    sql.NullTime
 		openAt     sql.NullTime
 		state      sql.NullString
+		limit      sql.NullInt32
 	)
 	if err := r.db.Pool.QueryRow(ctx, getEventQuery, id).Scan(
-		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt, &state,
+		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt, &state, &limit,
 	); err != nil {
 		return nil, toAppErr(err, "failed to get event", slog.String("event_id", id))
 	}
@@ -54,5 +55,6 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 		e.OpenTime = &t
 	}
 	e.PublishState = nullPublishState(state)
+	e.PerAccountLimit = optionalInt(limit)
 	return &e, nil
 }

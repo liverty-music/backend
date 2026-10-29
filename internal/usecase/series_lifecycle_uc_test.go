@@ -46,18 +46,20 @@ func lifecycleEvent(id string, state entity.PublishState, date time.Time, start 
 		LocalDate:       date,
 		StartTime:       start,
 		PublishState:    &state,
+		PerAccountLimit: new(4),
 	}
 }
 
 // inputFor returns the input that resends a stored event unchanged.
 func inputFor(e *entity.Event) *usecase.DraftEventInput {
 	return &usecase.DraftEventInput{
-		EventID:   new(e.ID),
-		VenueName: *e.ListedVenueName,
-		PlaceID:   e.Venue.GooglePlaceID,
-		LocalDate: e.LocalDate,
-		StartTime: e.StartTime,
-		OpenTime:  e.OpenTime,
+		EventID:         new(e.ID),
+		VenueName:       *e.ListedVenueName,
+		PlaceID:         e.Venue.GooglePlaceID,
+		LocalDate:       e.LocalDate,
+		StartTime:       e.StartTime,
+		OpenTime:        e.OpenTime,
+		PerAccountLimit: e.PerAccountLimit,
 	}
 }
 
@@ -254,6 +256,18 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		setup func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput)
 	}{
 		{
+			// @spec components/usecase/series/update "Published per-account limit changed"
+			name: "a PUBLISHED event given with another per-account limit",
+			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
+				s := lifecycleSeries(entity.SeriesVisibilityPublic)
+				pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
+				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
+				inp := inputFor(pub)
+				inp.PerAccountLimit = new(2)
+				return editOf(s), []*usecase.DraftEventInput{inp}
+			},
+		},
+		{
 			// @spec components/usecase/series/update "Published venue changed"
 			name: "a PUBLISHED event given at another venue",
 			setup: func(d *authoringDeps) (*entity.Series, []*usecase.DraftEventInput) {
@@ -305,7 +319,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 				s := lifecycleSeries(entity.SeriesVisibilityPublic)
 				pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, at(date, 18))
 				d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
-				d.ticketSales.EXPECT().ListByEvent(mock.Anything, pubID, authoringNow).Return([]*entity.TicketSale{{}}, nil).Once()
+				d.ticketSales.EXPECT().ListByEvent(mock.Anything, pubID).Return([]*entity.TicketSale{{}}, nil).Once()
 				inp := inputFor(pub)
 				inp.StartTime = at(date, 19)
 				return editOf(s), []*usecase.DraftEventInput{inp}
@@ -396,7 +410,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		d := newAuthoringDeps(t)
 		representsArtists(d, authoringArtistID)
 		pub := lifecycleEvent(pubID, entity.PublishStatePublished, date, nil)
-		d.ticketSales.EXPECT().ListByEvent(mock.Anything, pubID, authoringNow).Return(nil, nil).Once()
+		d.ticketSales.EXPECT().ListByEvent(mock.Anything, pubID).Return(nil, nil).Once()
 		inp := inputFor(pub)
 		inp.StartTime = at(date, 18)
 
@@ -758,5 +772,62 @@ func TestSeriesUseCase_Cancel_Lifecycle(t *testing.T) {
 		}).Return(nil).Once()
 
 		require.NoError(t, d.uc.Cancel(ctx, authoringOrgID, lifecycleSeriesID, []string{ids[1]}))
+	})
+}
+
+func TestSeriesUseCase_Create_PerAccountLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// created stores a draft with one event given the limit and returns the
+	// stored events.
+	created := func(t *testing.T, limit *int) ([]*entity.Event, error) {
+		t.Helper()
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		var stored []*entity.Event
+		if limit == nil || (*limit >= 1 && *limit <= 10) {
+			d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+			d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).
+				Return(nil).Once()
+			d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).Return(lifecycleSeries(entity.SeriesVisibilityPublic), nil, nil).Once()
+		}
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)),
+			[]*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), LocalDate: futureDate(), PerAccountLimit: limit}},
+			[]string{authoringArtistID})
+		if limit != nil && (*limit < 1 || *limit > 10) {
+			d.seriesRepo.AssertNotCalled(t, "CreateDraft", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			d.venueRepo.AssertNotCalled(t, "GetByPlaceID", mock.Anything, mock.Anything)
+		}
+		return stored, err
+	}
+
+	t.Run("no limit given", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "No limit given"
+		stored, err := created(t, nil)
+
+		require.NoError(t, err)
+		require.Len(t, stored, 1)
+		assert.Equal(t, 4, stored[0].Limit())
+	})
+
+	t.Run("limit of 2", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Limit of 2"
+		stored, err := created(t, new(2))
+
+		require.NoError(t, err)
+		require.Len(t, stored, 1)
+		assert.Equal(t, 2, stored[0].Limit())
+	})
+
+	t.Run("limit above one admission code", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Limit above one admission code"
+		_, err := created(t, new(11))
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

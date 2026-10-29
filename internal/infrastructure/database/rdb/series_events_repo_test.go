@@ -56,7 +56,7 @@ func (f *authoredFixture) series(states ...entity.PublishState) (string, []strin
 	events := make([]*entity.Event, len(states))
 	ids := make([]string, len(states))
 	for i := range states {
-		events[i] = entity.NewAuthoredEvent(s.ID, f.venueID, new("Lifecycle Hall"), authoredFirstDate.AddDate(0, 0, i), nil, nil)
+		events[i] = entity.NewAuthoredEvent(s.ID, f.venueID, new("Lifecycle Hall"), authoredFirstDate.AddDate(0, 0, i), nil, nil, nil)
 		ids[i] = events[i].ID
 	}
 	require.NoError(f.t, f.repo.CreateDraft(f.ctx, s, events, []string{f.artistID}))
@@ -75,7 +75,7 @@ func (f *authoredFixture) otherSeries(date time.Time, start *time.Time, state en
 	seriesID := entity.NewID()
 	f.exec(`INSERT INTO series (id, title, type, organizer_id, visibility) VALUES ($1, 'Other Tour', 'TOUR', $2, 'PUBLIC')`, seriesID, organizerID)
 	eventID := entity.NewID()
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state) VALUES ($1, $2, $3, $4, $5, $6::event_publish_state)`,
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, 4)`,
 		eventID, seriesID, f.venueID, date, start, string(state))
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
 	return eventID
@@ -122,6 +122,14 @@ func (f *authoredFixture) state(eventID string) (state string, ok bool) {
 	return *s, true
 }
 
+// limit reads an event's per-account limit.
+func (f *authoredFixture) limit(eventID string) int {
+	f.t.Helper()
+	var limit int
+	require.NoError(f.t, testDB.Pool.QueryRow(f.ctx, `SELECT per_account_limit FROM events WHERE id = $1`, eventID).Scan(&limit))
+	return limit
+}
+
 func (f *authoredFixture) seriesOf(eventID string) string {
 	f.t.Helper()
 	var seriesID string
@@ -157,20 +165,41 @@ func TestSeriesRepository_CreateDraft(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	t.Run("store two DRAFT events, each a concert with the performer", func(t *testing.T) {
+	t.Run("store two DRAFT events, each a concert with the performer and its limit", func(t *testing.T) {
 		// @spec components/entity/series/create-draft "Draft with two events"
 		f := newAuthoredFixture(t)
-		seriesID, ids := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
+		vis := entity.SeriesVisibilityPublic
+		s := &entity.Series{ID: entity.NewID(), Title: "Lifecycle Tour", Type: entity.SeriesTypeTour, OrganizerID: &f.orgID, Visibility: &vis}
+		limited := entity.NewAuthoredEvent(s.ID, f.venueID, nil, authoredFirstDate, nil, nil, new(2))
+		unlimited := entity.NewAuthoredEvent(s.ID, f.venueID, nil, authoredFirstDate.AddDate(0, 0, 1), nil, nil, nil)
 
-		_, concerts, _ := f.repo.GetAuthored(f.ctx, seriesID)
-		events := entity.EventsOf(concerts)
-		require.Len(t, events, 2)
-		for _, id := range ids {
+		require.NoError(t, f.repo.CreateDraft(f.ctx, s, []*entity.Event{limited, unlimited}, []string{f.artistID}))
+
+		_, concerts, err := f.repo.GetAuthored(f.ctx, s.ID)
+		require.NoError(t, err)
+		require.Len(t, entity.EventsOf(concerts), 2)
+		for _, id := range []string{limited.ID, unlimited.ID} {
 			state, ok := f.state(id)
 			require.True(t, ok)
 			assert.Equal(t, "DRAFT", state)
 			assert.Equal(t, []string{f.artistID}, f.performers(id))
 		}
+		assert.Equal(t, 2, f.limit(limited.ID))
+		assert.Equal(t, entity.EventDefaultPerAccountLimit, f.limit(unlimited.ID))
+	})
+
+	t.Run("fail with INVALID_ARGUMENT and store nothing for a limit above one admission code", func(t *testing.T) {
+		// @spec components/entity/series/create-draft "Limit above one admission code"
+		f := newAuthoredFixture(t)
+		vis := entity.SeriesVisibilityPublic
+		s := &entity.Series{ID: entity.NewID(), Title: "Big Group", Type: entity.SeriesTypeSingle, OrganizerID: &f.orgID, Visibility: &vis}
+		e := entity.NewAuthoredEvent(s.ID, f.venueID, nil, authoredFirstDate, nil, nil, new(11))
+
+		err := f.repo.CreateDraft(f.ctx, s, []*entity.Event{e}, []string{f.artistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		_, err = f.repo.Get(f.ctx, s.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("fail with FAILED_PRECONDITION and store nothing for an unknown venue", func(t *testing.T) {
@@ -178,7 +207,7 @@ func TestSeriesRepository_CreateDraft(t *testing.T) {
 		f := newAuthoredFixture(t)
 		vis := entity.SeriesVisibilityPublic
 		s := &entity.Series{ID: entity.NewID(), Title: "Lost", Type: entity.SeriesTypeSingle, OrganizerID: &f.orgID, Visibility: &vis}
-		e := entity.NewAuthoredEvent(s.ID, entity.NewID(), nil, authoredFirstDate, nil, nil)
+		e := entity.NewAuthoredEvent(s.ID, entity.NewID(), nil, authoredFirstDate, nil, nil, nil)
 
 		err := f.repo.CreateDraft(f.ctx, s, []*entity.Event{e}, []string{f.artistID})
 
@@ -291,6 +320,47 @@ func TestSeriesRepository_Update(t *testing.T) {
 		assert.True(t, after[0].LocalDate.Equal(authoredFirstDate))
 		assert.True(t, after[1].HasPublishState(entity.PublishStateDraft))
 		assert.Equal(t, []string{f.artistID}, f.performers(after[1].ID))
+		assert.Equal(t, entity.EventDefaultPerAccountLimit, f.limit(after[1].ID), "a new event without a limit gets the default")
+	})
+
+	t.Run("set a DRAFT event's per-account limit", func(t *testing.T) {
+		// @spec components/entity/series/update "Draft limit changed"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		require.Equal(t, 4, f.limit(ids[0]))
+		s, events := f.edit(seriesID)
+		events[0].PerAccountLimit = new(2)
+
+		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
+
+		assert.Equal(t, 2, f.limit(ids[0]))
+	})
+
+	t.Run("keep a PUBLISHED event's per-account limit", func(t *testing.T) {
+		// @spec components/entity/series/update "Published limit kept"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStatePublished)
+		s, events := f.edit(seriesID)
+		events[0].PerAccountLimit = new(2)
+
+		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
+
+		assert.Equal(t, 4, f.limit(ids[0]))
+	})
+
+	t.Run("fail with INVALID_ARGUMENT and change nothing for a DRAFT limit of 11", func(t *testing.T) {
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		s, events := f.edit(seriesID)
+		events[0].PerAccountLimit = new(11)
+		s.Title = "Changed"
+
+		err := f.repo.Update(f.ctx, s, events, []string{f.artistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Equal(t, 4, f.limit(ids[0]))
+		stored, _ := f.edit(seriesID)
+		assert.Equal(t, "Lifecycle Tour", stored.Title)
 	})
 
 	t.Run("change a PUBLISHED event's open time and keep its venue and date", func(t *testing.T) {

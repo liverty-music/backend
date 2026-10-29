@@ -40,7 +40,7 @@ func TestNeedsOperatorReports(t *testing.T) {
 			Logger:                   logger,
 		})
 		released := fanCheckout(coStart)
-		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
+		released.Status, released.Order.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil).Twice()
 		auth.EXPECT().Release(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "already charged")).Twice()

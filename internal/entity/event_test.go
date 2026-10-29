@@ -107,7 +107,7 @@ func TestEvent_PublishState(t *testing.T) {
 	t.Run("start a new authored event as DRAFT", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/event "New authored event is a draft"
-		ev := entity.NewAuthoredEvent("series", testVenueA, nil, testDate, nil, nil)
+		ev := entity.NewAuthoredEvent("series", testVenueA, nil, testDate, nil, nil, nil)
 		assert.True(t, ev.HasPublishState(entity.PublishStateDraft))
 		assert.NotEmpty(t, ev.ID)
 	})
@@ -251,4 +251,97 @@ func TestEvent_CheckChange(t *testing.T) {
 		next := withChange(ev, func(n *entity.Event) { n.VenueID = testVenueB; n.StartTime = nil })
 		assert.NoError(t, ev.CheckChange(next, true))
 	})
+}
+
+func TestEvent_PerAccountLimit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no limit given", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/event "No limit given"
+		ev := entity.NewAuthoredEvent("series", testVenueA, nil, testDate, nil, nil, nil)
+		assert.Equal(t, 4, ev.Limit())
+		assert.NoError(t, ev.ValidatePerAccountLimit())
+	})
+
+	tests := []struct {
+		name  string
+		limit int
+		valid bool
+	}{
+		{name: "limit of 1", limit: 1, valid: true},
+		{name: "limit of 10", limit: 10, valid: true},
+		{
+			// @spec components/entity/event "Limit larger than one admission code"
+			name:  "limit of 11",
+			limit: 11,
+		},
+		{
+			// @spec components/entity/event "Limit of zero"
+			name:  "limit of 0",
+			limit: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ev := entity.NewAuthoredEvent("series", testVenueA, nil, testDate, nil, nil, &tt.limit)
+			if tt.valid {
+				assert.NoError(t, ev.ValidatePerAccountLimit())
+			} else {
+				assert.Error(t, ev.ValidatePerAccountLimit())
+			}
+		})
+	}
+}
+
+func TestEvent_Fits(t *testing.T) {
+	t.Parallel()
+
+	seatS, seatA := entity.SeatTypeID("seat-s"), entity.SeatTypeID("seat-a")
+	ev := entity.NewAuthoredEvent("series", testVenueA, nil, testDate, nil, nil, nil)
+	tests := []struct {
+		name     string
+		held     entity.HeldTickets
+		seatType entity.SeatTypeID
+		count    int
+		want     bool
+	}{
+		{
+			// @spec components/entity/event "Presale winner in a general sale"
+			name:     "4 S席 held, 1 more S席",
+			held:     entity.HeldTickets{Count: 4, SeatTypeID: &seatS},
+			seatType: seatS,
+			count:    1,
+		},
+		{
+			// @spec components/entity/event "Topping up"
+			name:     "2 S席 held, 2 more S席",
+			held:     entity.HeldTickets{Count: 2, SeatTypeID: &seatS},
+			seatType: seatS,
+			count:    2,
+			want:     true,
+		},
+		{
+			// @spec components/entity/event "Another seat type"
+			name:     "2 S席 held, 1 A席",
+			held:     entity.HeldTickets{Count: 2, SeatTypeID: &seatS},
+			seatType: seatA,
+			count:    1,
+		},
+		{
+			// @spec components/entity/event "First application"
+			name:     "nothing held, 2 A席",
+			held:     entity.HeldTickets{},
+			seatType: seatA,
+			count:    2,
+			want:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ev.Fits(tt.held, tt.seatType, tt.count))
+		})
+	}
 }

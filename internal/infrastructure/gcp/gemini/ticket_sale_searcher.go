@@ -72,9 +72,6 @@ const publishedSaleDateTimeDesc = "RFC 3339 date-time with the UTC offset of the
 // limited to the given series.
 func publishedSalesResponseSchema(seriesIDs []string) map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-	nullable := func(desc string) map[string]any {
-		return map[string]any{"type": []string{"string", "null"}, "description": desc}
-	}
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -87,22 +84,22 @@ func publishedSalesResponseSchema(seriesIDs []string) map[string]any {
 					"type":                 "object",
 					"additionalProperties": false,
 					"required": []string{
-						"series_id", "method", "apply_start_time", "apply_end_time", "lottery_result_time",
+						"series_id", "name", "method", "apply_start_time", "apply_end_time",
 					},
 					"properties": map[string]any{
 						"series_id": map[string]any{
 							"type": "string", "enum": seriesIDs,
 							"description": "ID of the series this sale is for. Leave the sale out if it does not match exactly one series.",
 						},
+						"name": str("The sale's name exactly as the source page gives it, e.g. オフィシャル先行 or 一般発売. " +
+							"Leave the sale out if the page does not name it."),
 						"method": map[string]any{
 							"type": "string", "enum": []string{salesMethodLottery, salesMethodFirstCome},
 							"description": "lottery: fans enter a draw (抽選). first_come: tickets are sold in order until sold out (先着).",
 						},
 						"apply_start_time": str(publishedSaleDateTimeDesc + " When applications or purchases open."),
-						"apply_end_time": nullable(publishedSaleDateTimeDesc + " When applications or purchases close. Required for a lottery. " +
-							"null only for a first_come sale that ends when tickets run out and states no end time."),
-						"lottery_result_time": nullable(publishedSaleDateTimeDesc +
-							" When lottery results are announced. null if not stated or if method is first_come."),
+						"apply_end_time": str(publishedSaleDateTimeDesc + " When applications or purchases close. " +
+							"Leave the sale out if the page states no end time, also for a sale that ends when tickets run out."),
 					},
 				},
 			},
@@ -122,11 +119,11 @@ type publishedSalesResponse struct {
 
 // publishedSaleJSON is one sale in the model's response.
 type publishedSaleJSON struct {
-	SeriesID          string  `json:"series_id"`
-	Method            string  `json:"method"`
-	ApplyStartTime    string  `json:"apply_start_time"`
-	ApplyEndTime      *string `json:"apply_end_time"`
-	LotteryResultTime *string `json:"lottery_result_time"`
+	SeriesID       string `json:"series_id"`
+	Name           string `json:"name"`
+	Method         string `json:"method"`
+	ApplyStartTime string `json:"apply_start_time"`
+	ApplyEndTime   string `json:"apply_end_time"`
 }
 
 // generateContentFunc is the Gemini call, injectable for tests.
@@ -484,21 +481,24 @@ func validatePublishedSale(
 		return nil, "already started"
 	}
 
-	end, ok := parseOptionalTime(p.ApplyEndTime)
-	if !ok {
-		return nil, "unparseable apply_end_time"
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return nil, "no name"
 	}
-	result, ok := parseOptionalTime(p.LotteryResultTime)
-	if !ok {
-		return nil, "unparseable lottery_result_time"
+	if strings.TrimSpace(p.ApplyEndTime) == "" {
+		return nil, "no apply_end_time"
+	}
+	end, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ApplyEndTime))
+	if err != nil {
+		return nil, "unparseable apply_end_time"
 	}
 
 	c := &entity.DiscoveredTicketSale{
-		SeriesID:          p.SeriesID,
-		Method:            method,
-		SaleStartTime:     start,
-		SaleEndTime:       end,
-		LotteryResultTime: result,
+		SeriesID:      p.SeriesID,
+		Name:          name,
+		Method:        method,
+		SaleStartTime: start,
+		SaleEndTime:   end,
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err.Error()
@@ -508,19 +508,6 @@ func validatePublishedSale(
 		return nil, "apply_start_time after the series' last event"
 	}
 	return c, ""
-}
-
-// parseOptionalTime parses a nullable RFC 3339 field. A null or empty value is
-// the zero time; ok is false only for a value that does not parse.
-func parseOptionalTime(s *string) (time.Time, bool) {
-	if s == nil || strings.TrimSpace(*s) == "" {
-		return time.Time{}, true
-	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(*s))
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t, true
 }
 
 // logResponseMetadata logs the metadata of a Gemini response for tuning and

@@ -104,12 +104,13 @@ func newStripeCardAuthorizationRepository(secretKey, apiURL string, policy CardA
 // PaymentIntent metadata keys that carry the purchase a card authorization
 // pays for.
 const (
-	metadataCheckoutID   = "checkout_id"
-	metadataUserID       = "user_id"
-	metadataTicketTypeID = "ticket_type_id"
-	metadataTicketCount  = "ticket_count"
-	metadataEventID      = "event_id"
-	metadataReferralCode = "referral_code"
+	metadataCheckoutID    = "checkout_id"
+	metadataUserID        = "user_id"
+	metadataTicketSaleID  = "ticket_sale_id"
+	metadataTicketStockID = "ticket_stock_id"
+	metadataTicketCount   = "ticket_count"
+	metadataEventID       = "event_id"
+	metadataReferralCode  = "referral_code"
 )
 
 // Create implements [entity.CardAuthorizationRepository]. The PaymentIntent
@@ -141,7 +142,8 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
 	}
 	addMetadata(metadataUserID, string(purchase.UserID))
-	addMetadata(metadataTicketTypeID, string(purchase.TicketTypeID))
+	addMetadata(metadataTicketSaleID, string(purchase.TicketSaleID))
+	addMetadata(metadataTicketStockID, string(purchase.TicketStockID))
 	if purchase.TicketCount > 0 {
 		addMetadata(metadataTicketCount, strconv.Itoa(purchase.TicketCount))
 	}
@@ -161,7 +163,7 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 	p.logger.Info(ctx, "Stripe PaymentIntent created",
 		slog.String("payment_intent_id", pi.ID),
 		slog.String("checkout_id", string(purchase.CheckoutID)),
-		slog.String("ticket_type_id", string(purchase.TicketTypeID)),
+		slog.String("ticket_stock_id", string(purchase.TicketStockID)),
 		slog.Int64("amount_jpy", amountJPY),
 	)
 	return cardAuthorization(pi), nil
@@ -280,14 +282,15 @@ func cardAuthorization(pi *stripe.PaymentIntent) *entity.CardAuthorization {
 
 // purchaseFromMetadata maps a PaymentIntent's metadata back to the purchase it
 // pays for: a Checkout when checkout_id is present, a lottery entry when the
-// fan and the TicketType are, and an unspecified purchase otherwise (a
+// fan and the TicketSale are, and an unspecified purchase otherwise (a
 // PaymentIntent the platform did not open for a purchase).
 func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPurchase {
 	purchase := entity.CardAuthorizationPurchase{
-		CheckoutID:   entity.CheckoutID(metadata[metadataCheckoutID]),
-		UserID:       entity.UserID(metadata[metadataUserID]),
-		TicketTypeID: entity.TicketTypeID(metadata[metadataTicketTypeID]),
-		EventID:      metadata[metadataEventID],
+		CheckoutID:    entity.CheckoutID(metadata[metadataCheckoutID]),
+		UserID:        entity.UserID(metadata[metadataUserID]),
+		TicketSaleID:  entity.TicketSaleID(metadata[metadataTicketSaleID]),
+		TicketStockID: entity.TicketStockID(metadata[metadataTicketStockID]),
+		EventID:       metadata[metadataEventID],
 	}
 	// The count is written by Create as 1 to 10; parsing it as 32 bits keeps it
 	// in range for the proto's int32.
@@ -301,7 +304,7 @@ func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPu
 	switch {
 	case purchase.CheckoutID != "":
 		purchase.Purpose = entity.CardAuthorizationPurposeCheckout
-	case purchase.UserID != "" && purchase.TicketTypeID != "":
+	case purchase.UserID != "" && purchase.TicketSaleID != "":
 		purchase.Purpose = entity.CardAuthorizationPurposeLotteryEntry
 	}
 	return purchase

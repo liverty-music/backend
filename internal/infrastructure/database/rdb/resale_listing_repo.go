@@ -13,9 +13,8 @@ import (
 )
 
 // ResaleListingRepository implements entity.ResaleListingRepository for
-// PostgreSQL. A withdrawal takes the ticket type's row lock before the
-// listing's, as every hold of the type's listings does, so a listing is never
-// both withdrawn and held.
+// PostgreSQL. A withdrawal takes the ticket stock's row lock before the
+// listing's, as every change of the stock's counts does (design D5).
 type ResaleListingRepository struct {
 	db *Database
 }
@@ -24,8 +23,8 @@ type ResaleListingRepository struct {
 var _ entity.ResaleListingRepository = (*ResaleListingRepository)(nil)
 
 const resaleListingColumns = `
-	rl.id, rl.ticket_id, t.order_id, rl.user_id, t.event_id, rl.ticket_type_id, rl.price, rl.status,
-	rl.checkout_id, rl.created_at, rl.sold_at, rl.withdraw_at, rl.provider_refund_id,
+	rl.id, rl.ticket_id, t.order_id, rl.user_id, t.event_id, rl.ticket_stock_id, rl.price, rl.status,
+	rl.created_at, rl.sold_at, rl.withdraw_at, rl.provider_refund_id,
 	rl.refund_at, rl.sold_email_send_at
 `
 
@@ -37,10 +36,10 @@ const (
 	// round).
 	resaleListingLockTicketQuery = `SELECT status, admit_at FROM tickets WHERE id = $1 FOR UPDATE`
 	resaleListingInsertQuery     = `
-		INSERT INTO resale_listings (id, ticket_id, user_id, ticket_type_id, price, status, created_at)
+		INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, 1, $6)
 	`
-	resaleListingTicketTypeQuery = `SELECT ticket_type_id FROM resale_listings WHERE id = $1`
+	resaleListingTicketStockQuery = `SELECT ticket_stock_id FROM resale_listings WHERE id = $1`
 	// resaleListingLockedQuery reads the listing under its row lock, with its
 	// event's start time for the deadline.
 	resaleListingLockedQuery = `
@@ -99,7 +98,7 @@ func (r *ResaleListingRepository) Create(ctx context.Context, listing *entity.Re
 		return nil, apperr.New(codes.FailedPrecondition, "the ticket is not Issued or was admitted", attrs...)
 	}
 	if _, err := tx.Exec(ctx, resaleListingInsertQuery,
-		string(listing.ID), string(listing.TicketID), string(listing.UserID), string(listing.TicketTypeID),
+		string(listing.ID), string(listing.TicketID), string(listing.UserID), string(listing.TicketStockID),
 		listing.Price, listing.CreateTime,
 	); err != nil {
 		return nil, toAppErr(err, "failed to insert resale listing", attrs...)
@@ -110,24 +109,16 @@ func (r *ResaleListingRepository) Create(ctx context.Context, listing *entity.Re
 	return r.Get(ctx, listing.ID)
 }
 
-// Get returns the listing with its Checkout, if any.
+// Get returns the listing.
 func (r *ResaleListingRepository) Get(ctx context.Context, id entity.ResaleListingID) (*entity.ResaleListing, error) {
-	attrs := slog.String("resale_listing_id", string(id))
 	l, err := scanResaleListing(r.db.Pool.QueryRow(ctx, resaleListingGetQuery, string(id)))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get resale listing", attrs)
-	}
-	if l.CheckoutID != "" {
-		c, err := scanCheckout(r.db.Pool.QueryRow(ctx, checkoutGetQuery, string(l.CheckoutID)))
-		if err != nil {
-			return nil, toAppErr(err, "failed to get the listing's checkout", attrs)
-		}
-		l.Checkout = c
+		return nil, toAppErr(err, "failed to get resale listing", slog.String("resale_listing_id", string(id)))
 	}
 	return l, nil
 }
 
-// Withdraw makes a free listing Withdrawn under its ticket type's row lock.
+// Withdraw makes an open listing Withdrawn under its ticket stock's row lock.
 func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.ResaleListingID, now time.Time) error {
 	attrs := slog.String("resale_listing_id", string(id))
 	tx, err := r.db.Pool.Begin(ctx)
@@ -137,12 +128,12 @@ func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.Resale
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var ticketTypeID string
-	if err := tx.QueryRow(ctx, resaleListingTicketTypeQuery, string(id)).Scan(&ticketTypeID); err != nil {
-		return toAppErr(err, "failed to read the listing's ticket type", attrs)
+	var stockID string
+	if err := tx.QueryRow(ctx, resaleListingTicketStockQuery, string(id)).Scan(&stockID); err != nil {
+		return toAppErr(err, "failed to read the listing's ticket stock", attrs)
 	}
-	if _, err := tx.Exec(ctx, checkoutLockTicketTypeQuery, ticketTypeID); err != nil {
-		return toAppErr(err, "failed to lock ticket type", attrs)
+	if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
+		return toAppErr(err, "failed to lock ticket stock", attrs)
 	}
 	var startAt sql.NullTime
 	l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingLockedQuery, string(id)), &startAt)
@@ -152,16 +143,9 @@ func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.Resale
 	if l.Status == entity.ResaleListingStatusWithdrawn {
 		return nil
 	}
-	if l.CheckoutID != "" {
-		c, err := scanCheckout(tx.QueryRow(ctx, checkoutGetQuery, string(l.CheckoutID)))
-		if err != nil {
-			return toAppErr(err, "failed to read the listing's checkout", attrs)
-		}
-		l.Checkout = c
-	}
 	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{StartTime: optionalTime(startAt)})
-	if !ok || !l.IsFreeAt(now, deadline) {
-		return apperr.New(codes.FailedPrecondition, "the listing is held, sold, cancelled or expired", attrs)
+	if !ok || !l.IsWithdrawableAt(now, deadline) {
+		return apperr.New(codes.FailedPrecondition, "the listing is sold, cancelled or expired", attrs)
 	}
 	if _, err := tx.Exec(ctx, resaleListingWithdrawQuery, string(id), now); err != nil {
 		return toAppErr(err, "failed to withdraw resale listing", attrs)
@@ -239,14 +223,14 @@ func scanResaleListing(row pgx.Row, extra ...any) (*entity.ResaleListing, error)
 	var (
 		l                                       entity.ResaleListing
 		id, ticketID, orderID, userID, eventID  string
-		typeID                                  string
+		stockID                                 string
 		status                                  int16
-		checkoutID, providerRefundID            sql.NullString
+		providerRefundID                        sql.NullString
 		soldAt, withdrawAt, refundAt, emailedAt sql.NullTime
 	)
 	dest := append([]any{
-		&id, &ticketID, &orderID, &userID, &eventID, &typeID, &l.Price, &status,
-		&checkoutID, &l.CreateTime, &soldAt, &withdrawAt, &providerRefundID,
+		&id, &ticketID, &orderID, &userID, &eventID, &stockID, &l.Price, &status,
+		&l.CreateTime, &soldAt, &withdrawAt, &providerRefundID,
 		&refundAt, &emailedAt,
 	}, extra...)
 	if err := row.Scan(dest...); err != nil {
@@ -257,11 +241,8 @@ func scanResaleListing(row pgx.Row, extra ...any) (*entity.ResaleListing, error)
 	l.OrderID = entity.OrderID(orderID)
 	l.UserID = entity.UserID(userID)
 	l.EventID = eventID
-	l.TicketTypeID = entity.TicketTypeID(typeID)
+	l.TicketStockID = entity.TicketStockID(stockID)
 	l.Status = entity.ResaleListingStatus(status)
-	if checkoutID.Valid {
-		l.CheckoutID = entity.CheckoutID(checkoutID.String)
-	}
 	if providerRefundID.Valid {
 		l.ProviderRefundID = providerRefundID.String
 	}

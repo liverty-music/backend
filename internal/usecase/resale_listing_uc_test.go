@@ -20,13 +20,11 @@ import (
 )
 
 // The resale fixtures are about event-1, starting 2026-11-20 19:00 JST, so
-// its resale deadline is 16:00 that day. Its first-come TicketType tt-1 of
-// sale-1 sold out on 2026-11-05.
+// its resale deadline is 16:00 that day.
 var (
 	resaleEventStart = time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
 	resaleDeadline   = time.Date(2026, 11, 20, 16, 0, 0, 0, tsJST)
 	resaleWeekBefore = time.Date(2026, 11, 13, 12, 0, 0, 0, tsJST)
-	resaleSoldOut    = time.Date(2026, 11, 5, 20, 15, 0, 0, tsJST)
 )
 
 // resaleFixture holds the mocks of ResaleListingUseCase under test.
@@ -34,8 +32,7 @@ type resaleFixture struct {
 	listings  *entitymocks.MockResaleListingRepository
 	tickets   *entitymocks.MockTicketRepository
 	orders    *entitymocks.MockOrderRepository
-	checkouts *entitymocks.MockCheckoutRepository
-	sales     *entitymocks.MockTicketSaleRepository
+	stocks    *entitymocks.MockTicketStockRepository
 	state     *ucmocks.MockEventPublishStatePort
 	events    *entitymocks.MockEventRepository
 	publisher *ucmocks.MockEventPublisher
@@ -48,15 +45,14 @@ func newResaleFixture(t *testing.T, now time.Time) *resaleFixture {
 		listings:  entitymocks.NewMockResaleListingRepository(t),
 		tickets:   entitymocks.NewMockTicketRepository(t),
 		orders:    entitymocks.NewMockOrderRepository(t),
-		checkouts: entitymocks.NewMockCheckoutRepository(t),
-		sales:     entitymocks.NewMockTicketSaleRepository(t),
+		stocks:    entitymocks.NewMockTicketStockRepository(t),
 		state:     ucmocks.NewMockEventPublishStatePort(t),
 		events:    entitymocks.NewMockEventRepository(t),
 		publisher: ucmocks.NewMockEventPublisher(t),
 	}
 	f.uc = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-		Listings: f.listings, Tickets: f.tickets, Orders: f.orders, Checkouts: f.checkouts,
-		Sales: f.sales, EventState: f.state, Events: f.events, Publisher: f.publisher,
+		Listings: f.listings, Tickets: f.tickets, Orders: f.orders, Stocks: f.stocks,
+		EventState: f.state, Events: f.events, Publisher: f.publisher,
 		Clock: fixedClock(now), Logger: newTestLogger(t),
 	})
 	return f
@@ -73,42 +69,48 @@ func fanTicket() *entity.Ticket {
 	return &entity.Ticket{ID: "t-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Status: entity.TicketStatusIssued}
 }
 
-// soldOutResaleType returns sale-1 and its first-come TicketType tt-1 priced
-// 5000 yen, sold out at resaleSoldOut when soldOut is true.
-func soldOutResaleType(soldOut bool) (*entity.TicketSale, *entity.TicketType) {
-	sale, tt := firstComeTicketType(150, 150, 0)
-	tt.Price = 5000
+// resaleStock returns the S席 stock-1 of event-1 priced 5000 yen, sold out
+// when soldOut is true.
+func resaleStock(soldOut bool) *entity.TicketStock {
+	sold := 149
 	if soldOut {
-		opened := resaleSoldOut
-		tt.ResaleOpenTime = &opened
+		sold = 150
 	}
-	return sale, tt
+	return &entity.TicketStock{
+		ID: "stock-1", EventID: "event-1", SeatTypeID: "seat-s", Quantity: 150, SoldCount: sold,
+		SeatType: &entity.SeatType{ID: "seat-s", Name: "S席", Price: 5000},
+	}
 }
 
 // expectTicketToListing sets up the reads Create makes for t-1 up to the
-// published check.
-func (f *resaleFixture) expectTicketToListing(ticket *entity.Ticket, soldOut bool) {
+// published check, the Ticket's Order coming from source ("checkout" or
+// "lottery").
+func (f *resaleFixture) expectTicketToListing(ticket *entity.Ticket, soldOut bool, source string) {
 	f.tickets.EXPECT().ListByUser(mock.Anything, entity.UserID("fan-1")).Return([]*entity.Ticket{ticket}, nil)
-	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{ID: "order-1", CheckoutID: "checkout-1"}, nil)
-	f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(&entity.Checkout{ID: "checkout-1", TicketTypeID: "tt-1"}, nil)
-	sale, tt := soldOutResaleType(soldOut)
-	f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("tt-1"), mock.Anything).Return(sale, tt, nil)
+	order := &entity.Order{ID: "order-1", TicketStockID: "stock-1", Status: entity.OrderStatusPaid}
+	if source == "lottery" {
+		order.LotteryEntryID = "entry-1"
+	} else {
+		order.CheckoutID = "checkout-1"
+	}
+	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
+	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(resaleStock(soldOut), nil)
 }
 
 func TestResaleListingUseCase_Create(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	t.Run("fan lists a ticket after the sale sold out", func(t *testing.T) {
+	t.Run("fan lists a ticket after the stock sold out", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/resale-listing/create "Fan lists a ticket after the sale sold out"
+		// @spec components/usecase/resale-listing/create "Fan lists a ticket after the stock sold out"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.expectTicketToListing(fanTicket(), true)
+		f.expectTicketToListing(fanTicket(), true, "checkout")
 		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.expectEvent()
 		f.listings.EXPECT().Create(mock.Anything, mock.MatchedBy(func(l *entity.ResaleListing) bool {
 			return l.TicketID == "t-1" && l.OrderID == "order-1" && l.UserID == "fan-1" &&
-				l.TicketTypeID == "tt-1" && l.Price == 5000 && l.CreateTime.Equal(resaleWeekBefore)
+				l.TicketStockID == "stock-1" && l.Price == 5000 && l.CreateTime.Equal(resaleWeekBefore)
 		})).RunAndReturn(func(_ context.Context, l *entity.ResaleListing) (*entity.ResaleListing, error) { return l, nil })
 
 		got, err := f.uc.Create(ctx, "fan-1", "t-1")
@@ -119,11 +121,11 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 		assert.True(t, got.Deadline.Equal(resaleDeadline))
 	})
 
-	t.Run("sale not sold out", func(t *testing.T) {
+	t.Run("stock not sold out", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/resale-listing/create "Sale not sold out"
+		// @spec components/usecase/resale-listing/create "Stock not sold out"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.expectTicketToListing(fanTicket(), false)
+		f.expectTicketToListing(fanTicket(), false, "checkout")
 		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.expectEvent()
 
@@ -136,7 +138,7 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/create "Admission has opened"
 		f := newResaleFixture(t, resaleDeadline.Add(time.Minute))
-		f.expectTicketToListing(fanTicket(), true)
+		f.expectTicketToListing(fanTicket(), true, "checkout")
 		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.expectEvent()
 
@@ -163,19 +165,23 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/create "Lottery ticket"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.tickets.EXPECT().ListByUser(mock.Anything, entity.UserID("fan-1")).Return([]*entity.Ticket{fanTicket()}, nil)
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{ID: "order-1", LotteryEntryID: "entry-1"}, nil)
+		f.expectTicketToListing(fanTicket(), true, "lottery")
+		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
+		f.expectEvent()
+		f.listings.EXPECT().Create(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, l *entity.ResaleListing) (*entity.ResaleListing, error) { return l, nil })
 
-		_, err := f.uc.Create(ctx, "fan-1", "t-1")
+		got, err := f.uc.Create(ctx, "fan-1", "t-1")
 
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleListingStatusListed, got.Status)
 	})
 
 	t.Run("concert cancelled", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/create "Concert cancelled"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.expectTicketToListing(fanTicket(), true)
+		f.expectTicketToListing(fanTicket(), true, "checkout")
 		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(false, nil)
 
 		_, err := f.uc.Create(ctx, "fan-1", "t-1")
@@ -198,7 +204,7 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/create "Listed twice"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.expectTicketToListing(fanTicket(), true)
+		f.expectTicketToListing(fanTicket(), true, "checkout")
 		f.state.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.expectEvent()
 		f.listings.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.AlreadyExists, "listed"))
@@ -213,7 +219,7 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 func fanListing(status entity.ResaleListingStatus) *entity.ResaleListing {
 	return &entity.ResaleListing{
 		ID: "l-1", TicketID: "t-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1",
-		TicketTypeID: "tt-1", Price: 5000, Status: status, CreateTime: resaleWeekBefore.Add(-24 * time.Hour),
+		TicketStockID: "stock-1", Price: 5000, Status: status, CreateTime: resaleWeekBefore.Add(-24 * time.Hour),
 	}
 }
 
@@ -236,13 +242,13 @@ func TestResaleListingUseCase_Withdraw(t *testing.T) {
 		assert.Equal(t, entity.ResaleListingStatusWithdrawn, got.Status)
 	})
 
-	t.Run("another fan is checking out", func(t *testing.T) {
+	t.Run("already sold", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/resale-listing/withdraw "Another fan is checking out"
+		// @spec components/usecase/resale-listing/withdraw "Already sold"
 		f := newResaleFixture(t, resaleWeekBefore)
-		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(fanListing(entity.ResaleListingStatusListed), nil)
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(fanListing(entity.ResaleListingStatusSold), nil)
 		f.listings.EXPECT().Withdraw(mock.Anything, entity.ResaleListingID("l-1"), resaleWeekBefore).
-			Return(apperr.New(codes.FailedPrecondition, "held"))
+			Return(apperr.New(codes.FailedPrecondition, "sold"))
 
 		_, err := f.uc.Withdraw(ctx, "fan-1", "l-1")
 

@@ -50,23 +50,23 @@ func (_m *MockTicketSaleUseCase) EXPECT() *MockTicketSaleUseCase_Expecter {
 }
 
 // Create provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) Create(ctx context.Context, organizerID string, in usecase.CreateTicketSaleInput) (*usecase.TicketSaleView, error) {
+func (_mock *MockTicketSaleUseCase) Create(ctx context.Context, organizerID string, in usecase.CreateTicketSaleInput) (*entity.TicketSale, error) {
 	ret := _mock.Called(ctx, organizerID, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 *usecase.TicketSaleView
+	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.CreateTicketSaleInput) (*usecase.TicketSaleView, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.CreateTicketSaleInput) (*entity.TicketSale, error)); ok {
 		return returnFunc(ctx, organizerID, in)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.CreateTicketSaleInput) *usecase.TicketSaleView); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.CreateTicketSaleInput) *entity.TicketSale); ok {
 		r0 = returnFunc(ctx, organizerID, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.TicketSaleView)
+			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, usecase.CreateTicketSaleInput) error); ok {
@@ -113,34 +113,34 @@ func (_c *MockTicketSaleUseCase_Create_Call) Run(run func(ctx context.Context, o
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_Create_Call) Return(ticketSaleView *usecase.TicketSaleView, err error) *MockTicketSaleUseCase_Create_Call {
-	_c.Call.Return(ticketSaleView, err)
+func (_c *MockTicketSaleUseCase_Create_Call) Return(ticketSale *entity.TicketSale, err error) *MockTicketSaleUseCase_Create_Call {
+	_c.Call.Return(ticketSale, err)
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, organizerID string, in usecase.CreateTicketSaleInput) (*usecase.TicketSaleView, error)) *MockTicketSaleUseCase_Create_Call {
+func (_c *MockTicketSaleUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, organizerID string, in usecase.CreateTicketSaleInput) (*entity.TicketSale, error)) *MockTicketSaleUseCase_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ListByEvent provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) ListByEvent(ctx context.Context, eventID string) ([]*usecase.TicketSaleView, error) {
+func (_mock *MockTicketSaleUseCase) ListByEvent(ctx context.Context, eventID string) (*usecase.EventSales, error) {
 	ret := _mock.Called(ctx, eventID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByEvent")
 	}
 
-	var r0 []*usecase.TicketSaleView
+	var r0 *usecase.EventSales
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*usecase.TicketSaleView, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*usecase.EventSales, error)); ok {
 		return returnFunc(ctx, eventID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*usecase.TicketSaleView); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *usecase.EventSales); ok {
 		r0 = returnFunc(ctx, eventID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*usecase.TicketSaleView)
+			r0 = ret.Get(0).(*usecase.EventSales)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
@@ -181,12 +181,12 @@ func (_c *MockTicketSaleUseCase_ListByEvent_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_ListByEvent_Call) Return(ticketSaleViews []*usecase.TicketSaleView, err error) *MockTicketSaleUseCase_ListByEvent_Call {
-	_c.Call.Return(ticketSaleViews, err)
+func (_c *MockTicketSaleUseCase_ListByEvent_Call) Return(eventSales *usecase.EventSales, err error) *MockTicketSaleUseCase_ListByEvent_Call {
+	_c.Call.Return(eventSales, err)
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]*usecase.TicketSaleView, error)) *MockTicketSaleUseCase_ListByEvent_Call {
+func (_c *MockTicketSaleUseCase_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) (*usecase.EventSales, error)) *MockTicketSaleUseCase_ListByEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -266,23 +266,23 @@ func (_c *MockTicketSaleUseCase_ListOwnByEvent_Call) RunAndReturn(run func(ctx c
 }
 
 // SetVerificationRequirement provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*usecase.TicketSaleView, error) {
+func (_mock *MockTicketSaleUseCase) SetVerificationRequirement(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error) {
 	ret := _mock.Called(ctx, organizerID, saleID, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetVerificationRequirement")
 	}
 
-	var r0 *usecase.TicketSaleView
+	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, entity.VerificationRequirement) (*usecase.TicketSaleView, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, entity.VerificationRequirement) (*entity.TicketSale, error)); ok {
 		return returnFunc(ctx, organizerID, saleID, req)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, entity.VerificationRequirement) *usecase.TicketSaleView); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, entity.VerificationRequirement) *entity.TicketSale); ok {
 		r0 = returnFunc(ctx, organizerID, saleID, req)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.TicketSaleView)
+			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.TicketSaleID, entity.VerificationRequirement) error); ok {
@@ -335,34 +335,34 @@ func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) Run(run func(ct
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) Return(ticketSaleView *usecase.TicketSaleView, err error) *MockTicketSaleUseCase_SetVerificationRequirement_Call {
-	_c.Call.Return(ticketSaleView, err)
+func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) Return(ticketSale *entity.TicketSale, err error) *MockTicketSaleUseCase_SetVerificationRequirement_Call {
+	_c.Call.Return(ticketSale, err)
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*usecase.TicketSaleView, error)) *MockTicketSaleUseCase_SetVerificationRequirement_Call {
+func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, req entity.VerificationRequirement) (*entity.TicketSale, error)) *MockTicketSaleUseCase_SetVerificationRequirement_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SetWindow provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*usecase.TicketSaleView, error) {
+func (_mock *MockTicketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
 	ret := _mock.Called(ctx, organizerID, saleID, saleStart, saleEnd)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetWindow")
 	}
 
-	var r0 *usecase.TicketSaleView
+	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) (*usecase.TicketSaleView, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) (*entity.TicketSale, error)); ok {
 		return returnFunc(ctx, organizerID, saleID, saleStart, saleEnd)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) *usecase.TicketSaleView); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) *entity.TicketSale); ok {
 		r0 = returnFunc(ctx, organizerID, saleID, saleStart, saleEnd)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.TicketSaleView)
+			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) error); ok {
@@ -421,12 +421,12 @@ func (_c *MockTicketSaleUseCase_SetWindow_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_SetWindow_Call) Return(ticketSaleView *usecase.TicketSaleView, err error) *MockTicketSaleUseCase_SetWindow_Call {
-	_c.Call.Return(ticketSaleView, err)
+func (_c *MockTicketSaleUseCase_SetWindow_Call) Return(ticketSale *entity.TicketSale, err error) *MockTicketSaleUseCase_SetWindow_Call {
+	_c.Call.Return(ticketSale, err)
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_SetWindow_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*usecase.TicketSaleView, error)) *MockTicketSaleUseCase_SetWindow_Call {
+func (_c *MockTicketSaleUseCase_SetWindow_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleUseCase_SetWindow_Call {
 	_c.Call.Return(run)
 	return _c
 }

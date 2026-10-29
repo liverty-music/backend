@@ -616,8 +616,10 @@ type LotteryEntryDrawnData struct {
 	UserID string `json:"user_id"`
 	// TicketSaleID is the drawn Lottery sale.
 	TicketSaleID string `json:"ticket_sale_id"`
-	// TicketTypeID is the TicketType the entry was for.
-	TicketTypeID string `json:"ticket_type_id"`
+	// TicketStockID is the TicketStock the entry's Order was for. It replaced
+	// ticket_type_id with remodel-ticket-sales; a payload published before
+	// that carries no stock.
+	TicketStockID string `json:"ticket_stock_id"`
 	// Result is the entry's result, "won" or "lost" ([LotteryEntryState]
 	// String).
 	Result string `json:"result"`
@@ -636,8 +638,10 @@ type CheckoutExpiredData struct {
 	CheckoutID string `json:"checkout_id"`
 	// UserID is the platform-internal id of the Checkout's fan.
 	UserID string `json:"user_id"`
-	// TicketTypeID is the TicketType the Checkout held.
-	TicketTypeID string `json:"ticket_type_id"`
+	// TicketStockID is the TicketStock the Checkout held. It replaced
+	// ticket_type_id with remodel-ticket-sales; a payload published before
+	// that carries no stock.
+	TicketStockID string `json:"ticket_stock_id"`
 	// TicketCount is the number of tickets the Checkout held.
 	TicketCount int `json:"ticket_count"`
 	// HoldExpireTime is when the Checkout's hold lapsed, the time the fact

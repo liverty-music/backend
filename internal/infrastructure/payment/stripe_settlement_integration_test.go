@@ -142,7 +142,7 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	// ── Capture: fan's funds land on the PLATFORM balance ──────────────────
 	// A plain platform charge, not a destination charge: settlement to the
 	// Organizer happens later, via Transfer.
-	opened, err := cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: entity.UserID(entity.NewID()), TicketTypeID: entity.TicketTypeID(entity.NewID()), TicketCount: 1}, grossJPY)
+	opened, err := cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: entity.UserID(entity.NewID()), TicketSaleID: entity.TicketSaleID(entity.NewID()), TicketStockID: entity.TicketStockID(entity.NewID()), TicketCount: 1}, grossJPY)
 	require.NoError(t, err, "authorize the fan's card")
 	providerPaymentID := opened.ID
 	confirmWith(t, key, providerPaymentID, "pm_card_visa")

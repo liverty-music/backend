@@ -45,26 +45,30 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		{
 			name: "lottery entry",
 			create: func(t *testing.T, userID entity.UserID) (func() error, func() int) {
-				tt := openLotteryTicketType(t)
+				f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
+				stock, err := rdb.NewTicketStockRepository(testDB).Get(ctx, f.ID, saleWindowStart)
+				require.NoError(t, err)
 				repo := rdb.NewLotteryEntryRepository(testDB)
 				return func() error {
-						_, err := repo.Create(ctx, newEntry(tt.ID, userID, 1, nil))
+						order := entity.NewPendingOrder(userID, stock, 1, nil, entity.OrderPaymentProvider)
+						order.CardAuthorizationID = "pi_" + string(order.ID)
+						_, err := repo.Create(ctx, entity.NewLotteryEntry(order, f.SaleID))
 						return err
 					}, func() int {
-						return countUserRows(ctx, t, `SELECT count(*) FROM lottery_entries WHERE user_id = $1`, string(userID))
+						return countUserRows(ctx, t, `SELECT count(*) FROM orders WHERE user_id = $1`, string(userID))
 					}
 			},
 		},
 		{
 			name: "checkout",
 			create: func(t *testing.T, userID entity.UserID) (func() error, func() int) {
-				tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 10, 4)
+				f := seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
 				repo := rdb.NewCheckoutRepository(testDB)
 				return func() error {
-						_, err := repo.GetOrCreateHeld(ctx, tt.ID, userID, 1, saleWindowStart.Add(time.Hour), nil)
+						_, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, userID, 1, nil, saleWindowStart.Add(time.Hour))
 						return err
 					}, func() int {
-						return countUserRows(ctx, t, `SELECT count(*) FROM checkouts WHERE user_id = $1`, string(userID))
+						return countUserRows(ctx, t, `SELECT count(*) FROM orders WHERE user_id = $1`, string(userID))
 					}
 			},
 		},
@@ -79,16 +83,22 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		})
 	}
 
-	// A resale listing's user is the fan whose tickets are seeded with it.
+	// A resale listing's user is the fan whose ticket of a sold-out stock is
+	// listed.
 	t.Run("resale listing during a deletion", func(t *testing.T) {
-		s := seedSoldOutType(t, 1)
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 1, 4)
+		seller := seedFanUser(t)
+		ticketID := seedIssuedTicketsOf(t, f, seller, 1)[0]
+		var orderID string
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(ticketID)).Scan(&orderID))
+		ticket := &entity.Ticket{ID: ticketID, OrderID: entity.OrderID(orderID), UserID: entity.UserID(seller), EventID: f.EventID}
 		repo := rdb.NewResaleListingRepository(testDB)
 		run := func() error {
-			_, err := repo.Create(ctx, entity.NewResaleListing(s.tickets[0], s.tt, saleWindowStart.Add(24*time.Hour)))
+			_, err := repo.Create(ctx, entity.NewResaleListing(ticket, f.ID, f.SeatType, saleWindowStart.Add(24*time.Hour)))
 			return err
 		}
-		assertCreateBlockedByDeletion(ctx, t, users, string(s.seller), run)
-		assert.Zero(t, countUserRows(ctx, t, `SELECT count(*) FROM resale_listings WHERE user_id = $1`, string(s.seller)))
+		assertCreateBlockedByDeletion(ctx, t, users, seller, run)
+		assert.Zero(t, countUserRows(ctx, t, `SELECT count(*) FROM resale_listings WHERE user_id = $1`, seller))
 	})
 }
 

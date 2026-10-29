@@ -12,16 +12,59 @@ func TestNewCheckout(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/checkout "New checkout"
-	ticketType := &entity.TicketType{ID: "type-1", Price: 3000}
+	order := &entity.Order{ID: "order-1", Status: entity.OrderStatusPending}
 	now := time.Date(2026, 11, 5, 18, 0, 0, 0, jst)
 
-	c := entity.NewCheckout(ticketType, "user-1", 2, now)
+	c := entity.NewCheckout(order, "sale-1", now)
 
 	assert.Equal(t, entity.CheckoutStatusHeld, c.Status)
-	assert.Equal(t, int64(6000), c.Amount)
 	assert.Equal(t, time.Date(2026, 11, 5, 18, 15, 0, 0, jst), c.HoldExpireTime)
-	assert.Equal(t, ticketType.ID, c.TicketTypeID)
-	assert.Equal(t, entity.UserID("user-1"), c.UserID)
+	assert.Equal(t, order.ID, c.OrderID)
+	assert.Equal(t, entity.TicketSaleID("sale-1"), c.TicketSaleID)
+	assert.Equal(t, c.ID, order.CheckoutID)
+	assert.NoError(t, order.ValidateSource())
+}
+
+func TestValidateCheckoutSale(t *testing.T) {
+	t.Parallel()
+
+	stock := entity.NewTicketStock("event-1", "seat-s", 150)
+	tests := []struct {
+		name  string
+		sale  *entity.TicketSale
+		valid bool
+	}{
+		{
+			// @spec components/entity/checkout "First-come sale of the event"
+			name:  "first-come sale naming the stock's event",
+			sale:  entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-1"),
+			valid: true,
+		},
+		{
+			// @spec components/entity/checkout "Lottery sale"
+			name: "lottery sale",
+			sale: entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1"),
+		},
+		{
+			// @spec components/entity/checkout "No sale"
+			name: "no sale",
+		},
+		{
+			name: "first-come sale of another event",
+			sale: entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-2"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := entity.ValidateCheckoutSale(tt.sale, stock)
+			if tt.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
 }
 
 func TestCheckout_IsHoldingAt(t *testing.T) {
@@ -70,80 +113,4 @@ func TestCheckout_CanBecome(t *testing.T) {
 
 		assert.True(t, c.CanBecome(entity.CheckoutStatusReleased))
 	})
-}
-
-func TestNewResaleCheckout(t *testing.T) {
-	t.Parallel()
-
-	ticketType := &entity.TicketType{ID: "type-1", Price: 5000}
-	deadline := time.Date(2026, 11, 20, 15, 0, 0, 0, jst)
-
-	t.Run("resale checkout long before the deadline", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/checkout "Resale checkout long before the deadline"
-		c := entity.NewResaleCheckout(ticketType, "user-1", 1, time.Date(2026, 11, 20, 12, 0, 0, 0, jst), deadline)
-
-		assert.True(t, c.Resale)
-		assert.Equal(t, entity.CheckoutStatusHeld, c.Status)
-		assert.Equal(t, int64(5000), c.Amount)
-		assert.Equal(t, time.Date(2026, 11, 20, 12, 15, 0, 0, jst), c.HoldExpireTime)
-	})
-
-	t.Run("resale checkout just before the deadline", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/checkout "Resale checkout just before the deadline"
-		c := entity.NewResaleCheckout(ticketType, "user-1", 1, time.Date(2026, 11, 20, 14, 50, 0, 0, jst), deadline)
-
-		assert.Equal(t, deadline, c.HoldExpireTime)
-	})
-}
-
-func TestCheckout_ValidateResaleListings(t *testing.T) {
-	t.Parallel()
-
-	resale := &entity.Checkout{TicketTypeID: "type-1", UserID: "buyer", TicketCount: 2, Resale: true}
-	listing := func(user entity.UserID) *entity.ResaleListing {
-		return &entity.ResaleListing{TicketTypeID: "type-1", UserID: user}
-	}
-
-	tests := []struct {
-		name     string
-		checkout *entity.Checkout
-		listings []*entity.ResaleListing
-		wantErr  bool
-	}{
-		{
-			// @spec components/entity/checkout "Two listings of two fans"
-			name: "two listings of two fans", checkout: resale,
-			listings: []*entity.ResaleListing{listing("fan-a"), listing("fan-b")},
-		},
-		{
-			// @spec components/entity/checkout "The fan's own listing"
-			name: "the fan's own listing", checkout: resale,
-			listings: []*entity.ResaleListing{listing("fan-a"), listing("buyer")}, wantErr: true,
-		},
-		{
-			name: "fewer listings than tickets", checkout: resale,
-			listings: []*entity.ResaleListing{listing("fan-a")}, wantErr: true,
-		},
-		{
-			name: "listing of another ticket type", checkout: resale,
-			listings: []*entity.ResaleListing{listing("fan-a"), {TicketTypeID: "type-2", UserID: "fan-b"}}, wantErr: true,
-		},
-		{
-			name: "stock checkout holds no listing", checkout: &entity.Checkout{TicketTypeID: "type-1", UserID: "buyer", TicketCount: 1},
-			listings: []*entity.ResaleListing{listing("fan-a")}, wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := tt.checkout.ValidateResaleListings(tt.listings)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
 }

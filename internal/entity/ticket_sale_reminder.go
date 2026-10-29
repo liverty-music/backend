@@ -8,10 +8,9 @@ import (
 // ReminderStage identifies which point of a TicketSale's timeline a reminder
 // marks.
 //
-// Which stages apply depends on the sale's method: a Lottery gets all three, a
-// FirstCome sale only APPLY_OPEN. Value 3 was APPLY_CLOSE_1H and is left
-// unused. The ticket_sale_reminders.stage CHECK (1..10) leaves room for future
-// stages.
+// Which stages apply depends on the sale's method: a Lottery gets both, a
+// FirstCome sale only APPLY_OPEN. Value 3 was APPLY_CLOSE_1H and value 4 was
+// RESULT_DAY; neither is used.
 type ReminderStage int16
 
 const (
@@ -21,10 +20,6 @@ const (
 	// ReminderStageApplyClose24H is anchored 24 hours before a Lottery's end
 	// time.
 	ReminderStageApplyClose24H ReminderStage = 2
-	// ReminderStageResultDay is anchored on a Lottery's result time (see
-	// [TicketSale.ResultTime]); it is due at 09:00 in the fan's time zone on
-	// that calendar day.
-	ReminderStageResultDay ReminderStage = 4
 )
 
 // FirstComeOpenLead is how long before a FirstCome sale opens its
@@ -34,7 +29,7 @@ const FirstComeOpenLead = 30 * time.Minute
 // IsValid reports whether s is one of the defined stages.
 func (s ReminderStage) IsValid() bool {
 	switch s {
-	case ReminderStageApplyOpen, ReminderStageApplyClose24H, ReminderStageResultDay:
+	case ReminderStageApplyOpen, ReminderStageApplyClose24H:
 		return true
 	default:
 		return false
@@ -50,8 +45,6 @@ func (s ReminderStage) String() string {
 		return "APPLY_OPEN"
 	case ReminderStageApplyClose24H:
 		return "APPLY_CLOSE_24H"
-	case ReminderStageResultDay:
-		return "RESULT_DAY"
 	default:
 		return "UNSPECIFIED"
 	}
@@ -63,12 +56,9 @@ func (s ReminderStage) String() string {
 //   - APPLY_OPEN: a Lottery's start time; 30 minutes before a FirstCome
 //     sale's start time.
 //   - APPLY_CLOSE_24H: 24 hours before a Lottery's end time.
-//   - RESULT_DAY: a Lottery's result time; the stage is due on its calendar
-//     day.
 //
-// ok is false when the stage does not apply to the sale: an undefined stage,
-// a stage of the other method, or RESULT_DAY on a Lottery without a result
-// time.
+// ok is false when the stage does not apply to the sale: an undefined stage
+// or a stage of the other method.
 func (s ReminderStage) Anchor(sale *TicketSale) (anchor time.Time, ok bool) {
 	lottery := sale.Method == TicketSaleMethodLottery
 	switch {
@@ -76,10 +66,8 @@ func (s ReminderStage) Anchor(sale *TicketSale) (anchor time.Time, ok bool) {
 		return sale.SaleStartTime.Add(-FirstComeOpenLead), true
 	case s == ReminderStageApplyOpen && lottery:
 		return sale.SaleStartTime, true
-	case s == ReminderStageApplyClose24H && lottery && !sale.SaleEndTime.IsZero():
+	case s == ReminderStageApplyClose24H && lottery:
 		return sale.SaleEndTime.Add(-24 * time.Hour), true
-	case s == ReminderStageResultDay && lottery:
-		return sale.ResultTime()
 	default:
 		return time.Time{}, false
 	}

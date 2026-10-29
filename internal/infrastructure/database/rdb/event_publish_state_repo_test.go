@@ -33,8 +33,8 @@ func seedFirstPartyEvents(t *testing.T, states ...string) []string {
 	for i, state := range states {
 		ids[i] = uuid.NewV7().String()
 		_, err = testDB.Pool.Exec(ctx,
-			`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state)
-			 VALUES ($1, $2, $3, DATE '2027-03-01' + $4::int, $5::event_publish_state)`,
+			`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit)
+			 VALUES ($1, $2, $3, DATE '2027-03-01' + $4::int, $5::event_publish_state, 4)`,
 			ids[i], seriesID, venueID, i, state,
 		)
 		require.NoError(t, err)

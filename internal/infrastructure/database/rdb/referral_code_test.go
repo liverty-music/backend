@@ -7,130 +7,96 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// seedCheckoutWithStatus inserts a checkout of count tickets for amount yen
-// on the ticket type in the given status, with the commit and capture times
-// that status requires, and the referral code unless it is empty, and returns
-// its id.
-func seedCheckoutWithStatus(t *testing.T, ticketTypeID entity.TicketTypeID, status entity.CheckoutStatus, count int, amount int64, code entity.ReferralCode) entity.CheckoutID {
+// seedLotteryEntryWithState stores a lottery entry of the stock's sale in
+// the given state for userID with its Order of count tickets (Pending, or
+// Void when Lost) whose card authorization is "pi_<entry id>", and returns
+// the entry's id.
+func seedLotteryEntryWithState(t *testing.T, f *stockFixture, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
 	t.Helper()
-	id := entity.NewID()
-	now := time.Now()
-	var authorization, commitAt, captureAt, referralCode any
-	switch status {
-	case entity.CheckoutStatusCommitted:
-		authorization, commitAt = "pi_"+id, now
-	case entity.CheckoutStatusCompleted:
-		authorization, commitAt, captureAt = "pi_"+id, now, now
-	}
-	if code != "" {
-		referralCode = string(code)
-	}
-	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, card_authorization_id, status, hold_expire_at, commit_at, capture_at, referral_code)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		id, string(ticketTypeID), seedFanUser(t), count, amount, authorization, int16(status), now.Add(15*time.Minute), commitAt, captureAt, referralCode)
-	require.NoError(t, err)
-	return entity.CheckoutID(id)
+	return seedLotteryEntryInSale(t, f, f.SaleID, userID, state, count)
 }
 
-// seedLotteryEntryWithState inserts a lottery entry of count tickets on the
-// ticket type in the given state for userID, with the card authorization
-// "pi_<id>", and returns its id.
-func seedLotteryEntryWithState(t *testing.T, ticketTypeID entity.TicketTypeID, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
+// seedLotteryEntryInSale is seedLotteryEntryWithState for an entry of the
+// given sale.
+func seedLotteryEntryInSale(t *testing.T, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
 	t.Helper()
-	return seedLotteryEntryWithCode(t, ticketTypeID, userID, state, count, "")
+	return seedLotteryEntryWithCode(t, f, saleID, userID, state, count, "")
 }
 
-// seedLotteryEntryWithCode is seedLotteryEntryWithState with the referral
-// code, unless it is empty.
-func seedLotteryEntryWithCode(t *testing.T, ticketTypeID entity.TicketTypeID, userID string, state entity.LotteryEntryState, count int, code entity.ReferralCode) entity.LotteryEntryID {
+// seedLotteryEntryWithCode is seedLotteryEntryInSale with the Order's
+// referral code, unless it is empty.
+func seedLotteryEntryWithCode(t *testing.T, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int, code entity.ReferralCode) entity.LotteryEntryID {
 	t.Helper()
-	id := entity.NewID()
+	ctx := context.Background()
+	id, orderID := entity.NewID(), entity.NewID()
+	status := entity.OrderStatusPending
+	if state == entity.LotteryEntryStateLost {
+		status = entity.OrderStatusVoid
+	}
 	var referralCode any
 	if code != "" {
 		referralCode = string(code)
 	}
-	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state, referral_code)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		id, string(ticketTypeID), userID, count, "pi_"+id, int16(state), referralCode)
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, referral_code, card_authorization_id, provider, status, amount, currency)
+		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, 'JPY')`,
+		orderID, userID, string(f.ID), count, referralCode, "pi_"+id, int16(status), f.Price()*int64(count))
+	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, $2, $3, $4)`,
+		id, int16(state), orderID, string(saleID))
 	require.NoError(t, err)
 	return entity.LotteryEntryID(id)
 }
 
-// seedOrderOf inserts an order of the given status and amount for the
-// source: the checkout, or else the lottery entry.
-func seedOrderOf(t *testing.T, checkoutID entity.CheckoutID, entryID entity.LotteryEntryID, status entity.OrderStatus, amount int64) {
-	t.Helper()
-	id := entity.NewID()
-	var checkout, entry any
-	if checkoutID != "" {
-		checkout = string(checkoutID)
-	} else {
-		entry = string(entryID)
-	}
-	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO orders (id, user_id, checkout_id, lottery_entry_id, provider, provider_payment_id, status, amount, currency, pay_at)
-		VALUES ($1, $2, $3, $4, 1, $5, $6, $7, 'JPY', now())`,
-		id, seedFanUser(t), checkout, entry, "pi_"+id, int16(status), amount)
-	require.NoError(t, err)
-}
-
-func TestCheckoutRepository_SetReferralCode(t *testing.T) {
+func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
 	repo := rdb.NewCheckoutRepository(testDB)
 	ctx := context.Background()
-	codeOf := func(t *testing.T, id entity.CheckoutID) *entity.ReferralCode {
-		t.Helper()
-		c, err := repo.Get(ctx, id)
-		require.NoError(t, err)
-		return c.ReferralCode
-	}
+	at := saleWindowStart.Add(time.Hour)
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
 
-	t.Run("first code", func(t *testing.T) {
-		// @spec components/entity/checkout/set-referral-code "First code"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		id := seedCheckoutWithStatus(t, tt.ID, entity.CheckoutStatusHeld, 2, 6000, "")
+	t.Run("the code is stored on the new order", func(t *testing.T) {
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		require.NoError(t, repo.SetReferralCode(ctx, id, "member-a"))
+		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t), 2, code("member-a"), at)
 
-		assert.Equal(t, code("member-a"), codeOf(t, id))
+		require.NoError(t, err)
+		assert.Equal(t, code("member-a"), c.Order.ReferralCode)
+		got, err := repo.Get(ctx, c.ID)
+		require.NoError(t, err)
+		assert.Equal(t, code("member-a"), got.Order.ReferralCode)
 	})
 
-	t.Run("last link wins", func(t *testing.T) {
-		// @spec components/entity/checkout/set-referral-code "Last link wins"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		id := seedCheckoutWithStatus(t, tt.ID, entity.CheckoutStatusHeld, 2, 6000, "member-a")
+	t.Run("a resumed hold keeps the code it started with", func(t *testing.T) {
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t)
+		first, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, code("member-a"), at)
+		require.NoError(t, err)
 
-		require.NoError(t, repo.SetReferralCode(ctx, id, "member-b"))
+		again, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, code("member-b"), at.Add(time.Minute))
 
-		assert.Equal(t, code("member-b"), codeOf(t, id))
+		require.NoError(t, err)
+		assert.Equal(t, first.ID, again.ID)
+		assert.Equal(t, code("member-a"), again.Order.ReferralCode)
 	})
 
-	t.Run("committed checkout keeps its code", func(t *testing.T) {
-		// @spec components/entity/checkout/set-referral-code "Committed checkout keeps its code"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		id := seedCheckoutWithStatus(t, tt.ID, entity.CheckoutStatusCommitted, 2, 6000, "member-a")
+	t.Run("no code", func(t *testing.T) {
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		require.NoError(t, repo.SetReferralCode(ctx, id, "member-b"))
+		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t), 1, nil, at)
 
-		assert.Equal(t, code("member-a"), codeOf(t, id))
-	})
-
-	t.Run("unknown checkout", func(t *testing.T) {
-		// @spec components/entity/checkout/set-referral-code "Unknown checkout"
-		err := repo.SetReferralCode(ctx, entity.CheckoutID(entity.NewID()), "member-a")
-
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, c.ID)
+		require.NoError(t, err)
+		assert.Nil(t, got.Order.ReferralCode)
 	})
 }
 
@@ -142,22 +108,27 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 	repo := rdb.NewOrderRepository(testDB)
 	ctx := context.Background()
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
-	// paidCheckout makes a Completed checkout of count tickets on the ticket
-	// type with the code (none when empty) and an order of amount yen.
-	paidCheckout := func(t *testing.T, tt *entity.TicketType, refCode entity.ReferralCode, status entity.OrderStatus, count int, amount int64) {
+	// checkoutOrder stores an Order of count tickets for amount yen with the
+	// code (none when empty) in the status, through a Checkout whose status
+	// follows from it.
+	checkoutOrder := func(t *testing.T, f *stockFixture, refCode entity.ReferralCode, status entity.OrderStatus, count int, amount int64) {
 		t.Helper()
-		id := seedCheckoutWithStatus(t, tt.ID, entity.CheckoutStatusCompleted, count, amount, refCode)
-		seedOrderOf(t, id, "", status, amount)
+		checkoutStatus := entity.CheckoutStatusCompleted
+		if status == entity.OrderStatusVoid {
+			checkoutStatus = entity.CheckoutStatusExpired
+		}
+		insertCheckoutOrder(t, f, orderSeed{count: count, amount: amount, code: refCode, status: status},
+			checkoutStatus, issuedTicketsTime)
 	}
 
 	t.Run("two codes and direct purchases", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Two codes and direct purchases"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		paidCheckout(t, tt, "member-a", entity.OrderStatusPaid, 2, 6500)
-		paidCheckout(t, tt, "member-a", entity.OrderStatusPaid, 3, 9750)
-		paidCheckout(t, tt, "", entity.OrderStatusPaid, 1, 3250)
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		checkoutOrder(t, f, "member-a", entity.OrderStatusPaid, 2, 6500)
+		checkoutOrder(t, f, "member-a", entity.OrderStatusPaid, 3, 9750)
+		checkoutOrder(t, f, "", entity.OrderStatusPaid, 1, 3250)
 
-		got, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
 		require.NoError(t, err)
 		assert.Equal(t, []entity.ReferralCodeStats{
@@ -168,18 +139,23 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("lottery win counted once its order exists", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Lottery win counted once its Order exists"
-		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 0)
-		entryID := seedLotteryEntryWithCode(t, tt.ID, seedFanUser(t), entity.LotteryEntryStateEntered, 2, "member-b")
-
-		before, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		_, err := testDB.Pool.Exec(ctx, `UPDATE seat_types SET price = 8000 WHERE id = $1`, string(f.SeatType.ID))
 		require.NoError(t, err)
-		assert.Empty(t, before, "an Entered entry without an Order is not counted")
+		f.SeatType.Price = 8000
+		entryID := seedLotteryEntryWithCode(t, f, f.SaleID, seedFanUser(t), entity.LotteryEntryStateEntered, 2, "member-b")
+
+		before, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
+		require.NoError(t, err)
+		assert.Empty(t, before, "a Pending Order of an Entered entry is not counted")
 
 		_, err = testDB.Pool.Exec(ctx, `UPDATE lottery_entries SET state = 2 WHERE id = $1`, string(entryID))
 		require.NoError(t, err)
-		seedOrderOf(t, "", entryID, entity.OrderStatusPaid, 16000)
+		_, err = testDB.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_paid_' || id, pay_at = now() WHERE id = $1`,
+			string(entryOrderID(t, entryID)))
+		require.NoError(t, err)
 
-		after, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		after, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 		require.NoError(t, err)
 		assert.Equal(t, []entity.ReferralCodeStats{
 			{Code: code("member-b"), OrderCount: 1, TicketCount: 2, Amount: 16000},
@@ -188,11 +164,11 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("refunded order excluded", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Refunded order excluded"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		paidCheckout(t, tt, "member-a", entity.OrderStatusRefunded, 2, 6000)
-		paidCheckout(t, tt, "", entity.OrderStatusPaid, 1, 3000)
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		checkoutOrder(t, f, "member-a", entity.OrderStatusRefunded, 2, 6000)
+		checkoutOrder(t, f, "", entity.OrderStatusPaid, 1, 3000)
 
-		got, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
 		require.NoError(t, err)
 		assert.Equal(t, []entity.ReferralCodeStats{
@@ -202,10 +178,10 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("abandoned checkout not counted", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Abandoned checkout not counted"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		seedCheckoutWithStatus(t, tt.ID, entity.CheckoutStatusExpired, 2, 6000, "member-c")
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		checkoutOrder(t, f, "member-c", entity.OrderStatusVoid, 2, 6000)
 
-		got, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -214,10 +190,10 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 	t.Run("other events not counted", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Other events not counted"
 		events := seedFirstPartyEvents(t, "PUBLISHED", "PUBLISHED")
-		this := seedTicketTypeForEvent(t, events[0], entity.TicketSaleMethodFirstCome, 100, 0)
-		other := seedTicketTypeForEvent(t, events[1], entity.TicketSaleMethodFirstCome, 100, 0)
-		paidCheckout(t, this, "member-a", entity.OrderStatusPaid, 1, 3000)
-		paidCheckout(t, other, "member-a", entity.OrderStatusPaid, 2, 6000)
+		this := seedStockForEvent(t, events[0], entity.TicketSaleMethodFirstCome, 100, 4)
+		other := seedStockForEvent(t, events[1], entity.TicketSaleMethodFirstCome, 100, 4)
+		checkoutOrder(t, this, "member-a", entity.OrderStatusPaid, 1, 3000)
+		checkoutOrder(t, other, "member-a", entity.OrderStatusPaid, 2, 6000)
 
 		got, err := repo.ListReferralStatsByEvent(ctx, events[0])
 
@@ -229,22 +205,22 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("no purchases", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "No purchases"
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		got, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
 
 	t.Run("groups ordered by order count then code", func(t *testing.T) {
-		tt := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 0)
-		paidCheckout(t, tt, "zz", entity.OrderStatusPaid, 1, 3000)
-		paidCheckout(t, tt, "b", entity.OrderStatusPaid, 1, 3000)
-		paidCheckout(t, tt, "a-1", entity.OrderStatusPaid, 1, 3000)
-		paidCheckout(t, tt, "a-1", entity.OrderStatusPaid, 1, 3000)
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		checkoutOrder(t, f, "zz", entity.OrderStatusPaid, 1, 3000)
+		checkoutOrder(t, f, "b", entity.OrderStatusPaid, 1, 3000)
+		checkoutOrder(t, f, "a-1", entity.OrderStatusPaid, 1, 3000)
+		checkoutOrder(t, f, "a-1", entity.OrderStatusPaid, 1, 3000)
 
-		got, err := repo.ListReferralStatsByEvent(ctx, tt.EventID)
+		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
 		require.NoError(t, err)
 		require.Len(t, got, 3)

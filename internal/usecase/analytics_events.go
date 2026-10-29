@@ -114,12 +114,12 @@ const (
 
 	// EventTicketLotteryResult is recorded for each drawn lottery entry
 	// (ORDER.lottery_entry_drawn). Properties: lottery_entry_id,
-	// ticket_sale_id, ticket_type_id, result ("won" or "lost"),
+	// ticket_sale_id, ticket_stock_id, result ("won" or "lost"),
 	// capture_failed.
 	EventTicketLotteryResult AnalyticsEventName = "ticket.lottery.result"
 
 	// EventCheckoutExpired is recorded when a Checkout's hold lapses
-	// (ORDER.checkout_expired). Properties: checkout_id, ticket_type_id,
+	// (ORDER.checkout_expired). Properties: checkout_id, ticket_stock_id,
 	// ticket_count.
 	EventCheckoutExpired AnalyticsEventName = "checkout.expired"
 

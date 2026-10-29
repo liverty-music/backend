@@ -93,7 +93,7 @@ func paidOrder(id entity.OrderID, amount int64, providerPaymentID string, paidAt
 		Status:   entity.OrderStatusPaid,
 		Amount:   amount,
 		Currency: "JPY",
-		PayTime:  paidAt,
+		PayTime:  &paidAt,
 		Payment: entity.Payment{
 			Provider:          entity.PaymentProviderStripe,
 			ProviderPaymentID: providerPaymentID,
@@ -365,29 +365,29 @@ func TestOrderUseCase_Refund_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Not-refundable — Failed order returns FAILED_PRECONDITION
+// Not-refundable — Pending order returns FAILED_PRECONDITION
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestOrderUseCase_Refund_NotRefundable_FailedOrder(t *testing.T) {
+func TestOrderUseCase_Refund_NotRefundable_PendingOrder(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	now := time.Now()
 
-	const orderID = entity.OrderID("order-failed")
+	const orderID = entity.OrderID("order-pending")
 
-	failedOrder := &entity.Order{
+	pendingOrder := &entity.Order{
 		ID:     orderID,
-		Status: entity.OrderStatusFailed,
+		Status: entity.OrderStatusPending,
 		Amount: 6000,
 		Payment: entity.Payment{
 			Provider:          entity.PaymentProviderStripe,
-			ProviderPaymentID: "pi_failed",
+			ProviderPaymentID: "pi_pending",
 		},
 	}
 
 	orderRepo := &stubOrderRepo{
-		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return failedOrder, nil },
+		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return pendingOrder, nil },
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)

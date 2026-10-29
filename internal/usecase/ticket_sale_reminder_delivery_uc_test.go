@@ -273,12 +273,12 @@ func TestDeliverReminder_TransientFailureDoesNotRecordSent(t *testing.T) {
 
 	d := newReminderDeliveryTestDeps(t)
 	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageResultDay).
+		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
 		Return(false, nil)
 	expectTransientFailure(t, d, "user-001", "id-transient")
 	// RecordSent must NOT be called — leave the sent-log empty so the next scan retries.
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageResultDay))
+	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	// Total failure is not returned as an error — the next scan will retry.
 	require.NoError(t, err)
@@ -298,7 +298,6 @@ func TestDeliverReminder_AllStagesDeliver(t *testing.T) {
 	}{
 		{entity.ReminderStageApplyOpen, "APPLY_OPEN"},
 		{entity.ReminderStageApplyClose24H, "APPLY_CLOSE_24H"},
-		{entity.ReminderStageResultDay, "RESULT_DAY"},
 	}
 
 	for _, tt := range tests {

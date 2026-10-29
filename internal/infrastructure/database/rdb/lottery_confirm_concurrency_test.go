@@ -33,23 +33,23 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
-	setSaleEndByDatabaseClock(t, tt.TicketSaleID, 5*time.Second)
+	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+	setSaleEndByDatabaseClock(t, f.SaleID, 5*time.Second)
 	fan := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 	const cardAuthorizationID = "pi_fan_and_notice"
 	cardAuthorizations := entitymocks.NewMockCardAuthorizationRepository(t)
 	cardAuthorizations.EXPECT().Get(mock.Anything, cardAuthorizationID).Return(&entity.CardAuthorization{
-		ID: cardAuthorizationID, Amount: tt.AmountFor(2), CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized,
+		ID: cardAuthorizationID, Amount: f.SeatType.AmountFor(2), CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized,
 		Purchase: entity.CardAuthorizationPurchase{
-			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: fan, TicketTypeID: tt.ID, EventID: tt.EventID, TicketCount: 2,
+			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: fan, TicketSaleID: f.SaleID,
+			TicketStockID: f.ID, EventID: f.EventID, TicketCount: 2,
 		},
 	}, nil)
 
 	now := time.Now()
 	entries := rdb.NewLotteryEntryRepository(testDB)
-	uc := usecase.NewLotteryEntryUseCase(rdb.NewTicketSaleRepository(testDB), entries, rdb.NewTicketRepository(testDB),
-		rdb.NewIdentityVerificationRepository(testDB), rdb.NewUserRepository(testDB), cardAuthorizations,
-		&recordingPublisher{}, func() time.Time { return now }, logger)
+	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, &recordingPublisher{},
+		func() time.Time { return now }, logger))
 
 	callers := []*entity.UserID{&fan, nil} // the fan, and the notice without a fan
 	got := make([]*entity.LotteryEntry, len(callers))
@@ -65,9 +65,10 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	require.NoError(t, errs[0])
 	require.NoError(t, errs[1])
 	assert.Equal(t, got[0].ID, got[1].ID, "both return the one entry")
-	stored, err := entries.ListByTicketTypeAndUser(ctx, tt.ID, fan)
+	stored, err := entries.ListByTicketTypeAndUser(ctx, f.SaleID, fan)
 	require.NoError(t, err)
 	require.Len(t, stored, 1, "one entry is made")
-	assert.Equal(t, cardAuthorizationID, stored[0].CardAuthorizationID)
+	assert.Equal(t, cardAuthorizationID, stored[0].Order.CardAuthorizationID)
 	assert.Equal(t, entity.LotteryEntryStateEntered, stored[0].State)
+	assert.Equal(t, entity.OrderStatusPending, stored[0].Order.Status, "with its Pending Order")
 }

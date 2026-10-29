@@ -61,7 +61,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		return order, nil
 	}
 
-	// Only Paid orders may be refunded. Failed orders have no captured payment to refund.
+	// Only Paid orders may be refunded: Pending and Void orders have no captured payment.
 	if order.Status != entity.OrderStatusPaid {
 		return nil, apperr.New(codes.FailedPrecondition,
 			"order is not in a refundable state (must be paid)")

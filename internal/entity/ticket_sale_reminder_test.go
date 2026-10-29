@@ -12,12 +12,12 @@ func TestReminderStage_IsValid(t *testing.T) {
 	t.Parallel()
 
 	for _, s := range []entity.ReminderStage{
-		entity.ReminderStageApplyOpen, entity.ReminderStageApplyClose24H, entity.ReminderStageResultDay,
+		entity.ReminderStageApplyOpen, entity.ReminderStageApplyClose24H,
 	} {
 		assert.True(t, s.IsValid(), s.String())
 	}
 	// @spec components/entity/ticket-sale-reminder "Undefined stage"
-	for _, s := range []entity.ReminderStage{0, 3, 5} {
+	for _, s := range []entity.ReminderStage{0, 3, 4, 5} {
 		assert.False(t, s.IsValid(), "stage %d", s)
 	}
 }
@@ -28,7 +28,7 @@ func TestReminderStage_Anchor(t *testing.T) {
 	anchors := func(sale *entity.TicketSale) map[entity.ReminderStage]time.Time {
 		got := map[entity.ReminderStage]time.Time{}
 		for _, s := range []entity.ReminderStage{
-			entity.ReminderStageApplyOpen, entity.ReminderStageApplyClose24H, entity.ReminderStageResultDay,
+			entity.ReminderStageApplyOpen, entity.ReminderStageApplyClose24H,
 		} {
 			if at, ok := s.Anchor(sale); ok {
 				got[s] = at
@@ -41,45 +41,30 @@ func TestReminderStage_Anchor(t *testing.T) {
 		// @spec components/entity/ticket-sale-reminder "Lottery stages"
 		t.Parallel()
 		sale := discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
-		result := time.Date(2026, 11, 3, 15, 0, 0, 0, jst)
-		sale.LotteryResultTime = &result
 
 		assert.Equal(t, map[entity.ReminderStage]time.Time{
 			entity.ReminderStageApplyOpen:     oct(5, 18, 0),
 			entity.ReminderStageApplyClose24H: oct(21, 23, 59),
-			entity.ReminderStageResultDay:     result,
 		}, anchors(sale))
 	})
 
 	t.Run("first-come stage", func(t *testing.T) {
 		// @spec components/entity/ticket-sale-reminder "First-come stage"
 		t.Parallel()
-		sale := discoveredSale(entity.TicketSaleMethodFirstCome, oct(6, 19, 0), time.Time{})
+		sale := discoveredSale(entity.TicketSaleMethodFirstCome, oct(6, 19, 0), oct(10, 23, 59))
 
 		assert.Equal(t, map[entity.ReminderStage]time.Time{
 			entity.ReminderStageApplyOpen: oct(6, 18, 30),
 		}, anchors(sale))
 	})
 
-	t.Run("lottery without a result time", func(t *testing.T) {
-		// @spec components/entity/ticket-sale-reminder "Lottery without a result time"
-		t.Parallel()
-		sale := discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
-
-		_, ok := entity.ReminderStageResultDay.Anchor(sale)
-
-		assert.False(t, ok)
-	})
-
 	t.Run("organizer's lottery", func(t *testing.T) {
-		// @spec components/entity/ticket-sale-reminder "Organizer's lottery"
 		t.Parallel()
 		sale := saleWindow(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(12, 23, 59))
 
 		assert.Equal(t, map[entity.ReminderStage]time.Time{
 			entity.ReminderStageApplyOpen:     oct(5, 18, 0),
 			entity.ReminderStageApplyClose24H: oct(11, 23, 59),
-			entity.ReminderStageResultDay:     oct(12, 23, 59),
 		}, anchors(sale))
 	})
 

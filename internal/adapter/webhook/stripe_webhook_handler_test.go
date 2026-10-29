@@ -355,7 +355,7 @@ func TestStripeWebhookHandler_CardAuthorizationAuthorized(t *testing.T) {
 		webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, newTestLoggerWH(t)).ServeHTTP(w, req)
 		return w
 	}
-	entered := &entity.LotteryEntry{ID: "entry-1", CardAuthorizationID: piID, State: entity.LotteryEntryStateEntered}
+	entered := &entity.LotteryEntry{ID: "entry-1", State: entity.LotteryEntryStateEntered, Order: &entity.Order{CardAuthorizationID: piID}}
 
 	t.Run("fan closed the browser", func(t *testing.T) {
 		t.Parallel()

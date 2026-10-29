@@ -19,6 +19,7 @@ func seedDiscoveredSale(t *testing.T) entity.TicketSaleID {
 	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	id, _, err := rdb.NewTicketSaleRepository(testDB).UpsertDiscovered(context.Background(), &entity.DiscoveredTicketSale{
 		SeriesID:      seedSeriesOnly(t, "Reminder Tour"),
+		Name:          "オフィシャル先行",
 		Method:        entity.TicketSaleMethodLottery,
 		SaleStartTime: t0,
 		SaleEndTime:   t0.Add(72 * time.Hour),
@@ -48,7 +49,7 @@ func TestTicketSaleReminderRepository_AlreadySent(t *testing.T) {
 
 	t.Run("not recorded", func(t *testing.T) {
 		// @spec components/entity/ticket-sale-reminder/already-sent "Not recorded"
-		sent, err := repo.AlreadySent(ctx, userID, saleID, entity.ReminderStageResultDay)
+		sent, err := repo.AlreadySent(ctx, userID, saleID, entity.ReminderStageApplyOpen)
 		require.NoError(t, err)
 		assert.False(t, sent)
 	})

@@ -27,15 +27,15 @@ const (
 	// lockSeriesEventsQuery reads and locks every event of the series with
 	// the fields a lifecycle write decides on.
 	lockSeriesEventsQuery = `
-		SELECT id, venue_id, local_event_date, start_at, open_at, publish_state
+		SELECT id, venue_id, local_event_date, start_at, open_at, publish_state, per_account_limit
 		FROM events
 		WHERE series_id = $1
 		FOR UPDATE
 	`
 
 	insertAuthoredEventQuery = `
-		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'DRAFT')
+		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state, per_account_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'DRAFT', $8)
 	`
 
 	insertConcertRowQuery = `
@@ -63,7 +63,8 @@ const (
 
 	updateDraftEventQuery = `
 		UPDATE events
-		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, start_at = $5, open_at = $6
+		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, start_at = $5, open_at = $6,
+		    per_account_limit = COALESCE($7, per_account_limit)
 		WHERE id = $1 AND publish_state = 'DRAFT'
 	`
 
@@ -115,8 +116,12 @@ const (
 		UPDATE events SET publish_state = 'PUBLISHED' WHERE id = $1 AND publish_state = 'DRAFT'
 	`
 
+	// claimEventQuery moves the event into the series as PUBLISHED. A
+	// discovered event, which has no per-account limit, takes the draft's
+	// ($3); an event of another series of the organizer keeps its own.
 	claimEventQuery = `
-		UPDATE events SET series_id = $2, publish_state = 'PUBLISHED' WHERE id = $1
+		UPDATE events SET series_id = $2, publish_state = 'PUBLISHED', per_account_limit = COALESCE(per_account_limit, $3)
+		WHERE id = $1
 	`
 
 	cancelEventsQuery = `
@@ -156,12 +161,14 @@ func lockSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string) (map[stri
 		var (
 			e     entity.Event
 			state sql.NullString
+			limit sql.NullInt32
 		)
-		if err := rows.Scan(&e.ID, &e.VenueID, &e.LocalDate, &e.StartTime, &e.OpenTime, &state); err != nil {
+		if err := rows.Scan(&e.ID, &e.VenueID, &e.LocalDate, &e.StartTime, &e.OpenTime, &state, &limit); err != nil {
 			return nil, toAppErr(err, "failed to scan series event")
 		}
 		e.SeriesID = seriesID
 		e.PublishState = nullPublishState(state)
+		e.PerAccountLimit = optionalInt(limit)
 		events[e.ID] = &e
 	}
 	if err := rows.Err(); err != nil {
@@ -173,8 +180,9 @@ func lockSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string) (map[stri
 // insertDraftEvent stores one new DRAFT event of the series as a concert
 // performed by the given artists.
 func insertDraftEvent(ctx context.Context, tx pgx.Tx, seriesID string, e *entity.Event, performerIDs []string) error {
+	limit := e.Limit()
 	if _, err := tx.Exec(ctx, insertAuthoredEventQuery,
-		e.ID, seriesID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime,
+		e.ID, seriesID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, limit,
 	); err != nil {
 		return toAppErr(err, "failed to insert draft event", slog.String("series_id", seriesID))
 	}
@@ -307,7 +315,7 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 		switch {
 		case current.HasPublishState(entity.PublishStateDraft):
 			if _, err := tx.Exec(ctx, updateDraftEventQuery,
-				e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime,
+				e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, e.PerAccountLimit,
 			); err != nil {
 				return toAppErr(err, "failed to update draft event", slog.String("event_id", e.ID))
 			}
@@ -473,7 +481,7 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 		default:
 			// Claim a discovered event, or an event of another series of the
 			// same organizer, keeping its id (design D7).
-			if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID); err != nil {
+			if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID, draft.Limit()); err != nil {
 				return nil, toAppErr(err, "failed to claim event", slog.String("event_id", holder.EventID))
 			}
 			if _, err := tx.Exec(ctx, copyPerformersQuery, draft.ID, holder.EventID); err != nil {

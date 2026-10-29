@@ -28,10 +28,11 @@ import (
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
 	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
+	organizerseattypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/seat_type/v1/seat_typev1connect"
 	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	organizerseriesimageconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/series_image/v1/series_imagev1connect"
 	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
-	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
+	organizerticketstockconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/ticket_stock/v1/ticket_stockv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	passkeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/passkey/v1/passkeyv1connect"
@@ -264,6 +265,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	seatTypeRepo := rdb.NewSeatTypeRepository(db)
+	ticketStockRepo := rdb.NewTicketStockRepository(db)
 	checkoutRepo := rdb.NewCheckoutRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
 	resaleListingRepo := rdb.NewResaleListingRepository(db)
@@ -434,15 +437,32 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 	}
-	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, eventPublisher, time.Now, logger)
+	lotteryEntryUC := usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
+		SaleRepo:                 ticketSaleRepo,
+		StockRepo:                ticketStockRepo,
+		EntryRepo:                lotteryEntryRepo,
+		OrderRepo:                orderRepo,
+		EventRepo:                eventRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		UserRepo:                 userRepo,
+		CardAuthorizations:       lotteryCardAuthorizations,
+		Publisher:                eventPublisher,
+		Clock:                    time.Now,
+		Logger:                   logger,
+	})
 
-	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
-	// 15-minute first-come checkout.
-	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, orderRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
-	ticketTypeUC := usecase.NewTicketTypeUseCase(ticketSaleRepo, seriesRepo, time.Now)
+	// Seat types and ticket stocks, the sales (Lottery and FirstCome) that
+	// sell the stocks of their events, and the fan's 15-minute first-come
+	// checkout.
+	seatTypeUC := usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
+	ticketStockUC := usecase.NewTicketStockUseCase(ticketStockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, time.Now)
+	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, ticketStockRepo, lotteryEntryRepo, orderRepo, seriesRepo, organizerRepo, eventRepo, eventPublishState, eventStartTimeRepo, time.Now)
 	checkoutUC := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             checkoutRepo,
 		SaleRepo:                 ticketSaleRepo,
+		StockRepo:                ticketStockRepo,
+		EntryRepo:                lotteryEntryRepo,
+		OrderRepo:                orderRepo,
 		UserRepo:                 userRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
 		EventState:               eventPublishState,
@@ -482,16 +502,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Logger:                   logger,
 	})
 
-	// Official resale: a fan lists a ticket of a sold-out first-come ticket
-	// type, another fan buys it through the checkout above, and the refund
+	// Official resale: a fan lists a ticket of a sold-out ticket stock; the
+	// purchase of listings comes with resell-tickets-by-lottery. The refund
 	// job pays the listing fan back within a minute and announces it; the
 	// event consumer sends the sold email.
 	resaleListingUC := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings:   resaleListingRepo,
 		Tickets:    ticketRepo,
 		Orders:     orderRepo,
-		Checkouts:  checkoutRepo,
-		Sales:      ticketSaleRepo,
+		Stocks:     ticketStockRepo,
 		EventState: eventPublishState,
 		Events:     eventRepo,
 		Publisher:  eventPublisher,
@@ -819,9 +838,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(s *connect.Server) {
 			organizerticketsaleconnect.RegisterTicketSaleServiceHandler(s, rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger))
 		},
-		// Organizer-facing TicketTypeService: a sale's TicketTypes.
+		// Organizer-facing SeatTypeService: a Series' seat types.
 		func(s *connect.Server) {
-			organizertickettypeconnect.RegisterTicketTypeServiceHandler(s, rpc.NewOrganizerTicketTypeHandler(ticketTypeUC, organizerUC, logger))
+			organizerseattypeconnect.RegisterSeatTypeServiceHandler(s, rpc.NewOrganizerSeatTypeHandler(seatTypeUC, organizerUC, logger))
+		},
+		// Organizer-facing TicketStockService: an event's tickets per seat type.
+		func(s *connect.Server) {
+			organizerticketstockconnect.RegisterTicketStockServiceHandler(s, rpc.NewOrganizerTicketStockHandler(ticketStockUC, organizerUC, logger))
 		},
 	}
 	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
