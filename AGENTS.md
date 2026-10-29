@@ -44,6 +44,20 @@ Entity types in `internal/entity/` are pure structs without struct tags, with on
     - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
     - **When a timestamp exists**: only when an entity field in the spec needs it; no audit metadata (`updated_at`, `deleted_at` are rejected by `scripts/lint-schema.sh`). When the field means "when the record was created", name it `created_at` / `CreateTime` / proto `create_time` (AIP-148), not a synonym such as `configured_at` or `recorded_at`.
 
+### Go conventions
+
+General Go guidance comes from the `go` plugin skills (go-errors, go-doc-comments, go-layout, go-testing, go-postgres, go-connect-rpc). This repository's choices on top of them:
+
+- **Layers**: `internal/entity` (types and the ports they need), `internal/usecase`, `internal/adapter` (RPC handlers, event consumers), `internal/infrastructure` (database, external APIs), wired in `internal/di`. Dependencies point inward; see the review criteria below for the rules a review checks.
+- **Errors** crossing a layer are `apperr` errors (`github.com/pannpers/go-apperr`) with a code; the RPC layer maps the code to a Connect code.
+- **Doc comments** on interface methods list the apperr codes they return under a `# Possible errors` heading (cf. `internal/entity/identity_verification.go`). The list items are indented (`//   - NotFound: ...`); an unindented `- ` line is not rendered as a list.
+- **Tests** live in the external `_test` package, assert with testify (`require` for preconditions, `assert` for the rest), and stub ports with the mockery v3 mocks (`make mocks` regenerates them from `.mockery.yml`).
+- **IDs** are UUIDv7 strings from `entity.NewID()` (`internal/entity/id.go`).
+
+### Database schema
+
+`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `updated_at` / `deleted_at`, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
+
 ## Development Workflows
 
 ### Consuming New Proto Types (after BSR gen)

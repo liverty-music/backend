@@ -33,9 +33,12 @@ Production migrations are handled by the **Atlas Kubernetes Operator** — the b
 - Sync wave ordering ensures migrations complete before the backend Deployment starts
 
 When adding a new migration:
-1. Create the migration file with `atlas migrate diff --env local`
-2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
-3. Both changes go in the same PR
+1. Edit `schema.sql` to the desired state first; never write a schema migration by hand. Lock-safety rules for the generated SQL (concurrent indexes, `NOT VALID` constraints, expand and contract) are in the `postgres-migration` skill.
+2. Generate the file with `atlas migrate diff --env local <descriptive_name>` (needs Docker for the `dev` database). An empty diff means no migration is needed. An unexpected `DROP` + `CREATE` pair means `schema.sql` drifted from the migrations; fix `schema.sql` instead of the generated file.
+3. To add data changes (a backfill) or `-- atlas:txmode none` (required for `CREATE INDEX CONCURRENTLY`), edit the generated file and run `atlas migrate hash --env local`.
+4. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`.
+5. Run `scripts/check-migration-drift.sh` (kustomization listing, `schema.sql` changed with the migrations, `atlas migrate validate`, timestamp order against `origin/main`) and `make lint-schema`.
+6. All of these changes go in the same PR.
 
 #### Grant migrations (Cloud SQL IAM users)
 
