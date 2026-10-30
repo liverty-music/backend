@@ -1,0 +1,111 @@
+package pb
+
+import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// FromPayoutAccount maps a domain PayoutAccount to
+// its Protobuf message. Raw Stripe status is never exposed; the platform's own
+// PayoutOnboardingStatus enum is used.
+func FromPayoutAccount(a *entity.PayoutAccount) *entityv1.PayoutAccount {
+	if a == nil {
+		return nil
+	}
+	return &entityv1.PayoutAccount{
+		OrganizerId:       &entityv1.OrganizerId{Value: a.OrganizerID},
+		ProviderAccountId: &entityv1.PayoutAccount_ProviderAccountId{Value: a.ProviderAccountID},
+		Status:            payoutOnboardingStatusToProto(a.Status),
+	}
+}
+
+// payoutOnboardingStatusToProto maps entity.PayoutOnboardingStatus to the
+// proto enum.
+func payoutOnboardingStatusToProto(s entity.PayoutOnboardingStatus) entityv1.PayoutOnboardingStatus {
+	switch s {
+	case entity.PayoutOnboardingStatusPending:
+		return entityv1.PayoutOnboardingStatus_PAYOUT_ONBOARDING_STATUS_PENDING
+	case entity.PayoutOnboardingStatusActive:
+		return entityv1.PayoutOnboardingStatus_PAYOUT_ONBOARDING_STATUS_ACTIVE
+	case entity.PayoutOnboardingStatusRestricted:
+		return entityv1.PayoutOnboardingStatus_PAYOUT_ONBOARDING_STATUS_RESTRICTED
+	default:
+		return entityv1.PayoutOnboardingStatus_PAYOUT_ONBOARDING_STATUS_UNSPECIFIED
+	}
+}
+
+// FromSettlement maps a domain Settlement to its Protobuf message.
+func FromSettlement(s *entity.Settlement) *entityv1.Settlement {
+	if s == nil {
+		return nil
+	}
+	proto := &entityv1.Settlement{
+		Id:          &entityv1.SettlementId{Value: string(s.ID)},
+		OrderId:     &entityv1.OrderId{Value: string(s.OrderID)},
+		OrganizerId: &entityv1.OrganizerId{Value: s.OrganizerID},
+		EventId:     &entityv1.EventId{Value: s.EventID},
+		Splits:      settlementSplitsToProto(s.Splits),
+		Status:      settlementStatusToProto(s.Status),
+		CreateTime:  timestamppb.New(s.CreateTime),
+	}
+	if s.ProviderChargeID != "" {
+		proto.ProviderChargeId = &entityv1.Settlement_ProviderChargeId{Value: s.ProviderChargeID}
+	}
+	if !s.ReleaseTime.IsZero() {
+		proto.ReleaseTime = timestamppb.New(s.ReleaseTime)
+	}
+	return proto
+}
+
+func settlementSplitsToProto(splits []entity.SettlementSplit) []*entityv1.SettlementSplit {
+	if len(splits) == 0 {
+		return nil
+	}
+	out := make([]*entityv1.SettlementSplit, 0, len(splits))
+	for _, sp := range splits {
+		split := &entityv1.SettlementSplit{
+			PayeeOrganizerId: &entityv1.OrganizerId{Value: sp.PayeeOrganizerID},
+			Amount:           sp.Amount,
+		}
+		if sp.ProviderPayoutID != "" {
+			split.ProviderPayoutId = &entityv1.SettlementSplit_ProviderPayoutId{Value: sp.ProviderPayoutID}
+		}
+		if sp.ProviderPayoutReversalID != "" {
+			split.ProviderPayoutReversalId = &entityv1.SettlementSplit_ProviderPayoutReversalId{Value: sp.ProviderPayoutReversalID}
+		}
+		out = append(out, split)
+	}
+	return out
+}
+
+func settlementStatusToProto(s entity.SettlementStatus) entityv1.SettlementStatus {
+	switch s {
+	case entity.SettlementStatusHeld:
+		return entityv1.SettlementStatus_SETTLEMENT_STATUS_HELD
+	case entity.SettlementStatusReleased:
+		return entityv1.SettlementStatus_SETTLEMENT_STATUS_RELEASED
+	case entity.SettlementStatusReversed:
+		return entityv1.SettlementStatus_SETTLEMENT_STATUS_REVERSED
+	default:
+		return entityv1.SettlementStatus_SETTLEMENT_STATUS_UNSPECIFIED
+	}
+}
+
+// ToRefundReason converts the proto RefundReason enum to the domain
+// RefundReason type. Kept in pb so handlers remain free of conversion
+// logic (AGENTS.md: handlers map Proto↔Entity via pb and call a UseCase).
+// UNSPECIFIED is passed through as-is; the use case validates it and returns
+// InvalidArgument.
+func ToRefundReason(r adminorderv1.RefundReason) usecase.RefundReason {
+	switch r {
+	case adminorderv1.RefundReason_REFUND_REASON_CANCELLATION:
+		return usecase.RefundReasonCancellation
+	case adminorderv1.RefundReason_REFUND_REASON_DISPUTE:
+		return usecase.RefundReasonDispute
+	default:
+		return usecase.RefundReasonUnspecified
+	}
+}

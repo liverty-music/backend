@@ -6,7 +6,7 @@ import (
 	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -58,7 +58,7 @@ func NewUserHandler(userUseCase usecase.UserUseCase, freshSignIn FreshSignInVeri
 
 // Get returns the signed-in caller's own User.
 func (h *UserHandler) Get(ctx context.Context, _ *userv1.GetRequest) (*userv1.GetResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (h *UserHandler) Get(ctx context.Context, _ *userv1.GetRequest) (*userv1.Ge
 	}
 
 	return &userv1.GetResponse{
-		User: mapper.UserToProto(user),
+		User: pb.FromUser(user),
 	}, nil
 }
 
@@ -80,7 +80,7 @@ func (h *UserHandler) Create(ctx context.Context, req *userv1.CreateRequest) (*u
 	// Extract JWT claims from authenticated context (set by auth interceptor).
 	// This is critical for security — we extract all identity fields from validated JWT claims
 	// (provider_user_id, email, name) and never trust client-provided identity data.
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	claims, err := pb.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (h *UserHandler) Create(ctx context.Context, req *userv1.CreateRequest) (*u
 	// Convert JWT claims and request to domain DTO. preferred_language is optional;
 	// GetPreferredLanguage() returns "" when the field is absent, which is stored
 	// as NULL in the database.
-	newUser := mapper.NewUserFromCreateRequest(claims, req)
+	newUser := pb.NewUserFromCreateRequest(claims, req)
 
 	// Use the use case layer for business logic.
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
@@ -109,7 +109,7 @@ func (h *UserHandler) Create(ctx context.Context, req *userv1.CreateRequest) (*u
 	}
 
 	return &userv1.CreateResponse{
-		User: mapper.UserToProto(createdUser),
+		User: pb.FromUser(createdUser),
 	}, nil
 }
 
@@ -119,12 +119,12 @@ func (h *UserHandler) Create(ctx context.Context, req *userv1.CreateRequest) (*u
 // given value must follow the User's personal details rule (a full name of 1
 // to 200 characters, a phone number in E.164 form).
 func (h *UserHandler) Update(ctx context.Context, req *userv1.UpdateRequest) (*userv1.UpdateResponse, error) {
-	fullName, phoneNumber, err := mapper.PersonalDetailsFromUpdateRequest(req)
+	fullName, phoneNumber, err := pb.PersonalDetailsFromUpdateRequest(req)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (h *UserHandler) Update(ctx context.Context, req *userv1.UpdateRequest) (*u
 	}
 
 	return &userv1.UpdateResponse{
-		User: mapper.UserToProto(user),
+		User: pb.FromUser(user),
 	}, nil
 }
 
@@ -166,7 +166,7 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *userv1.SetP
 			"preferred_language must match ISO 639-1 (^[a-z]{2}$)")
 	}
 
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +182,13 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *userv1.SetP
 	}
 
 	return &userv1.SetPreferredLanguageResponse{
-		User: mapper.UserToProto(user),
+		User: pb.FromUser(user),
 	}, nil
 }
 
 // SetHome sets or changes the signed-in caller's home area.
 func (h *UserHandler) SetHome(ctx context.Context, req *userv1.SetHomeRequest) (*userv1.SetHomeResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -198,14 +198,14 @@ func (h *UserHandler) SetHome(ctx context.Context, req *userv1.SetHomeRequest) (
 		return nil, err
 	}
 
-	home := mapper.ProtoHomeToEntity(req.GetHome())
+	home := pb.ToHome(req.GetHome())
 	updatedUser, err := h.userUseCase.SetHome(ctx, user.ID, home)
 	if err != nil {
 		return nil, err
 	}
 
 	return &userv1.SetHomeResponse{
-		User: mapper.UserToProto(updatedUser),
+		User: pb.FromUser(updatedUser),
 	}, nil
 }
 
@@ -216,7 +216,7 @@ func (h *UserHandler) SetHome(ctx context.Context, req *userv1.SetHomeRequest) (
 // delegates to the use case, which resolves the caller, enforces the resend
 // rate limit and announces the request; the event consumer sends the code.
 func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *userv1.ResendEmailVerificationRequest) (*userv1.ResendEmailVerificationResponse, error) {
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	claims, err := pb.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +255,7 @@ func (h *UserHandler) VerifyEmail(ctx context.Context, req *userv1.VerifyEmailRe
 // ListDeletionBlockers returns what currently stops the caller's own User
 // from being deleted.
 func (h *UserHandler) ListDeletionBlockers(ctx context.Context, _ *userv1.ListDeletionBlockersRequest) (*userv1.ListDeletionBlockersResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -267,14 +267,14 @@ func (h *UserHandler) ListDeletionBlockers(ctx context.Context, _ *userv1.ListDe
 	if err != nil {
 		return nil, err
 	}
-	return &userv1.ListDeletionBlockersResponse{Blockers: mapper.DeletionBlockersToProto(blockers)}, nil
+	return &userv1.ListDeletionBlockersResponse{Blockers: pb.FromDeletionBlockers(blockers)}, nil
 }
 
 // Delete removes the caller's own User once the request proves a sign-in by
 // the caller within the last 5 minutes. A missing proof is rejected by the
 // server's protovalidate interceptor before the handler runs.
 func (h *UserHandler) Delete(ctx context.Context, req *userv1.DeleteRequest) (*userv1.DeleteResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}

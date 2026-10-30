@@ -9,7 +9,7 @@ import (
 	checkoutv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/checkout/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -50,11 +50,11 @@ func (h *CheckoutHandler) Start(
 	}
 
 	checkout, err := h.checkoutUC.Start(ctx, userID, entity.TicketStockID(req.GetTicketStockId().GetValue()), int(req.GetTicketCount()),
-		mapper.ReferralCodeFromProto(req.GetReferralCode()))
+		pb.ToReferralCode(req.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}
-	return &checkoutv1.StartResponse{Checkout: mapper.CheckoutToProto(checkout), Order: mapper.OrderToProto(checkout.Order)}, nil
+	return &checkoutv1.StartResponse{Checkout: pb.FromCheckout(checkout), Order: pb.FromOrder(checkout.Order)}, nil
 }
 
 // Get returns the caller's Checkout as it stands now.
@@ -71,7 +71,7 @@ func (h *CheckoutHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return &checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout), Order: mapper.OrderToProto(checkout.Order)}, nil
+	return &checkoutv1.GetResponse{Checkout: pb.FromCheckout(checkout), Order: pb.FromOrder(checkout.Order)}, nil
 }
 
 // AuthorizeCard stores the caller's full name and phone number and opens the card
@@ -107,5 +107,5 @@ func (h *CheckoutHandler) Confirm(
 	if err != nil {
 		return nil, err
 	}
-	return &checkoutv1.ConfirmResponse{Order: mapper.OrderToProto(order)}, nil
+	return &checkoutv1.ConfirmResponse{Order: pb.FromOrder(order)}, nil
 }

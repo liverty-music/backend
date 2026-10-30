@@ -6,7 +6,7 @@ import (
 	organizerartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	organizerartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/artist/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -63,6 +63,6 @@ func (h *OrganizerArtistHandler) List(
 	}
 
 	return &organizerartistv1.ListResponse{
-		Artists: mapper.ArtistsToProto(artists),
+		Artists: pb.FromArtists(artists),
 	}, nil
 }

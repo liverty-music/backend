@@ -4,7 +4,7 @@ import (
 	"context"
 
 	notificationpb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/notification/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -63,7 +63,7 @@ func (h *NotificationHandler) Dismiss(ctx context.Context, req *notificationpb.D
 // resolveCallerUserID resolves the signed-in caller's internal user ID from
 // the JWT context, to scope the use-case call.
 func (h *NotificationHandler) resolveCallerUserID(ctx context.Context) (string, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}

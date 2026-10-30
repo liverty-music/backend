@@ -7,8 +7,8 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -59,7 +59,7 @@ func newEventPageHandler(t *testing.T) (*rpc.ConcertHandler, *mocks.MockConcertU
 	require.NoError(t, err)
 	concertUC := mocks.NewMockConcertUseCase(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
-	h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder("https://cdn.example.com"), logger)
+	h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder("https://cdn.example.com"), logger)
 	return h, concertUC, userRepo
 }
 

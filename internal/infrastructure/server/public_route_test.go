@@ -13,8 +13,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
@@ -55,7 +55,7 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 
 	concertUC := usecasemocks.NewMockConcertUseCase(t)
 	concertUC.EXPECT().Get(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.NotFound, "event page not found")).Maybe()
-	preview := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder("https://liverty-music.app", mapper.NewSeriesImageURLBuilder("")), logger)
+	preview := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder("https://liverty-music.app", pb.NewSeriesImageURLBuilder("")), logger)
 
 	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{

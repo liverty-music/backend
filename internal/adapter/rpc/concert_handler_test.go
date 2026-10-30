@@ -8,8 +8,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect/v2"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -31,7 +31,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		artistID := "artist-123"
 		supportID := "artist-456"
@@ -80,7 +80,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-999").Return([]*entity.Concert{}, nil).Once()
 
@@ -101,7 +101,7 @@ func TestConcertHandler_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-123").Return(nil, assert.AnError).Once()
 
@@ -130,7 +130,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		// No auth context → GetExternalUserID returns CodeUnauthenticated.
 		req := &concertv1.ListFollowedRequest{}
@@ -151,7 +151,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID, Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"}}
@@ -176,7 +176,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID}
@@ -211,7 +211,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 
 		concertUC := mocks.NewMockConcertUseCase(t)
 		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger)
+		h := rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()

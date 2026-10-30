@@ -149,7 +149,7 @@ type ServerConfig struct {
 
 	// CDNBaseURL is the public CDN base URL used to compose served
 	// series-image variant URLs (thumb/large). Injected into
-	// mapper.SeriesImageURLBuilder at DI wiring time. Required outside local; empty in
+	// pb.SeriesImageURLBuilder at DI wiring time. Required outside local; empty in
 	// local development disables cover-image URLs on organizer-facing
 	// ConcertService responses rather than emitting a malformed relative URL.
 	CDNBaseURL string `envconfig:"CDN_BASE_URL"`

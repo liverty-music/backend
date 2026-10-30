@@ -7,7 +7,7 @@ import (
 	orderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/order/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -43,5 +43,5 @@ func (h *OrderHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return &orderv1.GetResponse{Order: mapper.OrderToProto(order)}, nil
+	return &orderv1.GetResponse{Order: pb.FromOrder(order)}, nil
 }

@@ -23,7 +23,7 @@ type PushSubscriptionUseCase interface {
 	//
 	// deviceType is the browser/OS family classifier for the endpoint (e.g.
 	// "android", "apple", "firefox", "windows", "other"), derived by the
-	// caller (see mapper.DeviceTypeFromEndpoint) so this use case never needs
+	// caller (see pb.DeviceTypeFromEndpoint) so this use case never needs
 	// to know about push-vendor host names. It is forwarded, unmodified, into
 	// the NOTIFICATION.subscribed analytics event.
 	//
@@ -45,7 +45,7 @@ type PushSubscriptionUseCase interface {
 	// active. The operation is idempotent.
 	//
 	// deviceType is the browser/OS family classifier for the endpoint,
-	// derived by the caller (see mapper.DeviceTypeFromEndpoint) and forwarded,
+	// derived by the caller (see pb.DeviceTypeFromEndpoint) and forwarded,
 	// unmodified, into the NOTIFICATION.unsubscribed analytics event.
 	//
 	// # Possible errors

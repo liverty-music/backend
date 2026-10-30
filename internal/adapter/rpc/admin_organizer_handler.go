@@ -5,7 +5,7 @@ import (
 
 	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -41,7 +41,7 @@ func (h *AdminOrganizerHandler) Create(
 	if err != nil {
 		return nil, err
 	}
-	return &organizerv1.CreateResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
+	return &organizerv1.CreateResponse{Organizer: pb.FromOrganizer(organizer)}, nil
 }
 
 // AssociateArtist links an existing artist to an Organizer. Returns
@@ -78,7 +78,7 @@ func (h *AdminOrganizerHandler) List(
 	if err != nil {
 		return nil, err
 	}
-	return &organizerv1.ListResponse{Organizers: mapper.OrganizersToProto(organizers)}, nil
+	return &organizerv1.ListResponse{Organizers: pb.FromOrganizers(organizers)}, nil
 }
 
 // Get returns a single Organizer by id. Returns NotFound when no organizer
@@ -91,7 +91,7 @@ func (h *AdminOrganizerHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return &organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
+	return &organizerv1.GetResponse{Organizer: pb.FromOrganizer(organizer)}, nil
 }
 
 // Deactivate turns an Organizer off: deactivates its members' identities,
@@ -129,11 +129,11 @@ func (h *AdminOrganizerHandler) SetBusinessDetails(
 ) (*organizerv1.SetBusinessDetailsResponse, error) {
 	m := req
 	organizer, err := h.organizerUseCase.SetBusinessDetails(ctx, m.GetOrganizerId().GetValue(),
-		mapper.BusinessDetailsFromSetRequest(m.GetLegalName(), m.GetRepresentativeName(), m.GetBusinessAddress(), m.GetBusinessPhoneNumber(), m.GetContactEmail()))
+		pb.BusinessDetailsFromSetRequest(m.GetLegalName(), m.GetRepresentativeName(), m.GetBusinessAddress(), m.GetBusinessPhoneNumber(), m.GetContactEmail()))
 	if err != nil {
 		return nil, err
 	}
-	return &organizerv1.SetBusinessDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
+	return &organizerv1.SetBusinessDetailsResponse{Organizer: pb.FromOrganizer(organizer)}, nil
 }
 
 // SetPlatformFeeRate sets the platform fee rate of an Organizer's future
@@ -147,5 +147,5 @@ func (h *AdminOrganizerHandler) SetPlatformFeeRate(
 	if err != nil {
 		return nil, err
 	}
-	return &organizerv1.SetPlatformFeeRateResponse{Organizer: mapper.OrganizerToProto(organizer)}, nil
+	return &organizerv1.SetPlatformFeeRateResponse{Organizer: pb.FromOrganizer(organizer)}, nil
 }

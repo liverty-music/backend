@@ -6,7 +6,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -34,7 +34,7 @@ func NewFollowHandler(
 
 // Follow establishes a follow relationship between the current user and an artist.
 func (h *FollowHandler) Follow(ctx context.Context, req *rpc.FollowRequest) (*rpc.FollowResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (h *FollowHandler) Follow(ctx context.Context, req *rpc.FollowRequest) (*rp
 
 // Unfollow removes an existing follow relationship.
 func (h *FollowHandler) Unfollow(ctx context.Context, req *rpc.UnfollowRequest) (*rpc.UnfollowResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (h *FollowHandler) Unfollow(ctx context.Context, req *rpc.UnfollowRequest) 
 
 // List returns the signed-in fan's Follows with their Artists.
 func (h *FollowHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.ListResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -90,13 +90,13 @@ func (h *FollowHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.List
 	}
 
 	return &rpc.ListResponse{
-		Artists: mapper.FollowedArtistsToProto(followed),
+		Artists: pb.FromFollowedArtists(followed),
 	}, nil
 }
 
 // SetHype updates the user's enthusiasm tier for a followed artist.
 func (h *FollowHandler) SetHype(ctx context.Context, req *rpc.SetHypeRequest) (*rpc.SetHypeResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (h *FollowHandler) SetHype(ctx context.Context, req *rpc.SetHypeRequest) (*
 		return nil, connect.NewError(connect.CodeInvalidArgument, "hype is required")
 	}
 
-	hype := mapper.HypeFromProto[req.Hype]
+	hype := pb.HypeFromProto[req.Hype]
 
 	err = h.followUseCase.SetHype(ctx, user.ID, req.ArtistId.Value, hype)
 	if err != nil {

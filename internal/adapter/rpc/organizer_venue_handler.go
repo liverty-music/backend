@@ -6,7 +6,7 @@ import (
 	organizervenuev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -57,6 +57,6 @@ func (h *OrganizerVenueHandler) Search(
 	}
 
 	return &organizervenuev1.SearchResponse{
-		Candidates: mapper.VenueCandidatesToProto(candidates),
+		Candidates: pb.FromVenueCandidates(candidates),
 	}, nil
 }

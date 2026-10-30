@@ -4,7 +4,7 @@ import (
 	"context"
 
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_journey/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -32,12 +32,12 @@ func NewTicketJourneyHandler(
 
 // SetStatus creates or updates the fan's ticket journey status for a specific event.
 func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *rpc.SetStatusRequest) (*rpc.SetStatusResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	status := mapper.TicketJourneyStatusFromProto[req.Status]
+	status := pb.TicketJourneyStatusFromProto[req.Status]
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
@@ -56,7 +56,7 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *rpc.SetStatus
 
 // Delete removes the fan's ticket journey for a specific event.
 func (h *TicketJourneyHandler) Delete(ctx context.Context, req *rpc.DeleteRequest) (*rpc.DeleteResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *rpc.DeleteReques
 // List returns every ticket journey of the signed-in fan, empty when there is
 // none.
 func (h *TicketJourneyHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.ListResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +98,6 @@ func (h *TicketJourneyHandler) List(ctx context.Context, _ *rpc.ListRequest) (*r
 	}
 
 	return &rpc.ListResponse{
-		Journeys: mapper.TicketJourneysToProto(journeys),
+		Journeys: pb.FromTicketJourneys(journeys),
 	}, nil
 }

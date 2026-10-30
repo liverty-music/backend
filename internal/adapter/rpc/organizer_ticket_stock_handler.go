@@ -7,7 +7,7 @@ import (
 	ticketstockv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_stock/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -51,7 +51,7 @@ func (h *OrganizerTicketStockHandler) Create(
 	if err != nil {
 		return nil, err
 	}
-	return &ticketstockv1.CreateResponse{TicketStock: mapper.TicketStockToProto(stock, true, false)}, nil
+	return &ticketstockv1.CreateResponse{TicketStock: pb.FromTicketStock(stock, true, false)}, nil
 }
 
 // Delete removes one of the caller's ticket stocks.
@@ -85,6 +85,6 @@ func (h *OrganizerTicketStockHandler) ListByEvent(
 	if err != nil {
 		return nil, err
 	}
-	pbStocks, seatTypes := mapper.OwnTicketStocksToProto(stocks)
+	pbStocks, seatTypes := pb.FromOwnTicketStocks(stocks)
 	return &ticketstockv1.ListByEventResponse{TicketStocks: pbStocks, SeatTypes: seatTypes}, nil
 }

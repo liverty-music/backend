@@ -8,7 +8,7 @@ import (
 	adminorderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -52,8 +52,8 @@ func (h *AdminOrderHandler) Get(
 		return nil, err
 	}
 	return &adminorderv1.GetResponse{
-		Order:      mapper.OrderToProto(order),
-		Settlement: mapper.SettlementToProto(settlement),
+		Order:      pb.FromOrder(order),
+		Settlement: pb.FromSettlement(settlement),
 	}, nil
 }
 
@@ -70,7 +70,7 @@ func (h *AdminOrderHandler) ListByEvent(
 	}
 	resp := &adminorderv1.ListByEventResponse{}
 	for _, o := range orders {
-		resp.Orders = append(resp.Orders, mapper.OrderToProto(o))
+		resp.Orders = append(resp.Orders, pb.FromOrder(o))
 	}
 	return resp, nil
 }
@@ -94,7 +94,7 @@ func (h *AdminOrderHandler) Refund(
 	}
 
 	orderID := entity.OrderID(req.GetOrderId().GetValue())
-	reason := mapper.ProtoRefundReasonToDomain(protoReason)
+	reason := pb.ToRefundReason(protoReason)
 
 	order, err := h.orderUC.Refund(ctx, orderID, reason, time.Now())
 	if err != nil {
@@ -111,6 +111,6 @@ func (h *AdminOrderHandler) Refund(
 	}
 
 	return &adminorderv1.RefundResponse{
-		Order: mapper.OrderToProto(order),
+		Order: pb.FromOrder(order),
 	}, nil
 }

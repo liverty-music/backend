@@ -13,8 +13,8 @@ import (
 	followv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -59,7 +59,7 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
-			concertv1connect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger))
+			concertv1connect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger))
 		},
 		func(s *connect.Server) {
 			followv1connect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(usecasemocks.NewMockFollowUseCase(t), userRepo, logger))

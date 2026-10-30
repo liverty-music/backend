@@ -7,7 +7,7 @@ import (
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -39,5 +39,5 @@ func (h *TicketHandler) List(ctx context.Context, _ *ticketv1.ListRequest) (*tic
 	if err != nil {
 		return nil, err
 	}
-	return &ticketv1.ListResponse{Tickets: mapper.TicketsToProto(tickets)}, nil
+	return &ticketv1.ListResponse{Tickets: pb.FromTickets(tickets)}, nil
 }

@@ -6,7 +6,7 @@ import (
 	concertcandidatev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertcandidatev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert_candidate/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -51,7 +51,7 @@ func (h *AdminConcertCandidateHandler) List(
 
 	pending := make([]*concertcandidatev1.ConcertCandidate, 0, len(reviews))
 	for _, r := range reviews {
-		pending = append(pending, mapper.ConcertCandidateToProto(r.ConcertCandidate, r.Performer))
+		pending = append(pending, pb.FromConcertCandidate(r.ConcertCandidate, r.Performer))
 	}
 
 	return &concertcandidatev1.ListResponse{
@@ -108,7 +108,7 @@ func approveResolutionFromProto(r concertcandidatev1.Resolution) usecase.Approve
 func duplicateConflictToProto(dc *usecase.DuplicateConflict) *concertcandidatev1.DuplicateConflict {
 	return &concertcandidatev1.DuplicateConflict{
 		Existing:         existingEventToProto(dc.Existing),
-		ConcertCandidate: mapper.ConcertCandidateToProto(dc.ConcertCandidate, dc.ConcertCandidatePerformer),
+		ConcertCandidate: pb.FromConcertCandidate(dc.ConcertCandidate, dc.ConcertCandidatePerformer),
 	}
 }
 
@@ -119,7 +119,7 @@ func existingEventToProto(e *usecase.ExistingEventDisplay) *concertcandidatev1.E
 		EventId:         &entityv1.EventId{Value: e.EventID},
 		Title:           &entityv1.Title{Value: e.Title},
 		ListedVenueName: &entityv1.ListedVenueName{Value: e.ListedVenueName},
-		LocalDate:       &entityv1.LocalDate{Value: mapper.TimeToDate(e.LocalDate)},
+		LocalDate:       &entityv1.LocalDate{Value: pb.TimeToDate(e.LocalDate)},
 	}
 	if e.StartTime != nil {
 		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*e.StartTime)}

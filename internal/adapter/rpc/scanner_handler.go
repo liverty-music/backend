@@ -7,7 +7,7 @@ import (
 	scannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
 	scannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/scanner/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -82,8 +82,8 @@ func (h *ScannerHandler) Open(
 		return nil, err
 	}
 	return &scannerv1.OpenResponse{
-		Scanner:         mapper.ScannerToProto(result.Scanner),
-		AdmissionWindow: mapper.AdmissionWindowToProto(result.Window),
+		Scanner:         pb.FromScanner(result.Scanner),
+		AdmissionWindow: pb.FromAdmissionWindow(result.Window),
 		InsideWindow:    result.InsideWindow,
 	}, nil
 }
@@ -112,5 +112,5 @@ func (h *ScannerHandler) Admit(
 	if err != nil {
 		return nil, err
 	}
-	return mapper.AdmitResultToProto(result), nil
+	return pb.FromAdmitResult(result), nil
 }
