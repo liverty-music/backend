@@ -27,6 +27,9 @@ type Passkey struct {
 	AAGUID string
 	// CreateTime is when the passkey finished registration.
 	CreateTime time.Time
+	// Name is the label the identity provider gave the passkey, shown in the
+	// passkey email; nil when it gave none.
+	Name *string
 }
 
 // ProviderName returns the name the passkey provider list gives the

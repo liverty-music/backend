@@ -30,7 +30,7 @@ func NewLotteryEntryRepository(db *Database) *LotteryEntryRepository {
 // lotteryEntrySelect reads lottery entries (aliased le) with their orders
 // (aliased o), in the column order scanLotteryEntry expects; a WHERE follows.
 const lotteryEntrySelect = `
-	SELECT le.id, le.order_id, le.ticket_sale_id, le.state, le.draw_position,
+	SELECT le.id, le.order_id, le.ticket_sale_id, le.state, le.draw_position, le.lost_reason,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
 		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
@@ -108,12 +108,13 @@ const (
 		FOR UPDATE
 	`
 	// lotteryEntrySetOutcomeQuery sets the state of every entry in $1 that is
-	// still Entered to $3 with the matching draw position of $2, and returns
-	// the orders of the entries it changed.
+	// still Entered to $3 with the matching draw position of $2 and lost
+	// reason of $4 (NULL for winners), and returns the orders of the entries
+	// it changed.
 	lotteryEntrySetOutcomeQuery = `
 		UPDATE lottery_entries AS le
-		SET state = $3, draw_position = u.position
-		FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bigint[]) AS position) AS u
+		SET state = $3, draw_position = u.position, lost_reason = u.lost_reason
+		FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bigint[]) AS position, unnest($4::smallint[]) AS lost_reason) AS u
 		WHERE le.id = u.id AND le.state = 1
 		RETURNING le.order_id
 	`
@@ -293,6 +294,12 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		return apperr.New(codes.InvalidArgument, "ticket sale ID must not be empty")
 	}
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(saleID))}
+	for _, l := range losers {
+		if l.LostReason == entity.LotteryEntryLostReasonUnspecified {
+			return apperr.New(codes.InvalidArgument, "every loser needs a lost reason",
+				append(attrs, slog.String("lottery_entry_id", string(l.LotteryEntryID)))...)
+		}
+	}
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -324,7 +331,7 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		for i, w := range winners {
 			ids[i], positions[i] = string(w.LotteryEntryID), int64(w.DrawPosition)
 		}
-		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateWon))
+		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateWon), make([]*int16, len(winners)))
 		if err != nil {
 			return toAppErr(err, "failed to record the winners", append(attrs, slog.Int("winner_count", len(winners)))...)
 		}
@@ -334,11 +341,11 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		}
 	}
 	if len(losers) > 0 {
-		ids, positions := make([]string, len(losers)), make([]int64, len(losers))
+		ids, positions, reasons := make([]string, len(losers)), make([]int64, len(losers)), make([]int16, len(losers))
 		for i, l := range losers {
-			ids[i], positions[i] = string(l.LotteryEntryID), int64(l.DrawPosition)
+			ids[i], positions[i], reasons[i] = string(l.LotteryEntryID), int64(l.DrawPosition), int16(l.LostReason)
 		}
-		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateLost))
+		rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(entity.LotteryEntryStateLost), reasons)
 		if err != nil {
 			return toAppErr(err, "failed to record the losers", append(attrs, slog.Int("loser_count", len(losers)))...)
 		}
@@ -390,9 +397,10 @@ func scanLotteryEntry(row pgx.Row) (*entity.LotteryEntry, error) {
 		id, orderID, saleID string
 		state               int16
 		drawPosition        sql.NullInt64
+		lostReason          sql.NullInt16
 		orderCols           orderColumns
 	)
-	dest := append([]any{&id, &orderID, &saleID, &state, &drawPosition}, orderCols.dest()...)
+	dest := append([]any{&id, &orderID, &saleID, &state, &drawPosition, &lostReason}, orderCols.dest()...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -403,6 +411,9 @@ func scanLotteryEntry(row pgx.Row) (*entity.LotteryEntry, error) {
 	if drawPosition.Valid {
 		position := int(drawPosition.Int64)
 		e.DrawPosition = &position
+	}
+	if lostReason.Valid {
+		e.LostReason = entity.LotteryEntryLostReason(lostReason.Int16)
 	}
 	e.Order = orderCols.order()
 	return &e, nil

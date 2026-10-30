@@ -27,30 +27,30 @@ const (
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
-		WHERE id = $1
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
-		WHERE mbid = $1
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE a.mbid = $1
 	`
 	updateFanartQuery = `
 		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.fanart_synced_at IS NULL
 		   OR (a.fanart_synced_at < $1
@@ -71,7 +71,7 @@ const (
 		UPDATE artists SET name = $2 WHERE id = $1
 	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
 		  AND (a.official_site_checked_at IS NULL OR a.official_site_checked_at < $1)
@@ -91,6 +91,10 @@ func NewArtistRepository(db *Database) *ArtistRepository {
 	return &ArtistRepository{db: db}
 }
 
+// artistOrganizerColumn selects, for an artist aliased a, the Organizer that
+// represents it (NULL when none), in the last column scanArtist expects.
+const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa WHERE oa.artist_id = a.id)`
+
 // scanArtist scans a row into an Artist entity including nullable fanart and
 // official site check columns.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
@@ -99,7 +103,7 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var syncedAt *time.Time
 	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.OrganizerID); err != nil {
 		return nil, err
 	}
 	if officialSiteCheckedAt.Valid {

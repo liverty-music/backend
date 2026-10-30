@@ -262,7 +262,7 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 			<-start
 			drawErr = entries.PersistDrawOutcome(ctx, lottery,
 				[]entity.DrawWinnerRow{{LotteryEntryID: winner, CardAuthorizationID: "pi_" + string(winner), DrawPosition: 0}},
-				[]entity.DrawLoserRow{{LotteryEntryID: loser, CardAuthorizationID: "pi_" + string(loser), DrawPosition: 1}})
+				[]entity.DrawLoserRow{{LotteryEntryID: loser, CardAuthorizationID: "pi_" + string(loser), DrawPosition: 1, LostReason: entity.LotteryEntryLostReasonNotDrawn}})
 		})
 		// A reader samples the counts while the paths run; each read is one
 		// statement, so it sees a consistent snapshot.

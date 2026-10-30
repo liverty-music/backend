@@ -34,6 +34,23 @@ const (
 	LotteryEntryStateLost LotteryEntryState = 3
 )
 
+// LotteryEntryLostReason is why a Lost LotteryEntry lost. The numbers are
+// the stored values; a LotteryEntry that is not Lost has no reason.
+type LotteryEntryLostReason int16
+
+const (
+	// LotteryEntryLostReasonUnspecified is the zero value: the entry is not
+	// Lost. Never persisted.
+	LotteryEntryLostReasonUnspecified LotteryEntryLostReason = 0
+
+	// LotteryEntryLostReasonNotDrawn means the draw did not select the entry.
+	LotteryEntryLostReasonNotDrawn LotteryEntryLostReason = 1
+
+	// LotteryEntryLostReasonCardNotCharged means the draw selected the entry
+	// but its Order's card authorization could not be captured.
+	LotteryEntryLostReasonCardNotCharged LotteryEntryLostReason = 2
+)
+
 // String returns the lowercase state name.
 func (s LotteryEntryState) String() string {
 	switch s {
@@ -76,6 +93,9 @@ type LotteryEntry struct {
 	// draw order for its TicketStock; nil before the draw and set only by the
 	// draw. It orders the losers for official resale.
 	DrawPosition *int
+
+	// LostReason is why the entry lost; unspecified unless State is Lost.
+	LostReason LotteryEntryLostReason
 
 	// Order is the Order the entry applies for, read with every entry.
 	Order *Order
@@ -161,6 +181,10 @@ type DrawLoserRow struct {
 	// DrawPosition is the entry's zero-based position in the draw order; it
 	// keeps the order of the losers for official resale.
 	DrawPosition int
+
+	// LostReason is why the entry lost: not drawn, or drawn but its card
+	// authorization could not be captured.
+	LostReason LotteryEntryLostReason
 }
 
 // LotteryEntryRepository persists [LotteryEntry] records together with their

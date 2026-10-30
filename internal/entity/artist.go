@@ -33,6 +33,9 @@ type Artist struct {
 	// checked in MusicBrainz, whatever the check found.
 	// nil when the official site has never been checked.
 	OfficialSiteCheckTime *time.Time
+	// OrganizerID is the Organizer that represents the artist; nil when no
+	// Organizer does. An artist has at most one.
+	OrganizerID *string
 }
 
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.

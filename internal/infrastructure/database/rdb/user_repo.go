@@ -20,7 +20,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number`
+	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number, u.last_login_at`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -149,13 +149,14 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	user := &entity.User{}
 	var preferredLanguage, timeZone sql.NullString
 	var fullName, phoneNumber sql.NullString
+	var lastLoginAt sql.NullTime
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ProviderUserID, &user.Email, &user.Name,
 		&preferredLanguage, &timeZone,
-		&fullName, &phoneNumber,
+		&fullName, &phoneNumber, &lastLoginAt,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
@@ -172,6 +173,10 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	}
 	if phoneNumber.Valid {
 		user.PhoneNumber = phoneNumber.String
+	}
+	if lastLoginAt.Valid {
+		t := lastLoginAt.Time
+		user.LastLoginTime = &t
 	}
 
 	if homeID.Valid {

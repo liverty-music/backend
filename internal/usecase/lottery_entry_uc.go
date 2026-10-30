@@ -490,7 +490,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 						slog.Any("error", err),
 					)
 					uc.release(ctx, saleID, w.Entry.ID, ref)
-					losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition})
+					losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition, LostReason: entity.LotteryEntryLostReasonCardNotCharged})
 					drawn(w.Entry.ID, entity.LotteryEntryStateLost, true)
 					continue
 				}
@@ -500,7 +500,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 			for _, l := range result.Losers {
 				ref := refs[l.Entry.ID]
 				uc.release(ctx, saleID, l.Entry.ID, ref)
-				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition})
+				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition, LostReason: entity.LotteryEntryLostReasonNotDrawn})
 				drawn(l.Entry.ID, entity.LotteryEntryStateLost, false)
 			}
 		}

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     home_id UUID,
     full_name TEXT,
     phone_number TEXT,
+    last_login_at TIMESTAMPTZ,
     CONSTRAINT chk_users_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_users_full_name_len CHECK (full_name IS NULL OR char_length(full_name) BETWEEN 1 AND 200),
     CONSTRAINT chk_users_phone_number_e164 CHECK (phone_number IS NULL OR phone_number ~ '^\+[1-9][0-9]{1,14}$'),
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
+COMMENT ON COLUMN users.last_login_at IS 'When the user last signed in, as reported by the identity provider''s sign-in notice. NULL until the first sign-in is recorded; only moves forward.';
 COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN users.provider_user_id IS 'The identity provider''s ID for the user (Zitadel sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier (at most 165 characters)';
@@ -864,8 +866,10 @@ CREATE TABLE IF NOT EXISTS lottery_entries (
     draw_position          BIGINT,
     order_id               UUID     NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
     ticket_sale_id         UUID     NOT NULL REFERENCES ticket_sales(id) ON DELETE RESTRICT,
+    lost_reason            SMALLINT,
     CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3))
+    CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3)),
+    CONSTRAINT chk_lottery_entries_lost_reason CHECK ((state = 3 AND lost_reason IN (1, 2)) OR (state <> 3 AND lost_reason IS NULL))
 );
 
 COMMENT ON TABLE lottery_entries IS 'How one fan''s order takes part in an Organizer''s lottery sale, made Entered when the fan confirms an authorized card authorization; one per order and at most one per (sale, event of the order''s stock, user), checked by the application under the users row lock. State: 1=Entered, 2=Won, 3=Lost.';
@@ -873,6 +877,7 @@ COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7
 COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (allocated), 3=Lost (not allocated; the order is Void)';
 COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the draw shuffle of the sale''s entries for the order''s ticket stock. NULL until the draw runs; the draw order of the losers for official resale.';
 COMMENT ON COLUMN lottery_entries.order_id IS 'The order the entry applies for: user, ticket stock, ticket count, referral code and card authorization; unique';
+COMMENT ON COLUMN lottery_entries.lost_reason IS 'Why a Lost entry lost: 1=not drawn, 2=the card authorization could not be captured. NULL unless state is 3 (Lost).';
 COMMENT ON COLUMN lottery_entries.ticket_sale_id IS 'The lottery sale entered; a sale that names the event of the order''s ticket stock (checked by the application)';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_order_id ON lottery_entries(order_id);
@@ -1256,6 +1261,8 @@ CREATE TABLE IF NOT EXISTS passkeys (
     user_id             UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     aaguid              UUID        NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL,
+    name                TEXT,
+    CONSTRAINT chk_passkeys_name_len CHECK (name IS NULL OR char_length(name) BETWEEN 1 AND 200),
     CONSTRAINT chk_passkeys_provider_passkey_id_not_empty CHECK (provider_passkey_id <> '')
 );
 
@@ -1263,6 +1270,7 @@ COMMENT ON TABLE passkeys IS 'The platform''s record of a passkey registered for
 COMMENT ON COLUMN passkeys.provider_passkey_id IS 'The identity provider''s id for the passkey (Zitadel webAuthNTokenId)';
 COMMENT ON COLUMN passkeys.user_id IS 'The user the passkey signs in to';
 COMMENT ON COLUMN passkeys.aaguid IS 'Identifier of the passkey provider model that made the passkey; all zeros when the provider does not reveal itself';
+COMMENT ON COLUMN passkeys.name IS 'The label the identity provider gave the passkey, shown in the passkey email. NULL when the identity provider gave none or the row predates recording it.';
 COMMENT ON COLUMN passkeys.created_at IS 'When the passkey finished registration at the identity provider';
 
 CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);

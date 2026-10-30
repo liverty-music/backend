@@ -642,7 +642,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		return entity.DrawWinnerRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position}
 	}
 	loser := func(e *entity.LotteryEntry, position int) entity.DrawLoserRow {
-		return entity.DrawLoserRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position}
+		return entity.DrawLoserRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position, LostReason: entity.LotteryEntryLostReasonNotDrawn}
 	}
 	position := func(p int) *int { return &p }
 
@@ -676,6 +676,11 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 			assert.Equal(t, tc.state, got.State)
 			assert.Equal(t, position(tc.position), got.DrawPosition)
 			assert.Equal(t, tc.status, got.Order.Status)
+			wantReason := entity.LotteryEntryLostReasonUnspecified
+			if tc.state == entity.LotteryEntryStateLost {
+				wantReason = entity.LotteryEntryLostReasonNotDrawn
+			}
+			assert.Equal(t, wantReason, got.LostReason)
 		}
 		assert.True(t, drawn(t, saleID))
 	})

@@ -132,6 +132,9 @@ type User struct {
 	PreferredLanguage string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
+	// LastLoginTime is when the user last signed in, as reported by the
+	// identity provider. Nil until the first sign-in is recorded.
+	LastLoginTime *time.Time
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home

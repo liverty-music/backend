@@ -135,3 +135,4 @@ configMapGenerator:
   - migrations/20261027043053_enter_lottery_at_confirm.sql
   - migrations/20261027120000_create_dbos_schema.sql
   - migrations/20261029015006_remodel_ticket_sales.sql
+  - migrations/20261030120000_record_lost_reason_last_login_passkey_name.sql

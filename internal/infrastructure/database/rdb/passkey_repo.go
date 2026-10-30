@@ -22,8 +22,8 @@ const (
 	// insertPasskeyQuery stores a passkey once: a repeated provider passkey id
 	// keeps the stored row unchanged.
 	insertPasskeyQuery = `
-		INSERT INTO passkeys (provider_passkey_id, user_id, aaguid, created_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO passkeys (provider_passkey_id, user_id, aaguid, created_at, name)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (provider_passkey_id) DO NOTHING
 	`
 
@@ -32,7 +32,7 @@ const (
 	`
 
 	listPasskeysByUserQuery = `
-		SELECT provider_passkey_id, user_id, aaguid, created_at
+		SELECT provider_passkey_id, user_id, aaguid, created_at, name
 		FROM passkeys
 		WHERE user_id = $1
 		ORDER BY created_at DESC, provider_passkey_id
@@ -55,7 +55,7 @@ func (r *PasskeyRepository) Create(ctx context.Context, passkey *entity.Passkey)
 	}
 	attrs := []slog.Attr{slog.String("user_id", passkey.UserID), slog.String("provider_passkey_id", passkey.ProviderPasskeyID)}
 	_, err := r.db.Pool.Exec(ctx, insertPasskeyQuery,
-		passkey.ProviderPasskeyID, passkey.UserID, passkey.AAGUID, passkey.CreateTime)
+		passkey.ProviderPasskeyID, passkey.UserID, passkey.AAGUID, passkey.CreateTime, passkey.Name)
 	if err != nil {
 		if IsForeignKeyViolation(err) {
 			return apperr.Wrap(err, codes.NotFound, "user not found", attrs...)
@@ -91,7 +91,7 @@ func (r *PasskeyRepository) ListByUser(ctx context.Context, userID string) ([]*e
 	passkeys := []*entity.Passkey{}
 	for rows.Next() {
 		var p entity.Passkey
-		if err := rows.Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime); err != nil {
+		if err := rows.Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime, &p.Name); err != nil {
 			return nil, toAppErr(err, "failed to scan passkey", slog.String("user_id", userID))
 		}
 		passkeys = append(passkeys, &p)
