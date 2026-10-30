@@ -51,7 +51,7 @@ func InitializeOfficialSiteRefreshJobApp(ctx context.Context) (*OfficialSiteRefr
 
 	// Repositories
 	artistRepo := rdb.NewArtistRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
+	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 
 	// Infrastructure - MusicBrainz
 	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}

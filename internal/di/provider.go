@@ -240,7 +240,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Repositories
 	userRepo := rdb.NewUserRepository(db)
 	artistRepo := rdb.NewArtistRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
+	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
@@ -576,7 +576,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			slog.String("workload", cfg.Workload))
 	}
 
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, time.Now, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)

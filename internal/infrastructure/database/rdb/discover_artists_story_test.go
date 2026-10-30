@@ -84,8 +84,8 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 		mb:         &storyMusicBrainz{names: map[string]string{}},
 	}
 	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, nil, s.mb, &storyPublisher{}, nil, logger)
-	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB), s.artistRepo, storyNoOfficialSite{},
-		&storyPublisher{}, storyFollowMetrics{}, time.Now, logger)
+	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB, testOutbox), s.artistRepo, storyNoOfficialSite{},
+		storyFollowMetrics{}, logger)
 	// The catalog returns no logo, so the logo is never downloaded.
 	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, nil, logger)
 	return s
