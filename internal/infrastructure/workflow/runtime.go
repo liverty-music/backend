@@ -48,7 +48,7 @@ func NewRuntime(ctx context.Context, pool *pgxpool.Pool, logger *logging.Logger)
 	if _, err := dbos.RegisterQueue(dctx, DefaultQueue); err != nil {
 		return nil, toAppErr(err, "register the default workflow queue")
 	}
-	if r.admin, err = newAdmin(logger); err != nil {
+	if r.admin, err = newAdmin(logger, pool); err != nil {
 		return nil, err
 	}
 	if err := r.admin.register(r); err != nil {

@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -146,4 +147,42 @@ func NewForwarder(conn wsql.Conn, pub message.Publisher, logger watermill.Logger
 		return nil, fmt.Errorf("create outbox forwarder: %w", err)
 	}
 	return fwd, nil
+}
+
+// Undelivered is the oldest announcement still in the outbox.
+type Undelivered struct {
+	// Subject is the NATS subject it is recorded for.
+	Subject string
+	// RecordTime is when it was recorded.
+	RecordTime time.Time
+}
+
+// oldestUndeliveredQuery reads the oldest row of the outbox with the subject
+// in its envelope.
+const oldestUndeliveredQuery = `
+	SELECT payload->>'destination_topic', created_at
+	FROM watermill_events_outbox
+	ORDER BY "offset"
+	LIMIT 1
+`
+
+// OldestUndelivered returns the oldest announcement not yet delivered, or
+// false when every recorded announcement was delivered.
+func OldestUndelivered(ctx context.Context, conn wsql.Conn) (Undelivered, bool, error) {
+	rows, err := conn.Query(ctx, oldestUndeliveredQuery)
+	if err != nil {
+		return Undelivered{}, false, fmt.Errorf("read the oldest undelivered announcement: %w", err)
+	}
+	u, err := pgx.CollectExactlyOneRow(rows, func(row pgx.CollectableRow) (Undelivered, error) {
+		var u Undelivered
+		err := row.Scan(&u.Subject, &u.RecordTime)
+		return u, err
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Undelivered{}, false, nil
+	}
+	if err != nil {
+		return Undelivered{}, false, fmt.Errorf("read the oldest undelivered announcement: %w", err)
+	}
+	return u, true, nil
 }
