@@ -46,6 +46,7 @@ require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/ThreeDotsLabs/watermill v1.5.3
 	github.com/ThreeDotsLabs/watermill-nats/v2 v2.2.0
+	github.com/ThreeDotsLabs/watermill-sql/v4 v4.1.5
 	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/davidbyttow/govips/v2 v2.20.0
 	github.com/dbos-inc/dbos-transact-golang v1.7.0
@@ -188,6 +189,7 @@ require (
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
+	github.com/lib/pq v1.12.3 // indirect
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
