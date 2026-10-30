@@ -54,7 +54,7 @@ require (
 	github.com/jwx-go/jwkfetch/v4 v4.0.4
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lestrrat-go/httprc/v3 v3.0.6
-	github.com/lestrrat-go/jwx/v4 v4.5.0
+	github.com/lestrrat-go/jwx/v4 v4.6.0
 	github.com/nats-io/nats-server/v2 v2.15.2
 	github.com/nats-io/nats.go v1.55.0
 	github.com/pannpers/go-apperr v1.2.0
@@ -225,7 +225,6 @@ require (
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/btree v1.8.2 // indirect
-	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/vektra/mockery/v3 v3.8.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
