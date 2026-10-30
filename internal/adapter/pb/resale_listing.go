@@ -26,6 +26,15 @@ func FromResaleListing(v *usecase.ResaleListingAt) *entityv1.ResaleListing {
 		CreateTime:    timestamppb.New(l.CreateTime),
 		DeadlineTime:  timestamppb.New(v.Deadline),
 		TicketStockId: &entityv1.TicketStockId{Value: string(l.TicketStockID)},
+		OrderId:       &entityv1.OrderId{Value: string(l.OrderID)},
+		UserId:        &entityv1.UserId{Value: string(l.UserID)},
+		EventId:       &entityv1.EventId{Value: l.EventID},
+	}
+	if l.WithdrawTime != nil {
+		pb.WithdrawTime = timestamppb.New(*l.WithdrawTime)
+	}
+	if l.ProviderRefundID != "" {
+		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: l.ProviderRefundID}
 	}
 	if l.SoldTime != nil {
 		pb.SoldTime = timestamppb.New(*l.SoldTime)

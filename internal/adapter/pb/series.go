@@ -51,9 +51,10 @@ func (b *SeriesImageURLBuilder) seriesImageProto(s *entity.Series) *entityv1.Ser
 		return nil
 	}
 	return &entityv1.SeriesImage{
-		Id:    &entityv1.SeriesImageId{Value: s.CoverImage.ID},
-		Thumb: &entityv1.Url{Value: thumbURL},
-		Large: &entityv1.Url{Value: largeURL},
+		Id:          &entityv1.SeriesImageId{Value: s.CoverImage.ID},
+		Thumb:       &entityv1.Url{Value: thumbURL},
+		Large:       &entityv1.Url{Value: largeURL},
+		OrganizerId: &entityv1.OrganizerId{Value: s.CoverImage.OrganizerID},
 	}
 }
 

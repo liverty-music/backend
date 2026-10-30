@@ -26,6 +26,9 @@ func FromArtist(a *entity.Artist) *entityv1.Artist {
 	if a.Fanart != nil {
 		proto.Fanart = fanartToProto(a.Fanart)
 	}
+	if a.OrganizerID != nil {
+		proto.OrganizerId = &entityv1.OrganizerId{Value: *a.OrganizerID}
+	}
 
 	return proto
 }

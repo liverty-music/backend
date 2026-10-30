@@ -22,7 +22,21 @@ func FromLotteryEntry(e *entity.LotteryEntry) *entityv1.LotteryEntry {
 		pos := int64(*e.DrawPosition)
 		pb.DrawPosition = &pos
 	}
+	pb.LostReason = lotteryEntryLostReasonToProto(e.LostReason)
 	return pb
+}
+
+// lotteryEntryLostReasonToProto maps a domain lost reason to Protobuf;
+// unspecified for an entry that is not Lost.
+func lotteryEntryLostReasonToProto(r entity.LotteryEntryLostReason) entityv1.LotteryEntryLostReason {
+	switch r {
+	case entity.LotteryEntryLostReasonNotDrawn:
+		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN
+	case entity.LotteryEntryLostReasonCardNotCharged:
+		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED
+	default:
+		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_UNSPECIFIED
+	}
 }
 
 // FromLotteryEntries maps a list of LotteryEntries to Protobuf.

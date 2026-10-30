@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // FromUser converts domain User entity to protobuf User: its profile
@@ -44,6 +45,26 @@ func FromUser(user *entity.User) *proto.User {
 	if user.PhoneNumber != "" {
 		pb.PhoneNumber = &proto.PhoneNumber{Value: user.PhoneNumber}
 	}
+	if user.TimeZone != "" {
+		pb.TimeZone = &proto.TimeZone{Value: user.TimeZone}
+	}
+	if user.LastLoginTime != nil {
+		pb.LastLoginTime = timestamppb.New(*user.LastLoginTime)
+	}
+	return pb
+}
+
+// FromUserForAnnouncement converts a User for an announcement payload: as
+// [FromUser], without the full name, the phone number and the identity
+// provider's display name, which often holds the same real name.
+func FromUserForAnnouncement(user *entity.User) *proto.User {
+	pb := FromUser(user)
+	if pb == nil {
+		return nil
+	}
+	pb.FullName = nil
+	pb.PhoneNumber = nil
+	pb.Name = ""
 	return pb
 }
 
