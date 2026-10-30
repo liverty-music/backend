@@ -139,7 +139,7 @@ check_column_comments
 
 if [ "$errors" -gt 0 ]; then
   echo "" >&2
-  echo "Schema lint failed ($errors issue(s)). See AGENTS.md ("Database schema") for the policies." >&2
+  echo "Schema lint failed ($errors issue(s)). See AGENTS.md (\"Database schema\") for the policies." >&2
   exit 1
 fi
 
