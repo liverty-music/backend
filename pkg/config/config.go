@@ -77,10 +77,27 @@ type BaseConfig struct {
 
 // WorkerConfig is the configuration of the workflow worker (cmd/worker). It
 // reads the fan workload's ConfigMap and Secrets, so it runs as the same
-// database identity as the code its workflows take over; it needs only the
-// base settings itself.
+// database identity as the code its workflows take over, and the NATS URL the
+// fan workload publishes to.
 type WorkerConfig struct {
 	BaseConfig
+
+	// NATS is the broker the outbox forwarder delivers announcements to.
+	// Required outside local; a local worker without it leaves them in the
+	// outbox.
+	NATS NATSConfig `envconfig:""`
+}
+
+// Validate checks the worker configuration: the base settings, and the NATS
+// URL outside local.
+func (c *WorkerConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	if !c.IsLocal() && c.NATS.URL == "" {
+		return fmt.Errorf("NATS URL is required for non-local environments")
+	}
+	return nil
 }
 
 // ServerConfig is the configuration for the API server workload.

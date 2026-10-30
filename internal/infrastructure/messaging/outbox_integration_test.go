@@ -37,13 +37,7 @@ func (c *insertCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQuery
 // service, or TEST_DB_PORT / TEST_DB_NAME) with the app search path.
 func connectTestDB(t *testing.T, tracer pgx.QueryTracer) *pgx.Conn {
 	t.Helper()
-	port, name := os.Getenv("TEST_DB_PORT"), os.Getenv("TEST_DB_NAME")
-	if port == "" {
-		port = "15432"
-	}
-	if name == "" {
-		name = "test-db"
-	}
+	port, name := testDBPortAndName()
 	cfg, err := pgx.ParseConfig(fmt.Sprintf("postgres://test-user@localhost:%s/%s?sslmode=disable&search_path=app,public", port, name))
 	require.NoError(t, err)
 	cfg.Tracer = tracer
@@ -51,6 +45,20 @@ func connectTestDB(t *testing.T, tracer pgx.QueryTracer) *pgx.Conn {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	return conn
+}
+
+// testDBPortAndName returns the port and database of the integration-test
+// PostgreSQL: TEST_DB_PORT and TEST_DB_NAME when set, else the compose
+// service's 15432 and test-db.
+func testDBPortAndName() (string, string) {
+	port, name := os.Getenv("TEST_DB_PORT"), os.Getenv("TEST_DB_NAME")
+	if port == "" {
+		port = "15432"
+	}
+	if name == "" {
+		name = "test-db"
+	}
+	return port, name
 }
 
 // envelope is the part of the forwarder envelope a row holds that the test

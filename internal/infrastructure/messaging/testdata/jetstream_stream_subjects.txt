@@ -1,0 +1,16 @@
+# Subject filters of the JetStream streams declared in cloud-provisioning
+# k8s/namespaces/nats/base/jetstream/stream-*.yaml (spec.subjects), one per line.
+# Update this list in the same change as those manifests;
+# TestAllSubjectsCapturedByDeclaredStreams reads it.
+ARTIST.*
+CONCERT.*
+NOTIFICATION.*
+ORDER.*
+ORGANIZER.*
+POISON.*
+SALES_PHASE.*
+SERIES_IMAGE.*
+TICKET_EMAIL.*
+TICKET_JOURNEY.*
+USER.*
+VENUE.*

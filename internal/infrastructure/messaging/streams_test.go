@@ -1,6 +1,9 @@
 package messaging_test
 
 import (
+	"bufio"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -163,5 +166,42 @@ func TestSubjectCoveredByStream(t *testing.T) {
 
 			assert.Equal(t, tt.want, messaging.SubjectCoveredByStream(tt.subject))
 		})
+	}
+}
+
+// TestAllSubjectsCapturedByDeclaredStreams checks every subject in the entity
+// catalogue against the streams cloud-provisioning declares (the checked-in
+// list testdata/jetstream_stream_subjects.txt), so no announcement is
+// recorded for a subject no stream in the cluster captures: the forwarder
+// would retry it forever.
+func TestAllSubjectsCapturedByDeclaredStreams(t *testing.T) {
+	t.Parallel()
+
+	f, err := os.Open("testdata/jetstream_stream_subjects.txt")
+	if err != nil {
+		t.Fatalf("open the declared stream subjects: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	var filters []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			filters = append(filters, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read the declared stream subjects: %v", err)
+	}
+
+	for _, subject := range entity.AllSubjects {
+		captured := false
+		for _, filter := range filters {
+			if messaging.SubjectMatches(filter, subject) {
+				captured = true
+				break
+			}
+		}
+		assert.Truef(t, captured, "no stream declared in cloud-provisioning captures %q", subject)
 	}
 }

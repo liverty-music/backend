@@ -6,7 +6,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/components/forwarder"
+
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -17,7 +21,10 @@ import (
 // WorkerApp is the workflow worker: the only process that runs workflows,
 // their queues and their schedules (OpenSpec change introduce-durable-workflows).
 type WorkerApp struct {
-	Runtime         *workflow.Runtime
+	Runtime *workflow.Runtime
+	// Forwarder delivers the announcements recorded in the outbox to NATS.
+	// Nil in a local run without NATS: announcements then stay recorded.
+	Forwarder       *forwarder.Forwarder
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 }
@@ -67,11 +74,40 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	shutdown.AddDrainPhase(runtime)
 	shutdown.AddDatastorePhase(db)
 
+	fwd, err := newOutboxForwarder(ctx, cfg, db, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	return &WorkerApp{
 		Runtime:         runtime,
+		Forwarder:       fwd,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
+}
+
+// newOutboxForwarder builds the forwarder from the outbox to the NATS
+// publisher, or returns nil in a local run without a NATS URL. It stops in
+// the drain phase, and the publisher after it.
+func newOutboxForwarder(ctx context.Context, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) (*forwarder.Forwarder, error) {
+	if cfg.NATS.URL == "" {
+		logger.Warn(ctx, "NATS_URL is not set; recorded announcements stay in the outbox")
+		return nil, nil
+	}
+	wmLogger := watermill.NewSlogLogger(logger.Slog())
+	pub, err := messaging.NewPublisher(cfg.NATS, wmLogger, nil, logger)
+	if err != nil {
+		return nil, err
+	}
+	fwd, err := messaging.NewForwarder(db.Pool.Raw(), pub, wmLogger)
+	if err != nil {
+		_ = pub.Close()
+		return nil, err
+	}
+	shutdown.AddDrainPhase(fwd)
+	shutdown.AddExternalPhase(pub)
+	return fwd, nil
 }
 
 // InitializeWorkflowAdmin builds the workflow client the `workflow`

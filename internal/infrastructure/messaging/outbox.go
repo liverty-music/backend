@@ -122,3 +122,28 @@ func (o *Outbox) newMessage(ctx context.Context, subject string, a Announcement)
 func outboxSchema() wsql.PostgreSQLQueueSchema {
 	return wsql.PostgreSQLQueueSchema{}
 }
+
+// NewForwarder returns the forwarder that delivers recorded announcements:
+// it reads watermill_events_outbox through conn, publishes each row to its
+// subject through pub (the NATS publisher, whose message id deduplicates a
+// redelivery) and deletes the row once JetStream acknowledged it. A row whose
+// envelope cannot be read never succeeds, so it is logged and deleted; any
+// other failure keeps the row for the next attempt. Run it with Run and stop
+// it with Close.
+func NewForwarder(conn wsql.Conn, pub message.Publisher, logger watermill.LoggerAdapter) (*forwarder.Forwarder, error) {
+	sub, err := wsql.NewSubscriber(wsql.BeginnerFromPgx(conn), wsql.SubscriberConfig{
+		SchemaAdapter:  outboxSchema(),
+		OffsetsAdapter: wsql.PostgreSQLQueueOffsetsAdapter{DeleteOnAck: true},
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create outbox subscriber: %w", err)
+	}
+	fwd, err := forwarder.NewForwarder(sub, pub, logger, forwarder.Config{
+		ForwarderTopic:      OutboxTopic,
+		AckWhenCannotUnwrap: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create outbox forwarder: %w", err)
+	}
+	return fwd, nil
+}
