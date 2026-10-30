@@ -290,7 +290,7 @@ fi
 
 if [ "$errors" -gt 0 ]; then
   echo "" >&2
-  echo "Migration drift detected ($errors issue(s)). Use /db-migration to fix." >&2
+  echo "Migration drift detected ($errors issue(s)). Follow the db-migration-workflow skill to fix." >&2
   exit 1
 fi
 
