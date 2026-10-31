@@ -357,9 +357,9 @@ type SeriesRepository interface {
 	// PUBLISHED in place. At each event's slot (venue, date and start time):
 	// with no event there that is not DRAFT, the event becomes PUBLISHED; with
 	// a PUBLISHED event of this series there, the draft is removed; with an
-	// event of a discovered series or of another series of the same
-	// organizer, that event is claimed (moved to this series with its id,
-	// made PUBLISHED, given the draft's performers) and the draft is removed.
+	// event of a discovered series, that event is claimed (moved to this
+	// series with its id, made PUBLISHED, given the draft's performers) and
+	// the draft is removed.
 	// Claimed events are not returned. The series' concert candidates are
 	// dropped.
 	//
@@ -368,9 +368,10 @@ type SeriesRepository interface {
 	//  - InvalidArgument: If no event is given.
 	//  - NotFound: If the series does not exist.
 	//  - FailedPrecondition: If a given event is not a DRAFT event of the
-	//    series, or a slot is held by another organizer's event or by a
-	//    CANCELLED event. Nothing changes. A slot suppressed by an admin delete
-	//    does not block it.
+	//    series, or a slot is held by an event of another first-party series
+	//    (of another organizer or of the same one) or by a CANCELLED event.
+	//    Nothing changes. A slot suppressed by an admin delete does not block
+	//    it.
 	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
 
 	// CancelEvents cancels the given events of a first-party series in a

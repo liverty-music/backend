@@ -562,6 +562,24 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectConcertCreated, mock.Anything)
 	})
 
+	for _, visibility := range []entity.SeriesVisibility{entity.SeriesVisibilityPublic, entity.SeriesVisibilityUnlisted} {
+		t.Run("fail with FAILED_PRECONDITION and announce nothing when another series of the organizer holds the slot of a "+string(visibility)+" draft", func(t *testing.T) {
+			t.Parallel()
+			// @spec components/usecase/series/publish "Own other concert holds the slot"
+			d := newAuthoringDeps(t)
+			d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
+				Return(lifecycleSeries(visibility), concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
+			d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).
+				Return(nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by another series' event")).Once()
+
+			_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+			d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
+			d.seriesRepo.AssertNotCalled(t, "SetUnlistedToken", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+
 	t.Run("publish a draft at a slot an admin's delete suppressed", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Suppressed slot"

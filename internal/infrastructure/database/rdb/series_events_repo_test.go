@@ -68,8 +68,9 @@ func (f *authoredFixture) series(states ...entity.PublishState) (string, []strin
 	return s.ID, ids
 }
 
-// otherSeries creates a first-party series of another Organizer with one
-// PUBLISHED event at the venue on date, starting at start.
+// otherSeries creates a first-party PUBLIC series of the given Organizer
+// with one event in the given state at the venue on date, starting at start,
+// and returns the event's id.
 func (f *authoredFixture) otherSeries(date time.Time, start *time.Time, state entity.PublishState, organizerID string) string {
 	f.t.Helper()
 	seriesID := entity.NewID()
@@ -578,6 +579,34 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("fail with FAILED_PRECONDITION and keep the held event in its series for another series of the same organizer at the slot", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Slot of another Series of the same Organizer"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		heldID := f.otherSeries(authoredFirstDate, nil, entity.PublishStatePublished, f.orgID)
+		heldSeriesID := f.seriesOf(heldID)
+		f.exec(`UPDATE series SET visibility = 'UNLISTED' WHERE id = $1`, heldSeriesID)
+		stock := seedStockForEvent(t, heldID, entity.TicketSaleMethodFirstCome, 100, 4)
+
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		state, _ := f.state(ids[0])
+		assert.Equal(t, "DRAFT", state)
+		assert.Equal(t, heldSeriesID, f.seriesOf(heldID))
+		var visibility, stockSeriesID, saleSeriesID string
+		require.NoError(t, testDB.Pool.QueryRow(f.ctx, `SELECT visibility::text FROM series WHERE id = $1`, heldSeriesID).Scan(&visibility))
+		require.NoError(t, testDB.Pool.QueryRow(f.ctx, `
+			SELECT st.series_id FROM ticket_stocks ts JOIN seat_types st ON st.id = ts.seat_type_id
+			WHERE ts.id = $1 AND ts.event_id = $2`, string(stock.ID), heldID).Scan(&stockSeriesID))
+		require.NoError(t, testDB.Pool.QueryRow(f.ctx, `
+			SELECT s.series_id FROM ticket_sales s JOIN ticket_sale_events se ON se.ticket_sale_id = s.id
+			WHERE s.id = $1 AND se.event_id = $2`, string(stock.SaleID), heldID).Scan(&saleSeriesID))
+		assert.Equal(t, "UNLISTED", visibility)
+		assert.Equal(t, heldSeriesID, stockSeriesID)
+		assert.Equal(t, heldSeriesID, saleSeriesID)
+	})
 
 	t.Run("publish a draft at a suppressed slot", func(t *testing.T) {
 		// @spec components/entity/series/publish-events "Suppressed slot"
