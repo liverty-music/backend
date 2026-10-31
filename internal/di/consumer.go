@@ -235,7 +235,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
-	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
+	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, orderRepo, rdb.NewTicketStockRepository(db), logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
