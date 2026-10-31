@@ -237,7 +237,6 @@ func TestDeliverReminder_NoSubscriptionRecordsSent(t *testing.T) {
 
 // TestDeliverReminder_SuccessfulSendRecordsSent verifies that a successful
 // notification records sent and returns nil.
-// @spec components/usecase/ticket-sale-reminder/deliver-reminder "Reminder requested"
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Delivered to a device"
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Accepted by a device"
 func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
@@ -253,6 +252,29 @@ func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
 		Return(nil)
 
 	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+
+	require.NoError(t, err)
+}
+
+// TestRunDeliverReminder_DeliversTheRequestedReminder verifies that the
+// deliver-reminder workflow the scan starts delivers that fan's reminder for
+// the sale and stage.
+//
+// @spec components/usecase/ticket-sale-reminder/deliver-reminder "Reminder requested"
+func TestRunDeliverReminder_DeliversTheRequestedReminder(t *testing.T) {
+	t.Parallel()
+
+	d := newReminderDeliveryTestDeps(t)
+	d.reminderRepo.EXPECT().
+		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(false, nil)
+	expectDelivered(t, d, "user-001", "id-ok")
+	d.reminderRepo.EXPECT().
+		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(nil).
+		Once()
+
+	_, err := d.uc.RunDeliverReminder(context.Background(), &inlineFlow{}, validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
 }

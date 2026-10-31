@@ -255,11 +255,11 @@ func (d *storyDeps) deliverRequested(t *testing.T) {
 	}
 }
 
-// deliverReminders hands every captured SALES_PHASE.reminder_due to
-// DeliverReminder, as the ticket sale reminder consumer does.
+// deliverReminders hands every started deliver-reminder workflow to
+// DeliverReminder, as the workflow does.
 func (d *storyDeps) deliverReminders(t *testing.T) {
 	t.Helper()
-	for _, data := range d.pub.take(entity.SubjectTicketSaleReminderDue) {
+	for _, data := range d.wf.take(usecase.WorkflowDeliverReminder) {
 		require.NoError(t, d.reminder.DeliverReminder(context.Background(), data.(entity.TicketSaleReminderDueData)))
 	}
 }
@@ -433,7 +433,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
-		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)
@@ -515,7 +515,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		rdb.NewTicketSaleRepository(testDB, testOutbox), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
-		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)

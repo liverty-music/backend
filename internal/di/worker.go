@@ -103,6 +103,15 @@ func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.D
 		usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{},
 	)
 	workflow.Register(rt, usecase.WorkflowDeliverNotification, notifications.RunDeliver)
+
+	reminders := usecase.NewTicketSaleReminderDeliveryUseCase(
+		rdb.NewTicketSaleReminderRepository(db),
+		rdb.NewNotificationRepository(db, outbox),
+		rdb.NewPushSubscriptionRepository(db, outbox),
+		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
+		infratelemetry.NewBusinessMetrics(), logger,
+	)
+	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)
 }
 
 // newOutboxForwarder builds the forwarder from the outbox to the NATS

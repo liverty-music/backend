@@ -20,6 +20,9 @@ var ExportedBuildReminderPayload = buildReminderPayload
 // ExportedBuildAnnouncementPayload exposes buildAnnouncementPayload for black-box tests.
 var ExportedBuildAnnouncementPayload = buildAnnouncementPayload
 
+// ExportedReminderWorkflowID exposes reminderWorkflowID for black-box tests.
+var ExportedReminderWorkflowID = reminderWorkflowID
+
 // ExportedUserTimezone exposes userTimezone for black-box tests.
 var ExportedUserTimezone = userTimezone
 

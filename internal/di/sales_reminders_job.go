@@ -2,14 +2,10 @@ package di
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -59,25 +55,13 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
 	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 
-	// Messaging
-	//
-	// Fail fast in non-local environments: a missing NATS_URL would silently
-	// route published events to an in-process GoChannel that nothing consumes,
-	// dropping every event. Local development still falls back to the
-	// in-process GoChannel below.
-	if !cfg.IsLocal() && cfg.NATS.URL == "" {
-		return nil, fmt.Errorf("NATS_URL is required for the sales-reminders job in non-local environments")
-	}
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 256}, wmLogger)
-	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
+	// Each due reminder is started as a deliver-reminder workflow, which the
+	// workflow worker runs.
+	shutdown.Init(logger)
+	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
+		return nil, err
 	}
-	eventPublisher := messaging.NewEventPublisher(publisher)
 
 	salesReminderUC := usecase.NewTicketSaleReminderUseCase(
 		ticketSaleRepo,
@@ -85,13 +69,11 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 		ticketJourneyRepo,
 		userRepo,
 		seriesRepo,
-		eventPublisher,
+		workflows,
 		cfg.GCP.SalesReminderScanWindow(),
 		logger,
 	)
 
-	shutdown.Init(logger)
-	shutdown.AddFlushPhase(publisher)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

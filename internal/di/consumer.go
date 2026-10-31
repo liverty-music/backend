@@ -91,7 +91,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
-	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
 
 	// Infrastructure - Messaging
@@ -268,14 +267,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		workflows,
 		logger,
 	)
-	salesReminderDeliveryUC := usecase.NewTicketSaleReminderDeliveryUseCase(
-		salesReminderRepo,
-		notificationRepo,
-		pushSubRepo,
-		webpushSender,
-		infratelemetry.NewBusinessMetrics(),
-		logger,
-	)
 
 	// Passkeys: the recovery link (issued by the identity service), the change
 	// email and the Passkey records.
@@ -302,7 +293,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
-	salesReminderConsumer := event.NewTicketSaleReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
@@ -338,7 +328,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"track-ticket-admitted", entity.SubjectTicketAdmitted, analyticsConsumer.HandleTicketAdmitted},
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
 		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
-		{"notify-sales-reminder", entity.SubjectTicketSaleReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},

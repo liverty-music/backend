@@ -29,6 +29,10 @@ type TicketSaleReminderDeliveryUseCase interface {
 	//     was no device to deliver to). A transient send failure leaves the
 	//     sent-log empty so the next scan can retry.
 	DeliverReminder(ctx context.Context, data entity.TicketSaleReminderDueData) error
+
+	// RunDeliverReminder is the deliver-reminder workflow, started by
+	// ScanDueReminders by name ([WorkflowDeliverReminder]).
+	RunDeliverReminder(ctx context.Context, f Flow, in entity.TicketSaleReminderDueData) (struct{}, error)
 }
 
 type ticketSaleReminderDeliveryUseCase struct {
