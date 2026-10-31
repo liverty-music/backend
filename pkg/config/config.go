@@ -89,10 +89,14 @@ type WorkerConfig struct {
 
 	// VAPID signs the Web Push messages of the deliver-notification workflow.
 	VAPID VAPIDConfig `envconfig:""`
+
+	// AccountEmailConfig sends the codes and links of the
+	// reissue-email-verification and send-passkey-recovery-link workflows.
+	AccountEmailConfig
 }
 
 // Validate checks the worker configuration: the base settings, and outside
-// local the NATS URL and the VAPID keys.
+// local the NATS URL, the VAPID keys, the identity service and the issuer.
 func (c *WorkerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -104,6 +108,8 @@ func (c *WorkerConfig) Validate() error {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
 	return requireSet(
+		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
+		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
 	)
@@ -246,23 +252,32 @@ type ConsumerConfig struct {
 	// analytics-consumer.
 	PostHog PostHogConfig `envconfig:""`
 
+	// AccountEmailConfig sends the verification and passkey emails, and
+	// Postmark the purchase confirmation email.
+	AccountEmailConfig
+
+	// FanartTV API Key for artist image resolution
+	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
+}
+
+// AccountEmailConfig is what a workload needs to email a fan about their
+// account: the issuer the fan web origin of the links derives from, the
+// identity service that issues the codes and links, and Postmark.
+type AccountEmailConfig struct {
 	// ZitadelDomain is the Zitadel instance URL for API calls.
 	// Same value as OIDC_ISSUER_URL used by the API server.
 	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
 
-	// IdentityServiceURL is the identity service's listener for the event
-	// consumer (e.g. http://identity:9100, h2c). Verification emails and
-	// passkey registration links go through it; the consumer holds no
+	// IdentityServiceURL is the identity service's listener for the other
+	// backend workloads (e.g. http://identity:9100, h2c). Verification emails
+	// and passkey registration links go through it; the caller holds no
 	// identity-provider credential. Required outside local; unset in local
-	// development, the verification handlers skip with a warning and the
-	// passkey recovery link handler is disabled.
+	// development, verification emails are skipped with a warning and no
+	// passkey registration link can be sent.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
 
-	// FanartTV API Key for artist image resolution
-	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
-
-	// Postmark sends the purchase confirmation email. When its server token is
-	// empty the consumer uses a no-op sender that fails with Unavailable.
+	// Postmark sends the emails. When its server token is empty a no-op
+	// sender is used that fails with Unavailable.
 	Postmark PostmarkConfig `envconfig:""`
 }
 

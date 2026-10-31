@@ -133,12 +133,13 @@ type UserUseCase interface {
 	//  - NotFound: no user exists for providerUserID.
 	ResolveCaller(ctx context.Context, providerUserID string) (*entity.User, error)
 
-	// ResendEmailVerification announces a verification-email resend request for
-	// the caller identified by providerUserID (the Zitadel subject claim), when
-	// the resend rate limit has not been exceeded. The fresh code is sent by
-	// ReissueEmailVerification in the event consumer, so this process needs no
-	// identity-provider credential. The call succeeds for an address that is
-	// already verified; ReissueEmailVerification then sends nothing.
+	// ResendEmailVerification starts the reissue-email-verification workflow
+	// for the caller identified by providerUserID (the Zitadel subject claim),
+	// when the resend rate limit has not been exceeded. Each allowed request
+	// starts one run; the fresh code is sent by ReissueEmailVerification in the
+	// workflow worker, so this process needs no identity-provider credential.
+	// The call succeeds for an address that is already verified;
+	// ReissueEmailVerification then sends nothing.
 	//
 	// The rate limit (3 resends per rolling 10-minute window) is tracked in
 	// memory, scoped to this process. It is NOT shared across replicas, so
@@ -149,26 +150,26 @@ type UserUseCase interface {
 	// # Possible errors
 	//
 	//  - ResourceExhausted: the resend rate limit has been exceeded.
-	//  - Unavailable: the resend request could not be announced; the request
-	//    still counts toward the limit.
+	//  - Unavailable: the workflow could not be started; the request still
+	//    counts toward the limit.
 	//  - NotFound: no user exists for providerUserID.
 	ResendEmailVerification(ctx context.Context, providerUserID string) error
 
 	// RequestPasskeyRecovery asks for a passkey registration link for the
 	// User whose email is the given address, on behalf of a person who cannot
 	// sign in. It succeeds in the same way whether or not the address belongs
-	// to a User: after the per-address limit (at most 3 announcements per 60
+	// to a User: after the per-address limit (at most 3 starts per 60
 	// minutes, compared without regard to letter case; a further request
-	// returns without announcing) it returns at once, and the lookup with
-	// User.GetByEmail and the announcement of a passkey recovery request for
-	// the User found run in the background, where failures are logged. The
-	// per-client limit is applied before the call, by the server.
+	// returns without starting anything) it returns at once, and the lookup
+	// with User.GetByEmail and the start of the send-passkey-recovery-link
+	// workflow for the User found run in the background, where failures are
+	// logged. The per-client limit is applied before the call, by the server.
 	RequestPasskeyRecovery(ctx context.Context, email string)
 
-	// SendPasskeyRecoveryLink sends the passkey registration link for an
-	// announced passkey recovery request of the User userID. A User that no
-	// longer exists, an identity that no longer exists and an identity whose
-	// address is not verified are logged and finish without sending.
+	// SendPasskeyRecoveryLink sends the passkey registration link for a
+	// passkey recovery request of the User userID. A User that no longer
+	// exists, an identity that no longer exists and an identity whose address
+	// is not verified are logged and finish without sending.
 	//
 	// # Possible errors
 	//
@@ -189,10 +190,10 @@ type UserUseCase interface {
 	NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error
 
 	// ReissueEmailVerification sends a fresh verification code to the address
-	// of the User identified by userID. It runs for each announced resend
-	// request. A User that no longer exists, an address that is already
-	// verified, or email verification that is not configured in this process
-	// finishes without sending. A run repeated after a code was sent sends a
+	// of the User identified by userID. It runs for each resend request
+	// ResendEmailVerification allows. A User that no longer exists, an address
+	// that is already verified, or email verification that is not configured
+	// in this process finishes without sending. A run repeated after a code was sent sends a
 	// newer code.
 	//
 	// # Possible errors
@@ -200,6 +201,14 @@ type UserUseCase interface {
 	//  - Any other failure of reading the User or sending the code, returned
 	//    so the request is run again.
 	ReissueEmailVerification(ctx context.Context, userID string) error
+
+	// RunReissueEmailVerification is the reissue-email-verification workflow
+	// ResendEmailVerification starts.
+	RunReissueEmailVerification(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
+
+	// RunSendPasskeyRecoveryLink is the send-passkey-recovery-link workflow
+	// RequestPasskeyRecovery starts.
+	RunSendPasskeyRecoveryLink(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
 
 	// VerifyEmail confirms the email address of the User userID with the code
 	// from that User's verification email, for whoever holds the link: it
@@ -234,12 +243,12 @@ type PasskeyMailers struct {
 }
 
 // passkeyRecoveryLimit and passkeyRecoveryWindow bound the passkey recovery
-// requests announced for one address: at most passkeyRecoveryLimit within any
+// links started for one address: at most passkeyRecoveryLimit within any
 // passkeyRecoveryWindow.
 const (
 	passkeyRecoveryLimit  = 3
 	passkeyRecoveryWindow = 60 * time.Minute
-	// passkeyRecoveryTimeout bounds the background lookup and announcement.
+	// passkeyRecoveryTimeout bounds the background lookup and start.
 	passkeyRecoveryTimeout = 30 * time.Second
 )
 
@@ -269,7 +278,7 @@ type DeletionBlockerReads struct {
 type userUseCase struct {
 	userRepo        entity.UserRepository
 	deletionReads   DeletionBlockerReads
-	publisher       EventPublisher
+	workflows       Workflows
 	emailVerifier   entity.EmailVerifier
 	emailCodes      entity.EmailCodeVerifier
 	identityRemover entity.IdentityRemover
@@ -280,10 +289,10 @@ type userUseCase struct {
 	// id.
 	verifyEmailLimiter *slidingWindowLimiter
 
-	// passkeyRecoveryLimiter bounds the recovery requests announced for one
+	// passkeyRecoveryLimiter bounds the recovery links started for one
 	// address.
 	passkeyRecoveryLimiter *slidingWindowLimiter
-	// background runs the recovery lookup and announcement after
+	// background runs the recovery lookup and start after
 	// RequestPasskeyRecovery returns. Tests replace it to run the task
 	// synchronously.
 	background func(task func())
@@ -298,8 +307,8 @@ var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
 // It requires a user repository for data persistence, the reads that deletion
-// checks for activity in progress, a publisher for domain
-// events, an email verifier for triggering verification emails and an
+// checks for activity in progress, the workflows the resend and recovery
+// requests start, an email verifier for triggering verification emails and an
 // identity remover for deletion (both nil when the Zitadel API client is not
 // configured, e.g. local dev), the passkey email senders (empty outside the
 // event consumer), and a logger. emailCodes confirms addresses with emailed
@@ -307,7 +316,7 @@ var _ UserUseCase = (*userUseCase)(nil)
 func NewUserUseCase(
 	userRepo entity.UserRepository,
 	deletionReads DeletionBlockerReads,
-	publisher EventPublisher,
+	workflows Workflows,
 	emailVerifier entity.EmailVerifier,
 	emailCodes entity.EmailCodeVerifier,
 	identityRemover entity.IdentityRemover,
@@ -317,7 +326,7 @@ func NewUserUseCase(
 	return &userUseCase{
 		userRepo:               userRepo,
 		deletionReads:          deletionReads,
-		publisher:              publisher,
+		workflows:              workflows,
 		emailVerifier:          emailVerifier,
 		emailCodes:             emailCodes,
 		identityRemover:        identityRemover,
@@ -404,11 +413,6 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 
 	// User.Create announced the created User (USER.created).
 	return user, nil
-}
-
-// publishEvent publishes data as a CloudEvent to the given subject.
-func (uc *userUseCase) publishEvent(ctx context.Context, subject string, data any) error {
-	return uc.publisher.PublishEvent(ctx, subject, data)
 }
 
 // Get retrieves a user by ID.
@@ -669,8 +673,8 @@ func (uc *userUseCase) ResolveCaller(ctx context.Context, providerUserID string)
 	return uc.GetByProviderUserID(ctx, providerUserID)
 }
 
-// ResendEmailVerification announces a verification-email resend request for
-// the caller, enforcing the in-memory resend rate limit first.
+// ResendEmailVerification starts one reissue-email-verification run for the
+// caller, enforcing the in-memory resend rate limit first.
 func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUserID string) error {
 	user, err := uc.ResolveCaller(ctx, providerUserID)
 	if err != nil {
@@ -681,18 +685,17 @@ func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUser
 		return apperr.New(codes.ResourceExhausted, "resend rate limit exceeded")
 	}
 
-	if err := uc.publishEvent(ctx, entity.SubjectUserEmailVerificationResendRequested, entity.UserEmailVerificationResendRequestedData{
-		UserID: user.ID,
-	}); err != nil {
-		return apperr.Wrap(err, codes.Unavailable, "announce email verification resend request",
+	if err := uc.workflows.Start(ctx, WorkflowReissueEmailVerification,
+		requestWorkflowID(WorkflowReissueEmailVerification, entity.NewID()), UserRequest{UserID: user.ID}); err != nil {
+		return apperr.Wrap(err, codes.Unavailable, "start email verification resend",
 			slog.String("user_id", user.ID))
 	}
 
 	return nil
 }
 
-// ReissueEmailVerification sends a fresh verification code for an announced
-// resend request.
+// ReissueEmailVerification sends a fresh verification code for a resend
+// request.
 func (uc *userUseCase) ReissueEmailVerification(ctx context.Context, userID string) error {
 	if uc.emailVerifier == nil {
 		uc.logger.Warn(ctx, "email verifier not configured, skipping verification resend",
@@ -784,42 +787,42 @@ func (uc *userUseCase) allowResend(providerUserID string) bool {
 }
 
 // RequestPasskeyRecovery implements [UserUseCase]. The per-address check runs
-// before it returns; the lookup and the announcement run afterwards on a
+// before it returns; the lookup and the start run afterwards on a
 // context detached from the request, so neither the answer nor its timing
 // depends on whether the address belongs to a User.
 func (uc *userUseCase) RequestPasskeyRecovery(ctx context.Context, email string) {
 	if !uc.passkeyRecoveryLimiter.allow(strings.ToLower(email)) {
-		uc.logger.Info(ctx, "passkey recovery not announced: per-address limit reached")
+		uc.logger.Info(ctx, "passkey recovery not started: per-address limit reached")
 		return
 	}
 	bgCtx := context.WithoutCancel(ctx)
 	uc.background(func() {
 		ctx, cancel := context.WithTimeout(bgCtx, passkeyRecoveryTimeout)
 		defer cancel()
-		uc.announcePasskeyRecovery(ctx, email)
+		uc.startPasskeyRecovery(ctx, email)
 	})
 }
 
-// announcePasskeyRecovery reads the User whose email is the address and, when
-// there is one, announces a passkey recovery request for it. The address is
+// startPasskeyRecovery reads the User whose email is the address and, when
+// there is one, starts one send-passkey-recovery-link run for it. The address is
 // never logged; failures are.
-func (uc *userUseCase) announcePasskeyRecovery(ctx context.Context, email string) {
+func (uc *userUseCase) startPasskeyRecovery(ctx context.Context, email string) {
 	user, err := uc.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Info(ctx, "passkey recovery not announced: no user has the address")
+			uc.logger.Info(ctx, "passkey recovery not started: no user has the address")
 			return
 		}
 		uc.logger.Error(ctx, "failed to read the user for a passkey recovery request", err)
 		return
 	}
-	if err := uc.publishEvent(ctx, entity.SubjectUserPasskeyRecoveryRequested,
-		entity.UserPasskeyRecoveryRequestedData{UserID: user.ID}); err != nil {
-		uc.logger.Error(ctx, "failed to announce a passkey recovery request", err,
+	if err := uc.workflows.Start(ctx, WorkflowSendPasskeyRecoveryLink,
+		requestWorkflowID(WorkflowSendPasskeyRecoveryLink, entity.NewID()), UserRequest{UserID: user.ID}); err != nil {
+		uc.logger.Error(ctx, "failed to start a passkey recovery link", err,
 			slog.String("user_id", user.ID))
 		return
 	}
-	uc.logger.Info(ctx, "passkey recovery request announced", slog.String("user_id", user.ID))
+	uc.logger.Info(ctx, "passkey recovery link started", slog.String("user_id", user.ID))
 }
 
 // SendPasskeyRecoveryLink implements [UserUseCase].

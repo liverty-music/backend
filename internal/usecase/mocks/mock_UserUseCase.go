@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -731,6 +732,150 @@ func (_c *MockUserUseCase_ResolveCaller_Call) Return(user *entity.User, err erro
 }
 
 func (_c *MockUserUseCase_ResolveCaller_Call) RunAndReturn(run func(ctx context.Context, providerUserID string) (*entity.User, error)) *MockUserUseCase_ResolveCaller_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RunReissueEmailVerification provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) RunReissueEmailVerification(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunReissueEmailVerification")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.UserRequest) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockUserUseCase_RunReissueEmailVerification_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunReissueEmailVerification'
+type MockUserUseCase_RunReissueEmailVerification_Call struct {
+	*mock.Call
+}
+
+// RunReissueEmailVerification is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.UserRequest
+func (_e *MockUserUseCase_Expecter) RunReissueEmailVerification(ctx any, f any, in any) *MockUserUseCase_RunReissueEmailVerification_Call {
+	return &MockUserUseCase_RunReissueEmailVerification_Call{Call: _e.mock.On("RunReissueEmailVerification", ctx, f, in)}
+}
+
+func (_c *MockUserUseCase_RunReissueEmailVerification_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest)) *MockUserUseCase_RunReissueEmailVerification_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.UserRequest
+		if args[2] != nil {
+			arg2 = args[2].(usecase.UserRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_RunReissueEmailVerification_Call) Return(val struct{}, err error) *MockUserUseCase_RunReissueEmailVerification_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockUserUseCase_RunReissueEmailVerification_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error)) *MockUserUseCase_RunReissueEmailVerification_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RunSendPasskeyRecoveryLink provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) RunSendPasskeyRecoveryLink(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunSendPasskeyRecoveryLink")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.UserRequest) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockUserUseCase_RunSendPasskeyRecoveryLink_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunSendPasskeyRecoveryLink'
+type MockUserUseCase_RunSendPasskeyRecoveryLink_Call struct {
+	*mock.Call
+}
+
+// RunSendPasskeyRecoveryLink is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.UserRequest
+func (_e *MockUserUseCase_Expecter) RunSendPasskeyRecoveryLink(ctx any, f any, in any) *MockUserUseCase_RunSendPasskeyRecoveryLink_Call {
+	return &MockUserUseCase_RunSendPasskeyRecoveryLink_Call{Call: _e.mock.On("RunSendPasskeyRecoveryLink", ctx, f, in)}
+}
+
+func (_c *MockUserUseCase_RunSendPasskeyRecoveryLink_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest)) *MockUserUseCase_RunSendPasskeyRecoveryLink_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.UserRequest
+		if args[2] != nil {
+			arg2 = args[2].(usecase.UserRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_RunSendPasskeyRecoveryLink_Call) Return(val struct{}, err error) *MockUserUseCase_RunSendPasskeyRecoveryLink_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockUserUseCase_RunSendPasskeyRecoveryLink_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error)) *MockUserUseCase_RunSendPasskeyRecoveryLink_Call {
 	_c.Call.Return(run)
 	return _c
 }

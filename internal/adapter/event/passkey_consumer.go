@@ -17,9 +17,8 @@ import (
 // passkey change again while its identity has no User yet.
 const passkeyRecordRetryDelay = 15 * time.Second
 
-// PasskeyConsumer handles the USER-stream passkey events: the registration
-// link of an announced passkey recovery request, the email of a passkey
-// change and the record of a passkey change. A returned error makes the
+// PasskeyConsumer handles the USER-stream passkey events: the email of a
+// passkey change and the record of a passkey change. A returned error makes the
 // router retry, and after the retry limit the message goes to the poison
 // queue; a passkey change whose identity has no User yet is delivered again
 // later instead.
@@ -32,22 +31,6 @@ type PasskeyConsumer struct {
 // NewPasskeyConsumer creates a new PasskeyConsumer.
 func NewPasskeyConsumer(userUC usecase.UserUseCase, passkeyUC usecase.PasskeyUseCase, logger *logging.Logger) *PasskeyConsumer {
 	return &PasskeyConsumer{userUC: userUC, passkeyUC: passkeyUC, logger: logger}
-}
-
-// HandleRecoveryRequested sends the passkey registration link of a
-// USER.passkey_recovery_requested event.
-func (h *PasskeyConsumer) HandleRecoveryRequested(msg *message.Message) error {
-	var data entity.UserPasskeyRecoveryRequestedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse USER.passkey_recovery_requested event", err)
-		return fmt.Errorf("parse USER.passkey_recovery_requested event: %w", err)
-	}
-	h.logger.Info(msg.Context(), "processing USER.passkey_recovery_requested for the recovery link",
-		slog.String("user_id", data.UserID))
-	if err := h.userUC.SendPasskeyRecoveryLink(msg.Context(), data.UserID); err != nil {
-		return fmt.Errorf("send passkey recovery link for user %s: %w", data.UserID, err)
-	}
-	return nil
 }
 
 // HandlePasskeyChanged emails the fan of a USER.passkey_changed event.

@@ -341,7 +341,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Checkouts:      checkoutRepo,
 		Orders:         orderRepo,
 		Now:            time.Now,
-	}, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	}, workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)

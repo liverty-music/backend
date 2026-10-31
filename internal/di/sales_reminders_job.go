@@ -14,8 +14,8 @@ import (
 )
 
 // SalesRemindersJobApp is the dependency bundle for the sales-reminders
-// CronJob. The job scans the ticket sales for due milestones and publishes
-// SALES_PHASE.reminder_due events for each (user, sale, stage) not yet sent.
+// CronJob. The job scans the ticket sales for due milestones and starts a
+// deliver-reminder workflow for each (user, sale, stage) not yet sent.
 type SalesRemindersJobApp struct {
 	SalesReminderUC usecase.TicketSaleReminderUseCase
 	Logger          *logging.Logger

@@ -81,7 +81,9 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	registerWorkflows(runtime, cfg, db, logger)
+	if err := registerWorkflows(runtime, cfg, db, logger); err != nil {
+		return nil, err
+	}
 
 	return &WorkerApp{
 		Runtime:         runtime,
@@ -93,7 +95,7 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 
 // registerWorkflows builds the usecases whose workflows the worker runs and
 // registers each workflow by its stable name.
-func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) {
+func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) error {
 	outbox := newOutbox(logger)
 	notifications := usecase.NewNotificationUseCase(
 		rdb.NewNotificationRepository(db, outbox),
@@ -112,6 +114,19 @@ func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.D
 		infratelemetry.NewBusinessMetrics(), logger,
 	)
 	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)
+
+	// The worker's UserUseCase sends the verification codes and the passkey
+	// recovery links the fan API requests; it starts nothing and never
+	// deletes users.
+	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
+	if err != nil {
+		return err
+	}
+	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), usecase.DeletionBlockerReads{}, nil, emailVerifier, nil, nil,
+		usecase.PasskeyMailers{RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger)}, logger)
+	workflow.Register(rt, usecase.WorkflowReissueEmailVerification, users.RunReissueEmailVerification)
+	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
+	return nil
 }
 
 // newOutboxForwarder builds the forwarder from the outbox to the NATS

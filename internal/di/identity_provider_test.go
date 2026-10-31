@@ -114,12 +114,12 @@ func TestProvideIdentityClients(t *testing.T) {
 	}
 }
 
-func TestNewConsumerEmailVerifier(t *testing.T) {
+func TestNewEmailVerifier(t *testing.T) {
 	t.Parallel()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	got, err := di.NewConsumerEmailVerifier(&config.ConsumerConfig{
+	got, err := di.NewEmailVerifier(&config.AccountEmailConfig{
 		IdentityServiceURL: "http://identity:9100",
 		ZitadelDomain:      "https://auth.liverty-music.app",
 		Postmark:           config.PostmarkConfig{ServerToken: "token"},
@@ -127,13 +127,13 @@ func TestNewConsumerEmailVerifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.IsType(t, &mail.PostmarkEmailVerificationSender{}, got, "the identity service URL and Postmark select the Postmark sender")
 
-	got, err = di.NewConsumerEmailVerifier(&config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}, logger)
+	got, err = di.NewEmailVerifier(&config.AccountEmailConfig{IdentityServiceURL: "http://identity:9100"}, logger)
 	require.NoError(t, err)
 	assert.IsType(t, &mail.NoopEmailVerificationSender{}, got, "without Postmark every send fails")
 
-	got, err = di.NewConsumerEmailVerifier(&config.ConsumerConfig{Environment: "local"}, logger)
+	got, err = di.NewEmailVerifier(&config.AccountEmailConfig{}, logger)
 	require.NoError(t, err)
-	assert.Nil(t, got, "without the identity service in local there is no verifier")
+	assert.Nil(t, got, "without the identity service there is no verifier")
 }
 
 func TestProvideOrganizationRepository(t *testing.T) {

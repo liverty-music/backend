@@ -77,9 +77,8 @@ var streams = []nats.StreamConfig{
 	},
 	{
 		Name: "SALES_PHASE",
-		// Both subjects are two-token (SALES_PHASE.discovered,
-		// SALES_PHASE.reminder_due), so a single-token `SALES_PHASE.*` matches
-		// them all.
+		// Its subject is two-token (SALES_PHASE.discovered), so a
+		// single-token `SALES_PHASE.*` matches it.
 		Subjects:   []string{"SALES_PHASE.*"},
 		Retention:  nats.LimitsPolicy,
 		MaxAge:     7 * 24 * time.Hour,
@@ -105,7 +104,7 @@ var streams = []nats.StreamConfig{
 		// subjects), consumed by the analytics consumer. A plain ORGANIZER.*
 		// filter matches both subjects because each uses a single underscore token
 		// for the event name (artist_associated, not artist.associated) — same
-		// convention as SALES_PHASE.reminder_due.
+		// convention as SALES_PHASE.discovered.
 		Name:       "ORGANIZER",
 		Subjects:   []string{"ORGANIZER.*"},
 		Retention:  nats.LimitsPolicy,

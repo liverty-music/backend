@@ -26,8 +26,8 @@ const (
 
 // TicketSaleReminderUseCase scans the ticket sales, discovered and the
 // Organizer's, for milestones that became due in the current scan window and
-// publishes a SALES_PHASE.reminder_due event for each (user, sale, stage) not
-// yet recorded in the sent-log.
+// starts a deliver-reminder workflow for each (user, sale, stage) not yet
+// recorded in the sent-log.
 type TicketSaleReminderUseCase interface {
 	// ScanDueReminders runs one scan pass. It lists the sales with a pending
 	// milestone, resolves each sale's audience, applies quiet hours, checks

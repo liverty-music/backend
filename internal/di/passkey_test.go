@@ -29,35 +29,26 @@ func envNames(t reflect.Type) []string {
 func TestPasskeyRecoveryWiring(t *testing.T) {
 	t.Parallel()
 
-	t.Run("without the identity service the consumer starts with the recovery link handler disabled", func(t *testing.T) {
+	t.Run("without the identity service no recovery link sender is built", func(t *testing.T) {
 		t.Parallel()
-		cfg := &config.ConsumerConfig{}
+		cfg := &config.AccountEmailConfig{}
 		cfg.Postmark.ServerToken = "server-token"
 
-		sender := di.NewPasskeyRegistrationLinkSender(cfg, di.NewBootstrapLoggerTo(io.Discard))
-
-		assert.Nil(t, sender, "no recovery link sender is built")
-		assert.Empty(t, di.PasskeyRecoveryBehaviorNames(false), "no send-passkey-recovery-link behavior")
+		assert.Nil(t, di.NewPasskeyRegistrationLinkSender(cfg, di.NewBootstrapLoggerTo(io.Discard)))
 	})
 
-	t.Run("with the identity service the consumer builds the sender", func(t *testing.T) {
+	t.Run("with the identity service the worker builds the sender", func(t *testing.T) {
 		t.Parallel()
-		cfg := &config.ConsumerConfig{IdentityServiceURL: "http://identity:9100"}
+		cfg := &config.AccountEmailConfig{IdentityServiceURL: "http://identity:9100"}
 		cfg.Postmark.ServerToken = "server-token"
 
 		assert.NotNil(t, di.NewPasskeyRegistrationLinkSender(cfg, di.NewBootstrapLoggerTo(io.Discard)))
 	})
 
-	t.Run("when links can be issued the consumer registers the send-passkey-recovery-link behavior", func(t *testing.T) {
-		t.Parallel()
-
-		assert.Equal(t, []string{"send-passkey-recovery-link USER.passkey_recovery_requested"}, di.PasskeyRecoveryBehaviorNames(true))
-	})
-
 	t.Run("only the identity service configuration reads an identity-provider key", func(t *testing.T) {
 		t.Parallel()
 
-		for _, typ := range []reflect.Type{reflect.TypeFor[config.ServerConfig](), reflect.TypeFor[config.ConsumerConfig]()} {
+		for _, typ := range []reflect.Type{reflect.TypeFor[config.ServerConfig](), reflect.TypeFor[config.ConsumerConfig](), reflect.TypeFor[config.WorkerConfig]()} {
 			for _, name := range envNames(typ) {
 				assert.False(t, strings.HasPrefix(name, "ZITADEL_MACHINE_KEY"), "%s declares %s", typ.Name(), name)
 			}

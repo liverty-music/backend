@@ -249,7 +249,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Infrastructure - verification emails with codes the identity service
 	// issues; nil in local dev without it.
-	emailVerifier, err := newConsumerEmailVerifier(cfg, logger)
+	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -268,18 +268,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Passkeys: the recovery link (issued by the identity service), the change
-	// email and the Passkey records.
-	passkeyLinks := newPasskeyRegistrationLinkSender(cfg, logger)
-	passkeyChangeEmails, err := newPasskeyChangeEmailSender(cfg, japanTime, logger)
+	// Passkeys: the change email and the Passkey records.
+	passkeyChangeEmails, err := newPasskeyChangeEmailSender(&cfg.AccountEmailConfig, japanTime, logger)
 	if err != nil {
 		return nil, err
 	}
-	// The consumer's UserUseCase handles the passkey events and sends the
-	// verification resends the fan API announces (ReissueEmailVerification);
-	// it never deletes users.
-	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, eventPublisher, emailVerifier, nil, nil,
-		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
+	// The consumer's UserUseCase handles the passkey events; it never deletes
+	// users.
+	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil,
+		usecase.PasskeyMailers{ChangeEmails: passkeyChangeEmails}, logger)
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger)
 
 	// Event Consumers
@@ -288,7 +285,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(userUC, emailVerifier, logger)
-	reissueEmailVerificationConsumer := event.NewReissueEmailVerificationConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
@@ -311,7 +307,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
 		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
 		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},
-		{"reissue-email-verification", entity.SubjectUserEmailVerificationResendRequested, reissueEmailVerificationConsumer.Handle},
 		{"track-user-logged-in", entity.SubjectUserLoggedIn, analyticsConsumer.HandleUserLoggedIn},
 		{"track-artist-followed", entity.SubjectArtistFollowed, analyticsConsumer.HandleArtistFollowed},
 		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},
@@ -335,7 +330,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandlePasskeyChanged},
 		{"record-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandleRecordPasskeyChange},
 	}
-	behaviorTable = append(behaviorTable, passkeyRecoveryBehaviors(ctx, passkeyLinks != nil, passkeyConsumer, logger)...)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -406,30 +400,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}, nil
 }
 
-// passkeyRecoveryBehavior is the durable that sends passkey recovery links.
-const passkeyRecoveryBehavior = "send-passkey-recovery-link"
-
-// passkeyRecoveryBehaviors returns the send-passkey-recovery-link behavior when
-// recovery links can be issued, and none (logging that the handler is
-// disabled) when the consumer cannot reach the identity service: requests then
-// wait in the durable until a consumer that can issue them runs.
-func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event.PasskeyConsumer, logger *logging.Logger) []behaviorEntry {
-	if !enabled {
-		logger.Warn(ctx, "passkey recovery link handler disabled: IDENTITY_SERVICE_URL is not set",
-			slog.String("behavior", passkeyRecoveryBehavior))
-		return nil
-	}
-	return []behaviorEntry{
-		{passkeyRecoveryBehavior, entity.SubjectUserPasskeyRecoveryRequested, consumer.HandleRecoveryRequested},
-	}
-}
-
-// newConsumerEmailVerifier returns the sender of verification emails, whose
+// newEmailVerifier returns the sender of verification emails, whose
 // codes the identity service issues and whose links open the fan web (origin
 // derived from the issuer), or nil without IDENTITY_SERVICE_URL (local
 // development), which makes the verification handlers skip with a warning.
 // Without a Postmark token (local development) the sender fails every send.
-func newConsumerEmailVerifier(cfg *config.ConsumerConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
+func newEmailVerifier(cfg *config.AccountEmailConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
 	if cfg.IdentityServiceURL == "" {
 		return nil, nil
 	}
@@ -448,7 +424,7 @@ func newConsumerEmailVerifier(cfg *config.ConsumerConfig, logger *logging.Logger
 // links, whose link the identity service issues, or nil without
 // IDENTITY_SERVICE_URL (local development). Without a Postmark token (local
 // development) the sender fails every send.
-func newPasskeyRegistrationLinkSender(cfg *config.ConsumerConfig, logger *logging.Logger) entity.PasskeyRegistrationLinkSender {
+func newPasskeyRegistrationLinkSender(cfg *config.AccountEmailConfig, logger *logging.Logger) entity.PasskeyRegistrationLinkSender {
 	if cfg.IdentityServiceURL == "" {
 		return nil
 	}
@@ -463,7 +439,7 @@ func newPasskeyRegistrationLinkSender(cfg *config.ConsumerConfig, logger *loggin
 // Postmark when its server token is set, else (local development) a sender
 // that fails with Unavailable. Its links open the fan web, whose origin is
 // derived from the issuer.
-func newPasskeyChangeEmailSender(cfg *config.ConsumerConfig, japanTime *time.Location, logger *logging.Logger) (entity.PasskeyChangeEmailSender, error) {
+func newPasskeyChangeEmailSender(cfg *config.AccountEmailConfig, japanTime *time.Location, logger *logging.Logger) (entity.PasskeyChangeEmailSender, error) {
 	if cfg.Postmark.ServerToken == "" {
 		return mail.NewNoopPasskeyChangeSender(logger), nil
 	}

@@ -40,33 +40,6 @@ func newPasskeyConsumer(t *testing.T) (*event.PasskeyConsumer, *ucmocks.MockUser
 	return event.NewPasskeyConsumer(users, passkeys, newTestLogger(t)), users, passkeys
 }
 
-func TestPasskeyConsumer_HandleRecoveryRequested(t *testing.T) {
-	t.Parallel()
-
-	t.Run("sends the recovery link of the announced user", func(t *testing.T) {
-		t.Parallel()
-		consumer, users, _ := newPasskeyConsumer(t)
-		users.EXPECT().SendPasskeyRecoveryLink(anyCtx, "user-1").Return(nil).Once()
-
-		assert.NoError(t, consumer.HandleRecoveryRequested(makeJSONMsg(t, entity.UserPasskeyRecoveryRequestedData{UserID: "user-1"})))
-	})
-
-	t.Run("returns a failed send for a retry", func(t *testing.T) {
-		t.Parallel()
-		consumer, users, _ := newPasskeyConsumer(t)
-		users.EXPECT().SendPasskeyRecoveryLink(anyCtx, "user-1").Return(errors.New("postmark down")).Once()
-
-		assert.Error(t, consumer.HandleRecoveryRequested(makeJSONMsg(t, entity.UserPasskeyRecoveryRequestedData{UserID: "user-1"})))
-	})
-
-	t.Run("rejects a malformed payload", func(t *testing.T) {
-		t.Parallel()
-		consumer, _, _ := newPasskeyConsumer(t)
-
-		assert.Error(t, consumer.HandleRecoveryRequested(message.NewMessage("x", []byte("{"))))
-	})
-}
-
 func TestPasskeyConsumer_HandlePasskeyChanged(t *testing.T) {
 	t.Parallel()
 

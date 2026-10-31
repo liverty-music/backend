@@ -29,11 +29,6 @@ const (
 	// (UpsertOutcomeUpdated) must NOT publish this event. The subject keeps
 	// the stream's former name (design "Non-Goals").
 	SubjectTicketSaleDiscovered = "SALES_PHASE.discovered"
-	// SubjectTicketSaleReminderDue is published by the reminder scan for each
-	// (user, ticket sale, stage) that became due and has not yet been sent.
-	// Two tokens (reminder_due, not reminder.due) so the SALES_PHASE stream
-	// filter can be a plain `SALES_PHASE.*`.
-	SubjectTicketSaleReminderDue = "SALES_PHASE.reminder_due"
 	// SubjectTicketJourneyStatusChanged is published by SetStatus after a
 	// successful upsert when the new status differs from the prior one (or
 	// when no prior journey existed). It drives the
@@ -48,19 +43,12 @@ const (
 	// construction. Modelled as a USER-domain event (USER.* stream), not a
 	// separate ACCOUNT stream.
 	SubjectUserLoggedIn = "USER.logged_in"
-	// SubjectUserEmailVerificationResendRequested is published by
-	// UserUseCase.ResendEmailVerification for each resend a fan asks for
-	// within the rate limit. The reissue-email-verification consumer runs
-	// UserUseCase.ReissueEmailVerification from it and sends the fresh code,
-	// so the internet-facing fan API holds no identity-provider credential.
-	// Two tokens so the plain USER.* stream filter captures it.
-	SubjectUserEmailVerificationResendRequested = "USER.email_verification_resend_requested"
 	// SubjectOrganizerCreated is published by OrganizerUseCase.Create after the
 	// Organizer's Organization is provisioned and the organizer row is flipped to active.
 	// It drives the organizer.created analytics event (admin-actor / group event
 	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
 	// org.created) so the ORGANIZER.* stream filter matches with a plain
-	// single-token wildcard — same rationale as SubjectTicketSaleReminderDue.
+	// single-token wildcard — same rationale as SubjectTicketSaleDiscovered.
 	SubjectOrganizerCreated = "ORGANIZER.created"
 	// SubjectOrganizerArtistAssociated is published by OrganizerUseCase.AssociateArtist
 	// after the repository persists the artist link. It drives the
@@ -87,7 +75,7 @@ const (
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
 	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain
-	// single-token wildcard — same convention as SubjectTicketSaleReminderDue.
+	// single-token wildcard — same convention as SubjectTicketSaleDiscovered.
 	SubjectSeriesImageUploaded = "SERIES_IMAGE.uploaded"
 	// SubjectNotificationRequested is published once per eligible recipient by
 	// every producer of a user-facing notification (PushSubscriptionUseCase.
@@ -114,12 +102,6 @@ const (
 	// listing id. The
 	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
 	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
-	// SubjectUserPasskeyRecoveryRequested announces that someone asked for a
-	// passkey registration link for a User by typing its email
-	// (UserUseCase.RequestPasskeyRecovery). It carries the user id only, so
-	// the address never lands in the stream. The recovery link consumer
-	// (UserUseCase.SendPasskeyRecoveryLink) runs from it.
-	SubjectUserPasskeyRecoveryRequested = "USER.passkey_recovery_requested"
 	// SubjectUserPasskeyChanged announces that a passkey was added to or
 	// removed from an identity of the product organization, as noticed by the
 	// passkey-events webhook. The passkey change email consumer
@@ -169,10 +151,8 @@ var AllSubjects = []string{
 	SubjectNotificationUnsubscribed,
 	SubjectNotificationDelivered,
 	SubjectTicketSaleDiscovered,
-	SubjectTicketSaleReminderDue,
 	SubjectTicketJourneyStatusChanged,
 	SubjectUserLoggedIn,
-	SubjectUserEmailVerificationResendRequested,
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
 	SubjectOrganizerConcertPublished,
@@ -180,7 +160,6 @@ var AllSubjects = []string{
 	SubjectNotificationRequested,
 	SubjectOrderPaid,
 	SubjectResaleListingRefunded,
-	SubjectUserPasskeyRecoveryRequested,
 	SubjectUserPasskeyChanged,
 	SubjectUserPasskeyAdded,
 	SubjectUserPasskeyRemoved,
@@ -334,14 +313,6 @@ type UserLoggedInData struct {
 	LoginTime time.Time `json:"login_time"`
 }
 
-// UserPasskeyRecoveryRequestedData is the payload for
-// USER.passkey_recovery_requested events. It carries the user id only, never
-// the email address that was typed.
-type UserPasskeyRecoveryRequestedData struct {
-	// UserID is the platform-internal id of the User whose email was typed.
-	UserID string `json:"user_id"`
-}
-
 // UserPasskeyChangedData is the payload for USER.passkey_changed events.
 type UserPasskeyChangedData struct {
 	// ProviderUserID is the identity provider's id of the identity whose
@@ -359,16 +330,6 @@ type UserPasskeyChangedData struct {
 	AAGUID string `json:"aaguid,omitempty"`
 	// ChangeTime is when the identity provider recorded the change.
 	ChangeTime time.Time `json:"change_time"`
-}
-
-// UserEmailVerificationResendRequestedData is the payload for
-// USER.email_verification_resend_requested events. Published by
-// UserUseCase.ResendEmailVerification after the caller passed the resend
-// rate limit.
-type UserEmailVerificationResendRequestedData struct {
-	// UserID is the platform-internal identifier of the User whose
-	// verification email is resent.
-	UserID string `json:"user_id"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.
