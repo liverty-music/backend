@@ -36,8 +36,10 @@ type Event struct {
 	// LocalDate represents the calendar date of the event in the local timezone.
 	//
 	// Specifications:
-	// - Location MUST be set to time.UTC.
-	// - Time components (Hour, Minute, Second, Nanosecond) MUST be zero (00:00:00).
+	//
+	//   - Location MUST be set to time.UTC.
+	//   - Time components (Hour, Minute, Second, Nanosecond) MUST be zero (00:00:00).
+	//
 	// This ensures that the date remains consistent when saved to a Postgres DATE type.
 	// It avoids "date shifting" issues during timezone conversions.
 	LocalDate time.Time

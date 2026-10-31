@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lint-schema.sh — Enforce database-schema-designer policies on schema.sql.
+# lint-schema.sh — Enforce the schema policies of AGENTS.md ("Database schema") on schema.sql.
 #
 # Checks:
 #   1. No SERIAL / BIGSERIAL (use UUIDv7)
@@ -139,7 +139,7 @@ check_column_comments
 
 if [ "$errors" -gt 0 ]; then
   echo "" >&2
-  echo "Schema lint failed ($errors issue(s)). See database-schema-designer skill for policies." >&2
+  echo "Schema lint failed ($errors issue(s)). See AGENTS.md (\"Database schema\") for the policies." >&2
   exit 1
 fi
 
