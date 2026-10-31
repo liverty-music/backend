@@ -135,7 +135,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	stockRepo := rdb.NewTicketStockRepository(testDB)
 	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
-	entryRepo := rdb.NewLotteryEntryRepository(testDB)
+	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	eventRepo := rdb.NewEventRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)

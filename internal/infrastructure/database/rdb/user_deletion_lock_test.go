@@ -48,7 +48,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 				f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
 				stock, err := rdb.NewTicketStockRepository(testDB).Get(ctx, f.ID, saleWindowStart)
 				require.NoError(t, err)
-				repo := rdb.NewLotteryEntryRepository(testDB)
+				repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 				return func() error {
 						order := entity.NewPendingOrder(userID, stock, 1, nil, entity.OrderPaymentProvider)
 						order.CardAuthorizationID = "pi_" + string(order.ID)

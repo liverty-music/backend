@@ -251,7 +251,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
-	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
+	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db, newOutbox(logger))
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
 	// The Order, Settlement and PayoutAccount repositories combine their rows
 	// with their payment provider operations.

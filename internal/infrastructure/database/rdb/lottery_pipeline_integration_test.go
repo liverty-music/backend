@@ -48,7 +48,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := logging.New()
 
-	entryRepo := rdb.NewLotteryEntryRepository(testDB)
+	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
 	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
@@ -135,7 +135,7 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 	return usecase.LotteryEntryDeps{
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                rdb.NewTicketStockRepository(testDB),
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
+		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
 		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventRepo:                rdb.NewEventRepository(testDB),
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),

@@ -218,7 +218,7 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 	}
 	cleanDatabase(t)
 	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
-	entries := rdb.NewLotteryEntryRepository(testDB)
+	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	stocks := rdb.NewTicketStockRepository(testDB)
 	at := saleWindowStart.Add(time.Hour)
 	const quantity, rounds = 12, 20

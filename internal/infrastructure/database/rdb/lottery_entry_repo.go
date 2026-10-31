@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -16,15 +18,16 @@ import (
 // LotteryEntryRepository implements [entity.LotteryEntryRepository] for
 // PostgreSQL.
 type LotteryEntryRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
 var _ entity.LotteryEntryRepository = (*LotteryEntryRepository)(nil)
 
 // NewLotteryEntryRepository creates a new LotteryEntryRepository.
-func NewLotteryEntryRepository(db *Database) *LotteryEntryRepository {
-	return &LotteryEntryRepository{db: db}
+func NewLotteryEntryRepository(db *Database, outbox Announcer) *LotteryEntryRepository {
+	return &LotteryEntryRepository{db: db, outbox: outbox}
 }
 
 // lotteryEntrySelect reads lottery entries (aliased le) with their orders
@@ -109,14 +112,14 @@ const (
 	`
 	// lotteryEntrySetOutcomeQuery sets the state of every entry in $1 that is
 	// still Entered to $3 with the matching draw position of $2 and lost
-	// reason of $4 (NULL for winners), and returns the orders of the entries
-	// it changed.
+	// reason of $4 (NULL for winners), and returns the ids and orders of the
+	// entries it changed.
 	lotteryEntrySetOutcomeQuery = `
 		UPDATE lottery_entries AS le
 		SET state = $3, draw_position = u.position, lost_reason = u.lost_reason
 		FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bigint[]) AS position, unnest($4::smallint[]) AS lost_reason) AS u
 		WHERE le.id = u.id AND le.state = 1
-		RETURNING le.order_id
+		RETURNING le.id, le.order_id
 	`
 	lotteryEntryVoidOrdersQuery = `UPDATE orders SET status = 5 WHERE id = ANY($1::uuid[]) AND status = 4`
 )
@@ -282,8 +285,44 @@ func (r *LotteryEntryRepository) GetStatsByTicketSaleAndTicketStock(ctx context.
 	return s, nil
 }
 
+// drawnEntry is one entry PersistDrawOutcome changed: its id and its Order.
+type drawnEntry struct {
+	ID      string
+	OrderID string
+}
+
+// drawAnnouncementChunk bounds the announcements PersistDrawOutcome builds
+// and inserts at once, so a large draw never holds them all in memory.
+const drawAnnouncementChunk = 2000
+
+// announceDrawn records ORDER.lottery_entry_drawn for each changed entry on
+// tx, in chunks of drawAnnouncementChunk; set fills in the outcome of an
+// entry.
+func (r *LotteryEntryRepository) announceDrawn(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, changed []drawnEntry, set func(*entity.LotteryEntry)) error {
+	for start := 0; start < len(changed); start += drawAnnouncementChunk {
+		end := min(start+drawAnnouncementChunk, len(changed))
+		chunk := make([]messaging.Announcement, 0, end-start)
+		for _, c := range changed[start:end] {
+			e := &entity.LotteryEntry{ID: entity.LotteryEntryID(c.ID), OrderID: entity.OrderID(c.OrderID), TicketSaleID: saleID}
+			set(e)
+			chunk = append(chunk, messaging.Announcement{Payload: pb.FromLotteryEntry(e)})
+		}
+		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PersistDrawOutcome records winners and losers, and voids the losers'
-// orders, in one transaction under the row locks of the drawn stocks.
+// orders, in one transaction under the row locks of the drawn stocks. An
+// entry no longer Entered is left unchanged.
+//
+// # Announces
+//
+// ORDER.lottery_entry_drawn once per entry it sets Won or Lost, with the
+// entry as it is after the draw, in the transaction of the outcome, inserted
+// in chunks. Nothing for an entry it leaves unchanged.
 func (r *LotteryEntryRepository) PersistDrawOutcome(
 	ctx context.Context,
 	saleID entity.TicketSaleID,
@@ -335,9 +374,20 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		if err != nil {
 			return toAppErr(err, "failed to record the winners", append(attrs, slog.Int("winner_count", len(winners)))...)
 		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
+		changed, err := pgx.CollectRows(rows, pgx.RowToStructByPos[drawnEntry])
+		if err != nil {
 			return toAppErr(err, "failed to record the winners", attrs...)
+		}
+		won := make(map[string]entity.DrawWinnerRow, len(winners))
+		for _, w := range winners {
+			won[string(w.LotteryEntryID)] = w
+		}
+		if err := r.announceDrawn(ctx, tx, saleID, changed, func(e *entity.LotteryEntry) {
+			e.State = entity.LotteryEntryStateWon
+			position := won[string(e.ID)].DrawPosition
+			e.DrawPosition = &position
+		}); err != nil {
+			return err
 		}
 	}
 	if len(losers) > 0 {
@@ -349,9 +399,26 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		if err != nil {
 			return toAppErr(err, "failed to record the losers", append(attrs, slog.Int("loser_count", len(losers)))...)
 		}
-		lostOrders, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		changed, err := pgx.CollectRows(rows, pgx.RowToStructByPos[drawnEntry])
 		if err != nil {
 			return toAppErr(err, "failed to record the losers", attrs...)
+		}
+		lostOrders := make([]string, len(changed))
+		for i, c := range changed {
+			lostOrders[i] = c.OrderID
+		}
+		lost := make(map[string]entity.DrawLoserRow, len(losers))
+		for _, l := range losers {
+			lost[string(l.LotteryEntryID)] = l
+		}
+		if err := r.announceDrawn(ctx, tx, saleID, changed, func(e *entity.LotteryEntry) {
+			l := lost[string(e.ID)]
+			e.State = entity.LotteryEntryStateLost
+			position := l.DrawPosition
+			e.DrawPosition = &position
+			e.LostReason = l.LostReason
+		}); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, lostOrders); err != nil {
 			return toAppErr(err, "failed to void the losers' orders", attrs...)

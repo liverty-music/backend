@@ -139,7 +139,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("entry stored", func(t *testing.T) {
@@ -392,7 +392,7 @@ func TestLotteryEntryRepository_Get(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 
@@ -421,7 +421,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 
@@ -449,7 +449,7 @@ func TestLotteryEntryRepository_ListByTicketSaleAndUser(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("entry of the user", func(t *testing.T) {
@@ -496,7 +496,7 @@ func TestLotteryEntryRepository_ListByUser(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("entries for two ticket types", func(t *testing.T) {
@@ -529,7 +529,7 @@ func TestLotteryEntryRepository_ListEnteredByTicketSaleAndTicketStock(t *testing
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("mixed states", func(t *testing.T) {
@@ -568,7 +568,7 @@ func TestLotteryEntryRepository_GetStatsByTicketSaleAndTicketStock(t *testing.T)
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("after the draw", func(t *testing.T) {
@@ -619,7 +619,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewLotteryEntryRepository(testDB)
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	sales := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 

@@ -52,7 +52,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                s.stockRepo,
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
+		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
 		UserRepo:                 s.userRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),

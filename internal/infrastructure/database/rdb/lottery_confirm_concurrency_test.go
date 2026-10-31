@@ -47,7 +47,7 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	}, nil)
 
 	now := time.Now()
-	entries := rdb.NewLotteryEntryRepository(testDB)
+	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, &recordingPublisher{},
 		func() time.Time { return now }, logger))
 
