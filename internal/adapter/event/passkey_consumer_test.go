@@ -1,12 +1,11 @@
 package event_test
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
@@ -15,83 +14,81 @@ import (
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var passkeyChanged = entity.UserPasskeyChangedData{
-	ProviderUserID:    "zitadel-fan-1",
-	ProviderPasskeyID: "token-1",
-	Kind:              "added",
-	Name:              "Apple iPhone, iOS, Mobile Safari",
-	AAGUID:            "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4",
-	ChangeTime:        time.Date(2026, 10, 22, 3, 4, 5, 0, time.UTC),
-}
+var (
+	passkeyCreateTime = time.Date(2026, 10, 22, 3, 4, 5, 0, time.UTC)
+	passkeyRemoveTime = time.Date(2026, 10, 23, 8, 0, 0, 0, time.UTC)
+)
 
-func makeJSONMsg(t *testing.T, data any) *message.Message {
+// makePasskeyMsg builds a Passkey announcement as the outbox records it.
+func makePasskeyMsg(t *testing.T, id string, passkey *entityv1.Passkey, announced time.Time) *message.Message {
 	t.Helper()
-	payload, err := json.Marshal(data)
+	payload, err := proto.Marshal(passkey)
 	require.NoError(t, err)
-	return message.NewMessage("msg-1", payload)
+	msg := message.NewMessage(id, payload)
+	msg.Metadata.Set("ce_id", id)
+	msg.Metadata.Set("ce_time", announced.Format(time.RFC3339Nano))
+	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	return msg
 }
 
-func newPasskeyConsumer(t *testing.T) (*event.PasskeyConsumer, *ucmocks.MockUserUseCase, *ucmocks.MockPasskeyUseCase) {
-	t.Helper()
-	users := ucmocks.NewMockUserUseCase(t)
-	passkeys := ucmocks.NewMockPasskeyUseCase(t)
-	return event.NewPasskeyConsumer(users, passkeys, newTestLogger(t)), users, passkeys
+func fanPasskey() *entityv1.Passkey {
+	return &entityv1.Passkey{
+		Id:         &entityv1.PasskeyId{Value: "token-1"},
+		UserId:     &entityv1.UserId{Value: "fan-1"},
+		Name:       &entityv1.PasskeyName{Value: "Google Pixel 9, Android, Chrome"},
+		CreateTime: timestamppb.New(passkeyCreateTime),
+	}
 }
 
-func TestPasskeyConsumer_HandlePasskeyChanged(t *testing.T) {
+func TestPasskeyConsumer(t *testing.T) {
 	t.Parallel()
 
-	t.Run("emails the change with its kind, name and time", func(t *testing.T) {
+	t.Run("starts the added email with the Passkey's name and create time, named after the announcement", func(t *testing.T) {
 		t.Parallel()
-		consumer, users, _ := newPasskeyConsumer(t)
-		users.EXPECT().NotifyPasskeyChange(anyCtx, "zitadel-fan-1", entity.PasskeyChange{
-			Kind: entity.PasskeyChangeAdded, Name: "Apple iPhone, iOS, Mobile Safari", ChangeTime: passkeyChanged.ChangeTime,
+		users := ucmocks.NewMockUserUseCase(t)
+		users.EXPECT().StartNotifyPasskeyChange(anyCtx, "announcement-1", usecase.PasskeyChangeNotice{
+			UserID: "fan-1",
+			Change: entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, Name: "Google Pixel 9, Android, Chrome", ChangeTime: passkeyCreateTime},
 		}).Return(nil).Once()
 
-		assert.NoError(t, consumer.HandlePasskeyChanged(makeJSONMsg(t, passkeyChanged)))
+		consumer := event.NewPasskeyConsumer(users, newTestLogger(t))
+
+		assert.NoError(t, consumer.HandlePasskeyAdded(makePasskeyMsg(t, "announcement-1", fanPasskey(), passkeyCreateTime.Add(time.Second))))
 	})
 
-	t.Run("returns a failed email for a retry", func(t *testing.T) {
+	t.Run("starts the removed email with the time the removal was announced", func(t *testing.T) {
 		t.Parallel()
-		consumer, users, _ := newPasskeyConsumer(t)
-		users.EXPECT().NotifyPasskeyChange(anyCtx, "zitadel-fan-1", anyCtx).Return(errors.New("postmark down")).Once()
+		users := ucmocks.NewMockUserUseCase(t)
+		users.EXPECT().StartNotifyPasskeyChange(anyCtx, "announcement-2", usecase.PasskeyChangeNotice{
+			UserID: "fan-1",
+			Change: entity.PasskeyChange{Kind: entity.PasskeyChangeRemoved, ChangeTime: passkeyRemoveTime},
+		}).Return(nil).Once()
 
-		assert.Error(t, consumer.HandlePasskeyChanged(makeJSONMsg(t, passkeyChanged)))
-	})
-}
+		consumer := event.NewPasskeyConsumer(users, newTestLogger(t))
 
-func TestPasskeyConsumer_HandleRecordPasskeyChange(t *testing.T) {
-	t.Parallel()
-
-	t.Run("records the change", func(t *testing.T) {
-		t.Parallel()
-		consumer, _, passkeys := newPasskeyConsumer(t)
-		passkeys.EXPECT().RecordChange(anyCtx, passkeyChanged).Return(nil).Once()
-
-		assert.NoError(t, consumer.HandleRecordPasskeyChange(makeJSONMsg(t, passkeyChanged)))
+		assert.NoError(t, consumer.HandlePasskeyRemoved(makePasskeyMsg(t, "announcement-2", fanPasskey(), passkeyRemoveTime)))
 	})
 
-	t.Run("asks for a delayed redelivery while the identity has no user yet", func(t *testing.T) {
+	t.Run("returns a failed start for a retry", func(t *testing.T) {
 		t.Parallel()
-		consumer, _, passkeys := newPasskeyConsumer(t)
-		passkeys.EXPECT().RecordChange(anyCtx, passkeyChanged).
-			Return(fmt.Errorf("%w: not found", usecase.ErrPasskeyAccountPending)).Once()
+		users := ucmocks.NewMockUserUseCase(t)
+		users.EXPECT().StartNotifyPasskeyChange(anyCtx, "announcement-1", anyCtx).Return(errors.New("database down")).Once()
 
-		err := consumer.HandleRecordPasskeyChange(makeJSONMsg(t, passkeyChanged))
+		consumer := event.NewPasskeyConsumer(users, newTestLogger(t))
 
-		assert.True(t, messaging.IsRedeliverLater(err))
+		assert.Error(t, consumer.HandlePasskeyAdded(makePasskeyMsg(t, "announcement-1", fanPasskey(), passkeyCreateTime)))
 	})
 
-	t.Run("returns any other failure for the usual retry", func(t *testing.T) {
+	t.Run("rejects a Passkey without a User", func(t *testing.T) {
 		t.Parallel()
-		consumer, _, passkeys := newPasskeyConsumer(t)
-		passkeys.EXPECT().RecordChange(anyCtx, passkeyChanged).Return(errors.New("db down")).Once()
+		consumer := event.NewPasskeyConsumer(ucmocks.NewMockUserUseCase(t), newTestLogger(t))
+		passkey := fanPasskey()
+		passkey.UserId = nil
 
-		err := consumer.HandleRecordPasskeyChange(makeJSONMsg(t, passkeyChanged))
-
-		require.Error(t, err)
-		assert.False(t, messaging.IsRedeliverLater(err))
+		assert.Error(t, consumer.HandlePasskeyAdded(makePasskeyMsg(t, "announcement-1", passkey, passkeyCreateTime)))
 	})
 }

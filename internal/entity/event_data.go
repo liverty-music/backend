@@ -102,11 +102,6 @@ const (
 	// listing id. The
 	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
 	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
-	// SubjectUserPasskeyChanged announces that a passkey was added to or
-	// removed from an identity of the product organization, as noticed by the
-	// passkey-events webhook. The passkey change email consumer
-	// (UserUseCase.NotifyPasskeyChange) runs from it.
-	SubjectUserPasskeyChanged = "USER.passkey_changed"
 	// SubjectUserPasskeyAdded announces a Passkey that Passkey.Create stored.
 	// UserUseCase.NotifyPasskeyChange runs from it.
 	SubjectUserPasskeyAdded = "USER.passkey_added"
@@ -159,7 +154,6 @@ var AllSubjects = []string{
 	SubjectNotificationRequested,
 	SubjectOrderPaid,
 	SubjectResaleListingRefunded,
-	SubjectUserPasskeyChanged,
 	SubjectUserPasskeyAdded,
 	SubjectUserPasskeyRemoved,
 	SubjectArtistHypeChanged,
@@ -289,25 +283,6 @@ type UserLoggedInData struct {
 	// LoginTime is the created_at of the Zitadel session.user.checked event,
 	// the time the fact happened.
 	LoginTime time.Time `json:"login_time"`
-}
-
-// UserPasskeyChangedData is the payload for USER.passkey_changed events.
-type UserPasskeyChangedData struct {
-	// ProviderUserID is the identity provider's id of the identity whose
-	// passkey changed (Zitadel sub claim).
-	ProviderUserID string `json:"provider_user_id"`
-	// ProviderPasskeyID is the identity provider's id of the passkey that
-	// changed (Zitadel webAuthNTokenId).
-	ProviderPasskeyID string `json:"provider_passkey_id"`
-	// Kind is "added" or "removed" ([PasskeyChangeKind]).
-	Kind string `json:"kind"`
-	// Name is the passkey's name; empty for a removal.
-	Name string `json:"name,omitempty"`
-	// AAGUID is the authenticator model of an added passkey in canonical
-	// lower-case UUID form; empty for a removal or when not reported.
-	AAGUID string `json:"aaguid,omitempty"`
-	// ChangeTime is when the identity provider recorded the change.
-	ChangeTime time.Time `json:"change_time"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.

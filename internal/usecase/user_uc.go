@@ -177,17 +177,30 @@ type UserUseCase interface {
 	//    unchanged, so the request runs again (and a newer link is sent).
 	SendPasskeyRecoveryLink(ctx context.Context, userID string) error
 
-	// NotifyPasskeyChange emails the fan of the identity providerUserID that a
-	// passkey was added or removed. When no User has the identity it finishes
-	// without sending.
+	// NotifyPasskeyChange emails the User userID that a passkey was added or
+	// removed. When the User no longer exists it finishes without sending.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: the kind of change is unknown.
 	//  - Unavailable: the email cannot be sent now; run again to send it.
-	//  - Any other failure of User.GetByProviderUserID or
-	//    User.SendPasskeyChangeEmail, unchanged.
-	NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error
+	//  - Any other failure of User.Get or User.SendPasskeyChangeEmail,
+	//    unchanged.
+	NotifyPasskeyChange(ctx context.Context, userID string, change entity.PasskeyChange) error
+
+	// StartNotifyPasskeyChange starts the notify-passkey-change workflow for
+	// the Passkey announcement announcementID, named after it, so an
+	// announcement delivered twice is emailed once.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the workflow could not be started.
+	StartNotifyPasskeyChange(ctx context.Context, announcementID string, notice PasskeyChangeNotice) error
+
+	// RunNotifyPasskeyChange is the notify-passkey-change workflow: it sends
+	// the email through NotifyPasskeyChange in one step, tried again while it
+	// fails with Unavailable.
+	RunNotifyPasskeyChange(ctx context.Context, f Flow, in PasskeyChangeNotice) (struct{}, error)
 
 	// ReissueEmailVerification sends a fresh verification code to the address
 	// of the User identified by userID. It runs for each resend request
@@ -855,18 +868,18 @@ func (uc *userUseCase) SendPasskeyRecoveryLink(ctx context.Context, userID strin
 }
 
 // NotifyPasskeyChange implements [UserUseCase].
-func (uc *userUseCase) NotifyPasskeyChange(ctx context.Context, providerUserID string, change entity.PasskeyChange) error {
-	attrs := []slog.Attr{slog.String("provider_user_id", providerUserID), slog.String("kind", string(change.Kind))}
+func (uc *userUseCase) NotifyPasskeyChange(ctx context.Context, userID string, change entity.PasskeyChange) error {
+	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("kind", string(change.Kind))}
 	if !change.Kind.IsValid() {
 		return apperr.New(codes.InvalidArgument, "unknown kind of passkey change", attrs...)
 	}
-	user, err := uc.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := uc.userRepo.Get(ctx, userID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Info(ctx, "passkey change not emailed: no user has the identity", attrs...)
+			uc.logger.Info(ctx, "passkey change not emailed: the user no longer exists", attrs...)
 			return nil
 		}
-		return fmt.Errorf("get user by provider user ID %q for a passkey change: %w", providerUserID, err)
+		return fmt.Errorf("get user %q for a passkey change: %w", userID, err)
 	}
 	if uc.passkeyMailers.ChangeEmails == nil {
 		return apperr.New(codes.Unavailable, "passkey change emails are not configured", attrs...)
@@ -874,6 +887,6 @@ func (uc *userUseCase) NotifyPasskeyChange(ctx context.Context, providerUserID s
 	if err := uc.passkeyMailers.ChangeEmails.SendPasskeyChangeEmail(ctx, user, change); err != nil {
 		return fmt.Errorf("send passkey change email to user %q: %w", user.ID, err)
 	}
-	uc.logger.Info(ctx, "passkey change emailed", append(attrs, slog.String("user_id", user.ID))...)
+	uc.logger.Info(ctx, "passkey change emailed", attrs...)
 	return nil
 }

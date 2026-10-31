@@ -222,23 +222,23 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, Name: "Google Pixel 9, Android, Chrome", ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Passkey added through a recovery link"
 	t.Run("emails the same added email for a passkey registered with a recovery link", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
-		// A recovery-link registration arrives as the same added change
-		// (token.verified), named by the device it was made on.
+		// A recovery-link registration is recorded and announced as the same
+		// added Passkey, named by the device it was made on.
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, Name: "Apple iPhone, iOS, Mobile Safari", ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Passkey removed"
@@ -246,20 +246,20 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeRemoved, ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Identity with no account"
-	t.Run("finishes without sending when no user has the identity", func(t *testing.T) {
+	t.Run("finishes without sending when the user no longer exists", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-signup-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-gone").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
 		// The strict change email mock fails the test if anything is sent.
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-signup-1",
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-gone",
 			entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, ChangeTime: changeTime}))
 	})
 
@@ -268,21 +268,51 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeRemoved, ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Twice()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Twice()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).
 			Return(apperr.New(codes.Unavailable, "postmark down")).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.ErrorIs(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change), apperr.ErrUnavailable)
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.ErrorIs(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change), apperr.ErrUnavailable)
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	t.Run("fails with InvalidArgument for an unknown kind of change", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 
-		err := d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", entity.PasskeyChange{Kind: "renamed", ChangeTime: changeTime})
+		err := d.uc.NotifyPasskeyChange(ctx, "user-1", entity.PasskeyChange{Kind: "renamed", ChangeTime: changeTime})
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestUserUseCase_RunNotifyPasskeyChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, ChangeTime: time.Date(2026, 10, 22, 3, 4, 0, 0, time.UTC)}
+
+	// @spec components/usecase/user/notify-passkey-change "Passkey registered at sign-up"
+	t.Run("emails the added Passkey of the User it was recorded for", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
+		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
+
+		_, err := d.uc.RunNotifyPasskeyChange(ctx, &inlineFlow{}, usecase.PasskeyChangeNotice{UserID: "user-1", Change: change})
+
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/user/notify-passkey-change "Delivered twice"
+	t.Run("the same announcement starts one email", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		notice := usecase.PasskeyChangeNotice{UserID: "user-1", Change: change}
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowNotifyPasskeyChange, "notify-passkey-change:announcement-1", notice).
+			Return(nil).Twice()
+
+		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
+		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
 	})
 }

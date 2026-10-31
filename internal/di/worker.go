@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -116,16 +117,37 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)
 
 	// The worker's UserUseCase sends the verification codes and the passkey
-	// recovery links the fan API requests; it starts nothing and never
-	// deletes users.
+	// recovery links the fan API requests and the change email of each
+	// announced Passkey; it starts nothing and never deletes users.
 	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
 	if err != nil {
 		return err
 	}
+	japanTime, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		return fmt.Errorf("load Asia/Tokyo time zone: %w", err)
+	}
+	changeEmails, err := newPasskeyChangeEmailSender(&cfg.AccountEmailConfig, japanTime, logger)
+	if err != nil {
+		return err
+	}
 	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), usecase.DeletionBlockerReads{}, nil, emailVerifier, nil, nil,
-		usecase.PasskeyMailers{RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger)}, logger)
+		usecase.PasskeyMailers{
+			RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger),
+			ChangeEmails:      changeEmails,
+		}, logger)
 	workflow.Register(rt, usecase.WorkflowReissueEmailVerification, users.RunReissueEmailVerification)
 	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
+	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
+
+	// Passkeys: the record of each passkey notice, whose removal waits for the
+	// run of the same passkey's addition.
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return err
+	}
+	passkeys := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, outbox), rdb.NewUserRepository(db, outbox), workflows, time.Now, logger)
+	workflow.Register(rt, usecase.WorkflowRecordPasskeyChange, passkeys.RunRecordChange)
 
 	// CreateFromDiscovered resolves venues with Google Maps and reports each
 	// batch to product analytics (when PostHog is configured). A local worker

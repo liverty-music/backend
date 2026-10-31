@@ -78,3 +78,23 @@ type PasskeyRepository interface {
 	//  - InvalidArgument: the user id is empty.
 	ListByUser(ctx context.Context, userID string) ([]*Passkey, error)
 }
+
+// UserPasskeyChangedData is a passkey notice of the passkey-events webhook:
+// the input of the record-passkey-change workflow.
+type UserPasskeyChangedData struct {
+	// ProviderUserID is the identity provider's id of the identity whose
+	// passkey changed (Zitadel sub claim).
+	ProviderUserID string `json:"provider_user_id"`
+	// ProviderPasskeyID is the identity provider's id of the passkey that
+	// changed (Zitadel webAuthNTokenId).
+	ProviderPasskeyID string `json:"provider_passkey_id"`
+	// Kind is "added" or "removed" ([PasskeyChangeKind]).
+	Kind string `json:"kind"`
+	// Name is the passkey's name; empty for a removal.
+	Name string `json:"name,omitempty"`
+	// AAGUID is the authenticator model of an added passkey in canonical
+	// lower-case UUID form; empty for a removal or when not reported.
+	AAGUID string `json:"aaguid,omitempty"`
+	// ChangeTime is when the identity provider recorded the change.
+	ChangeTime time.Time `json:"change_time"`
+}

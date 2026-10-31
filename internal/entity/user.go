@@ -408,8 +408,7 @@ func (k PasskeyChangeKind) IsValid() bool {
 }
 
 // PasskeyChange is a passkey added to or removed from a User's identity at
-// the identity provider. Passkeys are not stored by the platform; this value
-// only carries what the change email shows.
+// the identity provider: what the change email shows.
 type PasskeyChange struct {
 	// Kind is whether the passkey was added or removed.
 	Kind PasskeyChangeKind

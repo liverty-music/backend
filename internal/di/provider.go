@@ -342,6 +342,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Orders:         orderRepo,
 		Now:            time.Now,
 	}, workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, workflows, time.Now, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -721,7 +722,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Fan-facing PasskeyService: List (the signed-in fan's recorded passkeys).
 		func(s *connect.Server) {
 			passkeyconnect.RegisterPasskeyServiceHandler(s, rpc.NewPasskeyHandler(
-				usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger), userUC, logger))
+				passkeyUC, userUC, logger))
 		},
 	}
 
@@ -913,13 +914,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	)
 
 	// Passkey-event Actions v2 handler — bound to the event executions on
-	// user.human.passwordless.token.verified and token.removed; announces
-	// USER.passkey_changed for the product org's identities (the change email
-	// and the Passkey record are the consumer's).
+	// user.human.passwordless.token.verified and token.removed; starts
+	// record-passkey-change for the product org's identities, which the
+	// workflow worker runs.
 	passkeyEventHandler := webhook.NewPasskeyEventHandler(
 		cfg.Webhook.PasskeyEventSigningKey,
 		cfg.Webhook.ProductOrgID,
-		eventPublisher,
+		passkeyUC,
 		logger,
 	)
 

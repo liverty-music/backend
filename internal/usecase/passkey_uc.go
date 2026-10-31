@@ -13,32 +13,46 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// passkeyAccountWait is how long after a passkey was added RecordChange keeps
-// waiting for the identity's User: at sign-up the passkey is registered
+// passkeyAccountWait is how long after its first run RecordChange keeps
+// waiting for the User of an added passkey's identity: at sign-up the passkey is registered
 // before UserService.Create stores the User.
 const passkeyAccountWait = 10 * time.Minute
 
 // ErrPasskeyAccountPending reports that an added passkey's identity has no
-// User yet and the change is recent enough that the User may still be
-// created; RecordChange should run again later.
+// User yet; RunRecordChange looks again later.
 var ErrPasskeyAccountPending = errors.New("no user has the passkey's identity yet")
 
 // PasskeyUseCase keeps and reads the platform's Passkey records.
 type PasskeyUseCase interface {
-	// RecordChange records an announced passkey change: for an added passkey
-	// it reads the User with User.GetByProviderUserID and stores the Passkey
-	// (create time = the change's time; an empty AAGUID is stored as all
-	// zeros), for a removed one it removes the record. Recording the same
+	// StartRecordChange starts the record-passkey-change workflow for a
+	// passkey notice, named after the provider passkey id and the kind of
+	// change, so a repeated notice starts nothing new.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the workflow could not be started.
+	StartRecordChange(ctx context.Context, change entity.UserPasskeyChangedData) error
+
+	// RunRecordChange is the record-passkey-change workflow StartRecordChange
+	// starts: it records the change with RecordChange, looking again for the
+	// User of an added passkey every 30 seconds until 10 minutes after its
+	// first run, and lets a removal wait for the run of the same passkey's
+	// addition to end.
+	RunRecordChange(ctx context.Context, f Flow, in entity.UserPasskeyChangedData) (struct{}, error)
+
+	// RecordChange makes one attempt to record a passkey change: for an added
+	// passkey it reads the User with User.GetByProviderUserID and stores the
+	// Passkey (create time = the change's time; an empty AAGUID is stored as
+	// all zeros), for a removed one it removes the record. Recording the same
 	// added change twice stores one Passkey.
 	//
 	// # Possible errors
 	//
 	//  - ErrPasskeyAccountPending (wrapping NotFound): no User has the
-	//    identity and the change is at most 10 minutes old; run again later.
-	//    An older change finishes without recording.
+	//    identity yet.
 	//  - InvalidArgument: the change has no provider passkey id or an unknown
 	//    kind.
-	//  - Unavailable and other failures of the store, unchanged; run again.
+	//  - Unavailable and other failures of the store, unchanged.
 	RecordChange(ctx context.Context, change entity.UserPasskeyChangedData) error
 
 	// List returns the recorded Passkeys of the User userID, newest first
@@ -48,19 +62,21 @@ type PasskeyUseCase interface {
 }
 
 type passkeyUseCase struct {
-	passkeys entity.PasskeyRepository
-	users    entity.UserRepository
-	now      func() time.Time
-	logger   *logging.Logger
+	passkeys  entity.PasskeyRepository
+	users     entity.UserRepository
+	workflows Workflows
+	now       func() time.Time
+	logger    *logging.Logger
 }
 
 // Compile-time interface compliance check.
 var _ PasskeyUseCase = (*passkeyUseCase)(nil)
 
 // NewPasskeyUseCase creates a PasskeyUseCase over the passkey and user
-// repositories. now is the clock (time.Now in production).
-func NewPasskeyUseCase(passkeys entity.PasskeyRepository, users entity.UserRepository, now func() time.Time, logger *logging.Logger) PasskeyUseCase {
-	return &passkeyUseCase{passkeys: passkeys, users: users, now: now, logger: logger}
+// repositories and the workflows it starts and waits for. now is the clock
+// (time.Now in production).
+func NewPasskeyUseCase(passkeys entity.PasskeyRepository, users entity.UserRepository, workflows Workflows, now func() time.Time, logger *logging.Logger) PasskeyUseCase {
+	return &passkeyUseCase{passkeys: passkeys, users: users, workflows: workflows, now: now, logger: logger}
 }
 
 // RecordChange implements [PasskeyUseCase].
@@ -91,10 +107,6 @@ func (uc *passkeyUseCase) RecordChange(ctx context.Context, change entity.UserPa
 		if !errors.Is(err, apperr.ErrNotFound) {
 			return fmt.Errorf("get user by provider user ID %q for a passkey: %w", change.ProviderUserID, err)
 		}
-		if uc.now().Sub(change.ChangeTime) > passkeyAccountWait {
-			uc.logger.Info(ctx, "passkey not recorded: no user has the identity 10 minutes after the change", attrs...)
-			return nil
-		}
 		return fmt.Errorf("%w: %w", ErrPasskeyAccountPending, err)
 	}
 
@@ -107,6 +119,9 @@ func (uc *passkeyUseCase) RecordChange(ctx context.Context, change entity.UserPa
 		UserID:            user.ID,
 		AAGUID:            aaguid,
 		CreateTime:        change.ChangeTime,
+	}
+	if change.Name != "" {
+		passkey.Name = &change.Name
 	}
 	if err := uc.passkeys.Create(ctx, passkey); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {

@@ -236,16 +236,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Passkeys: the change email and the Passkey records.
-	passkeyChangeEmails, err := newPasskeyChangeEmailSender(&cfg.AccountEmailConfig, japanTime, logger)
-	if err != nil {
-		return nil, err
-	}
-	// The consumer's UserUseCase handles the passkey events; it never deletes
-	// users.
+	// The consumer's UserUseCase starts the passkey change emails, which the
+	// workflow worker sends; it never deletes users.
 	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil,
-		usecase.PasskeyMailers{ChangeEmails: passkeyChangeEmails}, logger)
-	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger)
+		usecase.PasskeyMailers{}, logger)
 
 	// Event Consumers
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
@@ -259,7 +253,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
-	passkeyConsumer := event.NewPasskeyConsumer(userUC, passkeyUC, logger)
+	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -293,8 +287,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
-		{"notify-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandlePasskeyChanged},
-		{"record-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandleRecordPasskeyChange},
+		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
+		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
 	}
 
 	// Router
