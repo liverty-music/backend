@@ -327,14 +327,10 @@ func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
 	for _, checkout := range due {
 		switch checkout.Status {
 		case entity.CheckoutStatusHeld:
-			released, err := uc.checkoutRepo.Release(ctx, checkout.ID, now)
-			if err != nil {
+			// Checkout.Release announces the Checkout it makes Expired.
+			if _, err := uc.checkoutRepo.Release(ctx, checkout.ID, now); err != nil {
 				uc.logger.Warn(ctx, "release sweep: failed to release checkout; retrying next run",
 					slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
-				continue
-			}
-			if released {
-				uc.reportExpired(ctx, checkout)
 			}
 		case entity.CheckoutStatusExpired, entity.CheckoutStatusReleased:
 			uc.releaseCardAuthorization(ctx, checkout, now)
@@ -363,20 +359,5 @@ func (uc *checkoutUseCase) releaseCardAuthorization(ctx context.Context, checkou
 	if err := uc.checkoutRepo.RecordCardAuthorizationRelease(ctx, checkout.ID, now); err != nil {
 		uc.logger.Warn(ctx, "release sweep: failed to record card authorization release; retrying next run",
 			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
-	}
-}
-
-// reportExpired announces, for product analytics, that the Checkout's hold
-// lapsed. A failed publish is logged and never changes the release.
-func (uc *checkoutUseCase) reportExpired(ctx context.Context, checkout *entity.Checkout) {
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectCheckoutExpired, entity.CheckoutExpiredData{
-		CheckoutID:     string(checkout.ID),
-		UserID:         string(checkout.Order.UserID),
-		TicketStockID:  string(checkout.Order.TicketStockID),
-		TicketCount:    checkout.Order.TicketCount,
-		HoldExpireTime: checkout.HoldExpireTime,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish ORDER.checkout_expired event", err,
-			slog.String("checkout_id", string(checkout.ID)))
 	}
 }

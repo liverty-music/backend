@@ -193,7 +193,6 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		switch admitted.Outcome {
 		case entity.AdmitOutcomeAdmitted:
 			result.AdmittedTicketCount++
-			uc.reportAdmitted(ctx, ticketID, code.UserID, scanner.EventID, admitted.AdmitTime)
 		case entity.AdmitOutcomeAlreadyAdmitted:
 			reject(ticketID, uc.alreadyAdmitted(ctx, ticketID, admitted.AdmitTime))
 		case entity.AdmitOutcomeVoided:
@@ -291,19 +290,5 @@ func (uc *ticketUseCase) appendRejections(ctx context.Context, scans []*entity.R
 	}
 	if err := uc.rejectedScanRepo.Append(ctx, scans); err != nil {
 		uc.logger.Warn(ctx, "failed to record rejected scans", slog.Int("count", len(scans)), slog.Any("error", err))
-	}
-}
-
-// reportAdmitted announces, for product analytics, that the Ticket was
-// admitted. A failed publish is logged and never changes the admission.
-func (uc *ticketUseCase) reportAdmitted(ctx context.Context, ticketID entity.TicketID, userID entity.UserID, eventID string, admitTime time.Time) {
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketAdmitted, entity.TicketAdmittedData{
-		TicketID:  string(ticketID),
-		UserID:    string(userID),
-		EventID:   eventID,
-		AdmitTime: admitTime,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish ORDER.ticket_admitted event", err,
-			slog.String("ticket_id", string(ticketID)))
 	}
 }

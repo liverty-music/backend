@@ -34,10 +34,14 @@ const (
 	// receptionGrantMigration grants the reception-api role its reads and
 	// writes.
 	receptionGrantMigration = "../../../../k8s/atlas/base/migrations/20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql"
+
+	// outboxGrantMigration grants the reception-api role INSERT on the
+	// outbox, where Ticket.Admit records its announcement.
+	outboxGrantMigration = "../../../../k8s/atlas/base/migrations/20261030130100_grant_events_outbox_inserts.sql"
 )
 
 // connectAsReceptionRole returns a connection to the test database as a role
-// holding only what the reception grant migration gives reception-api, so a
+// holding only what the reception grant migrations give reception-api, so a
 // reception path that needs a missing grant fails here rather than at the
 // door. Seeding and assertions keep using testDB.
 func connectAsReceptionRole(t *testing.T) *rdb.Database {
@@ -65,6 +69,10 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 		"reception_links", "scanners",
 	).Replace(string(migration))
 	_, err = testDB.Pool.Exec(ctx, grants)
+	require.NoError(t, err)
+	outboxGrant, err := os.ReadFile(outboxGrantMigration)
+	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, string(outboxGrant))
 	require.NoError(t, err)
 
 	logger, err := logging.New()
@@ -107,7 +115,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 
 	receptionDB := connectAsReceptionRole(t)
 	uc := usecase.NewTicketUseCase(
-		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewScannerRepository(receptionDB),
+		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB, testOutbox), rdb.NewScannerRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
 		rdb.NewRejectedScanRepository(receptionDB), &recordingPublisher{}, logger,
 	)

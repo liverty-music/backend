@@ -89,7 +89,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"seat_types":         {insert: true, delete: true},
 	"ticket_stocks":      {insert: true},
 	"ticket_sale_events": {insert: true},
-	// 20261030130000_create_events_outbox.sql: announcements of
+	// 20261030130100_grant_events_outbox_inserts.sql: announcements of
 	// SeriesImage.Create, Series.PublishEvents and Organizer.AssociateArtist.
 	"watermill_events_outbox": {insert: true},
 }
@@ -114,7 +114,7 @@ var receptionAccess = map[string]receptionTableAccess{
 	"wallet_public_keys": {selects: true},
 	"tickets":            {selects: true, updateColumns: []string{"admit_at"}},
 	"admissions":         {selects: true, insert: true},
-	// 20261030130000_create_events_outbox.sql: the announcement of Ticket.Admit.
+	// 20261030130100_grant_events_outbox_inserts.sql: the announcement of Ticket.Admit.
 	"watermill_events_outbox": {insert: true},
 	"rejected_scans":          {insert: true},
 }

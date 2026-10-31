@@ -49,7 +49,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
+		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB),
 		StockRepo:                s.stockRepo,
 		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
@@ -65,7 +65,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	})
 	s.resale = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings:   rdb.NewResaleListingRepository(testDB),
-		Tickets:    rdb.NewTicketRepository(testDB),
+		Tickets:    rdb.NewTicketRepository(testDB, testOutbox),
 		Orders:     s.orderRepo,
 		Stocks:     s.stockRepo,
 		EventState: eventState,

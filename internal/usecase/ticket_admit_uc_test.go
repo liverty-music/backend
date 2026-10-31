@@ -46,7 +46,6 @@ type admitFixture struct {
 	fanID    entity.UserID
 	appended []*entity.RejectedScan
 	// admitted collects the ORDER.ticket_admitted announcements.
-	admitted []entity.TicketAdmittedData
 }
 
 func newAdmitFixture(t *testing.T) *admitFixture {
@@ -78,13 +77,6 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 		BoundPublicKey: f.staff.PublicKey(t),
 	}
 	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().
-		PublishEvent(mock.Anything, entity.SubjectTicketAdmitted, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, data any) error {
-			f.admitted = append(f.admitted, data.(entity.TicketAdmittedData))
-			return nil
-		}).
-		Maybe()
 	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, publisher, newTestLogger(t))
 	return f
 }
@@ -405,17 +397,13 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.scanner.ID, now).
 				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
 		}
-		// The third is refunded: a rejected ticket sends no signal.
+		// The third is refunded.
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[2].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil).Once()
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
 		require.NoError(t, err)
 		assert.Equal(t, 2, got.AdmittedTicketCount)
-		assert.Equal(t, []entity.TicketAdmittedData{
-			{TicketID: string(tickets[0].ID), UserID: string(f.fanID), EventID: f.event.ID, AdmitTime: now},
-			{TicketID: string(tickets[1].ID), UserID: string(f.fanID), EventID: f.event.ID, AdmitTime: now},
-		}, f.admitted)
 	})
 
 	t.Run("already used earlier", func(t *testing.T) {

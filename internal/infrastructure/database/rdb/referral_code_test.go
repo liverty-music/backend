@@ -58,7 +58,7 @@ func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(time.Hour)
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }

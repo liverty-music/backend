@@ -3,11 +3,9 @@
 -- emptied by the forwarder in workflow-worker. watermill-sql forbids creating
 -- it on a transaction, so the migration creates it.
 --
--- Grants: every IAM workload except the narrow ones reaches the table
--- through the default privileges of 20260901000000. The organizer server
--- and the reception server announce (SeriesImage.Create, Series.PublishEvents,
--- Organizer.AssociateArtist; Ticket.Admit) and get INSERT only. The offset is
--- an identity column, so no sequence privilege is needed.
+-- Every IAM workload except the narrow ones reaches the table through the
+-- default privileges of 20260901000000; the narrow ones get INSERT in
+-- 20261030130100_grant_events_outbox_inserts.sql.
 
 SET search_path TO app, public;
 
@@ -27,14 +25,3 @@ COMMENT ON COLUMN watermill_events_outbox.payload IS 'The forwarder envelope as 
 COMMENT ON COLUMN watermill_events_outbox.metadata IS 'Envelope metadata as JSON (empty; the announcement metadata is inside payload)';
 COMMENT ON COLUMN watermill_events_outbox.acked IS 'Unused with DeleteOnAck; kept because the watermill-sql queue schema selects by it';
 COMMENT ON COLUMN watermill_events_outbox.created_at IS 'When the announcement was recorded; the age of the oldest row is reported as event_delivery.oldest_undelivered_age_seconds';
-
-DO $$
-DECLARE
-  r TEXT;
-BEGIN
-  FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'organizer-console-api@%.iam' OR rolname LIKE 'reception-api@%.iam'
-  LOOP
-    EXECUTE format('GRANT INSERT ON watermill_events_outbox TO %I', r);
-  END LOOP;
-END
-$$;

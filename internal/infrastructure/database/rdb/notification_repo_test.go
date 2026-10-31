@@ -21,7 +21,7 @@ func newTestNotification(userID string, typ entity.NotificationType) *entity.Not
 }
 
 func TestNotificationRepository_CreateAndGet(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -51,7 +51,7 @@ func TestNotificationRepository_CreateAndGet(t *testing.T) {
 }
 
 func TestNotificationRepository_Get_NotFound(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -60,7 +60,7 @@ func TestNotificationRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestNotificationRepository_UpdateDelivery(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("delivered sets status and delivered_at, no failure reason", func(t *testing.T) {
@@ -97,7 +97,7 @@ func TestNotificationRepository_UpdateDelivery(t *testing.T) {
 }
 
 func TestNotificationRepository_MarkRead(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -130,7 +130,7 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 }
 
 func TestNotificationRepository_MarkDismissed(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -153,7 +153,7 @@ func TestNotificationRepository_MarkDismissed(t *testing.T) {
 }
 
 func TestNotificationRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("returns user's notifications most-recent-first", func(t *testing.T) {

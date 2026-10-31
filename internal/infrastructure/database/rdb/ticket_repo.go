@@ -6,14 +6,17 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketRepository implements entity.TicketRepository for PostgreSQL.
 type TicketRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -26,6 +29,7 @@ const (
 	`
 	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issue_at DESC, id`
 	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issue_at, id`
+	ticketGetQuery                = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE id = $1`
 
 	// ticketAdmitQuery admits one ticket in a single statement: the
 	// conditional UPDATE on the ticket row is the per-ticket check-and-set (a
@@ -59,8 +63,8 @@ const (
 )
 
 // NewTicketRepository creates a new ticket repository instance.
-func NewTicketRepository(db *Database) *TicketRepository {
-	return &TicketRepository{db: db}
+func NewTicketRepository(db *Database, outbox Announcer) *TicketRepository {
+	return &TicketRepository{db: db, outbox: outbox}
 }
 
 // ListByUser returns every ticket bound to the given user, Issued and Voided
@@ -88,14 +92,20 @@ func (r *TicketRepository) ListByUserAndEvent(ctx context.Context, userID entity
 
 // Admit admits the ticket through the Scanner at admittedTime, at most once,
 // storing its Admission in the same statement.
+//
+// # Announces
+//
+// ORDER.ticket_admitted with the Ticket and its admit time, in the
+// transaction of the admission, when the outcome is Admitted. Nothing on
+// AlreadyAdmitted or Voided.
 func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time) (entity.AdmitResult, error) {
 	attrs := []slog.Attr{slog.String("ticket_id", string(ticketID)), slog.String("scanner_id", string(scannerID))}
 
-	var admittedCount int
-	if err := r.db.Pool.QueryRow(ctx, ticketAdmitQuery, string(ticketID), string(scannerID), admittedTime).Scan(&admittedCount); err != nil {
-		return entity.AdmitResult{}, toAppErr(err, "failed to admit ticket", attrs...)
+	admitted, err := r.admitAndAnnounce(ctx, ticketID, scannerID, admittedTime, attrs)
+	if err != nil {
+		return entity.AdmitResult{}, err
 	}
-	if admittedCount == 1 {
+	if admitted {
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: admittedTime}, nil
 	}
 
@@ -119,6 +129,45 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 		// always admitted by ticketAdmitQuery.
 		return entity.AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted", attrs...)
 	}
+}
+
+// admitAndAnnounce runs ticketAdmitQuery and, when it admitted the ticket,
+// records ORDER.ticket_admitted with the admitted Ticket, in one
+// transaction. It reports whether the ticket was admitted.
+func (r *TicketRepository) admitAndAnnounce(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time, attrs []slog.Attr) (bool, error) {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return false, toAppErr(err, "failed to begin admit transaction", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var admittedCount int
+	if err := tx.QueryRow(ctx, ticketAdmitQuery, string(ticketID), string(scannerID), admittedTime).Scan(&admittedCount); err != nil {
+		return false, toAppErr(err, "failed to admit ticket", attrs...)
+	}
+	if admittedCount != 1 {
+		return false, nil
+	}
+	rows, err := tx.Query(ctx, ticketGetQuery, string(ticketID))
+	if err != nil {
+		return false, toAppErr(err, "failed to read the admitted ticket", attrs...)
+	}
+	tickets, err := scanTickets(rows)
+	rows.Close()
+	if err != nil {
+		return false, err
+	}
+	if len(tickets) != 1 {
+		return false, apperr.New(codes.Internal, "admitted ticket not found", attrs...)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketAdmitted, messaging.Announcement{Payload: pb.FromTicket(tickets[0])}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, toAppErr(err, "failed to commit admit transaction", attrs...)
+	}
+	return true, nil
 }
 
 // scanTickets maps a multi-row result into a slice of entity.Ticket; the slice

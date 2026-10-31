@@ -6,14 +6,17 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketJourneyRepository implements entity.TicketJourneyRepository for PostgreSQL.
 type TicketJourneyRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -25,10 +28,13 @@ const (
 		FROM ticket_journeys
 		WHERE user_id = $1 AND event_id = $2
 	`
+	// ticketJourneyUpsertQuery creates the journey or changes its status; a
+	// journey already at the status changes no row.
 	ticketJourneyUpsertQuery = `
 		INSERT INTO ticket_journeys (user_id, event_id, status)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (user_id, event_id) DO UPDATE SET status = $3
+		WHERE ticket_journeys.status <> $3
 	`
 	ticketJourneyDeleteQuery = `
 		DELETE FROM ticket_journeys
@@ -67,8 +73,8 @@ const (
 )
 
 // NewTicketJourneyRepository creates a new ticket journey repository instance.
-func NewTicketJourneyRepository(db *Database) *TicketJourneyRepository {
-	return &TicketJourneyRepository{db: db}
+func NewTicketJourneyRepository(db *Database, outbox Announcer) *TicketJourneyRepository {
+	return &TicketJourneyRepository{db: db, outbox: outbox}
 }
 
 // Get retrieves a single ticket journey by user and event IDs.
@@ -91,13 +97,33 @@ func (r *TicketJourneyRepository) Get(ctx context.Context, userID, eventID strin
 }
 
 // Upsert creates or updates a ticket journey for the given user and event.
+// A journey already at the given status is left unchanged.
+//
+// # Announces
+//
+// TICKET_JOURNEY.status_changed with the journey at its new status, in the
+// transaction of the change, when it created the journey or changed its
+// status. Nothing when the status was already the given one.
 func (r *TicketJourneyRepository) Upsert(ctx context.Context, journey *entity.TicketJourney) error {
-	_, err := r.db.Pool.Exec(ctx, ticketJourneyUpsertQuery, journey.UserID, journey.EventID, journey.Status)
+	attrs := []slog.Attr{slog.String("user_id", journey.UserID), slog.String("event_id", journey.EventID)}
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return toAppErr(err, "failed to upsert ticket journey",
-			slog.String("user_id", journey.UserID),
-			slog.String("event_id", journey.EventID),
-		)
+		return toAppErr(err, "failed to begin ticket journey upsert", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, ticketJourneyUpsertQuery, journey.UserID, journey.EventID, journey.Status)
+	if err != nil {
+		return toAppErr(err, "failed to upsert ticket journey", attrs...)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, messaging.Announcement{Payload: pb.FromTicketJourney(journey)}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit ticket journey upsert", attrs...)
 	}
 
 	r.db.logger.Info(ctx, "ticket journey upserted",

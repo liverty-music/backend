@@ -11,7 +11,8 @@ import (
 
 // NotificationRepository implements entity.NotificationRepository for PostgreSQL.
 type NotificationRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -59,8 +60,8 @@ const (
 )
 
 // NewNotificationRepository creates a new notification repository instance.
-func NewNotificationRepository(db *Database) *NotificationRepository {
-	return &NotificationRepository{db: db}
+func NewNotificationRepository(db *Database, outbox Announcer) *NotificationRepository {
+	return &NotificationRepository{db: db, outbox: outbox}
 }
 
 // Create persists a new notification in the queued state, minting a UUIDv7 id

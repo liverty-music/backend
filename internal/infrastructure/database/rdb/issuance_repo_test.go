@@ -57,7 +57,7 @@ func wonEntry(t *testing.T, count int) (*entity.LotteryEntry, *stockFixture) {
 func issuanceCheckout(t *testing.T, captured bool) (*entity.Checkout, *stockFixture) {
 	t.Helper()
 	ctx := context.Background()
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
 	start := saleWindowStart.Add(time.Hour)
 	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, newUserID(t), 2, nil, start)
@@ -96,9 +96,9 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 	ctx := context.Background()
 	issuance := rdb.NewIssuanceRepository(testDB)
 	orders := rdb.NewOrderRepository(testDB)
-	tickets := rdb.NewTicketRepository(testDB)
+	tickets := rdb.NewTicketRepository(testDB, testOutbox)
 	settlements := rdb.NewSettlementRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 
 	// assertUnissued asserts the Order is still Pending with no Ticket and no
 	// Settlement.

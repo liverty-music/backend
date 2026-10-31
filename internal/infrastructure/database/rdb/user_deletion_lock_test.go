@@ -63,7 +63,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 			name: "checkout",
 			create: func(t *testing.T, userID entity.UserID) (func() error, func() int) {
 				f := seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
-				repo := rdb.NewCheckoutRepository(testDB)
+				repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 				return func() error {
 						_, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, userID, 1, nil, saleWindowStart.Add(time.Hour))
 						return err

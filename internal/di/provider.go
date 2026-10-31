@@ -248,7 +248,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
-	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	organizerRepo := rdb.NewOrganizerRepository(db)
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
 	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
@@ -257,7 +257,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// with their payment provider operations.
 	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), payments.orders)
-	ticketRepo := rdb.NewTicketRepository(db)
+	ticketRepo := rdb.NewTicketRepository(db, newOutbox(logger))
 	issuanceRepo := rdb.NewIssuanceRepository(db)
 	settlementRepo := repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payments.settlements)
 	refundRepo := rdb.NewRefundRepository(db)
@@ -267,7 +267,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
 	seatTypeRepo := rdb.NewSeatTypeRepository(db)
 	ticketStockRepo := rdb.NewTicketStockRepository(db)
-	checkoutRepo := rdb.NewCheckoutRepository(db)
+	checkoutRepo := rdb.NewCheckoutRepository(db, newOutbox(logger))
 	eventRepo := rdb.NewEventRepository(db)
 	resaleListingRepo := rdb.NewResaleListingRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
@@ -579,7 +579,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
-	notificationRepo := rdb.NewNotificationRepository(db)
+	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{},

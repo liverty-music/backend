@@ -748,7 +748,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 		assert.Equal(t, "+818098765432", got.PhoneNumber)
 		// The ticket face reads the User's current values: the tickets are the
 		// User's, and no copy of the old phone number is kept on them.
-		tickets, err := rdb.NewTicketRepository(testDB).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
+		tickets, err := rdb.NewTicketRepository(testDB, testOutbox).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
 		require.NoError(t, err)
 		require.Len(t, tickets, 2)
 		for _, tk := range tickets {

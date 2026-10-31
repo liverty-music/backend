@@ -57,7 +57,7 @@ func newCheckoutIssuance(t *testing.T, cardAuthorizations *countingCardAuthoriza
 		OrderRepo:          orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
 		OrganizerRepo:      rdb.NewOrganizerRepository(testDB),
-		CheckoutRepo:       rdb.NewCheckoutRepository(testDB),
+		CheckoutRepo:       rdb.NewCheckoutRepository(testDB, testOutbox),
 		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),
 		CardAuthorizations: cardAuthorizations,
@@ -74,7 +74,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 	orders := rdb.NewOrderRepository(testDB)
 	start := saleWindowStart.Add(time.Hour)
 
@@ -146,7 +146,7 @@ func TestCheckoutRepository_GetOrCreateHeld_TwoStocksAtOnce(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	orders := rdb.NewOrderRepository(testDB)
 	at := saleWindowStart.Add(time.Hour)
 
@@ -217,7 +217,7 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 	entries := rdb.NewLotteryEntryRepository(testDB)
 	stocks := rdb.NewTicketStockRepository(testDB)
 	at := saleWindowStart.Add(time.Hour)

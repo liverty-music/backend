@@ -1,4 +1,4 @@
-h1:FX+q/3/dmcViIr9zGejUukd7harJGqqf7ztz5U/JVVg=
+h1:R37IW5JmZ3APIjGS+bo6ViEP4qmp+FPOBkW3+szOsmQ=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -122,4 +122,5 @@ h1:FX+q/3/dmcViIr9zGejUukd7harJGqqf7ztz5U/JVVg=
 20261027120000_create_dbos_schema.sql h1:4juVAItux3uwUrPsmLbFNLU0Ra/g+6n5d2B3n2MI9UY=
 20261029015006_remodel_ticket_sales.sql h1:Eg/u+N8EWsWss4rx6hjHHSjYFbkhc4uwL++3l7RvCnY=
 20261030120000_record_lost_reason_last_login_passkey_name.sql h1:gtCUgfQAv3VFjh6yZtXBaefQdtTzUrmg+rgxxZD+0b8=
-20261030130000_create_events_outbox.sql h1:ow2CTOfq/6CbTkNnSBvQQx6nKAj6LhM28nW5V24Mxqk=
+20261030130000_create_events_outbox.sql h1:qDNwBUqrGRQ9wVGUVSumLUBuV5gKZeHOiT+EfrFmg+k=
+20261030130100_grant_events_outbox_inserts.sql h1:QlNm8EbDYZYVFX/5A6Jo2Gizgce45+gh//I41/bG2fQ=

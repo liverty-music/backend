@@ -139,7 +139,7 @@ func storyFanWithoutBrowser(t *testing.T, name, lang, tz string) string {
 
 func storyJourney(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 	t.Helper()
-	require.NoError(t, rdb.NewTicketJourneyRepository(testDB).Upsert(context.Background(),
+	require.NoError(t, rdb.NewTicketJourneyRepository(testDB, testOutbox).Upsert(context.Background(),
 		&entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
 }
 
@@ -181,7 +181,7 @@ func newStoryDeps(t *testing.T) *storyDeps {
 	d := &storyDeps{
 		pub:    &storyPublisher{},
 		push:   &storyPush{},
-		notifs: rdb.NewNotificationRepository(testDB),
+		notifs: rdb.NewNotificationRepository(testDB, testOutbox),
 		logger: logger,
 	}
 	pushSubs := rdb.NewPushSubscriptionRepository(testDB)
@@ -272,10 +272,10 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	}}}
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
-		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
+		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
-		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
+		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
 
 	n, err := discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
@@ -368,7 +368,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	require.NoError(t, err)
 
 	scan := usecase.NewTicketSaleReminderUseCase(
-		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
+		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
@@ -450,7 +450,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, now.Add(-10*time.Minute), now.AddDate(0, 0, 5), cancelled))
 
 	scan := usecase.NewTicketSaleReminderUseCase(
-		rdb.NewTicketSaleRepository(testDB), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
+		rdb.NewTicketSaleRepository(testDB), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)

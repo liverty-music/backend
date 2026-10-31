@@ -40,7 +40,7 @@ func seedSoldOutType(t *testing.T, quantity int) *soldOutType {
 
 	seller := entity.UserID(saleFan(t))
 	seedIssuedTicketsOf(t, f, string(seller), quantity)
-	tickets, err := rdb.NewTicketRepository(testDB).ListByUserAndEvent(ctx, seller, f.EventID)
+	tickets, err := rdb.NewTicketRepository(testDB, testOutbox).ListByUserAndEvent(ctx, seller, f.EventID)
 	require.NoError(t, err)
 	require.Len(t, tickets, quantity)
 	return &soldOutType{f: f, seller: seller, tickets: tickets}

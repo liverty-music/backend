@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -19,7 +21,8 @@ import (
 // stock's row lock before the checkout and order rows, so the writes of one
 // stock never deadlock (design D4, D5).
 type CheckoutRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -110,8 +113,8 @@ const (
 )
 
 // NewCheckoutRepository creates a new checkout repository instance.
-func NewCheckoutRepository(db *Database) *CheckoutRepository {
-	return &CheckoutRepository{db: db}
+func NewCheckoutRepository(db *Database, outbox Announcer) *CheckoutRepository {
+	return &CheckoutRepository{db: db, outbox: outbox}
 }
 
 // lockUserForOrder takes the user's deletion lock shared and the user's row
@@ -341,6 +344,11 @@ func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, n
 
 // Release makes a lapsed Held checkout Expired and its order Void, and reports
 // whether it changed it.
+//
+// # Announces
+//
+// ORDER.checkout_expired with the Checkout as Expired, in the transaction of
+// the release. Nothing when it changed nothing.
 func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, now time.Time) (bool, error) {
 	attrs := slog.String("checkout_id", string(id))
 	tx, err := r.db.Pool.Begin(ctx)
@@ -363,6 +371,13 @@ func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, 
 	}
 	if _, err := tx.Exec(ctx, orderVoidQuery, orderID); err != nil {
 		return false, toAppErr(err, "failed to void the released checkout's order", attrs)
+	}
+	released, err := scanCheckout(tx.QueryRow(ctx, checkoutGetQuery, string(id)))
+	if err != nil {
+		return false, toAppErr(err, "failed to read the released checkout", attrs)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutExpired, messaging.Announcement{Payload: pb.FromCheckout(released)}); err != nil {
+		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, toAppErr(err, "failed to commit checkout release", attrs)

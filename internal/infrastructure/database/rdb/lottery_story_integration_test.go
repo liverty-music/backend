@@ -127,7 +127,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		published:   &recordingPublisher{},
 		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
 		userRepo:    rdb.NewUserRepository(testDB),
-		journeyRepo: rdb.NewTicketJourneyRepository(testDB),
+		journeyRepo: rdb.NewTicketJourneyRepository(testDB, testOutbox),
 	}
 	s.seedOrganizerEvent()
 
@@ -138,7 +138,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	entryRepo := rdb.NewLotteryEntryRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB)
-	ticketRepo := rdb.NewTicketRepository(testDB)
+	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
@@ -157,7 +157,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
+		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		TicketSaleRepo:           saleRepo,
 		TicketRepo:               ticketRepo,
 		EventState:               eventState,

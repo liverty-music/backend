@@ -101,7 +101,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, rdb.NewLotteryEntryRepository(testDB), orderRepo, seriesRepo,
 		organizerRepo, eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
 	s.scanners = usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventState, logger)
-	s.tickets = usecase.NewTicketUseCase(orderRepo, rdb.NewTicketRepository(testDB), scannerRepo, eventRepo,
+	s.tickets = usecase.NewTicketUseCase(orderRepo, rdb.NewTicketRepository(testDB, testOutbox), scannerRepo, eventRepo,
 		rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB), rdb.NewRejectedScanRepository(testDB),
 		s.publisher, logger)
 	return s

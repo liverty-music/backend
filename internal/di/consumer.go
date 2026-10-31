@@ -90,7 +90,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
-	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	userRepo := rdb.NewUserRepository(db)
 
@@ -140,7 +140,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	eventPublisher := messaging.NewEventPublisher(publisher)
-	notificationRepo := rdb.NewNotificationRepository(db)
+	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
 	// The consumer never refunds an Order or reads its charge, so the Order's

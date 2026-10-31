@@ -2,11 +2,7 @@ package usecase
 
 import (
 	"context"
-	"errors"
-	"log/slog"
-	"time"
 
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -70,54 +66,15 @@ func NewTicketJourneyUseCase(
 	}
 }
 
-// SetStatus creates or updates a ticket journey.
-//
-// Before the upsert, it reads the current stored status to detect whether a
-// meaningful change is occurring. The TICKET_JOURNEY.status_changed analytics
-// event is published only when the new status differs from the prior one (or
-// when no prior journey existed). Publishing is non-fatal — a failure is
-// logged but does not roll back the already-persisted upsert.
+// SetStatus creates or updates a ticket journey through TicketJourney.Upsert,
+// which announces a created journey or a changed status
+// (TICKET_JOURNEY.status_changed) together with the change.
 func (uc *ticketJourneyUseCase) SetStatus(ctx context.Context, userID, eventID string, status entity.TicketJourneyStatus) error {
-	// Capture the current status before the upsert so we can detect a change.
-	var fromStatus entity.TicketJourneyStatus // zero value = UNSPECIFIED sentinel
-	existing, err := uc.repo.Get(ctx, userID, eventID)
-	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return err
-	}
-	if existing != nil {
-		fromStatus = existing.Status
-	}
-
-	if err := uc.repo.Upsert(ctx, &entity.TicketJourney{
+	return uc.repo.Upsert(ctx, &entity.TicketJourney{
 		UserID:  userID,
 		EventID: eventID,
 		Status:  status,
-	}); err != nil {
-		return err
-	}
-
-	// Publish only when status actually changed to avoid noise.
-	if fromStatus == status {
-		return nil
-	}
-
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketJourneyStatusChanged, entity.TicketJourneyStatusChangedData{
-		UserID:     userID,
-		EventID:    eventID,
-		FromStatus: fromStatus.String(),
-		ToStatus:   status.String(),
-		ChangeTime: time.Now(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish TICKET_JOURNEY.status_changed event", err,
-			slog.String("user_id", userID),
-			slog.String("event_id", eventID),
-			slog.String("from_status", fromStatus.String()),
-			slog.String("to_status", status.String()),
-		)
-		// Non-fatal: the upsert is already persisted.
-	}
-
-	return nil
+	})
 }
 
 // Delete removes a ticket journey.
