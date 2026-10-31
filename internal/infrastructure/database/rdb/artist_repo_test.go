@@ -14,7 +14,7 @@ import (
 )
 
 func TestArtistRepository_Create(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// Pre-build reusable inputs so we can reference their generated IDs in want.
@@ -106,7 +106,7 @@ func TestArtistRepository_Create(t *testing.T) {
 }
 
 func TestArtistRepository_ListByMBIDs(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -186,7 +186,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateFanart(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("stores and retrieves fanart data", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 }
 
 func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 	const age = 7 * 24 * time.Hour
 	daysAgo := func(n int) time.Time { return time.Now().Add(-time.Duration(n) * 24 * time.Hour) }
@@ -361,7 +361,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateName(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -413,7 +413,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 }
 
 func TestArtistRepository_Get(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -466,7 +466,7 @@ func TestArtistRepository_Get(t *testing.T) {
 }
 
 func TestArtistRepository_GetByMBID(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	const knownMBID = "bb000000-0000-0000-0000-0000getmbid1"
@@ -520,7 +520,7 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 }
 
 func TestArtistRepository_List(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -574,7 +574,7 @@ func TestArtistRepository_List(t *testing.T) {
 }
 
 func TestArtistRepository_CreateOfficialSite(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -630,7 +630,7 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 }
 
 func TestArtistRepository_GetOfficialSite(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	type args struct {

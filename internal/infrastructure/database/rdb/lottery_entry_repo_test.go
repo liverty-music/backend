@@ -620,7 +620,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 	}
 	cleanDatabase(t)
 	repo := rdb.NewLotteryEntryRepository(testDB)
-	sales := rdb.NewTicketSaleRepository(testDB)
+	sales := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// get reads an entry back.

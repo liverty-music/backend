@@ -48,7 +48,7 @@ func newTestID(t *testing.T) string {
 func TestConcertRepository_Create(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -508,7 +508,7 @@ func TestConcertRepository_Create(t *testing.T) {
 func TestConcertRepository_CoHeadliners(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -572,7 +572,7 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -639,7 +639,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 	}
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -738,7 +738,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 func TestConcertRepository_ListByArtist(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1004,7 +1004,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 func TestConcertRepository_ListByArtists(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1109,7 +1109,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 func TestConcertRepository_ListByFollower(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1412,7 +1412,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 func TestConcertRepository_List(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1466,7 +1466,7 @@ func TestConcertRepository_List(t *testing.T) {
 func TestConcertRepository_Delete(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1547,7 +1547,7 @@ func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
 func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
@@ -1594,7 +1594,7 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 

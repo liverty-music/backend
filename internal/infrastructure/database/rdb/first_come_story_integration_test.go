@@ -50,7 +50,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	eventRepo := rdb.NewEventRepository(testDB)
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB),
+		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                s.stockRepo,
 		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
 		OrderRepo:                s.orderRepo,

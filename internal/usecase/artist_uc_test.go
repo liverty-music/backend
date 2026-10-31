@@ -13,6 +13,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -93,6 +94,47 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		assert.Equal(t, artist, result)
 	})
 
+	t.Run("no announcement", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/create "No announcement"
+		// Artist.Create announces the registered artist; the strict publisher
+		// mock fails the test on any announcement by the usecase.
+		d := newArtistTestDeps(t)
+		c := cache.NewMemoryCache(usecase.ArtistCacheTTL)
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
+		uc := usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, ucmocks.NewMockEventPublisher(t), c, newTestLogger(t))
+		artist := &entity.Artist{ID: "artist-1", Name: "New Band", MBID: "11111111-1111-1111-1111-111111111111"}
+		d.idManager.EXPECT().GetArtist(ctx, artist.MBID).Return(&entity.Artist{MBID: artist.MBID, Name: artist.Name}, nil).Once()
+		d.repo.EXPECT().Create(ctx, artist).Return([]*entity.Artist{artist}, nil).Once()
+
+		_, err := uc.Create(ctx, artist)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("registration rejected", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/create "Registration rejected"
+		d := newArtistTestDeps(t)
+		artist := &entity.Artist{Name: "No MBID"}
+		d.repo.EXPECT().Create(ctx, artist).Return(nil, apperr.ErrInvalidArgument).Once()
+
+		_, err := d.uc.Create(ctx, artist)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("nothing returned", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/create "Nothing returned"
+		d := newArtistTestDeps(t)
+		artist := &entity.Artist{Name: "Ghost"}
+		d.repo.EXPECT().Create(ctx, artist).Return([]*entity.Artist{}, nil).Once()
+
+		_, err := d.uc.Create(ctx, artist)
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
 }
 
 func TestOfficialSiteUseCase_Create(t *testing.T) {

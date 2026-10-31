@@ -14,7 +14,7 @@ import (
 
 func TestFollowRepository_ListByUser(t *testing.T) {
 	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {

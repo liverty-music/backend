@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -245,7 +246,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 
 	artistID := seedArtist(t, "tuki.", "11112222-3333-4444-5555-666677778899")
 	venueID := seedVenue(t, "story-venue")
-	require.NoError(t, rdb.NewArtistRepository(testDB).CreateOfficialSite(ctx,
+	require.NoError(t, rdb.NewArtistRepository(testDB, testOutbox).CreateOfficialSite(ctx,
 		&entity.OfficialSite{ID: entity.NewID(), ArtistID: artistID, URL: "https://tuki-official.net/"}))
 
 	// 星降る晩餐会 is tracked; the other tour is followed but tracked by nobody.
@@ -271,20 +272,31 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 		SaleEndTime:   time.Date(2026, 10, 20, 23, 59, 0, 0, jst),
 	}}}
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
-		rdb.NewConcertRepository(testDB, testOutbox), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
+		rdb.NewConcertRepository(testDB, testOutbox), rdb.NewArtistRepository(testDB, testOutbox), rdb.NewTicketSaleRepository(testDB, testOutbox),
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
 		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, d.logger)
 
+	mark := outboxMark(t)
 	n, err := discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	// Only the tracked tour is searched.
 	assert.Equal(t, [][]string{{banquet}}, searcher.searched)
 
-	for _, data := range d.pub.take(entity.SubjectTicketSaleDiscovered) {
-		require.NoError(t, announce.AnnounceDiscoveredSale(ctx, data.(entity.TicketSaleDiscoveredData)))
+	// TicketSale.UpsertDiscovered announced the created sale; its receiver
+	// runs on that announcement.
+	discovered := announcedSince(t, mark, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
+		func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == banquet })
+	require.Len(t, discovered, 1)
+	for _, sale := range discovered {
+		require.NoError(t, announce.AnnounceDiscoveredSale(ctx, entity.TicketSaleDiscoveredData{
+			TicketSaleID:  sale.GetId().GetValue(),
+			SeriesID:      sale.GetSeriesId().GetValue(),
+			Method:        int16(sale.GetMethod()),
+			SaleStartTime: sale.GetSaleStartTime().AsTime(),
+		}))
 	}
 	d.deliverRequested(t)
 
@@ -333,7 +345,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	cleanDatabase(t)
 	ctx := context.Background()
 	d := newStoryDeps(t)
-	sales := rdb.NewTicketSaleRepository(testDB)
+	sales := rdb.NewTicketSaleRepository(testDB, testOutbox)
 
 	artistID := seedArtist(t, "story-artist", "11112222-3333-4444-5555-666677778800")
 	venueID := seedVenue(t, "story-venue")
@@ -450,7 +462,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, now.Add(-10*time.Minute), now.AddDate(0, 0, 5), cancelled))
 
 	scan := usecase.NewTicketSaleReminderUseCase(
-		rdb.NewTicketSaleRepository(testDB), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		rdb.NewTicketSaleRepository(testDB, testOutbox), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)

@@ -22,7 +22,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	jst := time.FixedZone("JST", 9*60*60)
@@ -239,7 +239,7 @@ func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 
@@ -277,7 +277,7 @@ func TestTicketSaleRepository_ListBySeries(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	jst := time.FixedZone("JST", 9*60*60)
 
@@ -340,7 +340,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	now := time.Now()
 	lookahead := 7 * 24 * time.Hour

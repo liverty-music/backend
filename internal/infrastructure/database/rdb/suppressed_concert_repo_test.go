@@ -352,7 +352,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 // mustGetSale reads the sale with the repository.
 func mustGetSale(t *testing.T, id entity.TicketSaleID) *entity.TicketSale {
 	t.Helper()
-	sale, err := rdb.NewTicketSaleRepository(testDB).Get(context.Background(), id)
+	sale, err := rdb.NewTicketSaleRepository(testDB, testOutbox).Get(context.Background(), id)
 	require.NoError(t, err)
 	return sale
 }

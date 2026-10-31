@@ -79,7 +79,7 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 	s := &discoverStory{
 		t:          t,
 		ctx:        context.Background(),
-		artistRepo: rdb.NewArtistRepository(testDB),
+		artistRepo: rdb.NewArtistRepository(testDB, testOutbox),
 		catalog:    &storyImageCatalog{lookups: map[string]int{}},
 		mb:         &storyMusicBrainz{names: map[string]string{}},
 	}

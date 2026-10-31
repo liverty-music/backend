@@ -133,7 +133,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationRepository, publisher usecase.EventPublisher, clock usecase.Clock, logger *logging.Logger) usecase.LotteryEntryDeps {
 	t.Helper()
 	return usecase.LotteryEntryDeps{
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB),
+		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                rdb.NewTicketStockRepository(testDB),
 		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
 		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(testDB)),

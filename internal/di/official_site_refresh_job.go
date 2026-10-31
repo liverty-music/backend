@@ -50,7 +50,7 @@ func InitializeOfficialSiteRefreshJobApp(ctx context.Context) (*OfficialSiteRefr
 	}
 
 	// Repositories
-	artistRepo := rdb.NewArtistRepository(db)
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 
 	// Infrastructure - MusicBrainz

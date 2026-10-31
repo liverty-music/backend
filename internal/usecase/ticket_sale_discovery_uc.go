@@ -161,7 +161,8 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		if ctx.Err() != nil {
 			break
 		}
-		saleID, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
+		// TicketSale.UpsertDiscovered announces a sale it creates.
+		_, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
 		if err != nil {
 			uc.logger.Error(ctx, "ticket_sale_discovery: upsert failed", err,
 				append(attrs, slog.String("series_id", sale.SeriesID),
@@ -169,7 +170,6 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 			continue
 		}
 		if outcome == entity.UpsertOutcomeInserted {
-			uc.publishDiscovered(ctx, saleID, sale, attrs)
 			totalNew++
 		}
 	}
@@ -272,27 +272,6 @@ func hasSaleNotYetOver(sales []*entity.TicketSale, now time.Time) bool {
 		}
 	}
 	return false
-}
-
-// publishDiscovered publishes a SALES_PHASE.discovered event. Failure is
-// logged as a warning and swallowed — announcement is best-effort; the
-// sale is already stored.
-func (uc *ticketSaleDiscoveryUseCase) publishDiscovered(
-	ctx context.Context,
-	saleID entity.TicketSaleID,
-	sale *entity.DiscoveredTicketSale,
-	attrs []slog.Attr,
-) {
-	data := entity.TicketSaleDiscoveredData{
-		TicketSaleID:  string(saleID),
-		SeriesID:      sale.SeriesID,
-		Method:        int16(sale.Method),
-		SaleStartTime: sale.SaleStartTime,
-	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketSaleDiscovered, data); err != nil {
-		uc.logger.Warn(ctx, "ticket_sale_discovery: failed to publish SALES_PHASE.discovered",
-			append(attrs, slog.String("error", err.Error()))...)
-	}
 }
 
 // Outcomes of the ticket_sale.search.completed signal.

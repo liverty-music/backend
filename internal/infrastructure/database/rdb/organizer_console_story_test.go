@@ -88,7 +88,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	stockRepo := rdb.NewTicketStockRepository(testDB)
 	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
-	saleRepo := rdb.NewTicketSaleRepository(testDB)
+	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))

@@ -239,7 +239,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Repositories
 	userRepo := rdb.NewUserRepository(db)
-	artistRepo := rdb.NewArtistRepository(db)
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	venueRepo := rdb.NewVenueRepository(db)
@@ -264,7 +264,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	payoutAccountRepo := repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(db), payments.payoutAccounts)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
-	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db, newOutbox(logger))
 	seatTypeRepo := rdb.NewSeatTypeRepository(db)
 	ticketStockRepo := rdb.NewTicketStockRepository(db)
 	checkoutRepo := rdb.NewCheckoutRepository(db, newOutbox(logger))

@@ -132,7 +132,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.seedOrganizerEvent()
 
 	clock := usecase.Clock(func() time.Time { return s.now })
-	saleRepo := rdb.NewTicketSaleRepository(testDB)
+	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	stockRepo := rdb.NewTicketStockRepository(testDB)
 	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
 	entryRepo := rdb.NewLotteryEntryRepository(testDB)
