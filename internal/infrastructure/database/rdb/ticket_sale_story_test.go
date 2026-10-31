@@ -34,6 +34,56 @@ type storyPublisher struct {
 	events []storyEvent
 }
 
+// storyWorkflows records the workflows a story starts; a start under an id
+// already started starts nothing new, as the workflow runtime does.
+type storyWorkflows struct {
+	mu      sync.Mutex
+	pending []storyStart
+	started map[string]bool
+}
+
+type storyStart struct {
+	workflow string
+	input    any
+}
+
+func (w *storyWorkflows) Start(_ context.Context, workflow, id string, input any, _ ...usecase.StartOption) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.started == nil {
+		w.started = map[string]bool{}
+	}
+	if w.started[id] {
+		return nil
+	}
+	w.started[id] = true
+	w.pending = append(w.pending, storyStart{workflow: workflow, input: input})
+	return nil
+}
+
+func (w *storyWorkflows) Send(context.Context, string, string, any) error { return nil }
+
+func (w *storyWorkflows) Await(context.Context, string, time.Duration, any) error { return nil }
+
+func (w *storyWorkflows) Cancel(context.Context, string) (bool, error) { return false, nil }
+
+// take returns the inputs of the started runs of workflow not yet taken.
+func (w *storyWorkflows) take(workflow string) []any {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []any
+	rest := w.pending[:0]
+	for _, p := range w.pending {
+		if p.workflow == workflow {
+			out = append(out, p.input)
+			continue
+		}
+		rest = append(rest, p)
+	}
+	w.pending = rest
+	return out
+}
+
 type storyEvent struct {
 	subject string
 	data    any
@@ -168,6 +218,7 @@ func storyNoonZone() string {
 
 type storyDeps struct {
 	pub      *storyPublisher
+	wf       *storyWorkflows
 	push     *storyPush
 	notifs   *rdb.NotificationRepository
 	deliver  usecase.NotificationUseCase
@@ -181,23 +232,24 @@ func newStoryDeps(t *testing.T) *storyDeps {
 	require.NoError(t, err)
 	d := &storyDeps{
 		pub:    &storyPublisher{},
+		wf:     &storyWorkflows{},
 		push:   &storyPush{},
 		notifs: rdb.NewNotificationRepository(testDB, testOutbox),
 		logger: logger,
 	}
 	pushSubs := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
-	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
+	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 	d.reminder = usecase.NewTicketSaleReminderDeliveryUseCase(
-		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger)
+		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, storyMetrics{}, logger)
 	return d
 }
 
-// deliverRequested hands every captured NOTIFICATION.requested to the
-// delivery use case, as the deliver-notification consumer does.
+// deliverRequested runs every started deliver-notification workflow, as the
+// workflow worker does.
 func (d *storyDeps) deliverRequested(t *testing.T) {
 	t.Helper()
-	for _, data := range d.pub.take(entity.SubjectNotificationRequested) {
-		req := data.(entity.NotificationRequestedData)
+	for _, input := range d.wf.take(usecase.WorkflowDeliverNotification) {
+		req := input.(usecase.DeliverRequest)
 		_, err := d.deliver.Deliver(context.Background(), req.UserID, req.Type, req.Payload)
 		require.NoError(t, err)
 	}
@@ -276,7 +328,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
-		rdb.NewUserRepository(testDB, testOutbox), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, d.logger)
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, d.logger)
 
 	mark := outboxMark(t)
 	n, err := discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})

@@ -9,4 +9,8 @@ type ConcertCreatedData struct {
 	ArtistID string `json:"artist_id"`
 	// ConcertIDs contains the identifiers of the newly created concerts.
 	ConcertIDs []string `json:"concert_ids"`
+	// RequestID names what NotifyNewConcerts runs for: the id of the
+	// announcement of the new concerts, so a repeated delivery notifies a
+	// follower once. Empty for a direct call by an admin, which notifies again.
+	RequestID string `json:"request_id,omitempty"`
 }

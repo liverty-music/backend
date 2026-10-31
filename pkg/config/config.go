@@ -86,18 +86,27 @@ type WorkerConfig struct {
 	// Required outside local; a local worker without it leaves them in the
 	// outbox.
 	NATS NATSConfig `envconfig:""`
+
+	// VAPID signs the Web Push messages of the deliver-notification workflow.
+	VAPID VAPIDConfig `envconfig:""`
 }
 
-// Validate checks the worker configuration: the base settings, and the NATS
-// URL outside local.
+// Validate checks the worker configuration: the base settings, and outside
+// local the NATS URL and the VAPID keys.
 func (c *WorkerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
-	if !c.IsLocal() && c.NATS.URL == "" {
+	if c.IsLocal() {
+		return nil
+	}
+	if c.NATS.URL == "" {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
-	return nil
+	return requireSet(
+		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
+		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
+	)
 }
 
 // ServerConfig is the configuration for the API server workload.

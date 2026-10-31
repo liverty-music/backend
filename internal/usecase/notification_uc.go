@@ -43,6 +43,11 @@ type NotificationUseCase interface {
 	//   - Internal: notification record creation failed (no send was attempted).
 	Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)
 
+	// RunDeliver is the deliver-notification workflow: it runs Deliver for the
+	// request and returns the Notification's id. Producers start it by name
+	// ([WorkflowDeliverNotification]) instead of calling Deliver.
+	RunDeliver(ctx context.Context, f Flow, in DeliverRequest) (string, error)
+
 	// MarkRead marks the (userID, notificationID) notification as read. It is
 	// idempotent and user-scoped: marking another user's notification is rejected.
 	//
@@ -108,7 +113,7 @@ type notificationUseCase struct {
 	notificationRepo  entity.NotificationRepository
 	pushSubRepo       entity.PushSubscriptionRepository
 	sender            entity.PushNotificationSender
-	publisher         EventPublisher
+	workflows         Workflows
 	metrics           PushMetrics
 	logger            *logging.Logger
 	orderConfirmation OrderConfirmationDeps
@@ -120,15 +125,14 @@ type notificationUseCase struct {
 // Compile-time interface compliance check.
 var _ NotificationUseCase = (*notificationUseCase)(nil)
 
-// NewNotificationUseCase wires the notification use case. publisher is used to
-// emit the non-fatal NOTIFICATION.delivered analytics event at the delivered
-// transition; analytics must never affect delivery, so publish failures are
-// logged and swallowed.
+// NewNotificationUseCase wires the notification use case. workflows starts the
+// deliver-notification workflow for each notification a producer requests; a
+// process that only runs Deliver may pass nil.
 func NewNotificationUseCase(
 	notificationRepo entity.NotificationRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
-	publisher EventPublisher,
+	workflows Workflows,
 	metrics PushMetrics,
 	logger *logging.Logger,
 	orderConfirmation OrderConfirmationDeps,
@@ -138,7 +142,7 @@ func NewNotificationUseCase(
 		notificationRepo:  notificationRepo,
 		pushSubRepo:       pushSubRepo,
 		sender:            sender,
-		publisher:         publisher,
+		workflows:         workflows,
 		metrics:           metrics,
 		logger:            logger,
 		orderConfirmation: orderConfirmation,
@@ -162,7 +166,6 @@ func (uc *notificationUseCase) deps() notificationDeliveryDeps {
 		notificationRepo: uc.notificationRepo,
 		pushSubRepo:      uc.pushSubRepo,
 		sender:           uc.sender,
-		publisher:        uc.publisher,
 		metrics:          uc.metrics,
 		logger:           uc.logger,
 	}

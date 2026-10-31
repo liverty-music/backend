@@ -170,7 +170,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
 		rdb.NewRejectedScanRepository(testDB), s.published, logger)
-	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.published, logger)
+	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil,
 		s.issuance, logger)

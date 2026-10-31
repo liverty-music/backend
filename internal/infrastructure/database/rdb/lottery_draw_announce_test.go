@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -92,8 +93,10 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 // entries in one call and checks the process heap stays below 200 MB: the
 // announcements are built and inserted in chunks, never all at once.
 func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
-	if testing.Short() {
-		t.Skip("large draw")
+	// It seeds and draws 100,000 rows, so it runs only when asked:
+	// TEST_LARGE_DRAW=1 go test ./internal/infrastructure/database/rdb -run LargeDraw
+	if os.Getenv("TEST_LARGE_DRAW") == "" {
+		t.Skip("set TEST_LARGE_DRAW=1 to draw 100,000 entries")
 	}
 	const entries = 100_000
 	ctx := context.Background()

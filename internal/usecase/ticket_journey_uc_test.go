@@ -25,7 +25,7 @@ func newTicketJourneyTestDeps(t *testing.T) *ticketJourneyTestDeps {
 		repo:      mocks.NewMockTicketJourneyRepository(t),
 		publisher: ucmocks.NewMockEventPublisher(t),
 	}
-	d.uc = usecase.NewTicketJourneyUseCase(d.repo, d.publisher, newTestLogger(t))
+	d.uc = usecase.NewTicketJourneyUseCase(d.repo, newTestLogger(t))
 	return d
 }
 

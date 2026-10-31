@@ -50,7 +50,6 @@ func NewTicketSaleReminderDeliveryUseCase(
 	notificationRepo entity.NotificationRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
-	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) *ticketSaleReminderDeliveryUseCase {
@@ -60,7 +59,6 @@ func NewTicketSaleReminderDeliveryUseCase(
 			notificationRepo: notificationRepo,
 			pushSubRepo:      pushSubRepo,
 			sender:           sender,
-			publisher:        publisher,
 			metrics:          metrics,
 			logger:           logger,
 		},

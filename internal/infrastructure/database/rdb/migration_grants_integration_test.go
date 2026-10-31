@@ -237,9 +237,11 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 		}
 	})
 
-	t.Run("only fan-api reaches the workflow tables in schema dbos", func(t *testing.T) {
+	// fan-api runs and starts workflows; backend-app (the event consumer and
+	// the jobs) starts them (20261031090000_grant_backend_app_dbos.sql).
+	t.Run("only fan-api and backend-app reach the workflow tables in schema dbos", func(t *testing.T) {
 		for _, role := range append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...) {
-			want := role == "fan-api@test.iam"
+			want := role == "fan-api@test.iam" || role == "backend-app@test.iam"
 			assert.Equal(t, want, hasSchemaPrivilege(t, ctx, conn, role, "dbos", "USAGE"), "USAGE on schema dbos for %s", role)
 			assert.Equal(t, want, hasTablePrivilegeIn(t, ctx, conn, role, "dbos", "workflow_status", "SELECT"), "SELECT on dbos.workflow_status for %s", role)
 		}

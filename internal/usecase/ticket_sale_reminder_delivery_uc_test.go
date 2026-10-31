@@ -45,7 +45,6 @@ func newReminderDeliveryTestDeps(t *testing.T) *reminderDeliveryTestDeps {
 		d.notifRepo,
 		d.pushSubRepo,
 		d.sender,
-		d.publisher,
 		noopMetrics{},
 		newTestLogger(t),
 	)

@@ -140,6 +140,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	eventPublisher := messaging.NewEventPublisher(publisher)
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return nil, err
+	}
 	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
@@ -164,7 +168,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
 	}
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, infratelemetry.NewBusinessMetrics(), logger,
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
 			Orders:         orderRepo,
 			Users:          userRepo,
@@ -177,7 +181,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			TimeZone:       japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
-	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
@@ -261,7 +265,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		userRepo,
 		ticketJourneyRepo,
 		seriesRepo,
-		eventPublisher,
+		workflows,
 		logger,
 	)
 	salesReminderDeliveryUC := usecase.NewTicketSaleReminderDeliveryUseCase(
@@ -269,7 +273,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		notificationRepo,
 		pushSubRepo,
 		webpushSender,
-		eventPublisher,
 		infratelemetry.NewBusinessMetrics(),
 		logger,
 	)
@@ -301,7 +304,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
 	salesReminderConsumer := event.NewTicketSaleReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
-	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 	passkeyConsumer := event.NewPasskeyConsumer(userUC, passkeyUC, logger)
@@ -338,7 +340,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
 		{"notify-sales-reminder", entity.SubjectTicketSaleReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
-		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},

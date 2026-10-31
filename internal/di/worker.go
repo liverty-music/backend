@@ -11,7 +11,10 @@ import (
 
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
+	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -33,8 +36,8 @@ type WorkerApp struct {
 // workload does, builds the workflow runtime and registers its workflows. The
 // caller calls Runtime.Launch; the worker is ready once it returns.
 //
-// The worker registers only the runtime's own schedules so far. The first
-// usecase workflow brings the usecases it needs into this graph.
+// Besides the runtime's own schedules, the worker registers the usecase
+// workflows of registerWorkflows.
 func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	cfg, err := config.Load[config.WorkerConfig]()
 	if err != nil {
@@ -78,6 +81,7 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	if err != nil {
 		return nil, err
 	}
+	registerWorkflows(runtime, cfg, db, logger)
 
 	return &WorkerApp{
 		Runtime:         runtime,
@@ -85,6 +89,20 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
+}
+
+// registerWorkflows builds the usecases whose workflows the worker runs and
+// registers each workflow by its stable name.
+func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) {
+	outbox := newOutbox(logger)
+	notifications := usecase.NewNotificationUseCase(
+		rdb.NewNotificationRepository(db, outbox),
+		rdb.NewPushSubscriptionRepository(db, outbox),
+		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
+		nil, infratelemetry.NewBusinessMetrics(), logger,
+		usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{},
+	)
+	workflow.Register(rt, usecase.WorkflowDeliverNotification, notifications.RunDeliver)
 }
 
 // newOutboxForwarder builds the forwarder from the outbox to the NATS
@@ -139,4 +157,16 @@ func InitializeWorkflowAdmin(ctx context.Context) (*workflow.Client, *logging.Lo
 	shutdown.AddExternalPhase(client)
 	shutdown.AddDatastorePhase(db)
 	return client, logger, nil
+}
+
+// provideWorkflows returns the client a workload starts, signals and awaits
+// workflows through; the workflow worker runs them. It closes in the
+// external phase, before the database.
+func provideWorkflows(ctx context.Context, db *rdb.Database, logger *logging.Logger) (*workflow.Client, error) {
+	client, err := workflow.NewClient(ctx, db.Pool.Raw(), logger)
+	if err != nil {
+		return nil, err
+	}
+	shutdown.AddExternalPhase(client)
+	return client, nil
 }

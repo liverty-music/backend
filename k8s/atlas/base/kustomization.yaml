@@ -138,3 +138,4 @@ configMapGenerator:
   - migrations/20261030120000_record_lost_reason_last_login_passkey_name.sql
   - migrations/20261030130000_create_events_outbox.sql
   - migrations/20261030130100_grant_events_outbox_inserts.sql
+  - migrations/20261031090000_grant_backend_app_dbos.sql

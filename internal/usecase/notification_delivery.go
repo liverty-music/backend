@@ -26,7 +26,6 @@ type notificationDeliveryDeps struct {
 	notificationRepo entity.NotificationRepository
 	pushSubRepo      entity.PushSubscriptionRepository
 	sender           entity.PushNotificationSender
-	publisher        EventPublisher
 	metrics          PushMetrics
 	logger           *logging.Logger
 }

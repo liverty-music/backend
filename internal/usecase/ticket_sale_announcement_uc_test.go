@@ -21,7 +21,7 @@ type announcementTestDeps struct {
 	userRepo    *entitymocks.MockUserRepository
 	journeyRepo *entitymocks.MockTicketJourneyRepository
 	seriesRepo  *entitymocks.MockSeriesRepository
-	publisher   *ucmocks.MockEventPublisher
+	publisher   *ucmocks.MockWorkflows
 	uc          usecase.TicketSaleAnnouncementUseCase
 }
 
@@ -31,7 +31,7 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 		userRepo:    entitymocks.NewMockUserRepository(t),
 		journeyRepo: entitymocks.NewMockTicketJourneyRepository(t),
 		seriesRepo:  entitymocks.NewMockSeriesRepository(t),
-		publisher:   ucmocks.NewMockEventPublisher(t),
+		publisher:   ucmocks.NewMockWorkflows(t),
 	}
 	d.uc = usecase.NewTicketSaleAnnouncementUseCase(
 		d.userRepo,
@@ -46,10 +46,10 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 // expectAnnouncementRequested sets up a PublishEvent expectation
 // matching a NOTIFICATION.requested publish for the given recipient with a
 // ticket_sale_announcement payload satisfying payloadMatches.
-func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
+func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockWorkflows, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+		Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, mock.MatchedBy(func(data usecase.DeliverRequest) bool {
 			return data.UserID == userID && data.Type == entity.NotificationTypeTicketSaleAnnouncement && payloadMatches(data.Payload)
 		})).
 		Return(nil).
@@ -168,15 +168,15 @@ func TestAnnounceDiscoveredSale_PublishError_PropagatesAndAborts(t *testing.T) {
 	}
 
 	requestedFor := func(userID string) any {
-		return mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == userID })
+		return mock.MatchedBy(func(data usecase.DeliverRequest) bool { return data.UserID == userID })
 	}
 	publishErr := errors.New("nats unavailable")
 	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationRequested, requestedFor("user-1")).
+		Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, requestedFor("user-1")).
 		Return(nil).
 		Once()
 	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationRequested, requestedFor("user-2")).
+		Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, requestedFor("user-2")).
 		Return(publishErr).
 		Once()
 	// No request is expected for user-3: a third publish would fail the mock.
@@ -184,7 +184,7 @@ func TestAnnounceDiscoveredSale_PublishError_PropagatesAndAborts(t *testing.T) {
 	err := d.uc.AnnounceDiscoveredSale(ctx, discoveredLottery())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, publishErr)
-	d.publisher.AssertNumberOfCalls(t, "PublishEvent", 2)
+	d.publisher.AssertNumberOfCalls(t, "Start", 2)
 }
 
 func TestBuildAnnouncementPayload(t *testing.T) {

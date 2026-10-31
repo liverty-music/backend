@@ -2,7 +2,6 @@ package usecase_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -35,7 +34,7 @@ type confirmationFixture struct {
 	notifs     *entitymocks.MockNotificationRepository
 	pushSubs   *entitymocks.MockPushSubscriptionRepository
 	sender     *entitymocks.MockPushNotificationSender
-	publisher  *ucmocks.MockEventPublisher
+	publisher  *ucmocks.MockWorkflows
 	uc         usecase.NotificationUseCase
 }
 
@@ -49,7 +48,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 		notifs:     entitymocks.NewMockNotificationRepository(t),
 		pushSubs:   entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:     entitymocks.NewMockPushNotificationSender(t),
-		publisher:  ucmocks.NewMockEventPublisher(t),
+		publisher:  ucmocks.NewMockWorkflows(t),
 	}
 	start := time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
 	open := time.Date(2026, 11, 20, 18, 0, 0, 0, tsJST)
@@ -91,19 +90,20 @@ func confirmedOrder(source string) (*entity.Order, entity.OrderPaidData) {
 	return order, data
 }
 
-// expectPush expects one order_confirmation notification for fan-1, pushed to
-// one registered browser, and returns the captured payload.
+// expectPush expects SendOrderConfirmation to start the deliver-notification
+// workflow of one order_confirmation notification for fan-1, named after the
+// Order, and returns the requested payload.
 func (f *confirmationFixture) expectPush(t *testing.T) *entity.NotificationPayload {
 	t.Helper()
 	var got entity.NotificationPayload
-	f.notifs.EXPECT().Create(mock.Anything, mock.MatchedBy(func(n *entity.Notification) bool {
-		return n.UserID == "fan-1" && n.Type == entity.NotificationTypeOrderConfirmation
-	})).RunAndReturn(func(_ context.Context, n *entity.Notification) error { n.ID = "notif-1"; return nil })
-	f.pushSubs.EXPECT().ListByUserIDs(mock.Anything, []string{"fan-1"}).Return([]*entity.PushSubscription{{ID: "sub-1", UserID: "fan-1"}}, nil)
-	f.sender.EXPECT().Send(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, raw []byte, _ *entity.PushSubscription) error {
-		return json.Unmarshal(raw, &got)
-	})
-	f.notifs.EXPECT().UpdateDelivery(mock.Anything, "notif-1", entity.NotificationDeliveryStatusDelivered, mock.Anything, "").Return(nil)
+	f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1",
+		mock.MatchedBy(func(r usecase.DeliverRequest) bool {
+			return r.UserID == "fan-1" && r.Type == entity.NotificationTypeOrderConfirmation
+		})).
+		RunAndReturn(func(_ context.Context, _, _ string, input any, _ ...usecase.StartOption) error {
+			got = *input.(usecase.DeliverRequest).Payload
+			return nil
+		})
 	return &got
 }
 
@@ -179,6 +179,23 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 	})
 
+	t.Run("paid announcement delivered twice", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-order-confirmation "Paid announcement delivered twice"
+		// The sender keeps the email to one per Order; both runs start the push
+		// under one workflow id, so the runtime pushes once.
+		f := newConfirmationFixture(t)
+		order, data := confirmedOrder("checkout")
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Twice()
+		f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1", mock.Anything).
+			Return(nil).Twice()
+
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+	})
+
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Mail unavailable"
@@ -229,7 +246,7 @@ func TestTicketJourneyUseCase_MarkPaid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			journeys := entitymocks.NewMockTicketJourneyRepository(t)
-			uc := usecase.NewTicketJourneyUseCase(journeys, ucmocks.NewMockEventPublisher(t), newTestLogger(t))
+			uc := usecase.NewTicketJourneyUseCase(journeys, newTestLogger(t))
 			_, data := confirmedOrder(tc.source)
 			journeys.EXPECT().Upsert(mock.Anything, &entity.TicketJourney{UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid}).Return(nil).Twice()
 
@@ -244,7 +261,7 @@ func TestTicketJourneyUseCase_MarkPaid(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-journey/mark-paid "Update fails"
 		journeys := entitymocks.NewMockTicketJourneyRepository(t)
-		uc := usecase.NewTicketJourneyUseCase(journeys, ucmocks.NewMockEventPublisher(t), newTestLogger(t))
+		uc := usecase.NewTicketJourneyUseCase(journeys, newTestLogger(t))
 		_, data := confirmedOrder("checkout")
 		journeys.EXPECT().Upsert(mock.Anything, mock.Anything).Return(apperr.ErrInternal)
 

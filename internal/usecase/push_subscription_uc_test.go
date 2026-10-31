@@ -22,7 +22,7 @@ type pushNotificationTestDeps struct {
 	concertRepo *mocks.MockConcertRepository
 	followRepo  *mocks.MockFollowRepository
 	pushSubRepo *mocks.MockPushSubscriptionRepository
-	publisher   *ucmocks.MockEventPublisher
+	publisher   *ucmocks.MockWorkflows
 	uc          usecase.PushSubscriptionUseCase
 	notify      usecase.NotificationUseCase
 }
@@ -34,7 +34,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		concertRepo: mocks.NewMockConcertRepository(t),
 		followRepo:  mocks.NewMockFollowRepository(t),
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
-		publisher:   ucmocks.NewMockEventPublisher(t),
+		publisher:   ucmocks.NewMockWorkflows(t),
 	}
 	d.uc = usecase.NewPushSubscriptionUseCase(d.pushSubRepo, newTestLogger(t))
 	d.notify = newNotifyNewConcertsUC(t, d, newTestLogger(t))
@@ -45,10 +45,10 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 // matching a NOTIFICATION.requested publish for the given recipient and
 // notification type — the request NotifyNewConcerts / AnnounceDiscoveredSale
 // now issue instead of calling NotificationUseCase.Deliver directly.
-func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, typ entity.NotificationType) *mock.Call {
+func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockWorkflows, userID string, typ entity.NotificationType) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+		Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, mock.MatchedBy(func(data usecase.DeliverRequest) bool {
 			return data.UserID == userID && data.Type == typ
 		})).
 		Return(nil).
@@ -60,14 +60,14 @@ func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockEventPubli
 // rendered copy (localized body, deep-link, etc.).
 func expectNotificationRequestedMatching(
 	t *testing.T,
-	publisher *ucmocks.MockEventPublisher,
+	publisher *ucmocks.MockWorkflows,
 	userID string,
 	typ entity.NotificationType,
 	payloadMatches func(p *entity.NotificationPayload) bool,
 ) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+		Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, mock.MatchedBy(func(data usecase.DeliverRequest) bool {
 			return data.UserID == userID && data.Type == typ && payloadMatches(data.Payload)
 		})).
 		Return(nil).
@@ -587,7 +587,7 @@ func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 				// The second publish fails; no request is expected for user-3,
 				// so a third publish would fail the mock.
 				d.publisher.EXPECT().
-					PublishEvent(anyCtx, entity.SubjectNotificationRequested, mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == "user-2" })).
+					Start(anyCtx, usecase.WorkflowDeliverNotification, mock.Anything, mock.MatchedBy(func(data usecase.DeliverRequest) bool { return data.UserID == "user-2" })).
 					Return(apperr.ErrInternal).
 					Once()
 			},

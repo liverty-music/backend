@@ -311,6 +311,78 @@ func (_c *MockNotificationUseCase_NotifyNewConcerts_Call) RunAndReturn(run func(
 	return _c
 }
 
+// RunDeliver provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) RunDeliver(ctx context.Context, f usecase.Flow, in usecase.DeliverRequest) (string, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunDeliver")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.DeliverRequest) (string, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.DeliverRequest) string); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.DeliverRequest) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockNotificationUseCase_RunDeliver_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunDeliver'
+type MockNotificationUseCase_RunDeliver_Call struct {
+	*mock.Call
+}
+
+// RunDeliver is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.DeliverRequest
+func (_e *MockNotificationUseCase_Expecter) RunDeliver(ctx any, f any, in any) *MockNotificationUseCase_RunDeliver_Call {
+	return &MockNotificationUseCase_RunDeliver_Call{Call: _e.mock.On("RunDeliver", ctx, f, in)}
+}
+
+func (_c *MockNotificationUseCase_RunDeliver_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.DeliverRequest)) *MockNotificationUseCase_RunDeliver_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.DeliverRequest
+		if args[2] != nil {
+			arg2 = args[2].(usecase.DeliverRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunDeliver_Call) Return(s string, err error) *MockNotificationUseCase_RunDeliver_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunDeliver_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.DeliverRequest) (string, error)) *MockNotificationUseCase_RunDeliver_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SendOrderConfirmation provides a mock function for the type MockNotificationUseCase
 func (_mock *MockNotificationUseCase) SendOrderConfirmation(ctx context.Context, paid entity.OrderPaidData) error {
 	ret := _mock.Called(ctx, paid)

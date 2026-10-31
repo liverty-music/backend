@@ -45,9 +45,8 @@ type TicketJourneyUseCase interface {
 
 // ticketJourneyUseCase implements the TicketJourneyUseCase interface.
 type ticketJourneyUseCase struct {
-	repo      entity.TicketJourneyRepository
-	publisher EventPublisher
-	logger    *logging.Logger
+	repo   entity.TicketJourneyRepository
+	logger *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -56,13 +55,11 @@ var _ TicketJourneyUseCase = (*ticketJourneyUseCase)(nil)
 // NewTicketJourneyUseCase creates a new ticket journey use case.
 func NewTicketJourneyUseCase(
 	repo entity.TicketJourneyRepository,
-	publisher EventPublisher,
 	logger *logging.Logger,
 ) TicketJourneyUseCase {
 	return &ticketJourneyUseCase{
-		repo:      repo,
-		publisher: publisher,
-		logger:    logger,
+		repo:   repo,
+		logger: logger,
 	}
 }
 

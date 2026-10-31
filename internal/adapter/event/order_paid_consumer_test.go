@@ -119,21 +119,20 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
 	organizers := entitymocks.NewMockOrganizerRepository(t)
 	organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1"}, nil)
-	notifs := entitymocks.NewMockNotificationRepository(t)
-	notifs.EXPECT().Create(mock.Anything, mock.Anything).Return(nil)
-	notifs.EXPECT().UpdateDelivery(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	pushSubs := entitymocks.NewMockPushSubscriptionRepository(t)
-	pushSubs.EXPECT().ListByUserIDs(mock.Anything, []string{"fan-1"}).Return(nil, nil) // no browser: email only
+	// The push is started under the Order's name both times, so the
+	// runtime pushes once.
+	workflows := ucmocks.NewMockWorkflows(t)
+	workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1", mock.Anything).Return(nil).Twice()
 
-	notificationUC := usecase.NewNotificationUseCase(notifs, pushSubs, entitymocks.NewMockPushNotificationSender(t),
-		ucmocks.NewMockEventPublisher(t), noopPushMetrics{}, logger, usecase.OrderConfirmationDeps{
+	notificationUC := usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
+		entitymocks.NewMockPushNotificationSender(t), workflows, noopPushMetrics{}, logger, usecase.OrderConfirmationDeps{
 			Orders: orders, Users: users, Concerts: stubConcertReader{}, EventOrganizer: stubEventOrganizer{},
 			Organizers: organizers, Mailer: mailer, TimeZone: time.UTC,
 		}, usecase.NewConcertsDeps{})
 	journeys := entitymocks.NewMockTicketJourneyRepository(t)
 	paid := &entity.TicketJourney{UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid}
 	journeys.EXPECT().Upsert(mock.Anything, paid).Return(nil).Twice()
-	journeyUC := usecase.NewTicketJourneyUseCase(journeys, ucmocks.NewMockEventPublisher(t), logger)
+	journeyUC := usecase.NewTicketJourneyUseCase(journeys, logger)
 	consumer := event.NewOrderPaidConsumer(notificationUC, journeyUC, logger)
 
 	for range 2 {
