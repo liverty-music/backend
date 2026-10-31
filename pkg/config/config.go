@@ -690,6 +690,13 @@ type WebhookSettings struct {
 	// (an HMAC with an empty key would verify a body signed with "").
 	PasskeyEventSigningKey string `envconfig:"WEBHOOK_PASSKEY_EVENT_SIGNING_KEY"`
 
+	// PasswordSetupRefusalSigningKey is the HMAC signing key for the
+	// password-setup-refusal Target (`POST /refuse-password-setup`, the
+	// request executions on the password-setting API methods). Optional, so
+	// an API workload starts before the secret is synced: when empty the
+	// handler answers 503, which still refuses the request.
+	PasswordSetupRefusalSigningKey string `envconfig:"WEBHOOK_PASSWORD_SETUP_REFUSAL_SIGNING_KEY"`
+
 	// ProductOrgID is the Zitadel id of the product organization, the one
 	// fans' identities belong to. The passkey-event handler announces only
 	// notices about identities of this organization; without it the handler
