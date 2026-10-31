@@ -28,12 +28,6 @@ import (
 // each event so the test can hand it to the next use case, as the consumers
 // do in production.
 
-// storyPublisher captures published events in order.
-type storyPublisher struct {
-	mu     sync.Mutex
-	events []storyEvent
-}
-
 // storyWorkflows records the workflows a story starts; a start under an id
 // already started starts nothing new, as the workflow runtime does.
 type storyWorkflows struct {
@@ -81,34 +75,6 @@ func (w *storyWorkflows) take(workflow string) []any {
 		rest = append(rest, p)
 	}
 	w.pending = rest
-	return out
-}
-
-type storyEvent struct {
-	subject string
-	data    any
-}
-
-func (p *storyPublisher) PublishEvent(_ context.Context, subject string, data any) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.events = append(p.events, storyEvent{subject: subject, data: data})
-	return nil
-}
-
-func (p *storyPublisher) take(subject string) []any {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	var out []any
-	rest := p.events[:0]
-	for _, e := range p.events {
-		if e.subject == subject {
-			out = append(out, e.data)
-			continue
-		}
-		rest = append(rest, e)
-	}
-	p.events = rest
 	return out
 }
 
@@ -217,7 +183,6 @@ func storyNoonZone() string {
 }
 
 type storyDeps struct {
-	pub      *storyPublisher
 	wf       *storyWorkflows
 	push     *storyPush
 	notifs   *rdb.NotificationRepository
@@ -231,7 +196,6 @@ func newStoryDeps(t *testing.T) *storyDeps {
 	logger, err := logging.New()
 	require.NoError(t, err)
 	d := &storyDeps{
-		pub:    &storyPublisher{},
 		wf:     &storyWorkflows{},
 		push:   &storyPush{},
 		notifs: rdb.NewNotificationRepository(testDB, testOutbox),
@@ -326,7 +290,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(testDB, testOutbox), rdb.NewArtistRepository(testDB, testOutbox), rdb.NewTicketSaleRepository(testDB, testOutbox),
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
-		searcher, d.pub, nil, d.logger)
+		searcher, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
 		rdb.NewUserRepository(testDB, testOutbox), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, d.logger)
 
@@ -376,10 +340,12 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	// so the series is searched): it is not announced again.
 	_, err = testDB.Pool.Exec(ctx, `DELETE FROM ticket_sale_searches`)
 	require.NoError(t, err)
+	again := outboxMark(t)
 	n, err = discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
 	assert.Zero(t, n)
-	assert.Empty(t, d.pub.take(entity.SubjectTicketSaleDiscovered))
+	assert.Empty(t, announcedSince(t, again, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
+		func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == banquet }))
 	assert.Len(t, d.push.to(tracking), 1, "no second push about the same sale")
 }
 

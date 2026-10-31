@@ -7,13 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -69,26 +66,6 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 	ticketSaleSearchRepo := rdb.NewTicketSaleSearchRepository(db)
 	journeyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 
-	// Messaging
-	//
-	// Fail fast in non-local environments: a missing NATS_URL would silently
-	// route published events to an in-process GoChannel that nothing consumes,
-	// dropping every event. Local development still falls back to the
-	// in-process GoChannel below.
-	if !cfg.IsLocal() && cfg.NATS.URL == "" {
-		return nil, fmt.Errorf("NATS_URL is required for the sales-phase-discovery job in non-local environments")
-	}
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 256}, wmLogger)
-	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
-	}
-	eventPublisher := messaging.NewEventPublisher(publisher)
-
 	// PostHog analytics client for the search signals (optional: nil without
 	// POSTHOG_PROJECT_API_KEY).
 	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
@@ -121,13 +98,11 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 		ticketSaleSearchRepo,
 		journeyRepo,
 		searcher,
-		eventPublisher,
 		analyticsClient,
 		logger,
 	)
 
 	shutdown.Init(logger)
-	shutdown.AddFlushPhase(publisher)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

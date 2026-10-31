@@ -10,7 +10,6 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -76,8 +75,7 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 		Status:         entity.ScannerStatusInUse,
 		BoundPublicKey: f.staff.PublicKey(t),
 	}
-	publisher := ucmocks.NewMockEventPublisher(t)
-	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, publisher, newTestLogger(t))
+	f.uc = usecase.NewTicketUseCase(nil, f.tickets, f.scanners, f.events, f.keys, f.admits, f.rejects, newTestLogger(t))
 	return f
 }
 

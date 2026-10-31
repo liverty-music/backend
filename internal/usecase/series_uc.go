@@ -161,7 +161,6 @@ type seriesUseCase struct {
 	ticketSaleRepo  entity.TicketSaleRepository
 	imageStorer     ImageStorer
 	storageBuckets  StorageBuckets
-	publisher       EventPublisher
 	logger          *logging.Logger
 	now             func() time.Time
 }
@@ -181,7 +180,6 @@ func NewSeriesUseCase(
 	ticketSaleRepo entity.TicketSaleRepository,
 	imageStorer ImageStorer,
 	storageBuckets StorageBuckets,
-	publisher EventPublisher,
 	logger *logging.Logger,
 	now func() time.Time,
 ) SeriesUseCase {
@@ -194,7 +192,6 @@ func NewSeriesUseCase(
 		ticketSaleRepo:  ticketSaleRepo,
 		imageStorer:     imageStorer,
 		storageBuckets:  storageBuckets,
-		publisher:       publisher,
 		logger:          logger,
 		now:             now,
 	}

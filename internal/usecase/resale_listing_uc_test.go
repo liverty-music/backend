@@ -29,30 +29,28 @@ var (
 
 // resaleFixture holds the mocks of ResaleListingUseCase under test.
 type resaleFixture struct {
-	listings  *entitymocks.MockResaleListingRepository
-	tickets   *entitymocks.MockTicketRepository
-	orders    *entitymocks.MockOrderRepository
-	stocks    *entitymocks.MockTicketStockRepository
-	state     *ucmocks.MockEventPublishStatePort
-	events    *entitymocks.MockEventRepository
-	publisher *ucmocks.MockEventPublisher
-	uc        usecase.ResaleListingUseCase
+	listings *entitymocks.MockResaleListingRepository
+	tickets  *entitymocks.MockTicketRepository
+	orders   *entitymocks.MockOrderRepository
+	stocks   *entitymocks.MockTicketStockRepository
+	state    *ucmocks.MockEventPublishStatePort
+	events   *entitymocks.MockEventRepository
+	uc       usecase.ResaleListingUseCase
 }
 
 func newResaleFixture(t *testing.T, now time.Time) *resaleFixture {
 	t.Helper()
 	f := &resaleFixture{
-		listings:  entitymocks.NewMockResaleListingRepository(t),
-		tickets:   entitymocks.NewMockTicketRepository(t),
-		orders:    entitymocks.NewMockOrderRepository(t),
-		stocks:    entitymocks.NewMockTicketStockRepository(t),
-		state:     ucmocks.NewMockEventPublishStatePort(t),
-		events:    entitymocks.NewMockEventRepository(t),
-		publisher: ucmocks.NewMockEventPublisher(t),
+		listings: entitymocks.NewMockResaleListingRepository(t),
+		tickets:  entitymocks.NewMockTicketRepository(t),
+		orders:   entitymocks.NewMockOrderRepository(t),
+		stocks:   entitymocks.NewMockTicketStockRepository(t),
+		state:    ucmocks.NewMockEventPublishStatePort(t),
+		events:   entitymocks.NewMockEventRepository(t),
 	}
 	f.uc = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings: f.listings, Tickets: f.tickets, Orders: f.orders, Stocks: f.stocks,
-		EventState: f.state, Events: f.events, Publisher: f.publisher,
+		EventState: f.state, Events: f.events,
 		Clock: fixedClock(now), Logger: newTestLogger(t),
 	})
 	return f

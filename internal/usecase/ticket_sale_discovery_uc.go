@@ -48,7 +48,6 @@ type ticketSaleDiscoveryUseCase struct {
 	searchRepo     entity.TicketSaleSearchRepository
 	journeyRepo    entity.TicketJourneyRepository
 	searcher       entity.TicketSaleSearcher
-	publisher      EventPublisher
 	analytics      AnalyticsClient
 	logger         *logging.Logger
 }
@@ -65,7 +64,6 @@ func NewTicketSaleDiscoveryUseCase(
 	searchRepo entity.TicketSaleSearchRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.TicketSaleSearcher,
-	publisher EventPublisher,
 	analytics AnalyticsClient,
 	logger *logging.Logger,
 ) TicketSaleDiscoveryUseCase {
@@ -76,7 +74,6 @@ func NewTicketSaleDiscoveryUseCase(
 		searchRepo:     searchRepo,
 		journeyRepo:    journeyRepo,
 		searcher:       searcher,
-		publisher:      publisher,
 		analytics:      analytics,
 		logger:         logger,
 	}

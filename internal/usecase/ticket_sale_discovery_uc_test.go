@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -27,7 +26,6 @@ type discoveryMocks struct {
 	searchRepo  *entitymocks.MockTicketSaleSearchRepository
 	journeyRepo *entitymocks.MockTicketJourneyRepository
 	searcher    *entitymocks.MockTicketSaleSearcher
-	pub         *ucmocks.MockEventPublisher
 }
 
 func newDiscoveryMocks(t *testing.T) *discoveryMocks {
@@ -39,7 +37,6 @@ func newDiscoveryMocks(t *testing.T) *discoveryMocks {
 		searchRepo:  entitymocks.NewMockTicketSaleSearchRepository(t),
 		journeyRepo: entitymocks.NewMockTicketJourneyRepository(t),
 		searcher:    entitymocks.NewMockTicketSaleSearcher(t),
-		pub:         ucmocks.NewMockEventPublisher(t),
 	}
 }
 
@@ -383,7 +380,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 
 			uc := usecase.NewTicketSaleDiscoveryUseCase(
 				m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-				m.searcher, m.pub, nil, logger,
+				m.searcher, nil, logger,
 			)
 			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 
@@ -480,7 +477,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.record(series, nil)
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)
@@ -503,7 +500,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.search(series, nil, apperr.New(codes.PermissionDenied, "Spend cap breached for project"))
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -524,7 +521,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.record(series, nil)
 		analytics := &recordingAnalytics{err: errors.New("queue full")}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)

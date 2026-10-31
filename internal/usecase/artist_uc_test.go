@@ -7,13 +7,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -24,10 +20,6 @@ import (
 
 // anyCtx matches any context.Context regardless of type (e.g. context.WithoutCancel).
 var anyCtx = mock.MatchedBy(func(context.Context) bool { return true })
-
-func newTestPublisher() *gochannel.GoChannel {
-	return gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
-}
 
 // artistTestDeps holds all dependencies for ArtistUseCase tests.
 type artistTestDeps struct {
@@ -48,7 +40,7 @@ func newArtistTestDeps(t *testing.T) *artistTestDeps {
 	// real value; tests that cross it run inside a synctest bubble.
 	c := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 	t.Cleanup(func() { assert.NoError(t, c.Close()) })
-	d.uc = usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, messaging.NewEventPublisher(newTestPublisher()), c, newTestLogger(t))
+	d.uc = usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, newTestLogger(t))
 	return d
 }
 
@@ -102,7 +94,7 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		d := newArtistTestDeps(t)
 		c := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 		t.Cleanup(func() { assert.NoError(t, c.Close()) })
-		uc := usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, ucmocks.NewMockEventPublisher(t), c, newTestLogger(t))
+		uc := usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, newTestLogger(t))
 		artist := &entity.Artist{ID: "artist-1", Name: "New Band", MBID: "11111111-1111-1111-1111-111111111111"}
 		d.idManager.EXPECT().GetArtist(ctx, artist.MBID).Return(&entity.Artist{MBID: artist.MBID, Name: artist.Name}, nil).Once()
 		d.repo.EXPECT().Create(ctx, artist).Return([]*entity.Artist{artist}, nil).Once()

@@ -24,7 +24,6 @@ type organizerTestDeps struct {
 	organizationRepo *mocks.MockOrganizationRepository
 	seriesImageRepo  *mocks.MockSeriesImageRepository
 	imageStorer      *ucmocks.MockImageStorer
-	publisher        *ucmocks.MockEventPublisher
 	metrics          *ucmocks.MockOrganizerMetrics
 	uc               usecase.OrganizerUseCase
 }
@@ -38,7 +37,6 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		organizationRepo: mocks.NewMockOrganizationRepository(t),
 		seriesImageRepo:  mocks.NewMockSeriesImageRepository(t),
 		imageStorer:      ucmocks.NewMockImageStorer(t),
-		publisher:        ucmocks.NewMockEventPublisher(t),
 		metrics:          ucmocks.NewMockOrganizerMetrics(t),
 	}
 	d.uc = usecase.NewOrganizerUseCase(
@@ -49,7 +47,6 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		d.seriesImageRepo,
 		d.imageStorer,
 		usecase.StorageBuckets{Internal: testInternalBucket, Served: testServedBucket},
-		d.publisher,
 		d.metrics,
 		newTestLogger(t),
 	)
@@ -536,7 +533,7 @@ func TestArtistUseCase_ListByOrganizer(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			got, err := usecase.NewArtistUseCase(nil, d.orgRepo, nil, nil, nil, nil, newTestLogger(t)).ListByOrganizer(ctx, tt.organizerID)
+			got, err := usecase.NewArtistUseCase(nil, d.orgRepo, nil, nil, nil, newTestLogger(t)).ListByOrganizer(ctx, tt.organizerID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -1302,7 +1299,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			d := newOrganizerTestDeps(t)
 			if tt.noStorage {
 				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.signInLinks, d.artistRepo, d.organizationRepo, d.seriesImageRepo, nil,
-					usecase.StorageBuckets{}, d.publisher, d.metrics, newTestLogger(t))
+					usecase.StorageBuckets{}, d.metrics, newTestLogger(t))
 			}
 			var calls []string
 			tt.setup(d, &calls)

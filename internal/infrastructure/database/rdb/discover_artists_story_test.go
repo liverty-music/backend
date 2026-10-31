@@ -18,7 +18,7 @@ import (
 // It runs the real ArtistUseCase, FollowUseCase and ArtistImageSyncUseCase
 // over the real repositories and local Postgres, and runs the daily image run
 // as cmd/job/artist-image-sync does. The image catalog, MusicBrainz and the
-// official site lookup are faked; messaging is replaced by storyPublisher.
+// official site lookup are faked.
 
 // Daily image run settings, as in cmd/job/artist-image-sync.
 const (
@@ -83,7 +83,7 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 		catalog:    &storyImageCatalog{lookups: map[string]int{}},
 		mb:         &storyMusicBrainz{names: map[string]string{}},
 	}
-	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, nil, s.mb, &storyPublisher{}, nil, logger)
+	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, nil, s.mb, nil, logger)
 	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB, testOutbox), s.artistRepo, storyNoOfficialSite{},
 		storyFollowMetrics{}, logger)
 	// The catalog returns no logo, so the logo is never downloaded.

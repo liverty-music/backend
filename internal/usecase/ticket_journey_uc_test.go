@@ -10,20 +10,17 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 type ticketJourneyTestDeps struct {
-	repo      *mocks.MockTicketJourneyRepository
-	publisher *ucmocks.MockEventPublisher
-	uc        usecase.TicketJourneyUseCase
+	repo *mocks.MockTicketJourneyRepository
+	uc   usecase.TicketJourneyUseCase
 }
 
 func newTicketJourneyTestDeps(t *testing.T) *ticketJourneyTestDeps {
 	t.Helper()
 	d := &ticketJourneyTestDeps{
-		repo:      mocks.NewMockTicketJourneyRepository(t),
-		publisher: ucmocks.NewMockEventPublisher(t),
+		repo: mocks.NewMockTicketJourneyRepository(t),
 	}
 	d.uc = usecase.NewTicketJourneyUseCase(d.repo, newTestLogger(t))
 	return d

@@ -62,8 +62,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	// the window is placed around it and the use case reads the same time.
 	setSaleEndByDatabaseClock(t, f.SaleID, 24*time.Hour)
 	now := time.Now()
-	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, stripePort, &recordingPublisher{},
-		func() time.Time { return now }, logger))
+	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, stripePort, func() time.Time { return now }, logger))
 
 	// enter authorizes one fan's card, completes card authentication and
 	// confirms the entry.
@@ -130,7 +129,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 // lotteryEntryDeps wires the lottery entry use case over the real
 // repositories, with the given card authorizations, publisher and clock.
-func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationRepository, publisher usecase.EventPublisher, clock usecase.Clock, logger *logging.Logger) usecase.LotteryEntryDeps {
+func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationRepository, clock usecase.Clock, logger *logging.Logger) usecase.LotteryEntryDeps {
 	t.Helper()
 	return usecase.LotteryEntryDeps{
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
@@ -141,7 +140,6 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
 		UserRepo:                 rdb.NewUserRepository(testDB, testOutbox),
 		CardAuthorizations:       cardAuthorizations,
-		Publisher:                publisher,
 		Clock:                    clock,
 		Logger:                   logger,
 	}

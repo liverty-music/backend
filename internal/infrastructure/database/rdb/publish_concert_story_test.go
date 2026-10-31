@@ -19,14 +19,13 @@ import (
 // SeriesUseCase and ConcertUseCase over the real repositories and local
 // Postgres, from an organizer's create, edit, publish and cancel to the fan
 // list. The venue is already known by its place id, so the map catalog is
-// never called; messaging is replaced by storyPublisher.
+// never called.
 
 type publishStory struct {
 	t         *testing.T
 	ctx       context.Context
 	series    usecase.SeriesUseCase
 	concerts  usecase.ConcertUseCase
-	publisher *storyPublisher
 	orgID     string
 	artistID  string
 	placeID   string
@@ -43,7 +42,6 @@ func newPublishStory(t *testing.T) *publishStory {
 	s := &publishStory{
 		t:         t,
 		ctx:       context.Background(),
-		publisher: &storyPublisher{},
 		orgID:     seedOrganizer(t),
 		artistID:  seedArtist(t, "Story Band", uuid.NewV4().String()),
 		placeID:   "ChIJ-story-" + uuid.NewV7().String(),
@@ -61,7 +59,7 @@ func newPublishStory(t *testing.T) *publishStory {
 	venueRepo := rdb.NewVenueRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), venueRepo, nil, organizerRepo,
-		rdb.NewTicketSaleRepository(testDB, testOutbox), nil, usecase.StorageBuckets{}, s.publisher, logger, time.Now)
+		rdb.NewTicketSaleRepository(testDB, testOutbox), nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.concerts = usecase.NewConcertUseCase(nil, concertRepo, venueRepo, seriesRepo, organizerRepo,
 		nil, nil, nil, nil, nil, &storyWorkflows{}, nil, nil, 0, 0, logger)
 	return s

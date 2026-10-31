@@ -26,7 +26,6 @@ type checkoutIssuanceFixture struct {
 	events                *ucmocks.MockEventPublishStatePort
 	auth                  *entitymocks.MockCardAuthorizationRepository
 	entries               *entitymocks.MockLotteryEntryRepository
-	publisher             *ucmocks.MockEventPublisher
 	uc                    usecase.OrderUseCase
 }
 
@@ -44,7 +43,6 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 		events:                ucmocks.NewMockEventPublishStatePort(t),
 		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
 		entries:               entitymocks.NewMockLotteryEntryRepository(t),
-		publisher:             ucmocks.NewMockEventPublisher(t),
 	}
 	// The charge's facets are read back from the provider at issuance.
 	f.auth.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{
@@ -73,7 +71,6 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 		EventState:               f.events,
 		CardAuthorizations:       f.auth,
 		EntryRepo:                f.entries,
-		Publisher:                f.publisher,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	})

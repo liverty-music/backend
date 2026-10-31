@@ -28,7 +28,6 @@ type checkoutFixture struct {
 	events                *ucmocks.MockEventPublishStatePort
 	eventRepo             *entitymocks.MockEventRepository
 	auth                  *entitymocks.MockCardAuthorizationRepository
-	publisher             *ucmocks.MockEventPublisher
 	uc                    usecase.CheckoutUseCase
 }
 
@@ -45,7 +44,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		events:                ucmocks.NewMockEventPublishStatePort(t),
 		eventRepo:             entitymocks.NewMockEventRepository(t),
 		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
-		publisher:             ucmocks.NewMockEventPublisher(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             f.checkouts,
@@ -58,7 +56,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		EventState:               f.events,
 		EventRepo:                f.eventRepo,
 		CardAuthorizations:       f.auth,
-		Publisher:                f.publisher,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	})

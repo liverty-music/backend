@@ -893,6 +893,7 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		return d
 	}
 
+	// @spec components/usecase/concert-candidate/approve "Tour stop joins its tour"
 	t.Run("approve inserts under the existing tour series ID without minting a new series", func(t *testing.T) {
 		t.Parallel()
 		d := build(t)
@@ -1030,5 +1031,62 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, concert.calls, 2, "one Concert.Create per series")
+	})
+}
+
+// TestConcertCandidateUseCase_Approve_FillOnly approves a ConcertCandidate
+// that brings a start time to the only Event at its Venue and date, which has
+// none: the Event's times are filled and nothing is added.
+func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	artist := &entity.Artist{ID: "artist-fill", Name: "Fill Artist", MBID: "33333333-3333-3333-3333-333333333333"}
+	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	evening := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC) // 18:00 JST
+
+	build := func(t *testing.T) (*approvalTestDeps, *entity.ConcertCandidate) {
+		t.Helper()
+		d := newApprovalTestDeps(t, artist)
+		placeID, listed := "place-fill", "Fill Hall"
+		d.venueRepo.venues[listed] = &entity.Venue{ID: "venue-fill", Name: listed, GooglePlaceID: &placeID, ListedVenueName: &listed}
+		d.concertRepo.existing = map[string][]*entity.Event{
+			"venue-fill|2026-06-01": {{ID: "event-unknown-start", VenueID: "venue-fill", LocalDate: day}},
+		}
+		resolved := listed
+		sc := &entity.ConcertCandidate{
+			ID: "candidate-fill", ArtistID: artist.ID, SeriesID: "series-staged", Title: "Show",
+			LocalDate: day, StartTime: &evening, ListedVenueName: listed,
+			ResolvedPlaceID: &placeID, ResolvedVenueName: &resolved,
+		}
+		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		return d, sc
+	}
+
+	// @spec components/usecase/concert-candidate/approve "Fill only"
+	t.Run("fills the Event's start time, adds nothing and removes the candidate", func(t *testing.T) {
+		t.Parallel()
+		d, sc := build(t)
+
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"event-unknown-start"}, d.concertRepo.filledIDs)
+		require.Len(t, d.concertRepo.filledStarts, 1)
+		assert.True(t, d.concertRepo.filledStarts[0].Equal(evening))
+		assert.Empty(t, d.concertRepo.created, "no Event is added")
+		assert.Empty(t, d.candidateRepo.upserted, "the candidate is removed")
+	})
+
+	// @spec components/usecase/concert-candidate/approve "Last staged row of an empty series"
+	t.Run("asks to remove the candidate's Series once nothing was added", func(t *testing.T) {
+		t.Parallel()
+		d, sc := build(t)
+
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, d.seriesRepo.deleteOrphanedCalls)
+		assert.Equal(t, []string{"series-staged"}, d.seriesRepo.deleteOrphanedIDs,
+			"Series.DeleteOrphaned removes it when it has no Event and no ConcertCandidate left")
 	})
 }

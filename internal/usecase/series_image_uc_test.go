@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -110,7 +109,6 @@ type seriesImageDeps struct {
 	seriesImageRepo *entitymocks.MockSeriesImageRepository
 	storer          *fakeImageStorer
 	processor       *entitymocks.MockSeriesImageProcessor
-	publisher       *ucmocks.MockEventPublisher
 	uc              usecase.SeriesImageUseCase
 	series          usecase.SeriesUseCase
 }
@@ -123,13 +121,12 @@ func newSeriesImageDeps(t *testing.T) *seriesImageDeps {
 		seriesImageRepo: entitymocks.NewMockSeriesImageRepository(t),
 		storer:          newFakeImageStorer(),
 		processor:       entitymocks.NewMockSeriesImageProcessor(t),
-		publisher:       ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewSeriesImageUseCase(
-		d.seriesRepo, d.seriesImageRepo, d.storer, d.processor, d.publisher, logger,
+		d.seriesRepo, d.seriesImageRepo, d.storer, d.processor, logger,
 	)
 	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, nil,
-		d.storer, usecase.StorageBuckets{Internal: testOriginalsBucket, Served: "served"}, d.publisher, logger, time.Now)
+		d.storer, usecase.StorageBuckets{Internal: testOriginalsBucket, Served: "served"}, logger, time.Now)
 	return d
 }
 

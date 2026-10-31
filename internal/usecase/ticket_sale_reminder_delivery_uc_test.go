@@ -14,7 +14,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // reminderDeliveryTestDeps holds all dependencies for
@@ -27,7 +26,6 @@ type reminderDeliveryTestDeps struct {
 	notifRepo    *entitymocks.MockNotificationRepository
 	pushSubRepo  *entitymocks.MockPushSubscriptionRepository
 	sender       *entitymocks.MockPushNotificationSender
-	publisher    *ucmocks.MockEventPublisher
 	uc           usecase.TicketSaleReminderDeliveryUseCase
 }
 
@@ -38,7 +36,6 @@ func newReminderDeliveryTestDeps(t *testing.T) *reminderDeliveryTestDeps {
 		notifRepo:    entitymocks.NewMockNotificationRepository(t),
 		pushSubRepo:  entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:       entitymocks.NewMockPushNotificationSender(t),
-		publisher:    ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewTicketSaleReminderDeliveryUseCase(
 		d.reminderRepo,

@@ -173,7 +173,6 @@ type organizerUseCase struct {
 	seriesImageRepo  entity.SeriesImageRepository
 	imageStorer      ImageStorer
 	storageBuckets   StorageBuckets
-	publisher        EventPublisher
 	metrics          OrganizerMetrics
 	logger           *logging.Logger
 
@@ -205,7 +204,6 @@ func NewOrganizerUseCase(
 	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
 	storageBuckets StorageBuckets,
-	publisher EventPublisher,
 	metrics OrganizerMetrics,
 	logger *logging.Logger,
 ) OrganizerUseCase {
@@ -219,7 +217,6 @@ func NewOrganizerUseCase(
 		seriesImageRepo:   seriesImageRepo,
 		imageStorer:       imageStorer,
 		storageBuckets:    storageBuckets,
-		publisher:         publisher,
 		metrics:           metrics,
 		logger:            logger,
 	}

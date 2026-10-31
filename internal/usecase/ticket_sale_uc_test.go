@@ -144,7 +144,7 @@ func firstComeInput() usecase.CreateTicketSaleInput {
 	}
 }
 
-// TicketSaleUseCase has no EventPublisher, so creating an Organizer's sale
+// TicketSaleUseCase starts no workflow, so creating an Organizer's sale
 // never requests an announcement: only discovery does.
 //
 // @spec components/usecase/ticket-sale/announce-discovered-sale "Organizer's sale created"

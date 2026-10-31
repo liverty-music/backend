@@ -46,8 +46,6 @@ import (
 	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/grpchealth/v2"
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -61,7 +59,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
@@ -305,19 +302,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Initialize the shutdown package for phased resource teardown.
 	shutdown.Init(logger)
 
-	// Infrastructure - Messaging Publisher
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{
-			OutputChannelBuffer: 256,
-		}, wmLogger)
-	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
-	}
-
 	// Infrastructure - fan identity removal (admin and fan workloads) and
 	// email verification (fan workload) through the identity service; nil
 	// elsewhere and in local dev without the identity service.
@@ -327,7 +311,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	businessMetrics := infratelemetry.NewBusinessMetrics()
 
 	// Use Cases
-	eventPublisher := messaging.NewEventPublisher(publisher)
 	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {
 		return nil, err
@@ -345,7 +328,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, workflows, time.Now, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, artistCache, logger)
 	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside
@@ -365,7 +348,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
-		eventPublisher, businessMetrics, logger)
+		businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
 	// organizers (the isolated admin workload); it completes any organizer left
 	// in the provisioning state after a partial failure.
@@ -379,7 +362,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
-		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, eventPublisher, logger, time.Now)
+		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, logger, time.Now)
 
 	// Identity verification — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
@@ -416,7 +399,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, nil, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, nil, logger)
 	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
 	// organizer-facing ConcertService pb. The CDN base is sourced from
 	// config (CDN_BASE_URL) rather than read directly by entity.
@@ -451,7 +434,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		IdentityVerificationRepo: identityVerificationRepo,
 		UserRepo:                 userRepo,
 		CardAuthorizations:       lotteryCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
@@ -473,11 +455,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
-	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, eventPublisher, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
 	// ⑥ ticket wallet and venue admission (Scanners).
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
@@ -500,7 +481,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		RefundRepo:               refundRepo,
 		SettlementRepo:           settlementRepo,
@@ -518,7 +498,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Stocks:     ticketStockRepo,
 		EventState: eventPublishState,
 		Events:     eventRepo,
-		Publisher:  eventPublisher,
 		Clock:      time.Now,
 		Logger:     logger,
 	})
@@ -943,7 +922,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
 	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, receptionSrv, webhookSrv, rateLimiter, artistCache)
-	shutdown.AddFlushPhase(publisher)
 	// jwtValidator owns the JWKS cache's refresh goroutines.
 	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient, jwtValidator)
 	shutdown.AddObservePhase(telemetryCloser)

@@ -59,7 +59,6 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		EventState:               eventState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(s.key, payment.CheckoutCardAuthorizationPolicy, logger),
-		Publisher:                s.published,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
@@ -70,7 +69,6 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		Stocks:     s.stockRepo,
 		EventState: eventState,
 		Events:     eventRepo,
-		Publisher:  s.published,
 		Clock:      clock,
 		Logger:     logger,
 	})
@@ -141,13 +139,12 @@ func (s *firstComeStory) place(checkout *entity.Checkout, fan entity.UserID, car
 		ReceivedAt:        s.now,
 	}))
 	var announced []entity.OrderPaidData
-	for _, paid := range s.published.paid {
+	for _, paid := range s.takePaid() {
 		require.NoError(s.t, s.journeys.MarkPaid(s.ctx, paid))
 		if paid.OrderID == string(order.ID) {
 			announced = append(announced, paid)
 		}
 	}
-	s.published.paid = nil
 	return order, announced
 }
 

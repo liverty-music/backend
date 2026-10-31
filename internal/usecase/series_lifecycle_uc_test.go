@@ -107,7 +107,6 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, stored, 1)
 		assert.True(t, stored[0].HasPublishState(entity.PublishStateDraft))
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("store two DRAFT events for two showtimes on one date", func(t *testing.T) {
@@ -354,7 +353,6 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		_, _, err := d.uc.Update(ctx, authoringOrgID, lifecycleSeriesID, editOf(s), inputs, []string{authoringArtistID})
 
 		require.NoError(t, err)
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 		return given
 	}
 
@@ -462,7 +460,6 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "ARENA TOUR 2026 FINAL", edit.Title)
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("add an event without an id to a published series as a new date", func(t *testing.T) {
@@ -746,7 +743,6 @@ func TestSeriesUseCase_Cancel_Lifecycle(t *testing.T) {
 		d.seriesRepo.EXPECT().CancelEvents(mock.Anything, lifecycleSeriesID, ids[:2]).Return(nil, nil).Once()
 
 		require.NoError(t, d.uc.Cancel(ctx, authoringOrgID, lifecycleSeriesID, nil))
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("fail with FAILED_PRECONDITION when every event is already CANCELLED", func(t *testing.T) {

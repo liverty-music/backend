@@ -97,7 +97,6 @@ type ticketUseCase struct {
 	walletKeyRepo    entity.WalletPublicKeyRepository
 	admissionRepo    entity.AdmissionRepository
 	rejectedScanRepo entity.RejectedScanRepository
-	publisher        EventPublisher
 	logger           *logging.Logger
 }
 
@@ -113,7 +112,6 @@ func NewTicketUseCase(
 	walletKeyRepo entity.WalletPublicKeyRepository,
 	admissionRepo entity.AdmissionRepository,
 	rejectedScanRepo entity.RejectedScanRepository,
-	publisher EventPublisher,
 	logger *logging.Logger,
 ) TicketUseCase {
 	return &ticketUseCase{
@@ -124,7 +122,6 @@ func NewTicketUseCase(
 		walletKeyRepo:    walletKeyRepo,
 		admissionRepo:    admissionRepo,
 		rejectedScanRepo: rejectedScanRepo,
-		publisher:        publisher,
 		logger:           logger,
 	}
 }

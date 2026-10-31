@@ -222,12 +222,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, err
 	}
 
-	// Ticket sale use cases for the two SALES_PHASE consumers. AnnounceDiscoveredSale
-	// requests delivery per recipient via NOTIFICATION.requested (handled by
-	// deliverNotificationConsumer below) so it depends on EventPublisher, not
-	// NotificationUseCase. DeliverReminder stays synchronous and composes the
-	// same delivery ports directly (see notification_delivery.go), so every
-	// reminder still gets a durable record without an event hop.
+	// The SALES_PHASE.discovered consumer's use case. AnnounceDiscoveredSale
+	// starts a deliver-notification workflow per recipient, so it depends on
+	// Workflows, not NotificationUseCase.
 	ticketSaleAnnouncementUC := usecase.NewTicketSaleAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,

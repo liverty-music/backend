@@ -16,7 +16,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 func fixedClock(t time.Time) usecase.Clock {
@@ -50,7 +49,6 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		users:                entitymocks.NewMockUserRepository(t),
 		cardAuthorizations:   entitymocks.NewMockCardAuthorizationRepository(t),
 	}
-	publisher := ucmocks.NewMockEventPublisher(t)
 	f.uc = usecase.NewLotteryEntryUseCaseWithRand(usecase.LotteryEntryDeps{
 		SaleRepo:                 f.sales,
 		StockRepo:                f.stocks,
@@ -60,7 +58,6 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		IdentityVerificationRepo: f.identityVerification,
 		UserRepo:                 f.users,
 		CardAuthorizations:       f.cardAuthorizations,
-		Publisher:                publisher,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	}, func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) })

@@ -21,7 +21,7 @@ import (
 // SeriesUseCase, TicketStockUseCase, TicketSaleUseCase, ScannerUseCase, and
 // TicketUseCase for the door) over the real repositories and local Postgres.
 // The venue is already known by its place id, so the map catalog is never
-// called; messaging is replaced by storyPublisher. Navigation, dialogs and
+// called. Navigation, dialogs and
 // snackbars are the frontend's and are not exercised here.
 
 // consoleAdmitProcedure is the procedure a scanner device signs for Admit.
@@ -31,12 +31,11 @@ const consoleAdmitProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Admi
 const consoleOpenProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
 type consoleStory struct {
-	t         *testing.T
-	ctx       context.Context
-	publisher *storyPublisher
-	orgID     string
-	artistID  string
-	placeID   string
+	t        *testing.T
+	ctx      context.Context
+	orgID    string
+	artistID string
+	placeID  string
 	// eventDay is the next 20 December, the date of the story's event.
 	eventDay time.Time
 
@@ -60,13 +59,12 @@ func newConsoleStory(t *testing.T) *consoleStory {
 		year++
 	}
 	s := &consoleStory{
-		t:         t,
-		ctx:       context.Background(),
-		publisher: &storyPublisher{},
-		orgID:     seedOrganizer(t),
-		artistID:  seedArtist(t, "XX", uuid.NewV4().String()),
-		placeID:   "ChIJ-console-" + uuid.NewV7().String(),
-		eventDay:  time.Date(year, 12, 20, 0, 0, 0, 0, jst),
+		t:        t,
+		ctx:      context.Background(),
+		orgID:    seedOrganizer(t),
+		artistID: seedArtist(t, "XX", uuid.NewV4().String()),
+		placeID:  "ChIJ-console-" + uuid.NewV7().String(),
+		eventDay: time.Date(year, 12, 20, 0, 0, 0, 0, jst),
 	}
 	_, err = rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(s.ctx, s.orgID, entity.BusinessDetails{
 		LegalName:           "株式会社テスト興行",
@@ -95,7 +93,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	scannerRepo := rdb.NewScannerRepository(testDB)
 
 	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), rdb.NewVenueRepository(testDB), nil,
-		organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, s.publisher, logger, time.Now)
+		organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, rdb.NewLotteryEntryRepository(testDB, testOutbox), orderRepo, seriesRepo,
@@ -103,7 +101,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	s.scanners = usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventState, logger)
 	s.tickets = usecase.NewTicketUseCase(orderRepo, rdb.NewTicketRepository(testDB, testOutbox), scannerRepo, eventRepo,
 		rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB), rdb.NewRejectedScanRepository(testDB),
-		s.publisher, logger)
+		logger)
 	return s
 }
 

@@ -146,7 +146,6 @@ type lotteryEntryUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
-	publisher                EventPublisher
 	clock                    Clock
 	newRand                  func() *mrand.Rand
 	logger                   *logging.Logger
@@ -166,7 +165,6 @@ type LotteryEntryDeps struct {
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	UserRepo                 entity.UserRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
-	Publisher                EventPublisher
 	Clock                    Clock
 	Logger                   *logging.Logger
 }
@@ -188,7 +186,6 @@ func newLotteryUseCase(d LotteryEntryDeps, newRand func() *mrand.Rand) *lotteryE
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		userRepo:                 d.UserRepo,
 		cardAuthorizations:       d.CardAuthorizations,
-		publisher:                d.Publisher,
 		clock:                    d.Clock,
 		newRand:                  newRand,
 		logger:                   d.Logger,

@@ -105,7 +105,6 @@ type artistUseCase struct {
 	organizerRepo  entity.OrganizerRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
-	publisher      EventPublisher
 	cache          entity.Cache
 	logger         *logging.Logger
 }
@@ -119,7 +118,6 @@ func NewArtistUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
-	publisher EventPublisher,
 	cache entity.Cache,
 	logger *logging.Logger,
 ) ArtistUseCase {
@@ -128,7 +126,6 @@ func NewArtistUseCase(
 		organizerRepo:  organizerRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
-		publisher:      publisher,
 		cache:          cache,
 		logger:         logger,
 	}

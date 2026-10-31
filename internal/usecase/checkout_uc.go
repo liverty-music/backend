@@ -84,7 +84,6 @@ type checkoutUseCase struct {
 	eventState               EventPublishStatePort
 	eventRepo                entity.EventRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
-	publisher                EventPublisher
 	clock                    Clock
 	logger                   *logging.Logger
 }
@@ -104,7 +103,6 @@ type CheckoutDeps struct {
 	EventState               EventPublishStatePort
 	EventRepo                entity.EventRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
-	Publisher                EventPublisher
 	Clock                    Clock
 	Logger                   *logging.Logger
 }
@@ -122,7 +120,6 @@ func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 		eventState:               d.EventState,
 		eventRepo:                d.EventRepo,
 		cardAuthorizations:       d.CardAuthorizations,
-		publisher:                d.Publisher,
 		clock:                    d.Clock,
 		logger:                   d.Logger,
 	}

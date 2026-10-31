@@ -112,7 +112,6 @@ type seriesImageUseCase struct {
 	seriesImageRepo entity.SeriesImageRepository
 	imageStorer     ImageStorer
 	processor       entity.SeriesImageProcessor
-	publisher       EventPublisher
 	logger          *logging.Logger
 }
 
@@ -127,7 +126,6 @@ func NewSeriesImageUseCase(
 	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
 	processor entity.SeriesImageProcessor,
-	publisher EventPublisher,
 	logger *logging.Logger,
 ) SeriesImageUseCase {
 	return &seriesImageUseCase{
@@ -135,7 +133,6 @@ func NewSeriesImageUseCase(
 		seriesImageRepo: seriesImageRepo,
 		imageStorer:     imageStorer,
 		processor:       processor,
-		publisher:       publisher,
 		logger:          logger,
 	}
 }

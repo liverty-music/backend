@@ -89,7 +89,6 @@ packages:
       ConcertCreationUseCase: {}
       ConcertUseCase: {}
       EventPublishStatePort: {}
-      EventPublisher: {}
       FeatureFlagEvaluator: {}
       Flow: {}
       FollowUseCase: {}

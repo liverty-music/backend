@@ -16,12 +16,12 @@ import (
 // so that "did this notification reach the user?" is answerable from stored state
 // and the in-app inbox has durable, per-user read/dismiss state to build on.
 //
-// Producers never call Deliver directly: they publish NOTIFICATION.requested
-// (via EventPublisher.PublishEvent) and the deliver-notification event
-// consumer calls Deliver, so no usecase depends on NotificationUseCase's
-// interface. TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception —
-// it stays synchronous and composes the same delivery ports directly (see
-// notification_delivery.go) rather than going through NotificationUseCase.
+// Producers never call Deliver directly: they start the deliver-notification
+// workflow, which the workflow worker runs through RunDeliver, so no usecase
+// depends on NotificationUseCase's interface.
+// TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception — it
+// composes the same delivery ports directly (see notification_delivery.go)
+// rather than going through NotificationUseCase.
 type NotificationUseCase interface {
 	// Deliver records a notification for userID and dispatches it to the user's
 	// web-push subscriptions.

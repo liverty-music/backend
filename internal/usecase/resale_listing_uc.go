@@ -79,11 +79,8 @@ type ResaleListingDeps struct {
 	Stocks     entity.TicketStockRepository
 	EventState EventPublishStatePort
 	Events     entity.EventRepository
-	// Publisher announces each refund (ORDER.resale_listing_refunded); the
-	// event consumer sends the sold email from it.
-	Publisher EventPublisher
-	Clock     Clock
-	Logger    *logging.Logger
+	Clock      Clock
+	Logger     *logging.Logger
 }
 
 // resaleListingUseCase implements [ResaleListingUseCase].

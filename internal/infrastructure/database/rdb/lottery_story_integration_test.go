@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"os"
 	"strings"
@@ -49,27 +50,24 @@ var storyWindowStart = time.Now().UTC().Truncate(time.Hour).Add(48 * time.Hour)
 // sale window the stories open.
 var storyEventStart = storyWindowStart.Add(30 * 24 * time.Hour)
 
-// recordingPublisher records the ORDER.paid announcements, standing in for
-// NATS; the story hands them to the ticket journey as the consumer would.
-type recordingPublisher struct {
-	paid []entity.OrderPaidData
-}
-
-func (p *recordingPublisher) PublishEvent(_ context.Context, subject string, data any) error {
-	p.record(subject, data)
-	return nil
-}
-
-func (p *recordingPublisher) record(subject string, data any) {
-	if subject != entity.SubjectOrderPaid {
-		return
+// takePaid returns the ORDER.paid announcements of the story's event recorded
+// since the previous take, as the mark-ticket-journey-paid consumer reads
+// them; the story hands them to the ticket journey as the consumer would.
+func (s *lotteryStory) takePaid() []entity.OrderPaidData {
+	s.t.Helper()
+	orders := announcedSince(s.t, s.paidMark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
+		func(o *entityv1.Order) bool {
+			var eventID string
+			require.NoError(s.t, testDB.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
+				o.GetTicketStockId().GetValue()).Scan(&eventID))
+			return eventID == s.eventID
+		})
+	s.paidMark = outboxMark(s.t)
+	paid := make([]entity.OrderPaidData, 0, len(orders))
+	for _, o := range orders {
+		paid = append(paid, entity.OrderPaidData{OrderID: o.GetId().GetValue(), UserID: o.GetUserId().GetValue(), EventID: s.eventID})
 	}
-	switch d := data.(type) {
-	case *entity.OrderPaidData:
-		p.paid = append(p.paid, *d)
-	case entity.OrderPaidData:
-		p.paid = append(p.paid, d)
-	}
+	return paid
 }
 
 // lotteryStory wires the real use cases over the real repositories and the
@@ -91,7 +89,8 @@ type lotteryStory struct {
 	tickets   usecase.TicketUseCase
 	journeys  usecase.TicketJourneyUseCase
 	webhooks  usecase.StripeWebhookService
-	published *recordingPublisher
+	// paidMark is the outbox offset up to which takePaid has read.
+	paidMark int64
 
 	orderRepo   entity.OrderRepository
 	userRepo    *rdb.UserRepository
@@ -124,7 +123,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		key: key,
 		// The Organizer sets the sale up a day before it opens.
 		now:         storyWindowStart.Add(-24 * time.Hour),
-		published:   &recordingPublisher{},
+		paidMark:    outboxMark(t),
 		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
 		userRepo:    rdb.NewUserRepository(testDB, testOutbox),
 		journeyRepo: rdb.NewTicketJourneyRepository(testDB, testOutbox),
@@ -149,7 +148,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
 		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, s.published, clock, logger))
+	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, clock, logger))
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
@@ -163,13 +162,12 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		EventState:               eventState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger),
-		Publisher:                s.published,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
-		rdb.NewRejectedScanRepository(testDB), s.published, logger)
+		rdb.NewRejectedScanRepository(testDB), logger)
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil,
@@ -289,10 +287,9 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 			ReceivedAt:        s.now,
 		}))
 	}
-	for _, paid := range s.published.paid {
+	for _, paid := range s.takePaid() {
 		require.NoError(s.t, s.journeys.MarkPaid(s.ctx, paid))
 	}
-	s.published.paid = nil
 }
 
 // ownEntry returns the fan's entry as ListByTicketSale shows it.

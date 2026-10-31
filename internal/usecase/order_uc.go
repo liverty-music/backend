@@ -171,7 +171,6 @@ type orderUseCase struct {
 	eventState               EventPublishStatePort
 	eventRepo                entity.EventRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
-	publisher                EventPublisher
 	clock                    Clock
 	refundRepo               entity.RefundRepository
 	settlementRepo           entity.SettlementRepository
@@ -199,7 +198,6 @@ type OrderDeps struct {
 	// CardAuthorizations is the checkout's card authorization repository; it
 	// also reads a lottery entry's captured payment.
 	CardAuthorizations entity.CardAuthorizationRepository
-	Publisher          EventPublisher
 	Clock              Clock
 	RefundRepo         entity.RefundRepository
 	SettlementRepo     entity.SettlementRepository
@@ -221,7 +219,6 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		eventState:               d.EventState,
 		eventRepo:                d.EventRepo,
 		cardAuthorizations:       d.CardAuthorizations,
-		publisher:                d.Publisher,
 		clock:                    d.Clock,
 		refundRepo:               d.RefundRepo,
 		settlementRepo:           d.SettlementRepo,
