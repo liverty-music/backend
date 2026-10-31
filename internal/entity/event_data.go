@@ -70,8 +70,9 @@ const (
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectSeriesImageUploaded is published by the SetCoverImage handler once the series image
-	// row is persisted. The series-image-consumer subscribes to this subject to
+	// SubjectSeriesImageUploaded is the processing request SeriesImage.Create
+	// records with the series image row: the SeriesImage in the payload and the
+	// Series in ce_subject. The series-image-consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
 	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain

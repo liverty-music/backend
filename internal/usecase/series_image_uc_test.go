@@ -29,6 +29,7 @@ type fakeImageStorer struct {
 	putErr       error
 	deleteErr    error
 	deletePfxErr error
+	readErr      error
 }
 
 func newFakeImageStorer() *fakeImageStorer {
@@ -52,6 +53,9 @@ func (f *fakeImageStorer) SignedPutURLForOriginal(_ context.Context, _, _, _, _ 
 }
 
 func (f *fakeImageStorer) ReadOriginal(_ context.Context, bucket, organizerID, seriesImageID string) ([]byte, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	key := bucket + "/" + fakeOriginalKey(organizerID, seriesImageID)
 	data, ok := f.objects[key]
 	if !ok {
@@ -69,7 +73,9 @@ func (f *fakeImageStorer) DeleteOriginal(_ context.Context, bucket, organizerID,
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
-	f.deletedKeys = append(f.deletedKeys, bucket+"/"+fakeOriginalKey(organizerID, seriesImageID))
+	key := bucket + "/" + fakeOriginalKey(organizerID, seriesImageID)
+	f.deletedKeys = append(f.deletedKeys, key)
+	delete(f.objects, key)
 	return nil
 }
 
@@ -437,10 +443,13 @@ func TestSeriesImageUseCase_Process_TransientError(t *testing.T) {
 	require.Error(t, err, "transient error must propagate for retry")
 }
 
-// TestSeriesImageUseCase_Process_Idempotent verifies that re-delivery of the
-// same SERIES_IMAGE.uploaded event is a safe no-op: cut-over returns "" (already
-// applied), variants are re-written (idempotent PUT), original is cleaned up
-// again.
+// TestSeriesImageUseCase_Process_Idempotent verifies that a repeated
+// SERIES_IMAGE.uploaded request is a safe no-op: when it arrives while the
+// first run has not deleted the original, cut-over returns "" (already
+// applied), variants are re-written (idempotent PUT) and the original is
+// cleaned up again; once the original is deleted it ends without processing.
+//
+// @spec components/usecase/series-image/process "Delivered twice"
 func TestSeriesImageUseCase_Process_Idempotent(t *testing.T) {
 	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
 	t.Setenv("STORAGE_BUCKET", "served")
@@ -466,6 +475,29 @@ func TestSeriesImageUseCase_Process_Idempotent(t *testing.T) {
 	// Restore original for second delivery.
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 	require.NoError(t, d.uc.Process(context.Background(), seriesImageID, seriesID))
+
+	// A third delivery finds the original deleted and processes nothing (the
+	// strict mocks allow two runs).
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, seriesImageID).Return(seriesImage, nil).Once()
+	require.NoError(t, d.uc.Process(context.Background(), seriesImageID, seriesID))
+}
+
+// TestSeriesImageUseCase_Process_StorageUnavailable verifies that a failed
+// read of the original fails Process, so the request is processed again.
+//
+// @spec components/usecase/series-image/process "Storage briefly unavailable"
+func TestSeriesImageUseCase_Process_StorageUnavailable(t *testing.T) {
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
+
+	d := newSeriesImageDeps(t)
+	d.storer.readErr = apperr.New(codes.Unavailable, "gcs unavailable")
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, "image-1").
+		Return(&entity.SeriesImage{ID: "image-1", OrganizerID: "org-1"}, nil).Once()
+
+	err := d.uc.Process(context.Background(), "image-1", "series-1")
+
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 }
 
 // @spec components/usecase/series-image/process "SeriesImage gone"

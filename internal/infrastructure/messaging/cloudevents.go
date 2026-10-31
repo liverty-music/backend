@@ -8,6 +8,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -40,6 +41,28 @@ func NewEvent(ctx context.Context, data any) (*message.Message, error) {
 	msg.Metadata.Set("ce_datacontenttype", "application/json")
 
 	return msg, nil
+}
+
+// IsProtobuf reports whether msg carries a binary protobuf payload, as every
+// announcement recorded in the outbox does; otherwise it carries the JSON of
+// a message published before the outbox.
+func IsProtobuf(msg *message.Message) bool {
+	return msg.Metadata.Get("ce_datacontenttype") == ContentTypeProtobuf
+}
+
+// ParseProtobufData unmarshals the binary protobuf payload of msg into
+// target.
+func ParseProtobufData(msg *message.Message, target proto.Message) error {
+	if err := proto.Unmarshal(msg.Payload, target); err != nil {
+		return fmt.Errorf("unmarshal protobuf event data: %w", err)
+	}
+	return nil
+}
+
+// CloudEventSubject returns the ce_subject attribute of msg: the entity the
+// message is about when the payload does not name it, or empty.
+func CloudEventSubject(msg *message.Message) string {
+	return msg.Metadata.Get("ce_subject")
 }
 
 // ParseCloudEventData extracts and unmarshals the JSON data from a Watermill message

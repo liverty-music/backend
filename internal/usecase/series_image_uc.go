@@ -186,7 +186,8 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 // WebP variants, writes them to the served bucket, cuts over series_cover_images to
 // the new series image id (no-404 guarantee), and deletes the original. Permanent
 // failures (invalid image, missing series image or series row) end processing without
-// an error so the SERIES_IMAGE.uploaded event is not redelivered endlessly.
+// an error so the SERIES_IMAGE.uploaded request is not redelivered endlessly, and
+// a repeated request, whose original is already deleted, ends without one too.
 func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, seriesID string) error {
 	internalBucket := os.Getenv(storageInternalBucketEnv)
 	servedBucket := os.Getenv(storageBucketEnv)
@@ -206,6 +207,14 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, series
 
 	// Read the original from the originals bucket.
 	rawData, err := uc.imageStorer.ReadOriginal(ctx, internalBucket, seriesImage.OrganizerID, seriesImageID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		// The original is deleted only once its processing ended (cut over or
+		// a permanent failure), so this is a repeated request: ack.
+		uc.logger.Info(ctx, "original already processed; skipping repeated request",
+			slog.String("series_image_id", seriesImageID),
+		)
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("read original for series image %s (org %s): %w", seriesImageID, seriesImage.OrganizerID, err)
 	}
