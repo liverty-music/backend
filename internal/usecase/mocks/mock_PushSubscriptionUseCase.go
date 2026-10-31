@@ -48,8 +48,8 @@ func (_m *MockPushSubscriptionUseCase) EXPECT() *MockPushSubscriptionUseCase_Exp
 }
 
 // Create provides a mock function for the type MockPushSubscriptionUseCase
-func (_mock *MockPushSubscriptionUseCase) Create(ctx context.Context, userID string, endpoint string, p256dh string, auth string, deviceType string) (*entity.PushSubscription, error) {
-	ret := _mock.Called(ctx, userID, endpoint, p256dh, auth, deviceType)
+func (_mock *MockPushSubscriptionUseCase) Create(ctx context.Context, userID string, endpoint string, p256dh string, auth string) (*entity.PushSubscription, error) {
+	ret := _mock.Called(ctx, userID, endpoint, p256dh, auth)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -57,18 +57,18 @@ func (_mock *MockPushSubscriptionUseCase) Create(ctx context.Context, userID str
 
 	var r0 *entity.PushSubscription
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) (*entity.PushSubscription, error)); ok {
-		return returnFunc(ctx, userID, endpoint, p256dh, auth, deviceType)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string) (*entity.PushSubscription, error)); ok {
+		return returnFunc(ctx, userID, endpoint, p256dh, auth)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) *entity.PushSubscription); ok {
-		r0 = returnFunc(ctx, userID, endpoint, p256dh, auth, deviceType)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string) *entity.PushSubscription); ok {
+		r0 = returnFunc(ctx, userID, endpoint, p256dh, auth)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.PushSubscription)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string, string, string) error); ok {
-		r1 = returnFunc(ctx, userID, endpoint, p256dh, auth, deviceType)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = returnFunc(ctx, userID, endpoint, p256dh, auth)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -86,12 +86,11 @@ type MockPushSubscriptionUseCase_Create_Call struct {
 //   - endpoint string
 //   - p256dh string
 //   - auth string
-//   - deviceType string
-func (_e *MockPushSubscriptionUseCase_Expecter) Create(ctx any, userID any, endpoint any, p256dh any, auth any, deviceType any) *MockPushSubscriptionUseCase_Create_Call {
-	return &MockPushSubscriptionUseCase_Create_Call{Call: _e.mock.On("Create", ctx, userID, endpoint, p256dh, auth, deviceType)}
+func (_e *MockPushSubscriptionUseCase_Expecter) Create(ctx any, userID any, endpoint any, p256dh any, auth any) *MockPushSubscriptionUseCase_Create_Call {
+	return &MockPushSubscriptionUseCase_Create_Call{Call: _e.mock.On("Create", ctx, userID, endpoint, p256dh, auth)}
 }
 
-func (_c *MockPushSubscriptionUseCase_Create_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string, deviceType string)) *MockPushSubscriptionUseCase_Create_Call {
+func (_c *MockPushSubscriptionUseCase_Create_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string)) *MockPushSubscriptionUseCase_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -113,17 +112,12 @@ func (_c *MockPushSubscriptionUseCase_Create_Call) Run(run func(ctx context.Cont
 		if args[4] != nil {
 			arg4 = args[4].(string)
 		}
-		var arg5 string
-		if args[5] != nil {
-			arg5 = args[5].(string)
-		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
 			arg4,
-			arg5,
 		)
 	})
 	return _c
@@ -134,22 +128,22 @@ func (_c *MockPushSubscriptionUseCase_Create_Call) Return(pushSubscription *enti
 	return _c
 }
 
-func (_c *MockPushSubscriptionUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string, deviceType string) (*entity.PushSubscription, error)) *MockPushSubscriptionUseCase_Create_Call {
+func (_c *MockPushSubscriptionUseCase_Create_Call) RunAndReturn(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string) (*entity.PushSubscription, error)) *MockPushSubscriptionUseCase_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Delete provides a mock function for the type MockPushSubscriptionUseCase
-func (_mock *MockPushSubscriptionUseCase) Delete(ctx context.Context, userID string, endpoint string, deviceType string) error {
-	ret := _mock.Called(ctx, userID, endpoint, deviceType)
+func (_mock *MockPushSubscriptionUseCase) Delete(ctx context.Context, userID string, endpoint string) error {
+	ret := _mock.Called(ctx, userID, endpoint)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Delete")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = returnFunc(ctx, userID, endpoint, deviceType)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, userID, endpoint)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -165,12 +159,11 @@ type MockPushSubscriptionUseCase_Delete_Call struct {
 //   - ctx context.Context
 //   - userID string
 //   - endpoint string
-//   - deviceType string
-func (_e *MockPushSubscriptionUseCase_Expecter) Delete(ctx any, userID any, endpoint any, deviceType any) *MockPushSubscriptionUseCase_Delete_Call {
-	return &MockPushSubscriptionUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint, deviceType)}
+func (_e *MockPushSubscriptionUseCase_Expecter) Delete(ctx any, userID any, endpoint any) *MockPushSubscriptionUseCase_Delete_Call {
+	return &MockPushSubscriptionUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint)}
 }
 
-func (_c *MockPushSubscriptionUseCase_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string, deviceType string)) *MockPushSubscriptionUseCase_Delete_Call {
+func (_c *MockPushSubscriptionUseCase_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushSubscriptionUseCase_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -184,15 +177,10 @@ func (_c *MockPushSubscriptionUseCase_Delete_Call) Run(run func(ctx context.Cont
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
-		var arg3 string
-		if args[3] != nil {
-			arg3 = args[3].(string)
-		}
 		run(
 			arg0,
 			arg1,
 			arg2,
-			arg3,
 		)
 	})
 	return _c
@@ -203,7 +191,7 @@ func (_c *MockPushSubscriptionUseCase_Delete_Call) Return(err error) *MockPushSu
 	return _c
 }
 
-func (_c *MockPushSubscriptionUseCase_Delete_Call) RunAndReturn(run func(ctx context.Context, userID string, endpoint string, deviceType string) error) *MockPushSubscriptionUseCase_Delete_Call {
+func (_c *MockPushSubscriptionUseCase_Delete_Call) RunAndReturn(run func(ctx context.Context, userID string, endpoint string) error) *MockPushSubscriptionUseCase_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }

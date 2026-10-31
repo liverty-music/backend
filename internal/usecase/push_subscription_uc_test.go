@@ -36,7 +36,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
 		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
-	d.uc = usecase.NewPushSubscriptionUseCase(d.pushSubRepo, d.publisher, newTestLogger(t))
+	d.uc = usecase.NewPushSubscriptionUseCase(d.pushSubRepo, newTestLogger(t))
 	d.notify = newNotifyNewConcertsUC(t, d, newTestLogger(t))
 	return d
 }
@@ -76,139 +76,50 @@ func expectNotificationRequestedMatching(
 
 func TestPushSubscriptionUseCase_Create(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
 
-	type args struct {
-		userID     string
-		endpoint   string
-		p256dh     string
-		auth       string
-		deviceType string
-	}
+	t.Run("fan enables push on a new browser", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/create "Fan enables push on a new browser"
+		d := newPushNotificationTestDeps(t)
+		d.pushSubRepo.EXPECT().Create(ctx, mock.MatchedBy(func(s *entity.PushSubscription) bool {
+			return s.UserID == "user-1" && s.Endpoint == "https://push/1" && s.P256dh == "k" && s.Auth == "a"
+		})).RunAndReturn(func(_ context.Context, s *entity.PushSubscription) error {
+			s.ID = "sub-new"
+			return nil
+		}).Once()
 
-	tests := []struct {
-		name    string
-		args    args
-		setup   func(t *testing.T, d *pushNotificationTestDeps)
-		wantID  string
-		wantErr error
-	}{
-		{
-			name: "persist subscription successfully and publish analytics event",
-			args: args{
-				userID:     "user-1",
-				endpoint:   "https://fcm.googleapis.com/sub/abc",
-				p256dh:     "key123",
-				auth:       "auth456",
-				deviceType: "android",
-			},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Create(ctx, &entity.PushSubscription{
-						UserID:   "user-1",
-						Endpoint: "https://fcm.googleapis.com/sub/abc",
-						P256dh:   "key123",
-						Auth:     "auth456",
-					}).
-					Return(nil).
-					Once()
-				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationSubscribed, mock.MatchedBy(func(d entity.NotificationSubscribedData) bool {
-						return d.UserID == "user-1" && d.DeviceType == "android" && !d.SubscribeTime.IsZero()
-					})).
-					Return(nil).Once()
-			},
-			wantErr: nil,
-		},
-		{
-			// The usecase must surface the id the repository actually stored
-			// the subscription under, not the (possibly newly minted, unstored)
-			// in-memory id — the repository mutates sub.ID via the pointer on
-			// both a fresh insert and a re-registration. See
-			// liverty-music/backend#474.
-			name: "return the id the repository stored the subscription under",
-			args: args{
-				userID:     "user-1",
-				endpoint:   "https://fcm.googleapis.com/sub/abc",
-				p256dh:     "key123",
-				auth:       "auth456",
-				deviceType: "android",
-			},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Create(ctx, &entity.PushSubscription{
-						UserID:   "user-1",
-						Endpoint: "https://fcm.googleapis.com/sub/abc",
-						P256dh:   "key123",
-						Auth:     "auth456",
-					}).
-					Run(func(_ context.Context, sub *entity.PushSubscription) {
-						// Simulate the repository's UPSERT ... RETURNING id: the
-						// endpoint was already registered, so the row's existing
-						// stored id is written back, not a freshly minted one.
-						sub.ID = "existing-stored-id"
-					}).
-					Return(nil).
-					Once()
-				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationSubscribed, mock.MatchedBy(func(d entity.NotificationSubscribedData) bool {
-						return d.UserID == "user-1" && d.DeviceType == "android" && !d.SubscribeTime.IsZero()
-					})).
-					Return(nil).Once()
-			},
-			wantID:  "existing-stored-id",
-			wantErr: nil,
-		},
-		{
-			name: "return error when repository fails",
-			args: args{
-				userID:     "user-1",
-				endpoint:   "https://push.example.com/sub/abc",
-				p256dh:     "key123",
-				auth:       "auth456",
-				deviceType: "other",
-			},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Create(ctx, &entity.PushSubscription{
-						UserID:   "user-1",
-						Endpoint: "https://push.example.com/sub/abc",
-						P256dh:   "key123",
-						Auth:     "auth456",
-					}).
-					Return(apperr.ErrInternal).
-					Once()
-			},
-			wantErr: apperr.ErrInternal,
-		},
-	}
+		got, err := d.uc.Create(ctx, "user-1", "https://push/1", "k", "a")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := newPushNotificationTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
+		require.NoError(t, err)
+		assert.Equal(t, "sub-new", got.ID)
+	})
 
-			sub, err := d.uc.Create(ctx, tt.args.userID, tt.args.endpoint, tt.args.p256dh, tt.args.auth, tt.args.deviceType)
+	t.Run("fan re-registers the same browser", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/create "Fan re-registers the same browser"
+		d := newPushNotificationTestDeps(t)
+		d.pushSubRepo.EXPECT().Create(ctx, mock.Anything).RunAndReturn(func(_ context.Context, s *entity.PushSubscription) error {
+			s.ID = "sub-existing"
+			return nil
+		}).Once()
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.args.userID, sub.UserID)
-			assert.Equal(t, tt.args.endpoint, sub.Endpoint)
-			if tt.wantID != "" {
-				assert.Equal(t, tt.wantID, sub.ID)
-			}
-		})
-	}
+		got, err := d.uc.Create(ctx, "user-1", "https://push/1", "k2", "a2")
+
+		require.NoError(t, err)
+		assert.Equal(t, "sub-existing", got.ID)
+	})
+
+	t.Run("storing fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/create "Storing fails"
+		d := newPushNotificationTestDeps(t)
+		d.pushSubRepo.EXPECT().Create(ctx, mock.Anything).Return(apperr.ErrUnavailable).Once()
+
+		_, err := d.uc.Create(ctx, "user-1", "https://push/1", "k", "a")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
 }
 
 func TestPushSubscriptionUseCase_Get(t *testing.T) {
@@ -289,88 +200,35 @@ func TestPushSubscriptionUseCase_Get(t *testing.T) {
 
 func TestPushSubscriptionUseCase_Delete(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
 
-	type args struct {
-		userID     string
-		endpoint   string
-		deviceType string
-	}
+	t.Run("fan disables push on one browser", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/delete "Fan disables push on one browser"
+		d := newPushNotificationTestDeps(t)
+		// Only the named browser is removed; the repository keeps the other.
+		d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push/1").Return(nil).Once()
 
-	tests := []struct {
-		name    string
-		args    args
-		setup   func(t *testing.T, d *pushNotificationTestDeps)
-		wantErr error
-	}{
-		{
-			name: "delete subscription successfully and publish analytics event",
-			args: args{userID: "user-1", endpoint: "https://fcm.googleapis.com/sub/abc", deviceType: "android"},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Delete(ctx, "user-1", "https://fcm.googleapis.com/sub/abc").
-					Return(nil).
-					Once()
-				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, mock.MatchedBy(func(d entity.NotificationUnsubscribedData) bool {
-						return d.UserID == "user-1" && d.DeviceType == "android" && !d.UnsubscribeTime.IsZero()
-					})).
-					Return(nil).Once()
-			},
-			wantErr: nil,
-		},
-		{
-			name: "publish error is non-fatal when repository delete succeeds",
-			args: args{userID: "user-1", endpoint: "https://web.push.apple.com/sub/abc", deviceType: "apple"},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Delete(ctx, "user-1", "https://web.push.apple.com/sub/abc").
-					Return(nil).
-					Once()
-				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, mock.MatchedBy(func(d entity.NotificationUnsubscribedData) bool {
-						return d.UserID == "user-1" && d.DeviceType == "apple" && !d.UnsubscribeTime.IsZero()
-					})).
-					Return(apperr.ErrInternal).Once()
-			},
-			// Publish error must not propagate — Delete returns nil.
-			wantErr: nil,
-		},
-		{
-			name: "return error when repository fails",
-			args: args{userID: "user-1", endpoint: "https://push.example.com/sub", deviceType: "other"},
-			setup: func(t *testing.T, d *pushNotificationTestDeps) {
-				t.Helper()
-				d.pushSubRepo.EXPECT().
-					Delete(ctx, "user-1", "https://push.example.com/sub").
-					Return(apperr.ErrInternal).
-					Once()
-				// No PublishEvent expected — repo failure prevents reaching the publish call.
-			},
-			wantErr: apperr.ErrInternal,
-		},
-	}
+		assert.NoError(t, d.uc.Delete(ctx, "user-1", "https://push/1"))
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := newPushNotificationTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
+	t.Run("browser not registered", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/delete "Browser not registered"
+		d := newPushNotificationTestDeps(t)
+		d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push/unknown").Return(nil).Once()
 
-			err := d.uc.Delete(ctx, tt.args.userID, tt.args.endpoint, tt.args.deviceType)
+		assert.NoError(t, d.uc.Delete(ctx, "user-1", "https://push/unknown"))
+	})
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
+	t.Run("removal fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/push-subscription/delete "Removal fails"
+		d := newPushNotificationTestDeps(t)
+		d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push/1").Return(apperr.ErrUnavailable).Once()
+
+		assert.ErrorIs(t, d.uc.Delete(ctx, "user-1", "https://push/1"), apperr.ErrUnavailable)
+	})
 }
 
 func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {

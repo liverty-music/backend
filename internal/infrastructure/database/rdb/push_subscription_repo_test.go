@@ -12,7 +12,7 @@ import (
 )
 
 func TestPushSubscriptionRepository_Create(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB)
+	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// Captured by the setup/check closures of the re-registration cases below,
@@ -175,7 +175,7 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_Get(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB)
+	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -256,7 +256,7 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_Delete(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB)
+	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -345,7 +345,7 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB)
+	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {

@@ -88,7 +88,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Repositories
 	artistRepo := rdb.NewArtistRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
-	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)

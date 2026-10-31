@@ -122,7 +122,7 @@ func storyFan(t *testing.T, name, lang, tz string) string {
 	id := seedUser(t, name, name+"@test.com", "ext-"+name)
 	_, err := testDB.Pool.Exec(ctx, `UPDATE users SET preferred_language = $2, time_zone = $3 WHERE id = $1`, id, lang, tz)
 	require.NoError(t, err)
-	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB).Create(ctx, &entity.PushSubscription{
+	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB, testOutbox).Create(ctx, &entity.PushSubscription{
 		UserID: id, Endpoint: "https://push.example/" + name, P256dh: "p256dh", Auth: "auth",
 	}))
 	return id
@@ -184,7 +184,7 @@ func newStoryDeps(t *testing.T) *storyDeps {
 		notifs: rdb.NewNotificationRepository(testDB, testOutbox),
 		logger: logger,
 	}
-	pushSubs := rdb.NewPushSubscriptionRepository(testDB)
+	pushSubs := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
 	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 	d.reminder = usecase.NewTicketSaleReminderDeliveryUseCase(
 		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger)
@@ -399,7 +399,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 
 	// The next scan sends nothing again, including to the fan without a
 	// browser who registers one later.
-	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB).Create(ctx, &entity.PushSubscription{
+	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB, testOutbox).Create(ctx, &entity.PushSubscription{
 		UserID: noBrowser, Endpoint: "https://push.example/nobrowser", P256dh: "p256dh", Auth: "auth",
 	}))
 	requested, err = scan.ScanDueReminders(ctx)

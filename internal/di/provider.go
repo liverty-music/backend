@@ -247,7 +247,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
-	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	organizerRepo := rdb.NewOrganizerRepository(db)
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
@@ -584,7 +584,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// order-confirmation dependencies stay empty here.
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
-	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, eventPublisher, logger)
+	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, logger)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
