@@ -192,6 +192,21 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 
+	// @spec components/usecase/user/create "Announcing fails"
+	t.Run("error - the new User cannot be announced", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		params := &entity.NewUser{Name: "Jane Doe", Email: "jane@example.com"}
+		// User.Create fails with Unavailable and stores nothing when its
+		// announcement cannot be recorded (tested on the repository).
+		d.repo.EXPECT().Create(ctx, params).Return(nil, apperr.New(codes.Unavailable, "announcement not recorded")).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Nil(t, result)
+	})
+
 	t.Run("error - repository fails", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -210,6 +225,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 
+	// User.Create stored nothing, so it announced nothing and no
+	// verification email is started.
+	// @spec components/usecase/user/create "User already existed"
 	t.Run("idempotent — duplicate provider_user_id returns existing user", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -1675,4 +1693,94 @@ func TestUserUseCase_Update(t *testing.T) {
 			assert.Equal(t, tt.wantName, face.FullName)
 		})
 	}
+}
+
+func TestUserUseCase_RunSendVerification(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	user := &entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}
+
+	// @spec components/usecase/user/create "New user"
+	t.Run("sends the verification email to the new User", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, testResolveUserID).Return(user, nil).Once()
+		d.emailVerifier.EXPECT().SendVerification(mock.Anything, user).Return(nil).Once()
+
+		_, err := d.uc.RunSendVerification(ctx, &inlineFlow{}, usecase.UserRequest{UserID: testResolveUserID})
+
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/user/create "Sending keeps failing"
+	t.Run("gives up after the first try and 3 retries", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, testResolveUserID).Return(user, nil).Times(4)
+		d.emailVerifier.EXPECT().SendVerification(mock.Anything, user).Return(apperr.New(codes.Unavailable, "postmark down")).Times(4)
+		f := &countingFlow{}
+
+		_, err := d.uc.RunSendVerification(ctx, f, usecase.UserRequest{UserID: testResolveUserID})
+
+		assert.NoError(t, err, "the User stays created; the send is given up")
+		assert.Equal(t, 3, f.waits, "a wait before each retry")
+	})
+
+	t.Run("sends on a retry after a failure", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, testResolveUserID).Return(user, nil).Twice()
+		d.emailVerifier.EXPECT().SendVerification(mock.Anything, user).Return(apperr.New(codes.Unavailable, "postmark down")).Once()
+		d.emailVerifier.EXPECT().SendVerification(mock.Anything, user).Return(nil).Once()
+		f := &countingFlow{}
+
+		_, err := d.uc.RunSendVerification(ctx, f, usecase.UserRequest{UserID: testResolveUserID})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, f.waits)
+	})
+
+	// @spec components/usecase/user/create "Verification not configured"
+	t.Run("sends nothing when email verification is not configured", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDepsNoVerifier(t)
+		// Nothing is read or sent.
+
+		_, err := d.uc.RunSendVerification(ctx, &inlineFlow{}, usecase.UserRequest{UserID: testResolveUserID})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("finishes without sending for an address already verified", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, testResolveUserID).Return(user, nil).Once()
+		d.emailVerifier.EXPECT().SendVerification(mock.Anything, user).Return(apperr.New(codes.FailedPrecondition, "verified")).Once()
+
+		_, err := d.uc.RunSendVerification(ctx, &inlineFlow{}, usecase.UserRequest{UserID: testResolveUserID})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("the same announcement starts one email", func(t *testing.T) {
+		t.Parallel()
+		w := &recordingWorkflows{}
+		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+
+		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
+		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
+
+		assert.Equal(t, 1, w.runs())
+	})
+}
+
+// countingFlow runs steps inline and counts the waits between them.
+type countingFlow struct {
+	inlineFlow
+	waits int
+}
+
+func (f *countingFlow) Recv(context.Context, string, time.Duration) ([]byte, bool, error) {
+	f.waits++
+	return nil, false, nil
 }

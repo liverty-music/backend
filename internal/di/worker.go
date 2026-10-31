@@ -117,8 +117,8 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)
 
 	// The worker's UserUseCase sends the verification codes and the passkey
-	// recovery links the fan API requests and the change email of each
-	// announced Passkey; it starts nothing and never deletes users.
+	// recovery links the fan API requests, and the verification email of each
+	// new User and the change email of each announced Passkey; it starts nothing and never deletes users.
 	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
 	if err != nil {
 		return err
@@ -139,6 +139,7 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	workflow.Register(rt, usecase.WorkflowReissueEmailVerification, users.RunReissueEmailVerification)
 	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
 	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
+	workflow.Register(rt, usecase.WorkflowSendVerification, users.RunSendVerification)
 
 	// Passkeys: the record of each passkey notice, whose removal waits for the
 	// run of the same passkey's addition.

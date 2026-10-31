@@ -1074,15 +1074,13 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, IDENTITY_SERVICE_URL, OIDC_ISSUER_URL, "+
+	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, "+
 		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY")
 
 	cfg.FanartTVAPIKey = "fanart-key"
 	cfg.GCP = GCPConfig{GeminiSearchAPIKey: "gemini-key", ProjectID: "project"}
-	cfg.ZitadelDomain = "https://auth.dev.liverty-music.app"
 	cfg.PostHog.ProjectAPIKey = "phc_x"
 	cfg.VAPID = VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"}
-	cfg.IdentityServiceURL = "http://identity:9100"
 	assert.NoError(t, cfg.Validate())
 }
 

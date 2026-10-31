@@ -5,8 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -40,8 +38,8 @@ func NewFollowSearchConsumer(
 func (h *FollowSearchConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
-	var data entity.ArtistFollowedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+	data, err := parseArtistFollowed(msg)
+	if err != nil {
 		h.logger.Error(ctx, "failed to parse ARTIST.followed event", err)
 		return fmt.Errorf("parse ARTIST.followed event: %w", err)
 	}

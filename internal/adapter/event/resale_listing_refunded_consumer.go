@@ -5,8 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -28,8 +26,8 @@ func NewResaleListingRefundedConsumer(notificationUC usecase.NotificationUseCase
 
 // Handle sends the listing's sold email.
 func (h *ResaleListingRefundedConsumer) Handle(msg *message.Message) error {
-	var data entity.ResaleListingRefundedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+	data, err := parseResaleListingRefunded(msg)
+	if err != nil {
 		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_listing_refunded event", err)
 		return fmt.Errorf("parse ORDER.resale_listing_refunded event: %w", err)
 	}

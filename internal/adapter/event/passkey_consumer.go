@@ -50,13 +50,9 @@ func (h *PasskeyConsumer) handle(msg *message.Message, kind entity.PasskeyChange
 		h.logger.Error(ctx, "failed to parse "+subject+" announcement", err)
 		return fmt.Errorf("parse %s announcement: %w", subject, err)
 	}
-	announcementID := msg.Metadata.Get("ce_id")
-	if announcementID == "" {
-		announcementID = msg.UUID
-	}
 	h.logger.Info(ctx, "starting the passkey change email",
 		slog.String("user_id", notice.UserID), slog.String("kind", string(kind)))
-	if err := h.userUC.StartNotifyPasskeyChange(ctx, announcementID, notice); err != nil {
+	if err := h.userUC.StartNotifyPasskeyChange(ctx, announcementID(msg), notice); err != nil {
 		return fmt.Errorf("start the passkey change email of user %s: %w", notice.UserID, err)
 	}
 	return nil

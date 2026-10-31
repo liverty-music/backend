@@ -17,7 +17,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
-	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
@@ -26,7 +25,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
-	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -215,13 +213,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Infrastructure - verification emails with codes the identity service
-	// issues; nil in local dev without it.
-	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
-	if err != nil {
-		return nil, err
-	}
-
 	// The SALES_PHASE.discovered consumer's use case. AnnounceDiscoveredSale
 	// starts a deliver-notification workflow per recipient, so it depends on
 	// Workflows, not NotificationUseCase.
@@ -233,8 +224,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// The consumer's UserUseCase starts the passkey change emails, which the
-	// workflow worker sends; it never deletes users.
+	// The consumer's UserUseCase starts the verification and passkey change
+	// emails, which the workflow worker sends; it never deletes users.
 	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil,
 		usecase.PasskeyMailers{}, logger)
 
@@ -242,13 +233,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
-	userConsumer := event.NewUserConsumer(userUC, emailVerifier, logger)
+	userConsumer := event.NewUserConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
-	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
+	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, rdb.NewTicketStockRepository(db), logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
 
@@ -355,55 +346,4 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 		Health:          consumerHealth,
 	}, nil
-}
-
-// newEmailVerifier returns the sender of verification emails, whose
-// codes the identity service issues and whose links open the fan web (origin
-// derived from the issuer), or nil without IDENTITY_SERVICE_URL (local
-// development), which makes the verification handlers skip with a warning.
-// Without a Postmark token (local development) the sender fails every send.
-func newEmailVerifier(cfg *config.AccountEmailConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
-	if cfg.IdentityServiceURL == "" {
-		return nil, nil
-	}
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopEmailVerificationSender(logger), nil
-	}
-	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
-	if err != nil {
-		return nil, fmt.Errorf("derive fan web base url: %w", err)
-	}
-	return mail.NewPostmarkEmailVerificationSender(identity.NewUserClient(cfg.IdentityServiceURL), fanWebBaseURL,
-		cfg.Postmark.ServerToken, cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
-}
-
-// newPasskeyRegistrationLinkSender returns the sender of passkey recovery
-// links, whose link the identity service issues, or nil without
-// IDENTITY_SERVICE_URL (local development). Without a Postmark token (local
-// development) the sender fails every send.
-func newPasskeyRegistrationLinkSender(cfg *config.AccountEmailConfig, logger *logging.Logger) entity.PasskeyRegistrationLinkSender {
-	if cfg.IdentityServiceURL == "" {
-		return nil
-	}
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopPasskeyRegistrationLinkSender(logger)
-	}
-	return mail.NewPostmarkPasskeyRegistrationLinkSender(identity.NewUserClient(cfg.IdentityServiceURL), cfg.Postmark.ServerToken,
-		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger)
-}
-
-// newPasskeyChangeEmailSender returns the sender of the passkey change email:
-// Postmark when its server token is set, else (local development) a sender
-// that fails with Unavailable. Its links open the fan web, whose origin is
-// derived from the issuer.
-func newPasskeyChangeEmailSender(cfg *config.AccountEmailConfig, japanTime *time.Location, logger *logging.Logger) (entity.PasskeyChangeEmailSender, error) {
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopPasskeyChangeSender(logger), nil
-	}
-	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
-	if err != nil {
-		return nil, fmt.Errorf("derive fan web base url: %w", err)
-	}
-	return mail.NewPostmarkPasskeyChangeSender(fanWebBaseURL, japanTime, cfg.Postmark.ServerToken,
-		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }

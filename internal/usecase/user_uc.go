@@ -200,6 +200,23 @@ type UserUseCase interface {
 	//    unchanged.
 	NotifyPasskeyChange(ctx context.Context, userID string, change entity.PasskeyChange) error
 
+	// StartSendVerification starts the send-verification workflow for the
+	// new User userID that the announcement announcementID announced, named
+	// after it, so an announcement delivered twice sends one email.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the workflow could not be started.
+	StartSendVerification(ctx context.Context, announcementID, userID string) error
+
+	// RunSendVerification is the send-verification workflow: it sends the
+	// User's verification email (User.SendVerification), trying again a
+	// minute after a failure, at most 4 times in all, and then gives up; the
+	// User stays created. A User that no longer exists, an address already
+	// verified or email verification that is not configured finishes without
+	// sending.
+	RunSendVerification(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
+
 	// StartNotifyPasskeyChange starts the notify-passkey-change workflow for
 	// the Passkey announcement announcementID, named after it, so an
 	// announcement delivered twice is emailed once.

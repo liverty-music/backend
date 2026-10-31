@@ -90,8 +90,9 @@ type WorkerConfig struct {
 	// VAPID signs the Web Push messages of the deliver-notification workflow.
 	VAPID VAPIDConfig `envconfig:""`
 
-	// AccountEmailConfig sends the codes and links of the
-	// reissue-email-verification and send-passkey-recovery-link workflows.
+	// AccountEmailConfig sends the emails of the user workflows: the
+	// verification emails, the passkey recovery links and the passkey change
+	// emails.
 	AccountEmailConfig
 
 	// GCPProjectID is the project whose Google Maps Places API the
@@ -262,9 +263,10 @@ type ConsumerConfig struct {
 	// analytics-consumer.
 	PostHog PostHogConfig `envconfig:""`
 
-	// AccountEmailConfig sends the verification and passkey emails, and
-	// Postmark the purchase confirmation email.
-	AccountEmailConfig
+	// Postmark sends the purchase confirmation and resale sold emails. When
+	// its server token is empty a no-op sender is used that fails with
+	// Unavailable.
+	Postmark PostmarkConfig `envconfig:""`
 
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
@@ -1244,8 +1246,6 @@ func (c *ConsumerConfig) Validate() error {
 		envVar{"FANARTTV_API_KEY", c.FanartTVAPIKey},
 		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
-		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
-		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
