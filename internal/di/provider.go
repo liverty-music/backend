@@ -919,11 +919,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 
+	// Password-setup-refusal Actions v2 handler — bound to the request
+	// executions on the API methods that set the caller's own password; it
+	// never answers 2xx, so Zitadel refuses them.
+	passwordSetupRefusalHandler := webhook.NewPasswordSetupRefusalHandler(
+		cfg.Webhook.PasswordSetupRefusalSigningKey,
+		logger,
+	)
+
 	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
-		"/pre-access-token":    preAccessTokenHandler,
-		"/account-login-event": loginEventHandler,
-		"/passkey-event":       passkeyEventHandler,
-		"/stripe-webhook":      stripeWebhookHandler,
+		"/pre-access-token":      preAccessTokenHandler,
+		"/account-login-event":   loginEventHandler,
+		"/passkey-event":         passkeyEventHandler,
+		"/refuse-password-setup": passwordSetupRefusalHandler,
+		"/stripe-webhook":        stripeWebhookHandler,
 	})
 
 	// Register shutdown phases.
