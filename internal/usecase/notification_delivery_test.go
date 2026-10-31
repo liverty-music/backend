@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -130,4 +131,51 @@ func TestNotifyNewConcerts_AdminSendsAgain(t *testing.T) {
 		assert.Equal(t, "concert-artist-1", input.(usecase.DeliverRequest).Payload.Tag,
 			"the new message replaces the earlier one on the follower's devices")
 	}
+}
+
+// @spec components/usecase/notification/notify-new-concerts "Two concerts added for an artist with ten upcoming"
+func TestNotifyNewConcerts_CountsOnlyTheGivenConcerts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	artistRepo := entitymocks.NewMockArtistRepository(t)
+	concertRepo := entitymocks.NewMockConcertRepository(t)
+	followRepo := entitymocks.NewMockFollowRepository(t)
+	w := &recordingWorkflows{}
+	uc := usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+	area := "JP-13"
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	// Only the two added concerts are read; the artist's ten other upcoming
+	// concerts are never listed.
+	concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return([]*entity.Concert{
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &area}, Artists: []*entity.Artist{artist}},
+		{ID: "c2", Venue: &entity.Venue{AdminArea: &area}, Artists: []*entity.Artist{artist}},
+	}, nil).Once()
+	followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-1", PreferredLanguage: "en"}, Hype: entity.HypeAway},
+	}, nil).Once()
+
+	require.NoError(t, uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}, RequestID: "a-1"}))
+
+	require.Len(t, w.started, 1)
+	for _, input := range w.started {
+		assert.Equal(t, "2 new concerts found", input.(usecase.DeliverRequest).Payload.Body)
+	}
+}
+
+// @spec components/usecase/notification/notify-new-concerts "Unknown artist"
+func TestNotifyNewConcerts_UnknownArtist(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	artistRepo := entitymocks.NewMockArtistRepository(t)
+	w := &recordingWorkflows{}
+	uc := usecase.NewNotificationUseCase(nil, nil, nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: entitymocks.NewMockConcertRepository(t), FollowRepo: entitymocks.NewMockFollowRepository(t)})
+	artistRepo.EXPECT().Get(ctx, "missing").Return(nil, apperr.ErrNotFound).Once()
+
+	err := uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "missing", ConcertIDs: []string{"c1"}})
+
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.Zero(t, w.runs(), "nothing is sent")
 }
