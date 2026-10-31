@@ -18,10 +18,10 @@ import (
 // to record and dispatch a single notification. It exists so the
 // record-then-send-then-record-outcome logic is composed, not called through
 // another usecase interface, by both:
-//   - NotificationUseCase.Deliver, driven by the deliver-notification
-//     consumer reacting to NOTIFICATION.requested; and
-//   - TicketSaleReminderDeliveryUseCase.DeliverReminder, which stays synchronous
-//     (no event hop) and calls deliverNotification directly.
+//   - NotificationUseCase.Deliver, run by the deliver-notification workflow;
+//     and
+//   - TicketSaleReminderDeliveryUseCase.DeliverReminder, run by the
+//     deliver-reminder workflow, which calls deliverNotification directly.
 type notificationDeliveryDeps struct {
 	notificationRepo entity.NotificationRepository
 	pushSubRepo      entity.PushSubscriptionRepository

@@ -763,8 +763,8 @@ func eventVenueName(ev *entity.Event) string {
 }
 
 // SetCoverImage verifies ownership of the series and of the upload, inserts the
-// series image row idempotently, and publishes SERIES_IMAGE.uploaded so the
-// processor can generate variants and cut over series_cover_images. The
+// series image row idempotently, and SeriesImage.Create records the
+// SERIES_IMAGE.uploaded request with it so the processor can generate variants and cut over series_cover_images. The
 // series_cover_images re-point is intentionally deferred to the consumer so the
 // existing cover continues to serve until variants are ready (no 404 window).
 func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error {

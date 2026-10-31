@@ -43,8 +43,8 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 	return d
 }
 
-// expectAnnouncementRequested sets up a PublishEvent expectation
-// matching a NOTIFICATION.requested publish for the given recipient with a
+// expectAnnouncementRequested sets up a Start expectation matching a
+// deliver-notification workflow for the given recipient with a
 // ticket_sale_announcement payload satisfying payloadMatches.
 func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockWorkflows, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
 	t.Helper()

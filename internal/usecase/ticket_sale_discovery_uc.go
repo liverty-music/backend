@@ -34,7 +34,8 @@ func ticketSaleSearchDue(searched, now time.Time) bool {
 // TicketSaleDiscoveryUseCase selects the series of an artist that need a
 // search for published ticket sales, calls the searcher once for the artist
 // over those series, stores the results as discovered TicketSales, records the
-// search, and publishes a SALES_PHASE.discovered event for each new sale.
+// search; TicketSale.UpsertDiscovered announces SALES_PHASE.discovered for each
+// new sale.
 type TicketSaleDiscoveryUseCase interface {
 	// DiscoverForArtist runs the discovery pipeline for one artist and
 	// returns the number of new discovered sales.
@@ -90,8 +91,8 @@ func NewTicketSaleDiscoveryUseCase(
 //     last 10 Japan-time dates.
 //  3. Resolve the artist's official-site URL (the grounding seed).
 //  4. Call TicketSaleSearcher.SearchPublishedSales ONCE for the kept series.
-//  5. Store each returned sale and publish SALES_PHASE.discovered for newly
-//     created ones, then record the search of every kept series.
+//  5. Store each returned sale (TicketSale.UpsertDiscovered announces the
+//     newly created ones), then record the search of every kept series.
 func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error) {
 	attrs := []slog.Attr{
 		slog.String("artist_id", artist.ID),

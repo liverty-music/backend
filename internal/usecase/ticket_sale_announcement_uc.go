@@ -79,8 +79,8 @@ func (uc *ticketSaleAnnouncementUseCase) AnnounceDiscoveredSale(ctx context.Cont
 		SaleStartTime: data.SaleStartTime,
 	}
 
-	// Request one announcement per audience member: publish NOTIFICATION.requested
-	// so the deliver-notification consumer records a durable Notification and
+	// Request one announcement per audience member: start the
+	// deliver-notification workflow, which records a durable Notification and
 	// dispatches the push. This
 	// announcement fires once immediately from the discovery job's daily
 	// 21:00 JST run (no quiet-hours constraint); the copy follows the

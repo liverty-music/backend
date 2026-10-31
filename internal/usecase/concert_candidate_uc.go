@@ -94,8 +94,9 @@ type ConcertCandidateUseCase interface {
 
 	// Approve promotes a pending concert candidate to a published event. It resolves
 	// or creates the venues row, and — when the concert candidate does not duplicate
-	// an existing event — builds the Concert/Series/Event entities, inserts them,
-	// publishes CONCERT.created, and deletes the concert candidate. The operation is
+	// an existing event — builds the Concert/Series/Event entities, inserts them
+	// (Concert.Create announces CONCERT.created), and deletes the concert
+	// candidate. The operation is
 	// idempotent: if the concert candidate is already gone (e.g. double-click) the method
 	// returns a non-conflict success without duplicating.
 	//

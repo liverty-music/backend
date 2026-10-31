@@ -41,8 +41,8 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	return d
 }
 
-// expectNotificationRequested sets up a PublishEvent expectation
-// matching a NOTIFICATION.requested publish for the given recipient and
+// expectNotificationRequested sets up a Start expectation matching a
+// deliver-notification workflow for the given recipient and
 // notification type — the request NotifyNewConcerts / AnnounceDiscoveredSale
 // now issue instead of calling NotificationUseCase.Deliver directly.
 func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockWorkflows, userID string, typ entity.NotificationType) *mock.Call {

@@ -92,14 +92,14 @@ type NotificationUseCase interface {
 	// hydrates the artist and concert entities internally, applies hype-level
 	// filtering, and requests a push notification for all eligible followers.
 	//
-	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
-	// so the deliver-notification consumer records the durable Notification and
-	// dispatches the push; an at-least-once retry of the same CONCERT.created
-	// delivery requests delivery again (the per-artist Tag keeps one
-	// notification on the device). Only a publish failure surfaces as an error, so the consumer's
-	// at-least-once retry re-drives the batch; per-channel delivery errors
-	// (including 410 Gone responses) happen later, inside the deliver-notification
-	// consumer, and never reach this method.
+	// For each eligible recipient, NotifyNewConcerts starts the
+	// deliver-notification workflow, which records the durable Notification and
+	// dispatches the push; it is named after the recipient and the
+	// announcement, so a redelivered CONCERT.created starts nothing new. Only a
+	// failure to start surfaces as an error, so the consumer's at-least-once
+	// retry re-drives the batch; per-channel delivery errors (including 410
+	// Gone responses) happen later, inside the workflow, and never reach this
+	// method.
 	//
 	// # Possible errors
 	//
