@@ -316,3 +316,47 @@ func TestUserUseCase_RunNotifyPasskeyChange(t *testing.T) {
 		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
 	})
 }
+
+func TestUserUseCase_RecordLogin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	at := time.Date(2026, 10, 28, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+
+	// @spec components/usecase/user/record-login "Fan signs in"
+	t.Run("records the sign-in for the identity's User", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(nil).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at))
+	})
+
+	// @spec components/usecase/user/record-login "Identity with no account"
+	t.Run("succeeds and records nothing for an identity with no User", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-signup-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-signup-1", at))
+	})
+
+	t.Run("succeeds and records nothing for a User deleted after it was read", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(apperr.New(codes.NotFound, "deleted")).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at))
+	})
+
+	// @spec components/usecase/user/record-login "Store unavailable"
+	t.Run("fails with Unavailable when the store is unavailable", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(apperr.New(codes.Unavailable, "database down")).Once()
+
+		assert.ErrorIs(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at), apperr.ErrUnavailable)
+	})
+}

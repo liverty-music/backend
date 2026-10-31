@@ -12,7 +12,6 @@ import (
 
 	"github.com/zitadel/zitadel-go/v3/pkg/actions"
 
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,17 +23,10 @@ import (
 // construction. Determined empirically via the Zitadel Events API.
 const sessionUserCheckedEventType = "session.user.checked"
 
-// userResolver resolves a Zitadel `sub` (identity-provider subject / external
-// ID) to the platform user. Satisfied by usecase.UserUseCase; declared here so
-// the handler depends only on the one method it needs.
-type userResolver interface {
-	GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error)
-}
-
-// eventPublisher publishes a domain event as a CloudEvent to a NATS subject.
-// Satisfied by usecase.EventPublisher.
-type eventPublisher interface {
-	PublishEvent(ctx context.Context, subject string, data any) error
+// loginRecorder records a reported sign-in for its identity
+// (usecase.UserUseCase.RecordLogin).
+type loginRecorder interface {
+	RecordLogin(ctx context.Context, providerUserID string, at time.Time) error
 }
 
 // LoginEventHandler serves `POST /account-login-event`. It is bound to a
@@ -42,9 +34,9 @@ type eventPublisher interface {
 // Unlike a request/response (method) execution — whose webhook return REPLACES
 // the API payload and previously broke sign-in — an event execution is
 // fire-and-forget: it fires after the event is persisted and Zitadel ignores
-// the response, so it can never affect login. The handler publishes the
-// `ACCOUNT.login` subject once per interactive login, which the analytics
-// consumer forwards as the `account.signin` event.
+// the response, so it can never affect login. The handler records each
+// interactive login with UserUseCase.RecordLogin, whose User.RecordLogin
+// announces it for product analytics.
 //
 // The Target is provisioned with PAYLOAD_TYPE_JSON (the Zitadel-recommended
 // default): the body is the raw event JSON, signed with an HMAC `ZITADEL-Signature`
@@ -52,28 +44,26 @@ type eventPublisher interface {
 // is not used because an event-execution JWT target requires an active instance
 // web key, which this instance does not have — it fails with Errors.WebKey.NoActive.)
 //
-// The analytics path is best-effort and non-fatal: it resolves the login user
-// to the platform UserID and publishes an `ACCOUNT.login` domain event, but
-// ALWAYS returns 200 with an empty JSON body — a wrong event type, a missing
-// user identifier, a failed lookup, or a publish error is logged and skipped.
+// A wrong event type, a missing user identifier or an unreadable payload is
+// logged and answered 200 with an empty JSON body, recording nothing. When
+// RecordLogin fails the handler answers 500; Zitadel does not deliver the
+// event again, so that login is not recorded.
 type LoginEventHandler struct {
 	signingKey string
-	users      userResolver
-	publisher  eventPublisher
+	logins     loginRecorder
 	logger     *logging.Logger
 }
 
 // NewLoginEventHandler constructs a handler bound to the given Target signing
-// key, user resolver, and event publisher. The signing key MUST match the key
-// Zitadel generated for the login-event Target; an empty key makes every
-// request fail with 503.
+// key and login recorder. The signing key MUST match the key Zitadel
+// generated for the login-event Target; an empty key makes every request fail
+// with 503.
 func NewLoginEventHandler(
 	signingKey string,
-	users userResolver,
-	publisher eventPublisher,
+	logins loginRecorder,
 	logger *logging.Logger,
 ) *LoginEventHandler {
-	return &LoginEventHandler{signingKey: signingKey, users: users, publisher: publisher, logger: logger}
+	return &LoginEventHandler{signingKey: signingKey, logins: logins, logger: logger}
 }
 
 // eventExecutionPayload captures the subset of the Actions v2 event-execution
@@ -108,7 +98,7 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// computes the HMAC with whatever key it is given, so a body signed with
 	// "" would verify.
 	if h.signingKey == "" {
-		h.logger.Error(ctx, "login-event: signing key is not configured; emitting nothing",
+		h.logger.Error(ctx, "login-event: signing key is not configured; recording nothing",
 			errors.New("WEBHOOK_LOGIN_EVENT_SIGNING_KEY is empty"))
 		http.Error(w, "not configured", http.StatusServiceUnavailable)
 		return
@@ -147,14 +137,28 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if payload.EventType != sessionUserCheckedEventType {
 		// The Execution is bound to session.user.checked, but guard anyway so a
 		// mis-bound Target never emits a wrong login.
-		h.logger.Warn(ctx, "login-event: unexpected event_type, skipping account.login",
+		h.logger.Warn(ctx, "login-event: unexpected event_type, recording nothing",
 			slog.String("event_type", payload.EventType),
 		)
 		h.writeOK(ctx, w)
 		return
 	}
 
-	h.emitAccountLogin(ctx, h.loginUserID(ctx, payload.EventPayload), payload.CreatedAt)
+	sub := h.loginUserID(ctx, payload.EventPayload)
+	if sub == "" {
+		h.logger.Warn(ctx, "login-event: event_payload missing userID, recording nothing")
+		h.writeOK(ctx, w)
+		return
+	}
+	loginTime := payload.CreatedAt
+	if loginTime.IsZero() {
+		loginTime = time.Now()
+	}
+	if err := h.logins.RecordLogin(ctx, sub, loginTime); err != nil {
+		h.logger.Error(ctx, "login-event: failed to record the login; it is not recorded", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	h.writeOK(ctx, w)
 }
 
@@ -174,7 +178,7 @@ func (h *LoginEventHandler) loginUserID(ctx context.Context, raw json.RawMessage
 	if err := json.Unmarshal(raw, &b64); err == nil {
 		decoded, err := base64.StdEncoding.DecodeString(b64)
 		if err != nil {
-			h.logger.Warn(ctx, "login-event: failed to base64-decode event_payload, skipping account.login",
+			h.logger.Warn(ctx, "login-event: failed to base64-decode event_payload, recording nothing",
 				slog.String("error", err.Error()),
 			)
 			return ""
@@ -184,43 +188,12 @@ func (h *LoginEventHandler) loginUserID(ctx context.Context, raw json.RawMessage
 
 	var data sessionUserCheckedPayload
 	if err := json.Unmarshal(inner, &data); err != nil {
-		h.logger.Warn(ctx, "login-event: failed to unmarshal event_payload, skipping account.login",
+		h.logger.Warn(ctx, "login-event: failed to unmarshal event_payload, recording nothing",
 			slog.String("error", err.Error()),
 		)
 		return ""
 	}
 	return data.UserID
-}
-
-// emitAccountLogin resolves the Zitadel `sub` to the platform UserID and
-// publishes `ACCOUNT.login` best-effort. Every failure mode — an absent
-// identifier, a lookup miss/error, or a publish error — is logged and
-// swallowed; it never affects the HTTP response.
-//
-// loginTime is the event's created_at; when Zitadel sent none, the handler's
-// receive time stands in.
-func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string, loginTime time.Time) {
-	if sub == "" {
-		h.logger.Warn(ctx, "login-event: event_payload missing userID, skipping account.login")
-		return
-	}
-
-	user, err := h.users.GetByProviderUserID(ctx, sub)
-	if err != nil {
-		// User not yet provisioned, or a transient lookup error. Bounded
-		// under-count is acceptable; never fail login.
-		h.logger.Warn(ctx, "login-event: sub to UserID lookup failed, skipping account.login",
-			slog.String("error", err.Error()),
-		)
-		return
-	}
-
-	if loginTime.IsZero() {
-		loginTime = time.Now()
-	}
-	if err := h.publisher.PublishEvent(ctx, entity.SubjectUserLoggedIn, entity.UserLoggedInData{UserID: user.ID, LoginTime: loginTime}); err != nil {
-		h.logger.Error(ctx, "login-event: failed to publish ACCOUNT.login", err)
-	}
 }
 
 // writeOK writes the 200 response Zitadel receives. The body is an empty JSON

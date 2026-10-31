@@ -890,14 +890,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 	// Login-event Actions v2 handler — bound to the event execution on
-	// session.user.checked; emits account.login once per interactive login,
+	// session.user.checked; records each interactive login,
 	// never on token refresh or a machine grant. The Target is PAYLOAD_TYPE_JSON,
 	// so the handler verifies the HMAC ZITADEL-Signature with the Target's signing
-	// key. Publishes a best-effort ACCOUNT.login event and never fails login.
+	// key. Records the login with UserUseCase.RecordLogin and never fails login.
 	loginEventHandler := webhook.NewLoginEventHandler(
 		cfg.Webhook.LoginEventSigningKey,
 		userUC,
-		eventPublisher,
 		logger,
 	)
 	// Settlement task 4.3: Stripe webhook handler.

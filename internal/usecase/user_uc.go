@@ -177,6 +177,18 @@ type UserUseCase interface {
 	//    unchanged, so the request runs again (and a newer link is sent).
 	SendPasskeyRecoveryLink(ctx context.Context, userID string) error
 
+	// RecordLogin records the sign-in at the identity provider reported for
+	// the identity providerUserID as its User's last login time
+	// (User.RecordLogin), which keeps a later recorded time. When no User has
+	// the identity, or the User was deleted after it was read, it succeeds
+	// and records nothing.
+	//
+	// # Possible errors
+	//
+	//  - Any other failure of User.GetByProviderUserID or User.RecordLogin,
+	//    unchanged.
+	RecordLogin(ctx context.Context, providerUserID string, at time.Time) error
+
 	// NotifyPasskeyChange emails the User userID that a passkey was added or
 	// removed. When the User no longer exists it finishes without sending.
 	//
@@ -864,6 +876,28 @@ func (uc *userUseCase) SendPasskeyRecoveryLink(ctx context.Context, userID strin
 		return fmt.Errorf("send passkey registration link to user %q: %w", userID, err)
 	}
 	uc.logger.Info(ctx, "passkey recovery link sent", attrs)
+	return nil
+}
+
+// RecordLogin implements [UserUseCase].
+func (uc *userUseCase) RecordLogin(ctx context.Context, providerUserID string, at time.Time) error {
+	attrs := slog.String("provider_user_id", providerUserID)
+	user, err := uc.userRepo.GetByProviderUserID(ctx, providerUserID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "sign-in not recorded: no user has the identity", attrs)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get user by provider user ID %q for a sign-in: %w", providerUserID, err)
+	}
+	err = uc.userRepo.RecordLogin(ctx, user.ID, at)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "sign-in not recorded: the user no longer exists", attrs, slog.String("user_id", user.ID))
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("record the sign-in of user %q: %w", user.ID, err)
+	}
 	return nil
 }
 

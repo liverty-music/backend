@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -504,6 +505,69 @@ func (_c *MockUserUseCase_NotifyPasskeyChange_Call) Return(err error) *MockUserU
 }
 
 func (_c *MockUserUseCase_NotifyPasskeyChange_Call) RunAndReturn(run func(ctx context.Context, userID string, change entity.PasskeyChange) error) *MockUserUseCase_NotifyPasskeyChange_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecordLogin provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) RecordLogin(ctx context.Context, providerUserID string, at time.Time) error {
+	ret := _mock.Called(ctx, providerUserID, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordLogin")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = returnFunc(ctx, providerUserID, at)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockUserUseCase_RecordLogin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordLogin'
+type MockUserUseCase_RecordLogin_Call struct {
+	*mock.Call
+}
+
+// RecordLogin is a helper method to define mock.On call
+//   - ctx context.Context
+//   - providerUserID string
+//   - at time.Time
+func (_e *MockUserUseCase_Expecter) RecordLogin(ctx any, providerUserID any, at any) *MockUserUseCase_RecordLogin_Call {
+	return &MockUserUseCase_RecordLogin_Call{Call: _e.mock.On("RecordLogin", ctx, providerUserID, at)}
+}
+
+func (_c *MockUserUseCase_RecordLogin_Call) Run(run func(ctx context.Context, providerUserID string, at time.Time)) *MockUserUseCase_RecordLogin_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_RecordLogin_Call) Return(err error) *MockUserUseCase_RecordLogin_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockUserUseCase_RecordLogin_Call) RunAndReturn(run func(ctx context.Context, providerUserID string, at time.Time) error) *MockUserUseCase_RecordLogin_Call {
 	_c.Call.Return(run)
 	return _c
 }

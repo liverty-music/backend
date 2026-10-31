@@ -33,9 +33,9 @@ const (
 	// when no prior journey existed). It drives the
 	// ticket.journey.status.changed analytics event.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
-	// SubjectUserLoggedIn is published by the login-event webhook handler once
-	// per user-initiated login, bound to the Zitadel session.user.checked
-	// event. It drives the account.signin analytics event (returning /
+	// SubjectUserLoggedIn is announced by User.RecordLogin for each
+	// user-initiated login the login-event webhook records, bound to the
+	// Zitadel session.user.checked event. It drives the account.signin analytics event (returning /
 	// active-user retention cohorts). The OIDC refresh_token grant touches only
 	// the oidc_session aggregate and never emits session.user.checked, so this
 	// subject is never published on a silent token refresh — login-specific by

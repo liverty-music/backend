@@ -5,48 +5,34 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zitadel/zitadel-go/v3/pkg/actions"
 
 	"github.com/liverty-music/backend/internal/adapter/webhook"
-	"github.com/liverty-music/backend/internal/entity"
 )
 
 const testLoginEventSigningKey = "test-login-event-signing-key"
 
-// stubUserResolver records GetByProviderUserID calls and returns a canned result.
-type stubUserResolver struct {
-	user      *entity.User
-	err       error
-	calls     int
-	lastExtID string
+// stubLoginRecorder records RecordLogin calls and returns a canned error.
+type stubLoginRecorder struct {
+	err            error
+	calls          int
+	providerUserID string
+	at             time.Time
 }
 
-func (s *stubUserResolver) GetByProviderUserID(_ context.Context, providerUserID string) (*entity.User, error) {
+func (s *stubLoginRecorder) RecordLogin(_ context.Context, providerUserID string, at time.Time) error {
 	s.calls++
-	s.lastExtID = providerUserID
-	return s.user, s.err
-}
-
-// stubPublisher records PublishEvent calls and returns a canned error.
-type stubPublisher struct {
-	err     error
-	calls   int
-	subject string
-	data    any
-}
-
-func (s *stubPublisher) PublishEvent(_ context.Context, subject string, data any) error {
-	s.calls++
-	s.subject = subject
-	s.data = data
+	s.providerUserID = providerUserID
+	s.at = at
 	return s.err
 }
 
@@ -85,142 +71,106 @@ func newSignedRequest(t *testing.T, body []byte, signingKey string) *http.Reques
 	return req
 }
 
-func TestLoginEventHandler_UserInitiatedLogin_EmitsAccountLoginOnce(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+func TestLoginEventHandler(t *testing.T) {
+	t.Parallel()
 
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, testLoginEventSigningKey))
+	// @spec components/adapter/fan/api/webhook/login-events "Valid signature"
+	// @spec components/adapter/fan/api/webhook/login-events "Fan signs in"
+	t.Run("records the login of the identity at the notice's time", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{}
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, logins, newLogger(t))
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	// The decoded event_payload userID was resolved to the platform UserID...
-	assert.Equal(t, 1, users.calls)
-	assert.Equal(t, "zitadel-sub-123", users.lastExtID)
-	// ...and exactly one ACCOUNT.login was published carrying that UserID.
-	require.Equal(t, 1, pub.calls)
-	assert.Equal(t, entity.SubjectUserLoggedIn, pub.subject)
-	data, ok := pub.data.(entity.UserLoggedInData)
-	require.True(t, ok, "published data must be entity.UserLoggedInData")
-	assert.Equal(t, "platform-uuid-1", data.UserID)
-	// The login time is the Zitadel event's created_at.
-	assert.Equal(t, time.Date(2026, 10, 22, 3, 4, 5, 123456000, time.UTC), data.LoginTime.UTC())
-}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, newSignedRequest(t, loginEventBody(t, "session.user.checked", "zitadel-sub-123"), testLoginEventSigningKey))
 
-func TestLoginEventHandler_InvalidSignature_Rejected_NoPublish(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Equal(t, 1, logins.calls)
+		// The decoded event_payload userID, not the top-level editor.
+		assert.Equal(t, "zitadel-sub-123", logins.providerUserID)
+		assert.Equal(t, time.Date(2026, 10, 22, 3, 4, 5, 123456000, time.UTC), logins.at.UTC())
+	})
 
-	// Signed with a different key, so the signature does not verify.
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, "wrong-signing-key"))
+	// @spec components/adapter/fan/api/webhook/login-events "Forged notice"
+	t.Run("rejects a notice with a missing or invalid signature with 401 and records nothing", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{}
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, logins, newLogger(t))
+		body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
 
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Equal(t, 0, users.calls)
-	assert.Equal(t, 0, pub.calls)
-}
+		forged := httptest.NewRecorder()
+		handler.ServeHTTP(forged, newSignedRequest(t, body, "wrong-signing-key"))
+		unsigned := httptest.NewRecorder()
+		handler.ServeHTTP(unsigned, httptest.NewRequest(http.MethodPost, "/account-login-event", bytes.NewReader(body)))
 
-func TestLoginEventHandler_MissingSignature_Rejected_NoPublish(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		assert.Equal(t, http.StatusUnauthorized, forged.Code)
+		assert.Equal(t, http.StatusUnauthorized, unsigned.Code)
+		assert.Equal(t, 0, logins.calls)
+	})
 
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	// No ZITADEL-Signature header set.
-	req := httptest.NewRequest(http.MethodPost, "/account-login-event", bytes.NewReader(body))
-	handler.ServeHTTP(rec, req)
+	// @spec components/adapter/fan/api/webhook/login-events "Key not configured"
+	t.Run("answers 503 and records nothing without a signing key", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{}
+		handler := webhook.NewLoginEventHandler("", logins, newLogger(t))
 
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Equal(t, 0, pub.calls)
-}
+		// actions.ValidateRequestPayload would accept this body: its HMAC is
+		// computed with the same empty key.
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, newSignedRequest(t, loginEventBody(t, "session.user.checked", "zitadel-sub-123"), ""))
 
-func TestLoginEventHandler_WrongEventType_Skips_Returns200(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Equal(t, 0, logins.calls)
+	})
 
-	// A different event type (e.g. a mis-bound Target) must not emit a login.
-	body := loginEventBody(t, "session.added", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, testLoginEventSigningKey))
+	// @spec components/adapter/fan/api/webhook/login-events "Notice of another kind"
+	t.Run("answers 200 and records nothing for a notice of another kind", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{}
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, logins, newLogger(t))
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, users.calls, "no lookup for a non-login event type")
-	assert.Equal(t, 0, pub.calls, "no publish for a non-login event type")
-}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, newSignedRequest(t, loginEventBody(t, "session.added", "zitadel-sub-123"), testLoginEventSigningKey))
 
-func TestLoginEventHandler_MissingUserID_Skips_Returns200(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, 0, logins.calls)
+	})
 
-	// A session.user.checked whose decoded payload lacks userID: skip, never fail.
-	body := loginEventBody(t, "session.user.checked", "")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, testLoginEventSigningKey))
+	t.Run("answers 200 and records nothing for a notice that names no identity", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{}
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, logins, newLogger(t))
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, users.calls, "no lookup when identifier is absent")
-	assert.Equal(t, 0, pub.calls, "no publish when identifier is absent")
-}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, newSignedRequest(t, loginEventBody(t, "session.user.checked", ""), testLoginEventSigningKey))
 
-func TestLoginEventHandler_LookupMiss_Skips_Returns200(t *testing.T) {
-	users := &stubUserResolver{err: errors.New("user not found")}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, 0, logins.calls)
+	})
 
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-unprovisioned")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, testLoginEventSigningKey))
+	// The response of an event execution is ignored by Zitadel, so the 500
+	// never changes the sign-in.
+	// @spec components/adapter/fan/api/webhook/login-events "Recording fails"
+	t.Run("answers 500 when the login cannot be recorded", func(t *testing.T) {
+		t.Parallel()
+		logins := &stubLoginRecorder{err: apperr.New(codes.Unavailable, "database down")}
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, logins, newLogger(t))
 
-	require.Equal(t, http.StatusOK, rec.Code, "a lookup miss must never fail login")
-	assert.Equal(t, 1, users.calls)
-	assert.Equal(t, 0, pub.calls, "no publish when the sub cannot be resolved")
-}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, newSignedRequest(t, loginEventBody(t, "session.user.checked", "zitadel-sub-123"), testLoginEventSigningKey))
 
-func TestLoginEventHandler_PublishFailure_DoesNotAffectResponse(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{err: errors.New("nats unavailable")}
-	handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, users, pub, newLogger(t))
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.Equal(t, 1, logins.calls)
+	})
 
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, testLoginEventSigningKey))
+	t.Run("answers 405 to a GET", func(t *testing.T) {
+		t.Parallel()
+		handler := webhook.NewLoginEventHandler(testLoginEventSigningKey, &stubLoginRecorder{}, newLogger(t))
 
-	// The publish failed but login (the webhook response) still succeeds.
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 1, pub.calls)
-}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/account-login-event", nil))
 
-func TestLoginEventHandler_GET_ReturnsMethodNotAllowed(t *testing.T) {
-	handler := webhook.NewLoginEventHandler(
-		testLoginEventSigningKey, &stubUserResolver{}, &stubPublisher{}, newLogger(t),
-	)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/account-login-event", nil)
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-	assert.Equal(t, http.MethodPost, rec.Header().Get("Allow"))
-}
-
-func TestLoginEventHandler_EmptySigningKey_Rejected_NoPublish(t *testing.T) {
-	users := &stubUserResolver{user: &entity.User{ID: "platform-uuid-1"}}
-	pub := &stubPublisher{}
-	handler := webhook.NewLoginEventHandler("", users, pub, newLogger(t))
-
-	// actions.ValidateRequestPayload would accept this body: its HMAC is
-	// computed with the same empty key.
-	body := loginEventBody(t, "session.user.checked", "zitadel-sub-123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newSignedRequest(t, body, ""))
-
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.Equal(t, 0, users.calls)
-	assert.Equal(t, 0, pub.calls)
+		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+		assert.Equal(t, http.MethodPost, rec.Header().Get("Allow"))
+	})
 }

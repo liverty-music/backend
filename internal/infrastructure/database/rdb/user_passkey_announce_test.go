@@ -11,8 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"uuid"
 
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-logging/logging"
+	"github.com/zitadel/zitadel-go/v3/pkg/actions"
+	"net/http"
+	"net/http/httptest"
 )
 
 // newUniqueUser returns a NewUser with a provider user id and email of its
@@ -244,4 +253,45 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Equal(t, 1, stored(t, fan.ID), "the Passkey is still stored")
 	})
+}
+
+// TestLoginEvents_OlderNoticeArrivesLate sends two signed sign-in notices of
+// one fan through the real login-events webhook, UserUseCase.RecordLogin and
+// User.RecordLogin, the later sign-in first.
+//
+// @spec components/adapter/fan/api/webhook/login-events "Older notice arrives late"
+func TestLoginEvents_OlderNoticeArrivesLate(t *testing.T) {
+	ctx := context.Background()
+	logger, err := logging.New()
+	require.NoError(t, err)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
+	u, err := repo.Create(ctx, newUniqueUser())
+	require.NoError(t, err)
+	users := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, logger)
+	const signingKey = "login-events-story-key"
+	handler := webhook.NewLoginEventHandler(signingKey, users, logger)
+	jst := time.FixedZone("JST", 9*60*60)
+	notice := func(at time.Time) int {
+		inner, err := json.Marshal(map[string]string{"userID": u.ProviderUserID})
+		require.NoError(t, err)
+		body, err := json.Marshal(map[string]any{
+			"event_type":    "session.user.checked",
+			"created_at":    at.Format(time.RFC3339Nano),
+			"event_payload": base64.StdEncoding.EncodeToString(inner),
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/account-login-event", bytes.NewReader(body))
+		req.Header.Set(actions.SigningHeader, actions.ComputeSignatureHeader(time.Now(), body, signingKey))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	require.Equal(t, http.StatusOK, notice(time.Date(2026, 10, 28, 12, 0, 0, 0, jst)))
+	assert.Equal(t, http.StatusOK, notice(time.Date(2026, 10, 28, 10, 0, 0, 0, jst)))
+
+	got, err := repo.Get(ctx, u.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LastLoginTime)
+	assert.True(t, got.LastLoginTime.Equal(time.Date(2026, 10, 28, 12, 0, 0, 0, jst)))
 }
