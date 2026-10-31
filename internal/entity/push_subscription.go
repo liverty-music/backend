@@ -45,6 +45,12 @@ type PushSubscriptionRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database connection or execution failure.
+	//
+	// # Announces
+	//
+	// NOTIFICATION.subscribed with the PushSubscription after the change, without
+	// its push address and keys, together with the change, when it stored a new
+	// subscription or changed one. Nothing when nothing changed.
 	Create(ctx context.Context, sub *PushSubscription) error
 
 	// Get retrieves the push subscription uniquely identified by the (userID, endpoint) pair.
@@ -63,6 +69,12 @@ type PushSubscriptionRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// NOTIFICATION.unsubscribed with the PushSubscription as it was, without its
+	// push address and keys, together with the removal. Nothing when it removed
+	// nothing.
 	Delete(ctx context.Context, userID, endpoint string) error
 
 	// ListByUserIDs retrieves all push subscriptions belonging to any of the given user IDs.

@@ -199,5 +199,10 @@ type TicketRepository interface {
 	//  - PermissionDenied (cause [ErrScannerNotUsable]): the Scanner is
 	//    Revoked or does not exist; nothing changed.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.ticket_admitted with the Ticket and its admit time, together with the
+	// admission, when the outcome is Admitted.
 	Admit(ctx context.Context, ticketID TicketID, scannerID ScannerID, admittedTime time.Time) (AdmitResult, error)
 }

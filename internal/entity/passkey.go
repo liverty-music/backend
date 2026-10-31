@@ -50,6 +50,11 @@ type PasskeyRepository interface {
 	//  - InvalidArgument: a required attribute is missing or the AAGUID is
 	//    not a UUID.
 	//  - NotFound: the User does not exist; nothing is stored.
+	//
+	// # Announces
+	//
+	// USER.passkey_added with the stored Passkey, together with the insert.
+	// Nothing when the provider passkey id was already stored.
 	Create(ctx context.Context, passkey *Passkey) error
 
 	// Delete removes the Passkey with the given provider passkey id, and
@@ -58,6 +63,11 @@ type PasskeyRepository interface {
 	// # Possible errors
 	//
 	//  - InvalidArgument: the provider passkey id is empty.
+	//
+	// # Announces
+	//
+	// USER.passkey_removed with the Passkey as it was stored, together with the
+	// removal. Nothing when no Passkey had the id.
 	Delete(ctx context.Context, providerPasskeyID string) error
 
 	// ListByUser returns every Passkey of the User, newest create time

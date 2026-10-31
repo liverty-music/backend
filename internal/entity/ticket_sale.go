@@ -310,6 +310,11 @@ type TicketSaleRepository interface {
 	//    TicketSale rules for a discovered sale.
 	//  - FailedPrecondition: the series does not exist or has an Organizer.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// SALES_PHASE.discovered with the TicketSale, together with the insert, when it
+	// creates the sale. Nothing when it updates or skips one.
 	UpsertDiscovered(ctx context.Context, sale *DiscoveredTicketSale) (TicketSaleID, UpsertOutcome, error)
 
 	// ListBySeries returns every sale of the series, of either kind, each with

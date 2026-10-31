@@ -269,6 +269,11 @@ type CheckoutRepository interface {
 	//
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.checkout_expired with the Checkout as Expired, together with the
+	// release. Nothing when it changed nothing.
 	Release(ctx context.Context, id CheckoutID, now time.Time) (bool, error)
 
 	// RevertCommit makes a Committed, uncharged Checkout Released and its

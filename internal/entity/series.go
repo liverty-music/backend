@@ -232,6 +232,12 @@ type SeriesImageRepository interface {
 	//  - Unavailable: the processing request could not be recorded; nothing
 	//    is stored.
 	//  - Internal: if the insert fails.
+	//
+	// # Announces
+	//
+	// SERIES_IMAGE.uploaded, the request to process the image (ce_subject the
+	// Series id), together with the insert. Nothing when the series image was
+	// already stored.
 	Create(ctx context.Context, seriesImage *SeriesImage, seriesID string) error
 
 	// Get retrieves a single series image row by id.
@@ -376,6 +382,12 @@ type SeriesRepository interface {
 	//    (of another organizer or of the same one) or by a CANCELLED event.
 	//    Nothing changes. A slot suppressed by an admin delete does not block
 	//    it.
+	//
+	// # Announces
+	//
+	// CONCERT.created once per performing Artist with the Concerts made PUBLISHED
+	// in place (ce_subject the Artist id), together with the publish, when the
+	// series is PUBLIC. Nothing for claimed events or an UNLISTED series.
 	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
 
 	// CancelEvents cancels the given events of a first-party series in a

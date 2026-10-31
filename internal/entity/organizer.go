@@ -248,6 +248,11 @@ type OrganizerRepository interface {
 	// reports whether the transition was applied — false means the current status
 	// was not `from` (e.g. a concurrent Deactivate superseded it), which the
 	// caller must not treat as its own success.
+	//
+	// # Announces
+	//
+	// ORGANIZER.created with the active Organizer, together with the change, when
+	// it moves the Organizer from provisioning to active. Nothing otherwise.
 	CompareAndSetStatus(ctx context.Context, id string, from, to OrganizerStatus) (bool, error)
 
 	// AssociateArtist links an existing artist to the organizer. Existence of the
@@ -256,6 +261,11 @@ type OrganizerRepository interface {
 	//
 	// # Possible errors
 	//   - AlreadyExists: the artist is already represented by an organizer.
+	//
+	// # Announces
+	//
+	// ORGANIZER.artist_associated with the Artist and its new organizer, together
+	// with the link. Nothing on AlreadyExists or any other failure.
 	AssociateArtist(ctx context.Context, organizerID, artistID string) error
 
 	// DisassociateArtist removes the link between an organizer and an artist. It is

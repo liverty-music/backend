@@ -281,5 +281,10 @@ type LotteryEntryRepository interface {
 	//  - InvalidArgument: saleID is empty.
 	//  - NotFound: the sale does not exist.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.lottery_entry_drawn once per entry it sets Won or Lost, as it is after
+	// the draw, together with the outcome. Nothing for an entry left unchanged.
 	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, winners []DrawWinnerRow, losers []DrawLoserRow) error
 }

@@ -491,6 +491,12 @@ type ConcertRepository interface {
 	// # Possible errors
 	//
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid series, venue, or performer).
+	//
+	// # Announces
+	//
+	// CONCERT.created once for each Artist newly linked to events of one Series,
+	// with those Concerts (ce_subject the Artist id), together with the change.
+	// Nothing when no link is new.
 	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
 	// ListByIDs retrieves concerts by their event IDs. Venues, parent Series,
 	// and Artists are all populated so callers can render the response

@@ -123,6 +123,11 @@ type ArtistRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database connection or execution failure.
+	//
+	// # Announces
+	//
+	// ARTIST.created with each Artist this call inserted, together with the
+	// insert. Nothing for an MBID already registered, also by a concurrent call.
 	Create(ctx context.Context, artists ...*Artist) ([]*Artist, error)
 
 	// List retrieves all registered artists. The order is unspecified.

@@ -79,6 +79,12 @@ type NotificationRepository interface {
 	// channel send. On Delivered, deliveredAt is set; on Failed, failureReason
 	// is recorded. The record is never deleted, so a failure stays auditable and
 	// the send is re-dispatchable.
+	//
+	// # Announces
+	//
+	// NOTIFICATION.delivered with the Notification as Delivered, together with the
+	// change, when it makes a Queued notification Delivered. Nothing for Failed
+	// or no change.
 	UpdateDelivery(ctx context.Context, id string, status NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error
 
 	// MarkRead sets read_at for the (userID, id) notification. It is idempotent:

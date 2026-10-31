@@ -68,6 +68,11 @@ type TicketJourneyRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// TICKET_JOURNEY.status_changed with the journey at its new status, together
+	// with the change. Nothing when the status was already the given one.
 	Upsert(ctx context.Context, journey *TicketJourney) error
 
 	// Delete removes a ticket journey for the given user and event.

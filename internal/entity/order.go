@@ -320,6 +320,11 @@ type IssuanceRepository interface {
 	//    Committed with a capture time; nothing is stored.
 	//  - NotFound: no Order has the id.
 	//  - Internal: database transaction or query failure.
+	//
+	// # Announces
+	//
+	// ORDER.paid with the Order as Paid, together with the issuance. Nothing when
+	// Issue fails, including with AlreadyExists.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 
 	// ListLotteryEntryIDsAwaitingIssuance returns the id of every Won lottery

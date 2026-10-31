@@ -221,6 +221,11 @@ type UserRepository interface {
 	//  - AlreadyExists: If a user with the same email already exists.
 	//  - Unavailable: The announcement could not be recorded; nothing is
 	//    stored.
+	//
+	// # Announces
+	//
+	// USER.created with the User without its full name, phone number and display
+	// name, together with the insert. Nothing on AlreadyExists.
 	Create(ctx context.Context, params *NewUser) (*User, error)
 
 	// RecordLogin sets the user's last login time to at when it has none or
@@ -231,6 +236,12 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	//  - Unavailable: The announcement could not be recorded; nothing is
 	//    stored.
+	//
+	// # Announces
+	//
+	// USER.logged_in with the User and its new last login time, without its full
+	// name, phone number and display name, together with the change. Nothing
+	// when the stored time is the same or later.
 	RecordLogin(ctx context.Context, id string, at time.Time) error
 
 	// Get retrieves a user by ID.
