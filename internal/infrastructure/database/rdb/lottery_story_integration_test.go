@@ -140,7 +140,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	seriesRepo := rdb.NewSeriesRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(testDB)
-	organizerRepo := rdb.NewOrganizerRepository(testDB)
+	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
@@ -182,7 +182,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 func (s *lotteryStory) seedOrganizerEvent() {
 	t := s.t
 	s.organizerID = seedOrganizer(t)
-	_, err := rdb.NewOrganizerRepository(testDB).SetBusinessDetails(s.ctx, s.organizerID, entity.BusinessDetails{
+	_, err := rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(s.ctx, s.organizerID, entity.BusinessDetails{
 		LegalName:           "株式会社テスト興行",
 		RepresentativeName:  "代表 太郎",
 		BusinessAddress:     "東京都渋谷区1-1-1",

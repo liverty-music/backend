@@ -56,7 +56,7 @@ func newCheckoutIssuance(t *testing.T, cardAuthorizations *countingCardAuthoriza
 		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
 		OrderRepo:          orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
-		OrganizerRepo:      rdb.NewOrganizerRepository(testDB),
+		OrganizerRepo:      rdb.NewOrganizerRepository(testDB, testOutbox),
 		CheckoutRepo:       rdb.NewCheckoutRepository(testDB, testOutbox),
 		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),

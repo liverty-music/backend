@@ -68,7 +68,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 		placeID:   "ChIJ-console-" + uuid.NewV7().String(),
 		eventDay:  time.Date(year, 12, 20, 0, 0, 0, 0, jst),
 	}
-	_, err = rdb.NewOrganizerRepository(testDB).SetBusinessDetails(s.ctx, s.orgID, entity.BusinessDetails{
+	_, err = rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(s.ctx, s.orgID, entity.BusinessDetails{
 		LegalName:           "株式会社テスト興行",
 		RepresentativeName:  "代表 太郎",
 		BusinessAddress:     "東京都渋谷区1-1-1",
@@ -87,7 +87,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	eventRepo := rdb.NewEventRepository(testDB)
 	stockRepo := rdb.NewTicketStockRepository(testDB)
 	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
-	organizerRepo := rdb.NewOrganizerRepository(testDB)
+	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	saleRepo := rdb.NewTicketSaleRepository(testDB)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)

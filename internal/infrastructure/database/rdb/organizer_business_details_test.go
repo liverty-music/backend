@@ -25,7 +25,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewOrganizerRepository(testDB)
+	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("new organizer has the default rate and no business details", func(t *testing.T) {

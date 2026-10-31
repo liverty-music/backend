@@ -249,7 +249,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
-	organizerRepo := rdb.NewOrganizerRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
 	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
 	eventPublishState := rdb.NewEventPublishStateRepository(db)

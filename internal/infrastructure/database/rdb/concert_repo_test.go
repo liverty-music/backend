@@ -1395,7 +1395,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", BusinessAddress: "東京都渋谷区1-2-3",
 			BusinessPhoneNumber: "+81312345678", ContactEmail: "info@example.com",
 		}
-		_, err = rdb.NewOrganizerRepository(testDB).SetBusinessDetails(ctx, organizerID, details)
+		_, err = rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(ctx, organizerID, details)
 		require.NoError(t, err)
 		byID, err := concertRepo.ListByIDs(ctx, []string{got[0].ID})
 		require.NoError(t, err)

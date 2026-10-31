@@ -219,7 +219,7 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewOrganizerRepository(testDB)
+	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 
 	t.Run("deletes a deactivated organizer with a published series", func(t *testing.T) {
 		// @spec components/entity/organizer/delete "Organizer with a published Series"
@@ -377,7 +377,7 @@ func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewOrganizerRepository(testDB)
+	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	start := saleWindowStart.Add(time.Hour)
 	released := start.Add(time.Minute)
 

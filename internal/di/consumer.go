@@ -170,7 +170,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			Users:          userRepo,
 			Concerts:       concertRepo,
 			EventOrganizer: rdb.NewEventOrganizerRepository(db),
-			Organizers:     rdb.NewOrganizerRepository(db),
+			Organizers:     rdb.NewOrganizerRepository(db, newOutbox(logger)),
 			Mailer:         confirmationSender,
 			ResaleListings: resaleListingRepo,
 			ResaleMailer:   resaleSoldSender,
@@ -205,7 +205,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// ConcertUseCase: needed here (not just by the RPC server) so the
 	// search-first-followed-artist consumer can call
 	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
-	organizerRepo := rdb.NewOrganizerRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	centroidResolver := geo.NewCentroidResolver()

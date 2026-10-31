@@ -350,16 +350,6 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 		slog.String("provider_organizer_id", org.ProviderOrganizerID),
 	)
 
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{
-		OrganizerID:  org.ID,
-		ActivateTime: time.Now(),
-	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish ORGANIZER.created event",
-			slog.String("organizer_id", org.ID),
-			slog.Any("error", err),
-		)
-		// Non-fatal: the organizer is already active in the database.
-	}
 	return nil
 }
 
@@ -515,18 +505,6 @@ func (uc *organizerUseCase) AssociateArtist(ctx context.Context, organizerID, ar
 		return err
 	}
 
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerArtistAssociated, entity.OrganizerArtistAssociatedData{
-		OrganizerID:   organizerID,
-		ArtistID:      artistID,
-		AssociateTime: time.Now(),
-	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish ORGANIZER.artist_associated event",
-			slog.String("organizer_id", organizerID),
-			slog.String("artist_id", artistID),
-			slog.Any("error", err),
-		)
-		// Non-fatal: the association is already persisted in the database.
-	}
 	return nil
 }
 
