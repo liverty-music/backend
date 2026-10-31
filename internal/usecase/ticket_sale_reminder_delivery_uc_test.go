@@ -71,10 +71,6 @@ func expectDelivered(t *testing.T, d *reminderDeliveryTestDeps, userID, notifID 
 	d.notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, notifID, entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
-		Return(nil).
-		Maybe()
 }
 
 // expectNoSubscription sets up the notifRepo/pushSubRepo expectations for a
@@ -368,9 +364,6 @@ func TestDeliverReminder_MessageNamesSaleAndMilestone(t *testing.T) {
 		})
 	d.notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-milestone", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
 		Return(nil)
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).

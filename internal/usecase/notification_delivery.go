@@ -140,24 +140,6 @@ func deliverNotification(
 	n.DeliverTime = deliveredAt
 	n.FailureReason = reason
 
-	// 5. Emit the delivered analytics event exactly once per notification, only
-	//    when the send actually reached the delivered state. Non-fatal by design:
-	//    analytics must never affect the delivery outcome, so a publish failure is
-	//    logged and swallowed (mirrors the notification.subscribed emit).
-	if status == entity.NotificationDeliveryStatusDelivered && deliveredAt != nil {
-		if err := d.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
-			UserID:         userID,
-			NotificationID: n.ID,
-			Type:           string(typ),
-			DeliverTime:    *deliveredAt,
-		}); err != nil {
-			d.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
-				slog.String("notification_id", n.ID),
-				slog.String("user_id", userID),
-			)
-		}
-	}
-
 	return n, nil
 }
 

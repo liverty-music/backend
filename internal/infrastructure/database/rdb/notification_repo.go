@@ -3,10 +3,15 @@ package rdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // NotificationRepository implements entity.NotificationRepository for PostgreSQL.
@@ -28,12 +33,16 @@ const (
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING queued_at
 	`
+	// updateNotificationDeliveryQuery records the outcome of a Queued
+	// notification only, and returns it as changed; no row when it is not
+	// Queued or does not exist.
 	updateNotificationDeliveryQuery = `
 		UPDATE notifications
 		SET delivery_status = $2,
 		    delivered_at = $3,
 		    failure_reason = $4
-		WHERE id = $1
+		WHERE id = $1 AND delivery_status = 'queued'
+		RETURNING id, user_id, type, payload, delivery_status, failure_reason, queued_at, delivered_at, read_at, dismissed_at
 	`
 	markNotificationReadQuery = `
 		UPDATE notifications
@@ -93,23 +102,44 @@ func (r *NotificationRepository) Create(ctx context.Context, n *entity.Notificat
 	return nil
 }
 
-// UpdateDelivery records the terminal delivery outcome for a notification.
-// failureReason is stored as NULL when empty so a delivered record carries no
-// spurious reason.
+// UpdateDelivery records the terminal delivery outcome of a Queued
+// notification. failureReason is stored as NULL when empty so a delivered
+// record carries no spurious reason. A notification that already has an
+// outcome, or an unknown id, is left unchanged and succeeds.
+//
+// # Announces
+//
+// NOTIFICATION.delivered with the Notification as Delivered, in the
+// transaction of the change, when it makes a Queued notification Delivered.
+// Nothing for Failed or when nothing changed.
 func (r *NotificationRepository) UpdateDelivery(ctx context.Context, id string, status entity.NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error {
+	attrs := []slog.Attr{slog.String("id", id), slog.String("delivery_status", string(status))}
 	var reason *string
 	if failureReason != "" {
 		reason = &failureReason
 	}
 
-	_, err := r.db.Pool.Exec(ctx, updateNotificationDeliveryQuery,
-		id, string(status), deliveredAt, reason,
-	)
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return toAppErr(err, "failed to update notification delivery",
-			slog.String("id", id),
-			slog.String("delivery_status", string(status)),
-		)
+		return toAppErr(err, "failed to begin notification delivery update", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	n, err := scanNotification(tx.QueryRow(ctx, updateNotificationDeliveryQuery, id, string(status), deliveredAt, reason))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return toAppErr(err, "failed to update notification delivery", attrs...)
+	}
+	if n.DeliveryStatus == entity.NotificationDeliveryStatusDelivered {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectNotificationDelivered, messaging.Announcement{Payload: pb.FromNotification(n)}); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit notification delivery update", attrs...)
 	}
 	return nil
 }

@@ -110,15 +110,7 @@ func TestDeliver_Success(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "01890000-0000-7000-8000-000000000abc", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	// Delivered ⇒ exactly one NOTIFICATION.delivered emit, keyed by notification_id.
 	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.MatchedBy(func(d entity.NotificationDeliveredData) bool {
-			return d.UserID == "user-1" && d.NotificationID == "01890000-0000-7000-8000-000000000abc" &&
-				d.Type == string(entity.NotificationTypeNewConcerts) && !d.DeliverTime.IsZero()
-		})).
-		Return(nil).
-		Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	payload := notifPayload()
@@ -163,9 +155,6 @@ func TestDeliver_MessageNamesType(t *testing.T) {
 		Times(2)
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "notif-type-1", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
 		Return(nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
@@ -220,7 +209,6 @@ func TestDeliver_SendFailureRecordedAsFailed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
 	assert.Equal(t, "last rejected", n.FailureReason)
-	publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectNotificationDelivered, mock.Anything)
 }
 
 // Gone (410) path: only the dead subscription is cleaned up, the fan's other
@@ -392,7 +380,6 @@ func TestDeliver_OneOfTwoBrowsersAccepts(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-partial", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -438,7 +425,6 @@ func TestDeliver_CancelledAfterOneAcceptedSend(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-cancel-after", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -471,7 +457,6 @@ func TestDeliver_UpdateDeliveryFailureIsNonFatal(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-update-fail", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(apperr.New(codes.Internal, "db down"))
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -541,7 +526,6 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 		UpdateDelivery(anyCtx, "id-ok", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
 	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)

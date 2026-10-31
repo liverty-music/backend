@@ -104,7 +104,6 @@ func (f *confirmationFixture) expectPush(t *testing.T) *entity.NotificationPaylo
 		return json.Unmarshal(raw, &got)
 	})
 	f.notifs.EXPECT().UpdateDelivery(mock.Anything, "notif-1", entity.NotificationDeliveryStatusDelivered, mock.Anything, "").Return(nil)
-	f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectNotificationDelivered, mock.Anything).Return(nil)
 	return &got
 }
 
