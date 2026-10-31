@@ -12,33 +12,62 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // SeriesImageRepository implements entity.SeriesImageRepository over the
 // series_images and series_cover_images tables.
 type SeriesImageRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 var _ entity.SeriesImageRepository = (*SeriesImageRepository)(nil)
 
 // NewSeriesImageRepository creates a SeriesImageRepository.
-func NewSeriesImageRepository(db *Database) *SeriesImageRepository {
-	return &SeriesImageRepository{db: db}
+func NewSeriesImageRepository(db *Database, outbox Announcer) *SeriesImageRepository {
+	return &SeriesImageRepository{db: db, outbox: outbox}
 }
 
-// Create persists a series image row idempotently. ON CONFLICT(id) DO NOTHING
-// means a second SetCoverImage call for the same series_image_id is a safe no-op.
-func (r *SeriesImageRepository) Create(ctx context.Context, seriesImage *entity.SeriesImage) error {
+// Create stores the series image for the Series it is attached to,
+// idempotently: a series image already stored is left unchanged.
+//
+// # Announces
+//
+// SERIES_IMAGE.uploaded, the request to process the image, with the series
+// image as payload and seriesID as ce_subject, in the transaction of the
+// insert. Nothing when the series image was already stored.
+func (r *SeriesImageRepository) Create(ctx context.Context, seriesImage *entity.SeriesImage, seriesID string) error {
+	attrs := []slog.Attr{slog.String("series_image_id", seriesImage.ID), slog.String("series_id", seriesID)}
 	attrsJSON, err := json.Marshal(seriesImage.Attributes)
 	if err != nil {
 		return apperr.New(codes.Internal, fmt.Sprintf("marshal image attributes: %v", err))
 	}
-	if _, err := r.db.Pool.Exec(ctx, insertSeriesImageIdempotentQuery,
-		seriesImage.ID, seriesImage.OrganizerID, attrsJSON,
-	); err != nil {
-		return toAppErr(err, "failed to insert series image row", slog.String("series_image_id", seriesImage.ID))
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin series image insert", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id string
+	err = tx.QueryRow(ctx, insertSeriesImageIdempotentQuery, seriesImage.ID, seriesImage.OrganizerID, attrsJSON).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return toAppErr(err, "failed to insert series image row", attrs...)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectSeriesImageUploaded, messaging.Announcement{
+		Payload: pb.FromSeriesImage(seriesImage),
+		Subject: seriesID,
+	}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit series image insert", attrs...)
 	}
 	return nil
 }

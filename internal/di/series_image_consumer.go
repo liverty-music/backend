@@ -95,7 +95,7 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; SeriesImageConsumer only decodes the
 	// SERIES_IMAGE.uploaded message and calls it.
 	eventPublisher := messaging.NewEventPublisher(publisher)
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, processor, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, processor, eventPublisher, logger)
 
 	// SeriesImageConsumer
 	seriesImageConsumer := event.NewSeriesImageConsumer(seriesImageUC, logger)

@@ -48,16 +48,16 @@ func (_m *MockSeriesImageRepository) EXPECT() *MockSeriesImageRepository_Expecte
 }
 
 // Create provides a mock function for the type MockSeriesImageRepository
-func (_mock *MockSeriesImageRepository) Create(ctx context.Context, seriesImage *entity.SeriesImage) error {
-	ret := _mock.Called(ctx, seriesImage)
+func (_mock *MockSeriesImageRepository) Create(ctx context.Context, seriesImage *entity.SeriesImage, seriesID string) error {
+	ret := _mock.Called(ctx, seriesImage, seriesID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.SeriesImage) error); ok {
-		r0 = returnFunc(ctx, seriesImage)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.SeriesImage, string) error); ok {
+		r0 = returnFunc(ctx, seriesImage, seriesID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -72,11 +72,12 @@ type MockSeriesImageRepository_Create_Call struct {
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
 //   - seriesImage *entity.SeriesImage
-func (_e *MockSeriesImageRepository_Expecter) Create(ctx any, seriesImage any) *MockSeriesImageRepository_Create_Call {
-	return &MockSeriesImageRepository_Create_Call{Call: _e.mock.On("Create", ctx, seriesImage)}
+//   - seriesID string
+func (_e *MockSeriesImageRepository_Expecter) Create(ctx any, seriesImage any, seriesID any) *MockSeriesImageRepository_Create_Call {
+	return &MockSeriesImageRepository_Create_Call{Call: _e.mock.On("Create", ctx, seriesImage, seriesID)}
 }
 
-func (_c *MockSeriesImageRepository_Create_Call) Run(run func(ctx context.Context, seriesImage *entity.SeriesImage)) *MockSeriesImageRepository_Create_Call {
+func (_c *MockSeriesImageRepository_Create_Call) Run(run func(ctx context.Context, seriesImage *entity.SeriesImage, seriesID string)) *MockSeriesImageRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -86,9 +87,14 @@ func (_c *MockSeriesImageRepository_Create_Call) Run(run func(ctx context.Contex
 		if args[1] != nil {
 			arg1 = args[1].(*entity.SeriesImage)
 		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -99,7 +105,7 @@ func (_c *MockSeriesImageRepository_Create_Call) Return(err error) *MockSeriesIm
 	return _c
 }
 
-func (_c *MockSeriesImageRepository_Create_Call) RunAndReturn(run func(ctx context.Context, seriesImage *entity.SeriesImage) error) *MockSeriesImageRepository_Create_Call {
+func (_c *MockSeriesImageRepository_Create_Call) RunAndReturn(run func(ctx context.Context, seriesImage *entity.SeriesImage, seriesID string) error) *MockSeriesImageRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

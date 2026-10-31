@@ -15,7 +15,7 @@ func TestSeriesImageRepository_ListByOrganizer(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewSeriesImageRepository(testDB)
+	repo := rdb.NewSeriesImageRepository(testDB, testOutbox)
 
 	t.Run("returns the cover and an image no series uses", func(t *testing.T) {
 		// @spec components/entity/series-image/list-by-organizer "Cover and replaced upload"

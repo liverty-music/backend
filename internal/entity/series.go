@@ -222,13 +222,17 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 // series_cover_images cut-over that the series-image-consumer performs after writing
 // variants to GCS.
 type SeriesImageRepository interface {
-	// Create persists a series image row idempotently (ON CONFLICT(id) DO NOTHING).
-	// Used by SetCoverImage to record the upload before publishing SERIES_IMAGE.uploaded.
+	// Create stores a series image for the Series it is attached to,
+	// idempotently (ON CONFLICT(id) DO NOTHING), and records the request to
+	// process it for that Series together with it. The Series is not stored
+	// on the series image.
 	//
 	// # Possible errors
 	//
+	//  - Unavailable: the processing request could not be recorded; nothing
+	//    is stored.
 	//  - Internal: if the insert fails.
-	Create(ctx context.Context, seriesImage *SeriesImage) error
+	Create(ctx context.Context, seriesImage *SeriesImage, seriesID string) error
 
 	// Get retrieves a single series image row by id.
 	//

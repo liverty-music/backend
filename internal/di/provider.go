@@ -358,7 +358,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db), imageStorer,
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
 		eventPublisher, businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
@@ -373,7 +373,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
+	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
 		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, eventPublisher, logger, time.Now)
 
 	// Identity verification — select the real Pocket Sign Stamp client when all four
@@ -411,7 +411,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, nil, eventPublisher, logger)
 	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
 	// organizer-facing ConcertService pb. The CDN base is sourced from
 	// config (CDN_BASE_URL) rather than read directly by entity.

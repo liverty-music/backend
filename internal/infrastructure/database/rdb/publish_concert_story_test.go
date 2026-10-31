@@ -60,7 +60,7 @@ func newPublishStory(t *testing.T) *publishStory {
 	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB), venueRepo, nil, organizerRepo,
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), venueRepo, nil, organizerRepo,
 		rdb.NewTicketSaleRepository(testDB, testOutbox), nil, usecase.StorageBuckets{}, s.publisher, logger, time.Now)
 	s.concerts = usecase.NewConcertUseCase(nil, concertRepo, venueRepo, seriesRepo, organizerRepo,
 		nil, nil, nil, nil, nil, s.publisher, nil, nil, 0, 0, logger)

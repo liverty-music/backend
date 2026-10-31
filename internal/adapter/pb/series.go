@@ -37,6 +37,19 @@ func (b *SeriesImageURLBuilder) VariantURL(organizerID, seriesImageID, variant s
 	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, seriesImageID, variant)
 }
 
+// FromSeriesImage maps a series image to Protobuf with its id and Organizer,
+// without its served addresses: the processing request carries it before the
+// variants exist.
+func FromSeriesImage(img *entity.SeriesImage) *entityv1.SeriesImage {
+	if img == nil {
+		return nil
+	}
+	return &entityv1.SeriesImage{
+		Id:          &entityv1.SeriesImageId{Value: img.ID},
+		OrganizerId: &entityv1.OrganizerId{Value: img.OrganizerID},
+	}
+}
+
 // seriesImageProto builds the entityv1.SeriesImage message for a series' cover image.
 // Returns nil when the series has no cover image or when the CDN base is
 // unset, so callers never emit a proto with empty URL fields.

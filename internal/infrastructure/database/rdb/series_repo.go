@@ -163,6 +163,7 @@ const (
 		INSERT INTO series_images (id, organizer_id, attributes)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO NOTHING
+		RETURNING id
 	`
 
 	// getSeriesImageQuery retrieves a single series image row by its primary key.

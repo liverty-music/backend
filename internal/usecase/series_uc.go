@@ -829,21 +829,10 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		// map; the processor will not need it and we avoid a round-trip.
 		Attributes: map[string]string{},
 	}
-	if err := uc.seriesImageRepo.Create(ctx, seriesImage); err != nil {
+	// SeriesImage.Create records the request to process the image for the
+	// Series together with it; a repeated attach records nothing new.
+	if err := uc.seriesImageRepo.Create(ctx, seriesImage, seriesID); err != nil {
 		return fmt.Errorf("insert series image row: %w", err)
-	}
-
-	// Publish SERIES_IMAGE.uploaded so the processor can pick it up. A failure
-	// fails the call so the member repeats it: the insert above is idempotent
-	// and the original is still uploaded, so the retry announces again.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
-		SeriesImageID: seriesImageID,
-		SeriesID:      seriesID,
-	}); err != nil {
-		return apperr.Wrap(err, codes.Unavailable, "announce series image upload",
-			slog.String("series_image_id", seriesImageID),
-			slog.String("series_id", seriesID),
-		)
 	}
 
 	uc.logger.Info(ctx, "series image attached to series",

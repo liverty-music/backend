@@ -94,7 +94,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
 	scannerRepo := rdb.NewScannerRepository(testDB)
 
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB), rdb.NewVenueRepository(testDB), nil,
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), rdb.NewVenueRepository(testDB), nil,
 		organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, s.publisher, logger, time.Now)
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)

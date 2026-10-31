@@ -210,18 +210,14 @@ func TestSeriesUseCase_SetCoverImage(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/series/set-cover-image "Cover replaced later"
-			name: "records and announces the upload without switching the cover",
+			name: "records the upload with its processing request without switching the cover",
 			args: args{seriesImageID: seriesImageID},
 			setup: func(d *seriesImageDeps) {
 				d.storer.putOriginal(orgID, seriesImageID)
 				d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(ownSeries, nil)
 				d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
 					return m.ID == seriesImageID && m.OrganizerID == orgID
-				})).Return(nil)
-				d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
-					SeriesImageID: seriesImageID,
-					SeriesID:      seriesID,
-				}).Return(nil)
+				}), seriesID).Return(nil)
 				// ReplaceCover is not expected: the cover switches only in Process.
 			},
 		},
@@ -289,12 +285,11 @@ func TestSeriesUseCase_SetCoverImage_RepeatedAttach(t *testing.T) {
 	)
 	d.storer.putOriginal(orgID, seriesImageID)
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(&entity.Series{ID: seriesID, OrganizerID: new(orgID)}, nil).Times(2)
-	// Both calls record the same id; Create is ON CONFLICT DO NOTHING, so one
-	// row results.
+	// Both calls record the same id; SeriesImage.Create stores and requests
+	// processing only the first time.
 	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
 		return m.ID == seriesImageID
-	})).Return(nil).Times(2)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).Return(nil).Times(2)
+	}), seriesID).Return(nil).Times(2)
 
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
@@ -313,18 +308,14 @@ func TestSeriesUseCase_SetCoverImage_AnnouncementFails(t *testing.T) {
 	)
 	d.storer.putOriginal(orgID, seriesImageID)
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(&entity.Series{ID: seriesID, OrganizerID: new(orgID)}, nil).Times(2)
-	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Times(2)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).
-		Return(errors.New("nats: timeout")).Once()
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
-		SeriesImageID: seriesImageID,
-		SeriesID:      seriesID,
-	}).Return(nil).Once()
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything, seriesID).
+		Return(apperr.New(codes.Unavailable, "failed to record the processing request")).Once()
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything, seriesID).Return(nil).Once()
 
 	err := d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID)
 	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 
-	// The repeat after the failure announces the upload.
+	// The repeat after the failure records the image and its request.
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
 }
 
