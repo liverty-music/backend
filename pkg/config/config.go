@@ -93,10 +93,19 @@ type WorkerConfig struct {
 	// AccountEmailConfig sends the codes and links of the
 	// reissue-email-verification and send-passkey-recovery-link workflows.
 	AccountEmailConfig
+
+	// GCPProjectID is the project whose Google Maps Places API the
+	// create-from-discovered workflow resolves venues with.
+	GCPProjectID string `envconfig:"GCP_PROJECT_ID"`
+
+	// PostHog receives the pipeline signal of each create-from-discovered
+	// batch. Optional: without a project API key no signal is sent.
+	PostHog PostHogConfig `envconfig:""`
 }
 
 // Validate checks the worker configuration: the base settings, and outside
-// local the NATS URL, the VAPID keys, the identity service and the issuer.
+// local the NATS URL, the VAPID keys, the identity service, the issuer and the
+// GCP project.
 func (c *WorkerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -108,6 +117,7 @@ func (c *WorkerConfig) Validate() error {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
 	return requireSet(
+		envVar{"GCP_PROJECT_ID", c.GCPProjectID},
 		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
 		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},

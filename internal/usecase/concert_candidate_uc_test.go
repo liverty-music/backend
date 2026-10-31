@@ -7,7 +7,6 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -124,7 +123,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		d.rejectedConcert,
 		nil, // concertSearcher — not used by admin methods
 		nil, // centroidResolver — not used by admin methods
-		messaging.NewEventPublisher(pub),
+		&recordingWorkflows{},
 		noopMetrics{},
 		nil, // analytics — not used by admin methods
 		0,   // searchCacheTTL — not used by admin methods

@@ -10,7 +10,6 @@ import "time"
 // lowercase catalogue event name (see specification/docs/analytics/
 // event-catalog.md) at the Handle method that subscribes to it.
 const (
-	SubjectConcertDiscovered        = "CONCERT.discovered"
 	SubjectConcertCreated           = "CONCERT.created"
 	SubjectArtistCreated            = "ARTIST.created"
 	SubjectArtistFollowed           = "ARTIST.followed"
@@ -141,7 +140,6 @@ const (
 // recurring "added a publisher/subscription without its paired stream" gap
 // that fails a consumer at startup with "no stream matches subject".
 var AllSubjects = []string{
-	SubjectConcertDiscovered,
 	SubjectConcertCreated,
 	SubjectConcertCancelled,
 	SubjectArtistCreated,
@@ -245,27 +243,6 @@ type OrganizerConcertPublishedData struct {
 	SeriesID string `json:"series_id"`
 	// NewEventCount is the number of events materialized on this publish.
 	NewEventCount int `json:"new_event_count"`
-}
-
-// ConcertDiscoveredData is the payload for concert.discovered.v1 events.
-// It carries the newly discovered concerts for one artist (post-deduplication),
-// grouped by series so a tour's dates persist under one series by construction.
-// Published by SearchNewConcerts after the external API call and dedup.
-type ConcertDiscoveredData struct {
-	// ArtistID is the internal UUID of the artist.
-	ArtistID string `json:"artist_id"`
-	// ArtistName is the display name of the artist (for notification context).
-	ArtistName string `json:"artist_name"`
-	// Series is the list of newly discovered, deduplicated series, each carrying
-	// its member events. A <tour> block is one TOUR series with many events; a
-	// standalone show is one SINGLE series with a single event.
-	Series []*DiscoveredSeries `json:"series"`
-}
-
-// EventCount returns the total number of member events across all series in the
-// payload. Used for logging/metrics where the flat event count is meaningful.
-func (d ConcertDiscoveredData) EventCount() int {
-	return SumSeriesEvents(d.Series)
 }
 
 // SumSeriesEvents returns the total number of member events across the given

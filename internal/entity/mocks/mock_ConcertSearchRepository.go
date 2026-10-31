@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -293,20 +294,29 @@ func (_c *MockConcertSearchRepository_UpdateStatus_Call) RunAndReturn(run func(c
 }
 
 // Upsert provides a mock function for the type MockConcertSearchRepository
-func (_mock *MockConcertSearchRepository) Upsert(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error {
+func (_mock *MockConcertSearchRepository) Upsert(ctx context.Context, artistID string, status entity.ConcertSearchStatus) (time.Time, error) {
 	ret := _mock.Called(ctx, artistID, status)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Upsert")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.ConcertSearchStatus) error); ok {
+	var r0 time.Time
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.ConcertSearchStatus) (time.Time, error)); ok {
+		return returnFunc(ctx, artistID, status)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.ConcertSearchStatus) time.Time); ok {
 		r0 = returnFunc(ctx, artistID, status)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(time.Time)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.ConcertSearchStatus) error); ok {
+		r1 = returnFunc(ctx, artistID, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockConcertSearchRepository_Upsert_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Upsert'
@@ -345,12 +355,12 @@ func (_c *MockConcertSearchRepository_Upsert_Call) Run(run func(ctx context.Cont
 	return _c
 }
 
-func (_c *MockConcertSearchRepository_Upsert_Call) Return(err error) *MockConcertSearchRepository_Upsert_Call {
-	_c.Call.Return(err)
+func (_c *MockConcertSearchRepository_Upsert_Call) Return(time1 time.Time, err error) *MockConcertSearchRepository_Upsert_Call {
+	_c.Call.Return(time1, err)
 	return _c
 }
 
-func (_c *MockConcertSearchRepository_Upsert_Call) RunAndReturn(run func(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error) *MockConcertSearchRepository_Upsert_Call {
+func (_c *MockConcertSearchRepository_Upsert_Call) RunAndReturn(run func(ctx context.Context, artistID string, status entity.ConcertSearchStatus) (time.Time, error)) *MockConcertSearchRepository_Upsert_Call {
 	_c.Call.Return(run)
 	return _c
 }

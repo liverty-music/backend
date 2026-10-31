@@ -10,7 +10,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"golang.org/x/oauth2/google"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
@@ -20,7 +19,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
-	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -31,7 +29,6 @@ import (
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -112,22 +109,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// probe (set below) reports whether the router is running.
 	consumerHealth := messaging.NewConsumerHealth()
 
-	// Infrastructure - Google Maps Places API (required for venue resolution).
-	// Uses OAuth via ADC (Workload Identity in GKE).
-	if cfg.GCP.ProjectID == "" {
-		return nil, fmt.Errorf("GCP project ID is required for Google Maps Places API")
-	}
-	gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, fmt.Errorf("obtain google maps token source: %w", err)
-	}
-	gmHTTPClient := &http.Client{
-		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
-		Timeout:   10 * time.Second,
-	}
-	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
-	placeSearcher := googlemaps.NewPlaceSearcher(gmClient)
-
 	// Infrastructure - MusicBrainz (for artist name resolution)
 	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	musicbrainzClient := musicbrainz.NewClient(extHTTPClient, logger)
@@ -138,7 +119,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
-	eventPublisher := messaging.NewEventPublisher(publisher)
 	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {
 		return nil, err
@@ -184,24 +164,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
-	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
 	// Infrastructure - PostHog analytics client (optional, nil in local dev).
 	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	concertCreationUC := usecase.NewConcertCreationUseCase(
-		concertCandidateRepo,
-		venueRepo,
-		concertRepo,
-		seriesRepo,
-		suppressedConcertRepo,
-		placeSearcher,
-		eventPublisher,
-		analyticsClient,
-		logger,
-	)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
@@ -239,7 +207,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		rejectedConcertRepo,
 		geminiSearcher,
 		centroidResolver,
-		eventPublisher,
+		workflows,
 		infratelemetry.NewBusinessMetrics(),
 		analyticsClient,
 		cfg.GCP.SearchCacheTTL(),
@@ -280,7 +248,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger)
 
 	// Event Consumers
-	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
@@ -301,7 +268,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// durables — each receives every message on that subject — which is the
 	// fan-out fix the old single shared-group subscriber broke.
 	behaviorTable := []behaviorEntry{
-		{"ingest-concert", entity.SubjectConcertDiscovered, concertConsumer.Handle},
 		{"notify-concert", entity.SubjectConcertCreated, notificationConsumer.Handle},
 		{"resolve-artist-name", entity.SubjectArtistCreated, artistNameConsumer.Handle},
 		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},

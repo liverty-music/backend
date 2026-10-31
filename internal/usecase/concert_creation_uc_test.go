@@ -10,7 +10,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -177,6 +176,8 @@ func (r *fakeSeriesRepo) CancelEvents(_ context.Context, _ string, _ []string) (
 
 type fakeConcertRepo struct {
 	created []*entity.Concert
+	// calls holds the concerts of each Create call.
+	calls [][]*entity.Concert
 	// createErr, when set, is returned by Create, which then stores nothing.
 	createErr error
 	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,
@@ -281,6 +282,7 @@ func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert)
 	if r.createErr != nil {
 		return nil, r.createErr
 	}
+	r.calls = append(r.calls, concerts)
 	r.created = append(r.created, concerts...)
 	ids := make([]string, 0, len(concerts))
 	for _, c := range concerts {
@@ -461,7 +463,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		h.uc = usecase.NewConcertCreationUseCase(
 			h.candidate, h.venue, h.concert, h.series, h.suppressed,
-			h.place, messaging.NewEventPublisher(h.pub), h.analytics, newTestLogger(t),
+			h.place, h.analytics, newTestLogger(t),
 		)
 		return h
 	}
@@ -787,7 +789,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(
 			&fakeConcertCandidateRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
-			newFakeSuppressedConcertRepo(), nil, nil, nil, newTestLogger(t),
+			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
 		)
 	})
 }
@@ -822,7 +824,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 		uc := usecase.NewConcertCreationUseCase(
 			candidate, venue, concert, series, suppressed,
-			place, messaging.NewEventPublisher(pub), nil, newTestLogger(t),
+			place, nil, newTestLogger(t),
 		)
 		return uc, concert, series, candidate, pub
 	}
@@ -927,5 +929,106 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 
 		// Concert candidate deleted.
 		assert.Empty(t, d.candidateRepo.upserted)
+	})
+}
+
+// newCreationUC returns a ConcertCreationUseCase over fakes in which every
+// listed venue resolves to a place of its own name.
+func newCreationUC(t *testing.T, concert *fakeConcertRepo, venues ...string) (usecase.ConcertCreationUseCase, *fakeConcertCandidateRepo) {
+	t.Helper()
+	place := newStubPlaceSearcher()
+	for _, v := range venues {
+		place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
+	}
+	candidate := &fakeConcertCandidateRepo{}
+	uc := usecase.NewConcertCreationUseCase(candidate, newFakeVenueRepo(), concert, &fakeSeriesRepo{},
+		newFakeSuppressedConcertRepo(), place, nil, newTestLogger(t))
+	return uc, candidate
+}
+
+// TestCreateFromDiscovered_OneCreatePerSeries shows that the events of a
+// series to publish are stored together, in one Concert.Create call.
+func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	day := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 3, 15, 10, 0, 0, 0, time.UTC)
+	tour := func(events ...*entity.DiscoveredEvent) entity.ConcertDiscoveredData {
+		return entity.ConcertDiscoveredData{ArtistID: "artist-1", Series: []*entity.DiscoveredSeries{{
+			Title: "Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour", Events: events,
+		}}}
+	}
+
+	// @spec components/usecase/concert/create-from-discovered "Three-stop tour"
+	t.Run("three events of a tour are created in one call", func(t *testing.T) {
+		t.Parallel()
+		concert := &fakeConcertRepo{}
+		uc, _ := newCreationUC(t, concert, "Venue A", "Venue B", "Venue C")
+
+		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
+			&entity.DiscoveredEvent{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 0, 1), StartTime: start.AddDate(0, 0, 1)},
+			&entity.DiscoveredEvent{ListedVenueName: "Venue C", LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
+		)))
+
+		require.Len(t, concert.calls, 1)
+		assert.Len(t, concert.calls[0], 3)
+	})
+
+	// @spec components/usecase/concert/create-from-discovered "Everything staged"
+	t.Run("a series whose events are all staged creates nothing", func(t *testing.T) {
+		t.Parallel()
+		concert := &fakeConcertRepo{}
+		uc, candidates := newCreationUC(t, concert)
+
+		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+			&entity.DiscoveredEvent{ListedVenueName: "Unknown A", LocalDate: day},
+			&entity.DiscoveredEvent{ListedVenueName: "Unknown B", LocalDate: day.AddDate(0, 0, 1)},
+		)))
+
+		assert.Empty(t, concert.calls)
+		assert.Len(t, candidates.upserted, 2)
+	})
+
+	// @spec components/usecase/concert/create-from-discovered "Concerts cannot be created"
+	t.Run("a failed create fails the batch", func(t *testing.T) {
+		t.Parallel()
+		concert := &fakeConcertRepo{createErr: apperr.New(codes.Unavailable, "database down")}
+		uc, _ := newCreationUC(t, concert, "Venue A")
+
+		err := uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
+	t.Run("an unknown start colliding with a known start decided in the same series is staged", func(t *testing.T) {
+		t.Parallel()
+		concert := &fakeConcertRepo{}
+		uc, candidates := newCreationUC(t, concert, "Venue A")
+
+		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
+			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day},
+		)))
+
+		require.Len(t, concert.calls, 1)
+		assert.Len(t, concert.calls[0], 1)
+		assert.Len(t, candidates.upserted, 1)
+	})
+
+	// @spec components/usecase/concert/create-from-discovered "Search keeps new concerts"
+	t.Run("the workflow processes both series of the search", func(t *testing.T) {
+		t.Parallel()
+		concert := &fakeConcertRepo{}
+		uc, _ := newCreationUC(t, concert, "Venue A", "Venue B")
+		data := entity.ConcertDiscoveredData{ArtistID: "artist-1", Series: []*entity.DiscoveredSeries{
+			{Title: "Tour", Type: entity.SeriesTypeTour, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}}},
+			{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 1, 0), StartTime: start.AddDate(0, 1, 0)}}},
+		}}
+
+		_, err := uc.RunCreateFromDiscovered(ctx, &inlineFlow{}, data)
+
+		require.NoError(t, err)
+		assert.Len(t, concert.calls, 2, "one Concert.Create per series")
 	})
 }

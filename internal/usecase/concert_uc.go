@@ -165,7 +165,7 @@ type concertUseCase struct {
 	rejectedConcertRepo  entity.RejectedConcertRepository
 	concertSearcher      entity.ConcertSearcher
 	centroidResolver     CentroidResolver
-	publisher            EventPublisher
+	workflows            Workflows
 	metrics              ConcertMetrics
 	// analytics receives the concert.search.completed signal; nil sends none.
 	analytics AnalyticsClient
@@ -191,7 +191,7 @@ const statusUpdateTimeout = 5 * time.Second
 var _ ConcertUseCase = (*concertUseCase)(nil)
 
 // NewConcertUseCase creates a new concert use case.
-// It orchestrates concert searching, retrieval, event publishing, and the
+// It orchestrates concert searching, retrieval, the hand-over of new concerts, and the
 // admin approval/management operations (approve, reject, list, delete).
 func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
@@ -204,7 +204,7 @@ func NewConcertUseCase(
 	rejectedConcertRepo entity.RejectedConcertRepository,
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
-	publisher EventPublisher,
+	workflows Workflows,
 	metrics ConcertMetrics,
 	analytics AnalyticsClient,
 	searchCacheTTL time.Duration,
@@ -222,7 +222,7 @@ func NewConcertUseCase(
 		rejectedConcertRepo:  rejectedConcertRepo,
 		concertSearcher:      concertSearcher,
 		centroidResolver:     centroidResolver,
-		publisher:            publisher,
+		workflows:            workflows,
 		metrics:              metrics,
 		analytics:            analytics,
 		searchCacheTTL:       searchCacheTTL,
@@ -457,11 +457,12 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 
 	// Mark as pending. If this fails, abort — without a pending row,
 	// downstream UpdateStatus calls silently no-op (0 rows affected).
-	if err := uc.concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending); err != nil {
+	searchTime, err := uc.concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+	if err != nil {
 		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
-	return uc.executeSearch(ctx, artistID, trigger)
+	return uc.executeSearch(ctx, artistID, trigger, searchTime)
 }
 
 // SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
@@ -487,7 +488,8 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 	return nil
 }
 
-// executeSearch performs the actual Gemini search, deduplication, and event publishing.
+// executeSearch performs the actual Gemini search, deduplication, and the start
+// of CreateFromDiscovered for the new concerts.
 // It returns the newly discovered concerts and updates the concert search status on exit.
 //
 // Deduplication uses `(local_event_date, listed_venue_name)` matching via
@@ -498,12 +500,15 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 // in that migration alongside the singular events.artist_id column.
 //
 // The application-level FilterNewSeries check on `(date, listed_venue_name)` avoids
-// unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
+// unnecessary hand-over/UPSERT round-trips for re-scrapes; the DB natural key
 // is the source of truth and uses the resolved `venue_id` instead of the raw
 // listed name, so the application key is a best-effort upstream filter.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, trigger SearchTrigger) (result []*entity.Concert, err error) {
+//
+// searchTime is the search time of the Artist's ConcertSearch; the
+// create-from-discovered workflow the search starts is named after it.
+func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, trigger SearchTrigger, searchTime time.Time) (result []*entity.Concert, err error) {
 	// searched is set once the external search is called; only such a run
-	// reports its outcome. announcedSeries/Events count what was announced.
+	// reports its outcome. announcedSeries/Events count what was handed on.
 	var (
 		searched                         bool
 		announcedSeries, announcedEvents int
@@ -653,7 +658,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, tr
 		)
 	}
 
-	// Publish concert.discovered.v1 event (artist-level batch)
+	// Hand the new concerts to CreateFromDiscovered (artist-level batch).
 	if newEvents == 0 {
 		uc.logger.Debug(ctx, "no new concerts after deduplication",
 			slog.String("artist_id", artistID),
@@ -672,18 +677,18 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, tr
 		Series:     newSeries,
 	}
 
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertDiscovered, eventData); err != nil {
-		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
+	if err := uc.workflows.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(artistID, searchTime), eventData); err != nil {
+		uc.logger.Error(ctx, "failed to start create-from-discovered", err,
 			slog.String("artist_id", artistID),
 			slog.Int("concert_count", newEvents),
 		)
-		// Non-fatal: CronJob will re-discover on next run.
+		// The CronJob will re-discover on the next run.
 		// The defer will call markSearchFailed because err != nil.
 		return nil, err
 	}
 
 	announcedSeries, announcedEvents = len(newSeries), newEvents
-	uc.logger.Info(ctx, "published concert.discovered event",
+	uc.logger.Info(ctx, "started create-from-discovered",
 		slog.String("artist_id", artistID),
 		slog.String("artist_name", artist.Name),
 		slog.Int("series_count", len(newSeries)),

@@ -8,7 +8,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -133,7 +132,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 		orgRepo,
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
-		messaging.NewEventPublisher(d.publisher),
+		d.workflows,
 		noopMetrics{},
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
@@ -161,7 +160,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		orgRepo,
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
-		messaging.NewEventPublisher(d.publisher),
+		d.workflows,
 		noopMetrics{},
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
@@ -171,7 +170,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, "artist-2").
 		Return(nil, apperr.New(codes.NotFound, "not found"))
 	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, "artist-2", entity.ConcertSearchStatusPending).
-		Return(nil)
+		Return(testSearchTime, nil)
 	d.artistRepo.EXPECT().Get(mock.Anything, "artist-2").
 		Return(&entity.Artist{ID: "artist-2", Name: "Test Artist", MBID: "mbid-1"}, nil)
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-2").

@@ -163,14 +163,14 @@ func TestRouter_TracePropagation(t *testing.T) {
 		ch, pub := newTestPubSub(t)
 		got := newSpanCollector()
 		runRouter(t, func(r *message.Router) {
-			r.AddConsumerHandler("store-concerts", "CONCERT.discovered", ch, func(msg *message.Message) error {
+			r.AddConsumerHandler("store-concerts", "CONCERT.created", ch, func(msg *message.Message) error {
 				got.record(msg.Context())
 				return nil
 			})
 		})
 
 		ctx, search := tracer.Start(context.Background(), "concert_search.artist")
-		require.NoError(t, messaging.NewEventPublisher(pub).PublishEvent(ctx, "CONCERT.discovered", map[string]string{}))
+		require.NoError(t, messaging.NewEventPublisher(pub).PublishEvent(ctx, "CONCERT.created", map[string]string{}))
 		search.End()
 
 		spans := got.wait(t, 1)

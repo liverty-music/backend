@@ -25,10 +25,14 @@ type ConcertCreationUseCase interface {
 	//     no stage), so an admin's deletion is not undone by re-discovery;
 	//   - resolved venue with a same-slot conflict → staged for reconciliation
 	//     (no publish), resolved later via ConcertCandidateUseCase.Approve;
-	//   - resolved venue, genuinely new → auto-published: the
-	//     series/events/concert_artists rows are inserted and CONCERT.created is
-	//     published so follower notifications fire immediately.
+	//   - resolved venue, genuinely new → auto-published: the events of one
+	//     series are stored in one Concert.Create call, which announces
+	//     CONCERT.created so follower notifications fire immediately.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
+
+	// RunCreateFromDiscovered is the create-from-discovered workflow
+	// ConcertUseCase.SearchNewConcerts starts.
+	RunCreateFromDiscovered(ctx context.Context, f Flow, in entity.ConcertDiscoveredData) (struct{}, error)
 }
 
 // concertCreationUseCase implements ConcertCreationUseCase. It reuses the
@@ -41,7 +45,6 @@ type concertCreationUseCase struct {
 	seriesRepo            entity.SeriesRepository
 	suppressedConcertRepo entity.SuppressedConcertRepository
 	placeSearcher         entity.VenuePlaceSearcher
-	publisher             EventPublisher
 	analytics             AnalyticsClient
 	logger                *logging.Logger
 }
@@ -59,7 +62,6 @@ func NewConcertCreationUseCase(
 	seriesRepo entity.SeriesRepository,
 	suppressedConcertRepo entity.SuppressedConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
-	publisher EventPublisher,
 	analytics AnalyticsClient,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
@@ -73,7 +75,6 @@ func NewConcertCreationUseCase(
 		seriesRepo:            seriesRepo,
 		suppressedConcertRepo: suppressedConcertRepo,
 		placeSearcher:         placeSearcher,
-		publisher:             publisher,
 		analytics:             analytics,
 		logger:                logger,
 	}
@@ -113,9 +114,9 @@ const (
 //  5. Same-slot conflict → stage for reconciliation (no publish).
 //  6. Genuinely new → insert the event under the group series_id.
 //
-// After all events of a series are processed, ONE CONCERT.created is published
-// carrying every newly-inserted event id, so a multi-date tour wakes the
-// notification consumer once. A lightweight cleanup at the end removes any
+// After all events of a series are decided, the events to publish are stored
+// in ONE Concert.Create call, which announces them together, so a multi-date
+// tour wakes the notification consumer once. A lightweight cleanup at the end removes any
 // series left with no events and no pending concert candidates (the provisional-mint or
 // all-candidate-then-rejected case).
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) (err error) {
@@ -183,9 +184,9 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 }
 
 // createSeriesFromDiscovered resolves the group series_id once, creates the
-// series row when minted, persists every publishable member event under that
-// series_id (staging the rest), and publishes ONE CONCERT.created for all newly
-// inserted events of this series. It returns the series_id it minted (empty when
+// series row when minted, decides each member event (staging the colliding and
+// unresolved ones), and stores every event to publish under that series_id in
+// one Concert.Create call, which announces them together. It returns the series_id it minted (empty when
 // it adopted an existing series), so the caller can scope the orphan sweep.
 func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	ctx context.Context,
@@ -224,7 +225,9 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	// instead of being COALESCE-swallowed and lost.
 	claimedFill := make(map[string]bool)
 
-	var insertedIDs []string
+	// toPublish collects the events of this series to publish, stored together
+	// in one Concert.Create call after every event has been decided.
+	var toPublish []*entity.Concert
 	for _, ev := range series.Events {
 		ev.ListedVenueName = entity.NormalizeVenueName(ev.ListedVenueName)
 		if ev.ListedVenueName == "" {
@@ -237,15 +240,25 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 			continue
 		}
 
-		ids, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces, tally)
+		concert, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces, toPublish, tally)
 		if err != nil {
 			return "", err
 		}
-		insertedIDs = append(insertedIDs, ids...)
-		tally.published += len(ids)
+		if concert != nil {
+			toPublish = append(toPublish, concert)
+		}
+	}
+	if len(toPublish) == 0 {
+		return mintedID, nil
 	}
 
-	// Concert.Create announces the new concerts of each newly listed Artist.
+	// One Concert.Create for the series, so it tells the Artist's followers
+	// about all of them at once.
+	insertedIDs, err := uc.concertRepo.Create(ctx, toPublish...)
+	if err != nil {
+		return "", fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
+	}
+	tally.published += len(insertedIDs)
 	if len(insertedIDs) > 0 {
 		uc.logger.Info(ctx, "auto-published new concerts for series",
 			slog.String("artist_id", artistID),
@@ -258,9 +271,11 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	return mintedID, nil
 }
 
-// persistDiscoveredEvent resolves and persists a single member event under the
-// already-resolved group series_id, returning the ids of any genuinely inserted
-// events (zero for a re-discovery, fill, suppression, or staged outcome).
+// persistDiscoveredEvent resolves a single member event under the
+// already-resolved group series_id and returns the Concert to publish, or nil
+// for a re-discovery, fill, suppression, or staged outcome. toPublish holds the
+// series' events already decided for publication, so an event colliding with
+// one of them is staged too.
 func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	ctx context.Context,
 	artistID, seriesID string,
@@ -269,8 +284,9 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	sameDateEvents []*entity.Event,
 	claimedFill map[string]bool,
 	newPlaces map[string]*entity.VenuePlace,
+	toPublish []*entity.Concert,
 	tally *ingestTally,
-) ([]string, error) {
+) (*entity.Concert, error) {
 	// Re-discovery fast-path: an existing (artist, date) event at the same listed
 	// venue is a re-discovery. Skip the Places API entirely; fill a known start
 	// onto an unknown-start row when applicable, and insert nothing new. Only a
@@ -304,7 +320,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		// instead of inserting a phantom NULL-start duplicate.
 		venueID := sameVenue[0].VenueID
 		candidate := buildConcertCandidate(entity.NewID(), artistID, seriesID, series, ev, nil)
-		return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate, tally)
+		return uc.stageOrPublish(ctx, artistID, seriesID, series, ev, venueID, candidate, toPublish, tally)
 	}
 
 	place, err := uc.resolvePlace(ctx, ev.ListedVenueName, ev.AdminArea, newPlaces)
@@ -341,25 +357,27 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		return nil, fmt.Errorf("resolve or create venue for %q: %w", series.Title, err)
 	}
 
-	return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, candidate, tally)
+	return uc.stageOrPublish(ctx, artistID, seriesID, series, ev, venueID, candidate, toPublish, tally)
 }
 
-// stageOrInsert runs the shared tail for a resolved-venue event: the suppression
-// gate, then same-slot conflict detection (staging for reconciliation on a
-// conflict — which also covers an unknown-start entry that collides with an
-// existing known-start row), and finally a genuinely-new insert under the group
-// series_id. candidate is the row to persist if the event must be staged. It is the
+// stageOrPublish runs the shared tail for a resolved-venue event: the
+// suppression gate, then same-slot conflict detection against the stored
+// events and the series' events already decided for publication (staging for
+// reconciliation on a conflict — which also covers an unknown-start entry that
+// collides with a known-start row), and finally the Concert to publish under
+// the group series_id. candidate is the row to persist if the event must be staged. It is the
 // single decision point shared by the re-discovery fast-path and the general
 // Places path, so the two cannot diverge on the human-gate rules.
-func (uc *concertCreationUseCase) stageOrInsert(
+func (uc *concertCreationUseCase) stageOrPublish(
 	ctx context.Context,
 	artistID, seriesID string,
 	series *entity.DiscoveredSeries,
 	ev *entity.DiscoveredEvent,
 	venueID string,
 	candidate *entity.ConcertCandidate,
+	toPublish []*entity.Concert,
 	tally *ingestTally,
-) ([]string, error) {
+) (*entity.Concert, error) {
 	// Suppression gate: a deleted-then-rediscovered slot is skipped entirely.
 	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
 	if err != nil {
@@ -381,6 +399,9 @@ func (uc *concertCreationUseCase) stageOrInsert(
 	if err != nil {
 		return nil, fmt.Errorf("detect duplicate event for %q: %w", series.Title, err)
 	}
+	if conflict == nil {
+		conflict = duplicateEventAmong(plannedAt(toPublish, venueID, ev.LocalDate), candidate)
+	}
 	if conflict != nil {
 		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
 			return nil, fmt.Errorf("upsert concert candidate (conflict) %q: %w", series.Title, err)
@@ -396,11 +417,18 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		return nil, nil
 	}
 
-	insertedIDs, err := insertEventUnderSeries(ctx, artistID, seriesID, ev, venueID, uc.concertRepo)
-	if err != nil {
-		return nil, fmt.Errorf("auto-publish concert %q: %w", series.Title, err)
+	return ev.ToConcertUnderSeries(artistID, seriesID, entity.NewID(), venueID), nil
+}
+
+// plannedAt returns the events among toPublish at venueID on date.
+func plannedAt(toPublish []*entity.Concert, venueID string, date time.Time) []*entity.Event {
+	var events []*entity.Event
+	for _, c := range toPublish {
+		if c.VenueID == venueID && c.LocalDate.Equal(date) {
+			events = append(events, &c.Event)
+		}
 	}
-	return insertedIDs, nil
+	return events
 }
 
 // buildConcertCandidate constructs a ConcertCandidate for one member event of a

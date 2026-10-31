@@ -81,7 +81,7 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := registerWorkflows(runtime, cfg, db, logger); err != nil {
+	if err := registerWorkflows(ctx, runtime, cfg, db, logger); err != nil {
 		return nil, err
 	}
 
@@ -95,7 +95,7 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 
 // registerWorkflows builds the usecases whose workflows the worker runs and
 // registers each workflow by its stable name.
-func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) error {
+func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) error {
 	outbox := newOutbox(logger)
 	notifications := usecase.NewNotificationUseCase(
 		rdb.NewNotificationRepository(db, outbox),
@@ -126,6 +126,33 @@ func registerWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.D
 		usecase.PasskeyMailers{RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger)}, logger)
 	workflow.Register(rt, usecase.WorkflowReissueEmailVerification, users.RunReissueEmailVerification)
 	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
+
+	// CreateFromDiscovered resolves venues with Google Maps and reports each
+	// batch to product analytics (when PostHog is configured). A local worker
+	// without a GCP project leaves the started batches waiting.
+	if cfg.GCPProjectID == "" {
+		logger.Warn(ctx, "GCP_PROJECT_ID is not set; create-from-discovered is not run")
+		return nil
+	}
+	placeSearcher, err := newPlaceSearcher(ctx, cfg.GCPProjectID, logger)
+	if err != nil {
+		return err
+	}
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return err
+	}
+	concerts := usecase.NewConcertCreationUseCase(
+		rdb.NewConcertCandidateRepository(db),
+		rdb.NewVenueRepository(db),
+		rdb.NewConcertRepository(db, outbox),
+		rdb.NewSeriesRepository(db, outbox),
+		rdb.NewSuppressedConcertRepository(db),
+		placeSearcher,
+		analyticsClient,
+		logger,
+	)
+	workflow.Register(rt, usecase.WorkflowCreateFromDiscovered, concerts.RunCreateFromDiscovered)
 	return nil
 }
 

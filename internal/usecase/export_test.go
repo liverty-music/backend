@@ -20,6 +20,9 @@ var ExportedBuildReminderPayload = buildReminderPayload
 // ExportedBuildAnnouncementPayload exposes buildAnnouncementPayload for black-box tests.
 var ExportedBuildAnnouncementPayload = buildAnnouncementPayload
 
+// ExportedDiscoveryWorkflowID exposes discoveryWorkflowID for black-box tests.
+var ExportedDiscoveryWorkflowID = discoveryWorkflowID
+
 // ExportedReminderWorkflowID exposes reminderWorkflowID for black-box tests.
 var ExportedReminderWorkflowID = reminderWorkflowID
 
