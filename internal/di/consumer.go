@@ -154,7 +154,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		confirmationSender = mail.NewNoopConfirmationSender(logger)
 	}
 	// The sold email of a resold listing goes the same way.
-	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
 	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
 	if cfg.Postmark.ServerToken != "" {
 		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,

@@ -92,7 +92,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		var orderID string
 		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(ticketID)).Scan(&orderID))
 		ticket := &entity.Ticket{ID: ticketID, OrderID: entity.OrderID(orderID), UserID: entity.UserID(seller), EventID: f.EventID}
-		repo := rdb.NewResaleListingRepository(testDB)
+		repo := rdb.NewResaleListingRepository(testDB, testOutbox)
 		run := func() error {
 			_, err := repo.Create(ctx, entity.NewResaleListing(ticket, f.ID, f.SeatType, saleWindowStart.Add(24*time.Hour)))
 			return err

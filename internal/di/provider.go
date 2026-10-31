@@ -269,7 +269,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketStockRepo := rdb.NewTicketStockRepository(db)
 	checkoutRepo := rdb.NewCheckoutRepository(db, newOutbox(logger))
 	eventRepo := rdb.NewEventRepository(db)
-	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	scannerRepo := rdb.NewScannerRepository(db)
 	admissionRepo := rdb.NewAdmissionRepository(db)

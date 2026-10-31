@@ -358,11 +358,6 @@ func (f *resaleFixture) expectOrderCharge() {
 	f.orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil).Maybe()
 }
 
-// expectAnnounced expects the refund of listing id to be announced once.
-func (f *resaleFixture) expectAnnounced(id entity.ResaleListingID) *ucmocks.MockEventPublisher_PublishEvent_Call {
-	return f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectResaleListingRefunded, entity.ResaleListingRefundedData{ResaleListingID: string(id), UserID: "fan-1", OrderID: "order-1", EventID: "event-1"})
-}
-
 func TestResaleListingUseCase_RefundSold(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -371,7 +366,6 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 	t.Run("ticket resold", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/refund-sold "Ticket resold"
-		// @spec components/usecase/resale-listing/refund-sold "Refund announced"
 		now := soldAt.Add(time.Minute)
 		f := newResaleFixture(t, now)
 		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil)
@@ -380,7 +374,6 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 			OrderID: "order-1", ResaleListingID: "l-1", ProviderChargeID: "ch_1", Amount: 4500,
 		}).Return("re_1", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
-		f.expectAnnounced("l-1").Return(nil).Once()
 
 		require.NoError(t, f.uc.RefundSold(ctx))
 	})
@@ -399,7 +392,6 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 		f.orders.EXPECT().CreateRefund(mock.Anything, mock.MatchedBy(func(p entity.RefundParams) bool { return p.ResaleListingID == "l-2" })).
 			Return("re_2", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-2"), "re_2", now).Return(nil)
-		f.expectAnnounced("l-2").Return(nil).Once()
 
 		require.NoError(t, f.uc.RefundSold(ctx))
 	})
@@ -416,40 +408,8 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 			OrderID: "order-1", ResaleListingID: "l-1", ProviderChargeID: "ch_1", Amount: 4500,
 		}).Return("re_1", nil).Once()
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
-		f.expectAnnounced("l-1").Return(nil)
 
 		require.NoError(t, f.uc.RefundSold(ctx))
-	})
-
-	t.Run("announcement fails", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/resale-listing/refund-sold "Announcement fails"
-		now := soldAt.Add(time.Minute)
-		f := newResaleFixture(t, now)
-		refunded := soldListing("l-1", soldAt)
-		refundAt := soldAt.Add(30 * time.Second)
-		refunded.RefundTime = &refundAt
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{refunded}, nil).Twice()
-		f.expectAnnounced("l-1").Return(errors.New("nats down")).Once()
-		f.expectAnnounced("l-1").Return(nil).Once()
-
-		// The next run announces it again and refunds nothing.
-		require.NoError(t, f.uc.RefundSold(ctx))
-		require.NoError(t, f.uc.RefundSold(ctx))
-		f.orders.AssertNotCalled(t, "CreateRefund", mock.Anything, mock.Anything)
-	})
-
-	t.Run("email already sent", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/resale-listing/refund-sold "Email already sent"
-		f := newResaleFixture(t, soldAt.Add(time.Minute))
-		done := soldListing("l-1", soldAt)
-		refundAt, sentAt := soldAt.Add(30*time.Second), soldAt.Add(40*time.Second)
-		done.RefundTime, done.SoldEmailSendTime = &refundAt, &sentAt
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{done}, nil)
-
-		require.NoError(t, f.uc.RefundSold(ctx))
-		f.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("charge cannot be refunded", func(t *testing.T) {

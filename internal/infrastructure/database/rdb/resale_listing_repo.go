@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -16,7 +19,8 @@ import (
 // PostgreSQL. A withdrawal takes the ticket stock's row lock before the
 // listing's, as every change of the stock's counts does (design D5).
 type ResaleListingRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -54,7 +58,7 @@ const (
 		ORDER BY rl.created_at DESC, rl.id DESC
 	`
 	resaleListingSoldUnrefundedQuery = `SELECT ` + resaleListingColumns + resaleListingFrom + `
-		WHERE rl.status = 2 AND (rl.refund_at IS NULL OR rl.sold_email_send_at IS NULL)
+		WHERE rl.status = 2 AND rl.refund_at IS NULL
 		ORDER BY rl.sold_at, rl.id
 	`
 	resaleListingRecordRefundQuery = `
@@ -69,8 +73,8 @@ const (
 
 // NewResaleListingRepository creates a new resale listing repository
 // instance.
-func NewResaleListingRepository(db *Database) *ResaleListingRepository {
-	return &ResaleListingRepository{db: db}
+func NewResaleListingRepository(db *Database, outbox Announcer) *ResaleListingRepository {
+	return &ResaleListingRepository{db: db, outbox: outbox}
 }
 
 // Create stores a Listed listing under the user's shared deletion lock and
@@ -161,30 +165,56 @@ func (r *ResaleListingRepository) ListByUser(ctx context.Context, userID entity.
 	return r.list(ctx, "failed to list the user's resale listings", resaleListingByUserQuery, string(userID))
 }
 
-// ListSoldUnrefunded returns the Sold listings not yet refunded or emailed,
-// oldest sale first.
+// ListSoldUnrefunded returns the Sold listings not yet refunded, oldest sale
+// first.
 func (r *ResaleListingRepository) ListSoldUnrefunded(ctx context.Context) ([]*entity.ResaleListing, error) {
 	return r.list(ctx, "failed to list sold resale listings to finish", resaleListingSoldUnrefundedQuery)
 }
 
 // RecordRefund sets the refund of a Sold listing once.
+//
+// # Announces
+//
+// ORDER.resale_listing_refunded with the ResaleListing as refunded, in the
+// transaction of the refund, when it sets the refund. Nothing when the
+// listing already has a refund time.
 func (r *ResaleListingRepository) RecordRefund(ctx context.Context, id entity.ResaleListingID, providerRefundID string, at time.Time) error {
 	attrs := slog.String("resale_listing_id", string(id))
-	tag, err := r.db.Pool.Exec(ctx, resaleListingRecordRefundQuery, string(id), providerRefundID, at)
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin resale refund", attrs)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, resaleListingRecordRefundQuery, string(id), providerRefundID, at)
 	if err != nil {
 		return toAppErr(err, "failed to record resale refund", attrs)
 	}
-	if tag.RowsAffected() > 0 {
-		return nil
+	if tag.RowsAffected() == 0 {
+		_ = tx.Rollback(ctx)
+		current, err := r.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if current.RefundTime != nil {
+			return nil
+		}
+		return apperr.New(codes.FailedPrecondition, "the listing is not Sold", attrs)
 	}
-	current, err := r.Get(ctx, id)
+	refunded, err := scanResaleListing(tx.QueryRow(ctx, resaleListingGetQuery, string(id)))
 	if err != nil {
+		return toAppErr(err, "failed to read the refunded resale listing", attrs)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingRefunded, messaging.Announcement{
+		Payload: pb.FromResaleListing(&usecase.ResaleListingAt{Listing: refunded, Status: refunded.Status}),
+	}); err != nil {
 		return err
 	}
-	if current.RefundTime != nil {
-		return nil
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit resale refund", attrs)
 	}
-	return apperr.New(codes.FailedPrecondition, "the listing is not Sold", attrs)
+	return nil
 }
 
 // MarkSoldEmailSent sets the listing's sold email send time when it is unset;

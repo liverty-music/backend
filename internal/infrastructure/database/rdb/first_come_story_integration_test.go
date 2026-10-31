@@ -64,7 +64,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		Logger:                   logger,
 	})
 	s.resale = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-		Listings:   rdb.NewResaleListingRepository(testDB),
+		Listings:   rdb.NewResaleListingRepository(testDB, testOutbox),
 		Tickets:    rdb.NewTicketRepository(testDB, testOutbox),
 		Orders:     s.orderRepo,
 		Stocks:     s.stockRepo,

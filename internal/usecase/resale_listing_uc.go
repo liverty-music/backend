@@ -210,23 +210,15 @@ func (uc *resaleListingUseCase) RefundSold(ctx context.Context) error {
 	for _, l := range listings {
 		attrs := []slog.Attr{slog.String("resale_listing_id", string(l.ID)), slog.String("order_id", string(l.OrderID))}
 		now := uc.Clock()
-		if l.RefundTime == nil {
-			if l.SoldTime != nil && now.Sub(*l.SoldTime) > unrefundedListingReportAge {
-				uc.Logger.Error(ctx, LogKeyNeedsOperator, errors.New("a resold listing is still not refunded"),
-					append(attrs, slog.Time("sold_time", *l.SoldTime))...)
-			}
-			if err := uc.refund(ctx, l, now); err != nil {
-				// One failure never stops the others; the next run retries.
-				uc.Logger.Warn(ctx, "resale refund: failed to refund listing; skipping", append(attrs, slog.Any("error", err))...)
-				continue
-			}
+		if l.SoldTime != nil && now.Sub(*l.SoldTime) > unrefundedListingReportAge {
+			uc.Logger.Error(ctx, LogKeyNeedsOperator, errors.New("a resold listing is still not refunded"),
+				append(attrs, slog.Time("sold_time", *l.SoldTime))...)
 		}
-		if l.SoldEmailSendTime != nil {
-			continue
-		}
-		if err := uc.announceRefund(ctx, l); err != nil {
-			// Announced again on the next run while the email is unsent.
-			uc.Logger.Warn(ctx, "resale refund: failed to announce the refund; skipping", append(attrs, slog.Any("error", err))...)
+		// ResaleListing.RecordRefund announces the refund, which the sold
+		// email is sent from.
+		if err := uc.refund(ctx, l, now); err != nil {
+			// One failure never stops the others; the next run retries.
+			uc.Logger.Warn(ctx, "resale refund: failed to refund listing; skipping", append(attrs, slog.Any("error", err))...)
 		}
 	}
 	return nil
@@ -257,17 +249,6 @@ func (uc *resaleListingUseCase) refund(ctx context.Context, l *entity.ResaleList
 	}
 	l.RefundTime = &now
 	return nil
-}
-
-// announceRefund announces that the listing's user was refunded, so the event
-// consumer sends the sold email; the consumer is idempotent by the listing id.
-func (uc *resaleListingUseCase) announceRefund(ctx context.Context, l *entity.ResaleListing) error {
-	return uc.Publisher.PublishEvent(ctx, entity.SubjectResaleListingRefunded, entity.ResaleListingRefundedData{
-		ResaleListingID: string(l.ID),
-		UserID:          string(l.UserID),
-		OrderID:         string(l.OrderID),
-		EventID:         l.EventID,
-	})
 }
 
 // deadline reads the event and returns its resale deadline. An event without
