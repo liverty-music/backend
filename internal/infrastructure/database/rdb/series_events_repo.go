@@ -116,9 +116,8 @@ const (
 		UPDATE events SET publish_state = 'PUBLISHED' WHERE id = $1 AND publish_state = 'DRAFT'
 	`
 
-	// claimEventQuery moves the event into the series as PUBLISHED. A
-	// discovered event, which has no per-account limit, takes the draft's
-	// ($3); an event of another series of the organizer keeps its own.
+	// claimEventQuery moves a discovered event into the series as PUBLISHED.
+	// It has no per-account limit, so it takes the draft's ($3).
 	claimEventQuery = `
 		UPDATE events SET series_id = $2, publish_state = 'PUBLISHED', per_account_limit = COALESCE(per_account_limit, $3)
 		WHERE id = $1
@@ -441,8 +440,7 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	organizerID, err := lockSeriesForWrite(ctx, tx, seriesID)
-	if err != nil {
+	if _, err := lockSeriesForWrite(ctx, tx, seriesID); err != nil {
 		return nil, err
 	}
 	stored, err := lockSeriesEvents(ctx, tx, seriesID)
@@ -473,14 +471,16 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 		case holder.State != nil && *holder.State == entity.PublishStateCancelled:
 			return nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by a cancelled event",
 				slog.String("event_id", draft.ID), slog.String("holder_event_id", holder.EventID))
-		case holder.OrganizerID != nil && (organizerID == nil || *holder.OrganizerID != *organizerID):
-			return nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by another organizer's event",
-				slog.String("event_id", draft.ID), slog.String("holder_event_id", holder.EventID))
 		case holder.SeriesID == seriesID:
 			// A PUBLISHED event of this series already holds the slot.
+		case holder.OrganizerID != nil:
+			// An event of another first-party series, of any organizer, is
+			// never moved: its sales, seat types and visibility stay with its
+			// series.
+			return nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by another series' event",
+				slog.String("event_id", draft.ID), slog.String("holder_event_id", holder.EventID))
 		default:
-			// Claim a discovered event, or an event of another series of the
-			// same organizer, keeping its id (design D7).
+			// Claim a discovered event, keeping its id (design D7).
 			if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID, draft.Limit()); err != nil {
 				return nil, toAppErr(err, "failed to claim event", slog.String("event_id", holder.EventID))
 			}
