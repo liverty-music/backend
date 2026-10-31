@@ -126,7 +126,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		now:         storyWindowStart.Add(-24 * time.Hour),
 		published:   &recordingPublisher{},
 		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
-		userRepo:    rdb.NewUserRepository(testDB),
+		userRepo:    rdb.NewUserRepository(testDB, testOutbox),
 		journeyRepo: rdb.NewTicketJourneyRepository(testDB, testOutbox),
 	}
 	s.seedOrganizerEvent()

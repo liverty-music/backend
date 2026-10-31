@@ -219,7 +219,19 @@ type UserRepository interface {
 	//
 	//  - InvalidArgument: If email or name is invalid.
 	//  - AlreadyExists: If a user with the same email already exists.
+	//  - Unavailable: The announcement could not be recorded; nothing is
+	//    stored.
 	Create(ctx context.Context, params *NewUser) (*User, error)
+
+	// RecordLogin sets the user's last login time to at when it has none or
+	// an earlier one; a same or later stored time is left unchanged.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	//  - Unavailable: The announcement could not be recorded; nothing is
+	//    stored.
+	RecordLogin(ctx context.Context, id string, at time.Time) error
 
 	// Get retrieves a user by ID.
 	//

@@ -92,7 +92,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)
-	userRepo := rdb.NewUserRepository(db)
+	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
 
 	// Infrastructure - Messaging
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
@@ -286,7 +286,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// it never deletes users.
 	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, eventPublisher, emailVerifier, nil, nil,
 		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
-	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
+	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger)
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)

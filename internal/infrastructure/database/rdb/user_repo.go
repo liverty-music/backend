@@ -6,17 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // UserRepository implements entity.UserRepository interface.
 type UserRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 const (
@@ -115,11 +119,16 @@ const (
 	userDeletionLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('user:' || $1, 0))`
 	userCreateLockQuery   = `SELECT pg_advisory_xact_lock_shared(hashtextextended('user:' || $1, 0))`
 	userExistsQuery       = `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`
+	// recordLoginQuery moves the last login time forward only.
+	recordLoginQuery = `
+		UPDATE users SET last_login_at = $2
+		WHERE id = $1 AND (last_login_at IS NULL OR last_login_at < $2)
+	`
 )
 
 // NewUserRepository creates a new user repository instance.
-func NewUserRepository(db *Database) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *Database, outbox Announcer) *UserRepository {
+	return &UserRepository{db: db, outbox: outbox}
 }
 
 // nullStringFromEmpty maps Go's zero value (empty string) to a NULL
@@ -201,6 +210,11 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 
 // Create creates a new user in the database.
 // If params.Home is non-nil, the home record is inserted atomically.
+//
+// # Announces
+//
+// USER.created with the User without its full name, phone number and display
+// name, in the transaction of the insert. Nothing on AlreadyExists.
 func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params == nil {
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
@@ -277,6 +291,10 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		}
 	}
 
+	user.Home = home
+	if err := announce(ctx, r.outbox, tx, entity.SubjectUserCreated, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit transaction")
 	}
@@ -288,6 +306,50 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	user.Home = home
 	return user, nil
+}
+
+// RecordLogin sets the user's last login time to at when it has none or an
+// earlier one.
+//
+// # Announces
+//
+// USER.logged_in with the User and its new last login time, without its full
+// name, phone number and display name, in the transaction of the change.
+// Nothing when the stored time is the same or later.
+func (r *UserRepository) RecordLogin(ctx context.Context, id string, at time.Time) error {
+	attrs := []slog.Attr{slog.String("user_id", id)}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin login record", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, recordLoginQuery, id, at)
+	if err != nil {
+		return toAppErr(err, "failed to record login", attrs...)
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx, userExistsQuery, id).Scan(&exists); err != nil {
+			return toAppErr(err, "failed to read the user", attrs...)
+		}
+		if !exists {
+			return apperr.New(codes.NotFound, "user not found", attrs...)
+		}
+		return nil
+	}
+	user, err := scanUser(tx.QueryRow(ctx, getUserQuery, id))
+	if err != nil {
+		return toAppErr(err, "failed to read the signed-in user", attrs...)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectUserLoggedIn, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit login record", attrs...)
+	}
+	return nil
 }
 
 // Get retrieves a user by ID from the database.

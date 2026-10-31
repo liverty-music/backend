@@ -238,7 +238,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Repositories
-	userRepo := rdb.NewUserRepository(db)
+	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
 	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
@@ -717,7 +717,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Fan-facing PasskeyService: List (the signed-in fan's recorded passkeys).
 		func(s *connect.Server) {
 			passkeyconnect.RegisterPasskeyServiceHandler(s, rpc.NewPasskeyHandler(
-				usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger), userUC, logger))
+				usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, time.Now, logger), userUC, logger))
 		},
 	}
 

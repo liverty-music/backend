@@ -402,18 +402,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 
 	uc.logger.Info(ctx, "User created successfully", slog.String("user_id", user.ID))
 
-	if err := uc.publishEvent(ctx, entity.SubjectUserCreated, entity.UserCreatedData{
-		UserID:         user.ID,
-		ProviderUserID: user.ProviderUserID,
-		Email:          user.Email,
-		CreateTime:     time.Now(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish user.created event", err,
-			slog.String("user_id", user.ID),
-		)
-		// Non-fatal: user is already persisted.
-	}
-
+	// User.Create announced the created User (USER.created).
 	return user, nil
 }
 

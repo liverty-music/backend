@@ -15,8 +15,8 @@ import (
 const googlePasswordManagerAAGUID = "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4"
 
 func TestPasskeyRepository(t *testing.T) {
-	users := rdb.NewUserRepository(testDB)
-	repo := rdb.NewPasskeyRepository(testDB)
+	users := rdb.NewUserRepository(testDB, testOutbox)
+	repo := rdb.NewPasskeyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	newFan := func(t *testing.T) *entity.User {
@@ -33,13 +33,16 @@ func TestPasskeyRepository(t *testing.T) {
 	t.Run("Create stores a new passkey with its user, AAGUID and create time", func(t *testing.T) {
 		fan := newFan(t)
 
-		err := repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: "token-1", UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: oct1})
+		name := "Pixel"
+		err := repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: "token-1", UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: oct1, Name: &name})
 
 		require.NoError(t, err)
 		got, err := repo.ListByUser(ctx, fan.ID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "token-1", got[0].ProviderPasskeyID)
+		require.NotNil(t, got[0].Name)
+		assert.Equal(t, "Pixel", *got[0].Name)
 		assert.Equal(t, fan.ID, got[0].UserID)
 		assert.Equal(t, googlePasswordManagerAAGUID, got[0].AAGUID)
 		assert.True(t, oct1.Equal(got[0].CreateTime))

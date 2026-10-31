@@ -32,7 +32,7 @@ func newTestUserWithHome(providerUserID, email, name string) *entity.NewUser {
 }
 
 func TestUserRepository_Create(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -118,7 +118,7 @@ func TestUserRepository_Create(t *testing.T) {
 }
 
 func TestUserRepository_Get(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -189,7 +189,7 @@ func TestUserRepository_Get(t *testing.T) {
 }
 
 func TestUserRepository_GetByProviderUserID(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -243,7 +243,7 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 }
 
 func TestUserRepository_GetByEmail(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/user/get-by-email "Registered address"
@@ -307,7 +307,7 @@ func TestUserRepository_Delete(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("existing user", func(t *testing.T) {
@@ -373,7 +373,7 @@ func TestUserRepository_Delete(t *testing.T) {
 }
 
 func TestUserRepository_UpdateHome(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("creates home for user without one", func(t *testing.T) {
@@ -430,7 +430,7 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 }
 
 func TestUserRepository_CentroidRoundTrip(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("supported JP code resolves centroid on Create and persists through Get", func(t *testing.T) {
@@ -488,7 +488,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 }
 
 func TestUserRepository_PreferredLanguage(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("Create persists preferred_language", func(t *testing.T) {
@@ -627,7 +627,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 // entity fields at zero value (empty string). It SHALL fail loudly if a
 // future refactor reverts any column to a raw *string scan.
 func TestUserRepository_ScanNULLColumns(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 	cleanDatabase(t)
 
@@ -706,7 +706,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewUserRepository(testDB)
+	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("first details", func(t *testing.T) {

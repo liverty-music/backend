@@ -33,7 +33,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	users := rdb.NewUserRepository(testDB)
+	users := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cases := []struct {

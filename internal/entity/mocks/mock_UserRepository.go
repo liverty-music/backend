@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -372,6 +373,69 @@ func (_c *MockUserRepository_GetByProviderUserID_Call) Return(user *entity.User,
 }
 
 func (_c *MockUserRepository_GetByProviderUserID_Call) RunAndReturn(run func(ctx context.Context, providerUserID string) (*entity.User, error)) *MockUserRepository_GetByProviderUserID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecordLogin provides a mock function for the type MockUserRepository
+func (_mock *MockUserRepository) RecordLogin(ctx context.Context, id string, at time.Time) error {
+	ret := _mock.Called(ctx, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordLogin")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = returnFunc(ctx, id, at)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockUserRepository_RecordLogin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordLogin'
+type MockUserRepository_RecordLogin_Call struct {
+	*mock.Call
+}
+
+// RecordLogin is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - at time.Time
+func (_e *MockUserRepository_Expecter) RecordLogin(ctx any, id any, at any) *MockUserRepository_RecordLogin_Call {
+	return &MockUserRepository_RecordLogin_Call{Call: _e.mock.On("RecordLogin", ctx, id, at)}
+}
+
+func (_c *MockUserRepository_RecordLogin_Call) Run(run func(ctx context.Context, id string, at time.Time)) *MockUserRepository_RecordLogin_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_RecordLogin_Call) Return(err error) *MockUserRepository_RecordLogin_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockUserRepository_RecordLogin_Call) RunAndReturn(run func(ctx context.Context, id string, at time.Time) error) *MockUserRepository_RecordLogin_Call {
 	_c.Call.Return(run)
 	return _c
 }

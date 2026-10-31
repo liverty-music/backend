@@ -125,6 +125,12 @@ const (
 	// passkey-events webhook. The passkey change email consumer
 	// (UserUseCase.NotifyPasskeyChange) runs from it.
 	SubjectUserPasskeyChanged = "USER.passkey_changed"
+	// SubjectUserPasskeyAdded announces a Passkey that Passkey.Create stored.
+	// UserUseCase.NotifyPasskeyChange runs from it.
+	SubjectUserPasskeyAdded = "USER.passkey_added"
+	// SubjectUserPasskeyRemoved announces a Passkey that Passkey.Delete
+	// removed, as it was. UserUseCase.NotifyPasskeyChange runs from it.
+	SubjectUserPasskeyRemoved = "USER.passkey_removed"
 	// SubjectArtistHypeChanged announces that a fan set the hype level of a
 	// followed artist. FollowUseCase.SetHype publishes it on every successful
 	// set; the analytics consumer forwards it as artist.hype.changed. The name
@@ -176,6 +182,8 @@ var AllSubjects = []string{
 	SubjectResaleListingRefunded,
 	SubjectUserPasskeyRecoveryRequested,
 	SubjectUserPasskeyChanged,
+	SubjectUserPasskeyAdded,
+	SubjectUserPasskeyRemoved,
 	SubjectArtistHypeChanged,
 	SubjectLotteryEntryDrawn,
 	SubjectCheckoutExpired,

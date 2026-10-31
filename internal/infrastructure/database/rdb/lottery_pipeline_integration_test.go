@@ -139,7 +139,7 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventRepo:                rdb.NewEventRepository(testDB),
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
-		UserRepo:                 rdb.NewUserRepository(testDB),
+		UserRepo:                 rdb.NewUserRepository(testDB, testOutbox),
 		CardAuthorizations:       cardAuthorizations,
 		Publisher:                publisher,
 		Clock:                    clock,
