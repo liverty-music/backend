@@ -177,6 +177,8 @@ func (r *fakeSeriesRepo) CancelEvents(_ context.Context, _ string, _ []string) (
 
 type fakeConcertRepo struct {
 	created []*entity.Concert
+	// createErr, when set, is returned by Create, which then stores nothing.
+	createErr error
 	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,
 	// letting tests exercise series adoption and start-time fill.
 	existing map[string][]*entity.Event
@@ -276,6 +278,9 @@ func (r *fakeConcertRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Co
 }
 
 func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
 	r.created = append(r.created, concerts...)
 	ids := make([]string, 0, len(concerts))
 	for _, c := range concerts {
@@ -486,12 +491,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 	}
 
-	t.Run("auto-publishes a genuinely new concert at a resolved venue and emits CONCERT.created", func(t *testing.T) {
+	t.Run("auto-publishes a genuinely new concert at a resolved venue", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
 		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"}
-		ch, err := h.pub.Subscribe(context.Background(), "CONCERT.created")
-		require.NoError(t, err)
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
@@ -513,13 +516,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.Len(t, h.concert.created, 1)
 		assert.Empty(t, h.candidate.upserted, "a genuinely new concert must not be staged")
 		assert.Len(t, h.venue.created, 1, "venue is created only on the auto-publish path")
-
-		select {
-		case msg := <-ch:
-			assert.Contains(t, string(msg.Payload), "artist-1")
-		case <-time.After(time.Second):
-			t.Fatal("expected CONCERT.created to be published")
-		}
 	})
 
 	t.Run("mixed batch reports what it did", func(t *testing.T) {
@@ -831,13 +827,11 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 		return uc, concert, series, candidate, pub
 	}
 
-	t.Run("three-date tour produces exactly one TOUR series and one CONCERT.created", func(t *testing.T) {
+	t.Run("three-date tour produces exactly one TOUR series", func(t *testing.T) {
 		t.Parallel()
-		uc, concert, series, candidate, pub := build(t)
+		uc, concert, series, candidate, _ := build(t)
 
 		ctx := context.Background()
-		ch, err := pub.Subscribe(ctx, "CONCERT.created")
-		require.NoError(t, err)
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-tour",
@@ -873,26 +867,6 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 		// Nothing staged (all venues resolved).
 		assert.Empty(t, candidate.upserted)
-
-		// Exactly one CONCERT.created message published, carrying all three event IDs.
-		select {
-		case msg := <-ch:
-			msg.Ack()
-			var published usecase.ConcertCreatedData
-			require.NoError(t, messaging.ParseCloudEventData(msg, &published))
-			assert.Equal(t, "artist-tour", published.ArtistID)
-			assert.Len(t, published.ConcertIDs, 3,
-				"one CONCERT.created must carry all three event IDs, not one per event")
-		case <-time.After(2 * time.Second):
-			t.Fatal("expected exactly one CONCERT.created for the whole tour but got none")
-		}
-
-		// Confirm no second CONCERT.created was published.
-		select {
-		case msg := <-ch:
-			t.Fatalf("unexpected second CONCERT.created published: %s", msg.Payload)
-		case <-time.After(50 * time.Millisecond):
-		}
 	})
 }
 
@@ -938,10 +912,8 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
 
 		ctx := context.Background()
-		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
-		require.NoError(t, err)
 
-		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Event inserted under the pre-existing tour series.
@@ -955,13 +927,5 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 
 		// Concert candidate deleted.
 		assert.Empty(t, d.candidateRepo.upserted)
-
-		// CONCERT.created published.
-		select {
-		case msg := <-createdCh:
-			msg.Ack()
-		case <-time.After(2 * time.Second):
-			t.Fatal("expected CONCERT.created from Approve but got none")
-		}
 	})
 }

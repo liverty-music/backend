@@ -57,7 +57,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	reminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	userRepo := rdb.NewUserRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 
 	// Messaging
 	//

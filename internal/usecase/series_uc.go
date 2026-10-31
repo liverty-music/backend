@@ -560,8 +560,8 @@ func (uc *seriesUseCase) Publish(
 	for i, e := range targets {
 		targetIDs[i] = e.ID
 	}
-	newEventIDs, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs)
-	if err != nil {
+	// Series.PublishEvents announces the new concerts of a PUBLIC series.
+	if _, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs); err != nil {
 		return nil, nil, fmt.Errorf("publish events: %w", err)
 	}
 
@@ -580,40 +580,6 @@ func (uc *seriesUseCase) Publish(
 	published, publishedConcerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get authored after publish: %w", err)
-	}
-
-	// Announce only the events this publish added, once per performing artist
-	// (the notification consumer is keyed on one artist). Claimed events and
-	// events published before are not announced; UNLISTED series announce
-	// nothing.
-	if series.IsPublic() && len(newEventIDs) > 0 {
-		for _, artist := range entity.Performers(publishedConcerts) {
-			created := entity.ConcertCreatedData{
-				ArtistID:   artist.ID,
-				ConcertIDs: newEventIDs,
-			}
-			if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-				uc.logger.Error(ctx, "failed to publish CONCERT.created after organizer publish", err,
-					slog.String("series_id", seriesID),
-					slog.String("artist_id", artist.ID),
-					slog.Int("new_event_count", len(newEventIDs)),
-				)
-				// Non-fatal: events are persisted; notification retries next cycle.
-			}
-		}
-	}
-
-	// Always emit the organizer.concert.published analytics event.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerConcertPublished, entity.OrganizerConcertPublishedData{
-		OrganizerID:   callerOrgID,
-		SeriesID:      seriesID,
-		NewEventCount: len(newEventIDs),
-	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish ORGANIZER.concert_published event",
-			slog.String("series_id", seriesID),
-			slog.Any("error", err),
-		)
-		// Non-fatal: the events are already published.
 	}
 
 	return published, publishedConcerts, nil
@@ -675,24 +641,8 @@ func (uc *seriesUseCase) Cancel(ctx context.Context, callerOrgID, seriesID strin
 		}
 	}
 
-	cancelled, err := uc.seriesRepo.CancelEvents(ctx, seriesID, targets)
-	if err != nil {
+	if _, err := uc.seriesRepo.CancelEvents(ctx, seriesID, targets); err != nil {
 		return fmt.Errorf("cancel events: %w", err)
-	}
-
-	// Announce only the events that became CANCELLED; removed drafts were
-	// never announced, so a discarded draft announces nothing.
-	if len(cancelled) == 0 {
-		return nil
-	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCancelled, entity.ConcertCancelledData{
-		SeriesID:   seriesID,
-		ConcertIDs: cancelled,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish CONCERT.cancelled event", err,
-			slog.String("series_id", seriesID),
-		)
-		// Non-fatal: the events are already cancelled in the DB.
 	}
 	return nil
 }

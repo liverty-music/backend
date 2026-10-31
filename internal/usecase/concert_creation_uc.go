@@ -245,21 +245,8 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 		tally.published += len(ids)
 	}
 
-	// Publish ONE CONCERT.created per discovered series carrying every newly
-	// inserted event id, so a multi-date tour wakes the notification consumer
-	// once rather than per event.
+	// Concert.Create announces the new concerts of each newly listed Artist.
 	if len(insertedIDs) > 0 {
-		created := ConcertCreatedData{
-			ArtistID:   artistID,
-			ConcertIDs: insertedIDs,
-		}
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-			uc.logger.Error(ctx, "failed to publish CONCERT.created after auto-publish", err,
-				slog.String("artist_id", artistID),
-				slog.String("series_id", seriesID),
-			)
-			// Non-fatal: events are persisted; a missed notification retries next run.
-		}
 		uc.logger.Info(ctx, "auto-published new concerts for series",
 			slog.String("artist_id", artistID),
 			slog.String("series_id", seriesID),

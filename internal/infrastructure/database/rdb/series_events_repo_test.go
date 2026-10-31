@@ -32,7 +32,7 @@ func newAuthoredFixture(t *testing.T) *authoredFixture {
 	return &authoredFixture{
 		t:        t,
 		ctx:      context.Background(),
-		repo:     rdb.NewSeriesRepository(testDB),
+		repo:     rdb.NewSeriesRepository(testDB, testOutbox),
 		orgID:    seedOrganizer(t),
 		artistID: seedArtist(t, "Lifecycle Band", uuid.NewV4().String()),
 		venueID:  seedVenue(t, "Lifecycle Hall"),

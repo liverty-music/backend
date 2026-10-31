@@ -74,3 +74,28 @@ func announcedSince[T proto.Message](t *testing.T, mark int64, subject string, n
 	}
 	return out
 }
+
+// announcedAbout returns the announcements of subject recorded after mark
+// whose ce_subject is about, decoded into new Ts.
+func announcedAbout[T proto.Message](t *testing.T, mark int64, subject, about string, newT func() T) []T {
+	t.Helper()
+	rows, err := testDB.Pool.Query(context.Background(),
+		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = $2 ORDER BY "offset"`,
+		mark, subject)
+	require.NoError(t, err)
+	raws, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
+	require.NoError(t, err)
+
+	var out []T
+	for _, raw := range raws {
+		var a recordedAnnouncement
+		require.NoError(t, json.Unmarshal(raw, &a))
+		if a.Metadata["ce_subject"] != about {
+			continue
+		}
+		msg := newT()
+		require.NoError(t, proto.Unmarshal(a.Payload, msg))
+		out = append(out, msg)
+	}
+	return out
+}

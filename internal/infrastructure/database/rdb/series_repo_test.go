@@ -12,7 +12,7 @@ import (
 )
 
 func TestSeriesRepository_Create(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB)
+	repo := rdb.NewSeriesRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tour := entity.NewSeries("Eras Tour 2026", entity.SeriesTypeTour, "https://example.com/eras")
@@ -116,7 +116,7 @@ func TestSeriesRepository_Create(t *testing.T) {
 }
 
 func TestSeriesRepository_Get(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB)
+	repo := rdb.NewSeriesRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -155,7 +155,7 @@ func TestSeriesRepository_Get(t *testing.T) {
 }
 
 func TestSeriesRepository_ListByIDs(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB)
+	repo := rdb.NewSeriesRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)

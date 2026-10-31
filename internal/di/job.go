@@ -64,9 +64,9 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Repositories
 	artistRepo := rdb.NewArtistRepository(db)
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
-	concertRepo := rdb.NewConcertRepository(db)
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)

@@ -59,7 +59,7 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 	}
 
 	// Repositories
-	seriesRepo := rdb.NewSeriesRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 
 	// Infrastructure - Messaging
 	wmLogger := watermill.NewSlogLogger(logger.Slog())

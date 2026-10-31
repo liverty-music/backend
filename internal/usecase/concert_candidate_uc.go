@@ -228,20 +228,7 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 		}
 	}
 
-	// Publish CONCERT.created only for genuinely inserted events (a fill inserts
-	// nothing but still updates an existing row, which needs no new-concert event).
-	if len(insertedIDs) > 0 {
-		created := ConcertCreatedData{
-			ArtistID:   sc.ArtistID,
-			ConcertIDs: insertedIDs,
-		}
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-			uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
-				slog.String("concert_candidate_id", concertCandidateID),
-			)
-			// Non-fatal: event is persisted; notification will retry or be missed.
-		}
-	}
+	// Concert.Create announces the inserted event (CONCERT.created).
 
 	// Delete the concert candidate only after a successful publish/fill.
 	if err := uc.concertCandidateRepo.Delete(ctx, concertCandidateID); err != nil {

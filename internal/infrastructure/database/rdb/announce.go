@@ -28,3 +28,16 @@ func announce(ctx context.Context, out Announcer, tx pgx.Tx, subject string, a m
 	}
 	return nil
 }
+
+// announceAll records announcements of subject on tx, as announce does.
+// Recording none does nothing.
+func announceAll(ctx context.Context, out Announcer, tx pgx.Tx, subject string, as []messaging.Announcement) error {
+	if len(as) == 0 {
+		return nil
+	}
+	if err := out.RecordAll(ctx, tx, subject, as); err != nil {
+		return apperr.Wrap(err, codes.Unavailable, "failed to record the announcements",
+			slog.String("subject", subject), slog.Int("count", len(as)))
+	}
+	return nil
+}

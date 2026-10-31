@@ -271,11 +271,11 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 		SaleEndTime:   time.Date(2026, 10, 20, 23, 59, 0, 0, jst),
 	}}}
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
-		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
+		rdb.NewConcertRepository(testDB, testOutbox), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
 		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
 		searcher, d.pub, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
-		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
+		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, d.logger)
 
 	n, err := discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
@@ -369,7 +369,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
-		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)
@@ -451,7 +451,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		rdb.NewTicketSaleRepository(testDB), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
-		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB, testOutbox), d.pub, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)

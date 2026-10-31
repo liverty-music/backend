@@ -500,7 +500,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			after = []*entity.Event{lifecycleEvent(draftA, entity.PublishStatePublished, date, nil)}
 		}
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf(after, performers), nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerConcertPublished, mock.Anything).Return(nil).Once()
 	}
 
 	t.Run("fail with PERMISSION_DENIED for a series of another organizer", func(t *testing.T) {
@@ -538,17 +537,34 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
 		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, mock.Anything).Return(nil).Once()
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 		require.NoError(t, err)
 	})
 
+	t.Run("return the published series with its event and performers", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/publish "Published series returned"
+		d := newAuthoringDeps(t)
+		s := lifecycleSeries(entity.SeriesVisibilityPublic)
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
+			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		published(d, s, nil, artists)
+
+		gotSeries, gotConcerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, s.ID, gotSeries.ID)
+		require.Len(t, gotConcerts, 1)
+		assert.True(t, gotConcerts[0].HasPublishState(entity.PublishStatePublished))
+		assert.Equal(t, artists, gotConcerts[0].Artists)
+	})
+
 	t.Run("announce nothing when every published draft claimed a discovered event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Claims a discovered event"
-		// @spec components/usecase/series/publish "Only claimed events"
 		d := newAuthoringDeps(t)
 		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
@@ -559,7 +575,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 		require.NoError(t, err)
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectConcertCreated, mock.Anything)
 	})
 
 	for _, visibility := range []entity.SeriesVisibility{entity.SeriesVisibilityPublic, entity.SeriesVisibilityUnlisted} {
@@ -590,7 +605,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		// Series.PublishEvents no longer refuses a suppressed slot.
 		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, mock.Anything).Return(nil).Once()
 
 		_, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
@@ -614,7 +628,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 	t.Run("publish the one DRAFT date of a published tour and announce only it", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Additional date on a published tour"
-		// @spec components/usecase/series/publish "Additional date announced alone"
 		d := newAuthoringDeps(t)
 		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{
@@ -623,9 +636,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		}, artists), nil).Once()
 		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, entity.ConcertCreatedData{
-			ArtistID: authoringArtistID, ConcertIDs: []string{draftA},
-		}).Return(nil).Once()
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
@@ -643,7 +653,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		}, artists), nil).Once()
 		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftB}).Return([]string{draftB}, nil).Once()
 		published(d, s, nil, artists)
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, mock.Anything).Return(nil).Once()
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, []string{draftB})
 
@@ -665,7 +674,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 		require.NoError(t, err)
-		d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectConcertCreated, mock.Anything)
 	})
 
 	t.Run("keep the share token when a new date of an UNLISTED series is published", func(t *testing.T) {
@@ -685,27 +693,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 
 		require.NoError(t, err)
 		d.seriesRepo.AssertNotCalled(t, "SetUnlistedToken", mock.Anything, mock.Anything, mock.Anything)
-	})
-
-	t.Run("announce the added event once per performer of a PUBLIC series", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/series/publish "Two performers"
-		d := newAuthoringDeps(t)
-		s := lifecycleSeries(entity.SeriesVisibilityPublic)
-		two := []*entity.Artist{{ID: authoringArtistID}, {ID: lifecycleArtist2}}
-		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
-			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, two), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
-		published(d, s, nil, two)
-		for _, a := range two {
-			d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCreated, entity.ConcertCreatedData{
-				ArtistID: a.ID, ConcertIDs: []string{draftA},
-			}).Return(nil).Once()
-		}
-
-		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
-
-		require.NoError(t, err)
 	})
 }
 
@@ -745,9 +732,6 @@ func TestSeriesUseCase_Cancel_Lifecycle(t *testing.T) {
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(lifecycleSeries(entity.SeriesVisibilityPublic), concertsOf(eventsIn(entity.PublishStatePublished, 3), nil), nil).Once()
 		d.seriesRepo.EXPECT().CancelEvents(mock.Anything, lifecycleSeriesID, ids).Return(ids, nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCancelled, entity.ConcertCancelledData{
-			SeriesID: lifecycleSeriesID, ConcertIDs: ids,
-		}).Return(nil).Once()
 
 		require.NoError(t, d.uc.Cancel(ctx, authoringOrgID, lifecycleSeriesID, nil))
 	})
@@ -785,9 +769,6 @@ func TestSeriesUseCase_Cancel_Lifecycle(t *testing.T) {
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(lifecycleSeries(entity.SeriesVisibilityPublic), concertsOf(eventsIn(entity.PublishStatePublished, 3), nil), nil).Once()
 		d.seriesRepo.EXPECT().CancelEvents(mock.Anything, lifecycleSeriesID, []string{ids[1]}).Return([]string{ids[1]}, nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectConcertCancelled, entity.ConcertCancelledData{
-			SeriesID: lifecycleSeriesID, ConcertIDs: []string{ids[1]},
-		}).Return(nil).Once()
 
 		require.NoError(t, d.uc.Cancel(ctx, authoringOrgID, lifecycleSeriesID, []string{ids[1]}))
 	})

@@ -177,16 +177,15 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 
-	t.Run("approve inserts concert, publishes CONCERT.created, and deletes concert candidate", func(t *testing.T) {
+	t.Run("approve inserts concert and deletes concert candidate", func(t *testing.T) {
+		// @spec components/usecase/concert-candidate/approve "New concert"
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedCandidate(d, artist.ID)
 
 		ctx := context.Background()
-		sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
-		require.NoError(t, err)
 
-		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Concert was created.
@@ -206,18 +205,19 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 
 		// Concert candidate was deleted.
 		assert.Empty(t, d.candidateRepo.upserted)
+	})
 
-		// CONCERT.created was published.
-		select {
-		case msg := <-sub:
-			msg.Ack()
-			var published usecase.ConcertCreatedData
-			require.NoError(t, messaging.ParseCloudEventData(msg, &published))
-			assert.Equal(t, artist.ID, published.ArtistID)
-			assert.NotEmpty(t, published.ConcertIDs)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for CONCERT.created event")
-		}
+	t.Run("keep the concert candidate when the concert cannot be added", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Concert cannot be added"
+		d := newApprovalTestDeps(t, artist)
+		sc := seedCandidate(d, artist.ID)
+		d.concertRepo.createErr = apperr.New(codes.Unavailable, "failed to record the announcement")
+
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.NotEmpty(t, d.candidateRepo.upserted, "the concert candidate is kept")
 	})
 
 	t.Run("approve is idempotent when concert candidate is already gone", func(t *testing.T) {
@@ -369,37 +369,6 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		assert.Empty(t, d.venueRepo.created)
 		require.Len(t, d.concertRepo.created, 1)
 		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
-	})
-
-	t.Run("Approve publishes CONCERT.created when it publishes a new event", func(t *testing.T) {
-		t.Parallel()
-		// Approve reconciliation still publishes CONCERT.created for a concert
-		// candidate conflict resolved to a new event. (Discovery-time auto-publish and its
-		// CONCERT.created emission are covered by the creation use-case suite.)
-		d := newApprovalTestDeps(t, artist)
-		ctx := context.Background()
-
-		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
-		require.NoError(t, err)
-
-		sc := &entity.ConcertCandidate{
-			ID:              "candidate-approve-publish",
-			ArtistID:        artist.ID,
-			Title:           "Show",
-			ListedVenueName: "Hall X",
-			LocalDate:       time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
-
-		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-
-		select {
-		case msg := <-createdCh:
-			msg.Ack()
-		case <-time.After(2 * time.Second):
-			t.Fatal("expected CONCERT.created from Approve but got none")
-		}
 	})
 }
 

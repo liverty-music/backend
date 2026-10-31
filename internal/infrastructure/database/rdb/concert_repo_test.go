@@ -47,10 +47,10 @@ func newTestID(t *testing.T) string {
 
 func TestConcertRepository_Create(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1b49a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1b49b1"
@@ -507,10 +507,10 @@ func TestConcertRepository_Create(t *testing.T) {
 // event-management spec.
 func TestConcertRepository_CoHeadliners(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	headliner := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a1"
 	support := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a2"
@@ -571,10 +571,10 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 // scenarios.
 func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1b1"
@@ -638,10 +638,10 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 		t.Skip("skipping integration test")
 	}
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 	listedName := "Zepp Nagoya"
@@ -737,10 +737,10 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 
 func TestConcertRepository_ListByArtist(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	cleanDatabase(t)
 
@@ -1003,10 +1003,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 
 func TestConcertRepository_ListByArtists(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	t.Run("returns concerts for multiple artists with coordinates", func(t *testing.T) {
 		cleanDatabase(t)
@@ -1108,10 +1108,10 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 
 func TestConcertRepository_ListByFollower(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	// epoch is an explicit far-past lower bound so these follower/coordinate
 	// assertions stay independent of CURRENT_DATE (the default when from is nil).
@@ -1411,10 +1411,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 func TestConcertRepository_List(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
 
@@ -1465,10 +1465,10 @@ func TestConcertRepository_List(t *testing.T) {
 
 func TestConcertRepository_Delete(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-10-10")
 
@@ -1546,10 +1546,10 @@ func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
 
 func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	t.Run("overwrites listed_venue_name on an existing event", func(t *testing.T) {
 		cleanDatabase(t)
@@ -1593,10 +1593,10 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 
 func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	// @spec components/entity/concert/list-events-by-series "Two events, one after the other"
 	t.Run("events are ordered by date then start time, NULLs last", func(t *testing.T) {

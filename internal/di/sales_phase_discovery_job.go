@@ -63,7 +63,7 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 
 	// Repositories
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
-	concertRepo := rdb.NewConcertRepository(db)
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	artistRepo := rdb.NewArtistRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
 	ticketSaleSearchRepo := rdb.NewTicketSaleSearchRepository(db)

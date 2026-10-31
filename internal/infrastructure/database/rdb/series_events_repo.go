@@ -429,6 +429,13 @@ func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*e
 
 // PublishEvents publishes the given DRAFT events of a first-party series in a
 // single transaction.
+//
+// # Announces
+//
+// CONCERT.created once per performing Artist, carrying the Concerts made
+// PUBLISHED in place at which it performs, with the Artist id as ce_subject,
+// in the transaction of the publish, when the series is PUBLIC. Nothing for
+// claimed events, events published before, an UNLISTED series or a failure.
 func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, eventIDs []string) ([]string, error) {
 	if len(eventIDs) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "at least one event must be given to publish")
@@ -496,10 +503,46 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 	if _, err := tx.Exec(ctx, dropConcertCandidatesBySeriesQuery, seriesID); err != nil {
 		return nil, toAppErr(err, "failed to drop concert candidates for series")
 	}
+	if err := r.announcePublished(ctx, tx, seriesID, published); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit publish transaction")
 	}
 	return published, nil
+}
+
+// announcePublished records CONCERT.created, once per performing Artist, for
+// the events made PUBLISHED in place, when the series is PUBLIC.
+func (r *SeriesRepository) announcePublished(ctx context.Context, tx pgx.Tx, seriesID string, published []string) error {
+	if len(published) == 0 {
+		return nil
+	}
+	var visibility *string
+	if err := tx.QueryRow(ctx, seriesVisibilityQuery, seriesID).Scan(&visibility); err != nil {
+		return toAppErr(err, "failed to read the series visibility", slog.String("series_id", seriesID))
+	}
+	if visibility == nil || entity.SeriesVisibility(*visibility) != entity.SeriesVisibilityPublic {
+		return nil
+	}
+	rows, err := tx.Query(ctx, performersOfEventsQuery, published)
+	if err != nil {
+		return toAppErr(err, "failed to read the performers of the published events", slog.String("series_id", seriesID))
+	}
+	byArtist := map[string][]string{}
+	for rows.Next() {
+		var artistID, eventID string
+		if err := rows.Scan(&artistID, &eventID); err != nil {
+			rows.Close()
+			return toAppErr(err, "failed to scan a performer of a published event")
+		}
+		byArtist[artistID] = append(byArtist[artistID], eventID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return toAppErr(err, "failed to read the performers of the published events")
+	}
+	return announceNewConcerts(ctx, r.outbox, tx, byArtist)
 }
 
 // CancelEvents cancels the given events of a first-party series in a single

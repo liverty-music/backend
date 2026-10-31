@@ -33,7 +33,7 @@ func newVisibilityFixture(t *testing.T) *visibilityFixture {
 	return &visibilityFixture{
 		t:     t,
 		ctx:   context.Background(),
-		repo:  rdb.NewConcertRepository(testDB),
+		repo:  rdb.NewConcertRepository(testDB, testOutbox),
 		orgID: seedOrganizer(t),
 		today: time.Now().UTC().Truncate(24 * time.Hour),
 	}

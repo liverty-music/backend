@@ -87,7 +87,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Repositories
 	artistRepo := rdb.NewArtistRepository(db)
-	concertRepo := rdb.NewConcertRepository(db)
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
@@ -180,7 +180,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
 	// Infrastructure - PostHog analytics client (optional, nil in local dev).
 	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)

@@ -83,7 +83,7 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	require.NoError(t, err)
 
 	clock := usecase.Clock(time.Now)
-	seriesRepo := rdb.NewSeriesRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 	eventRepo := rdb.NewEventRepository(testDB)
 	stockRepo := rdb.NewTicketStockRepository(testDB)
 	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
@@ -229,6 +229,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		// event then stays draft, nothing is announced, and the steps that
 		// need a published event stay closed.
 		s := newConsoleStory(t)
+		mark := outboxMark(t)
 		seriesID, eventID := s.draftConcert()
 		seatType, err := s.seatTypes.Create(s.ctx, s.orgID, seriesID, "S席", 8000)
 		require.NoError(t, err)
@@ -236,7 +237,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		event := s.authoredEvent(eventID)
 		require.NotNil(t, event.PublishState)
 		assert.Equal(t, entity.PublishStateDraft, *event.PublishState)
-		assert.Empty(t, s.publisher.take(entity.SubjectConcertCreated), "no follower is notified")
+		assert.Empty(t, concertsAnnouncedFor(t, mark, s.artistID), "no follower is notified")
 
 		// A draft event may be stocked, but no sale opens on it.
 		_, err = s.stocks.Create(s.ctx, s.orgID, eventID, seatType.ID, 100)

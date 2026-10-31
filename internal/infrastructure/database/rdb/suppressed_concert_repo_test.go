@@ -78,7 +78,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewConcertRepository(testDB)
+	repo := rdb.NewConcertRepository(testDB, testOutbox)
 	suppressedRepo := rdb.NewSuppressedConcertRepository(testDB)
 	ctx := context.Background()
 	localDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)

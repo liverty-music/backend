@@ -16,15 +16,16 @@ import (
 
 // SeriesRepository implements [entity.SeriesRepository] for PostgreSQL.
 type SeriesRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
 var _ entity.SeriesRepository = (*SeriesRepository)(nil)
 
 // NewSeriesRepository creates a new series repository instance.
-func NewSeriesRepository(db *Database) *SeriesRepository {
-	return &SeriesRepository{db: db}
+func NewSeriesRepository(db *Database, outbox Announcer) *SeriesRepository {
+	return &SeriesRepository{db: db, outbox: outbox}
 }
 
 const (
