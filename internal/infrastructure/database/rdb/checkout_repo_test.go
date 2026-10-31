@@ -242,7 +242,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		// A Completed checkout's tickets count as its Paid Order's Issued
 		// tickets only.
 		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
-		c := completedCheckoutOf(t, repo, rdb.NewIssuanceRepository(testDB), f, nextFan(t), 2, at)
+		c := completedCheckoutOf(t, repo, rdb.NewIssuanceRepository(testDB, testOutbox), f, nextFan(t), 2, at)
 
 		_, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, c.Order.UserID, 2, nil, at)
 
@@ -297,7 +297,7 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 	}
 	cleanDatabase(t)
 	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
-	issuance := rdb.NewIssuanceRepository(testDB)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 	ctx := context.Background()
 	start := saleWindowStart.Add(time.Hour)
 	expiry := start.Add(15 * time.Minute)

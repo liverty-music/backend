@@ -247,7 +247,7 @@ func TestOrderRepository_GetByCheckoutID(t *testing.T) {
 	ctx := context.Background()
 	repo := rdb.NewOrderRepository(testDB)
 	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
-	issuance := rdb.NewIssuanceRepository(testDB)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 	start := saleWindowStart.Add(time.Hour)
 
 	t.Run("paid checkout", func(t *testing.T) {

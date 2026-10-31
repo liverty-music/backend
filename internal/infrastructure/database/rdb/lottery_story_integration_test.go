@@ -151,7 +151,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
 	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, s.published, clock, logger))
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
+		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
 		EntryRepo:                entryRepo,
 		EventOrganizerRepo:       eventOrganizerRepo,

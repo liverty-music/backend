@@ -258,7 +258,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), payments.orders)
 	ticketRepo := rdb.NewTicketRepository(db, newOutbox(logger))
-	issuanceRepo := rdb.NewIssuanceRepository(db)
+	issuanceRepo := rdb.NewIssuanceRepository(db, newOutbox(logger))
 	settlementRepo := repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payments.settlements)
 	refundRepo := rdb.NewRefundRepository(db)
 	payoutAccountRepo := repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(db), payments.payoutAccounts)

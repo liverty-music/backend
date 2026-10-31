@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -329,71 +328,29 @@ func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
 	return nil
 }
 
-// FulfillPayment implements [OrderUseCase].
+// FulfillPayment implements [OrderUseCase]. Order.Issue announces the
+// issued Order as paid (ORDER.paid); a charge reported again finds the Order
+// Paid and announces nothing.
 func (uc *orderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID string) error {
-	paid, err := uc.fulfill(ctx, cardAuthorizationID)
-	if err != nil || paid == nil {
-		return err
-	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrderPaid, paid); err != nil {
-		return fmt.Errorf("announce order %s as paid: %w", paid.OrderID, err)
-	}
-	uc.logger.Info(ctx, "order announced as paid",
-		slog.String("order_id", paid.OrderID),
-		slog.String("card_authorization_id", cardAuthorizationID),
-	)
-	return nil
-}
-
-// fulfill issues, or finds, the Paid Order of the charge's source and returns
-// its announcement; nil when the charge has no source here.
-func (uc *orderUseCase) fulfill(ctx context.Context, cardAuthorizationID string) (*entity.OrderPaidData, error) {
-	var order *entity.Order
 	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
 	switch {
 	case err == nil:
-		if order, err = uc.IssueFromCheckout(ctx, checkout.ID, nil); err != nil {
-			return nil, err
-		}
+		_, err = uc.IssueFromCheckout(ctx, checkout.ID, nil)
+		return err
 	case !errors.Is(err, apperr.ErrNotFound):
-		return nil, err
-	default:
-		entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
-		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
-				slog.String("card_authorization_id", cardAuthorizationID))
-			return nil, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		if order, err = uc.IssueFromCapturedWin(ctx, entry.ID); err != nil {
-			return nil, err
-		}
+		return err
 	}
-	eventID, err := uc.orderRepo.GetEventID(ctx, order.ID)
+	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
+			slog.String("card_authorization_id", cardAuthorizationID))
+		return nil
+	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return orderPaid(order, eventID), nil
-}
-
-// orderPaid builds the ORDER.paid payload of a Paid Order.
-func orderPaid(order *entity.Order, eventID string) *entity.OrderPaidData {
-	paid := &entity.OrderPaidData{
-		OrderID:        string(order.ID),
-		UserID:         string(order.UserID),
-		EventID:        eventID,
-		TicketCount:    order.TicketCount,
-		Amount:         order.Amount,
-		Currency:       order.Currency,
-		LotteryEntryID: string(order.LotteryEntryID),
-		CheckoutID:     string(order.CheckoutID),
-	}
-	if order.PayTime != nil {
-		paid.PayTime = *order.PayTime
-	}
-	return paid
+	_, err = uc.IssueFromCapturedWin(ctx, entry.ID)
+	return err
 }
 
 // capturedPayment reads the payment a Captured CardAuthorization took, for the

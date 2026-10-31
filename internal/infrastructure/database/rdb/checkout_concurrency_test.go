@@ -53,7 +53,7 @@ func newCheckoutIssuance(t *testing.T, cardAuthorizations *countingCardAuthoriza
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
+		IssuanceRepo:       rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:          orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
 		OrganizerRepo:      rdb.NewOrganizerRepository(testDB, testOutbox),
