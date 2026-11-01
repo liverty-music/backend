@@ -170,8 +170,15 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 
 	t.Run("gone browser already removed", func(t *testing.T) {
 		// @spec components/entity/push-subscription/delete-gone "Already removed"
-		fan := newFan(t)
+		fan, kept := newFan(t), newEndpoint()
+		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: kept, P256dh: "k1", Auth: "a1"}))
+		mark := outboxMark(t)
 
-		assert.NoError(t, repo.DeleteGone(ctx, fan, newEndpoint()))
+		require.NoError(t, repo.DeleteGone(ctx, fan, newEndpoint()))
+
+		_, n := stored(t, kept)
+		assert.Equal(t, 1, n, "the fan's registered browser is unchanged")
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectNotificationUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 }
