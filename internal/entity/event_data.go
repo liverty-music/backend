@@ -74,10 +74,9 @@ const (
 	SubjectOrderPaid = "ORDER.paid"
 	// SubjectResaleListingRefunded announces that the user of a resold
 	// ResaleListing was refunded from the listing's Order's charge.
-	// ResaleListingUseCase.RefundSold publishes it, and again on later runs
-	// while the sold email is unsent; the consumer is idempotent by the
-	// listing id. The
-	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
+	// ResaleListing.RecordRefund announces it once, with the refund; the
+	// consumer is idempotent by the listing id and waits out an unavailable
+	// mail service. The sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
 	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
 	// SubjectUserPasskeyAdded announces a Passkey that Passkey.Create stored.
 	// UserUseCase.NotifyPasskeyChange runs from it.

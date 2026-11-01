@@ -58,9 +58,8 @@ type ResaleListingUseCase interface {
 	List(ctx context.Context, userID entity.UserID) ([]*ResaleListingAt, error)
 
 	// RefundSold refunds the user of every Sold listing its refund amount and
-	// then announces the refund (ORDER.resale_listing_refunded), again on
-	// every run while the sold email is unsent. One listing's failure never stops the
-	// others; it is tried again on the next run. A listing left unrefunded
+	// records the refund, which announces it (ORDER.resale_listing_refunded).
+	// One listing's failure never stops the others; it is tried again on the next run. A listing left unrefunded
 	// for more than 10 minutes after its sale is reported as needing an admin
 	// on every run.
 	//
