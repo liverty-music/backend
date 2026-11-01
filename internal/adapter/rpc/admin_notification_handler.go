@@ -6,7 +6,7 @@ import (
 	adminnotificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
 	adminnotificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/notification/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
@@ -47,7 +47,7 @@ func NewAdminNotificationHandler(
 // belong to the artist; otherwise the whole request fails with
 // InvalidArgument (no partial delivery).
 func (h *AdminNotificationHandler) NotifyNewConcerts(ctx context.Context, req *adminnotificationv1.NotifyNewConcertsRequest) (*adminnotificationv1.NotifyNewConcertsResponse, error) {
-	if _, err := mapper.GetExternalUserID(ctx); err != nil {
+	if _, err := pb.GetExternalUserID(ctx); err != nil {
 		return nil, err
 	}
 	if h.isProduction {

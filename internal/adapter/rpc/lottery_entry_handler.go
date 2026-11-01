@@ -9,7 +9,7 @@ import (
 	lotteryentryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/lottery_entry/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -42,7 +42,7 @@ func NewLotteryEntryHandler(
 // with Unauthenticated without a sign-in and NotFound without a stored
 // account.
 func callerUserID(ctx context.Context, userUC usecase.UserUseCase) (entity.UserID, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +68,7 @@ func (h *LotteryEntryHandler) AuthorizeCard(
 	authorization, err := h.lotteryEntryUC.AuthorizeCard(ctx, entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
 		entity.TicketStockID(req.GetTicketStockId().GetValue()), userID,
 		int(req.GetTicketCount()), req.GetFullName().GetValue(), req.GetPhoneNumber().GetValue(),
-		mapper.ReferralCodeFromProto(req.GetReferralCode()))
+		pb.ToReferralCode(req.GetReferralCode()))
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (h *LotteryEntryHandler) Confirm(
 	if err != nil {
 		return nil, err
 	}
-	return &lotteryentryv1.ConfirmResponse{LotteryEntry: mapper.LotteryEntryToProto(entry), Order: mapper.OrderToProto(entry.Order)}, nil
+	return &lotteryentryv1.ConfirmResponse{LotteryEntry: pb.FromLotteryEntry(entry), Order: pb.FromOrder(entry.Order)}, nil
 }
 
 // ListByTicketSale returns the caller's entries in a lottery sale, newest
@@ -112,9 +112,9 @@ func (h *LotteryEntryHandler) ListByTicketSale(
 	}
 	orders := make([]*entityv1.Order, 0, len(entries))
 	for _, e := range entries {
-		if o := mapper.OrderToProto(e.Order); o != nil {
+		if o := pb.FromOrder(e.Order); o != nil {
 			orders = append(orders, o)
 		}
 	}
-	return &lotteryentryv1.ListByTicketSaleResponse{LotteryEntries: mapper.LotteryEntriesToProto(entries), Orders: orders}, nil
+	return &lotteryentryv1.ListByTicketSaleResponse{LotteryEntries: pb.FromLotteryEntries(entries), Orders: orders}, nil
 }

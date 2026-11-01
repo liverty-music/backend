@@ -7,7 +7,7 @@ import (
 	passkeyv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/passkey/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -39,5 +39,5 @@ func (h *PasskeyHandler) List(ctx context.Context, _ *passkeyv1.ListRequest) (*p
 	if err != nil {
 		return nil, err
 	}
-	return &passkeyv1.ListResponse{Passkeys: mapper.PasskeysToProto(passkeys)}, nil
+	return &passkeyv1.ListResponse{Passkeys: pb.FromPasskeys(passkeys)}, nil
 }

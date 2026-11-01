@@ -5,7 +5,7 @@ import (
 
 	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -38,7 +38,7 @@ func (h *AdminArtistHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return &adminartistv1.GetResponse{Artist: mapper.ArtistToProto(artist)}, nil
+	return &adminartistv1.GetResponse{Artist: pb.FromArtist(artist)}, nil
 }
 
 // ListByOrganizer returns the Artists the named Organizer represents, whatever
@@ -51,5 +51,5 @@ func (h *AdminArtistHandler) ListByOrganizer(
 	if err != nil {
 		return nil, err
 	}
-	return &adminartistv1.ListByOrganizerResponse{Artists: mapper.ArtistsToProto(artists)}, nil
+	return &adminartistv1.ListByOrganizerResponse{Artists: pb.FromArtists(artists)}, nil
 }

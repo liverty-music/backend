@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -60,11 +60,11 @@ func (h *OrganizerTicketSaleHandler) Create(
 		return nil, err
 	}
 
-	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req))
+	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, pb.CreateTicketSaleInputFromProto(req))
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
+	return &ticketsalev1.CreateResponse{TicketSale: pb.FromTicketSale(sale)}, nil
 }
 
 // ListByEvent returns the sales of one of the caller's events with their
@@ -84,9 +84,9 @@ func (h *OrganizerTicketSaleHandler) ListByEvent(
 		return nil, err
 	}
 	return &ticketsalev1.ListByEventResponse{
-		TicketSales:       mapper.TicketSalesToProto(sales.Sales),
-		LotteryEntryStats: mapper.LotteryEntryStatsToProto(sales.LotteryEntryStats),
-		ReferralCodeStats: mapper.ReferralCodeStatsToProto(sales.ReferralCodeStats),
+		TicketSales:       pb.FromTicketSales(sales.Sales),
+		LotteryEntryStats: pb.FromLotteryEntryStats(sales.LotteryEntryStats),
+		ReferralCodeStats: pb.FromReferralCodeStats(sales.ReferralCodeStats),
 	}, nil
 }
 
@@ -106,7 +106,7 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
+	return &ticketsalev1.SetWindowResponse{TicketSale: pb.FromTicketSale(sale)}, nil
 }
 
 // SetVerificationRequirement changes whether fans taking part in one of the
@@ -122,9 +122,9 @@ func (h *OrganizerTicketSaleHandler) SetVerificationRequirement(
 
 	sale, err := h.ticketSaleUC.SetVerificationRequirement(ctx, organizer.ID,
 		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
-		mapper.VerificationRequirementFromProto(req.GetVerificationRequirement()))
+		pb.ToVerificationRequirement(req.GetVerificationRequirement()))
 	if err != nil {
 		return nil, err
 	}
-	return &ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(sale)}, nil
+	return &ticketsalev1.SetVerificationRequirementResponse{TicketSale: pb.FromTicketSale(sale)}, nil
 }

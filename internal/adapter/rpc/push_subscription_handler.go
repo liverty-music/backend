@@ -8,7 +8,7 @@ import (
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/push_subscription/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -56,7 +56,7 @@ func (h *PushSubscriptionHandler) Create(ctx context.Context, req *rpc.CreateReq
 	p256dh := req.GetKeys().GetP256Dh()
 	auth := req.GetKeys().GetAuth()
 
-	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth, mapper.DeviceTypeFromEndpoint(endpoint))
+	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth, pb.DeviceTypeFromEndpoint(endpoint))
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *rpc.DeleteReq
 	}
 	endpoint := req.GetEndpoint().GetValue()
 
-	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint, mapper.DeviceTypeFromEndpoint(endpoint)); err != nil {
+	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint, pb.DeviceTypeFromEndpoint(endpoint)); err != nil {
 		return nil, err
 	}
 
@@ -117,7 +117,7 @@ func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *rpc.DeleteReq
 // resolveCallerUser extracts the provider_user_id from JWT claims and resolves the
 // internal user record for the caller.
 func (h *PushSubscriptionHandler) resolveCallerUser(ctx context.Context) (*entity.User, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@
 // serves with an Event page (/events/:id), so social networks and messengers
 // can show a preview card without running the app's scripts.
 //
-// It mirrors internal/adapter/rpc with its mapper: the handler only calls
+// It mirrors internal/adapter/rpc with its pb conversions: the handler only calls
 // usecases and maps entities to an output format, which is an HTML tag block
 // here instead of proto.
 package linkpreview
@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
 )
@@ -59,12 +59,12 @@ type Tags struct {
 // TagBuilder turns a Concert and its Series' Concerts into preview Tags.
 type TagBuilder struct {
 	siteBaseURL string
-	imageURLs   *mapper.SeriesImageURLBuilder
+	imageURLs   *pb.SeriesImageURLBuilder
 }
 
 // NewTagBuilder creates a TagBuilder. siteBaseURL is the fan web origin
 // (e.g. "https://liverty-music.app"); imageURLs composes the cover image URL.
-func NewTagBuilder(siteBaseURL string, imageURLs *mapper.SeriesImageURLBuilder) *TagBuilder {
+func NewTagBuilder(siteBaseURL string, imageURLs *pb.SeriesImageURLBuilder) *TagBuilder {
 	return &TagBuilder{
 		siteBaseURL: strings.TrimRight(siteBaseURL, "/"),
 		imageURLs:   imageURLs,

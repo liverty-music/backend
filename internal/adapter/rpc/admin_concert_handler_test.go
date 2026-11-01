@@ -9,8 +9,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"connectrpc.com/connect/v2"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -39,7 +39,7 @@ func newAdminConcertHandler(
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewAdminConcertHandler(adminUC, mapper.NewSeriesImageURLBuilder(""), logger)
+	return handler.NewAdminConcertHandler(adminUC, pb.NewSeriesImageURLBuilder(""), logger)
 }
 
 // ---------- List ----------

@@ -3,9 +3,9 @@ package rpc
 import (
 	"context"
 
-	pb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -35,9 +35,9 @@ func (h *ArtistHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.List
 		return nil, err
 	}
 
-	var protoArtists []*pb.Artist
+	var protoArtists []*entityv1.Artist
 	for _, a := range artists {
-		protoArtists = append(protoArtists, mapper.ArtistToProto(a))
+		protoArtists = append(protoArtists, pb.FromArtist(a))
 	}
 
 	return &rpc.ListResponse{
@@ -59,7 +59,7 @@ func (h *ArtistHandler) Create(ctx context.Context, req *rpc.CreateRequest) (*rp
 	}
 
 	return &rpc.CreateResponse{
-		Artist: mapper.ArtistToProto(created),
+		Artist: pb.FromArtist(created),
 	}, nil
 }
 
@@ -71,7 +71,7 @@ func (h *ArtistHandler) Search(ctx context.Context, req *rpc.SearchRequest) (*rp
 	}
 
 	return &rpc.SearchResponse{
-		Artists: mapper.ArtistsToProto(artists),
+		Artists: pb.FromArtists(artists),
 	}, nil
 }
 
@@ -83,7 +83,7 @@ func (h *ArtistHandler) ListSimilar(ctx context.Context, req *rpc.ListSimilarReq
 	}
 
 	return &rpc.ListSimilarResponse{
-		Artists: mapper.ArtistsToProto(artists),
+		Artists: pb.FromArtists(artists),
 	}, nil
 }
 
@@ -95,6 +95,6 @@ func (h *ArtistHandler) ListTop(ctx context.Context, req *rpc.ListTopRequest) (*
 	}
 
 	return &rpc.ListTopResponse{
-		Artists: mapper.ArtistsToProto(artists),
+		Artists: pb.FromArtists(artists),
 	}, nil
 }

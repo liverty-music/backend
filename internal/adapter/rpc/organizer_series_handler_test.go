@@ -13,8 +13,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -46,7 +46,7 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	d.handler = rpc.NewOrganizerSeriesHandler(
 		d.seriesUC,
 		d.organizerUC,
-		mapper.NewSeriesImageURLBuilder("https://cdn.example.com"),
+		pb.NewSeriesImageURLBuilder("https://cdn.example.com"),
 		logger,
 	)
 	return d

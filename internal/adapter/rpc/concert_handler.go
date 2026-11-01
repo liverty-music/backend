@@ -5,7 +5,7 @@ import (
 	"context"
 
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -15,7 +15,7 @@ import (
 type ConcertHandler struct {
 	concertUseCase        usecase.ConcertUseCase
 	userRepo              entity.UserRepository
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder
 	logger                *logging.Logger
 }
 
@@ -24,7 +24,7 @@ type ConcertHandler struct {
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
 	userRepo entity.UserRepository,
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
@@ -44,9 +44,9 @@ func (h *ConcertHandler) Get(ctx context.Context, req *concertv1.GetRequest) (*c
 	}
 
 	return &concertv1.GetResponse{
-		Concert: mapper.ConcertToProto(concert),
+		Concert: pb.FromConcert(concert),
 		Series:  h.seriesImageURLBuilder.ReferencedSeries([]*entity.Concert{concert}),
-		Artists: mapper.ReferencedArtists([]*entity.Concert{concert}),
+		Artists: pb.ReferencedArtists([]*entity.Concert{concert}),
 	}, nil
 }
 
@@ -59,9 +59,9 @@ func (h *ConcertHandler) ListBySeries(ctx context.Context, req *concertv1.ListBy
 	}
 
 	return &concertv1.ListBySeriesResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Concerts: pb.FromConcerts(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -74,9 +74,9 @@ func (h *ConcertHandler) ListByArtist(ctx context.Context, req *concertv1.ListBy
 	}
 
 	return &concertv1.ListByArtistResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Concerts: pb.FromConcerts(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -84,7 +84,7 @@ func (h *ConcertHandler) ListByArtist(ctx context.Context, req *concertv1.ListBy
 // grouped by date and classified into proximity lanes around the fan's stored
 // home. The request names no fan and no home.
 func (h *ConcertHandler) ListFollowed(ctx context.Context, req *concertv1.ListFollowedRequest) (*concertv1.ListFollowedResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -97,18 +97,18 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *concertv1.ListFo
 	// Optional lower bound. A nil from (field omitted) defaults to today-onward
 	// via the repository's COALESCE(..., CURRENT_DATE); a client-supplied date
 	// widens the window into the past.
-	from := mapper.DateToTimePtr(req.GetFrom().GetValue())
+	from := pb.DateToTimePtr(req.GetFrom().GetValue())
 
 	groups, err := h.concertUseCase.ListFollowed(ctx, user.ID, user.Home, from)
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.ConcertsOfGroups(groups)
+	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListFollowedResponse{
-		Groups:  mapper.ProximityGroupsToProto(groups),
+		Groups:  pb.FromProximityGroups(groups),
 		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists: mapper.ReferencedArtists(concerts),
+		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -122,18 +122,18 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *concertv1.ListB
 		artistIDs = append(artistIDs, id.GetValue())
 	}
 
-	home := mapper.ProtoHomeToEntity(req.GetHome())
+	home := pb.ToHome(req.GetHome())
 
 	groups, err := h.concertUseCase.ListByArtists(ctx, artistIDs, home)
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.ConcertsOfGroups(groups)
+	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListByArtistsResponse{
-		Groups:  mapper.ProximityGroupsToProto(groups),
+		Groups:  pb.FromProximityGroups(groups),
 		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists: mapper.ReferencedArtists(concerts),
+		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -141,19 +141,19 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *concertv1.ListB
 // date range, grouped by date and classified by proximity (HOME/NEARBY only).
 // Authentication is not required.
 func (h *ConcertHandler) ListByLocation(ctx context.Context, req *concertv1.ListByLocationRequest) (*concertv1.ListByLocationResponse, error) {
-	location := mapper.ProtoGeoLocationToEntity(req.GetLocation())
-	from := mapper.DateToTime(req.GetFrom().GetValue())
-	to := mapper.DateToTime(req.GetTo().GetValue())
+	location := pb.ToGeoLocation(req.GetLocation())
+	from := pb.DateToTime(req.GetFrom().GetValue())
+	to := pb.DateToTime(req.GetTo().GetValue())
 
 	groups, err := h.concertUseCase.ListByLocation(ctx, location, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	concerts := mapper.ConcertsOfGroups(groups)
+	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListByLocationResponse{
-		Groups:  mapper.ProximityGroupsToProto(groups),
+		Groups:  pb.FromProximityGroups(groups),
 		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists: mapper.ReferencedArtists(concerts),
+		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }

@@ -99,7 +99,7 @@ See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-pr
 
 ## Review criteria (flag violations; quote the rule + link the existing code compared against)
 
-- Handlers in `internal/adapter/rpc/` only map Proto↔Entity (via `mapper/`) and call a UseCase — no business logic or repo access (cf. `follow_handler.go`).
+- Handlers in `internal/adapter/rpc/` only map Proto↔Entity (via `internal/adapter/pb`) and call a UseCase — no business logic or repo access (cf. `follow_handler.go`).
 - Errors crossing a layer carry an apperr code: repos via `toAppErr` (`rdb/errors.go`), external via `api.FromHTTP`. A bare `fmt.Errorf` across a boundary is a violation.
 - A new handler MUST be registered in `internal/di/provider.go` in the correct list (admin vs consumer).
 - Interfaces are defined where consumed (`internal/entity/`, `internal/usecase/`); impls in `infrastructure/`/`adapter/`.

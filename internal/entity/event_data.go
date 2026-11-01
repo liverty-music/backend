@@ -439,7 +439,7 @@ type NotificationUnsubscribedData struct {
 	// DeviceType is the browser/OS family derived from the push endpoint
 	// host. Values: "android" (FCM), "apple" (Web Push for Safari), "firefox"
 	// (Mozilla autopush), "windows" (WNS), "other". See
-	// mapper.DeviceTypeFromEndpoint (internal/adapter/rpc/mapper), which
+	// pb.DeviceTypeFromEndpoint (internal/adapter/pb), which
 	// classifies the endpoint at subscription-registration time.
 	DeviceType string `json:"device_type"`
 	// UnsubscribeTime is when the subscription was removed (the use case's

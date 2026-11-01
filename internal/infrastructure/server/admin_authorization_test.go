@@ -13,8 +13,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
@@ -60,7 +60,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 			artistv1connect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
 		func(s *connect.Server) {
-			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, mapper.NewSeriesImageURLBuilder(""), logger))
+			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, pb.NewSeriesImageURLBuilder(""), logger))
 		},
 	}
 

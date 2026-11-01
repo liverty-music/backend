@@ -6,7 +6,7 @@ import (
 	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/v1/organizerv1connect"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -54,7 +54,7 @@ func (h *OrganizerHandler) Get(
 		return nil, err
 	}
 	return &organizerv1.GetResponse{
-		Organizer: mapper.OrganizerToProto(organizer),
+		Organizer: pb.FromOrganizer(organizer),
 	}, nil
 }
 

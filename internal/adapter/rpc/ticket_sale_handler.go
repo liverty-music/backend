@@ -7,7 +7,7 @@ import (
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_sale/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -39,9 +39,9 @@ func (h *TicketSaleHandler) ListByEvent(
 	if err != nil {
 		return nil, err
 	}
-	stocks, seatTypes := mapper.FanTicketStocksToProto(sales.Stocks)
+	stocks, seatTypes := pb.FromFanTicketStocks(sales.Stocks)
 	resp := &ticketsalev1.ListByEventResponse{
-		TicketSales:  mapper.TicketSalesToProto(sales.Sales),
+		TicketSales:  pb.FromTicketSales(sales.Sales),
 		TicketStocks: stocks,
 		SeatTypes:    seatTypes,
 	}

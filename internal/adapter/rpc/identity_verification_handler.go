@@ -8,7 +8,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	identityverificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity_verification/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -59,7 +59,7 @@ func (h *IdentityVerificationHandler) Start(
 		return nil, err
 	}
 
-	method := mapper.VerificationMethodFromProto(req.GetMethod())
+	method := pb.ToVerificationMethod(req.GetMethod())
 	if method == entity.VerificationMethodUnspecified {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "method must be specified")
 	}
@@ -101,7 +101,7 @@ func (h *IdentityVerificationHandler) Create(
 	}
 
 	return &identityverificationv1.CreateResponse{
-		IdentityVerification: mapper.IdentityVerificationToProto(identityVerification),
+		IdentityVerification: pb.FromIdentityVerification(identityVerification),
 	}, nil
 }
 
@@ -132,7 +132,7 @@ func (h *IdentityVerificationHandler) Recheck(
 	}
 
 	return &identityverificationv1.RecheckResponse{
-		Status: mapper.VerificationStatusToProto(identityVerification.Status),
+		Status: pb.FromVerificationStatus(identityVerification.Status),
 	}, nil
 }
 
@@ -155,14 +155,14 @@ func (h *IdentityVerificationHandler) Get(
 		return nil, err
 	}
 
-	return &identityverificationv1.GetResponse{IdentityVerification: mapper.IdentityVerificationToProto(identityVerification)}, nil
+	return &identityverificationv1.GetResponse{IdentityVerification: pb.FromIdentityVerification(identityVerification)}, nil
 }
 
 // resolveCallerUserID extracts the external user ID from the JWT context,
 // resolves it to the caller's internal user, and returns its id. A caller
 // without an account fails with Unauthenticated.
 func (h *IdentityVerificationHandler) resolveCallerUserID(ctx context.Context) (string, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}

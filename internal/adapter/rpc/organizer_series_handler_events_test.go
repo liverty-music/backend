@@ -6,7 +6,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/stretchr/testify/assert"
@@ -180,7 +180,7 @@ func TestOrganizerSeriesHandler_PerEventFields(t *testing.T) {
 		cancelled := entity.PublishStateCancelled
 		c := &entity.Concert{ID: "event-1", SeriesID: "series-1", PublishState: &cancelled, Series: &entity.Series{ID: "series-1"}}
 
-		got := mapper.ConcertToProto(c)
+		got := pb.FromConcert(c)
 
 		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_CANCELLED, got.GetEvent().GetPublishState())
 	})

@@ -49,8 +49,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -413,9 +413,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// wired here.
 	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
 	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
-	// organizer-facing ConcertService mapper. The CDN base is sourced from
+	// organizer-facing ConcertService pb. The CDN base is sourced from
 	// config (CDN_BASE_URL) rather than read directly by entity.
-	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.CDNBaseURL)
+	seriesImageURLBuilder := pb.NewSeriesImageURLBuilder(cfg.CDNBaseURL)
 
 	// Card authorizations: use the real Stripe adapters when a
 	// secret key is configured, otherwise no-ops that return Unavailable so local

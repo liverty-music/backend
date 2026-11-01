@@ -316,7 +316,7 @@ func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[api.GetU
     }
 
     return connect.NewResponse(&api.GetUserResponse{
-        User: mapper.UserToProto(user),
+        User: pb.FromUser(user),
     }), nil
 }
 ```

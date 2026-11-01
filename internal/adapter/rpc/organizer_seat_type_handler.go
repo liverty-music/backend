@@ -7,7 +7,7 @@ import (
 	seattypev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/seat_type/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -50,7 +50,7 @@ func (h *OrganizerSeatTypeHandler) Create(
 	if err != nil {
 		return nil, err
 	}
-	return &seattypev1.CreateResponse{SeatType: mapper.SeatTypeToProto(seatType)}, nil
+	return &seattypev1.CreateResponse{SeatType: pb.FromSeatType(seatType)}, nil
 }
 
 // Delete removes one of the caller's seat types.
@@ -83,5 +83,5 @@ func (h *OrganizerSeatTypeHandler) ListBySeries(
 	if err != nil {
 		return nil, err
 	}
-	return &seattypev1.ListBySeriesResponse{SeatTypes: mapper.SeatTypesToProto(types)}, nil
+	return &seattypev1.ListBySeriesResponse{SeatTypes: pb.FromSeatTypes(types)}, nil
 }

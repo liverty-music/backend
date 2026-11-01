@@ -7,7 +7,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -25,7 +25,7 @@ var _ organizerseriesv1connect.SeriesServiceHandler = (*OrganizerSeriesHandler)(
 type OrganizerSeriesHandler struct {
 	seriesUC              usecase.SeriesUseCase
 	organizerUC           usecase.OrganizerUseCase
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder
 	logger                *logging.Logger
 }
 
@@ -33,7 +33,7 @@ type OrganizerSeriesHandler struct {
 func NewOrganizerSeriesHandler(
 	seriesUC usecase.SeriesUseCase,
 	organizerUC usecase.OrganizerUseCase,
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *OrganizerSeriesHandler {
 	return &OrganizerSeriesHandler{
@@ -60,8 +60,8 @@ func (h *OrganizerSeriesHandler) resolveCallerOrganizer(ctx context.Context) (*e
 // seriesDraftToInputs converts the proto SeriesDraft payload into the domain
 // types expected by the authoring use case.
 func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, []*usecase.DraftEventInput, []string) {
-	seriesType := mapper.SeriesTypeFromProto(draft.GetType())
-	visibility := mapper.VisibilityFromProto(draft.GetVisibility())
+	seriesType := pb.ToSeriesType(draft.GetType())
+	visibility := pb.ToVisibility(draft.GetVisibility())
 
 	s := &entity.Series{
 		Title:      draft.GetTitle().GetValue(),
@@ -85,7 +85,7 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 	for _, ev := range draft.GetEvents() {
 		inp := &usecase.DraftEventInput{
 			VenueName: ev.GetVenueName().GetValue(),
-			LocalDate: mapper.DateToTime(ev.GetLocalDate().GetValue()),
+			LocalDate: pb.DateToTime(ev.GetLocalDate().GetValue()),
 		}
 		if pid := ev.GetPlaceId(); pid != nil {
 			v := pid.GetValue()
@@ -142,9 +142,9 @@ func (h *OrganizerSeriesHandler) Create(
 	}
 
 	return &organizerseriesv1.CreateResponse{
-		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
-		Concerts: mapper.ConcertsToProto(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Concerts: pb.FromConcerts(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -166,9 +166,9 @@ func (h *OrganizerSeriesHandler) Update(
 	}
 
 	return &organizerseriesv1.UpdateResponse{
-		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
-		Concerts: mapper.ConcertsToProto(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Concerts: pb.FromConcerts(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -189,9 +189,9 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	return &organizerseriesv1.PublishResponse{
-		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
-		Concerts: mapper.ConcertsToProto(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Concerts: pb.FromConcerts(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -277,12 +277,12 @@ func (h *OrganizerSeriesHandler) List(
 
 	series := make([]*entityv1.Series, 0, len(allSeries))
 	for _, s := range allSeries {
-		series = append(series, h.seriesImageURLBuilder.SeriesToProto(s))
+		series = append(series, h.seriesImageURLBuilder.FromSeries(s))
 	}
 
 	return &organizerseriesv1.ListResponse{
 		Series:   series,
-		Concerts: mapper.ConcertsToProto(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Concerts: pb.FromConcerts(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }

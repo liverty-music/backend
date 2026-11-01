@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -94,7 +94,7 @@ func newFixture(t *testing.T) *fixture {
 	logger, err := logging.New()
 	require.NoError(t, err)
 	uc := mocks.NewMockConcertUseCase(t)
-	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, mapper.NewSeriesImageURLBuilder(cdnBaseURL)), logger)
+	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, pb.NewSeriesImageURLBuilder(cdnBaseURL)), logger)
 	mux := http.NewServeMux()
 	mux.Handle(linkpreview.Pattern, h)
 	srv := httptest.NewServer(mux)

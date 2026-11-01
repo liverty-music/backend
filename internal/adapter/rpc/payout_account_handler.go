@@ -8,7 +8,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -70,7 +70,7 @@ func (h *PayoutAccountHandler) Get(
 	}
 
 	return &payoutaccountv1.GetResponse{
-		PayoutAccount: mapper.PayoutAccountToProto(acct),
+		PayoutAccount: pb.FromPayoutAccount(acct),
 	}, nil
 }
 

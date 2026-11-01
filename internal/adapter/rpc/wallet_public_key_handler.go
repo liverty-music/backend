@@ -7,7 +7,7 @@ import (
 	walletpublickeyv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	walletpublickeyv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/wallet_public_key/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -50,7 +50,7 @@ func (h *WalletPublicKeyHandler) Register(
 	ctx context.Context,
 	req *walletpublickeyv1.RegisterRequest,
 ) (*walletpublickeyv1.RegisterResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (h *WalletPublicKeyHandler) Register(
 		return nil, err
 	}
 	return &walletpublickeyv1.RegisterResponse{
-		WalletPublicKey:  mapper.WalletPublicKeyToProto(result.Key),
+		WalletPublicKey:  pb.FromWalletPublicKey(result.Key),
 		ReplacedOtherKey: result.ReplacedOtherKey,
 	}, nil
 }
@@ -77,7 +77,7 @@ func (h *WalletPublicKeyHandler) Get(
 	ctx context.Context,
 	_ *walletpublickeyv1.GetRequest,
 ) (*walletpublickeyv1.GetResponse, error) {
-	providerUserID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := pb.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +90,6 @@ func (h *WalletPublicKeyHandler) Get(
 		return nil, err
 	}
 	return &walletpublickeyv1.GetResponse{
-		WalletPublicKey: mapper.WalletPublicKeyToProto(key),
+		WalletPublicKey: pb.FromWalletPublicKey(key),
 	}, nil
 }

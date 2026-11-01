@@ -6,7 +6,7 @@ import (
 	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
 	adminuserv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/user/v1"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -45,8 +45,8 @@ func (h *AdminUserHandler) GetByEmail(
 		return nil, err
 	}
 	return &adminuserv1.GetByEmailResponse{
-		User:     mapper.UserToProto(user),
-		Blockers: mapper.DeletionBlockersToProto(blockers),
+		User:     pb.FromUser(user),
+		Blockers: pb.FromDeletionBlockers(blockers),
 	}, nil
 }
 

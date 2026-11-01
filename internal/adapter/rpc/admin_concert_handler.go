@@ -5,7 +5,7 @@ import (
 
 	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -22,7 +22,7 @@ var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 // is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type AdminConcertHandler struct {
 	concertUseCase        usecase.ConcertUseCase
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder
 	logger                *logging.Logger
 }
 
@@ -31,7 +31,7 @@ type AdminConcertHandler struct {
 // same fields as on the fan concert service.
 func NewAdminConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
-	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
+	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *AdminConcertHandler {
 	return &AdminConcertHandler{
@@ -54,9 +54,9 @@ func (h *AdminConcertHandler) List(
 	}
 
 	return &adminconcertv1.ListResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Concerts: pb.FromConcerts(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 
@@ -73,9 +73,9 @@ func (h *AdminConcertHandler) ListByArtist(
 	}
 
 	return &adminconcertv1.ListByArtistResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Concerts: pb.FromConcerts(concerts),
 		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
-		Artists:  mapper.ReferencedArtists(concerts),
+		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
 

@@ -9,7 +9,7 @@ import (
 	organizerscannerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
 	organizerscannerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/scanner/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -83,7 +83,7 @@ func (h *OrganizerScannerHandler) Create(
 		return nil, err
 	}
 	return &organizerscannerv1.CreateResponse{
-		Scanner: mapper.ScannerToProto(scanner),
+		Scanner: pb.FromScanner(scanner),
 	}, nil
 }
 
@@ -106,7 +106,7 @@ func (h *OrganizerScannerHandler) ListByEvent(
 		return nil, err
 	}
 	return &organizerscannerv1.ListByEventResponse{
-		Scanners: mapper.ScannersToProto(scanners),
+		Scanners: pb.FromScanners(scanners),
 	}, nil
 }
 
@@ -129,6 +129,6 @@ func (h *OrganizerScannerHandler) Revoke(
 		return nil, err
 	}
 	return &organizerscannerv1.RevokeResponse{
-		Scanner: mapper.ScannerToProto(scanner),
+		Scanner: pb.FromScanner(scanner),
 	}, nil
 }

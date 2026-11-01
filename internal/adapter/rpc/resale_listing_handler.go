@@ -7,7 +7,7 @@ import (
 	resalelistingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/resale_listing/v1"
 	"github.com/pannpers/go-logging/logging"
 
-	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -46,7 +46,7 @@ func (h *ResaleListingHandler) Create(
 	if err != nil {
 		return nil, err
 	}
-	return &resalelistingv1.CreateResponse{ResaleListing: mapper.ResaleListingToProto(listing)}, nil
+	return &resalelistingv1.CreateResponse{ResaleListing: pb.FromResaleListing(listing)}, nil
 }
 
 // Withdraw takes back one of the caller's listings.
@@ -63,7 +63,7 @@ func (h *ResaleListingHandler) Withdraw(
 	if err != nil {
 		return nil, err
 	}
-	return &resalelistingv1.WithdrawResponse{ResaleListing: mapper.ResaleListingToProto(listing)}, nil
+	return &resalelistingv1.WithdrawResponse{ResaleListing: pb.FromResaleListing(listing)}, nil
 }
 
 // List returns all of the caller's listings.
@@ -80,5 +80,5 @@ func (h *ResaleListingHandler) List(
 	if err != nil {
 		return nil, err
 	}
-	return &resalelistingv1.ListResponse{ResaleListings: mapper.ResaleListingsToProto(listings)}, nil
+	return &resalelistingv1.ListResponse{ResaleListings: pb.FromResaleListings(listings)}, nil
 }
