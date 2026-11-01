@@ -55,51 +55,51 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     ./cmd/job/sales-reminders
 
 # --- Server target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS server
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS server
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/api /main
 EXPOSE 8080
 ENTRYPOINT ["/main"]
 
 # --- Job target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS concert-discovery
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS concert-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/concert-discovery /concert-discovery
 ENTRYPOINT ["/concert-discovery"]
 
 # --- Artist Image Sync Job target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS artist-image-sync
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS artist-image-sync
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/artist-image-sync /artist-image-sync
 ENTRYPOINT ["/artist-image-sync"]
 
 # --- Official Site Refresh Job target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS official-site-refresh
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS official-site-refresh
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/official-site-refresh /official-site-refresh
 ENTRYPOINT ["/official-site-refresh"]
 
 # --- Sales Phase Discovery Job target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS sales-phase-discovery
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS sales-phase-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/sales-phase-discovery /sales-phase-discovery
 ENTRYPOINT ["/sales-phase-discovery"]
 
 # --- Sales Reminders Job target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS sales-reminders
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS sales-reminders
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/sales-reminders /sales-reminders
 ENTRYPOINT ["/sales-reminders"]
 
 # --- Consumer target ---
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS consumer
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS consumer
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/consumer /consumer
 ENTRYPOINT ["/consumer"]
 
 # --- Identity service target ---
 # The only image that holds identity-provider credentials; it has no database.
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS identity
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS identity
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/identity /identity
 ENTRYPOINT ["/identity"]
@@ -108,7 +108,7 @@ ENTRYPOINT ["/identity"]
 # The only process that runs durable workflows. An admin also runs
 # `/worker workflow ...` in its Pod (cloud-provisioning runbook
 # workflow-needs-admin.md).
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS worker
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS worker
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/worker /worker
 ENTRYPOINT ["/worker"]
