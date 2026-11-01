@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 
@@ -114,13 +115,19 @@ func (r *PasskeyRepository) Delete(ctx context.Context, providerPasskeyID string
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var p entity.Passkey
-	err = tx.QueryRow(ctx, deletePasskeyQuery, providerPasskeyID).Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime, &p.Name)
+	var (
+		p    entity.Passkey
+		name sql.NullString
+	)
+	err = tx.QueryRow(ctx, deletePasskeyQuery, providerPasskeyID).Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return toAppErr(err, "failed to delete passkey", attrs...)
+	}
+	if name.Valid {
+		p.Name = &name.String
 	}
 	if err := announce(ctx, r.outbox, tx, entity.SubjectUserPasskeyRemoved, messaging.Announcement{Payload: pb.FromPasskey(&p)}); err != nil {
 		return err
@@ -144,9 +151,15 @@ func (r *PasskeyRepository) ListByUser(ctx context.Context, userID string) ([]*e
 
 	passkeys := []*entity.Passkey{}
 	for rows.Next() {
-		var p entity.Passkey
-		if err := rows.Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime, &p.Name); err != nil {
+		var (
+			p    entity.Passkey
+			name sql.NullString
+		)
+		if err := rows.Scan(&p.ProviderPasskeyID, &p.UserID, &p.AAGUID, &p.CreateTime, &name); err != nil {
 			return nil, toAppErr(err, "failed to scan passkey", slog.String("user_id", userID))
+		}
+		if name.Valid {
+			p.Name = &name.String
 		}
 		passkeys = append(passkeys, &p)
 	}

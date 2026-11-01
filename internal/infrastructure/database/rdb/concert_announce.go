@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 
 	"github.com/jackc/pgx/v5"
@@ -101,8 +102,8 @@ func readAnnouncedConcerts(ctx context.Context, tx pgx.Tx, ids []string) (map[st
 	for rows.Next() {
 		var (
 			c         entity.Concert
-			state     *string
-			limit     *int
+			state     sql.NullString
+			limit     sql.NullInt32
 			artistIDs []string
 			venue     entity.Venue
 		)
@@ -112,11 +113,11 @@ func readAnnouncedConcerts(ctx context.Context, tx pgx.Tx, ids []string) (map[st
 		}
 		venue.ID = c.VenueID
 		c.Venue = &venue
-		if state != nil {
-			s := entity.PublishState(*state)
-			c.PublishState = &s
+		c.PublishState = nullPublishState(state)
+		if limit.Valid {
+			v := int(limit.Int32)
+			c.PerAccountLimit = &v
 		}
-		c.PerAccountLimit = limit
 		for _, id := range artistIDs {
 			c.Artists = append(c.Artists, &entity.Artist{ID: id})
 		}
