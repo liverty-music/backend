@@ -182,18 +182,32 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 	t.Run("paid announcement delivered twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Paid announcement delivered twice"
-		// The sender keeps the email to one per Order; both runs start the push
-		// under one workflow id, so the runtime pushes once.
+		// The sender emails an Order once (it sends nothing once the Order has a
+		// confirmation-sent time) and the runtime runs one workflow per id, so
+		// the fan gets one of each when both runs name the same Order and the
+		// same workflow id.
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("checkout")
 		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
-		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Twice()
-		f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1", mock.Anything).
-			Return(nil).Twice()
+		emailed := map[entity.OrderID]bool{}
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, mock.Anything, "fan@example.com", mock.Anything).
+			RunAndReturn(func(_ context.Context, id entity.OrderID, _ string, _ entity.OrderConfirmationEmail) error {
+				emailed[id] = true
+				return nil
+			}).Twice()
+		pushed := map[string]bool{}
+		f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
+				pushed[id] = true
+				return nil
+			}).Twice()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+
+		assert.Equal(t, map[entity.OrderID]bool{"order-1": true}, emailed, "the fan receives one email")
+		assert.Len(t, pushed, 1, "the fan receives one order_confirmation push")
 	})
 
 	t.Run("mail unavailable", func(t *testing.T) {

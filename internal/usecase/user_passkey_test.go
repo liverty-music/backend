@@ -309,8 +309,20 @@ func TestUserUseCase_RunNotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		notice := usecase.PasskeyChangeNotice{UserID: "user-1", Change: change}
-		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowNotifyPasskeyChange, "notify-passkey-change:announcement-1", notice).
-			Return(nil).Twice()
+		// The runtime runs one workflow per id: a start under an id it has
+		// seen runs nothing.
+		started := map[string]bool{}
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowNotifyPasskeyChange, mock.Anything, notice).
+			RunAndReturn(func(ctx context.Context, _, id string, input any, _ ...usecase.StartOption) error {
+				if started[id] {
+					return nil
+				}
+				started[id] = true
+				_, err := d.uc.RunNotifyPasskeyChange(ctx, &inlineFlow{}, input.(usecase.PasskeyChangeNotice))
+				return err
+			}).Twice()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
+		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
 		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
 		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
