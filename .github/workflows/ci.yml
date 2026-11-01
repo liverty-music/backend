@@ -132,7 +132,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:18@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
         env:
           POSTGRES_USER: test-user
           POSTGRES_DB: test-db
@@ -255,7 +255,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:18@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
         env:
           POSTGRES_USER: test-user
           POSTGRES_DB: test-db
@@ -302,7 +302,7 @@ jobs:
       DATABASE_URL: "postgres://postgres:password@localhost:15432/postgres?sslmode=disable"
     services:
       postgres:
-        image: postgres:18@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
         env:
           POSTGRES_PASSWORD: password
           POSTGRES_DB: postgres
