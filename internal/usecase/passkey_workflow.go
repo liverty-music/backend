@@ -96,10 +96,14 @@ func (uc *passkeyUseCase) awaitAdded(ctx context.Context, providerPasskeyID stri
 	switch {
 	case err == nil, errors.Is(err, apperr.ErrNotFound):
 		return nil
+	case ctx.Err() != nil, errors.Is(err, apperr.ErrAborted):
+		// This run was cancelled, or another execution owns it: DBOS decides.
+		return err
 	case errors.Is(err, apperr.ErrDeadlineExceeded), errors.Is(err, apperr.ErrUnavailable):
 		return apperr.Wrap(err, codes.Unavailable, "wait for the addition of the passkey", slog.String("provider_passkey_id", providerPasskeyID))
 	default:
-		// The addition's run ended with a failure, so it stores nothing.
+		// The addition's run ended with a failure or was cancelled, so it
+		// stores nothing.
 		return nil
 	}
 }

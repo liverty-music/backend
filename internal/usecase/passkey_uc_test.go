@@ -241,6 +241,36 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable, "the step is tried again")
 	})
+
+	t.Run("a removal whose addition was cancelled removes at once", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.workflows.awaitErr = apperr.New(codes.Canceled, "the addition was cancelled")
+		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("a removal returns its own cancellation and a conflict to the runtime", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name string
+			ctx  func() context.Context
+			err  error
+		}{
+			{"cancelled run", func() context.Context { c, cancel := context.WithCancel(ctx); cancel(); return c }, apperr.New(codes.Canceled, "context canceled")},
+			{"conflicting run", func() context.Context { return ctx }, apperr.New(codes.Aborted, "another execution owns the workflow")},
+		} {
+			d := newPasskeyTestDeps(t, time.Second)
+			d.workflows.awaitErr = tc.err
+
+			_, err := d.uc.RunRecordChange(tc.ctx(), &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+			assert.ErrorIs(t, err, tc.err, tc.name)
+		}
+	})
 }
 
 func TestPasskeyUseCase_StartRecordChange(t *testing.T) {
