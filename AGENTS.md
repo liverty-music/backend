@@ -42,7 +42,7 @@ A fact is announced by the entity operation that stores it, in the same transact
 - The payload is the changed entity as its `entity/v1` message in binary protobuf (`internal/adapter/pb`, the `ForAnnouncement` variants without personal data), or a list message of one entity type; what the announcement is about, when the payload does not say it, is `ce_subject`. Each announcement gets a UUIDv7 id, its `ce_id`, the same on every delivery.
 - Every repository method that announces says so in a `# Announces` section of its Go doc: the subject, the payload and when nothing is announced.
 - A receiver decodes by `ce_datacontenttype` (protobuf, or the JSON of a message published before the outbox), reads values not on the entity by id, and names its own guard against a repeated delivery (a send time, a unique key, a workflow named after the announcement id, PostHog's `uuid`).
-- A request for one receiver with no stored change behind it is not an announcement: the requester starts the receiver's workflow through `usecase.Workflows`, named `<workflow name>:<business key>`, so a repeated request starts nothing new.
+- A request for one receiver with no stored change behind it is not an announcement: the requester starts the receiver's workflow through `usecase.Workflows`, named `<workflow name>:<business key>`, so a repeated request starts nothing new. When every call is a new request (an email verification resend, a passkey recovery link), the key is a fresh id per allowed call and the requester's rate limit bounds how often it runs.
 
 ## Key Technical Decisions
 
