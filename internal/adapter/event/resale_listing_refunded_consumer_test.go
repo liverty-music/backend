@@ -50,7 +50,6 @@ func TestResaleListingRefundedConsumer(t *testing.T) {
 
 	t.Run("an unavailable mail service is delivered again later", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/notification/send-resale-sold "Mail unavailable"
 		notifications := ucmocks.NewMockNotificationUseCase(t)
 		consumer := event.NewResaleListingRefundedConsumer(notifications, newTestLogger(t))
 		notifications.EXPECT().SendResaleSold(anyCtx, listingRefunded).Return(apperr.New(codes.Unavailable, "postmark down")).Once()
