@@ -311,7 +311,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	businessMetrics := infratelemetry.NewBusinessMetrics()
 
 	// Use Cases
-	workflows, err := provideWorkflows(ctx, db, logger)
+	workflows, err := provideAPIWorkflows(ctx, cfg, db, logger)
 	if err != nil {
 		return nil, err
 	}

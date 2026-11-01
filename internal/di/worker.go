@@ -19,6 +19,8 @@ import (
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -232,6 +234,37 @@ func InitializeWorkflowAdmin(ctx context.Context) (*workflow.Client, *logging.Lo
 	shutdown.AddDatastorePhase(db)
 	return client, logger, nil
 }
+
+// provideAPIWorkflows returns the workflow client of an API workload that
+// starts workflows, and noWorkflows for one that does not: the organizer and
+// reception roles have no grant on the workflow tables, which the client
+// checks when it connects.
+func provideAPIWorkflows(ctx context.Context, cfg *config.ServerConfig, db *rdb.Database, logger *logging.Logger) (usecase.Workflows, error) {
+	if !cfg.StartsWorkflows() {
+		return noWorkflows{}, nil
+	}
+	return provideWorkflows(ctx, db, logger)
+}
+
+// noWorkflows is the usecase.Workflows of a workload that starts none; a
+// call is a wiring mistake and fails with FailedPrecondition.
+type noWorkflows struct{}
+
+var errNoWorkflows = apperr.New(codes.FailedPrecondition, "this workload starts no workflows")
+
+// Start fails with FailedPrecondition.
+func (noWorkflows) Start(context.Context, string, string, any, ...usecase.StartOption) error {
+	return errNoWorkflows
+}
+
+// Send fails with FailedPrecondition.
+func (noWorkflows) Send(context.Context, string, string, any) error { return errNoWorkflows }
+
+// Await fails with FailedPrecondition.
+func (noWorkflows) Await(context.Context, string, time.Duration, any) error { return errNoWorkflows }
+
+// Cancel fails with FailedPrecondition.
+func (noWorkflows) Cancel(context.Context, string) (bool, error) { return false, errNoWorkflows }
 
 // provideWorkflows returns the client a workload starts, signals and awaits
 // workflows through; the workflow worker runs them. It closes in the

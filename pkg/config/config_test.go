@@ -1026,11 +1026,12 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 		cfg              *ServerConfig
 		wantSweepers     bool
 		wantProvisioning bool
+		wantWorkflows    bool
 	}{
-		{name: "fan runs the payment sweepers", cfg: validNonLocalServerConfig(WorkloadFan), wantSweepers: true},
-		{name: "admin provisions organizers", cfg: validNonLocalServerConfig(WorkloadAdmin), wantProvisioning: true},
-		{name: "organizer does neither", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
-		{name: "reception does neither", cfg: validNonLocalServerConfig(WorkloadReception)},
+		{name: "fan runs the payment sweepers and starts workflows", cfg: validNonLocalServerConfig(WorkloadFan), wantSweepers: true, wantWorkflows: true},
+		{name: "admin provisions organizers and starts workflows", cfg: validNonLocalServerConfig(WorkloadAdmin), wantProvisioning: true, wantWorkflows: true},
+		{name: "organizer does none of them", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
+		{name: "reception does none of them", cfg: validNonLocalServerConfig(WorkloadReception)},
 		{
 			name: "local with the Stripe key and the identity service does both",
 			cfg: &ServerConfig{
@@ -1040,13 +1041,15 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 			},
 			wantSweepers:     true,
 			wantProvisioning: true,
+			wantWorkflows:    true,
 		},
 		{
 			name:             "local with the identity service provisions organizers",
 			cfg:              &ServerConfig{Environment: "local", IdentityServiceURL: "http://localhost:9101"},
 			wantProvisioning: true,
+			wantWorkflows:    true,
 		},
-		{name: "local without credentials does neither", cfg: &ServerConfig{Environment: "local"}},
+		{name: "local without credentials only starts workflows", cfg: &ServerConfig{Environment: "local"}, wantWorkflows: true},
 	}
 
 	for _, tt := range tests {
@@ -1054,6 +1057,7 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.wantSweepers, tt.cfg.RunsPaymentSweepers())
 			assert.Equal(t, tt.wantProvisioning, tt.cfg.ProvisionsOrganizers())
+			assert.Equal(t, tt.wantWorkflows, tt.cfg.StartsWorkflows())
 		})
 	}
 }

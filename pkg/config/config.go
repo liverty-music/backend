@@ -1191,6 +1191,17 @@ func (c *ServerConfig) ProvisionsOrganizers() bool {
 	return c.Workload == WorkloadAdmin
 }
 
+// StartsWorkflows reports whether this process starts workflows, and so
+// connects to the workflow tables its database role is granted: outside local
+// the fan workload (verification resends, passkey recovery links) and the admin
+// workload (concert searches and notifications it sends); local always does.
+func (c *ServerConfig) StartsWorkflows() bool {
+	if c.IsLocal() {
+		return true
+	}
+	return c.Workload == WorkloadFan || c.Workload == WorkloadAdmin
+}
+
 // RemovesIdentities reports whether this process removes fan identities
 // through the identity service: outside local the admin workload, for an
 // admin's removal of a fan, and the fan workload, for a fan's removal of
