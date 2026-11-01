@@ -215,6 +215,11 @@ type UserUseCase interface {
 	// User stays created. A User that no longer exists, an address already
 	// verified or email verification that is not configured finishes without
 	// sending.
+	//
+	// # Possible errors
+	//
+	//  - The error of a step or a wait as the workflow runtime returns it
+	//    (Canceled, Aborted), so DBOS decides whether the run goes on.
 	RunSendVerification(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
 
 	// StartNotifyPasskeyChange starts the notify-passkey-change workflow for
@@ -229,6 +234,12 @@ type UserUseCase interface {
 	// RunNotifyPasskeyChange is the notify-passkey-change workflow: it sends
 	// the email through NotifyPasskeyChange in one step, tried again while it
 	// fails with Unavailable.
+	//
+	// # Possible errors
+	//
+	//  - The errors of NotifyPasskeyChange; the step is tried again on
+	//    Unavailable.
+	//  - The error of the workflow runtime (Canceled, Aborted).
 	RunNotifyPasskeyChange(ctx context.Context, f Flow, in PasskeyChangeNotice) (struct{}, error)
 
 	// ReissueEmailVerification sends a fresh verification code to the address
@@ -245,11 +256,23 @@ type UserUseCase interface {
 	ReissueEmailVerification(ctx context.Context, userID string) error
 
 	// RunReissueEmailVerification is the reissue-email-verification workflow
-	// ResendEmailVerification starts.
+	// ResendEmailVerification starts: ReissueEmailVerification in one step.
+	//
+	// # Possible errors
+	//
+	//  - The errors of ReissueEmailVerification; the step is tried again on
+	//    Unavailable.
+	//  - The error of the workflow runtime (Canceled, Aborted).
 	RunReissueEmailVerification(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
 
 	// RunSendPasskeyRecoveryLink is the send-passkey-recovery-link workflow
-	// RequestPasskeyRecovery starts.
+	// RequestPasskeyRecovery starts: SendPasskeyRecoveryLink in one step.
+	//
+	// # Possible errors
+	//
+	//  - The errors of SendPasskeyRecoveryLink; the step is tried again on
+	//    Unavailable.
+	//  - The error of the workflow runtime (Canceled, Aborted).
 	RunSendPasskeyRecoveryLink(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
 
 	// VerifyEmail confirms the email address of the User userID with the code

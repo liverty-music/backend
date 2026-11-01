@@ -38,6 +38,13 @@ type PasskeyUseCase interface {
 	// User of an added passkey every 30 seconds until 10 minutes after its
 	// first run, and lets a removal wait for the run of the same passkey's
 	// addition to end.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the change is neither added nor removed.
+	//  - The errors of RecordChange; the step is tried again on Unavailable,
+	//    as it is while the addition of a removed passkey has not ended.
+	//  - The error of the workflow runtime (Canceled, Aborted).
 	RunRecordChange(ctx context.Context, f Flow, in entity.UserPasskeyChangedData) (struct{}, error)
 
 	// RecordChange makes one attempt to record a passkey change: for an added
