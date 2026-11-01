@@ -237,9 +237,10 @@ func TestDeliver_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
 		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/other" })).
 		Return(errors.New("push service rejected"))
 	// Only the dead (user, endpoint) pair is deleted; the other browser keeps
-	// its subscription (any other Delete call would fail the mock).
+	// its subscription (any other call would fail the mock), and the removal
+	// is not the fan's own, so it goes through DeleteGone.
 	pushSubRepo.EXPECT().
-		Delete(anyCtx, "user-1", "https://push/gone").
+		DeleteGone(anyCtx, "user-1", "https://push/gone").
 		Return(nil).
 		Once()
 	notifRepo.EXPECT().

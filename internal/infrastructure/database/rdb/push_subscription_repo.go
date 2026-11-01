@@ -148,6 +148,14 @@ func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, endpoin
 	return nil
 }
 
+// DeleteGone implements [entity.PushSubscriptionRepository.DeleteGone].
+func (r *PushSubscriptionRepository) DeleteGone(ctx context.Context, userID, endpoint string) error {
+	if _, err := r.db.Pool.Exec(ctx, deletePushSubscriptionQuery, userID, endpoint); err != nil {
+		return toAppErr(err, "failed to delete gone push subscription", slog.String("user_id", userID))
+	}
+	return nil
+}
+
 // ListByUserIDs retrieves all push subscriptions for a given set of user IDs.
 // It returns an empty slice when no subscriptions are found.
 func (r *PushSubscriptionRepository) ListByUserIDs(ctx context.Context, userIDs []string) ([]*entity.PushSubscription, error) {

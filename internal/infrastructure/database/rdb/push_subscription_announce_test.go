@@ -150,4 +150,28 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		_, n := stored(t, endpoint)
 		assert.Equal(t, 1, n, "the PushSubscription remains")
 	})
+
+	t.Run("gone browser removed", func(t *testing.T) {
+		// @spec components/entity/push-subscription/delete-gone "Gone browser removed"
+		fan, endpoint, other := newFan(t), newEndpoint(), newEndpoint()
+		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}))
+		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: other, P256dh: "k2", Auth: "a2"}))
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.DeleteGone(ctx, fan, endpoint))
+
+		_, n := stored(t, endpoint)
+		assert.Zero(t, n)
+		_, n = stored(t, other)
+		assert.Equal(t, 1, n, "the fan's other browser keeps its subscription")
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectNotificationUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
+	})
+
+	t.Run("gone browser already removed", func(t *testing.T) {
+		// @spec components/entity/push-subscription/delete-gone "Already removed"
+		fan := newFan(t)
+
+		assert.NoError(t, repo.DeleteGone(ctx, fan, newEndpoint()))
+	})
 }

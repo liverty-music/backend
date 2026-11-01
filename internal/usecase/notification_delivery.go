@@ -187,7 +187,7 @@ func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notifi
 			if errors.Is(err, apperr.ErrNotFound) {
 				d.metrics.RecordPushSend(ctx, "gone")
 				// Scoped cleanup: delete only the dead (userID, endpoint) pair.
-				if delErr := d.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
+				if delErr := d.pushSubRepo.DeleteGone(ctx, sub.UserID, sub.Endpoint); delErr != nil {
 					d.logger.Error(ctx, "failed to delete stale push subscription", delErr,
 						slog.String("user_id", sub.UserID),
 						slog.String("endpoint", sub.Endpoint),

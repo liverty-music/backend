@@ -297,8 +297,9 @@ type NotificationSubscribedData struct {
 
 // NotificationUnsubscribedData is the payload for NOTIFICATION.unsubscribed.
 // Mapped to the catalogue event notification.unsubscribed by the
-// analytics-consumer. Published by PushSubscriptionUseCase.Delete after the
-// repository removes a user-initiated Web Push subscription record. The
+// analytics-consumer. Announced by PushSubscription.Delete, the fan's own
+// removal of a Web Push subscription; a browser the push service reports gone
+// is removed by DeleteGone, which announces nothing. The
 // endpoint URL itself is sensitive and is NOT included; only the classifier
 // output is forwarded to PostHog.
 type NotificationUnsubscribedData struct {

@@ -77,6 +77,16 @@ type PushSubscriptionRepository interface {
 	// nothing.
 	Delete(ctx context.Context, userID, endpoint string) error
 
+	// DeleteGone removes the push subscription of the (userID, endpoint) pair
+	// that the push service reported gone. Like Delete it removes only that
+	// browser and succeeds when there is none, but it is not the fan's own
+	// removal, so it announces nothing.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database execution failure.
+	DeleteGone(ctx context.Context, userID, endpoint string) error
+
 	// ListByUserIDs retrieves all push subscriptions belonging to any of the given user IDs.
 	// Returns an empty slice (no error) when none of the users have registered subscriptions.
 	//
