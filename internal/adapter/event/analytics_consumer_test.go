@@ -252,7 +252,7 @@ func TestAnalyticsConsumer_Forwards(t *testing.T) {
 				Properties: tt.wantProps,
 			}).Return(nil).Once()
 
-			c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), newTestLogger(t))
+			c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), stubOrders{}, stubStocks{}, newTestLogger(t))
 			require.NoError(t, tt.handle(c, msg))
 			assert.Equal(t, msg.UUID, msg.Metadata.Get("ce_id"), "the CloudEvent id is the message UUID")
 		})
@@ -267,19 +267,19 @@ func TestAnalyticsConsumer_Skips(t *testing.T) {
 	for _, tt := range forwardCases() {
 		t.Run(tt.name+": no client", func(t *testing.T) {
 			t.Parallel()
-			c := event.NewAnalyticsConsumer(nil, consumerMetrics(t, "skipped_nil_client"), newTestLogger(t))
+			c := event.NewAnalyticsConsumer(nil, consumerMetrics(t, "skipped_nil_client"), stubOrders{}, stubStocks{}, newTestLogger(t))
 			require.NoError(t, tt.handle(c, cloudEvent(t, tt.data)))
 		})
 		t.Run(tt.name+": no distinct id", func(t *testing.T) {
 			t.Parallel()
-			c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_empty_user_id"), newTestLogger(t))
+			c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_empty_user_id"), stubOrders{}, stubStocks{}, newTestLogger(t))
 			require.NoError(t, tt.handle(c, cloudEvent(t, tt.noKeyData)))
 		})
 		t.Run(tt.name+": no fact time", func(t *testing.T) {
 			t.Parallel()
 			// A message published before its data carried the time: its
 			// publish time is not the fact's, so it is acknowledged unsent.
-			c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_parse_error"), newTestLogger(t))
+			c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_parse_error"), stubOrders{}, stubStocks{}, newTestLogger(t))
 			require.NoError(t, tt.handle(c, cloudEvent(t, tt.noTimeData)))
 		})
 	}
@@ -290,7 +290,7 @@ func TestAnalyticsConsumer_Failures(t *testing.T) {
 
 	t.Run("bad payload is an error", func(t *testing.T) {
 		t.Parallel()
-		c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_parse_error"), newTestLogger(t))
+		c := event.NewAnalyticsConsumer(ucmocks.NewMockAnalyticsClient(t), consumerMetrics(t, "skipped_parse_error"), stubOrders{}, stubStocks{}, newTestLogger(t))
 		msg := message.NewMessage("bad", []byte("{not json"))
 		msg.Metadata.Set("ce_time", time.Now().UTC().Format(time.RFC3339))
 		assert.ErrorIs(t, c.HandleUserCreated(msg), apperr.ErrInternal)
@@ -300,7 +300,7 @@ func TestAnalyticsConsumer_Failures(t *testing.T) {
 		t.Parallel()
 		client := ucmocks.NewMockAnalyticsClient(t)
 		client.EXPECT().Capture(mock.Anything, mock.Anything).Return(errors.New("queue full")).Once()
-		c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "enqueue_error"), newTestLogger(t))
+		c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "enqueue_error"), stubOrders{}, stubStocks{}, newTestLogger(t))
 		err := c.HandleArtistHypeChanged(cloudEvent(t, entity.ArtistHypeChangedData{UserID: fanID, ArtistID: "a", Hype: "away", SetTime: factTime}))
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
@@ -343,7 +343,7 @@ func TestAnalyticsConsumer_HandleOrderPaid_PaidCheckout(t *testing.T) {
 		Properties: paidCheckoutProps,
 	}).Return(nil).Once()
 
-	c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), newTestLogger(t))
+	c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), stubOrders{}, stubStocks{}, newTestLogger(t))
 	require.NoError(t, c.HandleOrderPaid(msg))
 }
 
@@ -370,7 +370,7 @@ func TestAnalyticsConsumer_HandleOrderPaid_HandledTwice(t *testing.T) {
 	metrics := ucmocks.NewMockAnalyticsConsumerMetrics(t)
 	metrics.EXPECT().RecordMessage(mock.Anything, "forwarded").Twice()
 	metrics.EXPECT().RecordLag(mock.Anything, mock.Anything).Twice()
-	c := event.NewAnalyticsConsumer(client, metrics, newTestLogger(t))
+	c := event.NewAnalyticsConsumer(client, metrics, stubOrders{}, stubStocks{}, newTestLogger(t))
 
 	require.NoError(t, c.HandleOrderPaid(msg))
 	redelivered := msg.Copy()
@@ -399,6 +399,6 @@ func TestAnalyticsConsumer_UUIDFromCloudEventID(t *testing.T) {
 		return e.UUID == "019a0000-0000-7000-8000-00000000ce01" && e.Time.Equal(factMillis)
 	})).Return(nil).Once()
 
-	c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), newTestLogger(t))
+	c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), stubOrders{}, stubStocks{}, newTestLogger(t))
 	require.NoError(t, c.HandleTicketAdmitted(msg))
 }

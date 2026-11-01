@@ -56,7 +56,7 @@ func (h *PushSubscriptionHandler) Create(ctx context.Context, req *rpc.CreateReq
 	p256dh := req.GetKeys().GetP256Dh()
 	auth := req.GetKeys().GetAuth()
 
-	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth, pb.DeviceTypeFromEndpoint(endpoint))
+	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *rpc.DeleteReq
 	}
 	endpoint := req.GetEndpoint().GetValue()
 
-	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint, pb.DeviceTypeFromEndpoint(endpoint)); err != nil {
+	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint); err != nil {
 		return nil, err
 	}
 

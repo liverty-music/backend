@@ -14,7 +14,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // reminderDeliveryTestDeps holds all dependencies for
@@ -27,7 +26,6 @@ type reminderDeliveryTestDeps struct {
 	notifRepo    *entitymocks.MockNotificationRepository
 	pushSubRepo  *entitymocks.MockPushSubscriptionRepository
 	sender       *entitymocks.MockPushNotificationSender
-	publisher    *ucmocks.MockEventPublisher
 	uc           usecase.TicketSaleReminderDeliveryUseCase
 }
 
@@ -38,14 +36,12 @@ func newReminderDeliveryTestDeps(t *testing.T) *reminderDeliveryTestDeps {
 		notifRepo:    entitymocks.NewMockNotificationRepository(t),
 		pushSubRepo:  entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:       entitymocks.NewMockPushNotificationSender(t),
-		publisher:    ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewTicketSaleReminderDeliveryUseCase(
 		d.reminderRepo,
 		d.notifRepo,
 		d.pushSubRepo,
 		d.sender,
-		d.publisher,
 		noopMetrics{},
 		newTestLogger(t),
 	)
@@ -71,10 +67,6 @@ func expectDelivered(t *testing.T, d *reminderDeliveryTestDeps, userID, notifID 
 	d.notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, notifID, entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
-		Return(nil).
-		Maybe()
 }
 
 // expectNoSubscription sets up the notifRepo/pushSubRepo expectations for a
@@ -242,7 +234,6 @@ func TestDeliverReminder_NoSubscriptionRecordsSent(t *testing.T) {
 
 // TestDeliverReminder_SuccessfulSendRecordsSent verifies that a successful
 // notification records sent and returns nil.
-// @spec components/usecase/ticket-sale-reminder/deliver-reminder "Reminder requested"
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Delivered to a device"
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Accepted by a device"
 func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
@@ -258,6 +249,29 @@ func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
 		Return(nil)
 
 	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+
+	require.NoError(t, err)
+}
+
+// TestRunDeliverReminder_DeliversTheRequestedReminder verifies that the
+// deliver-reminder workflow the scan starts delivers that fan's reminder for
+// the sale and stage.
+//
+// @spec components/usecase/ticket-sale-reminder/deliver-reminder "Reminder requested"
+func TestRunDeliverReminder_DeliversTheRequestedReminder(t *testing.T) {
+	t.Parallel()
+
+	d := newReminderDeliveryTestDeps(t)
+	d.reminderRepo.EXPECT().
+		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(false, nil)
+	expectDelivered(t, d, "user-001", "id-ok")
+	d.reminderRepo.EXPECT().
+		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
+		Return(nil).
+		Once()
+
+	_, err := d.uc.RunDeliverReminder(context.Background(), &inlineFlow{}, validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
 }
@@ -368,9 +382,6 @@ func TestDeliverReminder_MessageNamesSaleAndMilestone(t *testing.T) {
 		})
 	d.notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-milestone", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	d.publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
 		Return(nil)
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).

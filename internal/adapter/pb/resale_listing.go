@@ -17,15 +17,27 @@ func FromResaleListing(v *usecase.ResaleListingAt) *entityv1.ResaleListing {
 	}
 	l := v.Listing
 	pb := &entityv1.ResaleListing{
-		Id:            &entityv1.ResaleListingId{Value: string(l.ID)},
-		TicketId:      &entityv1.TicketId{Value: string(l.TicketID)},
-		Price:         &entityv1.SeatTypePrice{Value: l.Price},
-		Fee:           l.Fee(),
-		RefundAmount:  l.RefundAmount(),
-		Status:        resaleListingStatusToProto(v.Status),
-		CreateTime:    timestamppb.New(l.CreateTime),
-		DeadlineTime:  timestamppb.New(v.Deadline),
+		Id:           &entityv1.ResaleListingId{Value: string(l.ID)},
+		TicketId:     &entityv1.TicketId{Value: string(l.TicketID)},
+		Price:        &entityv1.SeatTypePrice{Value: l.Price},
+		Fee:          l.Fee(),
+		RefundAmount: l.RefundAmount(),
+		Status:       resaleListingStatusToProto(v.Status),
+		CreateTime:   timestamppb.New(l.CreateTime),
+
 		TicketStockId: &entityv1.TicketStockId{Value: string(l.TicketStockID)},
+		OrderId:       &entityv1.OrderId{Value: string(l.OrderID)},
+		UserId:        &entityv1.UserId{Value: string(l.UserID)},
+		EventId:       &entityv1.EventId{Value: l.EventID},
+	}
+	if l.WithdrawTime != nil {
+		pb.WithdrawTime = timestamppb.New(*l.WithdrawTime)
+	}
+	if l.ProviderRefundID != "" {
+		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: l.ProviderRefundID}
+	}
+	if !v.Deadline.IsZero() {
+		pb.DeadlineTime = timestamppb.New(v.Deadline)
 	}
 	if l.SoldTime != nil {
 		pb.SoldTime = timestamppb.New(*l.SoldTime)

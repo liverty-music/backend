@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"fmt"
 	"sync"
@@ -59,7 +60,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(time.Hour)
 
@@ -241,7 +242,7 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 		// A Completed checkout's tickets count as its Paid Order's Issued
 		// tickets only.
 		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
-		c := completedCheckoutOf(t, repo, rdb.NewIssuanceRepository(testDB), f, nextFan(t), 2, at)
+		c := completedCheckoutOf(t, repo, rdb.NewIssuanceRepository(testDB, testOutbox), f, nextFan(t), 2, at)
 
 		_, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, c.Order.UserID, 2, nil, at)
 
@@ -295,8 +296,8 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
-	issuance := rdb.NewIssuanceRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 	ctx := context.Background()
 	start := saleWindowStart.Add(time.Hour)
 	expiry := start.Add(15 * time.Minute)
@@ -416,6 +417,42 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.Equal(t, 150, stock.SoldCount)
 		assert.Equal(t, entity.TicketStockStateSoldOut, stock.State())
 		assert.True(t, stock.IsResaleOpenAt(committedAt, committedAt.Add(24*time.Hour)))
+	})
+
+	t.Run("release announces", func(t *testing.T) {
+		checkoutsOf := func(mark int64, id entity.CheckoutID) []*entityv1.Checkout {
+			return announcedSince(t, mark, entity.SubjectCheckoutExpired, func() *entityv1.Checkout { return &entityv1.Checkout{} },
+				func(c *entityv1.Checkout) bool { return c.GetId().GetValue() == string(id) })
+		}
+
+		// @spec components/entity/checkout/release "Hold lapsed"
+		lapsed := heldCheckout(t, repo, 1, start)
+		mark := outboxMark(t)
+		changed, err := repo.Release(ctx, lapsed.ID, expiry.Add(time.Minute))
+		require.NoError(t, err)
+		require.True(t, changed)
+		got := checkoutsOf(mark, lapsed.ID)
+		require.Len(t, got, 1)
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_EXPIRED, got[0].GetStatus())
+
+		// @spec components/entity/checkout/release "Nothing to release"
+		holding := heldCheckout(t, repo, 1, start)
+		mark = outboxMark(t)
+		_, err = repo.Release(ctx, holding.ID, expiry.Add(-time.Minute))
+		require.NoError(t, err)
+		_, err = repo.Release(ctx, lapsed.ID, expiry.Add(time.Hour))
+		require.NoError(t, err)
+		assert.Empty(t, checkoutsOf(mark, holding.ID), "still holding")
+		assert.Empty(t, checkoutsOf(mark, lapsed.ID), "already Expired")
+
+		// @spec components/entity/checkout/release "Announcement cannot be recorded"
+		failing := heldCheckout(t, repo, 1, start)
+		_, err = rdb.NewCheckoutRepository(testDB, failingOutbox{}).Release(ctx, failing.ID, expiry.Add(time.Minute))
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		after, err := repo.Get(ctx, failing.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CheckoutStatusHeld, after.Status)
+		assert.Equal(t, entity.OrderStatusPending, after.Order.Status)
 	})
 
 	t.Run("release", func(t *testing.T) {
@@ -593,7 +630,7 @@ func TestCheckoutRepository_ListDue(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 	t0 := saleWindowStart.Add(time.Hour)
 	now := t0.Add(30 * time.Minute)
@@ -642,7 +679,7 @@ func TestCheckoutRepository_Serialize(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 	id := entity.CheckoutID(entity.NewID())
 
@@ -736,7 +773,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 	start := saleWindowStart.Add(time.Hour)
 
@@ -766,7 +803,7 @@ func TestCheckoutRepository_ListByUser(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("two checkouts", func(t *testing.T) {

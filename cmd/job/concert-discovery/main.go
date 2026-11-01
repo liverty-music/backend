@@ -77,9 +77,9 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("count", len(artists)),
 	)
 
-	// SearchNewConcerts calls the external API, deduplicates, and publishes
-	// a concert.discovered.v1 event. Concert persistence, notification, and
-	// venue enrichment are handled asynchronously by event consumers.
+	// SearchNewConcerts calls the external API, deduplicates, and starts
+	// create-from-discovered. Concert persistence runs in the workflow worker;
+	// notification and venue enrichment are handled by event consumers.
 	result := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
 		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		return err

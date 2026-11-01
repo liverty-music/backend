@@ -19,14 +19,13 @@ import (
 // SeriesUseCase and ConcertUseCase over the real repositories and local
 // Postgres, from an organizer's create, edit, publish and cancel to the fan
 // list. The venue is already known by its place id, so the map catalog is
-// never called; messaging is replaced by storyPublisher.
+// never called.
 
 type publishStory struct {
 	t         *testing.T
 	ctx       context.Context
 	series    usecase.SeriesUseCase
 	concerts  usecase.ConcertUseCase
-	publisher *storyPublisher
 	orgID     string
 	artistID  string
 	placeID   string
@@ -43,7 +42,6 @@ func newPublishStory(t *testing.T) *publishStory {
 	s := &publishStory{
 		t:         t,
 		ctx:       context.Background(),
-		publisher: &storyPublisher{},
 		orgID:     seedOrganizer(t),
 		artistID:  seedArtist(t, "Story Band", uuid.NewV4().String()),
 		placeID:   "ChIJ-story-" + uuid.NewV7().String(),
@@ -56,14 +54,14 @@ func newPublishStory(t *testing.T) *publishStory {
 		entity.NewID(), s.placeID)
 	require.NoError(t, err)
 
-	seriesRepo := rdb.NewSeriesRepository(testDB)
-	concertRepo := rdb.NewConcertRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	organizerRepo := rdb.NewOrganizerRepository(testDB)
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB), venueRepo, nil, organizerRepo,
-		rdb.NewTicketSaleRepository(testDB), nil, usecase.StorageBuckets{}, s.publisher, logger, time.Now)
+	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), venueRepo, nil, organizerRepo,
+		rdb.NewTicketSaleRepository(testDB, testOutbox), nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.concerts = usecase.NewConcertUseCase(nil, concertRepo, venueRepo, seriesRepo, organizerRepo,
-		nil, nil, nil, nil, nil, s.publisher, nil, nil, 0, 0, logger)
+		nil, nil, nil, nil, nil, &storyWorkflows{}, nil, nil, 0, 0, logger)
 	return s
 }
 
@@ -114,6 +112,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, s.listed(), "a draft is on no fan list")
 
+		mark := outboxMark(t)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
@@ -121,6 +120,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, eventID, got[0].ID)
 		assert.Equal(t, "Story Tour 2027", got[0].Series.Title)
+		assert.Equal(t, [][]string{{eventID}}, concertsAnnouncedFor(t, mark, s.artistID), "its followers are told once")
 	})
 
 	t.Run("an UNLISTED concert stays off the fan list", func(t *testing.T) {
@@ -148,6 +148,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, discoveredID)
 		require.NoError(t, err)
 
+		mark := outboxMark(t)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
@@ -155,7 +156,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, discoveredID, got[0].ID, "the discovered concert keeps its id")
 		assert.Equal(t, seriesID, got[0].SeriesID, "and joins the organizer's series")
-		assert.Empty(t, s.publisher.take(entity.SubjectConcertCreated), "a claimed concert is not announced again")
+		assert.Empty(t, concertsAnnouncedFor(t, mark, s.artistID), "a claimed concert is not announced again")
 	})
 
 	t.Run("a cancelled concert leaves the fan list", func(t *testing.T) {
@@ -177,7 +178,6 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		seriesID, firstID := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
-		s.publisher.take(entity.SubjectConcertCreated)
 
 		_, concerts, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{s.input(firstID, 0), s.input("", 7)}, []string{s.artistID})
@@ -187,13 +187,12 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		addedID := events[1].ID
 		assert.Equal(t, []string{firstID}, concertIDs(s.listed()), "the new date is not listed before its publish")
 
+		mark := outboxMark(t)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, []string{addedID})
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{firstID, addedID}, concertIDs(s.listed()))
-		announced := s.publisher.take(entity.SubjectConcertCreated)
-		require.Len(t, announced, 1)
-		assert.Equal(t, []string{addedID}, announced[0].(entity.ConcertCreatedData).ConcertIDs)
+		assert.Equal(t, [][]string{{addedID}}, concertsAnnouncedFor(t, mark, s.artistID))
 	})
 
 	t.Run("a doors-open time set after publish is listed", func(t *testing.T) {

@@ -88,7 +88,7 @@ func (c *Concert) ArtistIDs() []string {
 // series-level metadata (title, type, source URL) lives on the parent
 // [DiscoveredSeries], never on the event, so it cannot be duplicated per date.
 //
-// JSON tags support serialization as the concert.discovered event payload.
+// JSON tags support serialization as the create-from-discovered workflow input.
 type DiscoveredEvent struct {
 	// ListedVenueName is the raw venue name as listed in the source data.
 	ListedVenueName string `json:"listed_venue_name"`
@@ -128,13 +128,34 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 	return c
 }
 
+// ConcertDiscoveredData is the input of the create-from-discovered workflow.
+// It carries the newly discovered concerts for one artist (post-deduplication),
+// grouped by series so a tour's dates persist under one series by construction.
+// Started by SearchNewConcerts after the external API call and dedup.
+type ConcertDiscoveredData struct {
+	// ArtistID is the internal UUID of the artist.
+	ArtistID string `json:"artist_id"`
+	// ArtistName is the display name of the artist (for notification context).
+	ArtistName string `json:"artist_name"`
+	// Series is the list of newly discovered, deduplicated series, each carrying
+	// its member events. A <tour> block is one TOUR series with many events; a
+	// standalone show is one SINGLE series with a single event.
+	Series []*DiscoveredSeries `json:"series"`
+}
+
+// EventCount returns the total number of member events across all series in the
+// batch. Used for logging/metrics where the flat event count is meaningful.
+func (d ConcertDiscoveredData) EventCount() int {
+	return SumSeriesEvents(d.Series)
+}
+
 // DiscoveredSeries groups the events of one discovered tour or standalone show
 // under shared series-level metadata. Grouping is structural — every event in
 // Events belongs to this one series — so per-event fragmentation is impossible
 // by construction. The searcher sets Type from the venues: TOUR when the events
 // are at two or more venues, SINGLE otherwise.
 //
-// JSON tags support serialization as the concert.discovered event payload.
+// JSON tags support serialization as the create-from-discovered workflow input.
 type DiscoveredSeries struct {
 	// Title is the series title (tour or show name), shared across all events.
 	Title string `json:"title"`
@@ -491,6 +512,12 @@ type ConcertRepository interface {
 	// # Possible errors
 	//
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid series, venue, or performer).
+	//
+	// # Announces
+	//
+	// CONCERT.created once for each Artist newly linked to events of one Series,
+	// with those Concerts (ce_subject the Artist id), together with the change.
+	// Nothing when no link is new.
 	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
 	// ListByIDs retrieves concerts by their event IDs. Venues, parent Series,
 	// and Artists are all populated so callers can render the response

@@ -78,6 +78,13 @@ func run(ctx context.Context, bootLogger *logging.Logger, health *server.HealthS
 	if err := app.Runtime.Launch(); err != nil {
 		return err
 	}
+	if app.Forwarder != nil {
+		go func() {
+			if err := app.Forwarder.Run(ctx); err != nil {
+				app.Logger.Error(ctx, "outbox forwarder stopped", err)
+			}
+		}()
+	}
 	health.SetReady()
 	app.Logger.Info(ctx, "workflow worker running")
 

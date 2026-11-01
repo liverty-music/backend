@@ -246,8 +246,8 @@ func TestOrderRepository_GetByCheckoutID(t *testing.T) {
 	}
 	ctx := context.Background()
 	repo := rdb.NewOrderRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB)
-	issuance := rdb.NewIssuanceRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 	start := saleWindowStart.Add(time.Hour)
 
 	t.Run("paid checkout", func(t *testing.T) {
@@ -390,7 +390,7 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 	cleanDatabase(t)
 	ctx := context.Background()
 	repo := rdb.NewOrderRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 	at := saleWindowStart.Add(time.Hour)
 	seatType := func(f *stockFixture) *entity.SeatTypeID { return &f.SeatType.ID }
 

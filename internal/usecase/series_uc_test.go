@@ -8,9 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +23,6 @@ type authoringDeps struct {
 	mapCatalog    *entitymocks.MockVenueMapCatalog
 	organizerRepo *entitymocks.MockOrganizerRepository
 	ticketSales   *entitymocks.MockTicketSaleRepository
-	publisher     *ucmocks.MockEventPublisher
 	uc            usecase.SeriesUseCase
 }
 
@@ -38,11 +35,10 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 		mapCatalog:    entitymocks.NewMockVenueMapCatalog(t),
 		organizerRepo: entitymocks.NewMockOrganizerRepository(t),
 		ticketSales:   entitymocks.NewMockTicketSaleRepository(t),
-		publisher:     ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewSeriesUseCase(
 		d.seriesRepo, entitymocks.NewMockSeriesImageRepository(t), d.venueRepo, d.mapCatalog, d.organizerRepo,
-		d.ticketSales, nil, usecase.StorageBuckets{}, d.publisher, logger, func() time.Time { return authoringNow },
+		d.ticketSales, nil, usecase.StorageBuckets{}, logger, func() time.Time { return authoringNow },
 	)
 	return d
 }
@@ -133,7 +129,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 		orgRepo,
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
-		messaging.NewEventPublisher(d.publisher),
+		d.workflows,
 		noopMetrics{},
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
@@ -161,7 +157,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		orgRepo,
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
-		messaging.NewEventPublisher(d.publisher),
+		d.workflows,
 		noopMetrics{},
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, logger,
@@ -171,7 +167,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, "artist-2").
 		Return(nil, apperr.New(codes.NotFound, "not found"))
 	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, "artist-2", entity.ConcertSearchStatusPending).
-		Return(nil)
+		Return(testSearchTime, nil)
 	d.artistRepo.EXPECT().Get(mock.Anything, "artist-2").
 		Return(&entity.Artist{ID: "artist-2", Name: "Test Artist", MBID: "mbid-1"}, nil)
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-2").

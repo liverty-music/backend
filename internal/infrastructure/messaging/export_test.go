@@ -15,3 +15,6 @@ var WarnOnDisconnect = warnOnDisconnect
 
 // RedeliveryDelay exposes redeliveryDelay for testing.
 var RedeliveryDelay = redeliveryDelay
+
+// SubjectMatches exposes subjectMatches for testing.
+var SubjectMatches = subjectMatches

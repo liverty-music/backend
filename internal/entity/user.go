@@ -132,6 +132,9 @@ type User struct {
 	PreferredLanguage string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
+	// LastLoginTime is when the user last signed in, as reported by the
+	// identity provider. Nil until the first sign-in is recorded.
+	LastLoginTime *time.Time
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home
@@ -216,7 +219,30 @@ type UserRepository interface {
 	//
 	//  - InvalidArgument: If email or name is invalid.
 	//  - AlreadyExists: If a user with the same email already exists.
+	//  - Unavailable: The announcement could not be recorded; nothing is
+	//    stored.
+	//
+	// # Announces
+	//
+	// USER.created with the User without its full name, phone number and display
+	// name, together with the insert. Nothing on AlreadyExists.
 	Create(ctx context.Context, params *NewUser) (*User, error)
+
+	// RecordLogin sets the user's last login time to at when it has none or
+	// an earlier one; a same or later stored time is left unchanged.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	//  - Unavailable: The announcement could not be recorded; nothing is
+	//    stored.
+	//
+	// # Announces
+	//
+	// USER.logged_in with the User and its new last login time, without its full
+	// name, phone number and display name, together with the change. Nothing
+	// when the stored time is the same or later.
+	RecordLogin(ctx context.Context, id string, at time.Time) error
 
 	// Get retrieves a user by ID.
 	//
@@ -382,8 +408,7 @@ func (k PasskeyChangeKind) IsValid() bool {
 }
 
 // PasskeyChange is a passkey added to or removed from a User's identity at
-// the identity provider. Passkeys are not stored by the platform; this value
-// only carries what the change email shows.
+// the identity provider: what the change email shows.
 type PasskeyChange struct {
 	// Kind is whether the passkey was added or removed.
 	Kind PasskeyChangeKind

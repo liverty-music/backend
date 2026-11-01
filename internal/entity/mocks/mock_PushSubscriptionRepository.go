@@ -167,6 +167,69 @@ func (_c *MockPushSubscriptionRepository_Delete_Call) RunAndReturn(run func(ctx 
 	return _c
 }
 
+// DeleteGone provides a mock function for the type MockPushSubscriptionRepository
+func (_mock *MockPushSubscriptionRepository) DeleteGone(ctx context.Context, userID string, endpoint string) error {
+	ret := _mock.Called(ctx, userID, endpoint)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteGone")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, userID, endpoint)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockPushSubscriptionRepository_DeleteGone_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteGone'
+type MockPushSubscriptionRepository_DeleteGone_Call struct {
+	*mock.Call
+}
+
+// DeleteGone is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - endpoint string
+func (_e *MockPushSubscriptionRepository_Expecter) DeleteGone(ctx any, userID any, endpoint any) *MockPushSubscriptionRepository_DeleteGone_Call {
+	return &MockPushSubscriptionRepository_DeleteGone_Call{Call: _e.mock.On("DeleteGone", ctx, userID, endpoint)}
+}
+
+func (_c *MockPushSubscriptionRepository_DeleteGone_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushSubscriptionRepository_DeleteGone_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockPushSubscriptionRepository_DeleteGone_Call) Return(err error) *MockPushSubscriptionRepository_DeleteGone_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockPushSubscriptionRepository_DeleteGone_Call) RunAndReturn(run func(ctx context.Context, userID string, endpoint string) error) *MockPushSubscriptionRepository_DeleteGone_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function for the type MockPushSubscriptionRepository
 func (_mock *MockPushSubscriptionRepository) Get(ctx context.Context, userID string, endpoint string) (*entity.PushSubscription, error) {
 	ret := _mock.Called(ctx, userID, endpoint)

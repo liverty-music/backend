@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -17,7 +19,8 @@ import (
 // A sale is read in two statements: its ticket_sales row, then the events it
 // names in ticket_sale_events.
 type TicketSaleRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -118,8 +121,8 @@ const (
 )
 
 // NewTicketSaleRepository creates a new ticket sale repository instance.
-func NewTicketSaleRepository(db *Database) *TicketSaleRepository {
-	return &TicketSaleRepository{db: db}
+func NewTicketSaleRepository(db *Database, outbox Announcer) *TicketSaleRepository {
+	return &TicketSaleRepository{db: db, outbox: outbox}
 }
 
 // Create stores the Organizer's sale and the events it names in one
@@ -209,6 +212,12 @@ func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time
 
 // UpsertDiscovered stores a discovered sale, converging on the known
 // discovered sale with the same series, method and start date in Japan time.
+//
+// # Announces
+//
+// SALES_PHASE.discovered with the TicketSale, in the transaction of the
+// insert, when it creates the sale (Inserted). Nothing when it updates or
+// skips one.
 func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error) {
 	if found == nil {
 		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, "discovered sale must not be nil")
@@ -226,11 +235,18 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		return "", entity.UpsertOutcomeSkipped, apperr.Wrap(err, codes.InvalidArgument, "invalid discovered sale", attrs...)
 	}
 
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to begin discovered sale upsert", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var (
 		id       string
 		inserted bool
 	)
-	err := r.db.Pool.QueryRow(ctx, ticketSaleUpsertDiscoveredQuery,
+	err = tx.QueryRow(ctx, ticketSaleUpsertDiscoveredQuery,
 		entity.NewID(),
 		found.SeriesID,
 		found.Name,
@@ -245,10 +261,21 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 	if err != nil {
 		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to upsert discovered ticket sale", attrs...)
 	}
+	outcome := entity.UpsertOutcomeUpdated
 	if inserted {
-		return entity.TicketSaleID(id), entity.UpsertOutcomeInserted, nil
+		outcome = entity.UpsertOutcomeInserted
+		sale, err := getTicketSale(ctx, tx, entity.TicketSaleID(id))
+		if err != nil {
+			return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to read the discovered sale", attrs...)
+		}
+		if err := announce(ctx, r.outbox, tx, entity.SubjectTicketSaleDiscovered, messaging.Announcement{Payload: pb.FromTicketSale(sale)}); err != nil {
+			return "", entity.UpsertOutcomeSkipped, err
+		}
 	}
-	return entity.TicketSaleID(id), entity.UpsertOutcomeUpdated, nil
+	if err := tx.Commit(ctx); err != nil {
+		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to commit discovered sale upsert", attrs...)
+	}
+	return entity.TicketSaleID(id), outcome, nil
 }
 
 // ListBySeries returns every sale of the series, earliest start first.

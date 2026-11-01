@@ -52,7 +52,7 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 	}
 
 	// Repositories
-	artistRepo := rdb.NewArtistRepository(db)
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
 
 	// Infrastructure - fanart.tv
 	//

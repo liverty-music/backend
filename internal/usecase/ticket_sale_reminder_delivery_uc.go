@@ -29,6 +29,10 @@ type TicketSaleReminderDeliveryUseCase interface {
 	//     was no device to deliver to). A transient send failure leaves the
 	//     sent-log empty so the next scan can retry.
 	DeliverReminder(ctx context.Context, data entity.TicketSaleReminderDueData) error
+
+	// RunDeliverReminder is the deliver-reminder workflow, started by
+	// ScanDueReminders by name ([WorkflowDeliverReminder]).
+	RunDeliverReminder(ctx context.Context, f Flow, in entity.TicketSaleReminderDueData) (struct{}, error)
 }
 
 type ticketSaleReminderDeliveryUseCase struct {
@@ -50,7 +54,6 @@ func NewTicketSaleReminderDeliveryUseCase(
 	notificationRepo entity.NotificationRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
-	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) *ticketSaleReminderDeliveryUseCase {
@@ -60,7 +63,6 @@ func NewTicketSaleReminderDeliveryUseCase(
 			notificationRepo: notificationRepo,
 			pushSubRepo:      pushSubRepo,
 			sender:           sender,
-			publisher:        publisher,
 			metrics:          metrics,
 			logger:           logger,
 		},

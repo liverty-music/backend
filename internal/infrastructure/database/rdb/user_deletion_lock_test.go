@@ -33,7 +33,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	users := rdb.NewUserRepository(testDB)
+	users := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cases := []struct {
@@ -48,7 +48,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 				f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
 				stock, err := rdb.NewTicketStockRepository(testDB).Get(ctx, f.ID, saleWindowStart)
 				require.NoError(t, err)
-				repo := rdb.NewLotteryEntryRepository(testDB)
+				repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 				return func() error {
 						order := entity.NewPendingOrder(userID, stock, 1, nil, entity.OrderPaymentProvider)
 						order.CardAuthorizationID = "pi_" + string(order.ID)
@@ -63,7 +63,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 			name: "checkout",
 			create: func(t *testing.T, userID entity.UserID) (func() error, func() int) {
 				f := seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
-				repo := rdb.NewCheckoutRepository(testDB)
+				repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 				return func() error {
 						_, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, userID, 1, nil, saleWindowStart.Add(time.Hour))
 						return err
@@ -92,7 +92,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 		var orderID string
 		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(ticketID)).Scan(&orderID))
 		ticket := &entity.Ticket{ID: ticketID, OrderID: entity.OrderID(orderID), UserID: entity.UserID(seller), EventID: f.EventID}
-		repo := rdb.NewResaleListingRepository(testDB)
+		repo := rdb.NewResaleListingRepository(testDB, testOutbox)
 		run := func() error {
 			_, err := repo.Create(ctx, entity.NewResaleListing(ticket, f.ID, f.SeatType, saleWindowStart.Add(24*time.Hour)))
 			return err

@@ -8,14 +8,19 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ArtistRepository implements entity.ArtistRepository interface for PostgreSQL.
 type ArtistRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 const (
@@ -24,33 +29,34 @@ const (
 		INSERT INTO artists (id, name, mbid)
 		SELECT * FROM unnest($1::uuid[], $2::text[], $3::varchar[])
 		ON CONFLICT (mbid) DO NOTHING
+		RETURNING id
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
-		WHERE id = $1
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
-		FROM artists
-		WHERE mbid = $1
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE a.mbid = $1
 	`
 	updateFanartQuery = `
 		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.fanart_synced_at IS NULL
 		   OR (a.fanart_synced_at < $1
@@ -71,7 +77,7 @@ const (
 		UPDATE artists SET name = $2 WHERE id = $1
 	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
 		  AND (a.official_site_checked_at IS NULL OR a.official_site_checked_at < $1)
@@ -87,9 +93,13 @@ const (
 )
 
 // NewArtistRepository creates a new artist repository instance.
-func NewArtistRepository(db *Database) *ArtistRepository {
-	return &ArtistRepository{db: db}
+func NewArtistRepository(db *Database, outbox Announcer) *ArtistRepository {
+	return &ArtistRepository{db: db, outbox: outbox}
 }
+
+// artistOrganizerColumn selects, for an artist aliased a, the Organizer that
+// represents it (NULL when none), in the last column scanArtist expects.
+const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa WHERE oa.artist_id = a.id)`
 
 // scanArtist scans a row into an Artist entity including nullable fanart and
 // official site check columns.
@@ -99,7 +109,7 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var syncedAt *time.Time
 	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.OrganizerID); err != nil {
 		return nil, err
 	}
 	if officialSiteCheckedAt.Valid {
@@ -121,6 +131,12 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 // Create persists one or more artists using unnest bulk upsert.
 // All artists must have a non-empty MBID; artists with matching MBIDs are
 // deduplicated. Returns all artists with valid database IDs.
+//
+// # Announces
+//
+// ARTIST.created with each Artist this call inserted, in the transaction of
+// the insert. Nothing for an MBID already registered, also when a concurrent
+// call registered it first.
 func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist) ([]*entity.Artist, error) {
 	if len(artists) == 0 {
 		return []*entity.Artist{}, nil
@@ -146,9 +162,27 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		inputIdx = append(inputIdx, origIdx)
 	}
 
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, toAppErr(err, "failed to begin artist create transaction")
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// RETURNING yields only the artists this call inserted: a known MBID,
+	// also one a concurrent call inserted first, hits ON CONFLICT.
+	inserted := map[string]bool{}
 	if len(ids) > 0 {
-		if _, err := r.db.Pool.Exec(ctx, insertArtistsWithMBIDUnnestQuery, ids, names, mbids); err != nil {
+		insRows, err := tx.Query(ctx, insertArtistsWithMBIDUnnestQuery, ids, names, mbids)
+		if err != nil {
 			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
+		}
+		newIDs, err := pgx.CollectRows(insRows, pgx.RowTo[string])
+		if err != nil {
+			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
+		}
+		for _, id := range newIDs {
+			inserted[id] = true
 		}
 	}
 
@@ -156,7 +190,7 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	// preserving the input order via WITH ORDINALITY.
 	resultByOrigIdx := make(map[int]*entity.Artist)
 
-	rows, err := r.db.Pool.Query(ctx, selectArtistsByMBIDsQuery, mbids)
+	rows, err := tx.Query(ctx, selectArtistsByMBIDsQuery, mbids)
 	if err != nil {
 		return nil, toAppErr(err, "failed to select artists by mbids")
 	}
@@ -173,6 +207,22 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "error iterating artist rows by mbids")
+	}
+	rows.Close()
+
+	var created []messaging.Announcement
+	announcedIDs := map[string]bool{}
+	for _, a := range resultByOrigIdx {
+		if inserted[a.ID] && !announcedIDs[a.ID] {
+			announcedIDs[a.ID] = true
+			created = append(created, messaging.Announcement{Payload: pb.FromArtist(a)})
+		}
+	}
+	if err := announceAll(ctx, r.outbox, tx, entity.SubjectArtistCreated, created); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, toAppErr(err, "failed to commit artist create transaction")
 	}
 
 	// Reassemble in original input order, skipping nil entries.

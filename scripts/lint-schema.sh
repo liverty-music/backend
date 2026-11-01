@@ -121,8 +121,9 @@ check_column_comments() {
         continue
       fi
 
-      # Column definition: indented line starting with a word (column name, may contain digits)
-      if [[ "$line" =~ ^[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+ ]]; then
+      # Column definition: indented line starting with a word (column name, may
+      # contain digits), double-quoted when it is a reserved word ("offset")
+      if [[ "$line" =~ ^[[:space:]]+\"?[a-zA-Z_][a-zA-Z0-9_]*\"?[[:space:]]+ ]]; then
         col_count=$((col_count + 1))
       fi
     fi

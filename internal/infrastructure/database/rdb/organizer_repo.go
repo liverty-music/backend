@@ -5,19 +5,22 @@ import (
 	"database/sql"
 	"log/slog"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // OrganizerRepository implements entity.OrganizerRepository for PostgreSQL.
 type OrganizerRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // NewOrganizerRepository creates a new PostgreSQL-backed OrganizerRepository.
-func NewOrganizerRepository(db *Database) *OrganizerRepository {
-	return &OrganizerRepository{db: db}
+func NewOrganizerRepository(db *Database, outbox Announcer) *OrganizerRepository {
+	return &OrganizerRepository{db: db, outbox: outbox}
 }
 
 const (
@@ -69,7 +72,7 @@ const (
 		DELETE FROM organizer_artists WHERE organizer_id = $1 AND artist_id = $2
 	`
 	listOrganizerArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN organizer_artists oa ON oa.artist_id = a.id
 		WHERE oa.organizer_id = $1
@@ -276,31 +279,78 @@ func (r *OrganizerRepository) SetStatus(ctx context.Context, id string, status e
 	return nil
 }
 
-// CompareAndSetStatus atomically transitions status from `from` to `to`, and
-// reports whether the transition was applied. A false result means the current
-// status was not `from` (e.g. a concurrent Deactivate already moved the row) —
-// the caller must not treat that as its own success. The row must still exist.
+// CompareAndSetStatus moves the Organizer from status from to status to and
+// reports whether it did; false when the Organizer does not exist or is no
+// longer in from.
+//
+// # Announces
+//
+// ORGANIZER.created with the Organizer as active, in the transaction of the
+// change, when it moves the Organizer from provisioning to active. Nothing
+// for any other change or when it changed nothing.
 func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string, from, to entity.OrganizerStatus) (bool, error) {
-	tag, err := r.db.Pool.Exec(ctx, compareAndSetOrganizerStatusQuery, id, int16(from), int16(to))
+	attrs := []slog.Attr{slog.String("id", id)}
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return false, toAppErr(err, "failed to compare-and-set organizer status", slog.String("id", id))
+		return false, toAppErr(err, "failed to begin organizer status change", attrs...)
 	}
-	// 0 rows affected means the row either does not exist or is no longer in the
-	// `from` status. Both mean the intended transition did not apply; the caller
-	// treats it as "superseded" and skips, so it need not be distinguished here.
-	return tag.RowsAffected() > 0, nil
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, compareAndSetOrganizerStatusQuery, id, int16(from), int16(to))
+	if err != nil {
+		return false, toAppErr(err, "failed to compare-and-set organizer status", attrs...)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	if from == entity.OrganizerStatusProvisioning && to == entity.OrganizerStatusActive {
+		o, err := scanOrganizer(tx.QueryRow(ctx, getOrganizerQuery, id).Scan)
+		if err != nil {
+			return false, toAppErr(err, "failed to read the activated organizer", attrs...)
+		}
+		if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerCreated, messaging.Announcement{Payload: pb.FromOrganizer(o)}); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, toAppErr(err, "failed to commit organizer status change", attrs...)
+	}
+	return true, nil
 }
 
 // AssociateArtist inserts a row into organizer_artists to link an artist to an
 // Organizer. The unique index on artist_id ensures an artist can only be
 // represented by one organizer at a time; a duplicate insert is mapped to
 // AlreadyExists by toAppErr.
+//
+// # Announces
+//
+// ORGANIZER.artist_associated with the Artist and its new organizer, in the
+// transaction of the link. Nothing on AlreadyExists or any other failure.
 func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
+	attrs := []slog.Attr{slog.String("organizer_id", organizerID), slog.String("artist_id", artistID)}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin artist association", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	// The unique index on artist_id rejects an already-represented artist with a
 	// unique violation, which toAppErr maps to AlreadyExists.
-	if _, err := r.db.Pool.Exec(ctx, insertOrganizerArtistQuery, organizerID, artistID); err != nil {
-		return toAppErr(err, "failed to associate artist",
-			slog.String("organizer_id", organizerID), slog.String("artist_id", artistID))
+	if _, err := tx.Exec(ctx, insertOrganizerArtistQuery, organizerID, artistID); err != nil {
+		return toAppErr(err, "failed to associate artist", attrs...)
+	}
+	artist, err := scanArtist(tx.QueryRow(ctx, getArtistQuery, artistID).Scan)
+	if err != nil {
+		return toAppErr(err, "failed to read the associated artist", attrs...)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerArtistAssociated, messaging.Announcement{Payload: pb.FromArtist(artist)}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit artist association", attrs...)
 	}
 	return nil
 }

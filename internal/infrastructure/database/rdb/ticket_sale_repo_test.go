@@ -51,7 +51,7 @@ func newSaleFor(t *testing.T, method entity.TicketSaleMethod, start, end time.Ti
 // createSale stores the sale with the repository.
 func createSale(t *testing.T, sale *entity.TicketSale) *entity.TicketSale {
 	t.Helper()
-	created, err := rdb.NewTicketSaleRepository(testDB).Create(context.Background(), sale)
+	created, err := rdb.NewTicketSaleRepository(testDB, testOutbox).Create(context.Background(), sale)
 	require.NoError(t, err)
 	return created
 }
@@ -70,7 +70,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	end := saleWindowStart.Add(7 * 24 * time.Hour)
 
@@ -161,7 +161,7 @@ func TestTicketSaleRepository_Get(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("sale covering several events", func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	stocks := rdb.NewTicketStockRepository(testDB)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
@@ -284,7 +284,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	now := saleWindowStart.Add(7*24*time.Hour + 2*time.Minute)
 
@@ -366,7 +366,7 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 	nov := func(day int) time.Time { return time.Date(2026, 11, day, 1, 0, 0, 0, time.UTC) }
 
@@ -423,7 +423,7 @@ func TestTicketSaleRepository_SetVerificationRequirement(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB)
+	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("requirement changed", func(t *testing.T) {

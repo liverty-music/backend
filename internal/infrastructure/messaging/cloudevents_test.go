@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,79 +144,4 @@ func TestParseCloudEventData_InvalidJSON(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmarshal event data")
-}
-
-func TestNewEvent_ID(t *testing.T) {
-	t.Parallel()
-
-	// eventIDs publishes once under each context and returns the CloudEvent ids.
-	eventIDs := func(t *testing.T, ctxs ...context.Context) []string {
-		t.Helper()
-		var ids []string
-		for _, ctx := range ctxs {
-			msg, err := messaging.NewEvent(ctx, testPayload{Name: "x"})
-			require.NoError(t, err)
-			ids = append(ids, msg.Metadata.Get("ce_id"))
-		}
-		return ids
-	}
-
-	tests := []struct {
-		name      string
-		ctxs      func() []context.Context
-		wantEqual bool
-	}{
-		{
-			name: "the same step run again publishes with the same id",
-			ctxs: func() []context.Context {
-				return []context.Context{
-					messaging.WithPublishOrigin(context.Background(), "wf-1/3"),
-					messaging.WithPublishOrigin(context.Background(), "wf-1/3"),
-				}
-			},
-			wantEqual: true,
-		},
-		{
-			name: "two passes of a loop are two steps and publish with two ids",
-			ctxs: func() []context.Context {
-				return []context.Context{
-					messaging.WithPublishOrigin(context.Background(), "wf-1/3"),
-					messaging.WithPublishOrigin(context.Background(), "wf-1/4"),
-				}
-			},
-			wantEqual: false,
-		},
-		{
-			name: "two publishes in one step get two ids",
-			ctxs: func() []context.Context {
-				ctx := messaging.WithPublishOrigin(context.Background(), "wf-1/3")
-				return []context.Context{ctx, ctx}
-			},
-			wantEqual: false,
-		},
-		{
-			name: "two publishes outside a workflow get two ids",
-			ctxs: func() []context.Context {
-				return []context.Context{context.Background(), context.Background()}
-			},
-			wantEqual: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ids := eventIDs(t, tt.ctxs()...)
-			for _, id := range ids {
-				parsed, err := uuid.Parse(id)
-				require.NoError(t, err)
-				assert.Equal(t, uuid.Version(5), parsed.Version(), "every event id is a UUIDv5")
-			}
-			if tt.wantEqual {
-				assert.Equal(t, ids[0], ids[1])
-			} else {
-				assert.NotEqual(t, ids[0], ids[1])
-			}
-		})
-	}
 }

@@ -5,8 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -35,8 +33,8 @@ func NewTicketSaleAnnouncementConsumer(
 func (h *TicketSaleAnnouncementConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
-	var data entity.TicketSaleDiscoveredData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+	data, err := parseTicketSaleDiscovered(msg)
+	if err != nil {
 		h.logger.Error(ctx, "ticket_sale_announcement: failed to parse event", err)
 		return fmt.Errorf("parse SALES_PHASE.discovered: %w", err)
 	}

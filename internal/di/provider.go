@@ -46,8 +46,6 @@ import (
 	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/grpchealth/v2"
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -61,7 +59,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
@@ -238,38 +235,38 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Repositories
-	userRepo := rdb.NewUserRepository(db)
-	artistRepo := rdb.NewArtistRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
-	concertRepo := rdb.NewConcertRepository(db)
+	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
+	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
-	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
-	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
-	organizerRepo := rdb.NewOrganizerRepository(db)
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
-	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
+	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db, newOutbox(logger))
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
 	// The Order, Settlement and PayoutAccount repositories combine their rows
 	// with their payment provider operations.
 	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), payments.orders)
-	ticketRepo := rdb.NewTicketRepository(db)
-	issuanceRepo := rdb.NewIssuanceRepository(db)
+	ticketRepo := rdb.NewTicketRepository(db, newOutbox(logger))
+	issuanceRepo := rdb.NewIssuanceRepository(db, newOutbox(logger))
 	settlementRepo := repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payments.settlements)
 	refundRepo := rdb.NewRefundRepository(db)
 	payoutAccountRepo := repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(db), payments.payoutAccounts)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
-	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db, newOutbox(logger))
 	seatTypeRepo := rdb.NewSeatTypeRepository(db)
 	ticketStockRepo := rdb.NewTicketStockRepository(db)
-	checkoutRepo := rdb.NewCheckoutRepository(db)
+	checkoutRepo := rdb.NewCheckoutRepository(db, newOutbox(logger))
 	eventRepo := rdb.NewEventRepository(db)
-	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	scannerRepo := rdb.NewScannerRepository(db)
 	admissionRepo := rdb.NewAdmissionRepository(db)
@@ -305,19 +302,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Initialize the shutdown package for phased resource teardown.
 	shutdown.Init(logger)
 
-	// Infrastructure - Messaging Publisher
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{
-			OutputChannelBuffer: 256,
-		}, wmLogger)
-	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
-	}
-
 	// Infrastructure - fan identity removal (admin and fan workloads) and
 	// email verification (fan workload) through the identity service; nil
 	// elsewhere and in local dev without the identity service.
@@ -327,7 +311,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	businessMetrics := infratelemetry.NewBusinessMetrics()
 
 	// Use Cases
-	eventPublisher := messaging.NewEventPublisher(publisher)
+	workflows, err := provideAPIWorkflows(ctx, cfg, db, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{
 		Tickets:        ticketRepo,
@@ -337,10 +324,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Checkouts:      checkoutRepo,
 		Orders:         orderRepo,
 		Now:            time.Now,
-	}, eventPublisher, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	}, workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, workflows, time.Now, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, artistCache, logger)
 	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside
@@ -358,9 +346,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db), imageStorer,
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
-		eventPublisher, businessMetrics, logger)
+		businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
 	// organizers (the isolated admin workload); it completes any organizer left
 	// in the provisioning state after a partial failure.
@@ -373,8 +361,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
-		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, eventPublisher, logger, time.Now)
+	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), venueRepo, mapCatalog, organizerRepo, ticketSaleRepo,
+		imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, logger, time.Now)
 
 	// Identity verification — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
@@ -411,7 +399,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, nil, logger)
 	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
 	// organizer-facing ConcertService pb. The CDN base is sourced from
 	// config (CDN_BASE_URL) rather than read directly by entity.
@@ -446,7 +434,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		IdentityVerificationRepo: identityVerificationRepo,
 		UserRepo:                 userRepo,
 		CardAuthorizations:       lotteryCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
@@ -468,11 +455,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
-	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, eventPublisher, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, scannerRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
 	// ⑥ ticket wallet and venue admission (Scanners).
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
@@ -495,7 +481,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCardAuthorizations,
-		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		RefundRepo:               refundRepo,
 		SettlementRepo:           settlementRepo,
@@ -513,7 +498,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Stocks:     ticketStockRepo,
 		EventState: eventPublishState,
 		Events:     eventRepo,
-		Publisher:  eventPublisher,
 		Clock:      time.Now,
 		Logger:     logger,
 	})
@@ -576,15 +560,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			slog.String("workload", cfg.Workload))
 	}
 
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, time.Now, logger)
-	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, businessMetrics, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
-	notificationRepo := rdb.NewNotificationRepository(db)
+	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{},
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, businessMetrics, logger, usecase.OrderConfirmationDeps{},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
-	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, eventPublisher, logger)
+	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, logger)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
@@ -717,7 +701,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Fan-facing PasskeyService: List (the signed-in fan's recorded passkeys).
 		func(s *connect.Server) {
 			passkeyconnect.RegisterPasskeyServiceHandler(s, rpc.NewPasskeyHandler(
-				usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger), userUC, logger))
+				passkeyUC, userUC, logger))
 		},
 	}
 
@@ -885,14 +869,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 	// Login-event Actions v2 handler — bound to the event execution on
-	// session.user.checked; emits account.login once per interactive login,
+	// session.user.checked; records each interactive login,
 	// never on token refresh or a machine grant. The Target is PAYLOAD_TYPE_JSON,
 	// so the handler verifies the HMAC ZITADEL-Signature with the Target's signing
-	// key. Publishes a best-effort ACCOUNT.login event and never fails login.
+	// key. Records the login with UserUseCase.RecordLogin and never fails login.
 	loginEventHandler := webhook.NewLoginEventHandler(
 		cfg.Webhook.LoginEventSigningKey,
 		userUC,
-		eventPublisher,
 		logger,
 	)
 	// Settlement task 4.3: Stripe webhook handler.
@@ -909,13 +892,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	)
 
 	// Passkey-event Actions v2 handler — bound to the event executions on
-	// user.human.passwordless.token.verified and token.removed; announces
-	// USER.passkey_changed for the product org's identities (the change email
-	// and the Passkey record are the consumer's).
+	// user.human.passwordless.token.verified and token.removed; starts
+	// record-passkey-change for the product org's identities, which the
+	// workflow worker runs.
 	passkeyEventHandler := webhook.NewPasskeyEventHandler(
 		cfg.Webhook.PasskeyEventSigningKey,
 		cfg.Webhook.ProductOrgID,
-		eventPublisher,
+		passkeyUC,
 		logger,
 	)
 
@@ -939,7 +922,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
 	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, receptionSrv, webhookSrv, rateLimiter, artistCache)
-	shutdown.AddFlushPhase(publisher)
 	// jwtValidator owns the JWKS cache's refresh goroutines.
 	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient, jwtValidator)
 	shutdown.AddObservePhase(telemetryCloser)

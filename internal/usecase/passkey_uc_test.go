@@ -21,10 +21,42 @@ const (
 )
 
 type passkeyTestDeps struct {
-	passkeys *entitymocks.MockPasskeyRepository
-	users    *entitymocks.MockUserRepository
-	now      time.Time
-	uc       usecase.PasskeyUseCase
+	passkeys  *entitymocks.MockPasskeyRepository
+	users     *entitymocks.MockUserRepository
+	workflows *passkeyWorkflows
+	now       time.Time
+	uc        usecase.PasskeyUseCase
+}
+
+// passkeyWorkflows records the workflows started and awaited; Await returns
+// awaitErr.
+type passkeyWorkflows struct {
+	recordingWorkflows
+	awaited  []string
+	awaitErr error
+	// onAwait, when set, runs before Await returns.
+	onAwait func()
+}
+
+func (w *passkeyWorkflows) Await(_ context.Context, id string, _ time.Duration, _ any) error {
+	w.awaited = append(w.awaited, id)
+	if w.onAwait != nil {
+		w.onAwait()
+	}
+	return w.awaitErr
+}
+
+// waitingFlow runs steps inline and moves the clock by each wait.
+type waitingFlow struct {
+	inlineFlow
+	d     *passkeyTestDeps
+	waits int
+}
+
+func (f *waitingFlow) Recv(_ context.Context, _ string, timeout time.Duration) ([]byte, bool, error) {
+	f.waits++
+	f.d.now = f.d.now.Add(timeout)
+	return nil, false, nil
 }
 
 // newPasskeyTestDeps returns a PasskeyUseCase over strict mocks whose clock
@@ -32,11 +64,12 @@ type passkeyTestDeps struct {
 func newPasskeyTestDeps(t *testing.T, elapsed time.Duration) *passkeyTestDeps {
 	t.Helper()
 	d := &passkeyTestDeps{
-		passkeys: entitymocks.NewMockPasskeyRepository(t),
-		users:    entitymocks.NewMockUserRepository(t),
-		now:      passkeyChangeTime.Add(elapsed),
+		passkeys:  entitymocks.NewMockPasskeyRepository(t),
+		users:     entitymocks.NewMockUserRepository(t),
+		workflows: &passkeyWorkflows{},
+		now:       passkeyChangeTime.Add(elapsed),
 	}
-	d.uc = usecase.NewPasskeyUseCase(d.passkeys, d.users, func() time.Time { return d.now }, newTestLogger(t))
+	d.uc = usecase.NewPasskeyUseCase(d.passkeys, d.users, d.workflows, func() time.Time { return d.now }, newTestLogger(t))
 	return d
 }
 
@@ -56,10 +89,11 @@ func addedChange() entity.UserPasskeyChangedData {
 func TestPasskeyUseCase_RecordChange(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	wantPasskey := &entity.Passkey{ProviderPasskeyID: "token-1", UserID: "user-1", AAGUID: googlePasswordManagerAAGUID, CreateTime: passkeyChangeTime}
+	name := "Google Pixel 9, Android, Chrome"
+	wantPasskey := &entity.Passkey{ProviderPasskeyID: "token-1", UserID: "user-1", AAGUID: googlePasswordManagerAAGUID, Name: &name, CreateTime: passkeyChangeTime}
 
 	// @spec components/usecase/passkey/record-change "Passkey added"
-	t.Run("stores the added passkey for the fan with its AAGUID and the change's time", func(t *testing.T) {
+	t.Run("stores the added passkey for the fan with its AAGUID, name and the change's time", func(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
 		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
@@ -74,7 +108,7 @@ func TestPasskeyUseCase_RecordChange(t *testing.T) {
 		change := addedChange()
 		change.AAGUID = ""
 		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
-		d.passkeys.EXPECT().Create(mock.Anything, &entity.Passkey{ProviderPasskeyID: "token-1", UserID: "user-1", AAGUID: entity.ZeroAAGUID, CreateTime: passkeyChangeTime}).
+		d.passkeys.EXPECT().Create(mock.Anything, &entity.Passkey{ProviderPasskeyID: "token-1", UserID: "user-1", AAGUID: entity.ZeroAAGUID, Name: &name, CreateTime: passkeyChangeTime}).
 			Return(nil).Once()
 
 		assert.NoError(t, d.uc.RecordChange(ctx, change))
@@ -116,31 +150,12 @@ func TestPasskeyUseCase_RecordChange(t *testing.T) {
 		assert.NoError(t, d.uc.RecordChange(ctx, addedChange()))
 	})
 
-	// @spec components/usecase/passkey/record-change "Account created after the passkey"
-	t.Run("fails to run again while the fan's user does not exist yet, and stores the passkey once it does", func(t *testing.T) {
+	t.Run("reports a fan's user that does not exist yet", func(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
 		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
 
-		err := d.uc.RecordChange(ctx, addedChange())
-
-		assert.ErrorIs(t, err, usecase.ErrPasskeyAccountPending)
-
-		// The User is created 5 seconds later; the next run stores the passkey.
-		d.now = passkeyChangeTime.Add(6 * time.Second)
-		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
-		d.passkeys.EXPECT().Create(mock.Anything, wantPasskey).Return(nil).Once()
-		assert.NoError(t, d.uc.RecordChange(ctx, addedChange()))
-	})
-
-	// @spec components/usecase/passkey/record-change "Identity that never becomes an account"
-	t.Run("finishes without storing once the change is more than 10 minutes old and no user has the identity", func(t *testing.T) {
-		t.Parallel()
-		d := newPasskeyTestDeps(t, 10*time.Minute+time.Second)
-		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
-		// The strict passkey repository mock fails the test if anything is stored.
-
-		assert.NoError(t, d.uc.RecordChange(ctx, addedChange()))
+		assert.ErrorIs(t, d.uc.RecordChange(ctx, addedChange()), usecase.ErrPasskeyAccountPending)
 	})
 
 	t.Run("fails with InvalidArgument for a change without a provider passkey id", func(t *testing.T) {
@@ -150,6 +165,139 @@ func TestPasskeyUseCase_RecordChange(t *testing.T) {
 		change.ProviderPasskeyID = ""
 
 		assert.ErrorIs(t, d.uc.RecordChange(ctx, change), apperr.ErrInvalidArgument)
+	})
+}
+
+func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// @spec components/usecase/passkey/record-change "Account created after the passkey"
+	t.Run("looks again after 30 seconds and stores the passkey once the fan's user exists", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
+		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.passkeys.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Once()
+		f := &waitingFlow{d: d}
+
+		_, err := d.uc.RunRecordChange(ctx, f, addedChange())
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, f.waits, "one wait of 30 seconds before the second look")
+	})
+
+	// @spec components/usecase/passkey/record-change "Identity that never becomes an account"
+	t.Run("finishes without storing 10 minutes after its first run", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.users.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(nil, apperr.New(codes.NotFound, "no user"))
+		// The strict passkey repository mock fails the test if anything is stored.
+		f := &waitingFlow{d: d}
+
+		_, err := d.uc.RunRecordChange(ctx, f, addedChange())
+
+		require.NoError(t, err)
+		assert.Equal(t, 20, f.waits, "every 30 seconds for 10 minutes")
+	})
+
+	// @spec components/usecase/passkey/record-change "Removed while its addition waits"
+	t.Run("removes the passkey only after the run of its addition has ended", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		var order []string
+		d.workflows.onAwait = func() { order = append(order, "await") }
+		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").RunAndReturn(func(context.Context, string) error {
+			order = append(order, "delete")
+			return nil
+		}).Once()
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{
+			ProviderUserID: "zitadel-fan-1", ProviderPasskeyID: "token-1", Kind: "removed", ChangeTime: passkeyChangeTime,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"await", "delete"}, order)
+		assert.Equal(t, []string{usecase.ExportedRecordPasskeyChangeID("token-1", entity.PasskeyChangeAdded)}, d.workflows.awaited)
+	})
+
+	t.Run("a removal whose addition was never seen removes at once", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.workflows.awaitErr = apperr.New(codes.NotFound, "no such workflow")
+		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("a removal tries again while the addition has not ended", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.workflows.awaitErr = apperr.New(codes.DeadlineExceeded, "still running")
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable, "the step is tried again")
+	})
+
+	t.Run("a removal whose addition was cancelled removes at once", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.workflows.awaitErr = apperr.New(codes.Canceled, "the addition was cancelled")
+		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("a removal returns its own cancellation and a conflict to the runtime", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name string
+			ctx  func() context.Context
+			err  error
+		}{
+			{"cancelled run", func() context.Context { c, cancel := context.WithCancel(ctx); cancel(); return c }, apperr.New(codes.Canceled, "context canceled")},
+			{"conflicting run", func() context.Context { return ctx }, apperr.New(codes.Aborted, "another execution owns the workflow")},
+		} {
+			d := newPasskeyTestDeps(t, time.Second)
+			d.workflows.awaitErr = tc.err
+
+			_, err := d.uc.RunRecordChange(tc.ctx(), &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+			assert.ErrorIs(t, err, tc.err, tc.name)
+		}
+	})
+}
+
+func TestPasskeyUseCase_StartRecordChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// @spec components/usecase/passkey/record-change "Change announced twice"
+	t.Run("a repeated notice starts the same run", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+
+		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
+		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
+
+		assert.Equal(t, 1, d.workflows.runs())
+	})
+
+	t.Run("the addition and the removal of a passkey are separate runs", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		removed := addedChange()
+		removed.Kind = "removed"
+
+		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
+		require.NoError(t, d.uc.StartRecordChange(ctx, removed))
+
+		assert.Equal(t, 2, d.workflows.runs())
 	})
 }
 

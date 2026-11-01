@@ -3,11 +3,9 @@ package workflow
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -31,18 +29,13 @@ func (f *flow) dbosContext(ctx context.Context) dbos.Context {
 	return dbos.From(f.run, ctx)
 }
 
-// Step runs fn as a DBOS step with the step defaults. The step's context
-// names the events it publishes after the workflow and the step, so a step
-// that runs again after a stop publishes them with the same ids.
+// Step runs fn as a DBOS step with the step defaults, in a span named after
+// the step.
 func (f *flow) Step(ctx context.Context, name string, fn func(context.Context) ([]byte, error)) ([]byte, error) {
 	out, err := dbos.RunAsStep(f.dbosContext(ctx), func(stepCtx context.Context) ([]byte, error) {
 		d, ok := stepCtx.(dbos.Context)
 		if !ok {
 			return fn(stepCtx)
-		}
-		workflowID, err := dbos.GetWorkflowID(d)
-		if err != nil {
-			return nil, err
 		}
 		stepID, err := dbos.GetStepID(d)
 		if err != nil {
@@ -50,7 +43,7 @@ func (f *flow) Step(ctx context.Context, name string, fn func(context.Context) (
 		}
 		spanCtx, span := startStepSpan(stepCtx, name, stepID)
 		defer span.End()
-		out, err := fn(messaging.WithPublishOrigin(spanCtx, fmt.Sprintf("%s/%d", workflowID, stepID)))
+		out, err := fn(spanCtx)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())

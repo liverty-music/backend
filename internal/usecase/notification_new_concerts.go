@@ -28,6 +28,13 @@ import (
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error {
+	// A direct call by an admin has no announcement id: each such call
+	// notifies again.
+	requestID := data.RequestID
+	if requestID == "" {
+		requestID = entity.NewID()
+	}
+
 	// 0. Hydrate artist and concerts from their IDs.
 	artist, err := uc.artistRepo.Get(ctx, data.ArtistID)
 	if err != nil {
@@ -172,15 +179,15 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 			concertDeepLink(earliest),
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationRequested, entity.NotificationRequestedData{
+		id := deliverWorkflowID(entity.NotificationTypeNewConcerts, f.User.ID, requestID)
+		if err := uc.startDeliver(ctx, id, DeliverRequest{
 			UserID:  f.User.ID,
 			Type:    entity.NotificationTypeNewConcerts,
 			Payload: payload,
 		}); err != nil {
-			// Publish failure: surface so the consumer's at-least-once retry
-			// re-drives the batch. A repeat web push is collapsed browser-side
-			// by the per-artist Tag.
-			return fmt.Errorf("failed to publish notification request for user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
+			// Surface so the announcement is processed again; the followers
+			// already started are not started again (same workflow id).
+			return fmt.Errorf("failed to start the notification of user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
 		}
 		dispatched++
 	}

@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func newTestNotification(userID string, typ entity.NotificationType) *entity.Notification {
@@ -21,7 +23,7 @@ func newTestNotification(userID string, typ entity.NotificationType) *entity.Not
 }
 
 func TestNotificationRepository_CreateAndGet(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -51,7 +53,7 @@ func TestNotificationRepository_CreateAndGet(t *testing.T) {
 }
 
 func TestNotificationRepository_Get_NotFound(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -60,44 +62,96 @@ func TestNotificationRepository_Get_NotFound(t *testing.T) {
 }
 
 func TestNotificationRepository_UpdateDelivery(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
+	at := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC) // 18:00 JST
 
-	t.Run("delivered sets status and delivered_at, no failure reason", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-deliver-user", "notif-deliver@example.com", "ext-notif-deliver-01")
-		n := newTestNotification(userID, entity.NotificationTypeSalesReminder)
+	// queued records a Queued notification for a fan of its own.
+	queued := func(t *testing.T) *entity.Notification {
+		t.Helper()
+		tag := uuid.NewV7().String()
+		n := newTestNotification(seedUser(t, "notif "+tag, tag+"@example.com", "ext-"+tag), entity.NotificationTypeSalesReminder)
 		require.NoError(t, repo.Create(ctx, n))
-
-		now := time.Now().UTC()
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &now, ""))
-
-		got, err := repo.Get(ctx, n.ID)
+		return n
+	}
+	deliveredOf := func(t *testing.T, mark int64, id string) []*entityv1.Notification {
+		t.Helper()
+		return announcedSince(t, mark, entity.SubjectNotificationDelivered, func() *entityv1.Notification { return &entityv1.Notification{} },
+			func(n *entityv1.Notification) bool { return n.GetId().GetValue() == id })
+	}
+	get := func(t *testing.T, id string) *entity.Notification {
+		t.Helper()
+		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
+		return got
+	}
+
+	t.Run("delivered", func(t *testing.T) {
+		// @spec components/entity/notification/update-delivery "Delivered"
+		// @spec components/entity/notification/update-delivery "Delivered announced"
+		n := queued(t)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, ""))
+
+		got := get(t, n.ID)
 		assert.Equal(t, entity.NotificationDeliveryStatusDelivered, got.DeliveryStatus)
 		require.NotNil(t, got.DeliverTime)
-		assert.WithinDuration(t, now, *got.DeliverTime, time.Second)
+		assert.True(t, got.DeliverTime.Equal(at))
 		assert.Empty(t, got.FailureReason)
+		announced := deliveredOf(t, mark, n.ID)
+		require.Len(t, announced, 1)
+		assert.Equal(t, entityv1.NotificationDeliveryStatus_NOTIFICATION_DELIVERY_STATUS_DELIVERED, announced[0].GetDeliveryStatus())
+		assert.True(t, announced[0].GetDeliverTime().AsTime().Equal(at))
 	})
 
-	t.Run("failed sets status and failure reason, no delivered_at", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-fail-user", "notif-fail@example.com", "ext-notif-fail-01")
-		n := newTestNotification(userID, entity.NotificationTypeNewConcerts)
-		require.NoError(t, repo.Create(ctx, n))
+	t.Run("failed", func(t *testing.T) {
+		// @spec components/entity/notification/update-delivery "Failed"
+		n := queued(t)
+		mark := outboxMark(t)
 
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusFailed, nil, "push service rejected"))
+		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusFailed, nil, "no active push subscription"))
 
-		got, err := repo.Get(ctx, n.ID)
-		require.NoError(t, err)
+		got := get(t, n.ID)
 		assert.Equal(t, entity.NotificationDeliveryStatusFailed, got.DeliveryStatus)
 		assert.Nil(t, got.DeliverTime)
-		assert.Equal(t, "push service rejected", got.FailureReason)
+		assert.Equal(t, "no active push subscription", got.FailureReason)
+		assert.Empty(t, deliveredOf(t, mark, n.ID))
+	})
+
+	t.Run("outcome already recorded", func(t *testing.T) {
+		// @spec components/entity/notification/update-delivery "Outcome already recorded"
+		// @spec components/entity/notification/update-delivery "Already Delivered"
+		n := queued(t)
+		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, ""))
+		mark := outboxMark(t)
+
+		later := at.Add(time.Hour)
+		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &later, ""))
+
+		got := get(t, n.ID)
+		assert.True(t, got.DeliverTime.Equal(at), "the notification stays Delivered at 18:00")
+		assert.Empty(t, deliveredOf(t, mark, n.ID))
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		// @spec components/entity/notification/update-delivery "Unknown id"
+		assert.NoError(t, repo.UpdateDelivery(ctx, uuid.NewV7().String(), entity.NotificationDeliveryStatusDelivered, &at, ""))
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/notification/update-delivery "Announcement cannot be recorded"
+		n := queued(t)
+
+		err := rdb.NewNotificationRepository(testDB, failingOutbox{}).UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, "")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Equal(t, entity.NotificationDeliveryStatusQueued, get(t, n.ID).DeliveryStatus)
 	})
 }
 
 func TestNotificationRepository_MarkRead(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -130,7 +184,7 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 }
 
 func TestNotificationRepository_MarkDismissed(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	cleanDatabase(t)
@@ -153,7 +207,7 @@ func TestNotificationRepository_MarkDismissed(t *testing.T) {
 }
 
 func TestNotificationRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	repo := rdb.NewNotificationRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	t.Run("returns user's notifications most-recent-first", func(t *testing.T) {

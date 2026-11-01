@@ -13,8 +13,8 @@ import (
 )
 
 func TestFollowRepository_ListByUser(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
-	artistRepo := rdb.NewArtistRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -186,7 +186,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 }
 
 func TestFollowRepository_Follow(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -272,7 +272,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 }
 
 func TestFollowRepository_Unfollow(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -319,7 +319,7 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 }
 
 func TestFollowRepository_SetHype(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -377,7 +377,7 @@ func TestFollowRepository_SetHype(t *testing.T) {
 }
 
 func TestFollowRepository_ListAll(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -434,7 +434,7 @@ func TestFollowRepository_ListAll(t *testing.T) {
 }
 
 func TestFollowRepository_ListFollowers(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB)
+	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {

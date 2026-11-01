@@ -34,7 +34,8 @@ func ticketSaleSearchDue(searched, now time.Time) bool {
 // TicketSaleDiscoveryUseCase selects the series of an artist that need a
 // search for published ticket sales, calls the searcher once for the artist
 // over those series, stores the results as discovered TicketSales, records the
-// search, and publishes a SALES_PHASE.discovered event for each new sale.
+// search; TicketSale.UpsertDiscovered announces SALES_PHASE.discovered for each
+// new sale.
 type TicketSaleDiscoveryUseCase interface {
 	// DiscoverForArtist runs the discovery pipeline for one artist and
 	// returns the number of new discovered sales.
@@ -48,7 +49,6 @@ type ticketSaleDiscoveryUseCase struct {
 	searchRepo     entity.TicketSaleSearchRepository
 	journeyRepo    entity.TicketJourneyRepository
 	searcher       entity.TicketSaleSearcher
-	publisher      EventPublisher
 	analytics      AnalyticsClient
 	logger         *logging.Logger
 }
@@ -65,7 +65,6 @@ func NewTicketSaleDiscoveryUseCase(
 	searchRepo entity.TicketSaleSearchRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.TicketSaleSearcher,
-	publisher EventPublisher,
 	analytics AnalyticsClient,
 	logger *logging.Logger,
 ) TicketSaleDiscoveryUseCase {
@@ -76,7 +75,6 @@ func NewTicketSaleDiscoveryUseCase(
 		searchRepo:     searchRepo,
 		journeyRepo:    journeyRepo,
 		searcher:       searcher,
-		publisher:      publisher,
 		analytics:      analytics,
 		logger:         logger,
 	}
@@ -93,8 +91,8 @@ func NewTicketSaleDiscoveryUseCase(
 //     last 10 Japan-time dates.
 //  3. Resolve the artist's official-site URL (the grounding seed).
 //  4. Call TicketSaleSearcher.SearchPublishedSales ONCE for the kept series.
-//  5. Store each returned sale and publish SALES_PHASE.discovered for newly
-//     created ones, then record the search of every kept series.
+//  5. Store each returned sale (TicketSale.UpsertDiscovered announces the
+//     newly created ones), then record the search of every kept series.
 func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error) {
 	attrs := []slog.Attr{
 		slog.String("artist_id", artist.ID),
@@ -161,7 +159,8 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		if ctx.Err() != nil {
 			break
 		}
-		saleID, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
+		// TicketSale.UpsertDiscovered announces a sale it creates.
+		_, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
 		if err != nil {
 			uc.logger.Error(ctx, "ticket_sale_discovery: upsert failed", err,
 				append(attrs, slog.String("series_id", sale.SeriesID),
@@ -169,7 +168,6 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 			continue
 		}
 		if outcome == entity.UpsertOutcomeInserted {
-			uc.publishDiscovered(ctx, saleID, sale, attrs)
 			totalNew++
 		}
 	}
@@ -272,27 +270,6 @@ func hasSaleNotYetOver(sales []*entity.TicketSale, now time.Time) bool {
 		}
 	}
 	return false
-}
-
-// publishDiscovered publishes a SALES_PHASE.discovered event. Failure is
-// logged as a warning and swallowed — announcement is best-effort; the
-// sale is already stored.
-func (uc *ticketSaleDiscoveryUseCase) publishDiscovered(
-	ctx context.Context,
-	saleID entity.TicketSaleID,
-	sale *entity.DiscoveredTicketSale,
-	attrs []slog.Attr,
-) {
-	data := entity.TicketSaleDiscoveredData{
-		TicketSaleID:  string(saleID),
-		SeriesID:      sale.SeriesID,
-		Method:        int16(sale.Method),
-		SaleStartTime: sale.SaleStartTime,
-	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketSaleDiscovered, data); err != nil {
-		uc.logger.Warn(ctx, "ticket_sale_discovery: failed to publish SALES_PHASE.discovered",
-			append(attrs, slog.String("error", err.Error()))...)
-	}
 }
 
 // Outcomes of the ticket_sale.search.completed signal.

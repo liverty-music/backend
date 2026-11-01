@@ -2,6 +2,7 @@ package webhook_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -63,7 +64,20 @@ func signedPasskeyRequest(t *testing.T, body []byte, signingKey string) *http.Re
 	return req
 }
 
-func newPasskeyEventHandler(t *testing.T, pub *stubPublisher) *webhook.PasskeyEventHandler {
+// stubRecorder records the passkey changes the handler starts.
+type stubRecorder struct {
+	calls int
+	data  entity.UserPasskeyChangedData
+	err   error
+}
+
+func (s *stubRecorder) StartRecordChange(_ context.Context, change entity.UserPasskeyChangedData) error {
+	s.calls++
+	s.data = change
+	return s.err
+}
+
+func newPasskeyEventHandler(t *testing.T, pub *stubRecorder) *webhook.PasskeyEventHandler {
 	t.Helper()
 	return webhook.NewPasskeyEventHandler(testPasskeyEventSigningKey, testProductOrgID, pub, newLogger(t))
 }
@@ -75,18 +89,15 @@ func TestPasskeyEventHandler(t *testing.T) {
 
 	// @spec components/adapter/fan/api/webhook/passkey-events "Valid signature"
 	// @spec components/adapter/fan/api/webhook/passkey-events "Passkey registered"
-	t.Run("accepts a signed passkey-added notice and announces an added change with the name", func(t *testing.T) {
+	t.Run("accepts a signed passkey-added notice and starts recording an added change with the name", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 
 		newPasskeyEventHandler(t, pub).ServeHTTP(rec, signedPasskeyRequest(t, verifiedEventBody(t, testProductOrgID), testPasskeyEventSigningKey))
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.Equal(t, 1, pub.calls)
-		assert.Equal(t, entity.SubjectUserPasskeyChanged, pub.subject)
-		data, ok := pub.data.(entity.UserPasskeyChangedData)
-		require.True(t, ok, "published data must be entity.UserPasskeyChangedData")
 		assert.Equal(t, entity.UserPasskeyChangedData{
 			ProviderUserID:    "zitadel-fan-1",
 			ProviderPasskeyID: "token-1",
@@ -94,13 +105,34 @@ func TestPasskeyEventHandler(t *testing.T) {
 			Name:              "Apple iPhone, iOS, Mobile Safari",
 			AAGUID:            "fbfc3007-154e-4ecc-8c0b-6e020557d7bd",
 			ChangeTime:        wantTime,
-		}, data)
+		}, pub.data)
+	})
+
+	// The repeated notice starts the same change, whose run is named after
+	// the provider passkey id and kind, so nothing new starts (tested on
+	// PasskeyUseCase.StartRecordChange).
+	// @spec components/adapter/fan/api/webhook/passkey-events "Same notice twice"
+	t.Run("answers 200 to a repeated notice and starts the same change", func(t *testing.T) {
+		t.Parallel()
+		pub := &stubRecorder{}
+		handler := newPasskeyEventHandler(t, pub)
+		body := verifiedEventBody(t, testProductOrgID)
+
+		first := httptest.NewRecorder()
+		handler.ServeHTTP(first, signedPasskeyRequest(t, body, testPasskeyEventSigningKey))
+		firstData := pub.data
+		second := httptest.NewRecorder()
+		handler.ServeHTTP(second, signedPasskeyRequest(t, body, testPasskeyEventSigningKey))
+
+		assert.Equal(t, http.StatusOK, first.Code)
+		assert.Equal(t, http.StatusOK, second.Code)
+		assert.Equal(t, firstData, pub.data)
 	})
 
 	// @spec components/adapter/fan/api/webhook/passkey-events "Forged notice"
-	t.Run("rejects a notice with a missing or invalid signature with 401 and announces nothing", func(t *testing.T) {
+	t.Run("rejects a notice with a missing or invalid signature with 401 and records nothing", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		handler := newPasskeyEventHandler(t, pub)
 		body := verifiedEventBody(t, testProductOrgID)
 
@@ -115,9 +147,9 @@ func TestPasskeyEventHandler(t *testing.T) {
 	})
 
 	// @spec components/adapter/fan/api/webhook/passkey-events "Forged notice"
-	t.Run("rejects a notice signed with an empty key when no signing key is configured, announcing nothing", func(t *testing.T) {
+	t.Run("rejects a notice signed with an empty key when no signing key is configured, recording nothing", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 		handler := webhook.NewPasskeyEventHandler("", testProductOrgID, pub, newLogger(t))
 
@@ -130,9 +162,9 @@ func TestPasskeyEventHandler(t *testing.T) {
 	})
 
 	// @spec components/adapter/fan/api/webhook/passkey-events "Passkey removed"
-	t.Run("announces a removed change without a name for a passkey-removed notice", func(t *testing.T) {
+	t.Run("starts recording a removed change without a name for a passkey-removed notice", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 		body := passkeyEventBody(t, "user.human.passwordless.token.removed", testProductOrgID, map[string]any{
 			"webAuthNTokenId": "token-1",
@@ -151,9 +183,9 @@ func TestPasskeyEventHandler(t *testing.T) {
 	})
 
 	// @spec components/adapter/fan/api/webhook/passkey-events "Organizer identity"
-	t.Run("answers 200 and announces nothing for an identity of an Organizer's Organization", func(t *testing.T) {
+	t.Run("answers 200 and records nothing for an identity of an Organizer's Organization", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 
 		newPasskeyEventHandler(t, pub).ServeHTTP(rec, signedPasskeyRequest(t, verifiedEventBody(t, "organizer-org-1"), testPasskeyEventSigningKey))
@@ -162,9 +194,9 @@ func TestPasskeyEventHandler(t *testing.T) {
 		assert.Equal(t, 0, pub.calls)
 	})
 
-	t.Run("answers 200 and announces nothing for a notice of another kind", func(t *testing.T) {
+	t.Run("answers 200 and records nothing for a notice of another kind", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 		body := passkeyEventBody(t, "user.human.passwordless.check.succeeded", testProductOrgID, map[string]any{})
 
@@ -174,10 +206,10 @@ func TestPasskeyEventHandler(t *testing.T) {
 		assert.Equal(t, 0, pub.calls)
 	})
 
-	// @spec components/adapter/fan/api/webhook/passkey-events "Announcement fails"
-	t.Run("answers 500 when the passkey change cannot be announced", func(t *testing.T) {
+	// @spec components/adapter/fan/api/webhook/passkey-events "RecordChange cannot be started"
+	t.Run("answers 500 when RecordChange cannot be started", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{err: errors.New("nats unavailable")}
+		pub := &stubRecorder{err: errors.New("database unavailable")}
 		rec := httptest.NewRecorder()
 
 		newPasskeyEventHandler(t, pub).ServeHTTP(rec, signedPasskeyRequest(t, verifiedEventBody(t, testProductOrgID), testPasskeyEventSigningKey))
@@ -186,9 +218,9 @@ func TestPasskeyEventHandler(t *testing.T) {
 		assert.Equal(t, 1, pub.calls)
 	})
 
-	t.Run("answers 503 and announces nothing without the product organization id", func(t *testing.T) {
+	t.Run("answers 503 and records nothing without the product organization id", func(t *testing.T) {
 		t.Parallel()
-		pub := &stubPublisher{}
+		pub := &stubRecorder{}
 		rec := httptest.NewRecorder()
 		handler := webhook.NewPasskeyEventHandler(testPasskeyEventSigningKey, "", pub, newLogger(t))
 
@@ -202,7 +234,7 @@ func TestPasskeyEventHandler(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
 
-		newPasskeyEventHandler(t, &stubPublisher{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/passkey-event", nil))
+		newPasskeyEventHandler(t, &stubRecorder{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/passkey-event", nil))
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	})

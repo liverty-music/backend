@@ -53,7 +53,7 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/push-subscription "Fan registers their browser"
 		h, uc, ur := newPushSubscriptionHandler(t)
 		expectPushCaller(ur)
-		uc.EXPECT().Create(mock.Anything, pushTestUserID, pushTestEndpoint, "key", "authSecret", "other").
+		uc.EXPECT().Create(mock.Anything, pushTestUserID, pushTestEndpoint, "key", "authSecret").
 			Return(&entity.PushSubscription{
 				ID: "sub-uuid-1", UserID: pushTestUserID, Endpoint: pushTestEndpoint, P256dh: "key", Auth: "authSecret",
 			}, nil).Once()
@@ -137,7 +137,7 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		// Both calls are scoped to the caller's own User, so another fan's
 		// subscription is neither found nor removed.
 		uc.EXPECT().Get(mock.Anything, pushTestUserID, othersEndpoint).Return(nil, apperr.ErrNotFound).Once()
-		uc.EXPECT().Delete(mock.Anything, pushTestUserID, othersEndpoint, "other").Return(nil).Once()
+		uc.EXPECT().Delete(mock.Anything, pushTestUserID, othersEndpoint).Return(nil).Once()
 
 		_, getErr := h.Get(authedCtx(pushTestExtID), &rpcv1.GetRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: othersEndpoint},
@@ -180,7 +180,7 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		t.Parallel()
 		h, uc, ur := newPushSubscriptionHandler(t)
 		expectPushCaller(ur)
-		uc.EXPECT().Delete(mock.Anything, pushTestUserID, pushTestEndpoint, "other").Return(nil).Once()
+		uc.EXPECT().Delete(mock.Anything, pushTestUserID, pushTestEndpoint).Return(nil).Once()
 
 		resp, err := h.Delete(authedCtx(pushTestExtID), &rpcv1.DeleteRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},

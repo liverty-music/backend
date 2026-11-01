@@ -23,7 +23,7 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewTicketRepository(testDB)
+	repo := rdb.NewTicketRepository(testDB, testOutbox)
 
 	t.Run("user with tickets", func(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user "User with tickets"
@@ -81,7 +81,7 @@ func TestTicketRepository_ListByUserAndEvent(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewTicketRepository(testDB)
+	repo := rdb.NewTicketRepository(testDB, testOutbox)
 
 	t.Run("group of tickets", func(t *testing.T) {
 		// @spec components/entity/ticket/list-by-user-and-event "Group of tickets"

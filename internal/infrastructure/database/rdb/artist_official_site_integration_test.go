@@ -20,8 +20,8 @@ import (
 // site for the same artist is rejected as AlreadyExists.
 func TestOfficialSiteUseCase_Create_Integration(t *testing.T) {
 	ctx := context.Background()
-	uc := usecase.NewOfficialSiteUseCase(rdb.NewArtistRepository(testDB))
-	repo := rdb.NewArtistRepository(testDB)
+	uc := usecase.NewOfficialSiteUseCase(rdb.NewArtistRepository(testDB, testOutbox))
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 
 	t.Run("stores a new official site with a fresh id for an artist without one", func(t *testing.T) {
 		cleanDatabase(t)

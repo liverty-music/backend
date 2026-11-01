@@ -53,12 +53,12 @@ func newCheckoutIssuance(t *testing.T, cardAuthorizations *countingCardAuthoriza
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
+		IssuanceRepo:       rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:          orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
-		OrganizerRepo:      rdb.NewOrganizerRepository(testDB),
-		CheckoutRepo:       rdb.NewCheckoutRepository(testDB),
-		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
+		OrganizerRepo:      rdb.NewOrganizerRepository(testDB, testOutbox),
+		CheckoutRepo:       rdb.NewCheckoutRepository(testDB, testOutbox),
+		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB, testOutbox),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),
 		CardAuthorizations: cardAuthorizations,
 		Clock:              func() time.Time { return now },
@@ -74,7 +74,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 	orders := rdb.NewOrderRepository(testDB)
 	start := saleWindowStart.Add(time.Hour)
 
@@ -146,7 +146,7 @@ func TestCheckoutRepository_GetOrCreateHeld_TwoStocksAtOnce(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	orders := rdb.NewOrderRepository(testDB)
 	at := saleWindowStart.Add(time.Hour)
 
@@ -217,8 +217,8 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	cleanDatabase(t)
-	checkouts := rdb.NewCheckoutRepository(testDB)
-	entries := rdb.NewLotteryEntryRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
+	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	stocks := rdb.NewTicketStockRepository(testDB)
 	at := saleWindowStart.Add(time.Hour)
 	const quantity, rounds = 12, 20
@@ -262,7 +262,7 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 			<-start
 			drawErr = entries.PersistDrawOutcome(ctx, lottery,
 				[]entity.DrawWinnerRow{{LotteryEntryID: winner, CardAuthorizationID: "pi_" + string(winner), DrawPosition: 0}},
-				[]entity.DrawLoserRow{{LotteryEntryID: loser, CardAuthorizationID: "pi_" + string(loser), DrawPosition: 1}})
+				[]entity.DrawLoserRow{{LotteryEntryID: loser, CardAuthorizationID: "pi_" + string(loser), DrawPosition: 1, LostReason: entity.LotteryEntryLostReasonNotDrawn}})
 		})
 		// A reader samples the counts while the paths run; each read is one
 		// statement, so it sees a consistent snapshot.

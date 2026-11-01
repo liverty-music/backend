@@ -4,16 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // FollowRepository implements entity.FollowRepository interface for PostgreSQL.
 type FollowRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 const (
@@ -26,14 +32,23 @@ const (
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
 	`
+	// followDeleteQuery removes the follow and returns its hype level, so the
+	// removal is announced with the Follow as it was; no row when the user
+	// does not follow the artist.
 	followDeleteQuery = `
 		DELETE FROM followed_artists
 		WHERE user_id = $1 AND artist_id = $2
+		RETURNING hype
 	`
+	// followSetHypeQuery changes the hype level only when it differs, so a
+	// repeated level changes no row.
 	followSetHypeQuery = `
 		UPDATE followed_artists
 		SET hype = $3
-		WHERE user_id = $1 AND artist_id = $2
+		WHERE user_id = $1 AND artist_id = $2 AND hype <> $3
+	`
+	followExistsQuery = `
+		SELECT EXISTS (SELECT 1 FROM followed_artists WHERE user_id = $1 AND artist_id = $2)
 	`
 	followListByUserQuery = `
 		SELECT a.id, a.name, COALESCE(a.mbid, ''), a.fanart, fa.hype
@@ -55,69 +70,105 @@ const (
 	`
 )
 
-// NewFollowRepository creates a new follow repository instance.
-func NewFollowRepository(db *Database) *FollowRepository {
-	return &FollowRepository{db: db}
+// NewFollowRepository creates a new follow repository instance that records
+// its announcements through outbox.
+func NewFollowRepository(db *Database, outbox Announcer) *FollowRepository {
+	return &FollowRepository{db: db, outbox: outbox}
 }
 
-// Follow establishes a follow relationship between a user and an artist.
-// The new row's hype is set to entity.DefaultHype — the canonical domain-layer
-// default. The DB column DEFAULT mirrors this value but is not relied upon here.
+// Follow establishes a follow relationship between a user and an artist at
+// entity.DefaultHype, the canonical domain-layer default (the DB column
+// DEFAULT mirrors it but is not relied upon here). The insert uses ON
+// CONFLICT DO NOTHING so a duplicate follow never touches the existing row;
+// its rows affected tell a fresh insert from a duplicate, which fails with
+// AlreadyExists.
 //
-// The insert uses ON CONFLICT DO NOTHING so a duplicate follow never touches
-// the existing row (or its hype level). Since pgx reports no error for a
-// no-op conflict, RowsAffected is inspected to tell a fresh insert apart from
-// a duplicate: when no row was inserted, Follow reports AlreadyExists so the
-// caller (FollowUseCase.Follow) can treat the repeat as an idempotent no-op
-// instead of re-publishing the follow event and re-running background work.
+// # Announces
+//
+// ARTIST.followed with the new Follow, in the transaction of the insert.
+// Nothing on AlreadyExists or any other failure.
 func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) error {
-	tag, err := r.db.Pool.Exec(ctx, followInsertQuery, userID, artistID, string(entity.DefaultHype))
-	if err != nil {
-		return toAppErr(err, "failed to follow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.AlreadyExists, "already following")
-	}
-
-	r.db.logger.Info(ctx, "artist followed",
-		slog.String("entityType", "followed_artists"),
-		slog.String("userID", userID),
-		slog.String("artistID", artistID),
-	)
-	return nil
+	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID)}
+	return r.inTx(ctx, "follow artist", attrs, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, followInsertQuery, userID, artistID, string(entity.DefaultHype))
+		if err != nil {
+			return toAppErr(err, "failed to follow artist", attrs...)
+		}
+		if tag.RowsAffected() == 0 {
+			return apperr.New(codes.AlreadyExists, "already following")
+		}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.DefaultHype}
+		return announce(ctx, r.outbox, tx, entity.SubjectArtistFollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
+	})
 }
 
-// Unfollow removes a follow relationship.
+// Unfollow removes a follow relationship. Removing one that does not exist
+// succeeds.
+//
+// # Announces
+//
+// ARTIST.unfollowed with the Follow as it was, in the transaction of the
+// removal. Nothing when the user did not follow the artist.
 func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string) error {
-	_, err := r.db.Pool.Exec(ctx, followDeleteQuery, userID, artistID)
-	if err != nil {
-		return toAppErr(err, "failed to unfollow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
-	}
-
-	r.db.logger.Info(ctx, "artist unfollowed",
-		slog.String("entityType", "followed_artists"),
-		slog.String("userID", userID),
-		slog.String("artistID", artistID),
-	)
-	return nil
+	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID)}
+	return r.inTx(ctx, "unfollow artist", attrs, func(tx pgx.Tx) error {
+		var hype string
+		err := tx.QueryRow(ctx, followDeleteQuery, userID, artistID).Scan(&hype)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return toAppErr(err, "failed to unfollow artist", attrs...)
+		}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.Hype(hype)}
+		return announce(ctx, r.outbox, tx, entity.SubjectArtistUnfollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
+	})
 }
 
-// SetHype updates the enthusiasm tier for a followed artist.
+// SetHype sets the enthusiasm tier for a followed artist. Setting the level
+// it already has changes nothing; a user who does not follow the artist
+// fails with NotFound.
+//
+// # Announces
+//
+// ARTIST.hype_changed with the Follow at its new level, in the transaction of
+// the change. Nothing when the level is unchanged or on failure.
 func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
-	tag, err := r.db.Pool.Exec(ctx, followSetHypeQuery, userID, artistID, string(hype))
-	if err != nil {
-		return toAppErr(err, "failed to set hype", slog.String("user_id", userID), slog.String("artist_id", artistID))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "follow relationship not found")
-	}
+	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID), slog.String("hype", string(hype))}
+	return r.inTx(ctx, "set hype", attrs, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, followSetHypeQuery, userID, artistID, string(hype))
+		if err != nil {
+			return toAppErr(err, "failed to set hype", attrs...)
+		}
+		if tag.RowsAffected() == 0 {
+			var exists bool
+			if err := tx.QueryRow(ctx, followExistsQuery, userID, artistID).Scan(&exists); err != nil {
+				return toAppErr(err, "failed to read the follow", attrs...)
+			}
+			if !exists {
+				return apperr.New(codes.NotFound, "follow relationship not found", attrs...)
+			}
+			return nil
+		}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: hype}
+		return announce(ctx, r.outbox, tx, entity.SubjectArtistHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)})
+	})
+}
 
-	r.db.logger.Info(ctx, "hype updated",
-		slog.String("entityType", "followed_artists"),
-		slog.String("userID", userID),
-		slog.String("artistID", artistID),
-		slog.String("hype", string(hype)),
-	)
+// inTx runs fn in one transaction, committed when fn succeeds.
+func (r *FollowRepository) inTx(ctx context.Context, op string, attrs []slog.Attr, fn func(pgx.Tx) error) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin "+op+" transaction", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit "+op+" transaction", attrs...)
+	}
 	return nil
 }
 

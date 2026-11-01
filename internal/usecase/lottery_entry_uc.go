@@ -146,7 +146,6 @@ type lotteryEntryUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
-	publisher                EventPublisher
 	clock                    Clock
 	newRand                  func() *mrand.Rand
 	logger                   *logging.Logger
@@ -166,7 +165,6 @@ type LotteryEntryDeps struct {
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	UserRepo                 entity.UserRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
-	Publisher                EventPublisher
 	Clock                    Clock
 	Logger                   *logging.Logger
 }
@@ -188,7 +186,6 @@ func newLotteryUseCase(d LotteryEntryDeps, newRand func() *mrand.Rand) *lotteryE
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		userRepo:                 d.UserRepo,
 		cardAuthorizations:       d.CardAuthorizations,
-		publisher:                d.Publisher,
 		clock:                    d.Clock,
 		newRand:                  newRand,
 		logger:                   d.Logger,
@@ -435,7 +432,6 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 	var (
 		winners []entity.DrawWinnerRow
 		losers  []entity.DrawLoserRow
-		results []entity.LotteryEntryDrawnData
 	)
 	drawTime := uc.clock()
 	for _, eventID := range sale.EventIDs {
@@ -458,24 +454,10 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 				return err
 			}
 			refs := make(map[entity.LotteryEntryID]string, len(entries))
-			users := make(map[entity.LotteryEntryID]entity.UserID, len(entries))
 			entered := make([]entity.DrawEntry, 0, len(entries))
 			for _, e := range entries {
 				refs[e.ID] = e.Order.CardAuthorizationID
-				users[e.ID] = e.Order.UserID
 				entered = append(entered, entity.DrawEntry{ID: e.ID, TicketCount: e.Order.TicketCount})
-			}
-
-			drawn := func(id entity.LotteryEntryID, state entity.LotteryEntryState, captureFailed bool) {
-				results = append(results, entity.LotteryEntryDrawnData{
-					LotteryEntryID: string(id),
-					UserID:         string(users[id]),
-					TicketSaleID:   string(saleID),
-					TicketStockID:  string(stock.ID),
-					Result:         state.String(),
-					CaptureFailed:  captureFailed,
-					DrawTime:       drawTime,
-				})
 			}
 
 			result := entity.RunLotteryDraw(entered, stock.Remaining(), uc.newRand())
@@ -490,18 +472,15 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 						slog.Any("error", err),
 					)
 					uc.release(ctx, saleID, w.Entry.ID, ref)
-					losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition})
-					drawn(w.Entry.ID, entity.LotteryEntryStateLost, true)
+					losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition, LostReason: entity.LotteryEntryLostReasonCardNotCharged})
 					continue
 				}
 				winners = append(winners, entity.DrawWinnerRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition})
-				drawn(w.Entry.ID, entity.LotteryEntryStateWon, false)
 			}
 			for _, l := range result.Losers {
 				ref := refs[l.Entry.ID]
 				uc.release(ctx, saleID, l.Entry.ID, ref)
-				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition})
-				drawn(l.Entry.ID, entity.LotteryEntryStateLost, false)
+				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition, LostReason: entity.LotteryEntryLostReasonNotDrawn})
 			}
 		}
 	}
@@ -518,16 +497,6 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 		slog.Int("loser_count", len(losers)),
 	)...)
 
-	// Report each entry's result for product analytics. A failed publish is
-	// logged and never changes the recorded draw.
-	for _, r := range results {
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectLotteryEntryDrawn, r); err != nil {
-			uc.logger.Error(ctx, "failed to publish ORDER.lottery_entry_drawn event", err,
-				slog.String("ticket_sale_id", string(saleID)),
-				slog.String("lottery_entry_id", r.LotteryEntryID),
-			)
-		}
-	}
 	return nil
 }
 

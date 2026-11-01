@@ -213,8 +213,9 @@ func (h *OrganizerSeriesHandler) Cancel(
 	return &organizerseriesv1.CancelResponse{}, nil
 }
 
-// SetCoverImage records an uploaded Series image as the series' cover and
-// publishes SERIES_IMAGE.uploaded so the processor generates variants.
+// SetCoverImage records an uploaded Series image as the series' cover; its
+// SeriesImage.Create records the SERIES_IMAGE.uploaded request so the
+// processor generates variants.
 func (h *OrganizerSeriesHandler) SetCoverImage(
 	ctx context.Context,
 	req *organizerseriesv1.SetCoverImageRequest,

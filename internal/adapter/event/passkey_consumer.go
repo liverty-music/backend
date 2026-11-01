@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -13,80 +14,72 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// passkeyRecordRetryDelay is how long the broker waits before delivering a
-// passkey change again while its identity has no User yet.
-const passkeyRecordRetryDelay = 15 * time.Second
-
-// PasskeyConsumer handles the USER-stream passkey events: the registration
-// link of an announced passkey recovery request, the email of a passkey
-// change and the record of a passkey change. A returned error makes the
-// router retry, and after the retry limit the message goes to the poison
-// queue; a passkey change whose identity has no User yet is delivered again
-// later instead.
+// PasskeyConsumer handles the Passkeys Passkey.Create announces as added
+// (USER.passkey_added) and Passkey.Delete as removed (USER.passkey_removed):
+// it starts the change email of each, in a workflow named after the
+// announcement id. A returned error makes the router retry, and after the
+// retry limit the message goes to the poison queue.
 type PasskeyConsumer struct {
-	userUC    usecase.UserUseCase
-	passkeyUC usecase.PasskeyUseCase
-	logger    *logging.Logger
+	userUC usecase.UserUseCase
+	logger *logging.Logger
 }
 
 // NewPasskeyConsumer creates a new PasskeyConsumer.
-func NewPasskeyConsumer(userUC usecase.UserUseCase, passkeyUC usecase.PasskeyUseCase, logger *logging.Logger) *PasskeyConsumer {
-	return &PasskeyConsumer{userUC: userUC, passkeyUC: passkeyUC, logger: logger}
+func NewPasskeyConsumer(userUC usecase.UserUseCase, logger *logging.Logger) *PasskeyConsumer {
+	return &PasskeyConsumer{userUC: userUC, logger: logger}
 }
 
-// HandleRecoveryRequested sends the passkey registration link of a
-// USER.passkey_recovery_requested event.
-func (h *PasskeyConsumer) HandleRecoveryRequested(msg *message.Message) error {
-	var data entity.UserPasskeyRecoveryRequestedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse USER.passkey_recovery_requested event", err)
-		return fmt.Errorf("parse USER.passkey_recovery_requested event: %w", err)
+// HandlePasskeyAdded starts the added email of a USER.passkey_added
+// announcement, with the Passkey's name and its create time as the time of
+// the change.
+func (h *PasskeyConsumer) HandlePasskeyAdded(msg *message.Message) error {
+	return h.handle(msg, entity.PasskeyChangeAdded, entity.SubjectUserPasskeyAdded)
+}
+
+// HandlePasskeyRemoved starts the removed email of a USER.passkey_removed
+// announcement, with the time the removal was announced as the time of the
+// change.
+func (h *PasskeyConsumer) HandlePasskeyRemoved(msg *message.Message) error {
+	return h.handle(msg, entity.PasskeyChangeRemoved, entity.SubjectUserPasskeyRemoved)
+}
+
+func (h *PasskeyConsumer) handle(msg *message.Message, kind entity.PasskeyChangeKind, subject string) error {
+	ctx := msg.Context()
+	notice, err := parsePasskeyAnnouncement(msg, kind)
+	if err != nil {
+		h.logger.Error(ctx, "failed to parse "+subject+" announcement", err)
+		return fmt.Errorf("parse %s announcement: %w", subject, err)
 	}
-	h.logger.Info(msg.Context(), "processing USER.passkey_recovery_requested for the recovery link",
-		slog.String("user_id", data.UserID))
-	if err := h.userUC.SendPasskeyRecoveryLink(msg.Context(), data.UserID); err != nil {
-		return fmt.Errorf("send passkey recovery link for user %s: %w", data.UserID, err)
+	h.logger.Info(ctx, "starting the passkey change email",
+		slog.String("user_id", notice.UserID), slog.String("kind", string(kind)))
+	if err := h.userUC.StartNotifyPasskeyChange(ctx, announcementID(msg), notice); err != nil {
+		return fmt.Errorf("start the passkey change email of user %s: %w", notice.UserID, err)
 	}
 	return nil
 }
 
-// HandlePasskeyChanged emails the fan of a USER.passkey_changed event.
-func (h *PasskeyConsumer) HandlePasskeyChanged(msg *message.Message) error {
-	var data entity.UserPasskeyChangedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse USER.passkey_changed event", err)
-		return fmt.Errorf("parse USER.passkey_changed event: %w", err)
+// parsePasskeyAnnouncement reads the Passkey of an announcement as the change
+// to email.
+func parsePasskeyAnnouncement(msg *message.Message, kind entity.PasskeyChangeKind) (usecase.PasskeyChangeNotice, error) {
+	var passkey entityv1.Passkey
+	if err := messaging.ParseProtobufData(msg, &passkey); err != nil {
+		return usecase.PasskeyChangeNotice{}, err
 	}
-	h.logger.Info(msg.Context(), "processing USER.passkey_changed for the change email",
-		slog.String("provider_user_id", data.ProviderUserID), slog.String("kind", data.Kind))
-	change := entity.PasskeyChange{
-		Kind:       entity.PasskeyChangeKind(data.Kind),
-		Name:       data.Name,
-		ChangeTime: data.ChangeTime,
+	userID := passkey.GetUserId().GetValue()
+	if userID == "" {
+		return usecase.PasskeyChangeNotice{}, errors.New("the Passkey names no User")
 	}
-	if err := h.userUC.NotifyPasskeyChange(msg.Context(), data.ProviderUserID, change); err != nil {
-		return fmt.Errorf("notify passkey change of %s: %w", data.ProviderUserID, err)
-	}
-	return nil
-}
-
-// HandleRecordPasskeyChange records the passkey of a USER.passkey_changed
-// event. While the identity has no User yet (a passkey registered at sign-up)
-// the message is delivered again after passkeyRecordRetryDelay; the usecase
-// stops waiting 10 minutes after the change.
-func (h *PasskeyConsumer) HandleRecordPasskeyChange(msg *message.Message) error {
-	var data entity.UserPasskeyChangedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse USER.passkey_changed event", err)
-		return fmt.Errorf("parse USER.passkey_changed event: %w", err)
-	}
-	if err := h.passkeyUC.RecordChange(msg.Context(), data); err != nil {
-		if errors.Is(err, usecase.ErrPasskeyAccountPending) {
-			h.logger.Info(msg.Context(), "passkey change waits for the identity's user",
-				slog.String("provider_user_id", data.ProviderUserID))
-			return messaging.RedeliverLater(msg, err, passkeyRecordRetryDelay)
+	change := entity.PasskeyChange{Kind: kind}
+	switch kind {
+	case entity.PasskeyChangeAdded:
+		change.Name = passkey.GetName().GetValue()
+		change.ChangeTime = passkey.GetCreateTime().AsTime()
+	case entity.PasskeyChangeRemoved:
+		announced, err := time.Parse(time.RFC3339Nano, msg.Metadata.Get("ce_time"))
+		if err != nil {
+			return usecase.PasskeyChangeNotice{}, fmt.Errorf("read the time of the removal: %w", err)
 		}
-		return fmt.Errorf("record passkey change of %s: %w", data.ProviderUserID, err)
+		change.ChangeTime = announced
 	}
-	return nil
+	return usecase.PasskeyChangeNotice{UserID: userID, Change: change}, nil
 }

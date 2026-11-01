@@ -8,13 +8,10 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -40,7 +37,7 @@ type concertTestDeps struct {
 	rejectedConcertRepo  *mocks.MockRejectedConcertRepository
 	searcher             *mocks.MockConcertSearcher
 	centroidResolver     usecase.CentroidResolver
-	publisher            *gochannel.GoChannel
+	workflows            *recordingWorkflows
 	analytics            *recordingAnalytics
 	uc                   usecase.ConcertUseCase
 }
@@ -57,7 +54,6 @@ func (noopCentroidResolver) ResolveCentroid(*entity.Home) (float64, float64, err
 func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	t.Helper()
 	logger := newTestLogger(t)
-	pub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
 	d := &concertTestDeps{
 		artistRepo:           mocks.NewMockArtistRepository(t),
 		concertRepo:          mocks.NewMockConcertRepository(t),
@@ -68,12 +64,11 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		rejectedConcertRepo:  mocks.NewMockRejectedConcertRepository(t),
 		searcher:             mocks.NewMockConcertSearcher(t),
 		centroidResolver:     noopCentroidResolver{},
-		publisher:            pub,
+		workflows:            &recordingWorkflows{},
 		analytics:            &recordingAnalytics{},
 	}
-	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, logger)
+	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, logger)
 	d.uc = uc
-	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
 
@@ -292,7 +287,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -318,7 +313,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(expiredLog, nil).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -336,7 +331,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artistID := "artist-1"
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -354,7 +349,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				t.Helper()
 				artistID := "artist-1"
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -381,7 +376,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -411,7 +406,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(existing, nil).Once()
@@ -482,7 +477,7 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 				// SearchNewConcerts's own cache check — still NotFound both
 				// times (no log row has been written yet).
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Twice()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -527,7 +522,7 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 				artistID := "artist-1"
 
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Twice()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -612,7 +607,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			time.Sleep(25 * time.Hour) // advance fake clock past TTL
 
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -621,13 +616,12 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			assert.NoError(t, err)
+			var err error
 
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "stale cache should trigger re-search and publish")
 		})
 	})
@@ -670,7 +664,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			time.Sleep(4 * time.Minute) // advance fake clock past pendingTimeout
 
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -679,13 +673,12 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			assert.NoError(t, err)
+			var err error
 
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "stale pending should trigger re-search and publish")
 		})
 	})
@@ -746,7 +739,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 			time.Sleep(25 * time.Hour) // past TTL; discovery gate must not fire on zero time
 
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -755,13 +748,12 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			assert.NoError(t, err)
+			var err error
 
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "null last_found_at must not skip; search should publish")
 		})
 	})
@@ -782,7 +774,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 			time.Sleep(15 * 24 * time.Hour) // past both the TTL and the 14d discovery window
 
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -791,13 +783,12 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 			d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			assert.NoError(t, err)
+			var err error
 
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "discovery beyond the window must not skip")
 		})
 	})
@@ -807,18 +798,22 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 // returns the total number of new events in the published payload, or 0 if
 // nothing was published within the timeout. Must be called inside a
 // synctest.Test bubble so that time.After uses virtual time and resolves instantly.
-func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *message.Message) int {
+// testSearchTime is the search time the ConcertSearch mock returns from Upsert.
+var testSearchTime = time.Date(2026, 5, 1, 9, 30, 0, 0, time.UTC)
+
+// startedConcerts returns the number of events handed to the
+// create-from-discovered workflows w started.
+func startedConcerts(t *testing.T, w *recordingWorkflows) int {
 	t.Helper()
-	select {
-	case msg := <-sub:
-		msg.Ack()
-		var data entity.ConcertDiscoveredData
-		err := messaging.ParseCloudEventData(msg, &data)
-		assert.NoError(t, err)
-		return data.EventCount()
-	case <-time.After(200 * time.Millisecond):
-		return 0
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := 0
+	for _, input := range w.started {
+		data, ok := input.(entity.ConcertDiscoveredData)
+		require.True(t, ok, "only create-from-discovered is started")
+		n += data.EventCount()
 	}
+	return n
 }
 
 // TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
@@ -954,6 +949,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			},
 			wantNewConcerts: 1,
 		},
+		// @spec components/usecase/concert/search-new-concerts "Already in the catalog"
 		{
 			name: "mixed batch: one matches existing date, one is genuinely new date",
 			existing: []*entity.Concert{
@@ -983,13 +979,11 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				artistID := "artist-1"
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 
-				// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
-				sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-				assert.NoError(t, err)
+				var err error
 
 				// Common mock setup: no cache, artist found, no official site.
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+				d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
@@ -1004,7 +998,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 				assert.NoError(t, err)
 
-				got := receivePublishedConcerts(t, ctx, sub)
+				got := startedConcerts(t, d.workflows)
 				assert.Equal(t, tt.wantNewConcerts, got,
 					"expected %d new concerts after dedup, got %d", tt.wantNewConcerts, got)
 			})
@@ -1155,11 +1149,10 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 				},
 			}
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			require.NoError(t, err)
+			var err error
 
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -1175,7 +1168,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			require.NoError(t, err)
 
 			// Only the genuinely new concert should be published.
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "pending concert candidate must be excluded; only the new show should be published")
 		})
 	})
@@ -1205,11 +1198,10 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 				},
 			}
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			require.NoError(t, err)
+			var err error
 
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -1223,11 +1215,13 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "drifted-name re-discovery must dedup against the pending concert candidate; only the new show publishes")
 		})
 	})
 
+	// The strict RejectedConcert mock fails the test if it is consulted.
+	// @spec components/usecase/concert/search-new-concerts "Previously rejected"
 	t.Run("pending candidate key do not suppress rejected concerts (rejection log not consulted)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
@@ -1241,11 +1235,10 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 				},
 			}
 
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			require.NoError(t, err)
+			var err error
 
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(nil).Once()
+			d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -1260,7 +1253,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
+			got := startedConcerts(t, d.workflows)
 			assert.Equal(t, 1, got, "previously rejected concert is not suppressed — it should be re-discovered")
 		})
 	})
@@ -1271,7 +1264,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 // concerts and no pending candidates.
 func expectSearchUpToSearcher(d *concertTestDeps, artist *entity.Artist, existing []*entity.Concert) {
 	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
-	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, artist.ID, entity.ConcertSearchStatusPending).Return(nil).Once()
+	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, artist.ID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
 	d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
 	d.concertRepo.EXPECT().ListByArtist(mock.Anything, artist.ID, true).Return(existing, nil).Once()
@@ -1392,4 +1385,132 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, d.analytics.sent(usecase.EventConcertSearchCompleted))
 	})
+}
+
+// TestSearchNewConcerts_HandsOnOnce shows that a search hands the new
+// concerts to CreateFromDiscovered: one start per search, named after the
+// Artist and the search time of its ConcertSearch.
+func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const artistID = "artist-hand-on"
+	artist := &entity.Artist{ID: artistID, Name: "Hand On", MBID: "mbid-hand-on"}
+	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	found := []*entity.DiscoveredSeries{
+		{Title: "Tour", Type: entity.SeriesTypeTour, Events: []*entity.DiscoveredEvent{
+			{ListedVenueName: "Zepp Haneda", LocalDate: day},
+			{ListedVenueName: "Zepp Namba", LocalDate: day.AddDate(0, 0, 2)},
+		}},
+		{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{
+			{ListedVenueName: "Budokan", LocalDate: day.AddDate(0, 1, 0)},
+		}},
+	}
+	expectSearch := func(d *concertTestDeps, finalStatus entity.ConcertSearchStatus) {
+		d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
+		d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+		d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(found, nil).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, finalStatus).Return(nil).Once()
+	}
+
+	// @spec components/usecase/concert/search-new-concerts "Two series found"
+	// @spec components/usecase/concert/search-new-concerts "Productive search"
+	t.Run("starts CreateFromDiscovered once with both series", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		expectSearch(d, entity.ConcertSearchStatusCompleted)
+		d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
+
+		require.NoError(t, err)
+		assert.Len(t, got, 3)
+		require.Equal(t, []string{usecase.ExportedDiscoveryWorkflowID(artistID, testSearchTime)}, d.workflows.starts)
+		data := d.workflows.started[d.workflows.starts[0]].(entity.ConcertDiscoveredData)
+		assert.Equal(t, artistID, data.ArtistID)
+		assert.Len(t, data.Series, 2)
+	})
+
+	// @spec components/usecase/concert/search-new-concerts "Tour preview"
+	t.Run("returns the tour's events as previews sharing one series id and no Venue", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		expectSearch(d, entity.ConcertSearchStatusCompleted)
+		d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
+
+		require.NoError(t, err)
+		var tour []*entity.Concert
+		for _, c := range got {
+			if c.Series.Title == "Tour" {
+				tour = append(tour, c)
+			}
+		}
+		require.Len(t, tour, 2)
+		assert.NotEmpty(t, tour[0].Series.ID)
+		assert.Equal(t, tour[0].Series.ID, tour[1].Series.ID)
+		for _, c := range tour {
+			assert.Empty(t, c.ID, "a preview has no event id")
+			assert.Nil(t, c.Venue, "a preview has no Venue")
+			assert.Equal(t, []string{artistID}, []string{c.Artists[0].ID})
+		}
+	})
+
+	// The strict ConcertCandidate mock fails the test if the pending candidate
+	// is refreshed.
+	// @spec components/usecase/concert/search-new-concerts "Pending review at another start time"
+	// @spec components/usecase/concert/search-new-concerts "Nothing new"
+	t.Run("drops an event pending review at the same date and venue at another start time", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		evening := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+		pending := []*entity.DiscoveredSeries{{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{
+			{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: evening},
+		}}}
+		d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.concertSearchRepo.EXPECT().Upsert(ctx, artistID, entity.ConcertSearchStatusPending).Return(testSearchTime, nil).Once()
+		d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+		d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		// The pending candidate at the same date and venue starts at 13:00.
+		d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).
+			Return([]entity.ConcertCandidateDedupKey{{LocalDate: day, ListedVenueName: "Zepp Haneda"}}, nil).Once()
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(pending, nil).Once()
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, d.workflows.starts, "nothing is handed on")
+	})
+
+	// @spec components/usecase/concert/search-new-concerts "Cannot be started"
+	t.Run("fails the search when CreateFromDiscovered cannot be started", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		workflows := ucmocks.NewMockWorkflows(t)
+		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowCreateFromDiscovered, mock.Anything, mock.Anything).
+			Return(apperr.New(codes.Unavailable, "database down")).Once()
+		uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo,
+			d.rejectedConcertRepo, d.searcher, d.centroidResolver, workflows, noopMetrics{}, nil, testSearchCacheTTL, testDiscoveryWindow, newTestLogger(t))
+		expectSearch(d, entity.ConcertSearchStatusFailed)
+
+		_, err := uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}
+
+func TestDiscoveryWorkflowID(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime), usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime),
+		"one search names one workflow")
+	assert.NotEqual(t, usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime), usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime.Add(time.Hour)),
+		"a later search names a new one")
 }

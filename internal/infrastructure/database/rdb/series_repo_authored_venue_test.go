@@ -20,7 +20,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewSeriesRepository(testDB)
+	repo := rdb.NewSeriesRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	organizerID := seedOrganizer(t)

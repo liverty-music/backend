@@ -43,7 +43,7 @@ func TestTicketRepository_Admit(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewTicketRepository(testDB)
+	repo := rdb.NewTicketRepository(testDB, testOutbox)
 	admissions := rdb.NewAdmissionRepository(testDB)
 	scanners := rdb.NewScannerRepository(testDB)
 
@@ -622,7 +622,7 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	tickets := rdb.NewTicketRepository(testDB)
+	tickets := rdb.NewTicketRepository(testDB, testOutbox)
 	repo := rdb.NewAdmissionRepository(testDB)
 
 	t.Run("admitted ticket", func(t *testing.T) {

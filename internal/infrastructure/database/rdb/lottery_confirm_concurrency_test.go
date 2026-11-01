@@ -47,9 +47,8 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	}, nil)
 
 	now := time.Now()
-	entries := rdb.NewLotteryEntryRepository(testDB)
-	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, &recordingPublisher{},
-		func() time.Time { return now }, logger))
+	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
+	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, func() time.Time { return now }, logger))
 
 	callers := []*entity.UserID{&fan, nil} // the fan, and the notice without a fan
 	got := make([]*entity.LotteryEntry, len(callers))

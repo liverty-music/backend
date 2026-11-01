@@ -27,13 +27,14 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				searchTime, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 
 				log, err := repo.GetByArtistID(ctx, artistID)
 				require.NoError(t, err)
 				assert.Equal(t, artistID, log.ArtistID)
 				assert.Equal(t, entity.ConcertSearchStatusPending, log.Status)
+				assert.True(t, searchTime.Equal(log.SearchTime), "Upsert returns the stored search time")
 				assert.WithinDuration(t, time.Now(), log.SearchTime, 5*time.Second)
 			},
 		},
@@ -44,10 +45,10 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusFailed)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusFailed)
 				require.NoError(t, err)
 
-				err = repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err = repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 
 				log, err := repo.GetByArtistID(ctx, artistID)
@@ -62,7 +63,7 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 
 				logBefore, err := repo.GetByArtistID(ctx, artistID)
@@ -71,7 +72,7 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 				// Second upsert: the DB records the current timestamp on each upsert.
 				// The DB stores microsecond precision so a same-microsecond write is
 				// an accepted equal case — no sleep is required.
-				err = repo.Upsert(ctx, artistID, entity.ConcertSearchStatusCompleted)
+				_, err = repo.Upsert(ctx, artistID, entity.ConcertSearchStatusCompleted)
 				require.NoError(t, err)
 
 				logAfter, err := repo.GetByArtistID(ctx, artistID)
@@ -103,7 +104,7 @@ func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
 	t.Run("returns status fields", func(t *testing.T) {
 		artistID := seedArtist(t, "GetByArtistID Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d2")
 
-		err := concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+		_, err := concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 		require.NoError(t, err)
 
 		err = concertSearchRepo.UpdateStatus(ctx, artistID, entity.ConcertSearchStatusFailed)
@@ -125,7 +126,7 @@ func TestConcertSearchRepository_MarkFound(t *testing.T) {
 		cleanDatabase(t)
 		artistID := seedArtist(t, "MarkFound Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4d01")
 
-		err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+		_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 		require.NoError(t, err)
 
 		before, err := repo.GetByArtistID(ctx, artistID)
@@ -158,7 +159,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 			setup: func() string {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
 			},
@@ -169,7 +170,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 			setup: func() string {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
 			},
@@ -180,7 +181,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 			setup: func() string {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				err = repo.UpdateStatus(ctx, artistID, entity.ConcertSearchStatusFailed)
 				require.NoError(t, err)
@@ -219,7 +220,7 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 				t.Helper()
 				cleanDatabase(t)
 				artistID := seedArtist(t, "Delete Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c01")
-				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
 			},

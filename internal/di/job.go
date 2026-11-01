@@ -7,14 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -25,8 +22,9 @@ import (
 )
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
-// The CronJob searches for concerts and publishes events; concert persistence,
-// notifications, and venue enrichment are handled by event consumers.
+// The CronJob searches for concerts and starts create-from-discovered for the
+// new ones; concert persistence runs in the workflow worker, and notifications
+// and venue enrichment in the event consumers.
 type JobApp struct {
 	FollowRepo      entity.FollowRepository
 	ConcertUC       usecase.ConcertUseCase
@@ -50,6 +48,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		return nil, err
 	}
 	slog.SetDefault(logger.Slog())
+	shutdown.Init(logger)
 
 	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {
@@ -62,15 +61,22 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Repositories
-	artistRepo := rdb.NewArtistRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
-	concertRepo := rdb.NewConcertRepository(db)
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
+	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
 	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
-	organizerRepo := rdb.NewOrganizerRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
+
+	// The new concerts of a search are started as a create-from-discovered
+	// workflow, which the workflow worker runs.
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	// Infrastructure - PostHog analytics client for the search signals
 	// (optional: nil without POSTHOG_PROJECT_API_KEY).
@@ -104,35 +110,11 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		geminiSearcher = searcher
 	}
 
-	// Infrastructure - Messaging Publisher
-	//
-	// Fail fast in non-local environments: a missing NATS_URL would silently
-	// route published events to an in-process GoChannel that nothing consumes,
-	// dropping every event. Local development still falls back to the
-	// in-process GoChannel below.
-	if !cfg.IsLocal() && cfg.NATS.URL == "" {
-		return nil, fmt.Errorf("NATS_URL is required for the discovery job in non-local environments")
-	}
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{
-			OutputChannelBuffer: 256,
-		}, wmLogger)
-	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
-	}
-
 	// Use Cases
-	eventPublisher := messaging.NewEventPublisher(publisher)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 
 	// Register shutdown phases.
-	shutdown.Init(logger)
-	shutdown.AddFlushPhase(publisher)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

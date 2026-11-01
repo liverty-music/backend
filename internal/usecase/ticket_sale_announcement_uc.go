@@ -25,7 +25,7 @@ type ticketSaleAnnouncementUseCase struct {
 	userRepo    entity.UserRepository
 	journeyRepo entity.TicketJourneyRepository
 	seriesRepo  entity.SeriesRepository
-	publisher   EventPublisher
+	workflows   Workflows
 	logger      *logging.Logger
 }
 
@@ -37,14 +37,14 @@ func NewTicketSaleAnnouncementUseCase(
 	userRepo entity.UserRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	seriesRepo entity.SeriesRepository,
-	publisher EventPublisher,
+	workflows Workflows,
 	logger *logging.Logger,
 ) *ticketSaleAnnouncementUseCase {
 	return &ticketSaleAnnouncementUseCase{
 		userRepo:    userRepo,
 		journeyRepo: journeyRepo,
 		seriesRepo:  seriesRepo,
-		publisher:   publisher,
+		workflows:   workflows,
 		logger:      logger,
 	}
 }
@@ -79,8 +79,8 @@ func (uc *ticketSaleAnnouncementUseCase) AnnounceDiscoveredSale(ctx context.Cont
 		SaleStartTime: data.SaleStartTime,
 	}
 
-	// Request one announcement per audience member: publish NOTIFICATION.requested
-	// so the deliver-notification consumer records a durable Notification and
+	// Request one announcement per audience member: start the
+	// deliver-notification workflow, which records a durable Notification and
 	// dispatches the push. This
 	// announcement fires once immediately from the discovery job's daily
 	// 21:00 JST run (no quiet-hours constraint); the copy follows the
@@ -104,15 +104,17 @@ func (uc *ticketSaleAnnouncementUseCase) AnnounceDiscoveredSale(ctx context.Cont
 		}
 
 		payload := buildAnnouncementPayload(sale, user, series.Title, tr.EventID)
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationRequested, entity.NotificationRequestedData{
+		// Named after the recipient and the sale, so a repeated run notifies
+		// a recipient once.
+		id := deliverWorkflowID(entity.NotificationTypeTicketSaleAnnouncement, tr.UserID, data.TicketSaleID)
+		if err := uc.workflows.Start(ctx, WorkflowDeliverNotification, id, DeliverRequest{
 			UserID:  tr.UserID,
 			Type:    entity.NotificationTypeTicketSaleAnnouncement,
 			Payload: payload,
 		}); err != nil {
-			// Publish failure: surface so the consumer's at-least-once retry
-			// re-drives the batch. A repeat push is collapsed browser-side by
-			// the per-sale Tag.
-			return fmt.Errorf("ticket_sale_announcement: publish notification request for user %s: %w", tr.UserID, err)
+			// Surface so the sale is announced again; the recipients already
+			// started are not started again.
+			return fmt.Errorf("ticket_sale_announcement: start the notification of user %s: %w", tr.UserID, err)
 		}
 	}
 	return nil

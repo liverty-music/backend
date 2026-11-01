@@ -49,9 +49,7 @@ type followUseCase struct {
 	followRepo   entity.FollowRepository
 	artistRepo   entity.ArtistRepository
 	siteResolver entity.OfficialSiteResolver
-	publisher    EventPublisher
 	metrics      FollowMetrics
-	clock        Clock
 	logger       *logging.Logger
 }
 
@@ -63,59 +61,44 @@ func NewFollowUseCase(
 	followRepo entity.FollowRepository,
 	artistRepo entity.ArtistRepository,
 	siteResolver entity.OfficialSiteResolver,
-	publisher EventPublisher,
 	metrics FollowMetrics,
-	clock Clock,
 	logger *logging.Logger,
 ) FollowUseCase {
 	return &followUseCase{
 		followRepo:   followRepo,
 		artistRepo:   artistRepo,
 		siteResolver: siteResolver,
-		publisher:    publisher,
 		metrics:      metrics,
-		clock:        clock,
 		logger:       logger,
 	}
 }
 
-// Follow establishes a follow relationship between a user and an artist.
-// After the follow is persisted, it asynchronously resolves and stores the
-// artist's official site URL if one is not already recorded.
+// Follow establishes a follow relationship between a user and an artist
+// through Follow.Follow, which announces the new Follow (ARTIST.followed)
+// together with storing it. After the follow is stored, it asynchronously
+// resolves and stores the artist's official site URL if one is not already
+// recorded. A repeat follow succeeds without starting that work.
 //
-// The first-call path publishes ARTIST.followed, which fans out to the
-// analytics-consumer (forwarded as the catalogue event
-// artist.follow.completed) and to the search-first-followed-artist consumer,
-// which triggers ConcertUseCase.SearchNewConcertsOnFirstFollow. Concert
-// discovery therefore depends on that publish succeeding; a publish failure
-// is logged and non-fatal to the follow itself (see below), but it also means
-// no consumer wakes up to search this artist until a later signal does. The
-// idempotent "already following" path returns early WITHOUT republishing —
-// duplicate analytics events would inflate the follow funnel.
+// # Possible errors:
+//
+//   - Unavailable: the announcement could not be recorded; nothing is stored
+//     and the call can be retried.
+//   - Internal: any other failure to store the follow, including an unknown
+//     artist.
 func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID string) error {
 	err := uc.followRepo.Follow(ctx, userID, artistID)
 	if err != nil {
-		// Treat "already following" as success
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			return nil
+		}
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return err
 		}
 		return apperr.Wrap(err, codes.Internal, "failed to establish follow relationship")
 	}
 
 	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	uc.metrics.RecordFollow(ctx, "follow")
-
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
-		UserID:     userID,
-		ArtistID:   artistID,
-		FollowTime: uc.clock(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish ARTIST.followed event", err,
-			slog.String("user_id", userID),
-			slog.String("artist_id", artistID),
-		)
-		// Non-fatal: the follow relationship is already persisted.
-	}
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
@@ -167,57 +150,32 @@ func (uc *followUseCase) resolveAndPersistOfficialSite(ctx context.Context, arti
 	uc.logger.Info(ctx, "official site resolved and persisted", slog.String("artist_id", artistID), slog.String("url", url))
 }
 
-// Unfollow removes a follow relationship.
+// Unfollow removes a follow relationship through Follow.Unfollow, which
+// announces the removal (ARTIST.unfollowed) together with it. Unfollowing an
+// artist the user does not follow succeeds.
 func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) error {
-	err := uc.followRepo.Unfollow(ctx, userID, artistID)
-	if err != nil {
+	if err := uc.followRepo.Unfollow(ctx, userID, artistID); err != nil {
 		return err
 	}
 
 	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	uc.metrics.RecordFollow(ctx, "unfollow")
-
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistUnfollowed, entity.ArtistUnfollowedData{
-		UserID:       userID,
-		ArtistID:     artistID,
-		UnfollowTime: uc.clock(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish ARTIST.unfollowed event", err,
-			slog.String("user_id", userID),
-			slog.String("artist_id", artistID),
-		)
-		// Non-fatal: the unfollow is already persisted.
-	}
-
 	return nil
 }
 
-// SetHype updates the enthusiasm tier for a followed artist.
+// SetHype updates the enthusiasm tier for a followed artist through
+// Follow.SetHype, which announces a changed level (ARTIST.hype_changed)
+// together with the change.
 func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
 	if err := uc.followRepo.SetHype(ctx, userID, artistID, hype); err != nil {
 		return err
 	}
-	setTime := uc.clock()
 
 	uc.logger.Info(ctx, "Hype updated",
 		slog.String("user_id", userID),
 		slog.String("artist_id", artistID),
 		slog.String("hype", string(hype)),
 	)
-
-	// Every set is reported with the level and its time; a failed publish is
-	// logged and never fails SetHype or undoes the change.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistHypeChanged, entity.ArtistHypeChangedData{
-		UserID:   userID,
-		ArtistID: artistID,
-		Hype:     string(hype),
-		SetTime:  setTime,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish ARTIST.hype_changed event", err,
-			slog.String("user_id", userID),
-			slog.String("artist_id", artistID),
-		)
-	}
 	return nil
 }
 

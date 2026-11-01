@@ -78,7 +78,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	issuanceRepo := rdb.NewIssuanceRepository(testDB)
+	issuanceRepo := rdb.NewIssuanceRepository(testDB, testOutbox)
 	settlementRepo := rdb.NewSettlementRepository(testDB)
 
 	eventID := seedPublishedEvent(t)

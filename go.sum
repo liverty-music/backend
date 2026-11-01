@@ -8,10 +8,10 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.1-20261015154428-c661e2
 buf.build/gen/go/bufbuild/registry/connectrpc/go/v2 v2.0.1-20261015154428-c661e2f1fba9.1/go.mod h1:pVB3IEfwKJXmCm52sj5ssEM6UQ9dOGKA6locMEkWNOk=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261015154428-c661e2f1fba9.2 h1:NsoxKZ9Vr9+f/Fw0DVj95nG5EYUeMd1s6Fy1j3UUCa0=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.12-20261015154428-c661e2f1fba9.2/go.mod h1:v7IaNcBKy5G3G8gpG2m92P0R3HK2qtMGclWzf+1Aut4=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261029165223-9db72a7f7ab5.1 h1:djXproaOp6CpbSP2YsXBqmICW+L6mcnwoEmmB9ktOP0=
-buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261029165223-9db72a7f7ab5.1/go.mod h1:4Va14tLrFWCLo5D0yazu8NzK3Hn/4eGz0SCizMVl8Rw=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261029165223-9db72a7f7ab5.2 h1:XMUZ/u8xFwKdvgzJD23782rJwdBh3XbqYQBrA+j5scE=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261029165223-9db72a7f7ab5.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
+buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261031010524-4f1b2ff66791.1 h1:mnwtGn849C7TWGDlv44VUlglpfW10JlCMN7MNFCoaD4=
+buf.build/gen/go/liverty-music/schema/connectrpc/go/v2 v2.0.2-20261031010524-4f1b2ff66791.1/go.mod h1:iQRSiHzLb5Ln3rwGcTMzFwv/2mhfe2hCiDkHNf/XbqM=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261031010524-4f1b2ff66791.2 h1:9hYFrWc7Axvj/aBCFuskKG7H9OjnKc5sarI+76jJUoQ=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261031010524-4f1b2ff66791.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.12-20241007202033-cf42259fcbfc.2 h1:9xw8g8Q6zHLC7CO/jtpl2UK0kQticxIG+mI6N86f2/M=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.12-20241007202033-cf42259fcbfc.2/go.mod h1:+0bw+k8FY5MU3tojFh33HeA5xMfGWjAUQpr+maW5Z3o=
 buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1 h1:7hWTtO316Hov+CM/N4j3/OCE9xDUrwKoLOpY1y+uZjo=
@@ -98,6 +98,8 @@ github.com/ThreeDotsLabs/watermill v1.5.3 h1:GoTR7fW1ZT+itzUv/w3VB6Um1B7oTBrOWjJ
 github.com/ThreeDotsLabs/watermill v1.5.3/go.mod h1:i9/968UriGphWfEbfMuYSD1qFbYRjb0mE0r+rV0FPp4=
 github.com/ThreeDotsLabs/watermill-nats/v2 v2.2.0 h1:sKol3kuTnpWdrKeCNVKTxh/tciyz35hFzM8OGiZjxFY=
 github.com/ThreeDotsLabs/watermill-nats/v2 v2.2.0/go.mod h1:+RcILy/DVrLq3DFVzzRtCmKBViBBn0R/3SgA+3ZP88U=
+github.com/ThreeDotsLabs/watermill-sql/v4 v4.1.5 h1:bmmzqT3bonjQ/ZrYsffvbBhBILYLKgy+AfzTXksgaNU=
+github.com/ThreeDotsLabs/watermill-sql/v4 v4.1.5/go.mod h1:B/DTDEBSLn3/7PEHtxwPjeDPSmBJaALTFHDsLOoIFkc=
 github.com/andybalholm/brotli v1.1.1 h1:PR2pgnyFznKEugtsUo0xLdDop5SKXd5Qf5ysW+7XdTA=
 github.com/andybalholm/brotli v1.1.1/go.mod h1:05ib4cKhjx3OQYUY22hTVd34Bc8upXjOLL2rKwwZBoA=
 github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op h1:1BOWQJweNyvZMlpAHXGLiZQn9S+QXGcz3xh94lC0w6E=
@@ -333,6 +335,8 @@ github.com/lestrrat-go/option/v2 v2.0.0 h1:XxrcaJESE1fokHy3FpaQ/cXW8ZsIdWcdFzzLO
 github.com/lestrrat-go/option/v2 v2.0.0/go.mod h1:oSySsmzMoR0iRzCDCaUfsCzxQHUEuhOViQObyy7S6Vg=
 github.com/lestrrat-go/option/v3 v3.0.0-alpha1 h1:dvdzLwm/Ba5CJUF3jQP7w/iNYSLfy7yyh9XXNa1WjxI=
 github.com/lestrrat-go/option/v3 v3.0.0-alpha1/go.mod h1:5KSg20dfsKkNJtjDmaQRLZVXuUrzuCCcz/gbDK0pfKk=
+github.com/lib/pq v1.12.3 h1:tTWxr2YLKwIvK90ZXEw8GP7UFHtcbTtty8zsI+YjrfQ=
+github.com/lib/pq v1.12.3/go.mod h1:/p+8NSbOcwzAEI7wiMXFlgydTwcgTr3OSKMsD2BitpA=
 github.com/lithammer/shortuuid/v3 v3.0.7 h1:trX0KTHy4Pbwo/6ia8fscyHoGA+mf1jWbPJVuvyJQQ8=
 github.com/lithammer/shortuuid/v3 v3.0.7/go.mod h1:vMk8ke37EmiewwolSO1NLW8vP4ZaKlRuDIi8tWWmAts=
 github.com/mattn/go-colorable v0.1.13/go.mod h1:7S9/ev0klgBDR4GtXTXX8a3vIGJpMovkB8vQcUbaXHg=

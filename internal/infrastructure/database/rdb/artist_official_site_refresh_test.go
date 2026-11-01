@@ -47,7 +47,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 	const age = 7 * 24 * time.Hour
 
@@ -153,7 +153,7 @@ func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/artist/update-official-site-url "Artist with a site"
@@ -213,7 +213,7 @@ func TestArtistRepository_MarkOfficialSiteChecked(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
-	repo := rdb.NewArtistRepository(testDB)
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/artist/mark-official-site-checked "Artist checked"

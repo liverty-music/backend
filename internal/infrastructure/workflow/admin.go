@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // LogKeyWorkflowNeedsAdmin is the log message of a workflow that needs an
@@ -18,6 +21,10 @@ import (
 // workflow_id, workflow_name and status. The runbook
 // (cloud-provisioning docs/runbooks/workflow-needs-admin.md) searches for it.
 const LogKeyWorkflowNeedsAdmin = "workflow needs an admin"
+
+// LogKeyAnnouncementUndelivered is the message of the error log of an
+// announcement still in the outbox 10 minutes after it was recorded.
+const LogKeyAnnouncementUndelivered = "announcement not delivered"
 
 // needsAdminStatuses are the ends of a workflow nobody planned for: it ended
 // with an error, its process stopped during it too often, or it passed its
@@ -45,6 +52,15 @@ const (
 	retention = 30 * 24 * time.Hour
 
 	needsAdminGauge = "workflow.needs_admin"
+
+	// undeliveredAgeGauge is the age in seconds of the oldest announcement
+	// not yet delivered from the outbox, 0 when there is none. The alert
+	// fires above 600 (10 minutes).
+	undeliveredAgeGauge = "event_delivery.oldest_undelivered_age_seconds"
+
+	// undeliveredReportAge is the age from which the oldest undelivered
+	// announcement is logged for an admin.
+	undeliveredReportAge = 10 * time.Minute
 )
 
 // gaugeKey is one series of the workflow.needs_admin gauge.
@@ -60,17 +76,25 @@ type gaugeKey struct {
 // logged workflows start empty when the worker does.
 type admin struct {
 	logger *logging.Logger
+	// pool reads the outbox (watermill_events_outbox on the search path).
+	pool *pgxpool.Pool
 
 	mu     sync.Mutex
 	now    func() time.Time
 	names  []string
 	counts map[gaugeKey]int64
 	logged map[string]bool
+	// undeliveredAge is the last value of the undelivered-age gauge.
+	undeliveredAge float64
+	// undeliveredLogged is the record time of the last oldest undelivered
+	// announcement logged, so each is logged once.
+	undeliveredLogged time.Time
 }
 
-func newAdmin(logger *logging.Logger) (*admin, error) {
+func newAdmin(logger *logging.Logger, pool *pgxpool.Pool) (*admin, error) {
 	a := &admin{
 		logger: logger,
+		pool:   pool,
 		now:    time.Now,
 		counts: map[gaugeKey]int64{},
 		logged: map[string]bool{},
@@ -91,6 +115,19 @@ func newAdmin(logger *logging.Logger) (*admin, error) {
 	)
 	if err != nil {
 		return nil, toAppErr(err, "register the "+needsAdminGauge+" gauge")
+	}
+	_, err = otel.Meter(tracerName).Float64ObservableGauge(undeliveredAgeGauge,
+		metric.WithDescription("Age of the oldest announcement recorded in the outbox and not yet delivered"),
+		metric.WithUnit("s"),
+		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			o.Observe(a.undeliveredAge)
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, toAppErr(err, "register the "+undeliveredAgeGauge+" gauge")
 	}
 	return a, nil
 }
@@ -121,7 +158,47 @@ func (a *admin) register(r *Runtime) error {
 
 // reportNeedsAdmin counts the workflows that need an admin into the gauge,
 // which stays above 0 while one exists, and logs each such workflow once.
-func (a *admin) reportNeedsAdmin(ctx dbos.Context, _ dbos.ScheduledWorkflowInput) (int, error) {
+// It then reports the oldest announcement not yet delivered (reportUndelivered).
+func (a *admin) reportNeedsAdmin(ctx dbos.Context, in dbos.ScheduledWorkflowInput) (int, error) {
+	n, err := a.reportWorkflows(ctx)
+	if err != nil {
+		return n, err
+	}
+	_, err = dbos.RunAsStep(ctx, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, a.reportUndelivered(ctx)
+	}, dbos.WithStepName("report undelivered"))
+	return n, err
+}
+
+// reportUndelivered sets the undelivered-age gauge from the oldest row of
+// the outbox, and logs that announcement once, with its subject and record
+// time, when it is older than undeliveredReportAge.
+func (a *admin) reportUndelivered(ctx context.Context) error {
+	u, ok, err := messaging.OldestUndelivered(ctx, a.pool)
+	if err != nil {
+		return toAppErr(err, "read the outbox")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !ok {
+		a.undeliveredAge = 0
+		return nil
+	}
+	age := a.now().Sub(u.RecordTime)
+	a.undeliveredAge = age.Seconds()
+	if age >= undeliveredReportAge && !u.RecordTime.Equal(a.undeliveredLogged) {
+		a.undeliveredLogged = u.RecordTime
+		a.logger.Error(ctx, LogKeyAnnouncementUndelivered, nil,
+			slog.String("subject", u.Subject),
+			slog.Time("record_time", u.RecordTime),
+			slog.Duration("age", age),
+		)
+	}
+	return nil
+}
+
+// reportWorkflows is the first step of reportNeedsAdmin.
+func (a *admin) reportWorkflows(ctx dbos.Context) (int, error) {
 	return dbos.RunAsStep(ctx, func(ctx context.Context) (int, error) {
 		statuses, err := dbos.ListWorkflows(ctx.(dbos.Context),
 			dbos.WithFilterStatus(needsAdminStatuses...),

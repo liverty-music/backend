@@ -57,7 +57,7 @@ func buildNotificationUC(
 	notifRepo *entitymocks.MockNotificationRepository,
 	pushSubRepo *entitymocks.MockPushSubscriptionRepository,
 	sender *entitymocks.MockPushNotificationSender,
-	publisher *ucmocks.MockEventPublisher,
+	publisher *ucmocks.MockWorkflows,
 ) usecase.NotificationUseCase {
 	t.Helper()
 	return usecase.NewNotificationUseCase(
@@ -110,15 +110,7 @@ func TestDeliver_Success(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "01890000-0000-7000-8000-000000000abc", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	// Delivered ⇒ exactly one NOTIFICATION.delivered emit, keyed by notification_id.
-	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.MatchedBy(func(d entity.NotificationDeliveredData) bool {
-			return d.UserID == "user-1" && d.NotificationID == "01890000-0000-7000-8000-000000000abc" &&
-				d.Type == string(entity.NotificationTypeNewConcerts) && !d.DeliverTime.IsZero()
-		})).
-		Return(nil).
-		Once()
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	payload := notifPayload()
@@ -144,7 +136,7 @@ func TestDeliver_MessageNamesType(t *testing.T) {
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	notifRepo.EXPECT().
 		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
@@ -163,9 +155,6 @@ func TestDeliver_MessageNamesType(t *testing.T) {
 		Times(2)
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "notif-type-1", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).
 		Return(nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
@@ -195,7 +184,7 @@ func TestDeliver_SendFailureRecordedAsFailed(t *testing.T) {
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	notifRepo.EXPECT().
 		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
@@ -220,7 +209,6 @@ func TestDeliver_SendFailureRecordedAsFailed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
 	assert.Equal(t, "last rejected", n.FailureReason)
-	publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, entity.SubjectNotificationDelivered, mock.Anything)
 }
 
 // Gone (410) path: only the dead subscription is cleaned up, the fan's other
@@ -249,16 +237,17 @@ func TestDeliver_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
 		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/other" })).
 		Return(errors.New("push service rejected"))
 	// Only the dead (user, endpoint) pair is deleted; the other browser keeps
-	// its subscription (any other Delete call would fail the mock).
+	// its subscription (any other call would fail the mock), and the removal
+	// is not the fan's own, so it goes through DeleteGone.
 	pushSubRepo.EXPECT().
-		Delete(anyCtx, "user-1", "https://push/gone").
+		DeleteGone(anyCtx, "user-1", "https://push/gone").
 		Return(nil).
 		Once()
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-gone", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), mock.Anything).
 		Return(nil)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 }
@@ -285,7 +274,7 @@ func TestDeliver_NoSubscriptionRecordedAsFailed(t *testing.T) {
 		UpdateDelivery(anyCtx, "id-nosub", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), "no active push subscription").
 		Return(nil)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 	sender.AssertNotCalled(t, "Send")
@@ -315,7 +304,7 @@ func TestDeliver_ContextCancelledStopsDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 
 	require.NoError(t, err)
@@ -338,7 +327,7 @@ func TestDeliver_RecordFailureDoesNotSend(t *testing.T) {
 		Create(anyCtx, mock.Anything).
 		Return(apperr.New(codes.Internal, "db down"))
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 
 	require.Error(t, err)
@@ -357,7 +346,7 @@ func TestDeliver_NilPayloadRejected(t *testing.T) {
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, nil)
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
@@ -374,7 +363,7 @@ func TestDeliver_OneOfTwoBrowsersAccepts(t *testing.T) {
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	notifRepo.EXPECT().
 		Create(anyCtx, mock.Anything).
@@ -392,7 +381,6 @@ func TestDeliver_OneOfTwoBrowsersAccepts(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-partial", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -411,7 +399,7 @@ func TestDeliver_CancelledAfterOneAcceptedSend(t *testing.T) {
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -438,7 +426,6 @@ func TestDeliver_CancelledAfterOneAcceptedSend(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-cancel-after", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -458,7 +445,7 @@ func TestDeliver_UpdateDeliveryFailureIsNonFatal(t *testing.T) {
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
 	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	notifRepo.EXPECT().
 		Create(anyCtx, mock.Anything).
@@ -471,7 +458,6 @@ func TestDeliver_UpdateDeliveryFailureIsNonFatal(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-update-fail", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(apperr.New(codes.Internal, "db down"))
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
@@ -504,7 +490,7 @@ func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t), metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
@@ -540,8 +526,7 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 	notifRepo.EXPECT().
 		UpdateDelivery(anyCtx, "id-ok", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
 		Return(nil)
-	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
+	publisher := ucmocks.NewMockWorkflows(t)
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
@@ -571,7 +556,7 @@ func TestMarkRead_OwnedDelegatesToRepo(t *testing.T) {
 		MarkRead(anyCtx, "user-1", "n-1").
 		Return(nil)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	require.NoError(t, uc.MarkRead(context.Background(), "user-1", "n-1"))
 }
 
@@ -588,7 +573,7 @@ func TestMarkRead_CrossUserRejected(t *testing.T) {
 		Get(anyCtx, "n-1").
 		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	err := uc.MarkRead(context.Background(), "attacker", "n-1")
 
 	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -607,7 +592,7 @@ func TestMarkDismissed_CrossUserRejected(t *testing.T) {
 		Get(anyCtx, "n-1").
 		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
 	err := uc.Dismiss(context.Background(), "attacker", "n-1")
 
 	require.ErrorIs(t, err, apperr.ErrPermissionDenied)

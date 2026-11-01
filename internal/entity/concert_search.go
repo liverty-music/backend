@@ -63,12 +63,14 @@ type ConcertSearchRepository interface {
 	//  - NotFound: If no concert search exists for the artist.
 	GetByArtistID(ctx context.Context, artistID string) (*ConcertSearch, error)
 
-	// Upsert creates or updates the concert search for an artist with the given status.
+	// Upsert creates or updates the concert search for an artist with the
+	// given status, setting its search time to now, and returns that search
+	// time.
 	//
 	// # Possible errors
 	//
 	//  - Internal: If the upsert fails.
-	Upsert(ctx context.Context, artistID string, status ConcertSearchStatus) error
+	Upsert(ctx context.Context, artistID string, status ConcertSearchStatus) (time.Time, error)
 
 	// UpdateStatus updates the status for an existing concert search.
 	//

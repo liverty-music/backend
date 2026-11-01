@@ -93,8 +93,12 @@ func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, da
 // bucket with this before transcoding. Satisfies the optional objectReader
 // interface the consumer type-asserts on the ImageStorer (the base write/delete
 // ImageStorer does not expose reads).
+// A missing object fails with NotFound.
 func (s *GCSStorer) ReadObject(ctx context.Context, bucket, key string) ([]byte, error) {
 	rc, err := s.client.Bucket(bucket).Object(key).NewReader(ctx)
+	if errors.Is(err, storage.ErrObjectNotExist) {
+		return nil, apperr.New(codes.NotFound, fmt.Sprintf("gcs object %s/%s does not exist", bucket, key))
+	}
 	if err != nil {
 		return nil, apperr.New(codes.Internal, fmt.Sprintf("open gcs reader %s/%s: %v", bucket, key, err))
 	}

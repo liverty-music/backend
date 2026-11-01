@@ -3,8 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
@@ -19,18 +17,15 @@ type PushSubscriptionUseCase interface {
 	// place and returns it with its existing, stored id. Because an endpoint
 	// identifies a browser/device rather than a user, registering an
 	// endpoint that belongs to a different userID reassigns it to the given
-	// userID; the previous owner no longer has it.
-	//
-	// deviceType is the browser/OS family classifier for the endpoint (e.g.
-	// "android", "apple", "firefox", "windows", "other"), derived by the
-	// caller (see pb.DeviceTypeFromEndpoint) so this use case never needs
-	// to know about push-vendor host names. It is forwarded, unmodified, into
-	// the NOTIFICATION.subscribed analytics event.
+	// userID; the previous owner no longer has it. PushSubscription.Create
+	// announces a new or changed subscription (NOTIFICATION.subscribed).
 	//
 	// # Possible errors
 	//
+	//   - Unavailable: the announcement could not be recorded; nothing is
+	//     stored.
 	//   - Internal: subscription persistence failure.
-	Create(ctx context.Context, userID, endpoint, p256dh, auth, deviceType string) (*entity.PushSubscription, error)
+	Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error)
 
 	// Get returns the push subscription uniquely identified by (userID, endpoint).
 	//
@@ -42,22 +37,20 @@ type PushSubscriptionUseCase interface {
 
 	// Delete removes the push subscription uniquely identified by
 	// (userID, endpoint). Other browsers registered by the same user remain
-	// active. The operation is idempotent.
-	//
-	// deviceType is the browser/OS family classifier for the endpoint,
-	// derived by the caller (see pb.DeviceTypeFromEndpoint) and forwarded,
-	// unmodified, into the NOTIFICATION.unsubscribed analytics event.
+	// active. The operation is idempotent. PushSubscription.Delete announces a
+	// removed subscription (NOTIFICATION.unsubscribed).
 	//
 	// # Possible errors
 	//
+	//   - Unavailable: the announcement could not be recorded; the
+	//     subscription remains.
 	//   - Internal: subscription deletion failure.
-	Delete(ctx context.Context, userID, endpoint, deviceType string) error
+	Delete(ctx context.Context, userID, endpoint string) error
 }
 
 // pushSubscriptionUseCase implements PushSubscriptionUseCase.
 type pushSubscriptionUseCase struct {
 	pushSubRepo entity.PushSubscriptionRepository
-	publisher   EventPublisher
 	logger      *logging.Logger
 }
 
@@ -67,18 +60,16 @@ var _ PushSubscriptionUseCase = (*pushSubscriptionUseCase)(nil)
 // NewPushSubscriptionUseCase creates a new PushSubscriptionUseCase.
 func NewPushSubscriptionUseCase(
 	pushSubRepo entity.PushSubscriptionRepository,
-	publisher EventPublisher,
 	logger *logging.Logger,
 ) PushSubscriptionUseCase {
 	return &pushSubscriptionUseCase{
 		pushSubRepo: pushSubRepo,
-		publisher:   publisher,
 		logger:      logger,
 	}
 }
 
 // Create registers or updates the push subscription for the given (userID, endpoint) pair.
-func (uc *pushSubscriptionUseCase) Create(ctx context.Context, userID, endpoint, p256dh, auth, deviceType string) (*entity.PushSubscription, error) {
+func (uc *pushSubscriptionUseCase) Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error) {
 	sub := &entity.PushSubscription{
 		UserID:   userID,
 		Endpoint: endpoint,
@@ -88,18 +79,6 @@ func (uc *pushSubscriptionUseCase) Create(ctx context.Context, userID, endpoint,
 	if err := uc.pushSubRepo.Create(ctx, sub); err != nil {
 		return nil, fmt.Errorf("failed to persist push subscription: %w", err)
 	}
-
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
-		UserID:        userID,
-		DeviceType:    deviceType,
-		SubscribeTime: time.Now(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish NOTIFICATION.subscribed event", err,
-			slog.String("user_id", userID),
-		)
-		// Non-fatal: the subscription is already persisted.
-	}
-
 	return sub, nil
 }
 
@@ -114,26 +93,12 @@ func (uc *pushSubscriptionUseCase) Get(ctx context.Context, userID, endpoint str
 }
 
 // Delete removes the push subscription matching the (userID, endpoint) pair.
-// Other browsers registered by the same user remain active. Idempotent.
-// On success, a notification.unsubscribed analytics event is published
-// non-fatally — a publish error is logged but does not change the return
-// behaviour. The auto-cleanup path inside NotifyNewConcerts (410 Gone) does
-// NOT call this method and therefore does NOT emit the analytics event.
-func (uc *pushSubscriptionUseCase) Delete(ctx context.Context, userID, endpoint, deviceType string) error {
+// Other browsers registered by the same user remain active. Idempotent. The
+// auto-cleanup path inside NotifyNewConcerts (410 Gone) does not call this
+// method.
+func (uc *pushSubscriptionUseCase) Delete(ctx context.Context, userID, endpoint string) error {
 	if err := uc.pushSubRepo.Delete(ctx, userID, endpoint); err != nil {
 		return fmt.Errorf("failed to delete push subscription: %w", err)
 	}
-
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
-		UserID:          userID,
-		DeviceType:      deviceType,
-		UnsubscribeTime: time.Now(),
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish NOTIFICATION.unsubscribed event", err,
-			slog.String("user_id", userID),
-		)
-		// Non-fatal: the subscription is already deleted.
-	}
-
 	return nil
 }

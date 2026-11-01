@@ -23,6 +23,7 @@ const (
 		INSERT INTO concert_searches (artist_id, searched_at, status)
 		VALUES ($1, NOW(), $2)
 		ON CONFLICT (artist_id) DO UPDATE SET searched_at = NOW(), status = $2
+		RETURNING searched_at
 	`
 	updateConcertSearchStatusQuery = `
 		UPDATE concert_searches
@@ -63,12 +64,13 @@ func (r *ConcertSearchRepository) GetByArtistID(ctx context.Context, artistID st
 }
 
 // Upsert creates or updates the concert search for an artist with the given status.
-func (r *ConcertSearchRepository) Upsert(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error {
-	_, err := r.db.Pool.Exec(ctx, upsertConcertSearchQuery, artistID, string(status))
+func (r *ConcertSearchRepository) Upsert(ctx context.Context, artistID string, status entity.ConcertSearchStatus) (time.Time, error) {
+	var searchTime time.Time
+	err := r.db.Pool.QueryRow(ctx, upsertConcertSearchQuery, artistID, string(status)).Scan(&searchTime)
 	if err != nil {
-		return toAppErr(err, "failed to upsert concert search", slog.String("artist_id", artistID))
+		return time.Time{}, toAppErr(err, "failed to upsert concert search", slog.String("artist_id", artistID))
 	}
-	return nil
+	return searchTime, nil
 }
 
 // UpdateStatus updates the status for an existing concert search.

@@ -77,10 +77,53 @@ type BaseConfig struct {
 
 // WorkerConfig is the configuration of the workflow worker (cmd/worker). It
 // reads the fan workload's ConfigMap and Secrets, so it runs as the same
-// database identity as the code its workflows take over; it needs only the
-// base settings itself.
+// database identity as the code its workflows take over, and the NATS URL the
+// fan workload publishes to.
 type WorkerConfig struct {
 	BaseConfig
+
+	// NATS is the broker the outbox forwarder delivers announcements to.
+	// Required outside local; a local worker without it leaves them in the
+	// outbox.
+	NATS NATSConfig `envconfig:""`
+
+	// VAPID signs the Web Push messages of the deliver-notification workflow.
+	VAPID VAPIDConfig `envconfig:""`
+
+	// AccountEmailConfig sends the emails of the user workflows: the
+	// verification emails, the passkey recovery links and the passkey change
+	// emails.
+	AccountEmailConfig
+
+	// GCPProjectID is the project whose Google Maps Places API the
+	// create-from-discovered workflow resolves venues with.
+	GCPProjectID string `envconfig:"GCP_PROJECT_ID"`
+
+	// PostHog receives the pipeline signal of each create-from-discovered
+	// batch. Optional: without a project API key no signal is sent.
+	PostHog PostHogConfig `envconfig:""`
+}
+
+// Validate checks the worker configuration: the base settings, and outside
+// local the NATS URL, the VAPID keys, the identity service, the issuer and the
+// GCP project.
+func (c *WorkerConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	if c.IsLocal() {
+		return nil
+	}
+	if c.NATS.URL == "" {
+		return fmt.Errorf("NATS URL is required for non-local environments")
+	}
+	return requireSet(
+		envVar{"GCP_PROJECT_ID", c.GCPProjectID},
+		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
+		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
+		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
+		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
+	)
 }
 
 // ServerConfig is the configuration for the API server workload.
@@ -220,23 +263,33 @@ type ConsumerConfig struct {
 	// analytics-consumer.
 	PostHog PostHogConfig `envconfig:""`
 
+	// Postmark sends the purchase confirmation and resale sold emails. When
+	// its server token is empty a no-op sender is used that fails with
+	// Unavailable.
+	Postmark PostmarkConfig `envconfig:""`
+
+	// FanartTV API Key for artist image resolution
+	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
+}
+
+// AccountEmailConfig is what a workload needs to email a fan about their
+// account: the issuer the fan web origin of the links derives from, the
+// identity service that issues the codes and links, and Postmark.
+type AccountEmailConfig struct {
 	// ZitadelDomain is the Zitadel instance URL for API calls.
 	// Same value as OIDC_ISSUER_URL used by the API server.
 	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
 
-	// IdentityServiceURL is the identity service's listener for the event
-	// consumer (e.g. http://identity:9100, h2c). Verification emails and
-	// passkey registration links go through it; the consumer holds no
+	// IdentityServiceURL is the identity service's listener for the other
+	// backend workloads (e.g. http://identity:9100, h2c). Verification emails
+	// and passkey registration links go through it; the caller holds no
 	// identity-provider credential. Required outside local; unset in local
-	// development, the verification handlers skip with a warning and the
-	// passkey recovery link handler is disabled.
+	// development, verification emails are skipped with a warning and no
+	// passkey registration link can be sent.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
 
-	// FanartTV API Key for artist image resolution
-	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
-
-	// Postmark sends the purchase confirmation email. When its server token is
-	// empty the consumer uses a no-op sender that fails with Unavailable.
+	// Postmark sends the emails. When its server token is empty a no-op
+	// sender is used that fails with Unavailable.
 	Postmark PostmarkConfig `envconfig:""`
 }
 
@@ -1138,6 +1191,17 @@ func (c *ServerConfig) ProvisionsOrganizers() bool {
 	return c.Workload == WorkloadAdmin
 }
 
+// StartsWorkflows reports whether this process starts workflows, and so
+// connects to the workflow tables its database role is granted: outside local
+// the fan workload (verification resends, passkey recovery links) and the admin
+// workload (concert searches and notifications it sends); local always does.
+func (c *ServerConfig) StartsWorkflows() bool {
+	if c.IsLocal() {
+		return true
+	}
+	return c.Workload == WorkloadFan || c.Workload == WorkloadAdmin
+}
+
 // RemovesIdentities reports whether this process removes fan identities
 // through the identity service: outside local the admin workload, for an
 // admin's removal of a fan, and the fan workload, for a fan's removal of
@@ -1193,8 +1257,6 @@ func (c *ConsumerConfig) Validate() error {
 		envVar{"FANARTTV_API_KEY", c.FanartTVAPIKey},
 		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
-		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
-		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},

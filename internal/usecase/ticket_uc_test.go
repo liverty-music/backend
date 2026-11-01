@@ -15,7 +15,7 @@ import (
 // newOrderReadUC builds a TicketUseCase for the fan's Order and Ticket reads.
 func newOrderReadUC(t *testing.T, orders entity.OrderRepository, tickets entity.TicketRepository) usecase.TicketUseCase {
 	t.Helper()
-	return usecase.NewTicketUseCase(orders, tickets, nil, nil, nil, nil, nil, nil, newTestLogger(t))
+	return usecase.NewTicketUseCase(orders, tickets, nil, nil, nil, nil, nil, newTestLogger(t))
 }
 
 func TestOrderUseCase_Get(t *testing.T) {

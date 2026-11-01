@@ -147,14 +147,26 @@ type FollowRepository interface {
 	//
 	//   - AlreadyExists: the user is already following this artist.
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// ARTIST.followed with the new Follow, together with the insert. Nothing on
+	// AlreadyExists or any other failure.
 	Follow(ctx context.Context, userID, artistID string) error
 
-	// Unfollow removes the subscription between a user and an artist.
+	// Unfollow removes the subscription between a user and an artist;
+	// unfollowing an artist the user does not follow succeeds.
 	//
 	// # Possible errors:
 	//
-	//   - NotFound: the follow relationship does not exist.
+	//   - Unavailable: the announcement could not be recorded; the follow
+	//     remains.
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// ARTIST.unfollowed with the Follow as it was, together with the removal.
+	// Nothing when the user did not follow the artist.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
 	// SetHype updates the enthusiasm tier for a followed artist.
@@ -163,6 +175,11 @@ type FollowRepository interface {
 	//
 	//   - NotFound: the user is not following the specified artist.
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// ARTIST.hype_changed with the Follow at its new level, together with the
+	// change. Nothing when the level is unchanged.
 	SetHype(ctx context.Context, userID, artistID string, hype Hype) error
 
 	// ListByUser retrieves all artists followed by a specific user,

@@ -45,6 +45,12 @@ type PushSubscriptionRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database connection or execution failure.
+	//
+	// # Announces
+	//
+	// NOTIFICATION.subscribed with the PushSubscription after the change, without
+	// its push address and keys, together with the change, when it stored a new
+	// subscription or changed one. Nothing when nothing changed.
 	Create(ctx context.Context, sub *PushSubscription) error
 
 	// Get retrieves the push subscription uniquely identified by the (userID, endpoint) pair.
@@ -63,7 +69,23 @@ type PushSubscriptionRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// NOTIFICATION.unsubscribed with the PushSubscription as it was, without its
+	// push address and keys, together with the removal. Nothing when it removed
+	// nothing.
 	Delete(ctx context.Context, userID, endpoint string) error
+
+	// DeleteGone removes the push subscription of the (userID, endpoint) pair
+	// that the push service reported gone. Like Delete it removes only that
+	// browser and succeeds when there is none, but it is not the fan's own
+	// removal, so it announces nothing.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database execution failure.
+	DeleteGone(ctx context.Context, userID, endpoint string) error
 
 	// ListByUserIDs retrieves all push subscriptions belonging to any of the given user IDs.
 	// Returns an empty slice (no error) when none of the users have registered subscriptions.

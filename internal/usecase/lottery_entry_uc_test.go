@@ -16,7 +16,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 func fixedClock(t time.Time) usecase.Clock {
@@ -34,8 +33,6 @@ type lotteryFixture struct {
 	users                *entitymocks.MockUserRepository
 	cardAuthorizations   *entitymocks.MockCardAuthorizationRepository
 	uc                   usecase.LotteryEntryUseCase
-	// drawn collects the ORDER.lottery_entry_drawn announcements.
-	drawn []entity.LotteryEntryDrawnData
 }
 
 // newLotteryFixture builds the use case at now, drawing in the order of a
@@ -52,14 +49,6 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		users:                entitymocks.NewMockUserRepository(t),
 		cardAuthorizations:   entitymocks.NewMockCardAuthorizationRepository(t),
 	}
-	publisher := ucmocks.NewMockEventPublisher(t)
-	publisher.EXPECT().
-		PublishEvent(mock.Anything, entity.SubjectLotteryEntryDrawn, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, data any) error {
-			f.drawn = append(f.drawn, data.(entity.LotteryEntryDrawnData))
-			return nil
-		}).
-		Maybe()
 	f.uc = usecase.NewLotteryEntryUseCaseWithRand(usecase.LotteryEntryDeps{
 		SaleRepo:                 f.sales,
 		StockRepo:                f.stocks,
@@ -69,7 +58,6 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		IdentityVerificationRepo: f.identityVerification,
 		UserRepo:                 f.users,
 		CardAuthorizations:       f.cardAuthorizations,
-		Publisher:                publisher,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	}, func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) })
@@ -937,15 +925,9 @@ func TestLotteryEntryUseCase_RunDraw(t *testing.T) {
 
 		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
 
-		require.Len(t, f.drawn, 2)
-		results := map[string]int{}
-		for _, r := range f.drawn {
-			results[r.Result]++
-			assert.Equal(t, "sale-l", r.TicketSaleID)
-			assert.Equal(t, "stock-1", r.TicketStockID)
-			assert.False(t, r.CaptureFailed)
-		}
-		assert.Equal(t, map[string]int{"won": 1, "lost": 1}, results)
+		require.Len(t, out.winnerIDs(), 1)
+		require.Len(t, out.losers, 1)
+		assert.Equal(t, entity.LotteryEntryLostReasonNotDrawn, out.losers[0].LostReason)
 	})
 
 	t.Run("winner's card was closed", func(t *testing.T) {
@@ -967,13 +949,7 @@ func TestLotteryEntryUseCase_RunDraw(t *testing.T) {
 		assert.Equal(t, []entity.LotteryEntryID{"fine"}, out.winnerIDs(), "no loser is promoted")
 		require.Len(t, out.losers, 1)
 		assert.Equal(t, entity.LotteryEntryID("closed-card"), out.losers[0].LotteryEntryID)
-		for _, r := range f.drawn {
-			if r.LotteryEntryID == "closed-card" {
-				assert.Equal(t, "lost", r.Result)
-				assert.True(t, r.CaptureFailed)
-			}
-		}
-		assert.Len(t, f.drawn, 2)
+		assert.Equal(t, entity.LotteryEntryLostReasonCardNotCharged, out.losers[0].LostReason)
 	})
 
 	t.Run("release fails for one loser", func(t *testing.T) {

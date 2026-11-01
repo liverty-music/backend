@@ -15,7 +15,8 @@ import (
 
 // ConcertRepository implements entity.ConcertRepository interface for PostgreSQL.
 type ConcertRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 const (
@@ -73,7 +74,7 @@ const (
 			AND e.start_at IS NOT DISTINCT FROM perf.start_at
 			AND ` + catalogEventCondition + `
 		ON CONFLICT DO NOTHING
-		RETURNING event_id
+		RETURNING event_id, artist_id
 	`
 
 	// findEventsByVenueDateQuery returns existing events at any of the given
@@ -350,8 +351,8 @@ const (
 )
 
 // NewConcertRepository creates a new concert repository instance.
-func NewConcertRepository(db *Database) *ConcertRepository {
-	return &ConcertRepository{db: db}
+func NewConcertRepository(db *Database, outbox Announcer) *ConcertRepository {
+	return &ConcertRepository{db: db, outbox: outbox}
 }
 
 // scanConcertRow scans a row from the standard JOIN (events + series + cover
@@ -831,6 +832,13 @@ func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID strin
 //
 // Returns the event IDs of concerts that were genuinely inserted (i.e., not
 // deduplicated by natural-key UPSERT).
+//
+// # Announces
+//
+// CONCERT.created once for each Artist newly linked to events of one Series
+// by this call, carrying those Concerts (new events, and existing events the
+// Artist was newly added to), with the Artist id as ce_subject, in the
+// transaction of the change. Nothing when no link is new.
 func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) ([]string, error) {
 	if len(concerts) == 0 {
 		return nil, nil
@@ -982,6 +990,8 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	// the concert_artists RETURNING surfaces the new (event, B) link so
 	// B's followers get notified.
 	var linkedEventIDs []string
+	// newlyListed maps each Artist to the events it was newly linked to.
+	newlyListed := map[string][]string{}
 	if len(performerArtistIDs) > 0 {
 		linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
 			performerVenueIDs, performerEventDates, performerStartAts, performerArtistIDs,
@@ -994,11 +1004,12 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		}
 		defer linkRows.Close()
 		for linkRows.Next() {
-			var id string
-			if err := linkRows.Scan(&id); err != nil {
+			var id, artistID string
+			if err := linkRows.Scan(&id, &artistID); err != nil {
 				return nil, toAppErr(err, "failed to scan linked event id")
 			}
 			linkedEventIDs = append(linkedEventIDs, id)
+			newlyListed[artistID] = append(newlyListed[artistID], id)
 		}
 		if err := linkRows.Err(); err != nil {
 			return nil, toAppErr(err, "concert_artists insert RETURNING iteration ended with error",
@@ -1008,6 +1019,9 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		linkRows.Close()
 	}
 
+	if err := announceNewConcerts(ctx, r.outbox, tx, newlyListed); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit transaction")
 	}

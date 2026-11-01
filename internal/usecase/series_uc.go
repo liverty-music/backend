@@ -161,7 +161,6 @@ type seriesUseCase struct {
 	ticketSaleRepo  entity.TicketSaleRepository
 	imageStorer     ImageStorer
 	storageBuckets  StorageBuckets
-	publisher       EventPublisher
 	logger          *logging.Logger
 	now             func() time.Time
 }
@@ -181,7 +180,6 @@ func NewSeriesUseCase(
 	ticketSaleRepo entity.TicketSaleRepository,
 	imageStorer ImageStorer,
 	storageBuckets StorageBuckets,
-	publisher EventPublisher,
 	logger *logging.Logger,
 	now func() time.Time,
 ) SeriesUseCase {
@@ -194,7 +192,6 @@ func NewSeriesUseCase(
 		ticketSaleRepo:  ticketSaleRepo,
 		imageStorer:     imageStorer,
 		storageBuckets:  storageBuckets,
-		publisher:       publisher,
 		logger:          logger,
 		now:             now,
 	}
@@ -560,8 +557,8 @@ func (uc *seriesUseCase) Publish(
 	for i, e := range targets {
 		targetIDs[i] = e.ID
 	}
-	newEventIDs, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs)
-	if err != nil {
+	// Series.PublishEvents announces the new concerts of a PUBLIC series.
+	if _, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs); err != nil {
 		return nil, nil, fmt.Errorf("publish events: %w", err)
 	}
 
@@ -580,40 +577,6 @@ func (uc *seriesUseCase) Publish(
 	published, publishedConcerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get authored after publish: %w", err)
-	}
-
-	// Announce only the events this publish added, once per performing artist
-	// (the notification consumer is keyed on one artist). Claimed events and
-	// events published before are not announced; UNLISTED series announce
-	// nothing.
-	if series.IsPublic() && len(newEventIDs) > 0 {
-		for _, artist := range entity.Performers(publishedConcerts) {
-			created := entity.ConcertCreatedData{
-				ArtistID:   artist.ID,
-				ConcertIDs: newEventIDs,
-			}
-			if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-				uc.logger.Error(ctx, "failed to publish CONCERT.created after organizer publish", err,
-					slog.String("series_id", seriesID),
-					slog.String("artist_id", artist.ID),
-					slog.Int("new_event_count", len(newEventIDs)),
-				)
-				// Non-fatal: events are persisted; notification retries next cycle.
-			}
-		}
-	}
-
-	// Always emit the organizer.concert.published analytics event.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerConcertPublished, entity.OrganizerConcertPublishedData{
-		OrganizerID:   callerOrgID,
-		SeriesID:      seriesID,
-		NewEventCount: len(newEventIDs),
-	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish ORGANIZER.concert_published event",
-			slog.String("series_id", seriesID),
-			slog.Any("error", err),
-		)
-		// Non-fatal: the events are already published.
 	}
 
 	return published, publishedConcerts, nil
@@ -675,24 +638,8 @@ func (uc *seriesUseCase) Cancel(ctx context.Context, callerOrgID, seriesID strin
 		}
 	}
 
-	cancelled, err := uc.seriesRepo.CancelEvents(ctx, seriesID, targets)
-	if err != nil {
+	if _, err := uc.seriesRepo.CancelEvents(ctx, seriesID, targets); err != nil {
 		return fmt.Errorf("cancel events: %w", err)
-	}
-
-	// Announce only the events that became CANCELLED; removed drafts were
-	// never announced, so a discarded draft announces nothing.
-	if len(cancelled) == 0 {
-		return nil
-	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCancelled, entity.ConcertCancelledData{
-		SeriesID:   seriesID,
-		ConcertIDs: cancelled,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish CONCERT.cancelled event", err,
-			slog.String("series_id", seriesID),
-		)
-		// Non-fatal: the events are already cancelled in the DB.
 	}
 	return nil
 }
@@ -816,8 +763,8 @@ func eventVenueName(ev *entity.Event) string {
 }
 
 // SetCoverImage verifies ownership of the series and of the upload, inserts the
-// series image row idempotently, and publishes SERIES_IMAGE.uploaded so the
-// processor can generate variants and cut over series_cover_images. The
+// series image row idempotently, and SeriesImage.Create records the
+// SERIES_IMAGE.uploaded request with it so the processor can generate variants and cut over series_cover_images. The
 // series_cover_images re-point is intentionally deferred to the consumer so the
 // existing cover continues to serve until variants are ready (no 404 window).
 func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error {
@@ -879,21 +826,10 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		// map; the processor will not need it and we avoid a round-trip.
 		Attributes: map[string]string{},
 	}
-	if err := uc.seriesImageRepo.Create(ctx, seriesImage); err != nil {
+	// SeriesImage.Create records the request to process the image for the
+	// Series together with it; a repeated attach records nothing new.
+	if err := uc.seriesImageRepo.Create(ctx, seriesImage, seriesID); err != nil {
 		return fmt.Errorf("insert series image row: %w", err)
-	}
-
-	// Publish SERIES_IMAGE.uploaded so the processor can pick it up. A failure
-	// fails the call so the member repeats it: the insert above is idempotent
-	// and the original is still uploaded, so the retry announces again.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
-		SeriesImageID: seriesImageID,
-		SeriesID:      seriesID,
-	}); err != nil {
-		return apperr.Wrap(err, codes.Unavailable, "announce series image upload",
-			slog.String("series_image_id", seriesImageID),
-			slog.String("series_id", seriesID),
-		)
 	}
 
 	uc.logger.Info(ctx, "series image attached to series",

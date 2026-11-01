@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,37 +28,53 @@ import (
 // each event so the test can hand it to the next use case, as the consumers
 // do in production.
 
-// storyPublisher captures published events in order.
-type storyPublisher struct {
-	mu     sync.Mutex
-	events []storyEvent
+// storyWorkflows records the workflows a story starts; a start under an id
+// already started starts nothing new, as the workflow runtime does.
+type storyWorkflows struct {
+	mu      sync.Mutex
+	pending []storyStart
+	started map[string]bool
 }
 
-type storyEvent struct {
-	subject string
-	data    any
+type storyStart struct {
+	workflow string
+	input    any
 }
 
-func (p *storyPublisher) PublishEvent(_ context.Context, subject string, data any) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.events = append(p.events, storyEvent{subject: subject, data: data})
+func (w *storyWorkflows) Start(_ context.Context, workflow, id string, input any, _ ...usecase.StartOption) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.started == nil {
+		w.started = map[string]bool{}
+	}
+	if w.started[id] {
+		return nil
+	}
+	w.started[id] = true
+	w.pending = append(w.pending, storyStart{workflow: workflow, input: input})
 	return nil
 }
 
-func (p *storyPublisher) take(subject string) []any {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (w *storyWorkflows) Send(context.Context, string, string, any) error { return nil }
+
+func (w *storyWorkflows) Await(context.Context, string, time.Duration, any) error { return nil }
+
+func (w *storyWorkflows) Cancel(context.Context, string) (bool, error) { return false, nil }
+
+// take returns the inputs of the started runs of workflow not yet taken.
+func (w *storyWorkflows) take(workflow string) []any {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	var out []any
-	rest := p.events[:0]
-	for _, e := range p.events {
-		if e.subject == subject {
-			out = append(out, e.data)
+	rest := w.pending[:0]
+	for _, p := range w.pending {
+		if p.workflow == workflow {
+			out = append(out, p.input)
 			continue
 		}
-		rest = append(rest, e)
+		rest = append(rest, p)
 	}
-	p.events = rest
+	w.pending = rest
 	return out
 }
 
@@ -122,7 +139,7 @@ func storyFan(t *testing.T, name, lang, tz string) string {
 	id := seedUser(t, name, name+"@test.com", "ext-"+name)
 	_, err := testDB.Pool.Exec(ctx, `UPDATE users SET preferred_language = $2, time_zone = $3 WHERE id = $1`, id, lang, tz)
 	require.NoError(t, err)
-	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB).Create(ctx, &entity.PushSubscription{
+	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB, testOutbox).Create(ctx, &entity.PushSubscription{
 		UserID: id, Endpoint: "https://push.example/" + name, P256dh: "p256dh", Auth: "auth",
 	}))
 	return id
@@ -139,7 +156,7 @@ func storyFanWithoutBrowser(t *testing.T, name, lang, tz string) string {
 
 func storyJourney(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 	t.Helper()
-	require.NoError(t, rdb.NewTicketJourneyRepository(testDB).Upsert(context.Background(),
+	require.NoError(t, rdb.NewTicketJourneyRepository(testDB, testOutbox).Upsert(context.Background(),
 		&entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
 }
 
@@ -166,7 +183,7 @@ func storyNoonZone() string {
 }
 
 type storyDeps struct {
-	pub      *storyPublisher
+	wf       *storyWorkflows
 	push     *storyPush
 	notifs   *rdb.NotificationRepository
 	deliver  usecase.NotificationUseCase
@@ -179,34 +196,34 @@ func newStoryDeps(t *testing.T) *storyDeps {
 	logger, err := logging.New()
 	require.NoError(t, err)
 	d := &storyDeps{
-		pub:    &storyPublisher{},
+		wf:     &storyWorkflows{},
 		push:   &storyPush{},
-		notifs: rdb.NewNotificationRepository(testDB),
+		notifs: rdb.NewNotificationRepository(testDB, testOutbox),
 		logger: logger,
 	}
-	pushSubs := rdb.NewPushSubscriptionRepository(testDB)
-	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
+	pushSubs := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
 	d.reminder = usecase.NewTicketSaleReminderDeliveryUseCase(
-		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger)
+		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, storyMetrics{}, logger)
 	return d
 }
 
-// deliverRequested hands every captured NOTIFICATION.requested to the
-// delivery use case, as the deliver-notification consumer does.
+// deliverRequested runs every started deliver-notification workflow, as the
+// workflow worker does.
 func (d *storyDeps) deliverRequested(t *testing.T) {
 	t.Helper()
-	for _, data := range d.pub.take(entity.SubjectNotificationRequested) {
-		req := data.(entity.NotificationRequestedData)
+	for _, input := range d.wf.take(usecase.WorkflowDeliverNotification) {
+		req := input.(usecase.DeliverRequest)
 		_, err := d.deliver.Deliver(context.Background(), req.UserID, req.Type, req.Payload)
 		require.NoError(t, err)
 	}
 }
 
-// deliverReminders hands every captured SALES_PHASE.reminder_due to
-// DeliverReminder, as the ticket sale reminder consumer does.
+// deliverReminders hands every started deliver-reminder workflow to
+// DeliverReminder, as the workflow does.
 func (d *storyDeps) deliverReminders(t *testing.T) {
 	t.Helper()
-	for _, data := range d.pub.take(entity.SubjectTicketSaleReminderDue) {
+	for _, data := range d.wf.take(usecase.WorkflowDeliverReminder) {
 		require.NoError(t, d.reminder.DeliverReminder(context.Background(), data.(entity.TicketSaleReminderDueData)))
 	}
 }
@@ -245,7 +262,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 
 	artistID := seedArtist(t, "tuki.", "11112222-3333-4444-5555-666677778899")
 	venueID := seedVenue(t, "story-venue")
-	require.NoError(t, rdb.NewArtistRepository(testDB).CreateOfficialSite(ctx,
+	require.NoError(t, rdb.NewArtistRepository(testDB, testOutbox).CreateOfficialSite(ctx,
 		&entity.OfficialSite{ID: entity.NewID(), ArtistID: artistID, URL: "https://tuki-official.net/"}))
 
 	// 星降る晩餐会 is tracked; the other tour is followed but tracked by nobody.
@@ -271,20 +288,31 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 		SaleEndTime:   time.Date(2026, 10, 20, 23, 59, 0, 0, jst),
 	}}}
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
-		rdb.NewConcertRepository(testDB), rdb.NewArtistRepository(testDB), rdb.NewTicketSaleRepository(testDB),
-		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
-		searcher, d.pub, nil, d.logger)
+		rdb.NewConcertRepository(testDB, testOutbox), rdb.NewArtistRepository(testDB, testOutbox), rdb.NewTicketSaleRepository(testDB, testOutbox),
+		rdb.NewTicketSaleSearchRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		searcher, nil, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
-		rdb.NewUserRepository(testDB), rdb.NewTicketJourneyRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, d.logger)
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewTicketJourneyRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, d.logger)
 
+	mark := outboxMark(t)
 	n, err := discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	// Only the tracked tour is searched.
 	assert.Equal(t, [][]string{{banquet}}, searcher.searched)
 
-	for _, data := range d.pub.take(entity.SubjectTicketSaleDiscovered) {
-		require.NoError(t, announce.AnnounceDiscoveredSale(ctx, data.(entity.TicketSaleDiscoveredData)))
+	// TicketSale.UpsertDiscovered announced the created sale; its receiver
+	// runs on that announcement.
+	discovered := announcedSince(t, mark, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
+		func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == banquet })
+	require.Len(t, discovered, 1)
+	for _, sale := range discovered {
+		require.NoError(t, announce.AnnounceDiscoveredSale(ctx, entity.TicketSaleDiscoveredData{
+			TicketSaleID:  sale.GetId().GetValue(),
+			SeriesID:      sale.GetSeriesId().GetValue(),
+			Method:        int16(sale.GetMethod()),
+			SaleStartTime: sale.GetSaleStartTime().AsTime(),
+		}))
 	}
 	d.deliverRequested(t)
 
@@ -312,10 +340,12 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	// so the series is searched): it is not announced again.
 	_, err = testDB.Pool.Exec(ctx, `DELETE FROM ticket_sale_searches`)
 	require.NoError(t, err)
+	again := outboxMark(t)
 	n, err = discover.DiscoverForArtist(ctx, &entity.Artist{ID: artistID, Name: "tuki."})
 	require.NoError(t, err)
 	assert.Zero(t, n)
-	assert.Empty(t, d.pub.take(entity.SubjectTicketSaleDiscovered))
+	assert.Empty(t, announcedSince(t, again, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
+		func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == banquet }))
 	assert.Len(t, d.push.to(tracking), 1, "no second push about the same sale")
 }
 
@@ -333,7 +363,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	cleanDatabase(t)
 	ctx := context.Background()
 	d := newStoryDeps(t)
-	sales := rdb.NewTicketSaleRepository(testDB)
+	sales := rdb.NewTicketSaleRepository(testDB, testOutbox)
 
 	artistID := seedArtist(t, "story-artist", "11112222-3333-4444-5555-666677778800")
 	venueID := seedVenue(t, "story-venue")
@@ -368,8 +398,8 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	require.NoError(t, err)
 
 	scan := usecase.NewTicketSaleReminderUseCase(
-		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
-		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
+		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)
@@ -399,7 +429,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 
 	// The next scan sends nothing again, including to the fan without a
 	// browser who registers one later.
-	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB).Create(ctx, &entity.PushSubscription{
+	require.NoError(t, rdb.NewPushSubscriptionRepository(testDB, testOutbox).Create(ctx, &entity.PushSubscription{
 		UserID: noBrowser, Endpoint: "https://push.example/nobrowser", P256dh: "p256dh", Auth: "auth",
 	}))
 	requested, err = scan.ScanDueReminders(ctx)
@@ -450,8 +480,8 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, now.Add(-10*time.Minute), now.AddDate(0, 0, 5), cancelled))
 
 	scan := usecase.NewTicketSaleReminderUseCase(
-		rdb.NewTicketSaleRepository(testDB), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB),
-		rdb.NewUserRepository(testDB), rdb.NewSeriesRepository(testDB), d.pub, 7*24*time.Hour, d.logger)
+		rdb.NewTicketSaleRepository(testDB, testOutbox), rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, 7*24*time.Hour, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)

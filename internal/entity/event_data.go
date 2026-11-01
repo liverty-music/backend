@@ -10,7 +10,6 @@ import "time"
 // lowercase catalogue event name (see specification/docs/analytics/
 // event-catalog.md) at the Handle method that subscribes to it.
 const (
-	SubjectConcertDiscovered        = "CONCERT.discovered"
 	SubjectConcertCreated           = "CONCERT.created"
 	SubjectArtistCreated            = "ARTIST.created"
 	SubjectArtistFollowed           = "ARTIST.followed"
@@ -18,87 +17,53 @@ const (
 	SubjectUserCreated              = "USER.created"
 	SubjectNotificationSubscribed   = "NOTIFICATION.subscribed"
 	SubjectNotificationUnsubscribed = "NOTIFICATION.unsubscribed"
-	// SubjectNotificationDelivered is published by NotificationUseCase once per
-	// notification whose channel send reached the delivered state. It drives the
+	// SubjectNotificationDelivered is announced by Notification.UpdateDelivery
+	// once per notification whose channel send reached the delivered state. It drives the
 	// notification.delivered analytics event so push-delivery reach can be
 	// tracked in PostHog, keyed by notification_id. Matches the existing
 	// NOTIFICATION.* JetStream stream — no new stream required.
 	SubjectNotificationDelivered = "NOTIFICATION.delivered"
-	// SubjectTicketSaleDiscovered is published when a new discovered
-	// TicketSale is created. Re-discovery of a known one
-	// (UpsertOutcomeUpdated) must NOT publish this event. The subject keeps
+	// SubjectTicketSaleDiscovered is announced by TicketSale.UpsertDiscovered
+	// when a new discovered TicketSale is created. Re-discovery of a known one
+	// (UpsertOutcomeUpdated) announces nothing. The subject keeps
 	// the stream's former name (design "Non-Goals").
 	SubjectTicketSaleDiscovered = "SALES_PHASE.discovered"
-	// SubjectTicketSaleReminderDue is published by the reminder scan for each
-	// (user, ticket sale, stage) that became due and has not yet been sent.
-	// Two tokens (reminder_due, not reminder.due) so the SALES_PHASE stream
-	// filter can be a plain `SALES_PHASE.*`.
-	SubjectTicketSaleReminderDue = "SALES_PHASE.reminder_due"
-	// SubjectTicketJourneyStatusChanged is published by SetStatus after a
-	// successful upsert when the new status differs from the prior one (or
-	// when no prior journey existed). It drives the
+	// SubjectTicketJourneyStatusChanged is announced by TicketJourney.Upsert
+	// when the stored status changes (or no journey existed). It drives the
 	// ticket.journey.status.changed analytics event.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
-	// SubjectUserLoggedIn is published by the login-event webhook handler once
-	// per user-initiated login, bound to the Zitadel session.user.checked
-	// event. It drives the account.signin analytics event (returning /
-	// active-user retention cohorts). The OIDC refresh_token grant touches only
+	// SubjectUserLoggedIn is announced by User.RecordLogin for each
+	// user-initiated login the login-event webhook records, bound to the
+	// Zitadel session.user.checked event. It drives the account.signin
+	// analytics event (returning / active-user retention cohorts). The OIDC refresh_token grant touches only
 	// the oidc_session aggregate and never emits session.user.checked, so this
 	// subject is never published on a silent token refresh — login-specific by
 	// construction. Modelled as a USER-domain event (USER.* stream), not a
 	// separate ACCOUNT stream.
 	SubjectUserLoggedIn = "USER.logged_in"
-	// SubjectUserEmailVerificationResendRequested is published by
-	// UserUseCase.ResendEmailVerification for each resend a fan asks for
-	// within the rate limit. The reissue-email-verification consumer runs
-	// UserUseCase.ReissueEmailVerification from it and sends the fresh code,
-	// so the internet-facing fan API holds no identity-provider credential.
-	// Two tokens so the plain USER.* stream filter captures it.
-	SubjectUserEmailVerificationResendRequested = "USER.email_verification_resend_requested"
-	// SubjectOrganizerCreated is published by OrganizerUseCase.Create after the
-	// Organizer's Organization is provisioned and the organizer row is flipped to active.
+	// SubjectOrganizerCreated is announced by Organizer.CompareAndSetStatus when
+	// the organizer row is flipped from provisioning to active.
 	// It drives the organizer.created analytics event (admin-actor / group event
 	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
 	// org.created) so the ORGANIZER.* stream filter matches with a plain
-	// single-token wildcard — same rationale as SubjectTicketSaleReminderDue.
+	// single-token wildcard — same rationale as SubjectTicketSaleDiscovered.
 	SubjectOrganizerCreated = "ORGANIZER.created"
-	// SubjectOrganizerArtistAssociated is published by OrganizerUseCase.AssociateArtist
-	// after the repository persists the artist link. It drives the
+	// SubjectOrganizerArtistAssociated is announced by Organizer.AssociateArtist
+	// when it stores a new artist link. It drives the
 	// organizer.artist.associated analytics event (admin-actor / group event
 	// keyed on organizer_id; no fan distinct_id). The event token uses an
 	// underscore (artist_associated, not artist.associated) so the subject stays
 	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
 	// captures it without a deeper wildcard.
 	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
-	// SubjectConcertCancelled is published by SeriesUseCase.Cancel after
-	// a PUBLISHED first-party series is transitioned to CANCELLED. It drives the
-	// concert.cancelled analytics event and the downstream consumer that notifies
-	// affected fans. Two tokens so the CONCERT.* stream filter captures it without
-	// a deeper wildcard — consistent with SubjectConcertCreated.
-	SubjectConcertCancelled = "CONCERT.cancelled"
-	// SubjectOrganizerConcertPublished is published by SeriesUseCase.Publish
-	// after a first-party series is successfully published. It drives the
-	// organizer.concert.published analytics event (admin-actor / group event keyed
-	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
-	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
-	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectSeriesImageUploaded is published by the SetCoverImage handler once the series image
-	// row is persisted. The series-image-consumer subscribes to this subject to
+	// SubjectSeriesImageUploaded is the processing request SeriesImage.Create
+	// records with the series image row: the SeriesImage in the payload and the
+	// Series in ce_subject. The series-image-consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
 	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain
-	// single-token wildcard — same convention as SubjectTicketSaleReminderDue.
+	// single-token wildcard — same convention as SubjectTicketSaleDiscovered.
 	SubjectSeriesImageUploaded = "SERIES_IMAGE.uploaded"
-	// SubjectNotificationRequested is published once per eligible recipient by
-	// every producer of a user-facing notification (PushSubscriptionUseCase.
-	// NotifyNewConcerts, TicketSaleAnnouncementUseCase.AnnounceDiscoveredSale).
-	// The deliver-notification consumer subscribes to this subject and calls
-	// NotificationUseCase.Deliver, which records the durable Notification and
-	// dispatches the push. A request rebuilt when its trigger is redelivered
-	// is a new event and can push a second time (accepted for now; the
-	// browser shows one notification per Tag). Already covered by the
-	// existing NOTIFICATION.* stream — see streams.go.
-	SubjectNotificationRequested = "NOTIFICATION.requested"
 	// SubjectOrderPaid announces that an Order is paid, for a won lottery
 	// entry or a completed checkout. OrderUseCase.FulfillPayment
 	// publishes it on the payment provider's completed-charge webhook; a
@@ -109,22 +74,16 @@ const (
 	SubjectOrderPaid = "ORDER.paid"
 	// SubjectResaleListingRefunded announces that the user of a resold
 	// ResaleListing was refunded from the listing's Order's charge.
-	// ResaleListingUseCase.RefundSold publishes it, and again on later runs
-	// while the sold email is unsent; the consumer is idempotent by the
-	// listing id. The
-	// sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
+	// ResaleListing.RecordRefund announces it once, with the refund; the
+	// consumer is idempotent by the listing id and waits out an unavailable
+	// mail service. The sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
 	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
-	// SubjectUserPasskeyRecoveryRequested announces that someone asked for a
-	// passkey registration link for a User by typing its email
-	// (UserUseCase.RequestPasskeyRecovery). It carries the user id only, so
-	// the address never lands in the stream. The recovery link consumer
-	// (UserUseCase.SendPasskeyRecoveryLink) runs from it.
-	SubjectUserPasskeyRecoveryRequested = "USER.passkey_recovery_requested"
-	// SubjectUserPasskeyChanged announces that a passkey was added to or
-	// removed from an identity of the product organization, as noticed by the
-	// passkey-events webhook. The passkey change email consumer
-	// (UserUseCase.NotifyPasskeyChange) runs from it.
-	SubjectUserPasskeyChanged = "USER.passkey_changed"
+	// SubjectUserPasskeyAdded announces a Passkey that Passkey.Create stored.
+	// UserUseCase.NotifyPasskeyChange runs from it.
+	SubjectUserPasskeyAdded = "USER.passkey_added"
+	// SubjectUserPasskeyRemoved announces a Passkey that Passkey.Delete
+	// removed, as it was. UserUseCase.NotifyPasskeyChange runs from it.
+	SubjectUserPasskeyRemoved = "USER.passkey_removed"
 	// SubjectArtistHypeChanged announces that a fan set the hype level of a
 	// followed artist. FollowUseCase.SetHype publishes it on every successful
 	// set; the analytics consumer forwards it as artist.hype.changed. The name
@@ -152,9 +111,7 @@ const (
 // recurring "added a publisher/subscription without its paired stream" gap
 // that fails a consumer at startup with "no stream matches subject".
 var AllSubjects = []string{
-	SubjectConcertDiscovered,
 	SubjectConcertCreated,
-	SubjectConcertCancelled,
 	SubjectArtistCreated,
 	SubjectArtistFollowed,
 	SubjectArtistUnfollowed,
@@ -163,19 +120,15 @@ var AllSubjects = []string{
 	SubjectNotificationUnsubscribed,
 	SubjectNotificationDelivered,
 	SubjectTicketSaleDiscovered,
-	SubjectTicketSaleReminderDue,
 	SubjectTicketJourneyStatusChanged,
 	SubjectUserLoggedIn,
-	SubjectUserEmailVerificationResendRequested,
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
-	SubjectOrganizerConcertPublished,
 	SubjectSeriesImageUploaded,
-	SubjectNotificationRequested,
 	SubjectOrderPaid,
 	SubjectResaleListingRefunded,
-	SubjectUserPasskeyRecoveryRequested,
-	SubjectUserPasskeyChanged,
+	SubjectUserPasskeyAdded,
+	SubjectUserPasskeyRemoved,
 	SubjectArtistHypeChanged,
 	SubjectLotteryEntryDrawn,
 	SubjectCheckoutExpired,
@@ -233,53 +186,6 @@ type ConcertCreatedData struct {
 	ConcertIDs []string `json:"concert_ids"`
 }
 
-// ConcertCancelledData is the payload for CONCERT.cancelled events.
-// Published by SeriesUseCase.Cancel when a PUBLISHED first-party
-// series is transitioned to CANCELLED. The consumer uses the SeriesID to
-// notify affected fans.
-type ConcertCancelledData struct {
-	// SeriesID is the internal UUID of the cancelled series.
-	SeriesID string `json:"series_id"`
-	// ConcertIDs are the event IDs that belong to the cancelled series. These
-	// were previously published events; their rows remain in the events table
-	// (to keep natural-key slots claimed) but they are excluded from all
-	// fan-facing surfaces by the shared visibility guard.
-	ConcertIDs []string `json:"concert_ids"`
-}
-
-// OrganizerConcertPublishedData is the payload for ORGANIZER.concert_published events.
-// Published by SeriesUseCase.Publish after a first-party series is
-// successfully published. Drives the organizer.concert.published analytics event.
-type OrganizerConcertPublishedData struct {
-	// OrganizerID is the platform-internal UUID of the organizer.
-	OrganizerID string `json:"organizer_id"`
-	// SeriesID is the internal UUID of the published series.
-	SeriesID string `json:"series_id"`
-	// NewEventCount is the number of events materialized on this publish.
-	NewEventCount int `json:"new_event_count"`
-}
-
-// ConcertDiscoveredData is the payload for concert.discovered.v1 events.
-// It carries the newly discovered concerts for one artist (post-deduplication),
-// grouped by series so a tour's dates persist under one series by construction.
-// Published by SearchNewConcerts after the external API call and dedup.
-type ConcertDiscoveredData struct {
-	// ArtistID is the internal UUID of the artist.
-	ArtistID string `json:"artist_id"`
-	// ArtistName is the display name of the artist (for notification context).
-	ArtistName string `json:"artist_name"`
-	// Series is the list of newly discovered, deduplicated series, each carrying
-	// its member events. A <tour> block is one TOUR series with many events; a
-	// standalone show is one SINGLE series with a single event.
-	Series []*DiscoveredSeries `json:"series"`
-}
-
-// EventCount returns the total number of member events across all series in the
-// payload. Used for logging/metrics where the flat event count is meaningful.
-func (d ConcertDiscoveredData) EventCount() int {
-	return SumSeriesEvents(d.Series)
-}
-
 // SumSeriesEvents returns the total number of member events across the given
 // discovered series, skipping nil entries. It is the single fold used wherever a
 // flat event count over a []*DiscoveredSeries is needed (payload EventCount and
@@ -324,43 +230,6 @@ type UserLoggedInData struct {
 	// LoginTime is the created_at of the Zitadel session.user.checked event,
 	// the time the fact happened.
 	LoginTime time.Time `json:"login_time"`
-}
-
-// UserPasskeyRecoveryRequestedData is the payload for
-// USER.passkey_recovery_requested events. It carries the user id only, never
-// the email address that was typed.
-type UserPasskeyRecoveryRequestedData struct {
-	// UserID is the platform-internal id of the User whose email was typed.
-	UserID string `json:"user_id"`
-}
-
-// UserPasskeyChangedData is the payload for USER.passkey_changed events.
-type UserPasskeyChangedData struct {
-	// ProviderUserID is the identity provider's id of the identity whose
-	// passkey changed (Zitadel sub claim).
-	ProviderUserID string `json:"provider_user_id"`
-	// ProviderPasskeyID is the identity provider's id of the passkey that
-	// changed (Zitadel webAuthNTokenId).
-	ProviderPasskeyID string `json:"provider_passkey_id"`
-	// Kind is "added" or "removed" ([PasskeyChangeKind]).
-	Kind string `json:"kind"`
-	// Name is the passkey's name; empty for a removal.
-	Name string `json:"name,omitempty"`
-	// AAGUID is the authenticator model of an added passkey in canonical
-	// lower-case UUID form; empty for a removal or when not reported.
-	AAGUID string `json:"aaguid,omitempty"`
-	// ChangeTime is when the identity provider recorded the change.
-	ChangeTime time.Time `json:"change_time"`
-}
-
-// UserEmailVerificationResendRequestedData is the payload for
-// USER.email_verification_resend_requested events. Published by
-// UserUseCase.ResendEmailVerification after the caller passed the resend
-// rate limit.
-type UserEmailVerificationResendRequestedData struct {
-	// UserID is the platform-internal identifier of the User whose
-	// verification email is resent.
-	UserID string `json:"user_id"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.
@@ -428,8 +297,9 @@ type NotificationSubscribedData struct {
 
 // NotificationUnsubscribedData is the payload for NOTIFICATION.unsubscribed.
 // Mapped to the catalogue event notification.unsubscribed by the
-// analytics-consumer. Published by PushSubscriptionUseCase.Delete after the
-// repository removes a user-initiated Web Push subscription record. The
+// analytics-consumer. Announced by PushSubscription.Delete, the fan's own
+// removal of a Web Push subscription; a browser the push service reports gone
+// is removed by DeleteGone, which announces nothing. The
 // endpoint URL itself is sensitive and is NOT included; only the classifier
 // output is forwarded to PostHog.
 type NotificationUnsubscribedData struct {
@@ -467,21 +337,6 @@ type NotificationDeliveredData struct {
 	DeliverTime time.Time `json:"deliver_time"`
 }
 
-// NotificationRequestedData is the payload for NOTIFICATION.requested.
-// Published once per eligible recipient by every notification producer
-// (PushSubscriptionUseCase.NotifyNewConcerts, TicketSaleAnnouncementUseCase.
-// AnnounceDiscoveredSale); the deliver-notification consumer decodes it and
-// calls NotificationUseCase.Deliver(UserID, Type, Payload) — the producer
-// never depends on NotificationUseCase directly.
-type NotificationRequestedData struct {
-	// UserID is the recipient's platform-internal user identifier.
-	UserID string `json:"user_id"`
-	// Type is the notification kind to record and dispatch.
-	Type NotificationType `json:"type"`
-	// Payload is the rendered notification content for the push channel.
-	Payload *NotificationPayload `json:"payload"`
-}
-
 // TicketSaleDiscoveredData is the payload for SALES_PHASE.discovered events.
 // Published by the discovery use case only when a new discovered TicketSale is
 // created (UpsertOutcomeInserted); an update of a known one must NOT publish
@@ -505,10 +360,10 @@ type TicketSaleDiscoveredData struct {
 	SaleStartTime time.Time `json:"apply_start_time"`
 }
 
-// TicketSaleReminderDueData is the payload for SALES_PHASE.reminder_due
-// events. Published by the reminder scan for each (user, ticket sale, stage)
-// that became due in this scan window. The JSON names are kept with the
-// subject names (see [TicketSaleDiscoveredData]).
+// TicketSaleReminderDueData is the input of the deliver-reminder workflow,
+// started by the reminder scan for each (user, ticket sale, stage) that became
+// due in this scan window. The JSON names are kept with the subject names
+// (see [TicketSaleDiscoveredData]).
 type TicketSaleReminderDueData struct {
 	// UserID is the recipient.
 	UserID string `json:"user_id"`

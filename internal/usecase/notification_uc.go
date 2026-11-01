@@ -16,12 +16,12 @@ import (
 // so that "did this notification reach the user?" is answerable from stored state
 // and the in-app inbox has durable, per-user read/dismiss state to build on.
 //
-// Producers never call Deliver directly: they publish NOTIFICATION.requested
-// (via EventPublisher.PublishEvent) and the deliver-notification event
-// consumer calls Deliver, so no usecase depends on NotificationUseCase's
-// interface. TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception —
-// it stays synchronous and composes the same delivery ports directly (see
-// notification_delivery.go) rather than going through NotificationUseCase.
+// Producers never call Deliver directly: they start the deliver-notification
+// workflow, which the workflow worker runs through RunDeliver, so no usecase
+// depends on NotificationUseCase's interface.
+// TicketSaleReminderDeliveryUseCase.DeliverReminder is the one exception — it
+// composes the same delivery ports directly (see notification_delivery.go)
+// rather than going through NotificationUseCase.
 type NotificationUseCase interface {
 	// Deliver records a notification for userID and dispatches it to the user's
 	// web-push subscriptions.
@@ -42,6 +42,11 @@ type NotificationUseCase interface {
 	//   - InvalidArgument: payload is nil.
 	//   - Internal: notification record creation failed (no send was attempted).
 	Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)
+
+	// RunDeliver is the deliver-notification workflow: it runs Deliver for the
+	// request and returns the Notification's id. Producers start it by name
+	// ([WorkflowDeliverNotification]) instead of calling Deliver.
+	RunDeliver(ctx context.Context, f Flow, in DeliverRequest) (string, error)
 
 	// MarkRead marks the (userID, notificationID) notification as read. It is
 	// idempotent and user-scoped: marking another user's notification is rejected.
@@ -87,14 +92,14 @@ type NotificationUseCase interface {
 	// hydrates the artist and concert entities internally, applies hype-level
 	// filtering, and requests a push notification for all eligible followers.
 	//
-	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
-	// so the deliver-notification consumer records the durable Notification and
-	// dispatches the push; an at-least-once retry of the same CONCERT.created
-	// delivery requests delivery again (the per-artist Tag keeps one
-	// notification on the device). Only a publish failure surfaces as an error, so the consumer's
-	// at-least-once retry re-drives the batch; per-channel delivery errors
-	// (including 410 Gone responses) happen later, inside the deliver-notification
-	// consumer, and never reach this method.
+	// For each eligible recipient, NotifyNewConcerts starts the
+	// deliver-notification workflow, which records the durable Notification and
+	// dispatches the push; it is named after the recipient and the
+	// announcement, so a redelivered CONCERT.created starts nothing new. Only a
+	// failure to start surfaces as an error, so the consumer's at-least-once
+	// retry re-drives the batch; per-channel delivery errors (including 410
+	// Gone responses) happen later, inside the workflow, and never reach this
+	// method.
 	//
 	// # Possible errors
 	//
@@ -108,7 +113,7 @@ type notificationUseCase struct {
 	notificationRepo  entity.NotificationRepository
 	pushSubRepo       entity.PushSubscriptionRepository
 	sender            entity.PushNotificationSender
-	publisher         EventPublisher
+	workflows         Workflows
 	metrics           PushMetrics
 	logger            *logging.Logger
 	orderConfirmation OrderConfirmationDeps
@@ -120,15 +125,14 @@ type notificationUseCase struct {
 // Compile-time interface compliance check.
 var _ NotificationUseCase = (*notificationUseCase)(nil)
 
-// NewNotificationUseCase wires the notification use case. publisher is used to
-// emit the non-fatal NOTIFICATION.delivered analytics event at the delivered
-// transition; analytics must never affect delivery, so publish failures are
-// logged and swallowed.
+// NewNotificationUseCase wires the notification use case. workflows starts the
+// deliver-notification workflow for each notification a producer requests; a
+// process that only runs Deliver may pass nil.
 func NewNotificationUseCase(
 	notificationRepo entity.NotificationRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
-	publisher EventPublisher,
+	workflows Workflows,
 	metrics PushMetrics,
 	logger *logging.Logger,
 	orderConfirmation OrderConfirmationDeps,
@@ -138,7 +142,7 @@ func NewNotificationUseCase(
 		notificationRepo:  notificationRepo,
 		pushSubRepo:       pushSubRepo,
 		sender:            sender,
-		publisher:         publisher,
+		workflows:         workflows,
 		metrics:           metrics,
 		logger:            logger,
 		orderConfirmation: orderConfirmation,
@@ -162,7 +166,6 @@ func (uc *notificationUseCase) deps() notificationDeliveryDeps {
 		notificationRepo: uc.notificationRepo,
 		pushSubRepo:      uc.pushSubRepo,
 		sender:           uc.sender,
-		publisher:        uc.publisher,
 		metrics:          uc.metrics,
 		logger:           uc.logger,
 	}

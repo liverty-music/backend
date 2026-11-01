@@ -33,6 +33,9 @@ type Artist struct {
 	// checked in MusicBrainz, whatever the check found.
 	// nil when the official site has never been checked.
 	OfficialSiteCheckTime *time.Time
+	// OrganizerID is the Organizer that represents the artist; nil when no
+	// Organizer does. An artist has at most one.
+	OrganizerID *string
 }
 
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
@@ -120,6 +123,11 @@ type ArtistRepository interface {
 	// # Possible errors:
 	//
 	//   - Internal: database connection or execution failure.
+	//
+	// # Announces
+	//
+	// ARTIST.created with each Artist this call inserted, together with the
+	// insert. Nothing for an MBID already registered, also by a concurrent call.
 	Create(ctx context.Context, artists ...*Artist) ([]*Artist, error)
 
 	// List retrieves all registered artists. The order is unspecified.

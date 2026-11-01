@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -27,7 +26,6 @@ type discoveryMocks struct {
 	searchRepo  *entitymocks.MockTicketSaleSearchRepository
 	journeyRepo *entitymocks.MockTicketJourneyRepository
 	searcher    *entitymocks.MockTicketSaleSearcher
-	pub         *ucmocks.MockEventPublisher
 }
 
 func newDiscoveryMocks(t *testing.T) *discoveryMocks {
@@ -39,7 +37,6 @@ func newDiscoveryMocks(t *testing.T) *discoveryMocks {
 		searchRepo:  entitymocks.NewMockTicketSaleSearchRepository(t),
 		journeyRepo: entitymocks.NewMockTicketJourneyRepository(t),
 		searcher:    entitymocks.NewMockTicketSaleSearcher(t),
-		pub:         ucmocks.NewMockEventPublisher(t),
 	}
 }
 
@@ -124,11 +121,6 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 		Method:        entity.TicketSaleMethodFirstCome,
 		SaleStartTime: now.AddDate(0, 0, 25),
 	}
-	discovered := func(saleID string, c *entity.DiscoveredTicketSale) entity.TicketSaleDiscoveredData {
-		return entity.TicketSaleDiscoveredData{
-			TicketSaleID: saleID, SeriesID: c.SeriesID, Method: int16(c.Method), SaleStartTime: c.SaleStartTime,
-		}
-	}
 	// stored returns a discovered sale of series-a found a month ago.
 	stored := func(method entity.TicketSaleMethod, start, end time.Time) *entity.TicketSale {
 		return (&entity.DiscoveredTicketSale{SeriesID: "series-a", Method: method, SaleStartTime: start, SaleEndTime: end}).
@@ -161,7 +153,6 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.DiscoveredTicketSale{candidate}, nil)
 				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate).Return(entity.TicketSaleID("sale-1"), entity.UpsertOutcomeInserted, nil).Once()
-				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, discovered("sale-1", candidate)).Return(nil).Once()
 				m.record([]string{"series-a"}, nil)
 			},
 			wantCount: 1,
@@ -316,7 +307,6 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.DiscoveredTicketSale{candidate}, nil)
 				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate).Return(entity.TicketSaleID("sale-1"), entity.UpsertOutcomeInserted, nil).Once()
-				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, discovered("sale-1", candidate)).Return(nil).Once()
 				m.record([]string{"series-a"}, errors.New("db down"))
 			},
 			wantCount:  1,
@@ -346,6 +336,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/ticket-sale/discover-for-artist "One sale cannot be stored"
+			// @spec components/usecase/ticket-sale/discover-for-artist "Sale cannot be stored with its announcement"
 			name: "One sale cannot be stored",
 			setup: func(m *discoveryMocks) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
@@ -355,17 +346,15 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.DiscoveredTicketSale{candidate, candidate2, candidate3}, nil)
 				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate).Return(entity.TicketSaleID("sale-1"), entity.UpsertOutcomeInserted, nil).Once()
-				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate2).Return("", entity.UpsertOutcomeSkipped, errors.New("db down")).Once()
+				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate2).Return("", entity.UpsertOutcomeSkipped, apperr.New(codes.Unavailable, "failed to record the announcement")).Once()
 				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate3).Return(entity.TicketSaleID("sale-3"), entity.UpsertOutcomeInserted, nil).Once()
-				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, discovered("sale-1", candidate)).Return(nil).Once()
-				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, discovered("sale-3", candidate3)).Return(nil).Once()
 				m.record([]string{"series-a"}, nil)
 			},
 			wantCount: 2,
 		},
 		{
-			// @spec components/usecase/ticket-sale/discover-for-artist "Announcement request fails"
-			name: "Announcement request fails",
+			// @spec components/usecase/ticket-sale/discover-for-artist "New sale"
+			name: "New sale",
 			setup: func(m *discoveryMocks) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
@@ -374,8 +363,6 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.DiscoveredTicketSale{candidate}, nil)
 				m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, candidate).Return(entity.TicketSaleID("sale-1"), entity.UpsertOutcomeInserted, nil).Once()
-				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, discovered("sale-1", candidate)).
-					Return(errors.New("nats down")).Once()
 				m.record([]string{"series-a"}, nil)
 			},
 			wantCount: 1,
@@ -393,7 +380,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 
 			uc := usecase.NewTicketSaleDiscoveryUseCase(
 				m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-				m.searcher, m.pub, nil, logger,
+				m.searcher, nil, logger,
 			)
 			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 
@@ -487,11 +474,10 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.search(series, found, nil)
 		m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, found[0]).Return(entity.TicketSaleID("sale-new"), entity.UpsertOutcomeInserted, nil).Once()
 		m.salesRepo.EXPECT().UpsertDiscovered(mock.Anything, found[1]).Return(entity.TicketSaleID("sale-old"), entity.UpsertOutcomeUpdated, nil).Once()
-		m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleDiscovered, mock.Anything).Return(nil).Once()
 		m.record(series, nil)
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)
@@ -514,7 +500,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.search(series, nil, apperr.New(codes.PermissionDenied, "Spend cap breached for project"))
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -535,7 +521,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.record(series, nil)
 		analytics := &recordingAnalytics{err: errors.New("queue full")}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, m.pub, analytics, newTestLogger(t))
+			m.searcher, analytics, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)

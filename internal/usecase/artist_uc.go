@@ -105,7 +105,6 @@ type artistUseCase struct {
 	organizerRepo  entity.OrganizerRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
-	publisher      EventPublisher
 	cache          entity.Cache
 	logger         *logging.Logger
 }
@@ -119,7 +118,6 @@ func NewArtistUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
-	publisher EventPublisher,
 	cache entity.Cache,
 	logger *logging.Logger,
 ) ArtistUseCase {
@@ -128,7 +126,6 @@ func NewArtistUseCase(
 		organizerRepo:  organizerRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
-		publisher:      publisher,
 		cache:          cache,
 		logger:         logger,
 	}
@@ -347,17 +344,9 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 		if err != nil {
 			return nil, err
 		}
+		// Artist.Create announces each artist it registered (ARTIST.created).
 		for _, a := range created {
 			existingSet[a.MBID] = a
-
-			if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistCreated, entity.ArtistCreatedData{
-				ArtistID:   a.ID,
-				ArtistName: a.Name,
-				MBID:       a.MBID,
-			}); err != nil {
-				uc.logger.Warn(ctx, "failed to publish artist.created event",
-					slog.String("artist_id", a.ID), slog.Any("error", err))
-			}
 		}
 	}
 

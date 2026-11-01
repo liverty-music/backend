@@ -1,6 +1,9 @@
 package messaging_test
 
 import (
+	"bufio"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -56,8 +59,8 @@ func TestStreamForSubject(t *testing.T) {
 			wantOK:     true,
 		},
 		{
-			name:       "SALES_PHASE.reminder_due resolves to SALES_PHASE stream",
-			subject:    "SALES_PHASE.reminder_due",
+			name:       "SALES_PHASE.discovered resolves to SALES_PHASE stream",
+			subject:    "SALES_PHASE.discovered",
 			wantStream: "SALES_PHASE",
 			wantOK:     true,
 		},
@@ -115,8 +118,8 @@ func TestStreamForSubject_AllSubjects(t *testing.T) {
 
 // TestSubjectCoveredByStream exercises the NATS token-matching semantics
 // directly, including the '*' (single token) vs '>' (trailing tokens) nuance.
-// Both SALES_PHASE subjects are now two-token (reminder_due, not
-// reminder.due), so the stream filter is a plain SALES_PHASE.*.
+// The SALES_PHASE subject is two-token (discovered), so the stream filter is
+// a plain SALES_PHASE.*.
 func TestSubjectCoveredByStream(t *testing.T) {
 	t.Parallel()
 
@@ -128,11 +131,6 @@ func TestSubjectCoveredByStream(t *testing.T) {
 		{
 			name:    "single-token subject matched by <domain>.* stream",
 			subject: "TICKET_JOURNEY.status_changed",
-			want:    true,
-		},
-		{
-			name:    "two-token SALES_PHASE.reminder_due matched by <domain>.* stream",
-			subject: "SALES_PHASE.reminder_due",
 			want:    true,
 		},
 		{
@@ -163,5 +161,42 @@ func TestSubjectCoveredByStream(t *testing.T) {
 
 			assert.Equal(t, tt.want, messaging.SubjectCoveredByStream(tt.subject))
 		})
+	}
+}
+
+// TestAllSubjectsCapturedByDeclaredStreams checks every subject in the entity
+// catalogue against the streams cloud-provisioning declares (the checked-in
+// list testdata/jetstream_stream_subjects.txt), so no announcement is
+// recorded for a subject no stream in the cluster captures: the forwarder
+// would retry it forever.
+func TestAllSubjectsCapturedByDeclaredStreams(t *testing.T) {
+	t.Parallel()
+
+	f, err := os.Open("testdata/jetstream_stream_subjects.txt")
+	if err != nil {
+		t.Fatalf("open the declared stream subjects: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	var filters []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" && !strings.HasPrefix(line, "#") {
+			filters = append(filters, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read the declared stream subjects: %v", err)
+	}
+
+	for _, subject := range entity.AllSubjects {
+		captured := false
+		for _, filter := range filters {
+			if messaging.SubjectMatches(filter, subject) {
+				captured = true
+				break
+			}
+		}
+		assert.Truef(t, captured, "no stream declared in cloud-provisioning captures %q", subject)
 	}
 }

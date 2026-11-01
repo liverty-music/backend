@@ -10,7 +10,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"golang.org/x/oauth2/google"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
@@ -18,9 +17,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
-	"github.com/liverty-music/backend/internal/infrastructure/identity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
-	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -28,10 +25,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
-	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -86,13 +81,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	// Repositories
-	artistRepo := rdb.NewArtistRepository(db)
-	concertRepo := rdb.NewConcertRepository(db)
-	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
-	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
-	salesReminderRepo := rdb.NewTicketSaleReminderRepository(db)
-	userRepo := rdb.NewUserRepository(db)
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db, newOutbox(logger))
+	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
+	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
 
 	// Infrastructure - Messaging
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
@@ -113,22 +107,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// probe (set below) reports whether the router is running.
 	consumerHealth := messaging.NewConsumerHealth()
 
-	// Infrastructure - Google Maps Places API (required for venue resolution).
-	// Uses OAuth via ADC (Workload Identity in GKE).
-	if cfg.GCP.ProjectID == "" {
-		return nil, fmt.Errorf("GCP project ID is required for Google Maps Places API")
-	}
-	gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, fmt.Errorf("obtain google maps token source: %w", err)
-	}
-	gmHTTPClient := &http.Client{
-		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
-		Timeout:   10 * time.Second,
-	}
-	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
-	placeSearcher := googlemaps.NewPlaceSearcher(gmClient)
-
 	// Infrastructure - MusicBrainz (for artist name resolution)
 	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	musicbrainzClient := musicbrainz.NewClient(extHTTPClient, logger)
@@ -139,8 +117,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
-	eventPublisher := messaging.NewEventPublisher(publisher)
-	notificationRepo := rdb.NewNotificationRepository(db)
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
 	// The consumer never refunds an Order or reads its charge, so the Order's
@@ -154,7 +135,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		confirmationSender = mail.NewNoopConfirmationSender(logger)
 	}
 	// The sold email of a resold listing goes the same way.
-	resaleListingRepo := rdb.NewResaleListingRepository(db)
+	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
 	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
 	if cfg.Postmark.ServerToken != "" {
 		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
@@ -164,48 +145,36 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
 	}
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, infratelemetry.NewBusinessMetrics(), logger,
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
 			Orders:         orderRepo,
 			Users:          userRepo,
 			Concerts:       concertRepo,
 			EventOrganizer: rdb.NewEventOrganizerRepository(db),
-			Organizers:     rdb.NewOrganizerRepository(db),
+			Organizers:     rdb.NewOrganizerRepository(db, newOutbox(logger)),
 			Mailer:         confirmationSender,
 			ResaleListings: resaleListingRepo,
 			ResaleMailer:   resaleSoldSender,
 			TimeZone:       japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
-	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db)
-	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 	// Infrastructure - PostHog analytics client (optional, nil in local dev).
 	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	concertCreationUC := usecase.NewConcertCreationUseCase(
-		concertCandidateRepo,
-		venueRepo,
-		concertRepo,
-		seriesRepo,
-		suppressedConcertRepo,
-		placeSearcher,
-		eventPublisher,
-		analyticsClient,
-		logger,
-	)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
 	// ConcertUseCase: needed here (not just by the RPC server) so the
 	// search-first-followed-artist consumer can call
 	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
-	organizerRepo := rdb.NewOrganizerRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	centroidResolver := geo.NewCentroidResolver()
@@ -236,7 +205,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		rejectedConcertRepo,
 		geminiSearcher,
 		centroidResolver,
-		eventPublisher,
+		workflows,
 		infratelemetry.NewBusinessMetrics(),
 		analyticsClient,
 		cfg.GCP.SearchCacheTTL(),
@@ -244,67 +213,35 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// Infrastructure - verification emails with codes the identity service
-	// issues; nil in local dev without it.
-	emailVerifier, err := newConsumerEmailVerifier(cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Ticket sale use cases for the two SALES_PHASE consumers. AnnounceDiscoveredSale
-	// requests delivery per recipient via NOTIFICATION.requested (handled by
-	// deliverNotificationConsumer below) so it depends on EventPublisher, not
-	// NotificationUseCase. DeliverReminder stays synchronous and composes the
-	// same delivery ports directly (see notification_delivery.go), so every
-	// reminder still gets a durable record without an event hop.
+	// The SALES_PHASE.discovered consumer's use case. AnnounceDiscoveredSale
+	// starts a deliver-notification workflow per recipient, so it depends on
+	// Workflows, not NotificationUseCase.
 	ticketSaleAnnouncementUC := usecase.NewTicketSaleAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
 		seriesRepo,
-		eventPublisher,
-		logger,
-	)
-	salesReminderDeliveryUC := usecase.NewTicketSaleReminderDeliveryUseCase(
-		salesReminderRepo,
-		notificationRepo,
-		pushSubRepo,
-		webpushSender,
-		eventPublisher,
-		infratelemetry.NewBusinessMetrics(),
+		workflows,
 		logger,
 	)
 
-	// Passkeys: the recovery link (issued by the identity service), the change
-	// email and the Passkey records.
-	passkeyLinks := newPasskeyRegistrationLinkSender(cfg, logger)
-	passkeyChangeEmails, err := newPasskeyChangeEmailSender(cfg, japanTime, logger)
-	if err != nil {
-		return nil, err
-	}
-	// The consumer's UserUseCase handles the passkey events and sends the
-	// verification resends the fan API announces (ReissueEmailVerification);
-	// it never deletes users.
-	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, eventPublisher, emailVerifier, nil, nil,
-		usecase.PasskeyMailers{RegistrationLinks: passkeyLinks, ChangeEmails: passkeyChangeEmails}, logger)
-	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db), userRepo, time.Now, logger)
+	// The consumer's UserUseCase starts the verification and passkey change
+	// emails, which the workflow worker sends; it never deletes users.
+	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil,
+		usecase.PasskeyMailers{}, logger)
 
 	// Event Consumers
-	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
-	userConsumer := event.NewUserConsumer(userUC, emailVerifier, logger)
-	reissueEmailVerificationConsumer := event.NewReissueEmailVerificationConsumer(userUC, logger)
+	userConsumer := event.NewUserConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
-	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
+	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, orderRepo, rdb.NewTicketStockRepository(db), logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
-	salesReminderConsumer := event.NewTicketSaleReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
-	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
-	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
+	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, rdb.NewTicketStockRepository(db), logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
-	passkeyConsumer := event.NewPasskeyConsumer(userUC, passkeyUC, logger)
+	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -313,13 +250,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// durables — each receives every message on that subject — which is the
 	// fan-out fix the old single shared-group subscriber broke.
 	behaviorTable := []behaviorEntry{
-		{"ingest-concert", entity.SubjectConcertDiscovered, concertConsumer.Handle},
 		{"notify-concert", entity.SubjectConcertCreated, notificationConsumer.Handle},
 		{"resolve-artist-name", entity.SubjectArtistCreated, artistNameConsumer.Handle},
 		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
 		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
 		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},
-		{"reissue-email-verification", entity.SubjectUserEmailVerificationResendRequested, reissueEmailVerificationConsumer.Handle},
 		{"track-user-logged-in", entity.SubjectUserLoggedIn, analyticsConsumer.HandleUserLoggedIn},
 		{"track-artist-followed", entity.SubjectArtistFollowed, analyticsConsumer.HandleArtistFollowed},
 		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},
@@ -336,16 +271,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"track-ticket-admitted", entity.SubjectTicketAdmitted, analyticsConsumer.HandleTicketAdmitted},
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
 		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
-		{"notify-sales-reminder", entity.SubjectTicketSaleReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
-		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
-		{"notify-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandlePasskeyChanged},
-		{"record-passkey-change", entity.SubjectUserPasskeyChanged, passkeyConsumer.HandleRecordPasskeyChange},
+		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
+		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
 	}
-	behaviorTable = append(behaviorTable, passkeyRecoveryBehaviors(ctx, passkeyLinks != nil, passkeyConsumer, logger)...)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -414,73 +346,4 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 		Health:          consumerHealth,
 	}, nil
-}
-
-// passkeyRecoveryBehavior is the durable that sends passkey recovery links.
-const passkeyRecoveryBehavior = "send-passkey-recovery-link"
-
-// passkeyRecoveryBehaviors returns the send-passkey-recovery-link behavior when
-// recovery links can be issued, and none (logging that the handler is
-// disabled) when the consumer cannot reach the identity service: requests then
-// wait in the durable until a consumer that can issue them runs.
-func passkeyRecoveryBehaviors(ctx context.Context, enabled bool, consumer *event.PasskeyConsumer, logger *logging.Logger) []behaviorEntry {
-	if !enabled {
-		logger.Warn(ctx, "passkey recovery link handler disabled: IDENTITY_SERVICE_URL is not set",
-			slog.String("behavior", passkeyRecoveryBehavior))
-		return nil
-	}
-	return []behaviorEntry{
-		{passkeyRecoveryBehavior, entity.SubjectUserPasskeyRecoveryRequested, consumer.HandleRecoveryRequested},
-	}
-}
-
-// newConsumerEmailVerifier returns the sender of verification emails, whose
-// codes the identity service issues and whose links open the fan web (origin
-// derived from the issuer), or nil without IDENTITY_SERVICE_URL (local
-// development), which makes the verification handlers skip with a warning.
-// Without a Postmark token (local development) the sender fails every send.
-func newConsumerEmailVerifier(cfg *config.ConsumerConfig, logger *logging.Logger) (entity.EmailVerifier, error) {
-	if cfg.IdentityServiceURL == "" {
-		return nil, nil
-	}
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopEmailVerificationSender(logger), nil
-	}
-	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
-	if err != nil {
-		return nil, fmt.Errorf("derive fan web base url: %w", err)
-	}
-	return mail.NewPostmarkEmailVerificationSender(identity.NewUserClient(cfg.IdentityServiceURL), fanWebBaseURL,
-		cfg.Postmark.ServerToken, cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
-}
-
-// newPasskeyRegistrationLinkSender returns the sender of passkey recovery
-// links, whose link the identity service issues, or nil without
-// IDENTITY_SERVICE_URL (local development). Without a Postmark token (local
-// development) the sender fails every send.
-func newPasskeyRegistrationLinkSender(cfg *config.ConsumerConfig, logger *logging.Logger) entity.PasskeyRegistrationLinkSender {
-	if cfg.IdentityServiceURL == "" {
-		return nil
-	}
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopPasskeyRegistrationLinkSender(logger)
-	}
-	return mail.NewPostmarkPasskeyRegistrationLinkSender(identity.NewUserClient(cfg.IdentityServiceURL), cfg.Postmark.ServerToken,
-		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger)
-}
-
-// newPasskeyChangeEmailSender returns the sender of the passkey change email:
-// Postmark when its server token is set, else (local development) a sender
-// that fails with Unavailable. Its links open the fan web, whose origin is
-// derived from the issuer.
-func newPasskeyChangeEmailSender(cfg *config.ConsumerConfig, japanTime *time.Location, logger *logging.Logger) (entity.PasskeyChangeEmailSender, error) {
-	if cfg.Postmark.ServerToken == "" {
-		return mail.NewNoopPasskeyChangeSender(logger), nil
-	}
-	fanWebBaseURL, err := infrazitadel.FanWebBaseURLFromIssuer(cfg.ZitadelDomain)
-	if err != nil {
-		return nil, fmt.Errorf("derive fan web base url: %w", err)
-	}
-	return mail.NewPostmarkPasskeyChangeSender(fanWebBaseURL, japanTime, cfg.Postmark.ServerToken,
-		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }

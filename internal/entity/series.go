@@ -222,13 +222,23 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 // series_cover_images cut-over that the series-image-consumer performs after writing
 // variants to GCS.
 type SeriesImageRepository interface {
-	// Create persists a series image row idempotently (ON CONFLICT(id) DO NOTHING).
-	// Used by SetCoverImage to record the upload before publishing SERIES_IMAGE.uploaded.
+	// Create stores a series image for the Series it is attached to,
+	// idempotently (ON CONFLICT(id) DO NOTHING), and records the request to
+	// process it for that Series together with it. The Series is not stored
+	// on the series image.
 	//
 	// # Possible errors
 	//
+	//  - Unavailable: the processing request could not be recorded; nothing
+	//    is stored.
 	//  - Internal: if the insert fails.
-	Create(ctx context.Context, seriesImage *SeriesImage) error
+	//
+	// # Announces
+	//
+	// SERIES_IMAGE.uploaded, the request to process the image (ce_subject the
+	// Series id), together with the insert. Nothing when the series image was
+	// already stored.
+	Create(ctx context.Context, seriesImage *SeriesImage, seriesID string) error
 
 	// Get retrieves a single series image row by id.
 	//
@@ -372,6 +382,12 @@ type SeriesRepository interface {
 	//    (of another organizer or of the same one) or by a CANCELLED event.
 	//    Nothing changes. A slot suppressed by an admin delete does not block
 	//    it.
+	//
+	// # Announces
+	//
+	// CONCERT.created once per performing Artist with the Concerts made PUBLISHED
+	// in place (ce_subject the Artist id), together with the publish, when the
+	// series is PUBLIC. Nothing for claimed events or an UNLISTED series.
 	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
 
 	// CancelEvents cancels the given events of a first-party series in a

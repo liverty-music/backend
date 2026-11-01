@@ -18,15 +18,14 @@ import (
 // to record and dispatch a single notification. It exists so the
 // record-then-send-then-record-outcome logic is composed, not called through
 // another usecase interface, by both:
-//   - NotificationUseCase.Deliver, driven by the deliver-notification
-//     consumer reacting to NOTIFICATION.requested; and
-//   - TicketSaleReminderDeliveryUseCase.DeliverReminder, which stays synchronous
-//     (no event hop) and calls deliverNotification directly.
+//   - NotificationUseCase.Deliver, run by the deliver-notification workflow;
+//     and
+//   - TicketSaleReminderDeliveryUseCase.DeliverReminder, run by the
+//     deliver-reminder workflow, which calls deliverNotification directly.
 type notificationDeliveryDeps struct {
 	notificationRepo entity.NotificationRepository
 	pushSubRepo      entity.PushSubscriptionRepository
 	sender           entity.PushNotificationSender
-	publisher        EventPublisher
 	metrics          PushMetrics
 	logger           *logging.Logger
 }
@@ -140,24 +139,6 @@ func deliverNotification(
 	n.DeliverTime = deliveredAt
 	n.FailureReason = reason
 
-	// 5. Emit the delivered analytics event exactly once per notification, only
-	//    when the send actually reached the delivered state. Non-fatal by design:
-	//    analytics must never affect the delivery outcome, so a publish failure is
-	//    logged and swallowed (mirrors the notification.subscribed emit).
-	if status == entity.NotificationDeliveryStatusDelivered && deliveredAt != nil {
-		if err := d.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
-			UserID:         userID,
-			NotificationID: n.ID,
-			Type:           string(typ),
-			DeliverTime:    *deliveredAt,
-		}); err != nil {
-			d.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
-				slog.String("notification_id", n.ID),
-				slog.String("user_id", userID),
-			)
-		}
-	}
-
 	return n, nil
 }
 
@@ -206,7 +187,7 @@ func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notifi
 			if errors.Is(err, apperr.ErrNotFound) {
 				d.metrics.RecordPushSend(ctx, "gone")
 				// Scoped cleanup: delete only the dead (userID, endpoint) pair.
-				if delErr := d.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
+				if delErr := d.pushSubRepo.DeleteGone(ctx, sub.UserID, sub.Endpoint); delErr != nil {
 					d.logger.Error(ctx, "failed to delete stale push subscription", delErr,
 						slog.String("user_id", sub.UserID),
 						slog.String("endpoint", sub.Endpoint),

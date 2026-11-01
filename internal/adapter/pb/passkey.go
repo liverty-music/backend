@@ -8,15 +8,19 @@ import (
 )
 
 // FromPasskey maps a recorded Passkey to its wire form: its provider
-// passkey id, its provider name when the provider list names its AAGUID, and
-// its create time.
+// passkey id, its User, its provider name when the provider list names its
+// AAGUID, its name when the identity provider gave one, and its create time.
 func FromPasskey(p *entity.Passkey) *entityv1.Passkey {
 	out := &entityv1.Passkey{
 		Id:         &entityv1.PasskeyId{Value: p.ProviderPasskeyID},
 		CreateTime: timestamppb.New(p.CreateTime),
+		UserId:     &entityv1.UserId{Value: p.UserID},
 	}
 	if name := p.ProviderName(); name != "" {
 		out.ProviderName = &entityv1.PasskeyProviderName{Value: name}
+	}
+	if p.Name != nil {
+		out.Name = &entityv1.PasskeyName{Value: *p.Name}
 	}
 	return out
 }

@@ -212,9 +212,8 @@ type ResaleListingRepository interface {
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*ResaleListing, error)
 
-	// ListSoldUnrefunded returns every Sold listing that has no refund time or
-	// no sold email send time, oldest sold time first; an empty slice when
-	// there are none.
+	// ListSoldUnrefunded returns every Sold listing that has no refund time,
+	// oldest sold time first; an empty slice when there are none.
 	//
 	// # Possible errors
 	//
@@ -230,6 +229,11 @@ type ResaleListingRepository interface {
 	//  - FailedPrecondition: the listing is not Sold.
 	//  - NotFound: no listing has the id.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.resale_listing_refunded with the refunded ResaleListing, together with
+	// the refund, when it sets it. Nothing when it already had a refund time.
 	RecordRefund(ctx context.Context, id ResaleListingID, providerRefundID string, at time.Time) error
 }
 

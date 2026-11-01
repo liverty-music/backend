@@ -17,7 +17,7 @@ func setenvAll(t *testing.T, env map[string]string) {
 	}
 }
 
-// Outside local the event consumer and the admin console API reach the
+// Outside local the workflow worker and the admin console API reach the
 // identity provider only through the identity service, so without its URL
 // they refuse to start instead of starting without verification emails,
 // passkey recovery links, fan deletion or Organizer provisioning.
@@ -35,15 +35,11 @@ func TestCallersRequireIdentityServiceURLOutsideLocal(t *testing.T) {
 		"VAPID_PRIVATE_KEY":                 "vapid-priv",
 	}
 
-	t.Run("the event consumer", func(t *testing.T) {
+	t.Run("the workflow worker", func(t *testing.T) {
 		setenvAll(t, base)
-		setenvAll(t, map[string]string{
-			"FANARTTV_API_KEY":        "fanart-key",
-			"GCP_PROJECT_ID":          "liverty-music-prod",
-			"POSTHOG_PROJECT_API_KEY": "phc_x",
-		})
+		setenvAll(t, map[string]string{"GCP_PROJECT_ID": "liverty-music-prod"})
 
-		_, err := di.InitializeConsumerApp(context.Background())
+		_, err := di.InitializeWorkerApp(context.Background())
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "required outside local but not set: IDENTITY_SERVICE_URL")

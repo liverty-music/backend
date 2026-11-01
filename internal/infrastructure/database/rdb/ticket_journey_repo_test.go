@@ -23,7 +23,7 @@ func seedJourneyDeps(t *testing.T) (userID, eventID string) {
 }
 
 func TestTicketJourneyRepository_Upsert(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -92,7 +92,7 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_Delete(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -150,7 +150,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketJourneyRepository(testDB)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	// day returns the date offset from today, so "upcoming" and "past" hold
@@ -273,7 +273,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -344,7 +344,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
 		t.Skip("no local database available")
 	}
 
-	repo := rdb.NewTicketJourneyRepository(testDB)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
 	ctx := context.Background()
 
 	day := func(offset int) string {

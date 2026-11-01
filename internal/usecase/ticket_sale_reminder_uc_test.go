@@ -314,7 +314,7 @@ type scanDeps struct {
 	journeyRepo    *entitymocks.MockTicketJourneyRepository
 	userRepo       *entitymocks.MockUserRepository
 	seriesRepo     *entitymocks.MockSeriesRepository
-	pub            *ucmocks.MockEventPublisher
+	pub            *ucmocks.MockWorkflows
 	uc             usecase.TicketSaleReminderUseCase
 }
 
@@ -330,7 +330,7 @@ func newScanDeps(t *testing.T, sales ...*entity.TicketSale) *scanDeps {
 		journeyRepo:    entitymocks.NewMockTicketJourneyRepository(t),
 		userRepo:       entitymocks.NewMockUserRepository(t),
 		seriesRepo:     entitymocks.NewMockSeriesRepository(t),
-		pub:            ucmocks.NewMockEventPublisher(t),
+		pub:            ucmocks.NewMockWorkflows(t),
 	}
 	d.ticketSaleRepo.EXPECT().
 		ListWithPendingMilestones(mock.Anything, scanLookahead, usecase.ReminderScanLookbackMargin).
@@ -364,10 +364,10 @@ func (d *scanDeps) seriesTitle(seriesID, title string) {
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(&entity.Series{ID: seriesID, Title: title}, nil).Once()
 }
 
-// expectReminder expects one SALES_PHASE.reminder_due publish for the user,
+// expectReminder expects one deliver-reminder workflow start for the user,
 // sale and stage whose payload satisfies matches.
 func (d *scanDeps) expectReminder(userID, saleID string, stage entity.ReminderStage, matches func(p *entity.NotificationPayload) bool) {
-	d.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectTicketSaleReminderDue,
+	d.pub.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverReminder, mock.Anything,
 		mock.MatchedBy(func(v any) bool {
 			data, ok := v.(entity.TicketSaleReminderDueData)
 			return ok && data.UserID == userID && data.TicketSaleID == saleID &&
@@ -631,4 +631,34 @@ func TestScanDueReminders_OrganizerSale(t *testing.T) {
 	published, err := d.uc.ScanDueReminders(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, published)
+}
+
+// TestReminderWorkflowID shows how the deliver-reminder starts are named: a
+// run repeated within the same 15-minute period names the same workflow, so
+// the reminder runs once, and the next period's run names a new one, so a
+// reminder not yet recorded as sent runs again.
+func TestReminderWorkflowID(t *testing.T) {
+	t.Parallel()
+
+	data := entity.TicketSaleReminderDueData{UserID: "fan-a", TicketSaleID: "sale-1", Stage: int16(entity.ReminderStageApplyOpen)}
+	at := func(hh, mm int) time.Time { return time.Date(2026, 10, 22, hh, mm, 0, 0, time.UTC) }
+
+	// @spec components/usecase/ticket-sale/scan-due-reminders "Run repeated in the same period"
+	t.Run("a run repeated in the same period starts the same workflow", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, usecase.ExportedReminderWorkflowID(data, at(18, 30)), usecase.ExportedReminderWorkflowID(data, at(18, 37)))
+	})
+
+	// @spec components/usecase/ticket-sale/scan-due-reminders "Not yet recorded as sent"
+	t.Run("the next period's run starts a new workflow", func(t *testing.T) {
+		t.Parallel()
+		assert.NotEqual(t, usecase.ExportedReminderWorkflowID(data, at(18, 30)), usecase.ExportedReminderWorkflowID(data, at(18, 45)))
+	})
+
+	t.Run("another stage of the same sale is a separate workflow", func(t *testing.T) {
+		t.Parallel()
+		other := data
+		other.Stage = int16(entity.ReminderStageApplyClose24H)
+		assert.NotEqual(t, usecase.ExportedReminderWorkflowID(data, at(18, 30)), usecase.ExportedReminderWorkflowID(other, at(18, 30)))
+	})
 }

@@ -28,7 +28,6 @@ type checkoutFixture struct {
 	events                *ucmocks.MockEventPublishStatePort
 	eventRepo             *entitymocks.MockEventRepository
 	auth                  *entitymocks.MockCardAuthorizationRepository
-	publisher             *ucmocks.MockEventPublisher
 	uc                    usecase.CheckoutUseCase
 }
 
@@ -45,7 +44,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		events:                ucmocks.NewMockEventPublishStatePort(t),
 		eventRepo:             entitymocks.NewMockEventRepository(t),
 		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
-		publisher:             ucmocks.NewMockEventPublisher(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             f.checkouts,
@@ -58,7 +56,6 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		EventState:               f.events,
 		EventRepo:                f.eventRepo,
 		CardAuthorizations:       f.auth,
-		Publisher:                f.publisher,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	})
@@ -649,62 +646,6 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
 	now := start.Add(16 * time.Minute)
-
-	t.Run("fan walked away", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Fan walked away"
-		f := newCheckoutFixture(t, now)
-		lapsed := fanCheckout(start)
-		lapsed.Order.CardAuthorizationID = "pi_1"
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
-		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
-		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, mock.Anything).Return(nil).Once()
-
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
-
-		// The next run finds it Expired with its card authorization and gives it back.
-		expired := *lapsed
-		expired.Status = entity.CheckoutStatusExpired
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{&expired}, nil).Once()
-		f.auth.EXPECT().Release(mock.Anything, "pi_1").Return(nil)
-		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
-
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
-	})
-
-	t.Run("hold lapsed", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Hold lapsed"
-		f := newCheckoutFixture(t, now)
-		lapsed := fanCheckout(start)
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
-		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
-		f.publisher.EXPECT().
-			PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, entity.CheckoutExpiredData{
-				CheckoutID:     "checkout-1",
-				UserID:         "fan-1",
-				TicketStockID:  "stock-1",
-				TicketCount:    2,
-				HoldExpireTime: lapsed.HoldExpireTime,
-			}).
-			Return(nil).
-			Once()
-
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
-	})
-
-	t.Run("expired signal cannot be sent", func(t *testing.T) {
-		t.Parallel()
-		f := newCheckoutFixture(t, now)
-		lapsed := fanCheckout(start)
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil).Once()
-		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(true, nil).Once()
-		f.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectCheckoutExpired, mock.Anything).
-			Return(apperr.New(apperr.ErrUnavailable.Code, "nats down")).Once()
-
-		// The release stands and the sweep succeeds.
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
-	})
 
 	t.Run("count changed after authorizing", func(t *testing.T) {
 		t.Parallel()

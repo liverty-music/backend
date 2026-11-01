@@ -26,8 +26,8 @@ const (
 
 // TicketSaleReminderUseCase scans the ticket sales, discovered and the
 // Organizer's, for milestones that became due in the current scan window and
-// publishes a SALES_PHASE.reminder_due event for each (user, sale, stage) not
-// yet recorded in the sent-log.
+// starts a deliver-reminder workflow for each (user, sale, stage) not yet
+// recorded in the sent-log.
 type TicketSaleReminderUseCase interface {
 	// ScanDueReminders runs one scan pass. It lists the sales with a pending
 	// milestone, resolves each sale's audience, applies quiet hours, checks
@@ -42,7 +42,7 @@ type ticketSaleReminderUseCase struct {
 	journeyRepo    entity.TicketJourneyRepository
 	userRepo       entity.UserRepository
 	seriesRepo     entity.SeriesRepository
-	publisher      EventPublisher
+	workflows      Workflows
 	// lookahead is the forward horizon passed to ListWithPendingMilestones.
 	lookahead time.Duration
 	// lookbackMargin is the grace period passed to ListWithPendingMilestones.
@@ -65,7 +65,7 @@ func NewTicketSaleReminderUseCase(
 	journeyRepo entity.TicketJourneyRepository,
 	userRepo entity.UserRepository,
 	seriesRepo entity.SeriesRepository,
-	publisher EventPublisher,
+	workflows Workflows,
 	lookahead time.Duration,
 	logger *logging.Logger,
 ) TicketSaleReminderUseCase {
@@ -75,7 +75,7 @@ func NewTicketSaleReminderUseCase(
 		journeyRepo:    journeyRepo,
 		userRepo:       userRepo,
 		seriesRepo:     seriesRepo,
-		publisher:      publisher,
+		workflows:      workflows,
 		lookahead:      lookahead,
 		lookbackMargin: reminderScanLookbackMargin,
 		logger:         logger,
@@ -237,8 +237,8 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 				Stage:        int16(stage),
 				Payload:      payload,
 			}
-			if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketSaleReminderDue, data); err != nil {
-				uc.logger.Error(ctx, "ticket_sale_reminder: publish failed", err,
+			if err := uc.workflows.Start(ctx, WorkflowDeliverReminder, reminderWorkflowID(data, now), data); err != nil {
+				uc.logger.Error(ctx, "ticket_sale_reminder: start failed", err,
 					append(attrs, slog.String("user_id", user.ID), slog.Int("stage", int(stage)))...)
 				continue
 			}

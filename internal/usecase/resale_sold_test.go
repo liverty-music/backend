@@ -43,7 +43,7 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 		Series: &entity.Series{Title: "Liverty Live 2026"},
 	}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), ucmocks.NewMockEventPublisher(t), noopMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), ucmocks.NewMockWorkflows(t), noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert},
 			ResaleListings: f.listings, ResaleMailer: f.mailer, TimeZone: tsJST,

@@ -284,3 +284,16 @@ func TestGCSStorer_OriginalExists(t *testing.T) {
 		})
 	}
 }
+
+func TestGCSStorer_ReadOriginal(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a missing original is NotFound", func(t *testing.T) {
+		t.Parallel()
+		storer := newFakeStorer(t, newFakeGCS(nil))
+
+		_, err := storer.ReadOriginal(context.Background(), testInternalBucket, testOrganizerID, testSeriesImageID)
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}

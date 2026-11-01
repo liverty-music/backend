@@ -40,3 +40,16 @@ func FromFollowedArtists(followed []*entity.FollowedArtist) []*entityv1.Followed
 	}
 	return result
 }
+
+// FromFollow maps one fan's follow of an Artist, with its hype level, to
+// Protobuf.
+func FromFollow(f *entity.Follow) *entityv1.Follow {
+	if f == nil {
+		return nil
+	}
+	return &entityv1.Follow{
+		UserId:   &entityv1.UserId{Value: f.UserID},
+		ArtistId: &entityv1.ArtistId{Value: f.ArtistID},
+		Hype:     hypeToProto[f.Hype],
+	}
+}

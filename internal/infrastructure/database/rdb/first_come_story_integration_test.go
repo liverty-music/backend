@@ -49,28 +49,26 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB),
+		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
+		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                s.stockRepo,
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB),
+		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
 		UserRepo:                 s.userRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
 		EventState:               eventState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(s.key, payment.CheckoutCardAuthorizationPolicy, logger),
-		Publisher:                s.published,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
 	s.resale = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-		Listings:   rdb.NewResaleListingRepository(testDB),
-		Tickets:    rdb.NewTicketRepository(testDB),
+		Listings:   rdb.NewResaleListingRepository(testDB, testOutbox),
+		Tickets:    rdb.NewTicketRepository(testDB, testOutbox),
 		Orders:     s.orderRepo,
 		Stocks:     s.stockRepo,
 		EventState: eventState,
 		Events:     eventRepo,
-		Publisher:  s.published,
 		Clock:      clock,
 		Logger:     logger,
 	})
@@ -141,13 +139,12 @@ func (s *firstComeStory) place(checkout *entity.Checkout, fan entity.UserID, car
 		ReceivedAt:        s.now,
 	}))
 	var announced []entity.OrderPaidData
-	for _, paid := range s.published.paid {
+	for _, paid := range s.takePaid() {
 		require.NoError(s.t, s.journeys.MarkPaid(s.ctx, paid))
 		if paid.OrderID == string(order.ID) {
 			announced = append(announced, paid)
 		}
 	}
-	s.published.paid = nil
 	return order, announced
 }
 

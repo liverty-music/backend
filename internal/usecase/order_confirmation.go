@@ -96,10 +96,12 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 	}
 	title, body := content.push(pushLang)
 	payload := entity.NewNotificationPayload(title, body, ticketsLinkURL, "order-confirmation-"+paid.OrderID)
-	if _, err := uc.Deliver(ctx, user.ID, entity.NotificationTypeOrderConfirmation, payload); err != nil {
-		return err
-	}
-	return nil
+	// Named after the Order, so a repeated announcement pushes once.
+	return uc.startDeliver(ctx, deliverWorkflowID(entity.NotificationTypeOrderConfirmation, paid.OrderID), DeliverRequest{
+		UserID:  user.ID,
+		Type:    entity.NotificationTypeOrderConfirmation,
+		Payload: payload,
+	})
 }
 
 // emailLanguage is the email's language: English for an English preference,

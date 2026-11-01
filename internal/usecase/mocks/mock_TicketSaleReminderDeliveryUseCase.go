@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -100,6 +101,78 @@ func (_c *MockTicketSaleReminderDeliveryUseCase_DeliverReminder_Call) Return(err
 }
 
 func (_c *MockTicketSaleReminderDeliveryUseCase_DeliverReminder_Call) RunAndReturn(run func(ctx context.Context, data entity.TicketSaleReminderDueData) error) *MockTicketSaleReminderDeliveryUseCase_DeliverReminder_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RunDeliverReminder provides a mock function for the type MockTicketSaleReminderDeliveryUseCase
+func (_mock *MockTicketSaleReminderDeliveryUseCase) RunDeliverReminder(ctx context.Context, f usecase.Flow, in entity.TicketSaleReminderDueData) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunDeliverReminder")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.TicketSaleReminderDueData) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.TicketSaleReminderDueData) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, entity.TicketSaleReminderDueData) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunDeliverReminder'
+type MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call struct {
+	*mock.Call
+}
+
+// RunDeliverReminder is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in entity.TicketSaleReminderDueData
+func (_e *MockTicketSaleReminderDeliveryUseCase_Expecter) RunDeliverReminder(ctx any, f any, in any) *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call {
+	return &MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call{Call: _e.mock.On("RunDeliverReminder", ctx, f, in)}
+}
+
+func (_c *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call) Run(run func(ctx context.Context, f usecase.Flow, in entity.TicketSaleReminderDueData)) *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 entity.TicketSaleReminderDueData
+		if args[2] != nil {
+			arg2 = args[2].(entity.TicketSaleReminderDueData)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call) Return(val struct{}, err error) *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in entity.TicketSaleReminderDueData) (struct{}, error)) *MockTicketSaleReminderDeliveryUseCase_RunDeliverReminder_Call {
 	_c.Call.Return(run)
 	return _c
 }

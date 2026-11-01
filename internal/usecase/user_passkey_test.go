@@ -18,7 +18,7 @@ import (
 
 type userPasskeyTestDeps struct {
 	repo         *entitymocks.MockUserRepository
-	publisher    *ucmocks.MockEventPublisher
+	workflows    *ucmocks.MockWorkflows
 	links        *entitymocks.MockPasskeyRegistrationLinkSender
 	changeEmails *entitymocks.MockPasskeyChangeEmailSender
 	uc           usecase.UserUseCase
@@ -30,11 +30,11 @@ func newUserPasskeyTestDeps(t *testing.T) *userPasskeyTestDeps {
 	t.Helper()
 	d := &userPasskeyTestDeps{
 		repo:         entitymocks.NewMockUserRepository(t),
-		publisher:    ucmocks.NewMockEventPublisher(t),
+		workflows:    ucmocks.NewMockWorkflows(t),
 		links:        entitymocks.NewMockPasskeyRegistrationLinkSender(t),
 		changeEmails: entitymocks.NewMockPasskeyChangeEmailSender(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, d.publisher, nil, nil, nil,
+	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, d.workflows, nil, nil, nil,
 		usecase.PasskeyMailers{RegistrationLinks: d.links, ChangeEmails: d.changeEmails}, newTestLogger(t))
 	usecase.RunPasskeyRecoverySynchronously(d.uc)
 	return d
@@ -47,28 +47,46 @@ func TestUserUseCase_RequestPasskeyRecovery(t *testing.T) {
 	ctx := context.Background()
 
 	// @spec components/usecase/user/request-passkey-recovery "Address of a fan account"
-	t.Run("announces a recovery request with the user id only for a fan's address", func(t *testing.T) {
+	t.Run("starts the recovery link with the user id only for a fan's address", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().GetByEmail(mock.Anything, "fan@example.com").Return(passkeyFan, nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserPasskeyRecoveryRequested,
-			entity.UserPasskeyRecoveryRequestedData{UserID: "user-1"}).Return(nil).Once()
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowSendPasskeyRecoveryLink, mock.Anything,
+			usecase.UserRequest{UserID: "user-1"}).Return(nil).Once()
 
 		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
 	})
 
+	t.Run("each request starts its own run", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByEmail(mock.Anything, "fan@example.com").Return(passkeyFan, nil).Twice()
+		var ids []string
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowSendPasskeyRecoveryLink, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
+				ids = append(ids, id)
+				return nil
+			}).Twice()
+
+		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
+		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
+
+		require.Len(t, ids, 2)
+		assert.NotEqual(t, ids[0], ids[1])
+	})
+
 	// @spec components/usecase/user/request-passkey-recovery "Address with no account"
-	t.Run("succeeds the same way and announces nothing for an address no user has", func(t *testing.T) {
+	t.Run("succeeds the same way and starts nothing for an address no user has", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().GetByEmail(mock.Anything, "nobody@example.com").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
-		// The strict publisher mock fails the test if anything is announced.
+		// The strict workflows mock fails the test if anything is started.
 
 		d.uc.RequestPasskeyRecovery(ctx, "nobody@example.com")
 	})
 
 	// @spec components/usecase/user/request-passkey-recovery "Store unavailable"
-	t.Run("still succeeds and announces nothing when the store is unavailable", func(t *testing.T) {
+	t.Run("still succeeds and starts nothing when the store is unavailable", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().GetByEmail(mock.Anything, "fan@example.com").Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
@@ -76,28 +94,29 @@ func TestUserUseCase_RequestPasskeyRecovery(t *testing.T) {
 		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
 	})
 
-	t.Run("still succeeds when the announcement fails", func(t *testing.T) {
+	// @spec components/usecase/user/request-passkey-recovery "Work cannot be started"
+	t.Run("still succeeds when the recovery link cannot be started", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().GetByEmail(mock.Anything, "fan@example.com").Return(passkeyFan, nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserPasskeyRecoveryRequested, mock.Anything).
-			Return(apperr.New(codes.Unavailable, "nats down")).Once()
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowSendPasskeyRecoveryLink, mock.Anything, mock.Anything).
+			Return(apperr.New(codes.Unavailable, "database down")).Once()
 
 		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
 	})
 
 	// @spec components/usecase/user/request-passkey-recovery "Fourth request for one address"
-	t.Run("announces at most 3 requests per address, comparing it without regard to letter case", func(t *testing.T) {
+	t.Run("starts at most 3 links per address, comparing it without regard to letter case", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().GetByEmail(mock.Anything, mock.Anything).Return(passkeyFan, nil).Times(3)
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserPasskeyRecoveryRequested, mock.Anything).Return(nil).Times(3)
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowSendPasskeyRecoveryLink, mock.Anything, mock.Anything).Return(nil).Times(3)
 
 		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
 		d.uc.RequestPasskeyRecovery(ctx, "Fan@Example.com")
 		d.uc.RequestPasskeyRecovery(ctx, "fan@example.com")
 		// The fourth request within the window returns without a lookup or
-		// an announcement (the mocks allow exactly three of each).
+		// a start (the mocks allow exactly three of each).
 		d.uc.RequestPasskeyRecovery(ctx, "FAN@example.com")
 
 		// Another address has its own allowance.
@@ -105,14 +124,14 @@ func TestUserUseCase_RequestPasskeyRecovery(t *testing.T) {
 		d.uc.RequestPasskeyRecovery(ctx, "other@example.com")
 	})
 
-	t.Run("answers before the lookup and the announcement run, on a context the request's cancel does not stop", func(t *testing.T) {
+	t.Run("answers before the lookup and the start run, on a context the request's cancel does not stop", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		var tasks []func()
 		usecase.RunPasskeyRecoveryWith(d.uc, func(task func()) { tasks = append(tasks, task) })
 		reqCtx, cancel := context.WithCancel(ctx)
 
-		// No repository or publisher call happens before it returns.
+		// No repository or workflows call happens before it returns.
 		d.uc.RequestPasskeyRecovery(reqCtx, "fan@example.com")
 		cancel()
 
@@ -122,7 +141,7 @@ func TestUserUseCase_RequestPasskeyRecovery(t *testing.T) {
 				assert.NoError(t, ctx.Err(), "the background lookup outlives the request")
 				return passkeyFan, nil
 			}).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectUserPasskeyRecoveryRequested, mock.Anything).Return(nil).Once()
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowSendPasskeyRecoveryLink, mock.Anything, mock.Anything).Return(nil).Once()
 		tasks[0]()
 	})
 }
@@ -131,7 +150,6 @@ func TestUserUseCase_SendPasskeyRecoveryLink(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// @spec components/usecase/user/send-passkey-recovery-link "Fan with a verified address"
 	t.Run("sends the registration link to the user", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
@@ -172,8 +190,8 @@ func TestUserUseCase_SendPasskeyRecoveryLink(t *testing.T) {
 		assert.NoError(t, d.uc.SendPasskeyRecoveryLink(ctx, "user-1"))
 	})
 
-	// @spec components/usecase/user/send-passkey-recovery-link "Mail service down"
-	t.Run("fails so it runs again when the link cannot be sent", func(t *testing.T) {
+	// @spec components/usecase/user/send-passkey-recovery-link "Mail service refuses"
+	t.Run("fails with the mail service's refusal", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
@@ -204,23 +222,23 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, Name: "Google Pixel 9, Android, Chrome", ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Passkey added through a recovery link"
 	t.Run("emails the same added email for a passkey registered with a recovery link", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
-		// A recovery-link registration arrives as the same added change
-		// (token.verified), named by the device it was made on.
+		// A recovery-link registration is recorded and announced as the same
+		// added Passkey, named by the device it was made on.
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, Name: "Apple iPhone, iOS, Mobile Safari", ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Passkey removed"
@@ -228,20 +246,20 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeRemoved, ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	// @spec components/usecase/user/notify-passkey-change "Identity with no account"
-	t.Run("finishes without sending when no user has the identity", func(t *testing.T) {
+	t.Run("finishes without sending when the user no longer exists", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-signup-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
+		d.repo.EXPECT().Get(mock.Anything, "user-gone").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
 		// The strict change email mock fails the test if anything is sent.
 
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-signup-1",
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-gone",
 			entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, ChangeTime: changeTime}))
 	})
 
@@ -250,21 +268,107 @@ func TestUserUseCase_NotifyPasskeyChange(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 		change := entity.PasskeyChange{Kind: entity.PasskeyChangeRemoved, ChangeTime: changeTime}
-		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Twice()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Twice()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).
 			Return(apperr.New(codes.Unavailable, "postmark down")).Once()
 		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
 
-		assert.ErrorIs(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change), apperr.ErrUnavailable)
-		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", change))
+		assert.ErrorIs(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change), apperr.ErrUnavailable)
+		assert.NoError(t, d.uc.NotifyPasskeyChange(ctx, "user-1", change))
 	})
 
 	t.Run("fails with InvalidArgument for an unknown kind of change", func(t *testing.T) {
 		t.Parallel()
 		d := newUserPasskeyTestDeps(t)
 
-		err := d.uc.NotifyPasskeyChange(ctx, "zitadel-fan-1", entity.PasskeyChange{Kind: "renamed", ChangeTime: changeTime})
+		err := d.uc.NotifyPasskeyChange(ctx, "user-1", entity.PasskeyChange{Kind: "renamed", ChangeTime: changeTime})
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestUserUseCase_RunNotifyPasskeyChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	change := entity.PasskeyChange{Kind: entity.PasskeyChangeAdded, ChangeTime: time.Date(2026, 10, 22, 3, 4, 0, 0, time.UTC)}
+
+	// @spec components/usecase/user/notify-passkey-change "Passkey registered at sign-up"
+	t.Run("emails the added Passkey of the User it was recorded for", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
+		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
+
+		_, err := d.uc.RunNotifyPasskeyChange(ctx, &inlineFlow{}, usecase.PasskeyChangeNotice{UserID: "user-1", Change: change})
+
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/user/notify-passkey-change "Delivered twice"
+	t.Run("the same announcement starts one email", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		notice := usecase.PasskeyChangeNotice{UserID: "user-1", Change: change}
+		// The runtime runs one workflow per id: a start under an id it has
+		// seen runs nothing.
+		started := map[string]bool{}
+		d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowNotifyPasskeyChange, mock.Anything, notice).
+			RunAndReturn(func(ctx context.Context, _, id string, input any, _ ...usecase.StartOption) error {
+				if started[id] {
+					return nil
+				}
+				started[id] = true
+				_, err := d.uc.RunNotifyPasskeyChange(ctx, &inlineFlow{}, input.(usecase.PasskeyChangeNotice))
+				return err
+			}).Twice()
+		d.repo.EXPECT().Get(mock.Anything, "user-1").Return(passkeyFan, nil).Once()
+		d.changeEmails.EXPECT().SendPasskeyChangeEmail(mock.Anything, passkeyFan, change).Return(nil).Once()
+
+		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
+		require.NoError(t, d.uc.StartNotifyPasskeyChange(ctx, "announcement-1", notice))
+	})
+}
+
+func TestUserUseCase_RecordLogin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	at := time.Date(2026, 10, 28, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+
+	// @spec components/usecase/user/record-login "Fan signs in"
+	t.Run("records the sign-in for the identity's User", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(nil).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at))
+	})
+
+	// @spec components/usecase/user/record-login "Identity with no account"
+	t.Run("succeeds and records nothing for an identity with no User", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-signup-1").Return(nil, apperr.New(codes.NotFound, "no user")).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-signup-1", at))
+	})
+
+	t.Run("succeeds and records nothing for a User deleted after it was read", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(apperr.New(codes.NotFound, "deleted")).Once()
+
+		assert.NoError(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at))
+	})
+
+	// @spec components/usecase/user/record-login "Store unavailable"
+	t.Run("fails with Unavailable when the store is unavailable", func(t *testing.T) {
+		t.Parallel()
+		d := newUserPasskeyTestDeps(t)
+		d.repo.EXPECT().GetByProviderUserID(mock.Anything, "zitadel-fan-1").Return(passkeyFan, nil).Once()
+		d.repo.EXPECT().RecordLogin(mock.Anything, "user-1", at).Return(apperr.New(codes.Unavailable, "database down")).Once()
+
+		assert.ErrorIs(t, d.uc.RecordLogin(ctx, "zitadel-fan-1", at), apperr.ErrUnavailable)
 	})
 }

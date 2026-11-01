@@ -7,7 +7,9 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -16,7 +18,8 @@ import (
 // makes a Pending Order Paid and stores its N tickets and its Held settlement
 // atomically in one transaction, and completes a source checkout.
 type IssuanceRepository struct {
-	db *Database
+	db     *Database
+	outbox Announcer
 }
 
 // Compile-time interface compliance check.
@@ -78,8 +81,8 @@ const (
 )
 
 // NewIssuanceRepository creates a new issuance repository instance.
-func NewIssuanceRepository(db *Database) *IssuanceRepository {
-	return &IssuanceRepository{db: db}
+func NewIssuanceRepository(db *Database, outbox Announcer) *IssuanceRepository {
+	return &IssuanceRepository{db: db, outbox: outbox}
 }
 
 // Issue makes the Pending Order Paid and stores its N tickets and its Held
@@ -90,6 +93,11 @@ func NewIssuanceRepository(db *Database) *IssuanceRepository {
 //
 // settlement is required (non-nil); the caller resolves the event's Organizer
 // before calling Issue so the Order is never Paid without its payout record.
+//
+// # Announces
+//
+// ORDER.paid with the Order as Paid, in the transaction of the issuance.
+// Nothing when Issue fails, including with AlreadyExists.
 func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement) error {
 	attrs := []slog.Attr{slog.String("order_id", string(order.ID))}
 	if !order.CanBePaid() {
@@ -165,6 +173,11 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		}
 	}
 
+	paid := *order
+	paid.Status = entity.OrderStatusPaid
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, messaging.Announcement{Payload: pb.FromOrder(&paid)}); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit issuance transaction", attrs...)
 	}

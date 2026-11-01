@@ -89,6 +89,9 @@ var organizerWrites = map[string]organizerTableWrites{
 	"seat_types":         {insert: true, delete: true},
 	"ticket_stocks":      {insert: true},
 	"ticket_sale_events": {insert: true},
+	// 20261030130100_grant_events_outbox_inserts.sql: announcements of
+	// SeriesImage.Create, Series.PublishEvents and Organizer.AssociateArtist.
+	"watermill_events_outbox": {insert: true},
 }
 
 // receptionTableAccess is the access of the reception-api role to one app
@@ -111,7 +114,9 @@ var receptionAccess = map[string]receptionTableAccess{
 	"wallet_public_keys": {selects: true},
 	"tickets":            {selects: true, updateColumns: []string{"admit_at"}},
 	"admissions":         {selects: true, insert: true},
-	"rejected_scans":     {insert: true},
+	// 20261030130100_grant_events_outbox_inserts.sql: the announcement of Ticket.Admit.
+	"watermill_events_outbox": {insert: true},
+	"rejected_scans":          {insert: true},
 }
 
 // TestMigrationGrants_IAMRoles applies every Atlas migration to a scratch
@@ -232,9 +237,12 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 		}
 	})
 
-	t.Run("only fan-api reaches the workflow tables in schema dbos", func(t *testing.T) {
+	// fan-api runs and starts workflows; backend-app (the event consumer and
+	// the jobs) and admin-console-api start them
+	// (20261031090000_grant_dbos_to_backend_app_and_admin_console_api.sql).
+	t.Run("only fan-api, backend-app and admin-console-api reach the workflow tables in schema dbos", func(t *testing.T) {
 		for _, role := range append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...) {
-			want := role == "fan-api@test.iam"
+			want := role == "fan-api@test.iam" || role == "backend-app@test.iam" || role == "admin-console-api@test.iam"
 			assert.Equal(t, want, hasSchemaPrivilege(t, ctx, conn, role, "dbos", "USAGE"), "USAGE on schema dbos for %s", role)
 			assert.Equal(t, want, hasTablePrivilegeIn(t, ctx, conn, role, "dbos", "workflow_status", "SELECT"), "SELECT on dbos.workflow_status for %s", role)
 		}

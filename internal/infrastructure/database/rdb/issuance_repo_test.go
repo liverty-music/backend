@@ -1,6 +1,7 @@
 package rdb_test
 
 import (
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func wonEntry(t *testing.T, count int) (*entity.LotteryEntry, *stockFixture) {
 func issuanceCheckout(t *testing.T, captured bool) (*entity.Checkout, *stockFixture) {
 	t.Helper()
 	ctx := context.Background()
-	repo := rdb.NewCheckoutRepository(testDB)
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
 	f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
 	start := saleWindowStart.Add(time.Hour)
 	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, newUserID(t), 2, nil, start)
@@ -94,11 +95,11 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 	}
 	cleanDatabase(t)
 	ctx := context.Background()
-	issuance := rdb.NewIssuanceRepository(testDB)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 	orders := rdb.NewOrderRepository(testDB)
-	tickets := rdb.NewTicketRepository(testDB)
+	tickets := rdb.NewTicketRepository(testDB, testOutbox)
 	settlements := rdb.NewSettlementRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 
 	// assertUnissued asserts the Order is still Pending with no Ticket and no
 	// Settlement.
@@ -165,6 +166,53 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 		gotCheckout, err := checkouts.Get(ctx, c.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.CheckoutStatusCompleted, gotCheckout.Status)
+	})
+
+	paidOf := func(t *testing.T, mark int64, orderID entity.OrderID) []*entityv1.Order {
+		t.Helper()
+		return announcedSince(t, mark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
+			func(o *entityv1.Order) bool { return o.GetId().GetValue() == string(orderID) })
+	}
+
+	t.Run("order paid", func(t *testing.T) {
+		// @spec components/entity/order/issue "Order paid"
+		c, f := issuanceCheckout(t, true)
+		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		mark := outboxMark(t)
+
+		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
+
+		got := paidOf(t, mark, order.ID)
+		require.Len(t, got, 1)
+		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, got[0].GetStatus())
+	})
+
+	t.Run("order already paid", func(t *testing.T) {
+		// @spec components/entity/order/issue "Order already paid"
+		c, f := issuanceCheckout(t, true)
+		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
+		mark := outboxMark(t)
+
+		again, againTickets, againSettlement := issuanceOf(t, c.Order, f.EventID)
+		err := issuance.Issue(ctx, again, againTickets, againSettlement)
+
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+		assert.Empty(t, paidOf(t, mark, order.ID))
+	})
+
+	t.Run("paid announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/order/issue "Announcement cannot be recorded"
+		c, f := issuanceCheckout(t, true)
+		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+
+		err := rdb.NewIssuanceRepository(testDB, failingOutbox{}).Issue(ctx, order, issued, settlement)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assertUnissued(t, c.Order)
+		gotCheckout, err := checkouts.Get(ctx, c.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CheckoutStatusCommitted, gotCheckout.Status, "the checkout stays Committed")
 	})
 
 	t.Run("checkout not charged", func(t *testing.T) {
@@ -319,7 +367,7 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 	}
 	cleanDatabase(t)
 	ctx := context.Background()
-	issuance := rdb.NewIssuanceRepository(testDB)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
 
 	// awaiting lists the work-list now.
 	awaiting := func(t *testing.T) []entity.LotteryEntryID {
