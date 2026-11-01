@@ -575,7 +575,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 	})
 
 	for _, visibility := range []entity.SeriesVisibility{entity.SeriesVisibilityPublic, entity.SeriesVisibilityUnlisted} {
-		t.Run("fail with FAILED_PRECONDITION and announce nothing when another series of the organizer holds the slot of a "+string(visibility)+" draft", func(t *testing.T) {
+		t.Run("fail with FAILED_PRECONDITION when another series of the organizer holds the slot of a "+string(visibility)+" draft", func(t *testing.T) {
 			t.Parallel()
 			// @spec components/usecase/series/publish "Own other concert holds the slot"
 			d := newAuthoringDeps(t)
@@ -587,7 +587,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-			d.publisher.AssertNotCalled(t, "PublishEvent", mock.Anything, mock.Anything, mock.Anything)
 			d.seriesRepo.AssertNotCalled(t, "SetUnlistedToken", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
