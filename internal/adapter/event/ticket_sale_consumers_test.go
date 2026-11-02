@@ -1,67 +1,43 @@
 package event_test
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill/message"
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// ----- helpers -----
-
-func makeTicketSaleDiscoveredMsg(t *testing.T, data entity.TicketSaleDiscoveredData) *message.Message {
-	t.Helper()
-	payload, err := json.Marshal(data)
-	require.NoError(t, err)
-	return message.NewMessage("test-id", payload)
-}
-
-// ----- TicketSaleAnnouncementConsumer tests -----
 
 func TestTicketSaleAnnouncementConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
-	validData := entity.TicketSaleDiscoveredData{
-		TicketSaleID:  "sale-001",
-		SeriesID:      "series-001",
-		Method:        int16(entity.TicketSaleMethodLottery),
-		SaleStartTime: time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC),
+	start := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	sale := &entityv1.TicketSale{
+		Id:            &entityv1.TicketSaleId{Value: "sale-001"},
+		SeriesId:      &entityv1.SeriesId{Value: "series-001"},
+		Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY,
+		SaleStartTime: timestamppb.New(start),
 	}
-
-	t.Run("delegates to use case on success", func(t *testing.T) {
-		t.Parallel()
-
-		uc := ucmocks.NewMockTicketSaleAnnouncementUseCase(t)
-		uc.On("AnnounceDiscoveredSale", context.Background(), validData).Return(nil)
-
-		handler := event.NewTicketSaleAnnouncementConsumer(uc, newTestLogger(t))
-		msg := makeTicketSaleDiscoveredMsg(t, validData)
-		msg.SetContext(context.Background())
-
-		err := handler.Handle(msg)
-		require.NoError(t, err)
-	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
 		t.Parallel()
 
 		uc := ucmocks.NewMockTicketSaleAnnouncementUseCase(t)
-		uc.On("AnnounceDiscoveredSale", context.Background(), validData).
-			Return(fmt.Errorf("push failed"))
+		uc.EXPECT().AnnounceDiscoveredSale(anyCtx, entity.TicketSaleDiscoveredData{
+			TicketSaleID:  "sale-001",
+			SeriesID:      "series-001",
+			Method:        int16(entity.TicketSaleMethodLottery),
+			SaleStartTime: start,
+		}).Return(fmt.Errorf("push failed")).Once()
 
 		handler := event.NewTicketSaleAnnouncementConsumer(uc, newTestLogger(t))
-		msg := makeTicketSaleDiscoveredMsg(t, validData)
-		msg.SetContext(context.Background())
 
-		err := handler.Handle(msg)
+		err := handler.Handle(makeAnnouncementMsg(t, "announcement-1", "", sale))
 		assert.Error(t, err)
 	})
 
@@ -71,10 +47,7 @@ func TestTicketSaleAnnouncementConsumer_Handle(t *testing.T) {
 		uc := ucmocks.NewMockTicketSaleAnnouncementUseCase(t)
 		handler := event.NewTicketSaleAnnouncementConsumer(uc, newTestLogger(t))
 
-		msg := message.NewMessage("bad-id", []byte("not json"))
-		msg.SetContext(context.Background())
-
-		err := handler.Handle(msg)
+		err := handler.Handle(malformedMsg())
 		assert.Error(t, err)
 	})
 }

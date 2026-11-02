@@ -8,7 +8,6 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -60,16 +59,8 @@ func (h *SeriesImageConsumer) Handle(msg *message.Message) error {
 
 // parseSeriesImageUploaded returns the SeriesImage and the Series of a
 // processing request: from the SeriesImage payload and ce_subject when it was
-// recorded by SeriesImage.Create, or from the JSON of a request published
-// before the outbox.
+// recorded by SeriesImage.Create.
 func parseSeriesImageUploaded(msg *message.Message) (seriesImageID, seriesID string, err error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.SeriesImageUploadedData
-		if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-			return "", "", err
-		}
-		return data.SeriesImageID, data.SeriesID, nil
-	}
 	var img entityv1.SeriesImage
 	if err := messaging.ParseProtobufData(msg, &img); err != nil {
 		return "", "", err

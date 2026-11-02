@@ -32,7 +32,7 @@ This repo is one of four under `liverty-music/`: `specification` (proto schema +
 
 ## Entity Tags
 
-Entity types in `internal/entity/` are pure structs without struct tags, with one exception. Wire contracts carry `json` tags in `internal/entity`: the JSON event payloads of `internal/entity/event_data.go` that receivers still read from messages published before the outbox (deleted with them), the inputs of workflows recorded as JSON (`ConcertDiscoveredData` and the types it embeds, `TicketSaleReminderDueData`, `UserPasskeyChangedData`) and the Web Push `NotificationPayload`. The tags pin the field names so renaming a Go field cannot silently break a recorded workflow input or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
+Entity types in `internal/entity/` are pure structs without struct tags, with one exception. Wire contracts carry `json` tags in `internal/entity`: the inputs of workflows recorded as JSON (`ConcertDiscoveredData` and the types it embeds, `TicketSaleReminderDueData`, `UserPasskeyChangedData`) and the Web Push `NotificationPayload`. The tags pin the field names so renaming a Go field cannot silently break a recorded workflow input or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
 
 ## Announcements
 
@@ -41,7 +41,7 @@ A fact is announced by the entity operation that stores it, in the same transact
 - An operation announces only when it changed something (a guard, rows affected, `RETURNING`), so a retried call or a redelivered message announces nothing a second time. A failure to record the announcement fails the operation with Unavailable and stores nothing.
 - The payload is the changed entity as its `entity/v1` message in binary protobuf (`internal/adapter/pb`; the `ForAnnouncement` variants clear a User's full name, phone number and identity-provider display name and a PushSubscription's push address and keys, which no announcement carries; an email address and the rest of the entity, an Order's payment details included, are carried), or a list message of one entity type; what the announcement is about, when the payload does not say it, is `ce_subject`. Each announcement gets a UUIDv7 id, its `ce_id`, the same on every delivery.
 - Every repository method that announces says so in a `# Announces` section of its Go doc: the subject, the payload and when nothing is announced.
-- A receiver decodes by `ce_datacontenttype` (protobuf, or the JSON of a message published before the outbox), reads values not on the entity by id, and names its own guard against a repeated delivery (a send time, a unique key, a workflow named after the announcement id, PostHog's `uuid`).
+- A receiver decodes the protobuf payload, reads values not on the entity by id, and names its own guard against a repeated delivery (a send time, a unique key, a workflow named after the announcement id, PostHog's `uuid`).
 - A request for one receiver with no stored change behind it is not an announcement: the requester starts the receiver's workflow through `usecase.Workflows`, named `<workflow name>:<business key>`, so a repeated request starts nothing new. When every call is a new request (an email verification resend, a passkey recovery link), the key is a fresh id per allowed call and the requester's rate limit bounds how often it runs.
 
 ## Key Technical Decisions

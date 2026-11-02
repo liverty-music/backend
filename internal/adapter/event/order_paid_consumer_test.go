@@ -2,7 +2,6 @@ package event_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -20,28 +19,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// orderPaid is what the receivers read from paidOrder: the event is the one
+// of its TicketStock.
 var orderPaid = entity.OrderPaidData{
 	OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2,
-	Amount: 6000, Currency: "JPY", CheckoutID: "checkout-1",
+	Amount: 6000, Currency: "JPY",
 }
 
-func makeOrderPaidMsg(t *testing.T, data entity.OrderPaidData) *message.Message {
+// paidOrder is the ORDER.paid announcement of orderPaid.
+func paidOrder() *entityv1.Order {
+	return &entityv1.Order{
+		Id:            &entityv1.OrderId{Value: orderPaid.OrderID},
+		UserId:        &entityv1.UserId{Value: orderPaid.UserID},
+		TicketStockId: &entityv1.TicketStockId{Value: "stock-1"},
+		TicketCount:   int32(orderPaid.TicketCount),
+		Amount:        orderPaid.Amount,
+		Currency:      orderPaid.Currency,
+	}
+}
+
+func makeOrderPaidMsg(t *testing.T) *message.Message {
 	t.Helper()
-	payload, err := json.Marshal(data)
-	require.NoError(t, err)
-	return message.NewMessage(data.OrderID, payload)
+	return makeAnnouncementMsg(t, "announcement-1", "", paidOrder())
 }
 
 func TestOrderPaidConsumer(t *testing.T) {
 	t.Parallel()
 
-	t.Run("sends the order confirmation", func(t *testing.T) {
+	t.Run("sends the confirmation of the announced Order with the event of its TicketStock", func(t *testing.T) {
 		t.Parallel()
 		notifications := ucmocks.NewMockNotificationUseCase(t)
-		consumer := event.NewOrderPaidConsumer(notifications, ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
 		notifications.EXPECT().SendOrderConfirmation(anyCtx, orderPaid).Return(nil).Once()
+		consumer := event.NewOrderPaidConsumer(notifications, ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
 
-		assert.NoError(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t, orderPaid)))
+		assert.NoError(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t)))
 	})
 
 	t.Run("a failed confirmation is returned for redelivery", func(t *testing.T) {
@@ -50,24 +61,33 @@ func TestOrderPaidConsumer(t *testing.T) {
 		consumer := event.NewOrderPaidConsumer(notifications, ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
 		notifications.EXPECT().SendOrderConfirmation(anyCtx, orderPaid).Return(errors.New("postmark down"))
 
-		assert.Error(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t, orderPaid)))
+		assert.Error(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t)))
 	})
 
-	t.Run("marks the ticket journey paid", func(t *testing.T) {
+	t.Run("marks the fan's journey for the event of its TicketStock paid", func(t *testing.T) {
 		t.Parallel()
 		journeys := ucmocks.NewMockTicketJourneyUseCase(t)
-		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), journeys, stubStocks{}, newTestLogger(t))
 		journeys.EXPECT().MarkPaid(anyCtx, orderPaid).Return(nil).Once()
+		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), journeys, stubStocks{}, newTestLogger(t))
 
-		assert.NoError(t, consumer.HandleMarkPaid(makeOrderPaidMsg(t, orderPaid)))
+		assert.NoError(t, consumer.HandleMarkPaid(makeOrderPaidMsg(t)))
+	})
+
+	t.Run("an Order without a TicketStock is an error", func(t *testing.T) {
+		t.Parallel()
+		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
+		order := paidOrder()
+		order.TicketStockId = nil
+
+		assert.Error(t, consumer.HandleMarkPaid(makeAnnouncementMsg(t, "announcement-1", "", order)))
 	})
 
 	t.Run("a malformed message is an error", func(t *testing.T) {
 		t.Parallel()
 		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
 
-		assert.Error(t, consumer.HandleMarkPaid(message.NewMessage("x", []byte("not json"))))
-		assert.Error(t, consumer.HandleSendOrderConfirmation(message.NewMessage("x", []byte("not json"))))
+		assert.Error(t, consumer.HandleMarkPaid(malformedMsg()))
+		assert.Error(t, consumer.HandleSendOrderConfirmation(malformedMsg()))
 	})
 }
 
@@ -137,8 +157,8 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	consumer := event.NewOrderPaidConsumer(notificationUC, journeyUC, stubStocks{}, logger)
 
 	for range 2 {
-		require.NoError(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t, orderPaid)))
-		require.NoError(t, consumer.HandleMarkPaid(makeOrderPaidMsg(t, orderPaid)))
+		require.NoError(t, consumer.HandleSendOrderConfirmation(makeOrderPaidMsg(t)))
+		require.NoError(t, consumer.HandleMarkPaid(makeOrderPaidMsg(t)))
 	}
 
 	assert.Equal(t, 1, emails, "a redelivery produces one email")
@@ -155,51 +175,4 @@ type stubStocks struct{}
 
 func (stubStocks) Get(_ context.Context, id entity.TicketStockID, _ time.Time) (*entity.TicketStock, error) {
 	return &entity.TicketStock{ID: id, EventID: "event-1"}, nil
-}
-
-// paidOrder is the ORDER.paid announcement of orderPaid.
-func paidOrder() *entityv1.Order {
-	return &entityv1.Order{
-		Id:            &entityv1.OrderId{Value: orderPaid.OrderID},
-		UserId:        &entityv1.UserId{Value: orderPaid.UserID},
-		TicketStockId: &entityv1.TicketStockId{Value: "stock-1"},
-		TicketCount:   int32(orderPaid.TicketCount),
-		Amount:        orderPaid.Amount,
-		Currency:      orderPaid.Currency,
-	}
-}
-
-func TestOrderPaidConsumer_Protobuf(t *testing.T) {
-	t.Parallel()
-	// The Order carries no event and no checkout: the event is read from its
-	// TicketStock.
-	want := orderPaid
-	want.CheckoutID = ""
-
-	t.Run("sends the confirmation of the announced Order with the event of its TicketStock", func(t *testing.T) {
-		t.Parallel()
-		notifications := ucmocks.NewMockNotificationUseCase(t)
-		notifications.EXPECT().SendOrderConfirmation(anyCtx, want).Return(nil).Once()
-		consumer := event.NewOrderPaidConsumer(notifications, ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
-
-		assert.NoError(t, consumer.HandleSendOrderConfirmation(makeAnnouncementMsg(t, "announcement-1", "", paidOrder())))
-	})
-
-	t.Run("marks the fan's journey for the event of its TicketStock paid", func(t *testing.T) {
-		t.Parallel()
-		journeys := ucmocks.NewMockTicketJourneyUseCase(t)
-		journeys.EXPECT().MarkPaid(anyCtx, want).Return(nil).Once()
-		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), journeys, stubStocks{}, newTestLogger(t))
-
-		assert.NoError(t, consumer.HandleMarkPaid(makeAnnouncementMsg(t, "announcement-1", "", paidOrder())))
-	})
-
-	t.Run("an Order without a TicketStock is an error", func(t *testing.T) {
-		t.Parallel()
-		consumer := event.NewOrderPaidConsumer(ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), stubStocks{}, newTestLogger(t))
-		order := paidOrder()
-		order.TicketStockId = nil
-
-		assert.Error(t, consumer.HandleMarkPaid(makeAnnouncementMsg(t, "announcement-1", "", order)))
-	})
 }

@@ -1,17 +1,14 @@
 package event_test
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
@@ -41,16 +38,6 @@ func TestUserConsumer_Handle(t *testing.T) {
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", newUser)))
 	})
 
-	t.Run("reads the JSON of a USER.created published before the outbox", func(t *testing.T) {
-		t.Parallel()
-		users := ucmocks.NewMockUserUseCase(t)
-		users.EXPECT().StartSendVerification(anyCtx, "json-1", userID).Return(nil).Once()
-		payload, err := json.Marshal(entity.UserCreatedData{UserID: userID, ProviderUserID: "zitadel-user-001"})
-		require.NoError(t, err)
-
-		assert.NoError(t, event.NewUserConsumer(users, newTestLogger(t)).Handle(message.NewMessage("json-1", payload)))
-	})
-
 	t.Run("returns a failed start for a retry", func(t *testing.T) {
 		t.Parallel()
 		users := ucmocks.NewMockUserUseCase(t)
@@ -63,6 +50,6 @@ func TestUserConsumer_Handle(t *testing.T) {
 		t.Parallel()
 		consumer := event.NewUserConsumer(ucmocks.NewMockUserUseCase(t), newTestLogger(t))
 
-		assert.Error(t, consumer.Handle(message.NewMessage("x", []byte("not json"))))
+		assert.Error(t, consumer.Handle(malformedMsg()))
 	})
 }

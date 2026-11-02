@@ -6,7 +6,6 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -40,16 +39,8 @@ func (h *UserConsumer) Handle(msg *message.Message) error {
 	return nil
 }
 
-// parseUserCreated returns the new User of a USER.created announcement, or of
-// the JSON of one published before the outbox.
+// parseUserCreated returns the new User of a USER.created announcement.
 func parseUserCreated(msg *message.Message) (string, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.UserCreatedData
-		if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-			return "", err
-		}
-		return data.UserID, nil
-	}
 	var user entityv1.User
 	if err := messaging.ParseProtobufData(msg, &user); err != nil {
 		return "", err

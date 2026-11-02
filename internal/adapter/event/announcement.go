@@ -11,8 +11,8 @@ import (
 )
 
 // announcementID returns the id of the announcement msg carries: its
-// CloudEvents id, the same on every delivery, or the message UUID of a JSON
-// message published before the outbox.
+// CloudEvents id, the same on every delivery, or the message UUID when the
+// message has no ce_id.
 func announcementID(msg *message.Message) string {
 	if id := msg.Metadata.Get("ce_id"); id != "" {
 		return id
@@ -20,56 +20,39 @@ func announcementID(msg *message.Message) string {
 	return msg.UUID
 }
 
-// parseArtistCreated reads an ARTIST.created announcement: the new Artist, or
-// the JSON of one published before the outbox.
-func parseArtistCreated(msg *message.Message) (entity.ArtistCreatedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ArtistCreatedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
+// parseArtistCreated reads an ARTIST.created announcement: the new Artist.
+func parseArtistCreated(msg *message.Message) (artistCreated, error) {
 	var artist entityv1.Artist
 	if err := messaging.ParseProtobufData(msg, &artist); err != nil {
-		return entity.ArtistCreatedData{}, err
+		return artistCreated{}, err
 	}
-	data := entity.ArtistCreatedData{
+	data := artistCreated{
 		ArtistID:   artist.GetId().GetValue(),
 		ArtistName: artist.GetName().GetValue(),
 		MBID:       artist.GetMbid().GetValue(),
 	}
 	if data.ArtistID == "" {
-		return entity.ArtistCreatedData{}, errors.New("the Artist has no id")
+		return artistCreated{}, errors.New("the Artist has no id")
 	}
 	return data, nil
 }
 
-// parseArtistFollowed reads an ARTIST.followed announcement: the new Follow,
-// or the JSON of one published before the outbox.
-func parseArtistFollowed(msg *message.Message) (entity.ArtistFollowedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ArtistFollowedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
+// parseArtistFollowed reads an ARTIST.followed announcement: the new Follow.
+func parseArtistFollowed(msg *message.Message) (artistFollowed, error) {
 	var follow entityv1.Follow
 	if err := messaging.ParseProtobufData(msg, &follow); err != nil {
-		return entity.ArtistFollowedData{}, err
+		return artistFollowed{}, err
 	}
-	data := entity.ArtistFollowedData{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
+	data := artistFollowed{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
 	if data.ArtistID == "" {
-		return entity.ArtistFollowedData{}, errors.New("the Follow names no Artist")
+		return artistFollowed{}, errors.New("the Follow names no Artist")
 	}
 	return data, nil
 }
 
 // parseTicketSaleDiscovered reads a SALES_PHASE.discovered announcement: the
-// new TicketSale, or the JSON of one published before the outbox.
+// new TicketSale.
 func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscoveredData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.TicketSaleDiscoveredData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var sale entityv1.TicketSale
 	if err := messaging.ParseProtobufData(msg, &sale); err != nil {
 		return entity.TicketSaleDiscoveredData{}, err
@@ -87,14 +70,8 @@ func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscovere
 }
 
 // parseResaleListingRefunded reads an ORDER.resale_listing_refunded
-// announcement: the refunded ResaleListing, or the JSON of one published
-// before the outbox.
+// announcement: the refunded ResaleListing.
 func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefundedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ResaleListingRefundedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var listing entityv1.ResaleListing
 	if err := messaging.ParseProtobufData(msg, &listing); err != nil {
 		return entity.ResaleListingRefundedData{}, err
@@ -109,4 +86,24 @@ func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefun
 		return entity.ResaleListingRefundedData{}, errors.New("the ResaleListing has no id")
 	}
 	return data, nil
+}
+
+// artistCreated is what the receivers of an ARTIST.created announcement
+// read from the new Artist.
+type artistCreated struct {
+	// ArtistID is the internal UUID of the artist.
+	ArtistID string
+	// ArtistName is the display name of the artist.
+	ArtistName string
+	// MBID is the MusicBrainz identifier for canonical identity.
+	MBID string
+}
+
+// artistFollowed is what the receivers of an ARTIST.followed announcement
+// read from the new Follow.
+type artistFollowed struct {
+	// UserID is the platform-internal user identifier of the follower.
+	UserID string
+	// ArtistID is the internal UUID of the followed artist.
+	ArtistID string
 }

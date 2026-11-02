@@ -136,7 +136,7 @@ func (s *pullSubscriber) Subscribe(ctx context.Context, topic string) (<-chan *m
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		// Build a watermill message. The payload stays equal to m.Data() so
-		// handlers that call messaging.ParseCloudEventData receive the raw bytes.
+		// handlers that call messaging.ParseProtobufData receive the raw bytes.
 		// Copy JetStream headers into watermill Metadata for completeness.
 		wmMsg := message.NewMessage(watermill.NewUUID(), m.Data())
 		for k, vals := range m.Headers() {

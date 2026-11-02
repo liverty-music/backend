@@ -1,13 +1,9 @@
 package messaging
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -18,37 +14,6 @@ const (
 	// CloudEvents source for all events emitted by this service.
 	source = "liverty-music/backend"
 )
-
-// NewEvent creates a Watermill message with structured metadata, using one
-// new UUIDv7 as both the CloudEvent id and the Watermill message UUID. The
-// caller's trace context is attached to the message so that downstream
-// consumers can continue the same distributed trace. The data payload is
-// JSON-encoded into the message body.
-func NewEvent(ctx context.Context, data any) (*message.Message, error) {
-	id := uuid.Must(uuid.NewV7()).String()
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal event data: %w", err)
-	}
-
-	msg := message.NewMessage(id, payload)
-	msg.SetContext(ctx)
-
-	msg.Metadata.Set("ce_specversion", specVersion)
-	msg.Metadata.Set("ce_source", source)
-	msg.Metadata.Set("ce_id", id)
-	msg.Metadata.Set("ce_time", time.Now().UTC().Format(time.RFC3339))
-	msg.Metadata.Set("ce_datacontenttype", "application/json")
-
-	return msg, nil
-}
-
-// IsProtobuf reports whether msg carries a binary protobuf payload, as every
-// announcement recorded in the outbox does; otherwise it carries the JSON of
-// a message published before the outbox.
-func IsProtobuf(msg *message.Message) bool {
-	return msg.Metadata.Get("ce_datacontenttype") == ContentTypeProtobuf
-}
 
 // ParseProtobufData unmarshals the binary protobuf payload of msg into
 // target.
@@ -63,13 +28,4 @@ func ParseProtobufData(msg *message.Message, target proto.Message) error {
 // message is about when the payload does not name it, or empty.
 func CloudEventSubject(msg *message.Message) string {
 	return msg.Metadata.Get("ce_subject")
-}
-
-// ParseCloudEventData extracts and unmarshals the JSON data from a Watermill message
-// into the provided target struct.
-func ParseCloudEventData(msg *message.Message, target any) error {
-	if err := json.Unmarshal(msg.Payload, target); err != nil {
-		return fmt.Errorf("unmarshal event data: %w", err)
-	}
-	return nil
 }
