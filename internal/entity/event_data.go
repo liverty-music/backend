@@ -189,26 +189,6 @@ func SumSeriesEvents(series []*DiscoveredSeries) int {
 	return n
 }
 
-// ArtistCreatedData is what the receivers of an ARTIST.created announcement
-// read from the new Artist.
-type ArtistCreatedData struct {
-	// ArtistID is the internal UUID of the artist.
-	ArtistID string
-	// ArtistName is the display name of the artist.
-	ArtistName string
-	// MBID is the MusicBrainz identifier for canonical identity.
-	MBID string
-}
-
-// ArtistFollowedData is what the receivers of an ARTIST.followed announcement
-// read from the new Follow.
-type ArtistFollowedData struct {
-	// UserID is the platform-internal user identifier of the follower.
-	UserID string
-	// ArtistID is the internal UUID of the followed artist.
-	ArtistID string
-}
-
 // TicketSaleDiscoveredData is what the receiver of a SALES_PHASE.discovered
 // announcement reads from the new discovered TicketSale. It is announced only
 // when a new discovered TicketSale is created (UpsertOutcomeInserted); an
@@ -241,44 +221,4 @@ type TicketSaleReminderDueData struct {
 	// Built per-recipient so times render in the user's timezone and copy
 	// is selected by preferred_language.
 	Payload *NotificationPayload `json:"payload"`
-}
-
-// LotteryEntryDrawnData is what the analytics consumer reads from an
-// ORDER.lottery_entry_drawn announcement and the entry's Order: ids only,
-// never personal data. It is forwarded as the catalogue event
-// ticket.lottery.result.
-type LotteryEntryDrawnData struct {
-	// LotteryEntryID is the drawn entry.
-	LotteryEntryID string
-	// UserID is the platform-internal id of the entry's fan.
-	UserID string
-	// TicketSaleID is the drawn Lottery sale.
-	TicketSaleID string
-	// TicketStockID is the TicketStock the entry's Order was for.
-	TicketStockID string
-	// Result is the entry's result, "won" or "lost" ([LotteryEntryState]
-	// String).
-	Result string
-	// CaptureFailed is true for a loss that came from a failed capture of a
-	// drawn winner's card authorization.
-	CaptureFailed bool
-	// DrawTime is when the draw ran, the time the fact happened.
-	DrawTime time.Time
-}
-
-// CheckoutExpiredData is what the analytics consumer reads from an
-// ORDER.checkout_expired announcement and the Checkout's Order: ids and
-// counts only. It is forwarded as the catalogue event checkout.expired.
-type CheckoutExpiredData struct {
-	// CheckoutID is the expired Checkout.
-	CheckoutID string
-	// UserID is the platform-internal id of the Checkout's fan.
-	UserID string
-	// TicketStockID is the TicketStock the Checkout held.
-	TicketStockID string
-	// TicketCount is the number of tickets the Checkout held.
-	TicketCount int
-	// HoldExpireTime is when the Checkout's hold lapsed, the time the fact
-	// happened.
-	HoldExpireTime time.Time
 }

@@ -21,31 +21,31 @@ func announcementID(msg *message.Message) string {
 }
 
 // parseArtistCreated reads an ARTIST.created announcement: the new Artist.
-func parseArtistCreated(msg *message.Message) (entity.ArtistCreatedData, error) {
+func parseArtistCreated(msg *message.Message) (artistCreated, error) {
 	var artist entityv1.Artist
 	if err := messaging.ParseProtobufData(msg, &artist); err != nil {
-		return entity.ArtistCreatedData{}, err
+		return artistCreated{}, err
 	}
-	data := entity.ArtistCreatedData{
+	data := artistCreated{
 		ArtistID:   artist.GetId().GetValue(),
 		ArtistName: artist.GetName().GetValue(),
 		MBID:       artist.GetMbid().GetValue(),
 	}
 	if data.ArtistID == "" {
-		return entity.ArtistCreatedData{}, errors.New("the Artist has no id")
+		return artistCreated{}, errors.New("the Artist has no id")
 	}
 	return data, nil
 }
 
 // parseArtistFollowed reads an ARTIST.followed announcement: the new Follow.
-func parseArtistFollowed(msg *message.Message) (entity.ArtistFollowedData, error) {
+func parseArtistFollowed(msg *message.Message) (artistFollowed, error) {
 	var follow entityv1.Follow
 	if err := messaging.ParseProtobufData(msg, &follow); err != nil {
-		return entity.ArtistFollowedData{}, err
+		return artistFollowed{}, err
 	}
-	data := entity.ArtistFollowedData{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
+	data := artistFollowed{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
 	if data.ArtistID == "" {
-		return entity.ArtistFollowedData{}, errors.New("the Follow names no Artist")
+		return artistFollowed{}, errors.New("the Follow names no Artist")
 	}
 	return data, nil
 }
@@ -86,4 +86,24 @@ func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefun
 		return entity.ResaleListingRefundedData{}, errors.New("the ResaleListing has no id")
 	}
 	return data, nil
+}
+
+// artistCreated is what the receivers of an ARTIST.created announcement
+// read from the new Artist.
+type artistCreated struct {
+	// ArtistID is the internal UUID of the artist.
+	ArtistID string
+	// ArtistName is the display name of the artist.
+	ArtistName string
+	// MBID is the MusicBrainz identifier for canonical identity.
+	MBID string
+}
+
+// artistFollowed is what the receivers of an ARTIST.followed announcement
+// read from the new Follow.
+type artistFollowed struct {
+	// UserID is the platform-internal user identifier of the follower.
+	UserID string
+	// ArtistID is the internal UUID of the followed artist.
+	ArtistID string
 }

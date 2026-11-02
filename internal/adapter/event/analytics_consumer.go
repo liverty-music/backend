@@ -296,7 +296,7 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 			if err != nil {
 				return fact{}, fmt.Errorf("read the Order of lottery entry %s: %w", e.GetId().GetValue(), err)
 			}
-			return drawnFact(entity.LotteryEntryDrawnData{
+			return drawnFact(lotteryEntryDrawn{
 				LotteryEntryID: e.GetId().GetValue(), UserID: string(order.UserID), TicketSaleID: e.GetTicketSaleId().GetValue(),
 				TicketStockID: string(order.TicketStockID), Result: pb.LotteryEntryStateFromProto(e.GetState()).String(),
 				CaptureFailed: e.GetLostReason() == entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED,
@@ -306,7 +306,7 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 	})
 }
 
-func drawnFact(d entity.LotteryEntryDrawnData) fact {
+func drawnFact(d lotteryEntryDrawn) fact {
 	return fact{distinctID: d.UserID, at: d.DrawTime, props: usecase.AnalyticsProperties{
 		"lottery_entry_id": d.LotteryEntryID,
 		"ticket_sale_id":   d.TicketSaleID,
@@ -327,7 +327,7 @@ func (c *AnalyticsConsumer) HandleCheckoutExpired(msg *message.Message) error {
 			if err != nil {
 				return fact{}, fmt.Errorf("read the Order of checkout %s: %w", co.GetId().GetValue(), err)
 			}
-			return expiredFact(entity.CheckoutExpiredData{
+			return expiredFact(checkoutExpired{
 				CheckoutID: co.GetId().GetValue(), UserID: string(order.UserID), TicketStockID: string(order.TicketStockID),
 				TicketCount: order.TicketCount, HoldExpireTime: co.GetHoldExpireTime().AsTime(),
 			}), nil
@@ -335,7 +335,7 @@ func (c *AnalyticsConsumer) HandleCheckoutExpired(msg *message.Message) error {
 	})
 }
 
-func expiredFact(d entity.CheckoutExpiredData) fact {
+func expiredFact(d checkoutExpired) fact {
 	return fact{distinctID: d.UserID, at: d.HoldExpireTime, props: usecase.AnalyticsProperties{
 		"checkout_id":     d.CheckoutID,
 		"ticket_stock_id": d.TicketStockID,
@@ -465,4 +465,44 @@ func (c *AnalyticsConsumer) recordLag(ctx context.Context, msg *message.Message)
 		return
 	}
 	c.metrics.RecordLag(ctx, time.Since(publishedAt).Seconds())
+}
+
+// lotteryEntryDrawn is what the analytics consumer reads from an
+// ORDER.lottery_entry_drawn announcement and the entry's Order: ids only,
+// never personal data. It is forwarded as the catalogue event
+// ticket.lottery.result.
+type lotteryEntryDrawn struct {
+	// LotteryEntryID is the drawn entry.
+	LotteryEntryID string
+	// UserID is the platform-internal id of the entry's fan.
+	UserID string
+	// TicketSaleID is the drawn Lottery sale.
+	TicketSaleID string
+	// TicketStockID is the TicketStock the entry's Order was for.
+	TicketStockID string
+	// Result is the entry's result, "won" or "lost" ([entity.LotteryEntryState]
+	// String).
+	Result string
+	// CaptureFailed is true for a loss that came from a failed capture of a
+	// drawn winner's card authorization.
+	CaptureFailed bool
+	// DrawTime is when the draw ran, the time the fact happened.
+	DrawTime time.Time
+}
+
+// checkoutExpired is what the analytics consumer reads from an
+// ORDER.checkout_expired announcement and the Checkout's Order: ids and
+// counts only. It is forwarded as the catalogue event checkout.expired.
+type checkoutExpired struct {
+	// CheckoutID is the expired Checkout.
+	CheckoutID string
+	// UserID is the platform-internal id of the Checkout's fan.
+	UserID string
+	// TicketStockID is the TicketStock the Checkout held.
+	TicketStockID string
+	// TicketCount is the number of tickets the Checkout held.
+	TicketCount int
+	// HoldExpireTime is when the Checkout's hold lapsed, the time the fact
+	// happened.
+	HoldExpireTime time.Time
 }
