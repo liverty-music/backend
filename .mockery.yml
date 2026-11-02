@@ -29,6 +29,7 @@ packages:
       IssuanceRepository: {}
       LogoImageFetcher: {}
       LotteryEntryRepository: {}
+      LotteryLossEmailSender: {}
       NotificationRepository: {}
       OfficialSiteResolver: {}
       OrderConfirmationSender: {}

@@ -3,6 +3,7 @@ package entity
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // LotteryEntryID is the opaque identifier for a single LotteryEntry.
@@ -15,6 +16,7 @@ type LotteryEntryID string
 // state.
 //
 //	[*] --> Entered --> Won | Lost
+//	Won --> Lost (the card could not be charged)
 type LotteryEntryState int8
 
 const (
@@ -26,11 +28,13 @@ const (
 	LotteryEntryStateEntered LotteryEntryState = 1
 
 	// LotteryEntryStateWon means the draw allocated tickets to the entry. Its
-	// card authorization is captured.
+	// card authorization is captured afterwards, so its Order is Pending until
+	// it is Paid.
 	LotteryEntryStateWon LotteryEntryState = 2
 
 	// LotteryEntryStateLost means the draw did not allocate tickets to the
-	// entry. Its card authorization is released.
+	// entry, or its win was reverted because its card could not be charged.
+	// Its Order is Void and its card authorization is released.
 	LotteryEntryStateLost LotteryEntryState = 3
 )
 
@@ -97,6 +101,10 @@ type LotteryEntry struct {
 	// LostReason is why the entry lost; unspecified unless State is Lost.
 	LostReason LotteryEntryLostReason
 
+	// LossEmailSendTime is when the email telling the fan the entry lost was
+	// sent; nil until then.
+	LossEmailSendTime *time.Time
+
 	// Order is the Order the entry applies for, read with every entry.
 	Order *Order
 }
@@ -152,39 +160,46 @@ type LotteryEntryStats struct {
 	LostEntryCount int
 }
 
-// DrawWinnerRow carries what persisting one winning draw outcome needs.
-// Built from [RunLotteryDraw]'s result and consumed by
-// [LotteryEntryRepository.PersistDrawOutcome].
-type DrawWinnerRow struct {
-	// LotteryEntryID is the winning entry.
-	LotteryEntryID LotteryEntryID
+// StockDrawOrder is one TicketStock's Entered entries of a sale in their
+// draw order: an entry's draw position is its index in Entries. Built by the
+// draw with [ShuffleDrawOrder] and consumed by
+// [LotteryEntryRepository.PersistDrawOutcome], which admits the entries in
+// that order.
+type StockDrawOrder struct {
+	// TicketStockID is the stock the entries' Orders are of.
+	TicketStockID TicketStockID
 
-	// CardAuthorizationID is the card authorization of the entry's Order,
-	// which the draw captures.
-	CardAuthorizationID string
-
-	// DrawPosition is the entry's zero-based position in the draw order.
-	DrawPosition int
+	// Entries are the stock's entries in draw order, each with its ticket
+	// count.
+	Entries []DrawEntry
 }
 
-// DrawLoserRow carries what persisting one losing draw outcome needs. Built
-// from [RunLotteryDraw]'s result and consumed by
-// [LotteryEntryRepository.PersistDrawOutcome].
-type DrawLoserRow struct {
-	// LotteryEntryID is the losing entry.
-	LotteryEntryID LotteryEntryID
+// LotteryLossEmail is the finished loss message for one LotteryEntry, already
+// rendered in the language of its Order's user.
+type LotteryLossEmail struct {
+	// Subject is the email subject line.
+	Subject string
+	// TextBody is the plain-text email body.
+	TextBody string
+}
 
-	// CardAuthorizationID is the card authorization of the entry's Order,
-	// which the draw releases.
-	CardAuthorizationID string
-
-	// DrawPosition is the entry's zero-based position in the draw order; it
-	// keeps the order of the losers for official resale.
-	DrawPosition int
-
-	// LostReason is why the entry lost: not drawn, or drawn but its card
-	// authorization could not be captured.
-	LostReason LotteryEntryLostReason
+// LotteryLossEmailSender sends a Lost entry's loss email at most once. The
+// implementation lives in internal/infrastructure/mail/.
+//
+// Interfaces are defined where consumed (AGENTS.md rule).
+type LotteryLossEmailSender interface {
+	// SendLossEmail sends msg to the address of the entry's Order's user when
+	// the entry has no loss email send time, then sets that time. When the
+	// time is already set it sends nothing and succeeds. A failure between
+	// sending and recording can lead to a second email on retry; no other
+	// case sends twice.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the address or the message is empty.
+	//   - Unavailable: email cannot be sent; the send time stays unset.
+	//   - NotFound: no entry has the id.
+	SendLossEmail(ctx context.Context, id LotteryEntryID, to string, msg LotteryLossEmail) error
 }
 
 // LotteryEntryRepository persists [LotteryEntry] records together with their
@@ -269,22 +284,55 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	GetStatsByTicketSaleAndTicketStock(ctx context.Context, saleID TicketSaleID, stockID TicketStockID) (LotteryEntryStats, error)
 
-	// PersistDrawOutcome records one sale's draw in one transaction, under the
-	// row lock of every TicketStock it draws, taken in id order: every winner
-	// Won and every loser Lost with its draw position and its Order Void,
-	// across all TicketStocks of the sale's events. A given entry that is no
-	// longer Entered is left unchanged, so recording the same outcome again
-	// changes nothing. On failure nothing is recorded.
+	// PersistDrawOutcome records one sale's draw in one transaction. It takes,
+	// for each TicketStock of the sale's events, the stock's Entered entries of
+	// the sale in draw order, locks every given stock's row in id order, reads
+	// its remaining count under that lock, and walks its entries in that order
+	// once ([AdmitInDrawOrder]): an entry whose ticket count fits the
+	// remaining count is Won and deducts its whole count, every other entry is
+	// Lost with the lost reason not drawn and its Order Void, each with its
+	// draw position. A given entry that is no longer Entered is left unchanged
+	// and deducts nothing, so recording the same draw again changes nothing,
+	// including any entry made Lost since. On failure nothing is recorded.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: saleID is empty.
-	//  - NotFound: the sale does not exist.
-	//  - Internal: database failure.
+	//   - InvalidArgument: saleID is empty.
+	//   - NotFound: the sale or a given stock does not exist.
+	//   - Internal: database failure.
 	//
 	// # Announces
 	//
 	// ORDER.lottery_entry_drawn once per entry it sets Won or Lost, as it is after
 	// the draw, together with the outcome. Nothing for an entry left unchanged.
-	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, winners []DrawWinnerRow, losers []DrawLoserRow) error
+	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder) error
+
+	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
+	// reason card not charged, keeping its draw position, and makes its Order
+	// Void, in one transaction under the row lock of the Order's TicketStock,
+	// so its tickets stay unallocated. An entry already Lost is left as it is.
+	//
+	// # Possible errors
+	//
+	//   - FailedPrecondition: the entry is Entered, or its Order is Paid or
+	//     Refunded; nothing changes.
+	//   - NotFound: no entry has the id.
+	//   - Unavailable: the announcement cannot be recorded; nothing changes.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.lottery_entry_drawn with the entry as it is after the change,
+	// Lost with the lost reason card not charged, together with the change.
+	// Nothing when the entry was already Lost.
+	RevertWin(ctx context.Context, id LotteryEntryID) error
+
+	// MarkLossEmailSent sets the entry's loss email send time when it is
+	// unset; an already set time is kept.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no entry has the id.
+	//   - Internal: database failure.
+	MarkLossEmailSent(ctx context.Context, id LotteryEntryID, at time.Time) error
 }

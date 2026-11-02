@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -539,17 +540,80 @@ func (_c *MockLotteryEntryRepository_ListEnteredByTicketSaleAndTicketStock_Call)
 	return _c
 }
 
+// MarkLossEmailSent provides a mock function for the type MockLotteryEntryRepository
+func (_mock *MockLotteryEntryRepository) MarkLossEmailSent(ctx context.Context, id entity.LotteryEntryID, at time.Time) error {
+	ret := _mock.Called(ctx, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkLossEmailSent")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, time.Time) error); ok {
+		r0 = returnFunc(ctx, id, at)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockLotteryEntryRepository_MarkLossEmailSent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkLossEmailSent'
+type MockLotteryEntryRepository_MarkLossEmailSent_Call struct {
+	*mock.Call
+}
+
+// MarkLossEmailSent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.LotteryEntryID
+//   - at time.Time
+func (_e *MockLotteryEntryRepository_Expecter) MarkLossEmailSent(ctx any, id any, at any) *MockLotteryEntryRepository_MarkLossEmailSent_Call {
+	return &MockLotteryEntryRepository_MarkLossEmailSent_Call{Call: _e.mock.On("MarkLossEmailSent", ctx, id, at)}
+}
+
+func (_c *MockLotteryEntryRepository_MarkLossEmailSent_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID, at time.Time)) *MockLotteryEntryRepository_MarkLossEmailSent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.LotteryEntryID
+		if args[1] != nil {
+			arg1 = args[1].(entity.LotteryEntryID)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_MarkLossEmailSent_Call) Return(err error) *MockLotteryEntryRepository_MarkLossEmailSent_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_MarkLossEmailSent_Call) RunAndReturn(run func(ctx context.Context, id entity.LotteryEntryID, at time.Time) error) *MockLotteryEntryRepository_MarkLossEmailSent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PersistDrawOutcome provides a mock function for the type MockLotteryEntryRepository
-func (_mock *MockLotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, winners []entity.DrawWinnerRow, losers []entity.DrawLoserRow) error {
-	ret := _mock.Called(ctx, saleID, winners, losers)
+func (_mock *MockLotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error {
+	ret := _mock.Called(ctx, saleID, orders)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PersistDrawOutcome")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, []entity.DrawWinnerRow, []entity.DrawLoserRow) error); ok {
-		r0 = returnFunc(ctx, saleID, winners, losers)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, []entity.StockDrawOrder) error); ok {
+		r0 = returnFunc(ctx, saleID, orders)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -564,13 +628,12 @@ type MockLotteryEntryRepository_PersistDrawOutcome_Call struct {
 // PersistDrawOutcome is a helper method to define mock.On call
 //   - ctx context.Context
 //   - saleID entity.TicketSaleID
-//   - winners []entity.DrawWinnerRow
-//   - losers []entity.DrawLoserRow
-func (_e *MockLotteryEntryRepository_Expecter) PersistDrawOutcome(ctx any, saleID any, winners any, losers any) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
-	return &MockLotteryEntryRepository_PersistDrawOutcome_Call{Call: _e.mock.On("PersistDrawOutcome", ctx, saleID, winners, losers)}
+//   - orders []entity.StockDrawOrder
+func (_e *MockLotteryEntryRepository_Expecter) PersistDrawOutcome(ctx any, saleID any, orders any) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+	return &MockLotteryEntryRepository_PersistDrawOutcome_Call{Call: _e.mock.On("PersistDrawOutcome", ctx, saleID, orders)}
 }
 
-func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, winners []entity.DrawWinnerRow, losers []entity.DrawLoserRow)) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder)) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -580,19 +643,14 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx c
 		if args[1] != nil {
 			arg1 = args[1].(entity.TicketSaleID)
 		}
-		var arg2 []entity.DrawWinnerRow
+		var arg2 []entity.StockDrawOrder
 		if args[2] != nil {
-			arg2 = args[2].([]entity.DrawWinnerRow)
-		}
-		var arg3 []entity.DrawLoserRow
-		if args[3] != nil {
-			arg3 = args[3].([]entity.DrawLoserRow)
+			arg2 = args[2].([]entity.StockDrawOrder)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
-			arg3,
 		)
 	})
 	return _c
@@ -603,7 +661,64 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Return(err error) 
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, winners []entity.DrawWinnerRow, losers []entity.DrawLoserRow) error) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RevertWin provides a mock function for the type MockLotteryEntryRepository
+func (_mock *MockLotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID) error {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevertWin")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) error); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockLotteryEntryRepository_RevertWin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevertWin'
+type MockLotteryEntryRepository_RevertWin_Call struct {
+	*mock.Call
+}
+
+// RevertWin is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.LotteryEntryID
+func (_e *MockLotteryEntryRepository_Expecter) RevertWin(ctx any, id any) *MockLotteryEntryRepository_RevertWin_Call {
+	return &MockLotteryEntryRepository_RevertWin_Call{Call: _e.mock.On("RevertWin", ctx, id)}
+}
+
+func (_c *MockLotteryEntryRepository_RevertWin_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID)) *MockLotteryEntryRepository_RevertWin_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.LotteryEntryID
+		if args[1] != nil {
+			arg1 = args[1].(entity.LotteryEntryID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_RevertWin_Call) Return(err error) *MockLotteryEntryRepository_RevertWin_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_RevertWin_Call) RunAndReturn(run func(ctx context.Context, id entity.LotteryEntryID) error) *MockLotteryEntryRepository_RevertWin_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -206,12 +206,11 @@ func stockOrderCounts(t *testing.T, id entity.TicketStockID, at time.Time) (sold
 // held count never exceeds the quantity, no call deadlocks, and the counts
 // read afterwards equal the Orders' ticket counts.
 //
-// The draw records its outcome without checking the remaining count: it was
-// read when the draw ran, and CheckoutUseCase.Start refuses a checkout while
-// a closed lottery of the stock still has Entered entries (design D6). The
-// starts therefore ask for 6, which leaves the winner's 2 tickets free
-// before and after the draw; only one of the two fits, whether or not the
-// revert has given 2 tickets back.
+// The draw admits its entries against the remaining count it reads under the
+// lock (make-lottery-draw-durable). The winner's 2 tickets fit whatever ran
+// before it (at least 2 remain), and the loser's 9 never fit (at most 8
+// remain). The starts ask for 6; only one of the two fits, whether or not
+// the revert has given 2 tickets back.
 func TestTicketStock_ConcurrentPaths(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -220,14 +219,17 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
 	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	stocks := rdb.NewTicketStockRepository(testDB)
-	at := saleWindowStart.Add(time.Hour)
+	// The draw reads the holds at the real time it records, so the story's
+	// time is the real one, with the sale open around it.
+	at := time.Now()
 	const quantity, rounds = 12, 20
 
 	for round := range rounds {
 		setup := context.Background()
 		f := seedStock(t, entity.TicketSaleMethodFirstCome, quantity, 10)
+		setSaleEndByDatabaseClock(t, f.SaleID, 24*time.Hour)
 		lottery := seedSale(t, f.EventID, entity.TicketSaleMethodLottery,
-			saleWindowStart.Add(-10*24*time.Hour), saleWindowStart.Add(-time.Hour))
+			at.Add(-10*24*time.Hour), at.Add(-time.Hour))
 		toCommit, err := checkouts.GetOrCreateHeld(setup, f.ID, f.SaleID, nextFan(t), 2, nil, at)
 		require.NoError(t, err)
 		toRevert, err := checkouts.GetOrCreateHeld(setup, f.ID, f.SaleID, nextFan(t), 2, nil, at)
@@ -235,7 +237,7 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 		_, err = checkouts.Commit(setup, toRevert.ID, at)
 		require.NoError(t, err)
 		winner := seedLotteryEntryInSale(t, f, lottery, seedFanUser(t), entity.LotteryEntryStateEntered, 2)
-		loser := seedLotteryEntryInSale(t, f, lottery, seedFanUser(t), entity.LotteryEntryStateEntered, 2)
+		loser := seedLotteryEntryInSale(t, f, lottery, seedFanUser(t), entity.LotteryEntryStateEntered, 9)
 		fans := []entity.UserID{nextFan(t), nextFan(t)}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -260,9 +262,10 @@ func TestTicketStock_ConcurrentPaths(t *testing.T) {
 		})
 		wg.Go(func() {
 			<-start
-			drawErr = entries.PersistDrawOutcome(ctx, lottery,
-				[]entity.DrawWinnerRow{{LotteryEntryID: winner, CardAuthorizationID: "pi_" + string(winner), DrawPosition: 0}},
-				[]entity.DrawLoserRow{{LotteryEntryID: loser, CardAuthorizationID: "pi_" + string(loser), DrawPosition: 1, LostReason: entity.LotteryEntryLostReasonNotDrawn}})
+			drawErr = entries.PersistDrawOutcome(ctx, lottery, []entity.StockDrawOrder{{
+				TicketStockID: f.ID,
+				Entries:       []entity.DrawEntry{{ID: winner, TicketCount: 2}, {ID: loser, TicketCount: 9}},
+			}})
 		})
 		// A reader samples the counts while the paths run; each read is one
 		// statement, so it sees a consistent snapshot.

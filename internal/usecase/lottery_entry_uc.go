@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -52,7 +51,7 @@ type EventPublishStatePort interface {
 // event it names — open the card authorization for a ticket count, then
 // confirm it into an entry and its Pending Order — shows
 // the fan their entries, and draws every Lottery sale once its window has
-// closed.
+// closed, as workflows run by the workflow worker.
 type LotteryEntryUseCase interface {
 	// AuthorizeCard checks that the fan may enter the Lottery sale for count
 	// tickets of the stock now, stores the fan's full name and phone number on
@@ -113,27 +112,33 @@ type LotteryEntryUseCase interface {
 	//  - NotFound: the sale does not exist.
 	ListByTicketSale(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)
 
-	// DrawDueSales runs [LotteryEntryUseCase.RunDraw] for every Lottery sale due
-	// now. A failed draw is logged and stays due for the next run.
+	// DrawDueSales is the draw-due-sales workflow, run by its schedule every
+	// minute with the time of the run: it lists the Lottery sales due for a
+	// draw at that time and starts the draw workflow of each, named
+	// [DrawWorkflowID], so a sale whose draw is running or ended with an error
+	// is not drawn again. It returns the number of sales listed.
 	//
 	// # Possible errors
 	//
-	//  - Errors of listing the due sales, unchanged; nothing is drawn.
-	DrawDueSales(ctx context.Context) error
+	//  - Errors of listing the due sales or of starting a draw, unchanged.
+	DrawDueSales(ctx context.Context, f Flow, at time.Time) (int, error)
 
-	// RunDraw draws one closed Lottery sale: for each TicketStock of its
-	// events it draws the sale's Entered entries for the stock against the
-	// stock's remaining tickets in an unpredictable order, captures each
-	// winner's card authorization and releases every other, and records the
-	// whole sale's outcome, the Lost entries' Orders Void. A winner whose
-	// capture fails is released and recorded Lost. A sale with no Entered
-	// entry is left as it is. It creates no Ticket.
+	// Draw is the draw workflow of one closed Lottery sale ([WorkflowDraw]):
+	// for each TicketStock of the sale's events it puts the sale's Entered
+	// entries for the stock in an unpredictable order, recorded once, and
+	// records the whole sale's outcome with
+	// [entity.LotteryEntryRepository.PersistDrawOutcome], which admits the
+	// entries in that order against each stock's remaining tickets and
+	// announces each entry it records. A sale with no Entered entry records
+	// nothing. It charges and releases nothing, creates no Ticket and starts
+	// no other workflow. It returns the number of entries it ordered.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: the sale does not exist.
-	//  - Errors of reading the entries or recording the outcome, unchanged.
-	RunDraw(ctx context.Context, saleID entity.TicketSaleID) error
+	//  - Errors of reading the stocks or the entries or of recording the
+	//    outcome, unchanged.
+	Draw(ctx context.Context, f Flow, saleID entity.TicketSaleID) (int, error)
 }
 
 // lotteryUseCase implements [LotteryEntryUseCase].
@@ -402,114 +407,6 @@ func (uc *lotteryEntryUseCase) ListByTicketSale(ctx context.Context, saleID enti
 		return nil, err
 	}
 	return uc.entryRepo.ListByTicketSaleAndUser(ctx, saleID, userID)
-}
-
-// DrawDueSales implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) DrawDueSales(ctx context.Context) error {
-	sales, err := uc.saleRepo.ListDueForDraw(ctx, uc.clock())
-	if err != nil {
-		return err
-	}
-	for _, sale := range sales {
-		if err := uc.RunDraw(ctx, sale.ID); err != nil {
-			// One failed sale must not stop the others; it stays due.
-			uc.logger.Warn(ctx, "draw failed for sale; retrying next run",
-				slog.String("ticket_sale_id", string(sale.ID)),
-				slog.Any("error", err),
-			)
-		}
-	}
-	return nil
-}
-
-// RunDraw implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.TicketSaleID) error {
-	sale, err := uc.saleRepo.Get(ctx, saleID)
-	if err != nil {
-		return err
-	}
-
-	var (
-		winners []entity.DrawWinnerRow
-		losers  []entity.DrawLoserRow
-	)
-	drawTime := uc.clock()
-	for _, eventID := range sale.EventIDs {
-		stocks, err := uc.stockRepo.ListByEvent(ctx, eventID, drawTime)
-		if err != nil {
-			return err
-		}
-		for _, listed := range stocks {
-			entries, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, saleID, listed.ID)
-			if err != nil {
-				return err
-			}
-			if len(entries) == 0 {
-				continue
-			}
-			// The remaining count at the draw excludes the tickets sold or won
-			// in earlier sales of the event and the tickets held now.
-			stock, err := uc.stockRepo.Get(ctx, listed.ID, uc.clock())
-			if err != nil {
-				return err
-			}
-			refs := make(map[entity.LotteryEntryID]string, len(entries))
-			entered := make([]entity.DrawEntry, 0, len(entries))
-			for _, e := range entries {
-				refs[e.ID] = e.Order.CardAuthorizationID
-				entered = append(entered, entity.DrawEntry{ID: e.ID, TicketCount: e.Order.TicketCount})
-			}
-
-			result := entity.RunLotteryDraw(entered, stock.Remaining(), uc.newRand())
-			for _, w := range result.Winners {
-				ref := refs[w.Entry.ID]
-				if err := uc.cardAuthorizations.Capture(ctx, ref); err != nil {
-					// No promotion of a loser (繰上げ): the tickets stay
-					// unallocated.
-					uc.logger.Warn(ctx, "capture failed for winner; recording it lost",
-						slog.String("ticket_sale_id", string(saleID)),
-						slog.String("lottery_entry_id", string(w.Entry.ID)),
-						slog.Any("error", err),
-					)
-					uc.release(ctx, saleID, w.Entry.ID, ref)
-					losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition, LostReason: entity.LotteryEntryLostReasonCardNotCharged})
-					continue
-				}
-				winners = append(winners, entity.DrawWinnerRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition})
-			}
-			for _, l := range result.Losers {
-				ref := refs[l.Entry.ID]
-				uc.release(ctx, saleID, l.Entry.ID, ref)
-				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition, LostReason: entity.LotteryEntryLostReasonNotDrawn})
-			}
-		}
-	}
-	if len(winners) == 0 && len(losers) == 0 {
-		return nil
-	}
-
-	if err := uc.entryRepo.PersistDrawOutcome(ctx, saleID, winners, losers); err != nil {
-		return err
-	}
-	uc.logger.Info(ctx, "draw completed", analyticslog.Attrs(analyticslog.TopicPayment,
-		slog.String("ticket_sale_id", string(saleID)),
-		slog.Int("winner_count", len(winners)),
-		slog.Int("loser_count", len(losers)),
-	)...)
-
-	return nil
-}
-
-// release releases a card authorization during the draw; a failure is logged and does not
-// stop the draw.
-func (uc *lotteryEntryUseCase) release(ctx context.Context, saleID entity.TicketSaleID, entryID entity.LotteryEntryID, cardAuthorizationID string) {
-	if err := uc.cardAuthorizations.Release(ctx, cardAuthorizationID); err != nil {
-		uc.logger.Warn(ctx, "draw: releasing a card authorization failed; continuing",
-			slog.String("ticket_sale_id", string(saleID)),
-			slog.String("lottery_entry_id", string(entryID)),
-			slog.Any("error", err),
-		)
-	}
 }
 
 // cryptoSeededRand returns a new *mrand.Rand seeded from crypto/rand so the

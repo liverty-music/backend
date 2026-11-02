@@ -102,11 +102,17 @@ type WorkerConfig struct {
 	// PostHog receives the pipeline signal of each create-from-discovered
 	// batch. Optional: without a project API key no signal is sent.
 	PostHog PostHogConfig `envconfig:""`
+
+	// StripeSecretKey authenticates the captures and releases of the issue
+	// and release-card-authorization workflows. Required outside local; a
+	// local worker without it uses the noop card authorizations, whose calls
+	// fail with Unavailable and are tried again until the deadline.
+	StripeSecretKey string `envconfig:"STRIPE_SECRET_KEY"`
 }
 
 // Validate checks the worker configuration: the base settings, and outside
-// local the NATS URL, the VAPID keys, the identity service, the issuer and the
-// GCP project.
+// local the NATS URL, the VAPID keys, the identity service, the issuer, the
+// GCP project and the Stripe secret key.
 func (c *WorkerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -123,6 +129,7 @@ func (c *WorkerConfig) Validate() error {
 		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
+		envVar{"STRIPE_SECRET_KEY", c.StripeSecretKey},
 	)
 }
 

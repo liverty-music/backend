@@ -69,15 +69,6 @@ const (
 		UPDATE checkouts SET status = 3
 		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
 	`
-	// issuanceListAwaitingQuery returns the Won (state 2) lottery entries
-	// whose Order is Pending (status 4): the issuance sweeper work-list.
-	issuanceListAwaitingQuery = `
-		SELECT le.id
-		FROM lottery_entries le
-		JOIN orders o ON o.id = le.order_id
-		WHERE le.state = 2 AND o.status = 4
-		ORDER BY le.id
-	`
 )
 
 // NewIssuanceRepository creates a new issuance repository instance.
@@ -190,29 +181,6 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		slog.Int("ticketCount", len(tickets)),
 	)
 	return nil
-}
-
-// ListLotteryEntryIDsAwaitingIssuance returns the Won lottery entries whose
-// Order is Pending.
-func (r *IssuanceRepository) ListLotteryEntryIDsAwaitingIssuance(ctx context.Context) ([]entity.LotteryEntryID, error) {
-	rows, err := r.db.Pool.Query(ctx, issuanceListAwaitingQuery)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list lottery entries awaiting issuance")
-	}
-	defer rows.Close()
-
-	var ids []entity.LotteryEntryID
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, toAppErr(err, "failed to scan lottery entry id awaiting issuance")
-		}
-		ids = append(ids, entity.LotteryEntryID(id))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "error iterating lottery entries awaiting issuance")
-	}
-	return ids, nil
 }
 
 // nullableUUID returns nil for an empty id so a NULL is written to a nullable

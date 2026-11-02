@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -105,13 +106,21 @@ func seedSiblingEvent(t *testing.T, eventID string) string {
 	return id
 }
 
-// seedLotteryOfTwoEvents seeds two events of one Series, a stock of each, and
-// one Lottery sale naming both. It returns the sale and the two stocks; each
-// stock's own SaleID is another Lottery sale that names only its event.
+// seedLotteryOfTwoEvents seeds two events of one Series, a stock of 100
+// tickets of each, and one Lottery sale naming both. It returns the sale and
+// the two stocks; each stock's own SaleID is another Lottery sale that names
+// only its event.
 func seedLotteryOfTwoEvents(t *testing.T) (entity.TicketSaleID, *stockFixture, *stockFixture) {
 	t.Helper()
-	a := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-	b := seedStockForEvent(t, seedSiblingEvent(t, a.EventID), entity.TicketSaleMethodLottery, 100, 4)
+	return seedLotteryOfTwoStocks(t, 100, 100)
+}
+
+// seedLotteryOfTwoStocks is seedLotteryOfTwoEvents with stocks of qa and qb
+// tickets.
+func seedLotteryOfTwoStocks(t *testing.T, qa, qb int) (entity.TicketSaleID, *stockFixture, *stockFixture) {
+	t.Helper()
+	a := seedStock(t, entity.TicketSaleMethodLottery, qa, 4)
+	b := seedStockForEvent(t, seedSiblingEvent(t, a.EventID), entity.TicketSaleMethodLottery, qb, 4)
 	_, err := testDB.Pool.Exec(context.Background(),
 		`INSERT INTO ticket_sale_events (ticket_sale_id, event_id) VALUES ($1, $2)`, string(a.SaleID), b.EventID)
 	require.NoError(t, err)
@@ -614,6 +623,16 @@ func TestLotteryEntryRepository_GetStatsByTicketSaleAndTicketStock(t *testing.T)
 	})
 }
 
+// drawOrder is the draw order of the fixture's stock: the entries in the
+// given order, each with its Order's ticket count.
+func drawOrder(f *stockFixture, entries ...*entity.LotteryEntry) entity.StockDrawOrder {
+	o := entity.StockDrawOrder{TicketStockID: f.ID}
+	for _, e := range entries {
+		o.Entries = append(o.Entries, entity.DrawEntry{ID: e.ID, TicketCount: e.Order.TicketCount})
+	}
+	return o
+}
+
 func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -638,27 +657,18 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		require.NoError(t, err)
 		return !slices.ContainsFunc(due, func(s *entity.TicketSale) bool { return s.ID == id })
 	}
-	winner := func(e *entity.LotteryEntry, position int) entity.DrawWinnerRow {
-		return entity.DrawWinnerRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position}
-	}
-	loser := func(e *entity.LotteryEntry, position int) entity.DrawLoserRow {
-		return entity.DrawLoserRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position, LostReason: entity.LotteryEntryLostReasonNotDrawn}
-	}
 	position := func(p int) *int { return &p }
 
 	t.Run("outcome recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Outcome recorded"
-		saleID, a, b := seedLotteryOfTwoEvents(t)
+		saleID, a, b := seedLotteryOfTwoStocks(t, 3, 2)
 		winA := insertLotteryEntry(t, a, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		loseA := insertLotteryEntry(t, a, saleID, newUserID(t), 4, entity.LotteryEntryStateEntered)
-		winB := insertLotteryEntry(t, b, saleID, newUserID(t), 1, entity.LotteryEntryStateEntered)
 		loseB := insertLotteryEntry(t, b, saleID, newUserID(t), 3, entity.LotteryEntryStateEntered)
+		winB := insertLotteryEntry(t, b, saleID, newUserID(t), 1, entity.LotteryEntryStateEntered)
 		require.False(t, drawn(t, saleID))
 
-		err := repo.PersistDrawOutcome(ctx, saleID,
-			[]entity.DrawWinnerRow{winner(winA, 1), winner(winB, 0)},
-			[]entity.DrawLoserRow{loser(loseA, 0), loser(loseB, 1)},
-		)
+		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, winA, loseA), drawOrder(b, loseB, winB)})
 
 		require.NoError(t, err)
 		for _, tc := range []struct {
@@ -667,10 +677,10 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 			position int
 			status   entity.OrderStatus
 		}{
-			{winA, entity.LotteryEntryStateWon, 1, entity.OrderStatusPending},
-			{winB, entity.LotteryEntryStateWon, 0, entity.OrderStatusPending},
-			{loseA, entity.LotteryEntryStateLost, 0, entity.OrderStatusVoid},
-			{loseB, entity.LotteryEntryStateLost, 1, entity.OrderStatusVoid},
+			{winA, entity.LotteryEntryStateWon, 0, entity.OrderStatusPending},
+			{loseA, entity.LotteryEntryStateLost, 1, entity.OrderStatusVoid},
+			{loseB, entity.LotteryEntryStateLost, 0, entity.OrderStatusVoid},
+			{winB, entity.LotteryEntryStateWon, 1, entity.OrderStatusPending},
 		} {
 			got := get(t, tc.entry.ID)
 			assert.Equal(t, tc.state, got.State)
@@ -687,13 +697,13 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 	t.Run("failure leaves nothing recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Failure leaves nothing recorded"
-		saleID, a, b := seedLotteryOfTwoEvents(t)
+		saleID, a, b := seedLotteryOfTwoStocks(t, 100, 1)
 		won := insertLotteryEntry(t, a, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, b, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		// The last write fails: voiding the loser's Order is refused.
 		failOrderUpdate(t, lost.OrderID)
 
-		err := repo.PersistDrawOutcome(ctx, saleID, []entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)})
+		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, won), drawOrder(b, lost)})
 
 		require.Error(t, err)
 		assert.Equal(t, won, get(t, won.ID))
@@ -705,7 +715,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		e := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
-		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()), []entity.DrawWinnerRow{winner(e, 0)}, nil)
+		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()), []entity.StockDrawOrder{drawOrder(f, e)})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 		assert.Equal(t, e, get(t, e.ID))
@@ -716,33 +726,215 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		bystander := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, nil, nil))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, nil))
 
 		assert.Equal(t, bystander, get(t, bystander.ID))
 	})
 
 	t.Run("recorded again", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Recorded again"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		f := seedStock(t, entity.TicketSaleMethodLottery, 2, 4)
 		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)}))
+		order := []entity.StockDrawOrder{drawOrder(f, won, lost)}
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		// The winner is made Lost since, which frees its 2 tickets.
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
 		wonBefore, lostBefore := get(t, won.ID), get(t, lost.ID)
 
-		// The same outcome again, and one that would swap the two.
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)}))
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.DrawWinnerRow{winner(lost, 5)}, []entity.DrawLoserRow{loser(won, 6)}))
+		// The same order again, and one that would put the loser first.
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, lost, won)}))
 
 		assert.Equal(t, wonBefore, get(t, won.ID))
 		assert.Equal(t, lostBefore, get(t, lost.ID))
-		assert.Equal(t, entity.OrderStatusPending, wonBefore.Order.Status, "the winner's Order is never voided")
+		assert.Equal(t, entity.LotteryEntryStateLost, lostBefore.State, "the loser is not admitted to the freed tickets")
+	})
+
+	t.Run("tickets taken since the order was fixed", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/persist-draw-outcome "Tickets taken since the order was fixed"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 4, 4)
+		first := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		second := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		third := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 3, entity.LotteryEntryStateEntered)
+		order := []entity.StockDrawOrder{drawOrder(f, first, second, third)}
+		// A first-come checkout of the event commits 2 tickets after the
+		// order was fixed.
+		checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
+		firstCome := seedSale(t, f.EventID, entity.TicketSaleMethodFirstCome, saleWindowStart, saleWindowStart.Add(24*time.Hour))
+		at := saleWindowStart.Add(time.Hour)
+		held, err := checkouts.GetOrCreateHeld(ctx, f.ID, firstCome, nextFan(t), 2, nil, at)
+		require.NoError(t, err)
+		outcome, err := checkouts.Commit(ctx, held.ID, at)
+		require.NoError(t, err)
+		require.Equal(t, entity.CommitOutcomeCommitted, outcome)
+
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+
+		assert.Equal(t, entity.LotteryEntryStateWon, get(t, first.ID).State)
+		assert.Equal(t, entity.LotteryEntryStateLost, get(t, second.ID).State)
+		assert.Equal(t, entity.LotteryEntryStateLost, get(t, third.ID).State)
+		sold, _ := stockCounts(t, f.ID, at)
+		assert.Equal(t, 4, sold, "the sold count never exceeds the quantity")
 	})
 
 	t.Run("empty sale id", func(t *testing.T) {
-		err := repo.PersistDrawOutcome(ctx, "", nil, nil)
+		err := repo.PersistDrawOutcome(ctx, "", nil)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
+}
+
+func TestLotteryEntryRepository_RevertWin(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
+	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
+	ctx := context.Background()
+
+	// drawnWin records a draw of the fixture's stock that the entry wins at
+	// draw position 3, behind three losers that do not fit.
+	drawnWin := func(t *testing.T) (*entity.LotteryEntry, *stockFixture) {
+		t.Helper()
+		f := seedStock(t, entity.TicketSaleMethodLottery, 2, 4)
+		var order []*entity.LotteryEntry
+		for range 3 {
+			order = append(order, insertLotteryEntry(t, f, f.SaleID, newUserID(t), 3, entity.LotteryEntryStateEntered))
+		}
+		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, append(order, won)...)}))
+		got, err := repo.Get(ctx, won.ID)
+		require.NoError(t, err)
+		require.Equal(t, entity.LotteryEntryStateWon, got.State)
+		return got, f
+	}
+	get := func(t *testing.T, id entity.LotteryEntryID) *entity.LotteryEntry {
+		t.Helper()
+		e, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		return e
+	}
+	drawnOf := func(t *testing.T, mark int64, id entity.LotteryEntryID) []*entityv1.LotteryEntry {
+		t.Helper()
+		return announcedSince(t, mark, entity.SubjectLotteryEntryDrawn, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
+			func(e *entityv1.LotteryEntry) bool { return e.GetId().GetValue() == string(id) })
+	}
+
+	t.Run("win reverted", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Win reverted"
+		won, f := drawnWin(t)
+
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+
+		got := get(t, won.ID)
+		assert.Equal(t, entity.LotteryEntryStateLost, got.State)
+		assert.Equal(t, entity.LotteryEntryLostReasonCardNotCharged, got.LostReason)
+		require.NotNil(t, got.DrawPosition)
+		assert.Equal(t, 3, *got.DrawPosition)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+		sold, _ := stockCounts(t, f.ID, time.Now())
+		assert.Zero(t, sold, "its tickets stay unallocated")
+	})
+
+	t.Run("already reverted", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Already reverted"
+		won, _ := drawnWin(t)
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		before := get(t, won.ID)
+
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+
+		assert.Equal(t, before, get(t, won.ID))
+	})
+
+	t.Run("win already issued", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Win already issued"
+		won, f := drawnWin(t)
+		order, issued, settlement := issuanceOf(t, won.Order, f.EventID)
+		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
+		before := get(t, won.ID)
+
+		err := repo.RevertWin(ctx, won.ID)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Equal(t, before, get(t, won.ID))
+	})
+
+	t.Run("not drawn", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Not drawn"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		entered := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+
+		err := repo.RevertWin(ctx, entered.ID)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Equal(t, entered, get(t, entered.ID))
+	})
+
+	t.Run("unknown entry", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Unknown entry"
+		err := repo.RevertWin(ctx, entity.LotteryEntryID(entity.NewID()))
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("win reverted and announced", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Win reverted and announced"
+		won, _ := drawnWin(t)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+
+		got := drawnOf(t, mark, won.ID)
+		require.Len(t, got, 1)
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST, got[0].GetState())
+		assert.Equal(t, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED, got[0].GetLostReason())
+		assert.Equal(t, string(won.OrderID), got[0].GetOrderId().GetValue())
+	})
+
+	t.Run("already reverted announces nothing", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Already reverted announces nothing"
+		won, _ := drawnWin(t)
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.RevertWin(ctx, won.ID))
+
+		assert.Empty(t, drawnOf(t, mark, won.ID))
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Announcement cannot be recorded"
+		won, _ := drawnWin(t)
+
+		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).RevertWin(ctx, won.ID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		got := get(t, won.ID)
+		assert.Equal(t, entity.LotteryEntryStateWon, got.State)
+		assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
+	})
+}
+
+func TestLotteryEntryRepository_MarkLossEmailSent(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
+	ctx := context.Background()
+	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+	lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateLost)
+	first := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+
+	require.NoError(t, repo.MarkLossEmailSent(ctx, lost.ID, first))
+	require.NoError(t, repo.MarkLossEmailSent(ctx, lost.ID, first.Add(time.Hour)))
+
+	got, err := repo.Get(ctx, lost.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LossEmailSendTime)
+	assert.True(t, first.Equal(*got.LossEmailSendTime), "the first time is kept")
+	assert.ErrorIs(t, repo.MarkLossEmailSent(ctx, entity.LotteryEntryID(entity.NewID()), first), apperr.ErrNotFound)
 }
 
 // failOrderUpdate makes every update of the Order fail until the test ends,

@@ -84,34 +84,50 @@ type OrderUseCase interface {
 	//  - Internal: database or payment provider failure.
 	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
 
-	// IssueFromCapturedWin makes the Pending Order of the won lottery entry
-	// Paid from its captured payment, issues the N account-bound covered
-	// tickets (bound to the user's IdentityVerification when the sale requires
-	// verification) and records a Held Settlement (one split paying the
-	// event's Organizer at its platform fee rate).
-	//
-	// It is IDEMPOTENT: a replayed Won-captured signal (or a retry) issues
-	// tickets exactly once for the same entry — on a replay it returns the
-	// already Paid Order unchanged.
+	// Issue is the issue workflow of one Won lottery entry ([WorkflowIssue],
+	// named [IssueWorkflowID] after the entry's Order): it reads everything it
+	// needs first, then charges the Order's card authorization once and makes
+	// the Pending Order Paid with its account-bound covered tickets (bound to
+	// the user's IdentityVerification when the sale requires verification)
+	// and a Held Settlement, with Order.Issue, which announces it as paid. A
+	// card authorization that can no longer be charged reverts the win with
+	// LotteryEntry.RevertWin and ends with a result that says so; that is not
+	// an error. A run again for a Paid Order returns it.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the entry is not Won, or its payment is not
-	//    captured — nothing changes.
-	//  - NotFound: no entry with the given ID exists, the event's Organizer
-	//    cannot be resolved, or the sale requires verification and the user
-	//    has no IdentityVerification — nothing changes.
-	//  - Internal: persistence failure after capture.
-	IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
+	//  - NotFound: no entry has the id, the event's Organizer cannot be
+	//    resolved, or the sale requires verification and the user has no
+	//    IdentityVerification. Nothing is charged.
+	//  - FailedPrecondition: the entry is not Won or its Order is not Pending.
+	//    Nothing is charged.
+	//  - Errors of the reads, of the charge or of the issuance, unchanged;
+	//    Unavailable is tried again until the workflow's deadline.
+	Issue(ctx context.Context, f Flow, in IssueRequest) (IssueResult, error)
 
-	// IssueDueWins issues the tickets of every Won lottery entry whose Order is
-	// still Pending. A per-entry failure is logged and skipped so
-	// one bad entry never blocks the rest of the sweep.
+	// ReleaseCardAuthorization is the release workflow of one Void Order
+	// ([WorkflowReleaseCardAuthorization], named [ReleaseWorkflowID]): it
+	// gives back the Order's card authorization without charging. A Void
+	// Order without a card authorization succeeds without effect.
 	//
 	// # Possible errors
 	//
-	//  - Internal: the work-list query failed.
-	IssueDueWins(ctx context.Context) error
+	//  - FailedPrecondition: the Order is not Void, or its card authorization
+	//    was charged. Nothing is released.
+	//  - NotFound: no Order has the id.
+	//  - Errors of the release, unchanged; Unavailable is tried again until
+	//    the workflow's deadline.
+	ReleaseCardAuthorization(ctx context.Context, f Flow, orderID entity.OrderID) (struct{}, error)
+
+	// StartDrawnEntryWorkflow starts the workflow that follows one drawn
+	// entry, as the consumer of its announcement: Issue for a Won entry's
+	// Order and ReleaseCardAuthorization for a Lost entry's Order. A repeated
+	// announcement starts nothing new.
+	//
+	// # Possible errors
+	//
+	//  - Errors of starting the workflow, unchanged.
+	StartDrawnEntryWorkflow(ctx context.Context, entry *entity.LotteryEntry) error
 
 	// IssueFromCheckout finishes a checkout: while its hold lasts it commits
 	// the held tickets, charges the card once and makes its Pending Order Paid
@@ -145,10 +161,12 @@ type OrderUseCase interface {
 	IssueDueCheckouts(ctx context.Context) error
 
 	// FulfillPayment turns a charge the payment provider reports as completed
-	// into an issued Order and announces it as ORDER.paid. It finds the charge's source — a Checkout by its
-	// card authorization, else a LotteryEntry by its authorization — and runs the
-	// idempotent issuance for it, so a repeated report finds the same Order. A
-	// charge of no source succeeds without effect.
+	// into an issued Order and announces it as ORDER.paid. It finds the
+	// charge's source by its card authorization: for a Checkout it runs the
+	// idempotent issuance, so a repeated report finds the same Order; for a
+	// LotteryEntry it succeeds without effect, because [OrderUseCase.Issue]
+	// charged the entry's Order and made it Paid. A charge of no source
+	// succeeds without effect.
 	//
 	// # Possible errors
 	//
@@ -167,6 +185,7 @@ type orderUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	checkoutRepo             entity.CheckoutRepository
 	ticketSaleRepo           entity.TicketSaleRepository
+	stockRepo                entity.TicketStockRepository
 	ticketRepo               entity.TicketRepository
 	eventState               EventPublishStatePort
 	eventRepo                entity.EventRepository
@@ -174,6 +193,7 @@ type orderUseCase struct {
 	clock                    Clock
 	refundRepo               entity.RefundRepository
 	settlementRepo           entity.SettlementRepository
+	workflows                Workflows
 	logger                   *logging.Logger
 }
 
@@ -190,6 +210,8 @@ type OrderDeps struct {
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	CheckoutRepo             entity.CheckoutRepository
 	TicketSaleRepo           entity.TicketSaleRepository
+	// StockRepo reads a Won entry's TicketStock for its event.
+	StockRepo entity.TicketStockRepository
 	// TicketRepo reads an Order's Tickets to refund only those still Issued.
 	TicketRepo entity.TicketRepository
 	EventState EventPublishStatePort
@@ -201,7 +223,10 @@ type OrderDeps struct {
 	Clock              Clock
 	RefundRepo         entity.RefundRepository
 	SettlementRepo     entity.SettlementRepository
-	Logger             *logging.Logger
+	// Workflows starts the workflows that follow a drawn entry; a process
+	// that never starts them may leave it nil.
+	Workflows Workflows
+	Logger    *logging.Logger
 }
 
 // NewOrderUseCase constructs an OrderUseCase with the given dependencies.
@@ -215,6 +240,7 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		checkoutRepo:             d.CheckoutRepo,
 		ticketSaleRepo:           d.TicketSaleRepo,
+		stockRepo:                d.StockRepo,
 		ticketRepo:               d.TicketRepo,
 		eventState:               d.EventState,
 		eventRepo:                d.EventRepo,
@@ -222,6 +248,7 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		clock:                    d.Clock,
 		refundRepo:               d.RefundRepo,
 		settlementRepo:           d.SettlementRepo,
+		workflows:                d.Workflows,
 		logger:                   d.Logger,
 	}
 }

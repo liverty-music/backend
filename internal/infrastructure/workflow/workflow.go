@@ -40,6 +40,10 @@ const (
 	// DefaultQueue runs every workflow started without usecase.WithQueue.
 	DefaultQueue = "workflows"
 
+	// ScheduledWorkflowName is the DBOS workflow every RegisterSchedule
+	// schedule runs.
+	ScheduledWorkflowName = "scheduled"
+
 	// startupTimeout bounds the attempts to reach and verify the system
 	// database at start, as startup-dependencies requires ("keep trying ...
 	// for at least 5 minutes").

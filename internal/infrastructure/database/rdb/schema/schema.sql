@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
 COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
 COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss';
 COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
 COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
 COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
@@ -867,6 +867,7 @@ CREATE TABLE IF NOT EXISTS lottery_entries (
     order_id               UUID     NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
     ticket_sale_id         UUID     NOT NULL REFERENCES ticket_sales(id) ON DELETE RESTRICT,
     lost_reason            SMALLINT,
+    loss_email_send_at     TIMESTAMPTZ,
     CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_lottery_entries_state CHECK (state IN (1, 2, 3)),
     CONSTRAINT chk_lottery_entries_lost_reason CHECK ((state = 3 AND lost_reason IN (1, 2)) OR (state <> 3 AND lost_reason IS NULL))
@@ -874,10 +875,11 @@ CREATE TABLE IF NOT EXISTS lottery_entries (
 
 COMMENT ON TABLE lottery_entries IS 'How one fan''s order takes part in an Organizer''s lottery sale, made Entered when the fan confirms an authorized card authorization; one per order and at most one per (sale, event of the order''s stock, user), checked by the application under the users row lock. State: 1=Entered, 2=Won, 3=Lost.';
 COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (allocated), 3=Lost (not allocated; the order is Void)';
+COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (allocated by the draw; the order is Pending until charged, then Paid), 3=Lost (not allocated, or the win was reverted because the card could not be charged; the order is Void)';
 COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the draw shuffle of the sale''s entries for the order''s ticket stock. NULL until the draw runs; the draw order of the losers for official resale.';
 COMMENT ON COLUMN lottery_entries.order_id IS 'The order the entry applies for: user, ticket stock, ticket count, referral code and card authorization; unique';
 COMMENT ON COLUMN lottery_entries.lost_reason IS 'Why a Lost entry lost: 1=not drawn, 2=the card authorization could not be captured. NULL unless state is 3 (Lost).';
+COMMENT ON COLUMN lottery_entries.loss_email_send_at IS 'When the email telling the fan the entry lost was sent; set once right after a successful send';
 COMMENT ON COLUMN lottery_entries.ticket_sale_id IS 'The lottery sale entered; a sale that names the event of the order''s ticket stock (checked by the application)';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_order_id ON lottery_entries(order_id);

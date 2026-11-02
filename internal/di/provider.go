@@ -532,21 +532,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 
-	// Start the periodic draw sweeper only on the workload that runs the payment
-	// sweepers: the fan workload outside local, or local with a Stripe key (see
-	// config.ServerConfig.RunsPaymentSweepers). The draw captures winners /
-	// releases losers, so it MUST run where Stripe is reachable; a Stripe-less
-	// pod winning the race would demote EVERY winner to a loser while leaving
-	// their card authorizations unreleased. The gate used to be the presence of the key, which
-	// kept it off the consoles only because they lacked one; it is now explicit,
-	// so the consoles can carry the key for refunds and payout onboarding. The
-	// draw remains idempotent across fan-api's own pods.
+	// Start the payment sweepers only on the workload that runs them: the fan
+	// workload outside local, or local with a Stripe key (see
+	// config.ServerConfig.RunsPaymentSweepers). The lottery draw and its
+	// issuance run as workflows in the workflow worker. The gate used to be
+	// the presence of the key, which kept it off the consoles only because
+	// they lacked one; it is now explicit, so the consoles can carry the key
+	// for refunds and payout onboarding.
 	if cfg.RunsPaymentSweepers() {
-		startLotteryDrawSweeper(ctx, lotteryEntryUC, logger)
-		// The issuance sweeper reads ④'s captured payments, so it too requires a
-		// real payment provider and runs on the same (fan-api) workload. Both are
-		// idempotent across pods.
-		startIssuanceSweeper(ctx, orderUC, logger)
 		// The settlement sweeper releases held funds after the event + dispute
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
@@ -556,7 +549,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// so they run beside the others.
 		startCheckoutSweepers(ctx, checkoutUC, orderUC, resaleListingUC, logger)
 	} else {
-		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
+		logger.Info(ctx, "settlement and checkout sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
 	}
 

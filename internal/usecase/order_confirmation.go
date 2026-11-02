@@ -34,6 +34,13 @@ type OrderConfirmationDeps struct {
 	ResaleListings ResaleListingReader
 	// ResaleMailer sends a listing's sold email at most once.
 	ResaleMailer entity.ResaleListingSoldEmailSender
+	// Entries reads a Lost lottery entry for its loss email.
+	Entries entity.LotteryEntryRepository
+	// Stocks reads the TicketStock of a Lost entry's Order: its SeatType and
+	// event.
+	Stocks entity.TicketStockRepository
+	// LossMailer sends a Lost entry's loss email at most once.
+	LossMailer entity.LotteryLossEmailSender
 	// TimeZone renders the concert and payment times (Asia/Tokyo).
 	TimeZone *time.Location
 }
@@ -48,6 +55,9 @@ type orderConfirmationContent struct {
 	organizer *entity.Organizer
 	count     int
 	tz        *time.Location
+	// lotteryWin is set for an Order whose source is a LotteryEntry: the
+	// copy first says the entry won.
+	lotteryWin bool
 }
 
 // SendOrderConfirmation implements [NotificationUseCase]: the confirmation
@@ -79,11 +89,12 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 	}
 
 	content := orderConfirmationContent{
-		order:     order,
-		concert:   concerts[0],
-		organizer: organizer,
-		count:     paid.TicketCount,
-		tz:        d.TimeZone,
+		order:      order,
+		concert:    concerts[0],
+		organizer:  organizer,
+		count:      paid.TicketCount,
+		tz:         d.TimeZone,
+		lotteryWin: order.LotteryEntryID != "",
 	}
 	lang := emailLanguage(user.PreferredLanguage)
 	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(lang)); err != nil {
@@ -165,6 +176,11 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 
 	var b strings.Builder
 	if lang == "en" {
+		subject := "[Liverty Music] Your ticket purchase is complete"
+		if c.lotteryWin {
+			subject = "[Liverty Music] You won the ticket lottery"
+			fmt.Fprintf(&b, "Congratulations! Your lottery entry won, and your tickets are ready.\n\n")
+		}
 		fmt.Fprintf(&b, "Thank you for using Liverty Music. Your ticket purchase is complete.\n\n")
 		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s  Doors %s / Start %s\nVenue: %s\n\n",
 			c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"),
@@ -176,11 +192,16 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 		fmt.Fprintf(&b, "[Sold by (Specified Commercial Transactions Act)]\nBusiness name: %s\nRepresentative: %s\nAddress: %s\nPhone: %s\nEmail: %s\n",
 			business.LegalName, business.RepresentativeName, business.BusinessAddress, business.BusinessPhoneNumber, business.ContactEmail)
 		return entity.OrderConfirmationEmail{
-			Subject:  "[Liverty Music] Your ticket purchase is complete",
+			Subject:  subject,
 			TextBody: b.String(),
 		}
 	}
 
+	subject := "【Liverty Music】チケットのご購入が完了しました"
+	if c.lotteryWin {
+		subject = "【Liverty Music】チケット抽選に当選しました"
+		fmt.Fprintf(&b, "おめでとうございます。抽選に当選し、チケットのご用意ができました。\n\n")
+	}
 	fmt.Fprintf(&b, "Liverty Music をご利用いただきありがとうございます。チケットのご購入が完了しました。\n\n")
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s) 開場 %s / 開演 %s\n会場: %s\n\n",
 		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()],
@@ -192,13 +213,19 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 	fmt.Fprintf(&b, "■ 販売業者（特定商取引法に基づく表示）\n販売業者: %s\n代表者: %s\n所在地: %s\n電話番号: %s\nメールアドレス: %s\n",
 		business.LegalName, business.RepresentativeName, business.BusinessAddress, business.BusinessPhoneNumber, business.ContactEmail)
 	return entity.OrderConfirmationEmail{
-		Subject:  "【Liverty Music】チケットのご購入が完了しました",
+		Subject:  subject,
 		TextBody: b.String(),
 	}
 }
 
 // push renders the push notification's title and body in lang.
 func (c orderConfirmationContent) push(lang string) (title, body string) {
+	if c.lotteryWin {
+		if lang == "en" {
+			return "You won the ticket lottery", fmt.Sprintf("%s: %d ticket(s) are ready. Tap to see your tickets.", c.concertTitle(), c.count)
+		}
+		return "当選しました", fmt.Sprintf("%s のチケット%d枚をご用意しました。タップしてチケットを表示", c.concertTitle(), c.count)
+	}
 	if lang == "en" {
 		return "Ticket purchase complete", fmt.Sprintf("%s: %d ticket(s). Tap to see your tickets.", c.concertTitle(), c.count)
 	}

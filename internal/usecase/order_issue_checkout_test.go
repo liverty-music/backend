@@ -468,9 +468,12 @@ func TestOrderUseCase_FulfillPayment(t *testing.T) {
 			},
 		}
 		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(entry, nil)
-		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(entry, nil)
 
 		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_won"))
+
+		// Nothing changes: the mocks are strict, so no issuance, capture or
+		// announcement happened; Order.Issue announced the Order once.
+		f.entries.AssertNotCalled(t, "Get", mock.Anything, mock.Anything)
 	})
 
 	t.Run("charge reported twice", func(t *testing.T) {

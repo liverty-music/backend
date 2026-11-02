@@ -8,6 +8,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 	"github.com/liverty-music/backend/internal/usecase"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ usecase.Flow = (*flow)(nil)
@@ -18,6 +19,9 @@ type flow struct {
 	// (a span, context.WithoutCancel) is turned back into a DBOS context by
 	// dbosContext.
 	run dbos.Context
+	// untraced is set in a scheduled run: a workflow it starts does not
+	// continue the run's trace but begins its own.
+	untraced bool
 }
 
 // dbosContext returns ctx as a DBOS context of this run, so values and
@@ -55,7 +59,11 @@ func (f *flow) Step(ctx context.Context, name string, fn func(context.Context) (
 
 // Start enqueues the named workflow, checkpointed as a step of this run.
 func (f *flow) Start(ctx context.Context, workflow, id string, input any, opts ...usecase.StartOption) error {
-	return start(f.dbosContext(ctx), ctx, workflow, id, input, opts...)
+	traceCtx := ctx
+	if f.untraced {
+		traceCtx = trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	}
+	return start(f.dbosContext(ctx), traceCtx, workflow, id, input, opts...)
 }
 
 // Recv waits for a message on topic, up to timeout. The wait is durable: a
