@@ -19,6 +19,9 @@ const (
 	// NotificationTypeOrderConfirmation confirms a paid Order (a completed
 	// checkout or a won lottery) and opens the Tickets screen.
 	NotificationTypeOrderConfirmation NotificationType = "order_confirmation"
+	// NotificationTypeLotteryLoss tells a fan their lottery entry lost and
+	// opens the event's page.
+	NotificationTypeLotteryLoss NotificationType = "lottery_loss"
 )
 
 // NotificationDeliveryStatus is the per-channel delivery state of a notification.

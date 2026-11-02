@@ -10,8 +10,11 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
@@ -152,6 +155,10 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	passkeys := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, outbox), rdb.NewUserRepository(db, outbox), workflows, time.Now, logger)
 	workflow.Register(rt, usecase.WorkflowRecordPasskeyChange, passkeys.RunRecordChange)
 
+	if err := registerLotteryWorkflows(ctx, rt, cfg, db, outbox, logger); err != nil {
+		return err
+	}
+
 	// CreateFromDiscovered resolves venues with Google Maps and reports each
 	// batch to product analytics (when PostHog is configured). A local worker
 	// without a GCP project leaves the started batches waiting.
@@ -178,6 +185,61 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		logger,
 	)
 	workflow.Register(rt, usecase.WorkflowCreateFromDiscovered, concerts.RunCreateFromDiscovered)
+	return nil
+}
+
+// registerLotteryWorkflows registers the lottery draw, its schedule, and the
+// issue and release-card-authorization workflows of each drawn entry, which
+// call the payment provider from the payment queue (OpenSpec change
+// make-lottery-draw-durable).
+func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
+	cardAuthorizations := entity.CardAuthorizationRepository(infrapayment.NewNoopCardAuthorizationRepository(logger))
+	if cfg.StripeSecretKey != "" {
+		cardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.StripeSecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
+	} else {
+		logger.Warn(ctx, "STRIPE_SECRET_KEY is not set; lottery captures and releases fail with Unavailable")
+	}
+	saleRepo := rdb.NewTicketSaleRepository(db, outbox)
+	stockRepo := rdb.NewTicketStockRepository(db)
+	entryRepo := rdb.NewLotteryEntryRepository(db, outbox)
+	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), newPaymentProviders(cfg.StripeSecretKey, logger).orders)
+	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
+
+	lottery := usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
+		SaleRepo:                 saleRepo,
+		StockRepo:                stockRepo,
+		EntryRepo:                entryRepo,
+		OrderRepo:                orderRepo,
+		EventRepo:                rdb.NewEventRepository(db),
+		IdentityVerificationRepo: identityVerificationRepo,
+		UserRepo:                 rdb.NewUserRepository(db, outbox),
+		CardAuthorizations:       cardAuthorizations,
+		Clock:                    time.Now,
+		Logger:                   logger,
+	})
+	workflow.RegisterSchedule(rt, usecase.WorkflowDrawDueSales, usecase.DrawDueSalesSchedule, lottery.DrawDueSales)
+	workflow.Register(rt, usecase.WorkflowDraw, lottery.Draw)
+
+	// The worker's OrderUseCase charges and releases; it starts no workflow
+	// and runs no checkout or refund.
+	orders := usecase.NewOrderUseCase(usecase.OrderDeps{
+		IssuanceRepo:             rdb.NewIssuanceRepository(db, outbox),
+		OrderRepo:                orderRepo,
+		EntryRepo:                entryRepo,
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
+		OrganizerRepo:            rdb.NewOrganizerRepository(db, outbox),
+		IdentityVerificationRepo: identityVerificationRepo,
+		TicketSaleRepo:           saleRepo,
+		StockRepo:                stockRepo,
+		CardAuthorizations:       cardAuthorizations,
+		Clock:                    time.Now,
+		Logger:                   logger,
+	})
+	if err := rt.RegisterQueue(usecase.PaymentQueue, usecase.PaymentQueueConcurrency); err != nil {
+		return err
+	}
+	workflow.Register(rt, usecase.WorkflowIssue, orders.Issue)
+	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, orders.ReleaseCardAuthorization)
 	return nil
 }
 

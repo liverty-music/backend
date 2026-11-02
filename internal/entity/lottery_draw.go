@@ -1,6 +1,9 @@
 package entity
 
-import "math/rand/v2"
+import (
+	"math/rand/v2"
+	"slices"
+)
 
 // DrawEntry is the input record for one entry entering the lottery
 // draw. It carries only the fields the draw algorithm needs; all other
@@ -96,26 +99,38 @@ type DrawResult struct {
 //
 // The rng parameter must not be nil.
 func RunLotteryDraw(entries []DrawEntry, quantity int, rng *rand.Rand) DrawResult {
-	if len(entries) == 0 {
+	return AdmitInDrawOrder(ShuffleDrawOrder(entries, rng), quantity, nil)
+}
+
+// ShuffleDrawOrder returns entries in a uniformly random draw order, the
+// first step of [RunLotteryDraw]; an entry's draw position is its index in
+// the result. entries is left unmodified. The rng parameter must not be nil.
+func ShuffleDrawOrder(entries []DrawEntry, rng *rand.Rand) []DrawEntry {
+	ordered := slices.Clone(entries)
+	rng.Shuffle(len(ordered), func(i, j int) {
+		ordered[i], ordered[j] = ordered[j], ordered[i]
+	})
+	return ordered
+}
+
+// AdmitInDrawOrder is the walk of [RunLotteryDraw] over entries already in
+// their draw order: each entry's draw position is its index in ordered. It
+// walks ordered once and admits each entry with a positive ticket count that
+// fits the remaining quantity, deducting its whole count; every other entry
+// is a loser. When skip is not nil, an entry it reports is left out of the
+// result and deducts nothing, keeping the positions of the others.
+func AdmitInDrawOrder(ordered []DrawEntry, quantity int, skip func(LotteryEntryID) bool) DrawResult {
+	if len(ordered) == 0 {
 		return DrawResult{}
 	}
-
-	// Build a shuffled index slice rather than copying the entry slice, to
-	// avoid an extra allocation and to keep the original slice unmodified.
-	indices := make([]int, len(entries))
-	for i := range indices {
-		indices[i] = i
-	}
-	rng.Shuffle(len(indices), func(i, j int) {
-		indices[i], indices[j] = indices[j], indices[i]
-	})
-
 	remaining := quantity
-	winners := make([]DrawWinner, 0, len(entries))
-	losers := make([]DrawLoser, 0, len(entries))
+	winners := make([]DrawWinner, 0, len(ordered))
+	losers := make([]DrawLoser, 0, len(ordered))
 
-	for pos, origIdx := range indices {
-		entry := entries[origIdx]
+	for pos, entry := range ordered {
+		if skip != nil && skip(entry.ID) {
+			continue
+		}
 		// Admit only a positive request that fits the remaining quantity. The
 		// TicketCount > 0 guard is defensive: although the caller is
 		// responsible for validating positive counts, a stray zero would waste a
@@ -140,7 +155,7 @@ func RunLotteryDraw(entries []DrawEntry, quantity int, rng *rand.Rand) DrawResul
 	}
 
 	// The losers is already in ascending DrawPosition order because we walk the
-	// shuffled slice linearly and append losers in encounter order. No sort needed.
+	// ordered slice linearly and append losers in encounter order. No sort needed.
 
 	return DrawResult{
 		Winners: winners,

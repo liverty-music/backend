@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"crypto/rand"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 	"go.opentelemetry.io/otel"
@@ -49,12 +50,30 @@ func startRunSpan(ctx context.Context, status dbos.WorkflowStatus) (context.Cont
 		),
 	}
 	parent := ctx
-	if status.Attempts > 1 {
+	switch storedSpan := trace.SpanContextFromContext(stored); {
+	case status.Attempts > 1:
 		opts = append(opts, trace.WithNewRoot(), trace.WithLinks(trace.LinkFromContext(stored)))
-	} else {
-		parent = trace.ContextWithRemoteSpanContext(ctx, trace.SpanContextFromContext(stored))
+	case storedSpan.IsValid():
+		parent = trace.ContextWithRemoteSpanContext(ctx, storedSpan)
+	default:
+		// No starter's trace: a root, unless ctx carries the unsampled span
+		// context of a scheduled run (unsampledContext).
 	}
 	return otel.Tracer(tracerName).Start(parent, "workflow "+status.Name, opts...)
+}
+
+// unsampledContext returns ctx with a new valid span context that is not
+// sampled, so the parent-based sampler records no span under it while log
+// lines still carry its trace id. A scheduled run starts under it.
+func unsampledContext(ctx context.Context) context.Context {
+	var traceID trace.TraceID
+	var spanID trace.SpanID
+	_, _ = rand.Read(traceID[:])
+	_, _ = rand.Read(spanID[:])
+	return trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID,
+		SpanID:  spanID,
+	}))
 }
 
 // startStepSpan starts the span of one step, a child of the run span.

@@ -256,6 +256,78 @@ func (_c *MockOrderUseCase_GetWithSettlement_Call) RunAndReturn(run func(ctx con
 	return _c
 }
 
+// Issue provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) Issue(ctx context.Context, f usecase.Flow, in usecase.IssueRequest) (usecase.IssueResult, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Issue")
+	}
+
+	var r0 usecase.IssueResult
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.IssueRequest) (usecase.IssueResult, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.IssueRequest) usecase.IssueResult); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(usecase.IssueResult)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.IssueRequest) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderUseCase_Issue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Issue'
+type MockOrderUseCase_Issue_Call struct {
+	*mock.Call
+}
+
+// Issue is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.IssueRequest
+func (_e *MockOrderUseCase_Expecter) Issue(ctx any, f any, in any) *MockOrderUseCase_Issue_Call {
+	return &MockOrderUseCase_Issue_Call{Call: _e.mock.On("Issue", ctx, f, in)}
+}
+
+func (_c *MockOrderUseCase_Issue_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.IssueRequest)) *MockOrderUseCase_Issue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.IssueRequest
+		if args[2] != nil {
+			arg2 = args[2].(usecase.IssueRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_Issue_Call) Return(issueResult usecase.IssueResult, err error) *MockOrderUseCase_Issue_Call {
+	_c.Call.Return(issueResult, err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_Issue_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.IssueRequest) (usecase.IssueResult, error)) *MockOrderUseCase_Issue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IssueDueCheckouts provides a mock function for the type MockOrderUseCase
 func (_mock *MockOrderUseCase) IssueDueCheckouts(ctx context.Context) error {
 	ret := _mock.Called(ctx)
@@ -303,125 +375,6 @@ func (_c *MockOrderUseCase_IssueDueCheckouts_Call) Return(err error) *MockOrderU
 }
 
 func (_c *MockOrderUseCase_IssueDueCheckouts_Call) RunAndReturn(run func(ctx context.Context) error) *MockOrderUseCase_IssueDueCheckouts_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// IssueDueWins provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) IssueDueWins(ctx context.Context) error {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IssueDueWins")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockOrderUseCase_IssueDueWins_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueDueWins'
-type MockOrderUseCase_IssueDueWins_Call struct {
-	*mock.Call
-}
-
-// IssueDueWins is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockOrderUseCase_Expecter) IssueDueWins(ctx any) *MockOrderUseCase_IssueDueWins_Call {
-	return &MockOrderUseCase_IssueDueWins_Call{Call: _e.mock.On("IssueDueWins", ctx)}
-}
-
-func (_c *MockOrderUseCase_IssueDueWins_Call) Run(run func(ctx context.Context)) *MockOrderUseCase_IssueDueWins_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueDueWins_Call) Return(err error) *MockOrderUseCase_IssueDueWins_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueDueWins_Call) RunAndReturn(run func(ctx context.Context) error) *MockOrderUseCase_IssueDueWins_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// IssueFromCapturedWin provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
-	ret := _mock.Called(ctx, lotteryEntryID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IssueFromCapturedWin")
-	}
-
-	var r0 *entity.Order
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) (*entity.Order, error)); ok {
-		return returnFunc(ctx, lotteryEntryID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) *entity.Order); ok {
-		r0 = returnFunc(ctx, lotteryEntryID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Order)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.LotteryEntryID) error); ok {
-		r1 = returnFunc(ctx, lotteryEntryID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockOrderUseCase_IssueFromCapturedWin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueFromCapturedWin'
-type MockOrderUseCase_IssueFromCapturedWin_Call struct {
-	*mock.Call
-}
-
-// IssueFromCapturedWin is a helper method to define mock.On call
-//   - ctx context.Context
-//   - lotteryEntryID entity.LotteryEntryID
-func (_e *MockOrderUseCase_Expecter) IssueFromCapturedWin(ctx any, lotteryEntryID any) *MockOrderUseCase_IssueFromCapturedWin_Call {
-	return &MockOrderUseCase_IssueFromCapturedWin_Call{Call: _e.mock.On("IssueFromCapturedWin", ctx, lotteryEntryID)}
-}
-
-func (_c *MockOrderUseCase_IssueFromCapturedWin_Call) Run(run func(ctx context.Context, lotteryEntryID entity.LotteryEntryID)) *MockOrderUseCase_IssueFromCapturedWin_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.LotteryEntryID
-		if args[1] != nil {
-			arg1 = args[1].(entity.LotteryEntryID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueFromCapturedWin_Call) Return(order *entity.Order, err error) *MockOrderUseCase_IssueFromCapturedWin_Call {
-	_c.Call.Return(order, err)
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueFromCapturedWin_Call) RunAndReturn(run func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)) *MockOrderUseCase_IssueFromCapturedWin_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -644,6 +597,135 @@ func (_c *MockOrderUseCase_Refund_Call) Return(order *entity.Order, err error) *
 }
 
 func (_c *MockOrderUseCase_Refund_Call) RunAndReturn(run func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error)) *MockOrderUseCase_Refund_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReleaseCardAuthorization provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) ReleaseCardAuthorization(ctx context.Context, f usecase.Flow, orderID entity.OrderID) (struct{}, error) {
+	ret := _mock.Called(ctx, f, orderID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReleaseCardAuthorization")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.OrderID) (struct{}, error)); ok {
+		return returnFunc(ctx, f, orderID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.OrderID) struct{}); ok {
+		r0 = returnFunc(ctx, f, orderID)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, entity.OrderID) error); ok {
+		r1 = returnFunc(ctx, f, orderID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderUseCase_ReleaseCardAuthorization_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseCardAuthorization'
+type MockOrderUseCase_ReleaseCardAuthorization_Call struct {
+	*mock.Call
+}
+
+// ReleaseCardAuthorization is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - orderID entity.OrderID
+func (_e *MockOrderUseCase_Expecter) ReleaseCardAuthorization(ctx any, f any, orderID any) *MockOrderUseCase_ReleaseCardAuthorization_Call {
+	return &MockOrderUseCase_ReleaseCardAuthorization_Call{Call: _e.mock.On("ReleaseCardAuthorization", ctx, f, orderID)}
+}
+
+func (_c *MockOrderUseCase_ReleaseCardAuthorization_Call) Run(run func(ctx context.Context, f usecase.Flow, orderID entity.OrderID)) *MockOrderUseCase_ReleaseCardAuthorization_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 entity.OrderID
+		if args[2] != nil {
+			arg2 = args[2].(entity.OrderID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_ReleaseCardAuthorization_Call) Return(val struct{}, err error) *MockOrderUseCase_ReleaseCardAuthorization_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_ReleaseCardAuthorization_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, orderID entity.OrderID) (struct{}, error)) *MockOrderUseCase_ReleaseCardAuthorization_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartDrawnEntryWorkflow provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *entity.LotteryEntry) error {
+	ret := _mock.Called(ctx, entry)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartDrawnEntryWorkflow")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry) error); ok {
+		r0 = returnFunc(ctx, entry)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockOrderUseCase_StartDrawnEntryWorkflow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartDrawnEntryWorkflow'
+type MockOrderUseCase_StartDrawnEntryWorkflow_Call struct {
+	*mock.Call
+}
+
+// StartDrawnEntryWorkflow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entry *entity.LotteryEntry
+func (_e *MockOrderUseCase_Expecter) StartDrawnEntryWorkflow(ctx any, entry any) *MockOrderUseCase_StartDrawnEntryWorkflow_Call {
+	return &MockOrderUseCase_StartDrawnEntryWorkflow_Call{Call: _e.mock.On("StartDrawnEntryWorkflow", ctx, entry)}
+}
+
+func (_c *MockOrderUseCase_StartDrawnEntryWorkflow_Call) Run(run func(ctx context.Context, entry *entity.LotteryEntry)) *MockOrderUseCase_StartDrawnEntryWorkflow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.LotteryEntry
+		if args[1] != nil {
+			arg1 = args[1].(*entity.LotteryEntry)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_StartDrawnEntryWorkflow_Call) Return(err error) *MockOrderUseCase_StartDrawnEntryWorkflow_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_StartDrawnEntryWorkflow_Call) RunAndReturn(run func(ctx context.Context, entry *entity.LotteryEntry) error) *MockOrderUseCase_StartDrawnEntryWorkflow_Call {
 	_c.Call.Return(run)
 	return _c
 }

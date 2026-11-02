@@ -6,8 +6,10 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -225,21 +227,102 @@ func (_c *MockLotteryEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
+// Draw provides a mock function for the type MockLotteryEntryUseCase
+func (_mock *MockLotteryEntryUseCase) Draw(ctx context.Context, f usecase.Flow, saleID entity.TicketSaleID) (int, error) {
+	ret := _mock.Called(ctx, f, saleID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Draw")
+	}
+
+	var r0 int
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.TicketSaleID) (int, error)); ok {
+		return returnFunc(ctx, f, saleID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.TicketSaleID) int); ok {
+		r0 = returnFunc(ctx, f, saleID)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, entity.TicketSaleID) error); ok {
+		r1 = returnFunc(ctx, f, saleID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockLotteryEntryUseCase_Draw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Draw'
+type MockLotteryEntryUseCase_Draw_Call struct {
+	*mock.Call
+}
+
+// Draw is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - saleID entity.TicketSaleID
+func (_e *MockLotteryEntryUseCase_Expecter) Draw(ctx any, f any, saleID any) *MockLotteryEntryUseCase_Draw_Call {
+	return &MockLotteryEntryUseCase_Draw_Call{Call: _e.mock.On("Draw", ctx, f, saleID)}
+}
+
+func (_c *MockLotteryEntryUseCase_Draw_Call) Run(run func(ctx context.Context, f usecase.Flow, saleID entity.TicketSaleID)) *MockLotteryEntryUseCase_Draw_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 entity.TicketSaleID
+		if args[2] != nil {
+			arg2 = args[2].(entity.TicketSaleID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLotteryEntryUseCase_Draw_Call) Return(n int, err error) *MockLotteryEntryUseCase_Draw_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockLotteryEntryUseCase_Draw_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, saleID entity.TicketSaleID) (int, error)) *MockLotteryEntryUseCase_Draw_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DrawDueSales provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) DrawDueSales(ctx context.Context) error {
-	ret := _mock.Called(ctx)
+func (_mock *MockLotteryEntryUseCase) DrawDueSales(ctx context.Context, f usecase.Flow, at time.Time) (int, error) {
+	ret := _mock.Called(ctx, f, at)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DrawDueSales")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
+	var r0 int
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) (int, error)); ok {
+		return returnFunc(ctx, f, at)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) int); ok {
+		r0 = returnFunc(ctx, f, at)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, time.Time) error); ok {
+		r1 = returnFunc(ctx, f, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockLotteryEntryUseCase_DrawDueSales_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DrawDueSales'
@@ -249,29 +332,41 @@ type MockLotteryEntryUseCase_DrawDueSales_Call struct {
 
 // DrawDueSales is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockLotteryEntryUseCase_Expecter) DrawDueSales(ctx any) *MockLotteryEntryUseCase_DrawDueSales_Call {
-	return &MockLotteryEntryUseCase_DrawDueSales_Call{Call: _e.mock.On("DrawDueSales", ctx)}
+//   - f usecase.Flow
+//   - at time.Time
+func (_e *MockLotteryEntryUseCase_Expecter) DrawDueSales(ctx any, f any, at any) *MockLotteryEntryUseCase_DrawDueSales_Call {
+	return &MockLotteryEntryUseCase_DrawDueSales_Call{Call: _e.mock.On("DrawDueSales", ctx, f, at)}
 }
 
-func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) Run(run func(ctx context.Context)) *MockLotteryEntryUseCase_DrawDueSales_Call {
+func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) Run(run func(ctx context.Context, f usecase.Flow, at time.Time)) *MockLotteryEntryUseCase_DrawDueSales_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
 		run(
 			arg0,
+			arg1,
+			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) Return(err error) *MockLotteryEntryUseCase_DrawDueSales_Call {
-	_c.Call.Return(err)
+func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) Return(n int, err error) *MockLotteryEntryUseCase_DrawDueSales_Call {
+	_c.Call.Return(n, err)
 	return _c
 }
 
-func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) RunAndReturn(run func(ctx context.Context) error) *MockLotteryEntryUseCase_DrawDueSales_Call {
+func (_c *MockLotteryEntryUseCase_DrawDueSales_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, at time.Time) (int, error)) *MockLotteryEntryUseCase_DrawDueSales_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -346,63 +441,6 @@ func (_c *MockLotteryEntryUseCase_ListByTicketSale_Call) Return(lotteryEntrys []
 }
 
 func (_c *MockLotteryEntryUseCase_ListByTicketSale_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID) ([]*entity.LotteryEntry, error)) *MockLotteryEntryUseCase_ListByTicketSale_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// RunDraw provides a mock function for the type MockLotteryEntryUseCase
-func (_mock *MockLotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.TicketSaleID) error {
-	ret := _mock.Called(ctx, saleID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RunDraw")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID) error); ok {
-		r0 = returnFunc(ctx, saleID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockLotteryEntryUseCase_RunDraw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunDraw'
-type MockLotteryEntryUseCase_RunDraw_Call struct {
-	*mock.Call
-}
-
-// RunDraw is a helper method to define mock.On call
-//   - ctx context.Context
-//   - saleID entity.TicketSaleID
-func (_e *MockLotteryEntryUseCase_Expecter) RunDraw(ctx any, saleID any) *MockLotteryEntryUseCase_RunDraw_Call {
-	return &MockLotteryEntryUseCase_RunDraw_Call{Call: _e.mock.On("RunDraw", ctx, saleID)}
-}
-
-func (_c *MockLotteryEntryUseCase_RunDraw_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID)) *MockLotteryEntryUseCase_RunDraw_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.TicketSaleID
-		if args[1] != nil {
-			arg1 = args[1].(entity.TicketSaleID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_RunDraw_Call) Return(err error) *MockLotteryEntryUseCase_RunDraw_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockLotteryEntryUseCase_RunDraw_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID) error) *MockLotteryEntryUseCase_RunDraw_Call {
 	_c.Call.Return(run)
 	return _c
 }

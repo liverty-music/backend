@@ -1,6 +1,8 @@
 package rdb_test
 
 import (
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,12 +31,18 @@ import (
 // wiring, so a presale and a general sale of one event share one stock.
 
 // firstComeStory adds the first-come checkout and the resale listings to the
-// lottery story's use cases, over the same repositories and clock.
+// lottery story's use cases, over the same repositories and clock. Its
+// checkouts are charged through the real Stripe test API; a lottery presale
+// of the story still runs on the lottery story's in-memory provider.
 type firstComeStory struct {
 	*lotteryStory
 
+	key       string
 	checkouts usecase.CheckoutUseCase
 	resale    usecase.ResaleListingUseCase
+	// issuance places a checkout's order; webhooks fulfils its charge.
+	issuance  usecase.OrderUseCase
+	webhooks  usecase.StripeWebhookService
 	stockRepo *rdb.TicketStockRepository
 }
 
@@ -42,12 +50,38 @@ type firstComeStory struct {
 // are available, and seeds the Organizer's event as newLotteryStory does.
 func newFirstComeStory(t *testing.T) *firstComeStory {
 	t.Helper()
-	s := &firstComeStory{lotteryStory: newLotteryStory(t), stockRepo: rdb.NewTicketStockRepository(testDB)}
+	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
+		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
+	}
+	key := os.Getenv("STRIPE_SECRET_KEY")
+	if !strings.HasPrefix(key, "sk_test_") && !strings.HasPrefix(key, "rk_test_") {
+		t.Skip("STRIPE_SECRET_KEY must be a test-mode key (sk_test_… or rk_test_…)")
+	}
+	s := &firstComeStory{lotteryStory: newLotteryStory(t), key: key, stockRepo: rdb.NewTicketStockRepository(testDB)}
 	logger, err := logging.New()
 	require.NoError(t, err)
 	clock := usecase.Clock(func() time.Time { return s.now })
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
+	checkoutCards := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger)
+	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
+		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
+		OrderRepo:                s.orderRepo,
+		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
+		OrganizerRepo:            rdb.NewOrganizerRepository(testDB, testOutbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
+		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
+		TicketSaleRepo:           rdb.NewTicketSaleRepository(testDB, testOutbox),
+		StockRepo:                s.stockRepo,
+		TicketRepo:               rdb.NewTicketRepository(testDB, testOutbox),
+		EventState:               eventState,
+		EventRepo:                eventRepo,
+		CardAuthorizations:       checkoutCards,
+		Clock:                    clock,
+		Logger:                   logger,
+	})
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, s.issuance, logger)
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
@@ -58,7 +92,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
 		EventState:               eventState,
 		EventRepo:                eventRepo,
-		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(s.key, payment.CheckoutCardAuthorizationPolicy, logger),
+		CardAuthorizations:       checkoutCards,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
@@ -73,6 +107,14 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		Logger:     logger,
 	})
 	return s
+}
+
+// paymentIntent reads a PaymentIntent from the Stripe test API.
+func (s *firstComeStory) paymentIntent(cardAuthorizationID string) *stripe.PaymentIntent {
+	s.t.Helper()
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, cardAuthorizationID, nil)
+	require.NoError(s.t, err)
+	return pi
 }
 
 // createFirstCome has the Organizer create a FirstCome sale naming the event,

@@ -35,3 +35,8 @@ func NewPostmarkPasskeyChangeSenderForTest(fanWebBaseURL string, japanTime *time
 func NewPostmarkEmailVerificationSenderForTest(codes EmailVerificationCodeIssuer, fanWebBaseURL, apiURL, serverToken string, logger *logging.Logger) *PostmarkEmailVerificationSender {
 	return newPostmarkEmailVerificationSender(codes, fanWebBaseURL, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
+
+// NewPostmarkLotteryLossSenderForTest points the sender at a stub Postmark API.
+func NewPostmarkLotteryLossSenderForTest(entries LotteryEntryStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkLotteryLossSender {
+	return newPostmarkLotteryLossSender(entries, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+}

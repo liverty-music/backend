@@ -40,11 +40,8 @@ const unissuedChargeReportAge = 10 * time.Minute
 // text keep their names.
 const LogKeyNeedsOperator = "checkout needs an operator"
 
-// issue is the shared issuance core: it resolves the event's Organizer and its
-// fee rate, makes the Pending Order Paid with the captured payment, builds
-// the N Issued tickets and the Held Settlement, and stores them through
-// IssuanceRepository.Issue. When another run made the Order Paid first, it
-// re-reads and returns that Order.
+// issue is the issuance core of a checkout: it resolves the event's Organizer
+// and its fee rate and issues the Order with issueWith.
 func (uc *orderUseCase) issue(ctx context.Context, order *entity.Order, eventID, identityVerificationID string, captured *entity.CapturedPayment) (*entity.Order, error) {
 	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, eventID)
 	if err != nil {
@@ -54,7 +51,14 @@ func (uc *orderUseCase) issue(ctx context.Context, order *entity.Order, eventID,
 	if err != nil {
 		return nil, err
 	}
+	return uc.issueWith(ctx, order, eventID, organizerID, organizer.PlatformFeeRateBps, identityVerificationID, captured)
+}
 
+// issueWith makes the Pending Order Paid with the captured payment, builds
+// the N Issued tickets and the Held Settlement for the Organizer at its fee
+// rate, and stores them through IssuanceRepository.Issue. When another run
+// made the Order Paid first, it re-reads and returns that Order.
+func (uc *orderUseCase) issueWith(ctx context.Context, order *entity.Order, eventID, organizerID string, platformFeeRateBps int, identityVerificationID string, captured *entity.CapturedPayment) (*entity.Order, error) {
 	now := uc.clock()
 	paid := *order
 	paid.Payment = entity.Payment{
@@ -78,7 +82,7 @@ func (uc *orderUseCase) issue(ctx context.Context, order *entity.Order, eventID,
 			IssueTime:                      now,
 		})
 	}
-	settlement := entity.NewHeldSettlement(&paid, organizerID, eventID, organizer.PlatformFeeRateBps, now)
+	settlement := entity.NewHeldSettlement(&paid, organizerID, eventID, platformFeeRateBps, now)
 
 	if err := uc.issuanceRepo.Issue(ctx, &paid, tickets, settlement); err != nil {
 		if !errors.Is(err, apperr.ErrAlreadyExists) {
@@ -92,7 +96,7 @@ func (uc *orderUseCase) issue(ctx context.Context, order *entity.Order, eventID,
 		slog.String("lottery_entry_id", string(order.LotteryEntryID)),
 		slog.String("checkout_id", string(order.CheckoutID)),
 		slog.Int("ticket_count", order.TicketCount),
-		slog.Int("platform_fee_rate_bps", organizer.PlatformFeeRateBps),
+		slog.Int("platform_fee_rate_bps", platformFeeRateBps),
 	)
 	return &paid, nil
 }
@@ -115,64 +119,6 @@ func (uc *orderUseCase) identityVerificationBinding(ctx context.Context, sale *e
 		return "", err
 	}
 	return identityVerification.ID, nil
-}
-
-// IssueFromCapturedWin implements [OrderUseCase].
-func (uc *orderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
-	entry, err := uc.entryRepo.Get(ctx, lotteryEntryID)
-	if err != nil {
-		return nil, err // propagates NotFound
-	}
-	order := entry.Order
-	// -- idempotency: a Paid Order means issuance already ran. --
-	if isPaid(order) {
-		return order, nil
-	}
-	if entry.State != entity.LotteryEntryStateWon {
-		return nil, apperr.New(codes.FailedPrecondition,
-			"lottery entry is not Won; no ticket is issued",
-			slog.String("lottery_entry_id", string(lotteryEntryID)))
-	}
-	eventID, err := uc.orderRepo.GetEventID(ctx, order.ID)
-	if err != nil {
-		return nil, err
-	}
-	sale, err := uc.ticketSaleRepo.Get(ctx, entry.TicketSaleID)
-	if err != nil {
-		return nil, err
-	}
-	// -- read the captured payment for the authoritative facets; the card is
-	//    never charged here. --
-	captured, err := uc.capturedPayment(ctx, order.CardAuthorizationID)
-	if err != nil {
-		return nil, err
-	}
-	// -- where the sale requires verification, bind every ticket to the
-	//    user's IdentityVerification. --
-	identityVerificationID, err := uc.identityVerificationBinding(ctx, sale, order.UserID)
-	if err != nil {
-		return nil, err
-	}
-	return uc.issue(ctx, order, eventID, identityVerificationID, captured)
-}
-
-// IssueDueWins implements [OrderUseCase].
-func (uc *orderUseCase) IssueDueWins(ctx context.Context) error {
-	ids, err := uc.issuanceRepo.ListLotteryEntryIDsAwaitingIssuance(ctx)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if _, err := uc.IssueFromCapturedWin(ctx, id); err != nil {
-			// Per-entry failure must not block the rest of the sweep. The next
-			// tick retries (IssueFromCapturedWin is idempotent).
-			uc.logger.Warn(ctx, "issuance sweep: failed to issue lottery entry; skipping",
-				slog.String("lottery_entry_id", string(id)),
-				slog.Any("error", err),
-			)
-		}
-	}
-	return nil
 }
 
 // IssueFromCheckout implements [OrderUseCase]. The whole call runs under
@@ -349,8 +295,12 @@ func (uc *orderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID 
 	if err != nil {
 		return err
 	}
-	_, err = uc.IssueFromCapturedWin(ctx, entry.ID)
-	return err
+	// The issue workflow charged the entry's Order and made it Paid; the
+	// notice of that charge changes nothing.
+	uc.logger.Info(ctx, "completed charge of a lottery entry; issued by its issue workflow",
+		slog.String("card_authorization_id", cardAuthorizationID),
+		slog.String("lottery_entry_id", string(entry.ID)))
+	return nil
 }
 
 // capturedPayment reads the payment a Captured CardAuthorization took, for the

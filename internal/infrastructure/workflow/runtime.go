@@ -8,6 +8,8 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
+	apperrcodes "github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -18,6 +20,10 @@ type Runtime struct {
 	ctx    dbos.Context
 	admin  *admin
 	logger *logging.Logger
+	// scheduled holds the scheduled usecase workflows by name, which the
+	// one registered scheduled workflow runs (ScheduledWorkflowName).
+	scheduled map[string]func(dbos.Context, time.Time) (any, error)
+	schedules []dbos.ScheduleSpec
 }
 
 // NewRuntime connects DBOS to the system tables over pool, the process's own
@@ -44,7 +50,7 @@ func NewRuntime(ctx context.Context, pool *pgxpool.Pool, logger *logging.Logger)
 	if err != nil {
 		return nil, err
 	}
-	r := &Runtime{ctx: dctx, logger: logger}
+	r := &Runtime{ctx: dctx, logger: logger, scheduled: map[string]func(dbos.Context, time.Time) (any, error){}}
 	if _, err := dbos.RegisterQueue(dctx, DefaultQueue); err != nil {
 		return nil, toAppErr(err, "register the default workflow queue")
 	}
@@ -81,9 +87,17 @@ func newContext(ctx context.Context, cfg dbos.Config, logger *logging.Logger) (d
 	}
 }
 
-// Launch starts the queue runners and the schedules and recovers the
-// workflows the previous worker left. The worker is ready once it returns.
+// Launch applies the schedules of RegisterSchedule, starts the queue runners
+// and the schedules and recovers the workflows the previous worker left. The
+// worker is ready once it returns.
 func (r *Runtime) Launch() error {
+	if len(r.schedules) > 0 {
+		dbos.RegisterWorkflow(r.ctx, r.runScheduled, dbos.WithWorkflowName(ScheduledWorkflowName))
+		r.admin.track(ScheduledWorkflowName)
+		if err := dbos.ApplySchedules(r.ctx, r.schedules); err != nil {
+			return toAppErr(err, "apply the usecase workflow schedules")
+		}
+	}
 	return toAppErr(dbos.Launch(r.ctx), "launch the workflow runtime")
 }
 
@@ -94,6 +108,14 @@ func (r *Runtime) Launch() error {
 // workflow interrupted here is recovered by the next Launch.
 func (r *Runtime) Close() error {
 	return toAppErr(dbos.Shutdown(r.ctx, 30*time.Second), "shut down the workflow runtime")
+}
+
+// RegisterQueue registers the named queue, running at most concurrency of its
+// workflows at once across workers. Its settings live only here: the next
+// start of the worker overwrites any change made at runtime.
+func (r *Runtime) RegisterQueue(name string, concurrency int) error {
+	_, err := dbos.RegisterQueue(r.ctx, name, dbos.WithGlobalConcurrency(concurrency))
+	return toAppErr(err, "register the workflow queue "+name)
 }
 
 // registered adapts a usecase workflow method to DBOS. Each is registered as
@@ -153,4 +175,43 @@ func Register[In, Out any](r *Runtime, name string, fn func(context.Context, use
 	w := &registered[In, Out]{name: name, fn: fn}
 	r.admin.track(name)
 	dbos.RegisterWorkflow(r.ctx, w.run, dbos.WithInstance(w), dbos.WithWorkflowName(name))
+}
+
+// RegisterSchedule registers fn as the workflow name, run by its schedule
+// at the times of the cron expression (with seconds) and given the time of
+// the run. Call it before Launch, with the same names on every start.
+//
+// A run is not sampled for tracing: one that finds nothing to do records no
+// span, while its log lines still carry a trace id. Each workflow it starts
+// is a trace of its own (design "Traces: a schedule run that finds no sale
+// records nothing").
+//
+// DBOS cannot schedule a workflow registered as a configured instance, so
+// every schedule runs the one workflow ScheduledWorkflowName, which calls fn
+// by the name the schedule carries. Its runs are named
+// sched-<name>-<time of the run>.
+func RegisterSchedule[Out any](r *Runtime, name, cron string, fn func(context.Context, usecase.Flow, time.Time) (Out, error)) {
+	r.scheduled[name] = func(ctx dbos.Context, at time.Time) (any, error) {
+		return fn(unsampledContext(ctx), &flow{run: ctx, untraced: true}, at)
+	}
+	r.schedules = append(r.schedules, dbos.ScheduleSpec{
+		ScheduleName: name,
+		Schedule:     cron,
+		WorkflowName: ScheduledWorkflowName,
+		Context:      name,
+	})
+}
+
+// runScheduled is the DBOS workflow of every schedule: it runs the scheduled
+// usecase workflow the schedule names, at the run's time.
+func (r *Runtime) runScheduled(ctx dbos.Context, in dbos.ScheduledWorkflowInput) (any, error) {
+	name, err := dbos.DecodeScheduleContext[string](in)
+	if err != nil {
+		return nil, toAppErr(err, "read the schedule of the run")
+	}
+	fn, ok := r.scheduled[name]
+	if !ok {
+		return nil, apperr.New(apperrcodes.NotFound, "no scheduled workflow is registered as "+name)
+	}
+	return fn(ctx, in.ScheduledTime)
 }

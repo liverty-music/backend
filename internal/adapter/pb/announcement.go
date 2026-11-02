@@ -38,3 +38,25 @@ func LotteryEntryStateFromProto(s entityv1.LotteryEntryState) entity.LotteryEntr
 	}
 	return entity.LotteryEntryStateUnspecified
 }
+
+// LotteryEntryFromAnnouncement maps the LotteryEntry an
+// ORDER.lottery_entry_drawn announcement carries back to the domain entry,
+// without its Order.
+func LotteryEntryFromAnnouncement(e *entityv1.LotteryEntry) *entity.LotteryEntry {
+	entry := &entity.LotteryEntry{
+		ID:           entity.LotteryEntryID(e.GetId().GetValue()),
+		OrderID:      entity.OrderID(e.GetOrderId().GetValue()),
+		TicketSaleID: entity.TicketSaleID(e.GetTicketSaleId().GetValue()),
+		State:        LotteryEntryStateFromProto(e.GetState()),
+	}
+	if e.DrawPosition != nil {
+		position := int(e.GetDrawPosition())
+		entry.DrawPosition = &position
+	}
+	for _, reason := range []entity.LotteryEntryLostReason{entity.LotteryEntryLostReasonNotDrawn, entity.LotteryEntryLostReasonCardNotCharged} {
+		if lotteryEntryLostReasonToProto(reason) == e.GetLostReason() {
+			entry.LostReason = reason
+		}
+	}
+	return entry
+}

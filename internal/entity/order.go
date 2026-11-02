@@ -326,15 +326,6 @@ type IssuanceRepository interface {
 	// ORDER.paid with the Order as Paid, together with the issuance. Nothing when
 	// Issue fails, including with AlreadyExists.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
-
-	// ListLotteryEntryIDsAwaitingIssuance returns the id of every Won lottery
-	// entry whose Order is Pending, and no other id — the work-list the
-	// issuance sweeper processes. An empty result returns (nil, nil).
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query failure.
-	ListLotteryEntryIDsAwaitingIssuance(ctx context.Context) ([]LotteryEntryID, error)
 }
 
 // OrderRepository defines the read/status-update contract for [Order] records.

@@ -30,21 +30,15 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 		}
 		return out
 	}
-	winner := func(e *entity.LotteryEntry, position int) entity.DrawWinnerRow {
-		return entity.DrawWinnerRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position}
-	}
-	loser := func(e *entity.LotteryEntry, position int) entity.DrawLoserRow {
-		return entity.DrawLoserRow{LotteryEntryID: e.ID, CardAuthorizationID: e.Order.CardAuthorizationID, DrawPosition: position, LostReason: entity.LotteryEntryLostReasonNotDrawn}
-	}
 
 	t.Run("two entries, one place", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Two entries, one place"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		f := seedStock(t, entity.TicketSaleMethodLottery, 2, 4)
 		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		mark := outboxMark(t)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)}))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)}))
 
 		got := drawnOf(t, mark, f.SaleID)
 		require.Len(t, got, 2)
@@ -57,26 +51,25 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 
 	t.Run("recorded again announces nothing", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Recorded again announces nothing"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		f := seedStock(t, entity.TicketSaleMethodLottery, 2, 4)
 		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
-		winners, losers := []entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)}
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, winners, losers))
+		order := []entity.StockDrawOrder{drawOrder(f, won, lost)}
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
 		mark := outboxMark(t)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, winners, losers))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
 
 		assert.Empty(t, drawnOf(t, mark, f.SaleID))
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/persist-draw-outcome "Announcement cannot be recorded"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		f := seedStock(t, entity.TicketSaleMethodLottery, 2, 4)
 		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
-		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).PersistDrawOutcome(ctx, f.SaleID,
-			[]entity.DrawWinnerRow{winner(won, 0)}, []entity.DrawLoserRow{loser(lost, 1)})
+		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		for _, e := range []*entity.LotteryEntry{won, lost} {
@@ -125,14 +118,12 @@ func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, entries)
 
-	winners := make([]entity.DrawWinnerRow, 0, entries/2)
-	losers := make([]entity.DrawLoserRow, 0, entries/2)
+	// Half the entries fit: each asks for 1 ticket of a stock of entries/2.
+	_, err = testDB.Pool.Exec(ctx, `UPDATE ticket_stocks SET quantity = $2 WHERE id = $1`, string(f.ID), entries/2)
+	require.NoError(t, err)
+	order := entity.StockDrawOrder{TicketStockID: f.ID, Entries: make([]entity.DrawEntry, len(all))}
 	for i, s := range all {
-		if i%2 == 0 {
-			winners = append(winners, entity.DrawWinnerRow{LotteryEntryID: entity.LotteryEntryID(s.ID), CardAuthorizationID: s.Card, DrawPosition: i})
-		} else {
-			losers = append(losers, entity.DrawLoserRow{LotteryEntryID: entity.LotteryEntryID(s.ID), CardAuthorizationID: s.Card, DrawPosition: i, LostReason: entity.LotteryEntryLostReasonNotDrawn})
-		}
+		order.Entries[i] = entity.DrawEntry{ID: entity.LotteryEntryID(s.ID), TicketCount: 1}
 	}
 	mark := outboxMark(t)
 	runtime.GC()
@@ -155,7 +146,7 @@ func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
 			}
 		}
 	}()
-	err = repo.PersistDrawOutcome(ctx, f.SaleID, winners, losers)
+	err = repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{order})
 	close(stop)
 	<-sampled
 

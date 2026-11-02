@@ -141,6 +141,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
 			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
 	}
+	// The loss email of a Lost lottery entry goes the same way.
+	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db, newOutbox(logger))
+	var lossSender entity.LotteryLossEmailSender = mail.NewNoopLotteryLossSender(logger)
+	if cfg.Postmark.ServerToken != "" {
+		lossSender = mail.NewPostmarkLotteryLossSender(lotteryEntryRepo, cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+	}
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
@@ -155,6 +162,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			Mailer:         confirmationSender,
 			ResaleListings: resaleListingRepo,
 			ResaleMailer:   resaleSoldSender,
+			Entries:        lotteryEntryRepo,
+			Stocks:         rdb.NewTicketStockRepository(db),
+			LossMailer:     lossSender,
 			TimeZone:       japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
@@ -242,6 +252,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, rdb.NewTicketStockRepository(db), logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
+	// The consumer's OrderUseCase only starts the workflow that follows each
+	// drawn entry; the workflow worker runs it.
+	lotteryEntryDrawnConsumer := event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+		Workflows: workflows,
+		Clock:     time.Now,
+		Logger:    logger,
+	}), notificationUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -277,6 +294,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
 		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
+		{"start-lottery-entry-workflow", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleStartWorkflow},
+		{"send-lottery-loss", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleSendLotteryLoss},
 	}
 
 	// Router

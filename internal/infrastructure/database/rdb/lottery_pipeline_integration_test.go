@@ -24,9 +24,11 @@ import (
 //
 //	a Lottery sale of a TicketStock of 2 tickets → 3 fans each AuthorizeCard
 //	(real card authorization), complete card authentication and Confirm, and
-//	a 4th fan authorizes but never authenticates → draw → exactly 2 winners
-//	captured with their Orders Pending and 1 loser released with its draw
-//	position and its Order Void; the 4th fan has no entry and no Order.
+//	a 4th fan authorizes but never authenticates → draw, then the issue
+//	workflow of each winner and the release workflow of each loser, run in
+//	one go → exactly 2 winners captured with their Orders Paid and 1 loser
+//	released with its draw position and its Order Void; the 4th fan has no
+//	entry and no Order.
 //
 // Winners' PaymentIntents must end `succeeded` (captured); the loser's must
 // end `canceled` (card authorization released); the 4th fan's is never
@@ -86,8 +88,33 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	abandoned, err := uc.AuthorizeCard(ctx, f.SaleID, f.ID, abandonedFan, 1, "Test Fan", "+819012345678", nil)
 	require.NoError(t, err)
 
-	// -- run the draw --
-	require.NoError(t, uc.RunDraw(ctx, f.SaleID))
+	// -- run the draw, then the workflow that follows each drawn entry --
+	_, err = uc.Draw(ctx, inlineFlow{}, f.SaleID)
+	require.NoError(t, err)
+	orders := usecase.NewOrderUseCase(usecase.OrderDeps{
+		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
+		OrderRepo:                orderRepo,
+		EntryRepo:                entryRepo,
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
+		OrganizerRepo:            rdb.NewOrganizerRepository(testDB, testOutbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
+		TicketSaleRepo:           rdb.NewTicketSaleRepository(testDB, testOutbox),
+		StockRepo:                rdb.NewTicketStockRepository(testDB),
+		CardAuthorizations:       stripePort,
+		Clock:                    func() time.Time { return now },
+		Logger:                   logger,
+	})
+	for _, id := range entryIDs {
+		e, err := entryRepo.Get(ctx, id)
+		require.NoError(t, err)
+		switch e.State {
+		case entity.LotteryEntryStateWon:
+			_, err = orders.Issue(ctx, inlineFlow{}, usecase.IssueRequest{LotteryEntryID: id})
+		case entity.LotteryEntryStateLost:
+			_, err = orders.ReleaseCardAuthorization(ctx, inlineFlow{}, e.OrderID)
+		}
+		require.NoError(t, err)
+	}
 
 	// -- assert outcomes: exactly `quantity` winners captured, the rest lost/released --
 	var won, lost int
@@ -99,7 +126,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 			won++
 			assert.Equal(t, stripe.PaymentIntentStatusSucceeded, piStatus(t, key, e.Order.CardAuthorizationID),
 				"winner PaymentIntent must be captured (succeeded)")
-			assert.Equal(t, entity.OrderStatusPending, e.Order.Status, "a winner's Order awaits issuance")
+			assert.Equal(t, entity.OrderStatusPaid, e.Order.Status, "a winner's Order is issued")
 		case entity.LotteryEntryStateLost:
 			lost++
 			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, e.Order.CardAuthorizationID),
@@ -126,6 +153,26 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entered, "the sale is drawn: no entry is Entered")
 }
+
+// inlineFlow runs a workflow's steps at once, in the test's goroutine, as a
+// first run with no recorded step does.
+type inlineFlow struct{}
+
+func (inlineFlow) Step(ctx context.Context, _ string, fn func(context.Context) ([]byte, error)) ([]byte, error) {
+	return fn(ctx)
+}
+
+func (inlineFlow) Start(context.Context, string, string, any, ...usecase.StartOption) error {
+	return nil
+}
+
+func (inlineFlow) Recv(context.Context, string, time.Duration) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
+func (inlineFlow) Patched(context.Context, string) (bool, error) { return true, nil }
+
+func (inlineFlow) DeprecatePatch(context.Context, string) error { return nil }
 
 // lotteryEntryDeps wires the lottery entry use case over the real
 // repositories, with the given card authorizations, publisher and clock.
