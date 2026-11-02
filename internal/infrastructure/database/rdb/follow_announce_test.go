@@ -63,16 +63,20 @@ func TestFollowRepository_FollowAnnounces(t *testing.T) {
 
 	t.Run("repeat follow", func(t *testing.T) {
 		// @spec components/entity/follow/follow "Repeat follow"
+		// @spec components/infrastructure/backend/process/event-delivery "Change already made"
 		userID, artistID := seedFan(t)
 		require.NoError(t, repo.Follow(ctx, userID, artistID))
+		before := storedHype(t, userID, artistID)
 		mark := outboxMark(t)
 
 		assert.ErrorIs(t, repo.Follow(ctx, userID, artistID), apperr.ErrAlreadyExists)
 		assert.Empty(t, followsOf(t, mark, entity.SubjectArtistFollowed, userID))
+		assert.Equal(t, before, storedHype(t, userID, artistID), "the stored Follow is unchanged")
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/follow/follow "Announcement cannot be recorded"
+		// @spec components/infrastructure/backend/process/event-delivery "Announcement cannot be recorded"
 		userID, artistID := seedFan(t)
 
 		err := rdb.NewFollowRepository(testDB, failingOutbox{}).Follow(ctx, userID, artistID)

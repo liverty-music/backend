@@ -495,6 +495,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 	t.Run("auto-publishes a genuinely new concert at a resolved venue", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Genuinely new"
 		h := build(t)
 		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"}
 
@@ -516,6 +517,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// Published directly: an event was inserted, a venue was created, and the
 		// concert was NOT staged.
 		require.Len(t, h.concert.created, 1)
+		require.Len(t, h.series.created, 1)
+		assert.Equal(t, h.series.created[0].ID, h.concert.created[0].SeriesID, "the Event is published under the series' Series")
 		assert.Empty(t, h.candidate.upserted, "a genuinely new concert must not be staged")
 		assert.Len(t, h.venue.created, 1, "venue is created only on the auto-publish path")
 	})
@@ -605,6 +608,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Same slot as an existing event"
 		h := build(t)
 		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
@@ -629,9 +633,65 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
 		require.Len(t, h.candidate.upserted, 1, "a conflict must be staged for reconciliation")
+		staged := h.candidate.upserted[0]
+		require.NotNil(t, staged.ResolvedPlaceID, "the staged event carries its resolved preview")
+		assert.Equal(t, "place-x", *staged.ResolvedPlaceID)
+		require.NotNil(t, staged.ResolvedVenueName)
+		assert.Equal(t, "Venue X", *staged.ResolvedVenueName)
 		assert.Empty(t, h.concert.created, "a conflict must not be auto-published")
 		assert.Empty(t, h.venue.created, "a conflict resolves to the existing venue; no new venue")
 		expectNoPublish(t, h)
+	})
+
+	t.Run("stages an unknown start next to an Event with a known start", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Unknown start next to a known start"
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		h.concert.existing = map[string][]*entity.Event{
+			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime}},
+		}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Series: []*entity.DiscoveredSeries{{
+				Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+				Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue X", LocalDate: localDate}},
+			}},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, h.candidate.upserted, 1, "an unknown start next to a known start is staged")
+		assert.Empty(t, h.concert.created)
+	})
+
+	t.Run("publishes a known start next to another Event with no start", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Known start next to an unknown-start event"
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		// Another artist's Event at the Venue and date, with no start time; the
+		// discovering Artist has no Event there, so nothing is filled.
+		h.concert.existing = map[string][]*entity.Event{
+			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate}},
+		}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Series: []*entity.DiscoveredSeries{{
+				Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+				Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime}},
+			}},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, h.concert.created, 1, "a new Event with the known start is published")
+		require.NotNil(t, h.concert.created[0].StartTime)
+		assert.True(t, h.concert.created[0].StartTime.Equal(startTime), "the new Event has the discovered start")
+		assert.Empty(t, h.candidate.upserted)
+		assert.Empty(t, h.concert.filledIDs, "the other artist's Event is left as it is")
 	})
 
 	t.Run("stages an unresolved venue without creating a venue or publishing", func(t *testing.T) {
