@@ -11,12 +11,13 @@ fully isolated. A `test`-mode key can never touch livemode.
 
 | Suite | Leg | Asserts |
 |---|---|---|
-| `TestStripeAuthorizationPort_Integration` (④) | authorize hold → confirm (test card) → capture / cancel | manual-capture hold model + deterministic idempotency-key no-op on retried capture/cancel; amount-mismatch verify rejects |
+| `TestStripeCardAuthorizationRepository_Integration` (④) | authorize hold → confirm (test card) → capture / cancel | manual-capture hold model; a repeated capture or cancel succeeds from the PaymentIntent's status, without an idempotency key of ours; amount-mismatch verify rejects |
 | `TestStripeConnect_Settlement_PoC` (money-out) | self-provision JP recipient account → platform charge → transfer (`source_transaction`) → payout | separate charges & transfers; platform fee kept as the non-transferred remainder (no `application_fee_amount`); payout best-effort in test mode |
 
-The ⑤ issuance logic (`IssueFromCapturedWin` → Order + N tickets → ticket-journey
-PAID, idempotency, not-Won guard) is covered by the DB-backed unit/integration
-tests (`make test`); this harness covers the Stripe-facing legs those mock.
+The ⑤ issuance logic (the `Issue` workflow → Order + N tickets → ticket-journey
+PAID, idempotency, not-Won guard) is covered by the unit tests and the lottery
+story tests on the workflow runtime (`make test`); this harness covers the
+Stripe-facing legs those replace with a fake.
 
 ## Environment sandboxes
 

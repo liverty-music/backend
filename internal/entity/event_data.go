@@ -90,8 +90,10 @@ const (
 	// is kept for the existing durable track-artist-hype-changed.
 	SubjectArtistHypeChanged = "ARTIST.hype_changed"
 	// SubjectLotteryEntryDrawn announces one entry's draw result (Won or
-	// Lost). LotteryEntryUseCase.RunDraw publishes it after the draw is
-	// recorded; the analytics consumer forwards it as ticket.lottery.result.
+	// Lost). LotteryEntry.PersistDrawOutcome and LotteryEntry.RevertWin
+	// announce it with the change; the issue and release workflows start from
+	// it, the loss notice is sent from it, and the analytics consumer forwards
+	// it as ticket.lottery.result.
 	SubjectLotteryEntryDrawn = "ORDER.lottery_entry_drawn"
 	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed.
 	// CheckoutUseCase.ReleaseExpired publishes it when it makes the Checkout
