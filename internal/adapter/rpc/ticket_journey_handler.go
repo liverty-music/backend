@@ -54,6 +54,28 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *rpc.SetStatus
 	return &rpc.SetStatusResponse{}, nil
 }
 
+// InferTracking starts tracking an event whose concert the signed-in fan added
+// to their calendar, when the fan has no journey for it, and says whether it
+// did.
+func (h *TicketJourneyHandler) InferTracking(ctx context.Context, req *rpc.InferTrackingRequest) (*rpc.InferTrackingResponse, error) {
+	providerUserID, err := pb.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	started, err := h.ticketJourneyUC.InferTracking(ctx, user.ID, req.EventId.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rpc.InferTrackingResponse{Started: started}, nil
+}
+
 // Delete removes the fan's ticket journey for a specific event.
 func (h *TicketJourneyHandler) Delete(ctx context.Context, req *rpc.DeleteRequest) (*rpc.DeleteResponse, error) {
 	providerUserID, err := pb.GetExternalUserID(ctx)

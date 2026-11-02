@@ -300,26 +300,51 @@ func TestTicketJourneyUseCase_MarkPaid(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			journeys := entitymocks.NewMockTicketJourneyRepository(t)
-			uc := usecase.NewTicketJourneyUseCase(journeys, newTestLogger(t))
+			d := newTicketJourneyTestDeps(t)
 			_, data := confirmedOrder(tc.source)
-			journeys.EXPECT().Upsert(mock.Anything, &entity.TicketJourney{UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid}).Return(nil).Twice()
+			d.repo.EXPECT().Upsert(mock.Anything, &entity.TicketJourney{
+				UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid, StatusSetBy: entity.TicketJourneySetByPlatform,
+			}).Return(nil).Twice()
+			// The fan has no home, so no hype is raised.
+			d.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1"}, nil).Twice()
 
-			// No status-change announcement (the publisher mock expects none),
-			// and running again leaves the journey Paid.
-			require.NoError(t, uc.MarkPaid(context.Background(), data))
-			require.NoError(t, uc.MarkPaid(context.Background(), data))
+			// Running again leaves the journey Paid set by the platform.
+			require.NoError(t, d.uc.MarkPaid(context.Background(), data))
+			require.NoError(t, d.uc.MarkPaid(context.Background(), data))
+		})
+	}
+
+	for _, tc := range []struct {
+		name   string
+		raised error
+	}{
+		// @spec components/usecase/ticket-journey/mark-paid "Paid for a distant concert"
+		{"paid for a distant concert", nil},
+		// @spec components/usecase/ticket-journey/mark-paid "Raising fails"
+		{"raising fails", apperr.ErrUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newTicketJourneyTestDeps(t)
+			data := entity.OrderPaidData{OrderID: "order-1", UserID: "user-1", EventID: "event-far"}
+			d.repo.EXPECT().Upsert(mock.Anything, &entity.TicketJourney{
+				UserID: "user-1", EventID: "event-far", Status: entity.TicketJourneyStatusPaid, StatusSetBy: entity.TicketJourneySetByPlatform,
+			}).Return(nil).Once()
+			d.expectRaiseReads(context.Background(), "event-far", raiseConcert("event-far", "artist-1"), followed("artist-1", entity.HypeNearby, entity.HypeSetByDefault))
+			d.follows.EXPECT().RaiseHype(mock.Anything, "user-1", "artist-1", entity.HypeAway).Return(tc.raised == nil, tc.raised).Once()
+
+			// A failed raise does not fail MarkPaid, so it is not run again.
+			assert.NoError(t, d.uc.MarkPaid(context.Background(), data))
 		})
 	}
 
 	t.Run("update fails", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-journey/mark-paid "Update fails"
-		journeys := entitymocks.NewMockTicketJourneyRepository(t)
-		uc := usecase.NewTicketJourneyUseCase(journeys, newTestLogger(t))
+		d := newTicketJourneyTestDeps(t)
 		_, data := confirmedOrder("checkout")
-		journeys.EXPECT().Upsert(mock.Anything, mock.Anything).Return(apperr.ErrInternal)
+		d.repo.EXPECT().Upsert(mock.Anything, mock.Anything).Return(apperr.ErrInternal)
 
-		assert.ErrorIs(t, uc.MarkPaid(context.Background(), data), apperr.ErrInternal)
+		assert.ErrorIs(t, d.uc.MarkPaid(context.Background(), data), apperr.ErrInternal)
 	})
 }

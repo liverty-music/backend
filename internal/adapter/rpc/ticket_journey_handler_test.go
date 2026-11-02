@@ -314,6 +314,59 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
+	t.Run("InferTracking with a missing event id", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing event id"
+		// The mocks fail the test if anything is recorded.
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		for _, id := range []*entityv1.EventId{nil, {Value: "not-a-uuid"}} {
+			_, err := client.InferTracking(withFanToken(&ticketjourneyv1.InferTrackingRequest{EventId: id}))
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		}
+	})
+
+	t.Run("InferTracking says tracking started", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket-journey "Tracking started"
+		// @spec components/adapter/fan/api/rpc/ticket-journey "The journey belongs to the caller"
+		uc := ucmocks.NewMockTicketJourneyUseCase(t)
+		ur := entitymocks.NewMockUserRepository(t)
+		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		uc.EXPECT().InferTracking(mock.Anything, testCallerUserID, eventID).Return(true, nil).Once()
+		client := newClient(t, uc, ur)
+
+		resp, err := client.InferTracking(withFanToken(&ticketjourneyv1.InferTrackingRequest{EventId: &entityv1.EventId{Value: eventID}}))
+
+		require.NoError(t, err)
+		assert.True(t, resp.GetStarted())
+	})
+
+	t.Run("InferTracking for an event that does not exist", func(t *testing.T) {
+		t.Parallel()
+		uc := ucmocks.NewMockTicketJourneyUseCase(t)
+		ur := entitymocks.NewMockUserRepository(t)
+		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		uc.EXPECT().InferTracking(mock.Anything, testCallerUserID, eventID).
+			Return(false, apperr.New(codes.FailedPrecondition, "event does not exist")).Once()
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		_, err = handler.NewTicketJourneyHandler(uc, ur, logger).InferTracking(ticketJourneyAuthedCtx(testCallerExtID),
+			&ticketjourneyv1.InferTrackingRequest{EventId: &entityv1.EventId{Value: eventID}})
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("InferTracking not signed in", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket-journey "Not signed in"
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+
+		_, err := client.InferTracking(context.Background(), &ticketjourneyv1.InferTrackingRequest{EventId: &entityv1.EventId{Value: eventID}})
+
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
 	t.Run("Delete with a missing or malformed event id", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing or malformed event id"

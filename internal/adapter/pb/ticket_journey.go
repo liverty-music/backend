@@ -23,15 +23,32 @@ var TicketJourneyStatusFromProto = map[entityv1.TicketJourneyStatus]entity.Ticke
 	entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_PAID:     entity.TicketJourneyStatusPaid,
 }
 
+// ticketJourneySetByToProto maps a domain TicketJourneySetBy value to its
+// Protobuf enum value.
+var ticketJourneySetByToProto = map[entity.TicketJourneySetBy]entityv1.TicketJourneyStatusSetBy{
+	entity.TicketJourneySetByFan:       entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_FAN,
+	entity.TicketJourneySetByPlatform:  entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_PLATFORM,
+	entity.TicketJourneySetByInference: entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_INFERENCE,
+}
+
+// TicketJourneySetByFromProto maps a Protobuf TicketJourneyStatusSetBy enum to
+// its domain value.
+var TicketJourneySetByFromProto = map[entityv1.TicketJourneyStatusSetBy]entity.TicketJourneySetBy{
+	entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_FAN:       entity.TicketJourneySetByFan,
+	entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_PLATFORM:  entity.TicketJourneySetByPlatform,
+	entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_INFERENCE: entity.TicketJourneySetByInference,
+}
+
 // FromTicketJourney maps a domain TicketJourney to its Protobuf wire representation.
 func FromTicketJourney(tj *entity.TicketJourney) *entityv1.TicketJourney {
 	if tj == nil {
 		return nil
 	}
 	return &entityv1.TicketJourney{
-		UserId:  &entityv1.UserId{Value: tj.UserID},
-		EventId: &entityv1.EventId{Value: tj.EventID},
-		Status:  ticketJourneyStatusToProto[tj.Status],
+		UserId:      &entityv1.UserId{Value: tj.UserID},
+		EventId:     &entityv1.EventId{Value: tj.EventID},
+		Status:      ticketJourneyStatusToProto[tj.Status],
+		StatusSetBy: ticketJourneySetByToProto[tj.StatusSetBy],
 	}
 }
 

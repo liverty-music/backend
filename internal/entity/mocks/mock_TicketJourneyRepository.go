@@ -444,3 +444,69 @@ func (_c *MockTicketJourneyRepository_Upsert_Call) RunAndReturn(run func(ctx con
 	_c.Call.Return(run)
 	return _c
 }
+
+// UpsertIfReplaceable provides a mock function for the type MockTicketJourneyRepository
+func (_mock *MockTicketJourneyRepository) UpsertIfReplaceable(ctx context.Context, journey *entity.TicketJourney) (bool, error) {
+	ret := _mock.Called(ctx, journey)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertIfReplaceable")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.TicketJourney) (bool, error)); ok {
+		return returnFunc(ctx, journey)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.TicketJourney) bool); ok {
+		r0 = returnFunc(ctx, journey)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.TicketJourney) error); ok {
+		r1 = returnFunc(ctx, journey)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockTicketJourneyRepository_UpsertIfReplaceable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertIfReplaceable'
+type MockTicketJourneyRepository_UpsertIfReplaceable_Call struct {
+	*mock.Call
+}
+
+// UpsertIfReplaceable is a helper method to define mock.On call
+//   - ctx context.Context
+//   - journey *entity.TicketJourney
+func (_e *MockTicketJourneyRepository_Expecter) UpsertIfReplaceable(ctx any, journey any) *MockTicketJourneyRepository_UpsertIfReplaceable_Call {
+	return &MockTicketJourneyRepository_UpsertIfReplaceable_Call{Call: _e.mock.On("UpsertIfReplaceable", ctx, journey)}
+}
+
+func (_c *MockTicketJourneyRepository_UpsertIfReplaceable_Call) Run(run func(ctx context.Context, journey *entity.TicketJourney)) *MockTicketJourneyRepository_UpsertIfReplaceable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.TicketJourney
+		if args[1] != nil {
+			arg1 = args[1].(*entity.TicketJourney)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_UpsertIfReplaceable_Call) Return(b bool, err error) *MockTicketJourneyRepository_UpsertIfReplaceable_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_UpsertIfReplaceable_Call) RunAndReturn(run func(ctx context.Context, journey *entity.TicketJourney) (bool, error)) *MockTicketJourneyRepository_UpsertIfReplaceable_Call {
+	_c.Call.Return(run)
+	return _c
+}

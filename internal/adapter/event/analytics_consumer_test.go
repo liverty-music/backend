@@ -95,7 +95,10 @@ type forwardCase struct {
 func forwardCases() []forwardCase {
 	later := factTime.Add(time.Hour) // recorded after a fact that has its own time
 	fan := &entityv1.UserId{Value: fanID}
-	follow := &entityv1.Follow{UserId: fan, ArtistId: &entityv1.ArtistId{Value: "artist-1"}, Hype: entityv1.HypeType_HYPE_TYPE_AWAY}
+	follow := &entityv1.Follow{
+		UserId: fan, ArtistId: &entityv1.ArtistId{Value: "artist-1"}, Hype: entityv1.HypeType_HYPE_TYPE_AWAY,
+		HypeSetBy: entityv1.HypeSetBy_HYPE_SET_BY_FAN,
+	}
 	noFan := func(f *entityv1.Follow) { f.UserId = nil }
 	push := &entityv1.PushSubscription{UserId: fan, DeviceFamily: entityv1.PushDeviceFamily_PUSH_DEVICE_FAMILY_APPLE}
 	login := &entityv1.User{Id: fan, LastLoginTime: timestamppb.New(factTime)}
@@ -105,6 +108,7 @@ func forwardCases() []forwardCase {
 	}
 	journey := &entityv1.TicketJourney{
 		UserId: fan, EventId: &entityv1.EventId{Value: "event-1"}, Status: entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_PAID,
+		StatusSetBy: entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_PLATFORM,
 	}
 	associated := &entityv1.Artist{Id: &entityv1.ArtistId{Value: "artist-1"}, OrganizerId: &entityv1.OrganizerId{Value: organizerID}}
 	drawn := &entityv1.LotteryEntry{
@@ -148,7 +152,7 @@ func forwardCases() []forwardCase {
 		{
 			name: "ARTIST.hype_changed", handle: (*event.AnalyticsConsumer).HandleArtistHypeChanged,
 			payload: follow, recorded: factTime,
-			wantName: usecase.EventArtistHypeChanged, wantID: fanID, wantProps: usecase.AnalyticsProperties{"artist_id": "artist-1", "hype": "away"},
+			wantName: usecase.EventArtistHypeChanged, wantID: fanID, wantProps: usecase.AnalyticsProperties{"artist_id": "artist-1", "hype": "away", "set_by": "fan"},
 			noKey: edited(follow, noFan), noTime: follow,
 		},
 		{
@@ -178,7 +182,7 @@ func forwardCases() []forwardCase {
 			name: "TICKET_JOURNEY.status_changed", handle: (*event.AnalyticsConsumer).HandleTicketJourneyStatusChanged,
 			payload: journey, recorded: factTime,
 			wantName: usecase.EventTicketJourneyStatusChanged, wantID: fanID,
-			wantProps: usecase.AnalyticsProperties{"event_id": "event-1", "to_status": "PAID"},
+			wantProps: usecase.AnalyticsProperties{"event_id": "event-1", "to_status": "PAID", "set_by": "platform"},
 			noKey:     edited(journey, func(j *entityv1.TicketJourney) { j.UserId = nil }), noTime: journey,
 		},
 		{
@@ -252,6 +256,58 @@ func TestAnalyticsConsumer_Forwards(t *testing.T) {
 
 			require.NoError(t, tt.handle(c, announcedMsg(t, tt.payload, tt.recorded)))
 			require.NoError(t, tt.handle(c, announcedMsg(t, tt.payload, tt.recorded)))
+		})
+	}
+}
+
+// TestAnalyticsConsumer_SetBy verifies that artist.hype.changed and
+// ticket.journey.status.changed carry who set the value as set_by, and no
+// set_by for an announcement recorded before it was stored.
+func TestAnalyticsConsumer_SetBy(t *testing.T) {
+	t.Parallel()
+
+	fan := &entityv1.UserId{Value: fanID}
+	hype := func(by entityv1.HypeSetBy) proto.Message {
+		return &entityv1.Follow{UserId: fan, ArtistId: &entityv1.ArtistId{Value: "artist-1"}, Hype: entityv1.HypeType_HYPE_TYPE_AWAY, HypeSetBy: by}
+	}
+	journey := func(by entityv1.TicketJourneyStatusSetBy) proto.Message {
+		return &entityv1.TicketJourney{
+			UserId: fan, EventId: &entityv1.EventId{Value: "event-1"},
+			Status: entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING, StatusSetBy: by,
+		}
+	}
+	tests := []struct {
+		name    string
+		handle  func(*event.AnalyticsConsumer, *message.Message) error
+		payload proto.Message
+		want    string
+	}{
+		{"hype set by default", (*event.AnalyticsConsumer).HandleArtistHypeChanged, hype(entityv1.HypeSetBy_HYPE_SET_BY_DEFAULT), "default"},
+		{"hype set by the fan", (*event.AnalyticsConsumer).HandleArtistHypeChanged, hype(entityv1.HypeSetBy_HYPE_SET_BY_FAN), "fan"},
+		{"hype set by inference", (*event.AnalyticsConsumer).HandleArtistHypeChanged, hype(entityv1.HypeSetBy_HYPE_SET_BY_INFERENCE), "inference"},
+		{"hype without set by", (*event.AnalyticsConsumer).HandleArtistHypeChanged, hype(entityv1.HypeSetBy_HYPE_SET_BY_UNSPECIFIED), ""},
+		{"journey set by the fan", (*event.AnalyticsConsumer).HandleTicketJourneyStatusChanged, journey(entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_FAN), "fan"},
+		{"journey set by the platform", (*event.AnalyticsConsumer).HandleTicketJourneyStatusChanged, journey(entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_PLATFORM), "platform"},
+		{"journey set by inference", (*event.AnalyticsConsumer).HandleTicketJourneyStatusChanged, journey(entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_INFERENCE), "inference"},
+		{"journey without set by", (*event.AnalyticsConsumer).HandleTicketJourneyStatusChanged, journey(entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_UNSPECIFIED), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			client := ucmocks.NewMockAnalyticsClient(t)
+			client.EXPECT().Capture(mock.Anything, mock.MatchedBy(func(e usecase.AnalyticsEvent) bool {
+				got, ok := e.Properties["set_by"]
+				if tt.want == "" {
+					return !ok
+				}
+				return got == tt.want
+			})).Return(nil).Once()
+			metrics := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metrics.EXPECT().RecordMessage(mock.Anything, "forwarded").Once()
+			metrics.EXPECT().RecordLag(mock.Anything, mock.Anything).Once()
+			c := event.NewAnalyticsConsumer(client, metrics, stubOrders{}, stubStocks{}, newTestLogger(t))
+
+			require.NoError(t, tt.handle(c, announcedMsg(t, tt.payload, factTime)))
 		})
 	}
 }
