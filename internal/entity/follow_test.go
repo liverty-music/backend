@@ -326,22 +326,31 @@ func TestLowestHypeMatching(t *testing.T) {
 	t.Parallel()
 
 	tokyoHome, tokyo, yokohama, osaka := hypeTestFixture()
+	unknown := &entity.Concert{ID: "concert-unknown", Venue: &entity.Venue{}}
+	areaOnly := "JP-40"
 	tests := []struct {
 		name    string
 		concert *entity.Concert
 		want    entity.Hype
+		wantOK  bool
 	}{
 		// @spec components/entity/follow "Concert in the home area"
-		{"concert in the home area", tokyo, entity.HypeHome},
+		{"concert in the home area", tokyo, entity.HypeHome, true},
 		// @spec components/entity/follow "Nearby concert"
-		{"nearby concert", yokohama, entity.HypeNearby},
+		{"nearby concert", yokohama, entity.HypeNearby, true},
 		// @spec components/entity/follow "Distant concert"
-		{"distant concert", osaka, entity.HypeAway},
+		{"distant concert", osaka, entity.HypeAway, true},
+		// @spec components/entity/follow "Venue location unknown"
+		{"venue location unknown", unknown, "", false},
+		{"venue area known but distance unknown", &entity.Concert{ID: "concert-area", Venue: &entity.Venue{AdminArea: &areaOnly}}, "", false},
+		{"no venue", &entity.Concert{ID: "concert-no-venue"}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, entity.LowestHypeMatching(tokyoHome, tt.concert))
+			got, ok := entity.LowestHypeMatching(tokyoHome, tt.concert)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

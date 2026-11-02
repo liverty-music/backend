@@ -185,7 +185,8 @@ func (uc *ticketJourneyUseCase) MarkApplied(ctx context.Context, entered entity.
 // raiseHypeToMatch raises the fan's hype level for the artist of the event's
 // concert to the lowest level that matches the concert
 // ([entity.LowestHypeMatching]), when the journey's status is Applied, Unpaid
-// or Paid, the fan has a home, the event is a concert, exactly one of its
+// or Paid, the fan has a home, the event is a concert with a lowest matching
+// level (its distance is known when it is outside the home), exactly one of its
 // artists is followed by the fan, and that Follow is raisable to the level.
 // The journey write has already succeeded and is what the caller asked for,
 // so every failure here is logged and swallowed.
@@ -226,8 +227,8 @@ func (uc *ticketJourneyUseCase) raiseHypeToMatch(ctx context.Context, userID, ev
 	if follow == nil {
 		return
 	}
-	target := entity.LowestHypeMatching(user.Home, concert)
-	if !follow.RaisableTo(target) {
+	target, ok := entity.LowestHypeMatching(user.Home, concert)
+	if !ok || !follow.RaisableTo(target) {
 		return
 	}
 	raised, err := uc.follows.RaiseHype(ctx, userID, follow.ArtistID, target)

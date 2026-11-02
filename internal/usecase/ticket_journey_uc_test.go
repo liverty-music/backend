@@ -197,6 +197,14 @@ func TestTicketJourneyUseCase_RaiseHypeToMatch(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/usecase/ticket-journey/set-status "Venue location unknown"
+			name: "venue location unknown",
+			setup: func(d *ticketJourneyTestDeps) {
+				unknown := &entity.Concert{ID: "event-near", Venue: &entity.Venue{}, Artists: []*entity.Artist{{ID: "artist-1"}}}
+				d.expectRaiseReads(ctx, "event-near", unknown, followed("artist-1", entity.HypeNearby, entity.HypeSetByDefault))
+			},
+		},
+		{
 			name: "only one of two performers followed",
 			setup: func(d *ticketJourneyTestDeps) {
 				d.expectRaiseReads(ctx, "event-near", raiseConcert("event-near", "artist-1", "artist-2"),

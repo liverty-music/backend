@@ -111,14 +111,21 @@ func (h Hype) IsAbove(other Hype) bool {
 
 // LowestHypeMatching returns the lowest hype level whose
 // [Hype.MatchingConcerts] includes c for a fan with the given home: Home for a
-// concert in the home area, Nearby for one near it, and Away for any other.
-func LowestHypeMatching(home *Home, c *Concert) Hype {
+// concert in the home area, Nearby for one near it, and Away for one known to
+// be farther. It reports false when c is outside the home area and its
+// distance cannot be measured (the venue's coordinates or the home's centroid
+// is unknown): [Concert.ProximityTo] calls such a concert Away too, but an
+// unknown location says nothing about how far the fan travels for it.
+func LowestHypeMatching(home *Home, c *Concert) (Hype, bool) {
 	for _, h := range []Hype{HypeWatch, HypeHome, HypeNearby} {
 		if len(h.MatchingConcerts(home, []*Concert{c})) > 0 {
-			return h
+			return h, true
 		}
 	}
-	return HypeAway
+	if home == nil || home.Centroid == nil || c.Venue == nil || c.Venue.Coordinates == nil {
+		return "", false
+	}
+	return HypeAway, true
 }
 
 // HypeSetBy says who set a Follow's hype level.

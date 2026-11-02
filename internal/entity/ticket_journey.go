@@ -137,6 +137,8 @@ type TicketJourneyRepository interface {
 	// # Possible errors:
 	//
 	//   - FailedPrecondition: the event or the fan does not exist.
+	//   - Aborted: the journey was deleted and recreated by concurrent writes
+	//     while it was being read; nothing changed, and a retry may succeed.
 	//   - Unavailable: the announcement could not be recorded; nothing changed.
 	//   - Internal: database execution failure.
 	//
