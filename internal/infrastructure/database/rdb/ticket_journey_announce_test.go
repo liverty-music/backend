@@ -7,12 +7,14 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"uuid"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 // newJourneyFan seeds a user and an event of their own and returns their ids.
@@ -288,4 +290,29 @@ func TestTicketJourneyRepository_UpsertIfReplaceable(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Nil(t, journeyOf(t, userID, eventID))
 	})
+}
+
+func TestTicketJourneyUseCase_InferTrackingAfterUndo(t *testing.T) {
+	// @spec components/usecase/ticket-journey/infer-tracking "After the fan removed an inferred journey"
+	ctx := context.Background()
+	logger, err := logging.New()
+	require.NoError(t, err)
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	uc := usecase.NewTicketJourneyUseCase(repo, rdb.NewUserRepository(testDB, testOutbox), rdb.NewConcertRepository(testDB, testOutbox),
+		rdb.NewFollowRepository(testDB, testOutbox), rdb.NewLotteryEntryRepository(testDB, testOutbox), logger)
+	userID, eventID := newJourneyFan(t)
+	started, err := uc.InferTracking(ctx, userID, eventID)
+	require.NoError(t, err)
+	require.True(t, started)
+
+	// The fan undoes the inferred journey, then adds the concert to the
+	// calendar again.
+	require.NoError(t, uc.Delete(ctx, userID, eventID))
+	started, err = uc.InferTracking(ctx, userID, eventID)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Equal(t, &entity.TicketJourney{
+		UserID: userID, EventID: eventID, Status: entity.TicketJourneyStatusTracking, StatusSetBy: entity.TicketJourneySetByInference,
+	}, journeyOf(t, userID, eventID))
 }

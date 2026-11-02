@@ -371,10 +371,3 @@ func TestFollow_RaisableTo(t *testing.T) {
 		})
 	}
 }
-
-func TestDefaultHype(t *testing.T) {
-	t.Parallel()
-
-	// @spec components/entity/follow "Fan follows an artist"
-	assert.Equal(t, entity.HypeNearby, entity.DefaultHype, "a new Follow starts at Nearby, set by default")
-}

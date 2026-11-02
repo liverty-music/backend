@@ -275,8 +275,6 @@ func TestTicketJourneyUseCase_InferTracking(t *testing.T) {
 		{name: "no journey yet", stored: true, wantStarted: true},
 		// @spec components/usecase/ticket-journey/infer-tracking "A journey exists"
 		{name: "a journey exists", stored: false},
-		// @spec components/usecase/ticket-journey/infer-tracking "After the fan removed an inferred journey"
-		{name: "after the fan removed an inferred journey", stored: true, wantStarted: true},
 		// @spec components/usecase/ticket-journey/infer-tracking "Unknown event"
 		{name: "unknown event", err: apperr.ErrFailedPrecondition},
 	}

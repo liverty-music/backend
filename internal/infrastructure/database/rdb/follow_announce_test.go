@@ -205,6 +205,7 @@ func TestFollowRepository_HypeSetBy(t *testing.T) {
 
 	t.Run("first follow is set by default", func(t *testing.T) {
 		// @spec components/entity/follow/follow "First follow"
+		// @spec components/entity/follow "Fan follows an artist"
 		userID, artistID := seedFan(t)
 		mark := outboxMark(t)
 
