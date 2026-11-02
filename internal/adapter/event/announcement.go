@@ -11,8 +11,8 @@ import (
 )
 
 // announcementID returns the id of the announcement msg carries: its
-// CloudEvents id, the same on every delivery, or the message UUID of a JSON
-// message published before the outbox.
+// CloudEvents id, the same on every delivery, or the message UUID when the
+// message has no ce_id.
 func announcementID(msg *message.Message) string {
 	if id := msg.Metadata.Get("ce_id"); id != "" {
 		return id
@@ -20,14 +20,8 @@ func announcementID(msg *message.Message) string {
 	return msg.UUID
 }
 
-// parseArtistCreated reads an ARTIST.created announcement: the new Artist, or
-// the JSON of one published before the outbox.
+// parseArtistCreated reads an ARTIST.created announcement: the new Artist.
 func parseArtistCreated(msg *message.Message) (entity.ArtistCreatedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ArtistCreatedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var artist entityv1.Artist
 	if err := messaging.ParseProtobufData(msg, &artist); err != nil {
 		return entity.ArtistCreatedData{}, err
@@ -43,14 +37,8 @@ func parseArtistCreated(msg *message.Message) (entity.ArtistCreatedData, error) 
 	return data, nil
 }
 
-// parseArtistFollowed reads an ARTIST.followed announcement: the new Follow,
-// or the JSON of one published before the outbox.
+// parseArtistFollowed reads an ARTIST.followed announcement: the new Follow.
 func parseArtistFollowed(msg *message.Message) (entity.ArtistFollowedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ArtistFollowedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var follow entityv1.Follow
 	if err := messaging.ParseProtobufData(msg, &follow); err != nil {
 		return entity.ArtistFollowedData{}, err
@@ -63,13 +51,8 @@ func parseArtistFollowed(msg *message.Message) (entity.ArtistFollowedData, error
 }
 
 // parseTicketSaleDiscovered reads a SALES_PHASE.discovered announcement: the
-// new TicketSale, or the JSON of one published before the outbox.
+// new TicketSale.
 func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscoveredData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.TicketSaleDiscoveredData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var sale entityv1.TicketSale
 	if err := messaging.ParseProtobufData(msg, &sale); err != nil {
 		return entity.TicketSaleDiscoveredData{}, err
@@ -87,14 +70,8 @@ func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscovere
 }
 
 // parseResaleListingRefunded reads an ORDER.resale_listing_refunded
-// announcement: the refunded ResaleListing, or the JSON of one published
-// before the outbox.
+// announcement: the refunded ResaleListing.
 func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefundedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.ResaleListingRefundedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var listing entityv1.ResaleListing
 	if err := messaging.ParseProtobufData(msg, &listing); err != nil {
 		return entity.ResaleListingRefundedData{}, err

@@ -134,7 +134,7 @@ func TestNewPublisher_InjectsProducerSpanAsParent(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, caller := tracer.Start(context.Background(), "caller")
-	require.NoError(t, publishJSON(pub, ctx, "TEST.subject", map[string]string{"k": "v"}))
+	require.NoError(t, publishEvent(pub, ctx, "TEST.subject"))
 	caller.End()
 
 	var msg *message.Message
@@ -170,7 +170,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 		})
 
 		ctx, search := tracer.Start(context.Background(), "concert_search.artist")
-		require.NoError(t, publishJSON(pub, ctx, "CONCERT.created", map[string]string{}))
+		require.NoError(t, publishEvent(pub, ctx, "CONCERT.created"))
 		search.End()
 
 		spans := got.wait(t, 1)
@@ -188,7 +188,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 		runRouter(t, func(r *message.Router) {
 			r.AddConsumerHandler("first", "TEST.first", ch, func(msg *message.Message) error {
 				first.record(msg.Context())
-				return publishJSON(pub, msg.Context(), "TEST.second", map[string]string{})
+				return publishEvent(pub, msg.Context(), "TEST.second")
 			})
 			r.AddConsumerHandler("second", "TEST.second", ch, func(msg *message.Message) error {
 				second.record(msg.Context())
@@ -197,7 +197,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 		})
 
 		ctx, origin := tracer.Start(context.Background(), "origin")
-		require.NoError(t, publishJSON(pub, ctx, "TEST.first", map[string]string{}))
+		require.NoError(t, publishEvent(pub, ctx, "TEST.first"))
 		origin.End()
 
 		hop1 := first.wait(t, 1)[0]
@@ -221,7 +221,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 		})
 
 		runCtx, run := telemetry.StartJobRun(context.Background(), "sales-reminders")
-		require.NoError(t, publishJSON(pub, runCtx, "SALES_PHASE.discovered", map[string]string{}))
+		require.NoError(t, publishEvent(pub, runCtx, "SALES_PHASE.discovered"))
 		run.End()
 
 		span := got.wait(t, 1)[0]
@@ -282,7 +282,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 				})
 
 				ctx, origin := tracer.Start(context.Background(), "origin")
-				require.NoError(t, publishJSON(pub, ctx, "TEST.flaky", map[string]string{}))
+				require.NoError(t, publishEvent(pub, ctx, "TEST.flaky"))
 				origin.End()
 
 				attempts := got.wait(t, 2)
@@ -297,12 +297,11 @@ func TestRouter_TracePropagation(t *testing.T) {
 	})
 }
 
-// publishJSON publishes data to subject as a JSON CloudEvent carrying the
-// trace context of ctx.
-func publishJSON(pub message.Publisher, ctx context.Context, subject string, data any) error {
-	msg, err := messaging.NewEvent(ctx, data)
-	if err != nil {
-		return err
-	}
+// publishEvent publishes a CloudEvent to subject carrying the trace context
+// of ctx.
+func publishEvent(pub message.Publisher, ctx context.Context, subject string) error {
+	msg := message.NewMessage(watermill.NewUUID(), []byte("{}"))
+	msg.SetContext(ctx)
+	msg.Metadata.Set("ce_specversion", "1.0")
 	return pub.Publish(subject, msg)
 }

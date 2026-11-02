@@ -1,45 +1,27 @@
 package event_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 
-	"github.com/ThreeDotsLabs/watermill/message"
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func makeArtistCreatedMsg(t *testing.T, data entity.ArtistCreatedData) *message.Message {
-	t.Helper()
-	payload, err := json.Marshal(data)
-	require.NoError(t, err)
-	return message.NewMessage("test-id", payload)
+// newArtistAnnouncement returns the Artist an ARTIST.created announcement
+// carries.
+func newArtistAnnouncement(id, name, mbid string) *entityv1.Artist {
+	return &entityv1.Artist{
+		Id:   &entityv1.ArtistId{Value: id},
+		Name: &entityv1.ArtistName{Value: name},
+		Mbid: &entityv1.Mbid{Value: mbid},
+	}
 }
 
 func TestArtistNameConsumer_Handle(t *testing.T) {
 	t.Parallel()
-
-	t.Run("delegates to use case", func(t *testing.T) {
-		t.Parallel()
-
-		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
-		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
-
-		nameResolutionUC.EXPECT().ResolveCanonicalName(anyCtx, "artist-1", "mbid-001", "Original Name").Return(nil).Once()
-
-		msg := makeArtistCreatedMsg(t, entity.ArtistCreatedData{
-			ArtistID:   "artist-1",
-			ArtistName: "Original Name",
-			MBID:       "mbid-001",
-		})
-
-		err := handler.Handle(msg)
-		assert.NoError(t, err)
-	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
 		t.Parallel()
@@ -49,11 +31,7 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 
 		nameResolutionUC.EXPECT().ResolveCanonicalName(anyCtx, "artist-2", "mbid-fail", "Some Artist").Return(fmt.Errorf("rate limited")).Once()
 
-		msg := makeArtistCreatedMsg(t, entity.ArtistCreatedData{
-			ArtistID:   "artist-2",
-			ArtistName: "Some Artist",
-			MBID:       "mbid-fail",
-		})
+		msg := makeAnnouncementMsg(t, "announcement-1", "", newArtistAnnouncement("artist-2", "Some Artist", "mbid-fail"))
 
 		err := handler.Handle(msg)
 		assert.Error(t, err)
@@ -66,8 +44,7 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
 		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
 
-		msg := message.NewMessage("bad-id", []byte("not json"))
-		err := handler.Handle(msg)
+		err := handler.Handle(malformedMsg())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "parse artist.created event")
 	})

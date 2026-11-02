@@ -1,8 +1,7 @@
 package event_test
 
-// Each receiver reads the protobuf announcement the outbox records; the JSON
-// of a message published before the outbox is covered by the receiver's own
-// test file.
+// Each receiver reads the protobuf announcement the outbox records; its
+// failure paths are covered by the receiver's own test file.
 
 import (
 	"testing"
@@ -74,6 +73,7 @@ func TestReceivers_Protobuf(t *testing.T) {
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", newArtist)))
 	})
 
+	// @spec components/usecase/concert/search-new-concerts-on-first-follow "Follow announced"
 	t.Run("ARTIST.followed searches the followed Artist's concerts on a first follow", func(t *testing.T) {
 		t.Parallel()
 		concerts := ucmocks.NewMockConcertUseCase(t)

@@ -55,13 +55,8 @@ func (h *NotificationConsumer) Handle(msg *message.Message) error {
 
 // parseConcertCreated reads a CONCERT.created announcement: the Concerts of
 // its ConcertList for the Artist named by ce_subject, notified under the
-// announcement id, or the JSON of one published before the outbox.
+// announcement id.
 func parseConcertCreated(msg *message.Message) (usecase.ConcertCreatedData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data usecase.ConcertCreatedData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var list entityv1.ConcertList
 	if err := messaging.ParseProtobufData(msg, &list); err != nil {
 		return usecase.ConcertCreatedData{}, err

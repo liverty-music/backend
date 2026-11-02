@@ -33,10 +33,9 @@ const (
 // product-analytics destination via usecase.AnalyticsClient.
 //
 // Each NATS subject the consumer subscribes to has a dedicated Handle*
-// method that decodes the announcement (the entity of an outbox
-// announcement, or the JSON of a message published before the outbox),
-// derives the catalogue AnalyticsEventName, sanitises properties per the PII
-// policy documented in specification/docs/analytics/event-catalog.md, and
+// method that decodes the announcement (the entity it carries), derives the
+// catalogue AnalyticsEventName, sanitises properties per the PII policy
+// documented in specification/docs/analytics/event-catalog.md, and
 // hands the event to AnalyticsClient.Capture with the announcement id as the
 // event UUID and the time the fact happened, truncated to milliseconds, as
 // the event time. That time is the entity's own (an Order's pay time, a
@@ -92,7 +91,7 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 		}
 		return decodeFact(msg, func(u *entityv1.User) (fact, error) {
 			return signup(u.GetId().GetValue(), announcedAt(msg)), nil
-		}, func(d *entity.UserCreatedData) fact { return signup(d.UserID, d.CreateTime) })
+		})
 	})
 }
 
@@ -107,8 +106,6 @@ func (c *AnalyticsConsumer) HandleUserLoggedIn(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectUserLoggedIn, usecase.EventAccountSignin, func() (fact, error) {
 		return decodeFact(msg, func(u *entityv1.User) (fact, error) {
 			return fact{distinctID: u.GetId().GetValue(), at: u.GetLastLoginTime().AsTime(), props: usecase.AnalyticsProperties{}}, nil
-		}, func(d *entity.UserLoggedInData) fact {
-			return fact{distinctID: d.UserID, at: d.LoginTime, props: usecase.AnalyticsProperties{}}
 		})
 	})
 }
@@ -120,7 +117,7 @@ func (c *AnalyticsConsumer) HandleArtistFollowed(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectArtistFollowed, usecase.EventArtistFollowCompleted, func() (fact, error) {
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			return followFact(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), announcedAt(msg)), nil
-		}, func(d *entity.ArtistFollowedData) fact { return followFact(d.UserID, d.ArtistID, d.FollowTime) })
+		})
 	})
 }
 
@@ -131,7 +128,7 @@ func (c *AnalyticsConsumer) HandleArtistUnfollowed(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectArtistUnfollowed, usecase.EventArtistUnfollowCompleted, func() (fact, error) {
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			return followFact(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), announcedAt(msg)), nil
-		}, func(d *entity.ArtistUnfollowedData) fact { return followFact(d.UserID, d.ArtistID, d.UnfollowTime) })
+		})
 	})
 }
 
@@ -147,8 +144,6 @@ func (c *AnalyticsConsumer) HandleNotificationSubscribed(msg *message.Message) e
 	return c.forward(msg, entity.SubjectNotificationSubscribed, usecase.EventNotificationSubscribed, func() (fact, error) {
 		return decodeFact(msg, func(p *entityv1.PushSubscription) (fact, error) {
 			return deviceFact(p.GetUserId().GetValue(), pb.DeviceFamilyFromProto(p.GetDeviceFamily()), announcedAt(msg)), nil
-		}, func(d *entity.NotificationSubscribedData) fact {
-			return deviceFact(d.UserID, d.DeviceType, d.SubscribeTime)
 		})
 	})
 }
@@ -161,8 +156,6 @@ func (c *AnalyticsConsumer) HandleNotificationUnsubscribed(msg *message.Message)
 	return c.forward(msg, entity.SubjectNotificationUnsubscribed, usecase.EventNotificationUnsubscribed, func() (fact, error) {
 		return decodeFact(msg, func(p *entityv1.PushSubscription) (fact, error) {
 			return deviceFact(p.GetUserId().GetValue(), pb.DeviceFamilyFromProto(p.GetDeviceFamily()), announcedAt(msg)), nil
-		}, func(d *entity.NotificationUnsubscribedData) fact {
-			return deviceFact(d.UserID, d.DeviceType, d.UnsubscribeTime)
 		})
 	})
 }
@@ -188,8 +181,6 @@ func (c *AnalyticsConsumer) HandleNotificationDelivered(msg *message.Message) er
 		}
 		return decodeFact(msg, func(n *entityv1.Notification) (fact, error) {
 			return delivered(n.GetUserId().GetValue(), n.GetId().GetValue(), string(pb.NotificationTypeFromProto(n.GetType())), n.GetDeliverTime().AsTime()), nil
-		}, func(d *entity.NotificationDeliveredData) fact {
-			return delivered(d.UserID, d.NotificationID, d.Type, d.DeliverTime)
 		})
 	})
 }
@@ -197,8 +188,7 @@ func (c *AnalyticsConsumer) HandleNotificationDelivered(msg *message.Message) er
 // HandleTicketJourneyStatusChanged forwards the TICKET_JOURNEY.status_changed
 // NATS subject as the catalogue event usecase.EventTicketJourneyStatusChanged.
 // Properties: event_id, to_status. The status before the change is the
-// to_status of the fan's previous signal for the event; a message published
-// before the outbox still carries it as from_status.
+// to_status of the fan's previous signal for the event.
 func (c *AnalyticsConsumer) HandleTicketJourneyStatusChanged(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectTicketJourneyStatusChanged, usecase.EventTicketJourneyStatusChanged, func() (fact, error) {
 		return decodeFact(msg, func(j *entityv1.TicketJourney) (fact, error) {
@@ -206,12 +196,6 @@ func (c *AnalyticsConsumer) HandleTicketJourneyStatusChanged(msg *message.Messag
 				"event_id":  j.GetEventId().GetValue(),
 				"to_status": pb.TicketJourneyStatusFromProto[j.GetStatus()].String(),
 			}}, nil
-		}, func(d *entity.TicketJourneyStatusChangedData) fact {
-			return fact{distinctID: d.UserID, at: d.ChangeTime, props: usecase.AnalyticsProperties{
-				"event_id":    d.EventID,
-				"from_status": d.FromStatus,
-				"to_status":   d.ToStatus,
-			}}
 		})
 	})
 }
@@ -227,7 +211,7 @@ func (c *AnalyticsConsumer) HandleOrganizerCreated(msg *message.Message) error {
 		}
 		return decodeFact(msg, func(o *entityv1.Organizer) (fact, error) {
 			return created(o.GetId().GetValue(), announcedAt(msg)), nil
-		}, func(d *entity.OrganizerCreatedData) fact { return created(d.OrganizerID, d.ActivateTime) })
+		})
 	})
 }
 
@@ -242,8 +226,6 @@ func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message
 		}
 		return decodeFact(msg, func(a *entityv1.Artist) (fact, error) {
 			return associated(a.GetOrganizerId().GetValue(), a.GetId().GetValue(), announcedAt(msg)), nil
-		}, func(d *entity.OrganizerArtistAssociatedData) fact {
-			return associated(d.OrganizerID, d.ArtistID, d.AssociateTime)
 		})
 	})
 }
@@ -258,7 +240,7 @@ func (c *AnalyticsConsumer) HandleArtistHypeChanged(msg *message.Message) error 
 		}
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			return hype(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), string(pb.HypeFromProto[f.GetHype()]), announcedAt(msg)), nil
-		}, func(d *entity.ArtistHypeChangedData) fact { return hype(d.UserID, d.ArtistID, d.Hype, d.SetTime) })
+		})
 	})
 }
 
@@ -280,7 +262,7 @@ func (c *AnalyticsConsumer) HandleOrderPaid(msg *message.Message) error {
 				LotteryEntryID: o.GetLotteryEntryId().GetValue(), CheckoutID: o.GetCheckoutId().GetValue(),
 				PayTime: o.GetPayTime().AsTime(),
 			}), nil
-		}, func(d *entity.OrderPaidData) fact { return orderPaidFact(*d) })
+		})
 	})
 }
 
@@ -320,7 +302,7 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 				CaptureFailed: e.GetLostReason() == entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED,
 				DrawTime:      announcedAt(msg),
 			}), nil
-		}, func(d *entity.LotteryEntryDrawnData) fact { return drawnFact(*d) })
+		})
 	})
 }
 
@@ -349,7 +331,7 @@ func (c *AnalyticsConsumer) HandleCheckoutExpired(msg *message.Message) error {
 				CheckoutID: co.GetId().GetValue(), UserID: string(order.UserID), TicketStockID: string(order.TicketStockID),
 				TicketCount: order.TicketCount, HoldExpireTime: co.GetHoldExpireTime().AsTime(),
 			}), nil
-		}, func(d *entity.CheckoutExpiredData) fact { return expiredFact(*d) })
+		})
 	})
 }
 
@@ -371,7 +353,7 @@ func (c *AnalyticsConsumer) HandleTicketAdmitted(msg *message.Message) error {
 		}
 		return decodeFact(msg, func(tk *entityv1.Ticket) (fact, error) {
 			return admitted(tk.GetUserId().GetValue(), tk.GetId().GetValue(), tk.GetEventId().GetValue(), tk.GetAdmitTime().AsTime()), nil
-		}, func(d *entity.TicketAdmittedData) fact { return admitted(d.UserID, d.TicketID, d.EventID, d.AdmitTime) })
+		})
 	})
 }
 
@@ -383,25 +365,16 @@ type fact struct {
 	props      usecase.AnalyticsProperties
 }
 
-// decodeFact reads the fact of msg: from its protobuf entity P when it is an
-// outbox announcement, or from the JSON J of a message published before the
-// outbox.
+// decodeFact reads the fact of msg from its protobuf entity P.
 func decodeFact[P any, PP interface {
 	*P
 	proto.Message
-}, J any](msg *message.Message, fromProto func(PP) (fact, error), fromJSON func(*J) fact) (fact, error) {
-	if messaging.IsProtobuf(msg) {
-		payload := PP(new(P))
-		if err := messaging.ParseProtobufData(msg, payload); err != nil {
-			return fact{}, err
-		}
-		return fromProto(payload)
-	}
-	var data J
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+}](msg *message.Message, fromProto func(PP) (fact, error)) (fact, error) {
+	payload := PP(new(P))
+	if err := messaging.ParseProtobufData(msg, payload); err != nil {
 		return fact{}, err
 	}
-	return fromJSON(&data), nil
+	return fromProto(payload)
 }
 
 // announcedAt is the time the announcement was recorded, in the transaction
@@ -419,10 +392,10 @@ func announcedAt(msg *message.Message) time.Time {
 // UUID and the fact's time, truncated to milliseconds, as its time.
 //
 // A message without a distinct id is skipped (statusSkippedEmptyUserID). A
-// message that carries no fact time (published before the time was added)
-// is skipped and acknowledged (statusSkippedParseError): redelivering it
-// would never add the time, and its publish time is not when the fact
-// happened.
+// message that carries no fact time (an entity without its own time, or an
+// announcement without ce_time) is skipped and acknowledged
+// (statusSkippedParseError): redelivering it would never add the time, and
+// the delivery time is not when the fact happened.
 func (c *AnalyticsConsumer) forward(
 	msg *message.Message,
 	subject string,

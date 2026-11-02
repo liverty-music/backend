@@ -27,3 +27,11 @@ func makeAnnouncementMsg(t *testing.T, id, about string, payload proto.Message) 
 	}
 	return msg
 }
+
+// malformedMsg builds an announcement whose payload is not protobuf.
+func malformedMsg() *message.Message {
+	msg := message.NewMessage("malformed-1", []byte("not protobuf"))
+	msg.Metadata.Set("ce_id", "malformed-1")
+	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	return msg
+}

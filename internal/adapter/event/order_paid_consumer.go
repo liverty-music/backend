@@ -44,7 +44,7 @@ func NewOrderPaidConsumer(
 }
 
 // parse reads the ORDER.paid announcement: the paid Order, with the event of
-// its TicketStock read by id, or the JSON of one published before the outbox.
+// its TicketStock read by id.
 func (h *OrderPaidConsumer) parse(msg *message.Message) (entity.OrderPaidData, error) {
 	data, err := h.decode(msg)
 	if err != nil {
@@ -55,11 +55,6 @@ func (h *OrderPaidConsumer) parse(msg *message.Message) (entity.OrderPaidData, e
 }
 
 func (h *OrderPaidConsumer) decode(msg *message.Message) (entity.OrderPaidData, error) {
-	if !messaging.IsProtobuf(msg) {
-		var data entity.OrderPaidData
-		err := messaging.ParseCloudEventData(msg, &data)
-		return data, err
-	}
 	var order entityv1.Order
 	if err := messaging.ParseProtobufData(msg, &order); err != nil {
 		return entity.OrderPaidData{}, err
