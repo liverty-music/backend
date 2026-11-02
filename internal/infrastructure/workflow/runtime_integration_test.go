@@ -244,6 +244,7 @@ func TestRuntime_WorkerStopsBetweenTwoSteps(t *testing.T) {
 }
 
 // @spec components/infrastructure/backend/process/durable-workflows "Same workflow started twice"
+// @spec components/infrastructure/backend/process/event-delivery "Same request twice"
 func TestRuntime_SameWorkflowStartedTwice(t *testing.T) {
 	dsn := setupSystemDB(t)
 	ctx := context.Background()
