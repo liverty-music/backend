@@ -44,10 +44,11 @@ var _ entity.CardAuthorizationRepository = (*StripeCardAuthorizationRepository)(
 // authorization pays for: the prefix of every idempotency key it sends, so the
 // keys of a lottery entry never collide with a checkout's. Only a Checkout's
 // Create sends a key; a lottery entry's Create opens a new card authorization
-// each time. The accepted card brands are the entity rule
+// each time. Capture and Release send none of their own (see Capture). The
+// accepted card brands are the entity rule
 // [entity.CardAuthorizationPurchase.AcceptsCardBrand].
 type CardAuthorizationPolicy struct {
-	// KeyPrefix prefixes every idempotency key, e.g. "lottery-capture:pi_...".
+	// KeyPrefix prefixes every idempotency key, e.g. "ticket-sale-authorize:<checkout>".
 	KeyPrefix string
 }
 
@@ -62,7 +63,7 @@ var (
 )
 
 // idempotencyKey returns the Stripe idempotency key of one operation on ref,
-// e.g. "ticket-sale-capture:pi_...".
+// e.g. "ticket-sale-authorize:<checkout>".
 func (c CardAuthorizationPolicy) idempotencyKey(operation, ref string) string {
 	return c.KeyPrefix + "-" + operation + ":" + ref
 }
@@ -183,11 +184,16 @@ func (p *StripeCardAuthorizationRepository) Get(ctx context.Context, id string) 
 
 // Capture implements [entity.CardAuthorizationRepository]. The outcome
 // follows the PaymentIntent's status rather than the capture call's error, so
-// a capture repeated days later (past Stripe's 24-hour idempotency-key
-// retention) still succeeds without charging twice.
+// a capture repeated days later still succeeds without charging twice.
+//
+// It sends no idempotency key of its own: stripe-go sends a new one per call
+// and keeps it for its own retries. Stripe replays the first response,
+// a 500 included, to every request with the same key for at least 24 hours,
+// so a fixed key would return an earlier failure after Stripe recovered. A
+// PaymentIntent is captured at most once, and the outcome is read from it
+// after every error, so a new key per call never charges twice.
 func (p *StripeCardAuthorizationRepository) Capture(ctx context.Context, id string) error {
 	params := &stripe.PaymentIntentCaptureParams{}
-	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", id))
 
 	_, captureErr := p.client.V1PaymentIntents.Capture(ctx, id, params)
 	if captureErr == nil {
@@ -221,10 +227,11 @@ func (p *StripeCardAuthorizationRepository) Capture(ctx context.Context, id stri
 }
 
 // Release implements [entity.CardAuthorizationRepository]. A PaymentIntent
-// that is already cancelled (released, or lapsed on the card) succeeds.
+// that is already cancelled (released, or lapsed on the card) succeeds. Like
+// Capture it sends no idempotency key of its own, so an earlier failure is
+// never replayed; a PaymentIntent is cancelled at most once.
 func (p *StripeCardAuthorizationRepository) Release(ctx context.Context, id string) error {
 	params := &stripe.PaymentIntentCancelParams{}
-	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", id))
 
 	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, id, params)
 	if cancelErr == nil {

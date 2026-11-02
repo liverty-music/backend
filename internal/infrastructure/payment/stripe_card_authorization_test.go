@@ -28,6 +28,10 @@ type stubResponse struct {
 // stripeStub is a minimal Stripe PaymentIntents API. Each operation answers
 // with its canned response; an operation without one answers 404. It records
 // the idempotency keys and the create forms (the last one in createForm).
+//
+// With serverErrorFirst, the first capture or cancel answers 500 and, as
+// Stripe does, every later request with that request's idempotency key gets
+// the same 500 again.
 type stripeStub struct {
 	mu                                sync.Mutex
 	create, retrieve, capture, cancel *stubResponse
@@ -35,22 +39,49 @@ type stripeStub struct {
 	createForm                        url.Values
 	createForms                       []url.Values
 	captures, cancels                 int
+	serverErrorFirst                  bool
+	failedKey                         string
+}
+
+// serverError is Stripe's 500, which its client is told not to retry.
+var serverError = &stubResponse{status: http.StatusInternalServerError, body: stripeErrorBody("api_error", "")}
+
+// replayedFailure answers 500 for the first capture or cancel of a
+// serverErrorFirst stub and for every later request with its key.
+func (s *stripeStub) replayedFailure(key string) bool {
+	if !s.serverErrorFirst {
+		return false
+	}
+	if s.failedKey == "" {
+		s.failedKey = key
+		return true
+	}
+	return key == s.failedKey
 }
 
 func (s *stripeStub) handler(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if key := r.Header.Get("Idempotency-Key"); key != "" {
+	key := r.Header.Get("Idempotency-Key")
+	if key != "" {
 		s.keys = append(s.keys, key)
 	}
 	var resp *stubResponse
 	switch {
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/capture"):
-		s.captures++
 		resp = s.capture
+		if s.replayedFailure(key) {
+			resp = serverError
+		} else {
+			s.captures++
+		}
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/cancel"):
-		s.cancels++
 		resp = s.cancel
+		if s.replayedFailure(key) {
+			resp = serverError
+		} else {
+			s.cancels++
+		}
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/payment_intents"):
 		raw, _ := io.ReadAll(r.Body)
 		s.createForm, _ = url.ParseQuery(string(raw))
@@ -63,6 +94,9 @@ func (s *stripeStub) handler(w http.ResponseWriter, r *http.Request) {
 		resp = &stubResponse{status: http.StatusNotFound, body: stripeErrorBody("invalid_request_error", "resource_missing")}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if resp == serverError {
+		w.Header().Set("Stripe-Should-Retry", "false")
+	}
 	w.WriteHeader(resp.status)
 	_ = json.NewEncoder(w).Encode(resp.body)
 }
@@ -363,7 +397,6 @@ func TestStripeCardAuthorizationRepository_Capture(t *testing.T) {
 		require.NoError(t, repo.Capture(context.Background(), "pi_stub"))
 
 		assert.Equal(t, 1, stub.captures)
-		assert.Equal(t, []string{"lottery-capture:pi_stub"}, stub.keys)
 	})
 
 	t.Run("repeated capture", func(t *testing.T) {
@@ -378,7 +411,6 @@ func TestStripeCardAuthorizationRepository_Capture(t *testing.T) {
 		require.NoError(t, repo.Capture(context.Background(), "pi_stub"))
 
 		assert.Equal(t, 1, stub.captures, "no second charge attempt")
-		assert.Equal(t, []string{"ticket-sale-capture:pi_stub"}, stub.keys, "the key is deterministic in the card authorization")
 	})
 
 	t.Run("no longer capturable", func(t *testing.T) {
@@ -423,6 +455,24 @@ func TestStripeCardAuthorizationRepository_Capture(t *testing.T) {
 
 		assert.ErrorIs(t, repo.Capture(ctx, "pi_stub"), apperr.ErrUnavailable)
 	})
+
+	t.Run("payment provider error, then recovered", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization/capture "Payment provider error, then recovered"
+		stub := &stripeStub{
+			serverErrorFirst: true,
+			capture:          ok(paymentIntentBody("succeeded", 16000, "jpy", "visa")),
+			retrieve:         ok(paymentIntentBody("requires_capture", 16000, "jpy", "visa")),
+		}
+		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
+
+		require.ErrorIs(t, repo.Capture(context.Background(), "pi_stub"), apperr.ErrUnavailable)
+		require.NoError(t, repo.Capture(context.Background(), "pi_stub"))
+
+		assert.Equal(t, 1, stub.captures, "charged once")
+		require.Len(t, stub.keys, 2)
+		assert.NotEqual(t, stub.keys[0], stub.keys[1], "the later call does not reuse the failed call's key")
+	})
 }
 
 func TestStripeCardAuthorizationRepository_Release(t *testing.T) {
@@ -438,7 +488,6 @@ func TestStripeCardAuthorizationRepository_Release(t *testing.T) {
 
 		assert.Equal(t, 1, stub.cancels)
 		assert.Zero(t, stub.captures, "nothing is charged")
-		assert.Equal(t, []string{"lottery-cancel:pi_stub"}, stub.keys)
 	})
 
 	t.Run("repeated release", func(t *testing.T) {
@@ -472,5 +521,24 @@ func TestStripeCardAuthorizationRepository_Release(t *testing.T) {
 		repo, ctx := unreachable(t)
 
 		assert.ErrorIs(t, repo.Release(ctx, "pi_stub"), apperr.ErrUnavailable)
+	})
+
+	t.Run("payment provider error, then recovered", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization/release "Payment provider error, then recovered"
+		stub := &stripeStub{
+			serverErrorFirst: true,
+			cancel:           ok(paymentIntentBody("canceled", 16000, "jpy", "visa")),
+			retrieve:         ok(paymentIntentBody("requires_capture", 16000, "jpy", "visa")),
+		}
+		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
+
+		require.ErrorIs(t, repo.Release(context.Background(), "pi_stub"), apperr.ErrUnavailable)
+		require.NoError(t, repo.Release(context.Background(), "pi_stub"))
+
+		assert.Equal(t, 1, stub.cancels, "released once")
+		assert.Zero(t, stub.captures, "nothing is charged")
+		require.Len(t, stub.keys, 2)
+		assert.NotEqual(t, stub.keys[0], stub.keys[1], "the later call does not reuse the failed call's key")
 	})
 }
