@@ -28,7 +28,8 @@ type FollowUseCase interface {
 	//   - Internal: execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// SetHype updates the enthusiasm tier for a followed artist.
+	// SetHype sets the fan's hype level for a followed artist, set by the fan,
+	// so the app never changes it afterwards.
 	//
 	// # Possible errors:
 	//

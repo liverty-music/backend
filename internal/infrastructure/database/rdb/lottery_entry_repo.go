@@ -144,6 +144,12 @@ const (
 // Create stores the new Entered entry with its Pending Order, or returns the
 // entry whose Order already holds the card authorization, in one transaction
 // under the user's row lock and the card authorization's advisory lock.
+//
+// # Announces
+//
+// ORDER.lottery_entry_entered with the Pending Order (which names the entry,
+// the user and the TicketStock), in the transaction that stores the entry.
+// Nothing when it returns an existing entry or fails.
 func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
 	order := entry.Order
 	attrs := []slog.Attr{
@@ -224,6 +230,12 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, apperr.New(codes.FailedPrecondition, "the sale has ended", attrs...)
+	}
+	pending := *order
+	pending.Status = entity.OrderStatusPending
+	pending.LotteryEntryID = entry.ID
+	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryEntered, messaging.Announcement{Payload: pb.FromOrder(&pending)}); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit lottery entry creation", attrs...)

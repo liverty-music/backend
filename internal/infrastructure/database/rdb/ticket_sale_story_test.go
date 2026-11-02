@@ -157,7 +157,7 @@ func storyFanWithoutBrowser(t *testing.T, name, lang, tz string) string {
 func storyJourney(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 	t.Helper()
 	require.NoError(t, rdb.NewTicketJourneyRepository(testDB, testOutbox).Upsert(context.Background(),
-		&entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
+		&entity.TicketJourney{UserID: userID, EventID: eventID, Status: status, StatusSetBy: entity.TicketJourneySetByFan}))
 }
 
 func storyDay(offset int) string {

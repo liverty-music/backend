@@ -168,7 +168,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			TimeZone:       japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
-	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, userRepo, concertRepo, followRepo, lotteryEntryRepo, logger)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
@@ -249,7 +249,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	ticketSaleAnnouncementConsumer := event.NewTicketSaleAnnouncementConsumer(ticketSaleAnnouncementUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
-	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, rdb.NewTicketStockRepository(db), logger)
+	ticketStockRepo := rdb.NewTicketStockRepository(db)
+	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, ticketStockRepo, logger)
+	lotteryEntryEnteredConsumer := event.NewLotteryEntryEnteredConsumer(ticketJourneyUC, ticketStockRepo, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
 	// The consumer's OrderUseCase only starts the workflow that follows each
@@ -291,6 +293,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
 		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
+		{"mark-ticket-journey-applied", entity.SubjectLotteryEntryEntered, lotteryEntryEnteredConsumer.HandleMarkApplied},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
 		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},

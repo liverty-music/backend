@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestFromFollowedArtist(t *testing.T) {
@@ -202,6 +203,26 @@ func TestHypeFromProto(t *testing.T) {
 
 			got := pb.HypeFromProto[tt.proto]
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFromFollow_HypeSetBy(t *testing.T) {
+	t.Parallel()
+
+	for _, setBy := range []entity.HypeSetBy{entity.HypeSetByDefault, entity.HypeSetByFan, entity.HypeSetByInference} {
+		t.Run(string(setBy), func(t *testing.T) {
+			t.Parallel()
+			follow := &entity.Follow{UserID: "user-1", ArtistID: "artist-1", Hype: entity.HypeAway, HypeSetBy: setBy}
+
+			msg := pb.FromFollow(follow)
+			wire, err := proto.Marshal(msg)
+			require.NoError(t, err)
+			var decoded entityv1.Follow
+			require.NoError(t, proto.Unmarshal(wire, &decoded))
+
+			assert.Equal(t, setBy, pb.HypeSetByFromProto[decoded.GetHypeSetBy()])
+			assert.Equal(t, entity.HypeAway, pb.HypeFromProto[decoded.GetHype()])
 		})
 	}
 }

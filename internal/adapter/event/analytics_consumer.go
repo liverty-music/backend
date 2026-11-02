@@ -187,17 +187,28 @@ func (c *AnalyticsConsumer) HandleNotificationDelivered(msg *message.Message) er
 
 // HandleTicketJourneyStatusChanged forwards the TICKET_JOURNEY.status_changed
 // NATS subject as the catalogue event usecase.EventTicketJourneyStatusChanged.
-// Properties: event_id, to_status. The status before the change is the
-// to_status of the fan's previous signal for the event.
+// Properties: event_id, to_status, set_by (fan, platform or inference). The
+// status before the change is the to_status of the fan's previous signal for
+// the event.
 func (c *AnalyticsConsumer) HandleTicketJourneyStatusChanged(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectTicketJourneyStatusChanged, usecase.EventTicketJourneyStatusChanged, func() (fact, error) {
 		return decodeFact(msg, func(j *entityv1.TicketJourney) (fact, error) {
-			return fact{distinctID: j.GetUserId().GetValue(), at: announcedAt(msg), props: usecase.AnalyticsProperties{
+			props := usecase.AnalyticsProperties{
 				"event_id":  j.GetEventId().GetValue(),
 				"to_status": pb.TicketJourneyStatusFromProto[j.GetStatus()].String(),
-			}}, nil
+			}
+			withSetBy(props, string(pb.TicketJourneySetByFromProto[j.GetStatusSetBy()]))
+			return fact{distinctID: j.GetUserId().GetValue(), at: announcedAt(msg), props: props}, nil
 		})
 	})
+}
+
+// withSetBy adds set_by to props. An announcement recorded before who set the
+// value was stored carries none, and gets no set_by.
+func withSetBy(props usecase.AnalyticsProperties, setBy string) {
+	if setBy != "" {
+		props["set_by"] = setBy
+	}
 }
 
 // HandleOrganizerCreated forwards the ORGANIZER.created NATS subject as the
@@ -232,14 +243,13 @@ func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message
 
 // HandleArtistHypeChanged forwards the ARTIST.hype_changed NATS subject as the
 // catalogue event usecase.EventArtistHypeChanged. Properties: artist_id,
-// hype (the level set).
+// hype (the level set), set_by (fan or inference).
 func (c *AnalyticsConsumer) HandleArtistHypeChanged(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectArtistHypeChanged, usecase.EventArtistHypeChanged, func() (fact, error) {
-		hype := func(userID, artistID, level string, at time.Time) fact {
-			return fact{distinctID: userID, at: at, props: usecase.AnalyticsProperties{"artist_id": artistID, "hype": level}}
-		}
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
-			return hype(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), string(pb.HypeFromProto[f.GetHype()]), announcedAt(msg)), nil
+			props := usecase.AnalyticsProperties{"artist_id": f.GetArtistId().GetValue(), "hype": string(pb.HypeFromProto[f.GetHype()])}
+			withSetBy(props, string(pb.HypeSetByFromProto[f.GetHypeSetBy()]))
+			return fact{distinctID: f.GetUserId().GetValue(), at: announcedAt(msg), props: props}, nil
 		})
 	})
 }

@@ -277,3 +277,106 @@ func TestHype_ShouldNotify(t *testing.T) {
 		})
 	}
 }
+
+func TestHypeSetBy_IsValid(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		setBy entity.HypeSetBy
+		want  bool
+	}{
+		{entity.HypeSetByDefault, true},
+		{entity.HypeSetByFan, true},
+		{entity.HypeSetByInference, true},
+		{entity.HypeSetBy(""), false},
+		{entity.HypeSetBy("platform"), false},
+	} {
+		t.Run(string(tt.setBy), func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.setBy.IsValid())
+		})
+	}
+}
+
+func TestHype_IsAbove(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		h     entity.Hype
+		other entity.Hype
+		want  bool
+	}{
+		{"away is above nearby", entity.HypeAway, entity.HypeNearby, true},
+		{"nearby is above home", entity.HypeNearby, entity.HypeHome, true},
+		{"home is above watch", entity.HypeHome, entity.HypeWatch, true},
+		{"a level is not above itself", entity.HypeNearby, entity.HypeNearby, false},
+		{"home is not above nearby", entity.HypeHome, entity.HypeNearby, false},
+		{"an unknown level is above nothing", entity.Hype("unknown"), entity.HypeWatch, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.h.IsAbove(tt.other))
+		})
+	}
+}
+
+func TestLowestHypeMatching(t *testing.T) {
+	t.Parallel()
+
+	tokyoHome, tokyo, yokohama, osaka := hypeTestFixture()
+	unknown := &entity.Concert{ID: "concert-unknown", Venue: &entity.Venue{}}
+	areaOnly := "JP-40"
+	tests := []struct {
+		name    string
+		concert *entity.Concert
+		want    entity.Hype
+		wantOK  bool
+	}{
+		// @spec components/entity/follow "Concert in the home area"
+		{"concert in the home area", tokyo, entity.HypeHome, true},
+		// @spec components/entity/follow "Nearby concert"
+		{"nearby concert", yokohama, entity.HypeNearby, true},
+		// @spec components/entity/follow "Distant concert"
+		{"distant concert", osaka, entity.HypeAway, true},
+		// @spec components/entity/follow "Venue location unknown"
+		{"venue location unknown", unknown, "", false},
+		{"venue area known but distance unknown", &entity.Concert{ID: "concert-area", Venue: &entity.Venue{AdminArea: &areaOnly}}, "", false},
+		{"no venue", &entity.Concert{ID: "concert-no-venue"}, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := entity.LowestHypeMatching(tokyoHome, tt.concert)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFollow_RaisableTo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		follow entity.Follow
+		to     entity.Hype
+		want   bool
+	}{
+		// @spec components/entity/follow "Default level below the given level"
+		{"default level below the given level", entity.Follow{Hype: entity.HypeNearby, HypeSetBy: entity.HypeSetByDefault}, entity.HypeAway, true},
+		// @spec components/entity/follow "Level the fan set"
+		{"level the fan set", entity.Follow{Hype: entity.HypeHome, HypeSetBy: entity.HypeSetByFan}, entity.HypeAway, false},
+		// @spec components/entity/follow "Given level not higher"
+		{"given level not higher", entity.Follow{Hype: entity.HypeNearby, HypeSetBy: entity.HypeSetByDefault}, entity.HypeHome, false},
+		{"inferred level below the given level", entity.Follow{Hype: entity.HypeHome, HypeSetBy: entity.HypeSetByInference}, entity.HypeAway, true},
+		{"same level", entity.Follow{Hype: entity.HypeAway, HypeSetBy: entity.HypeSetByInference}, entity.HypeAway, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.follow.RaisableTo(tt.to))
+		})
+	}
+}

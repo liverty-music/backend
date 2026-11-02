@@ -28,8 +28,8 @@ const (
 	// rather than the DB column DEFAULT. The DB DEFAULT remains as a safety
 	// net for any future code path that omits the column.
 	followInsertQuery = `
-		INSERT INTO followed_artists (user_id, artist_id, hype)
-		VALUES ($1, $2, $3)
+		INSERT INTO followed_artists (user_id, artist_id, hype, hype_set_by)
+		VALUES ($1, $2, $3, 'default')
 		ON CONFLICT DO NOTHING
 	`
 	// followDeleteQuery removes the follow and returns its hype level, so the
@@ -38,20 +38,33 @@ const (
 	followDeleteQuery = `
 		DELETE FROM followed_artists
 		WHERE user_id = $1 AND artist_id = $2
-		RETURNING hype
+		RETURNING hype, hype_set_by
 	`
-	// followSetHypeQuery changes the hype level only when it differs, so a
-	// repeated level changes no row.
+	// followSetHypeQuery sets the hype level as set by the fan, only when the
+	// level or who set it differs, so a level the fan set again changes no
+	// row.
 	followSetHypeQuery = `
 		UPDATE followed_artists
-		SET hype = $3
-		WHERE user_id = $1 AND artist_id = $2 AND hype <> $3
+		SET hype = $3, hype_set_by = 'fan'
+		WHERE user_id = $1 AND artist_id = $2 AND (hype <> $3 OR hype_set_by <> 'fan')
+	`
+	// followLockQuery reads the Follow under its row lock, which a concurrent
+	// followSetHypeQuery waits for (or holds first).
+	followLockQuery = `
+		SELECT hype, hype_set_by FROM followed_artists
+		WHERE user_id = $1 AND artist_id = $2
+		FOR UPDATE
+	`
+	followRaiseHypeQuery = `
+		UPDATE followed_artists
+		SET hype = $3, hype_set_by = 'inference'
+		WHERE user_id = $1 AND artist_id = $2
 	`
 	followExistsQuery = `
 		SELECT EXISTS (SELECT 1 FROM followed_artists WHERE user_id = $1 AND artist_id = $2)
 	`
 	followListByUserQuery = `
-		SELECT a.id, a.name, COALESCE(a.mbid, ''), a.fanart, fa.hype
+		SELECT a.id, a.name, COALESCE(a.mbid, ''), a.fanart, fa.hype, fa.hype_set_by
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
@@ -77,7 +90,8 @@ func NewFollowRepository(db *Database, outbox Announcer) *FollowRepository {
 }
 
 // Follow establishes a follow relationship between a user and an artist at
-// entity.DefaultHype, the canonical domain-layer default (the DB column
+// entity.DefaultHype, set by default; entity.DefaultHype is the canonical
+// domain-layer default (the DB column
 // DEFAULT mirrors it but is not relied upon here). The insert uses ON
 // CONFLICT DO NOTHING so a duplicate follow never touches the existing row;
 // its rows affected tell a fresh insert from a duplicate, which fails with
@@ -97,7 +111,7 @@ func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) 
 		if tag.RowsAffected() == 0 {
 			return apperr.New(codes.AlreadyExists, "already following")
 		}
-		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.DefaultHype}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.DefaultHype, HypeSetBy: entity.HypeSetByDefault}
 		return announce(ctx, r.outbox, tx, entity.SubjectArtistFollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
 }
@@ -112,27 +126,28 @@ func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) 
 func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string) error {
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID)}
 	return r.inTx(ctx, "unfollow artist", attrs, func(tx pgx.Tx) error {
-		var hype string
-		err := tx.QueryRow(ctx, followDeleteQuery, userID, artistID).Scan(&hype)
+		var hype, setBy string
+		err := tx.QueryRow(ctx, followDeleteQuery, userID, artistID).Scan(&hype, &setBy)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return toAppErr(err, "failed to unfollow artist", attrs...)
 		}
-		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.Hype(hype)}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.Hype(hype), HypeSetBy: entity.HypeSetBy(setBy)}
 		return announce(ctx, r.outbox, tx, entity.SubjectArtistUnfollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
 }
 
-// SetHype sets the enthusiasm tier for a followed artist. Setting the level
-// it already has changes nothing; a user who does not follow the artist
-// fails with NotFound.
+// SetHype sets the enthusiasm tier for a followed artist, set by the fan.
+// Setting the level the fan already set changes nothing; the same level set by
+// default or by inference becomes set by the fan. A user who does not follow
+// the artist fails with NotFound.
 //
 // # Announces
 //
-// ARTIST.hype_changed with the Follow at its new level, in the transaction of
-// the change. Nothing when the level is unchanged or on failure.
+// ARTIST.hype_changed with the Follow at its new level, set by the fan, in the
+// transaction of the change. Nothing when nothing changed or on failure.
 func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID), slog.String("hype", string(hype))}
 	return r.inTx(ctx, "set hype", attrs, func(tx pgx.Tx) error {
@@ -150,9 +165,51 @@ func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string,
 			}
 			return nil
 		}
-		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: hype}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: hype, HypeSetBy: entity.HypeSetByFan}
 		return announce(ctx, r.outbox, tx, entity.SubjectArtistHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
+}
+
+// RaiseHype raises the Follow to hype, set by inference, when
+// [entity.Follow.RaisableTo] allows it. It reads the Follow under its row
+// lock, so a concurrent SetHype either commits first (and RaiseHype sees the
+// fan's level) or waits and overwrites the raised level.
+//
+// # Announces
+//
+// ARTIST.hype_changed with the Follow at its new level, set by inference, in
+// the transaction of the change. Nothing when it changed nothing or on
+// failure.
+func (r *FollowRepository) RaiseHype(ctx context.Context, userID, artistID string, hype entity.Hype) (bool, error) {
+	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID), slog.String("hype", string(hype))}
+	raised := false
+	err := r.inTx(ctx, "raise hype", attrs, func(tx pgx.Tx) error {
+		var current, setBy string
+		err := tx.QueryRow(ctx, followLockQuery, userID, artistID).Scan(&current, &setBy)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperr.New(codes.NotFound, "follow relationship not found", attrs...)
+		}
+		if err != nil {
+			return toAppErr(err, "failed to read the follow", attrs...)
+		}
+		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.Hype(current), HypeSetBy: entity.HypeSetBy(setBy)}
+		if !follow.RaisableTo(hype) {
+			return nil
+		}
+		if _, err := tx.Exec(ctx, followRaiseHypeQuery, userID, artistID, string(hype)); err != nil {
+			return toAppErr(err, "failed to raise hype", attrs...)
+		}
+		follow.Hype, follow.HypeSetBy = hype, entity.HypeSetByInference
+		if err := announce(ctx, r.outbox, tx, entity.SubjectArtistHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)}); err != nil {
+			return err
+		}
+		raised = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return raised, nil
 }
 
 // inTx runs fn in one transaction, committed when fn succeeds.
@@ -172,7 +229,8 @@ func (r *FollowRepository) inTx(ctx context.Context, op string, attrs []slog.Att
 	return nil
 }
 
-// ListByUser retrieves the list of artists followed by a user, including hype level.
+// ListByUser retrieves the list of artists followed by a user, including the
+// hype level and who set it.
 func (r *FollowRepository) ListByUser(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	rows, err := r.db.Pool.Query(ctx, followListByUserQuery, userID)
 	if err != nil {
@@ -184,8 +242,8 @@ func (r *FollowRepository) ListByUser(ctx context.Context, userID string) ([]*en
 	for rows.Next() {
 		var a entity.Artist
 		var fanartJSON []byte
-		var hype string
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &hype); err != nil {
+		var hype, setBy string
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &hype, &setBy); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
 		if len(fanartJSON) > 0 {
@@ -196,9 +254,10 @@ func (r *FollowRepository) ListByUser(ctx context.Context, userID string) ([]*en
 			a.Fanart = &f
 		}
 		followed = append(followed, &entity.FollowedArtist{
-			UserID: userID,
-			Artist: &a,
-			Hype:   entity.Hype(hype),
+			UserID:    userID,
+			Artist:    &a,
+			Hype:      entity.Hype(hype),
+			HypeSetBy: entity.HypeSetBy(setBy),
 		})
 	}
 	if err := rows.Err(); err != nil {

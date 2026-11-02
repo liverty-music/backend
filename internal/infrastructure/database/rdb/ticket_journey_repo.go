@@ -2,7 +2,7 @@ package rdb
 
 import (
 	"context"
-
+	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -24,24 +24,44 @@ var _ entity.TicketJourneyRepository = (*TicketJourneyRepository)(nil)
 
 const (
 	ticketJourneyGetQuery = `
-		SELECT event_id, status
+		SELECT event_id, status, status_set_by
 		FROM ticket_journeys
 		WHERE user_id = $1 AND event_id = $2
 	`
-	// ticketJourneyUpsertQuery creates the journey or changes its status; a
-	// journey already at the status changes no row.
+	// ticketJourneyUpsertQuery creates the journey or changes its status and
+	// who set it; a journey already at both changes no row.
 	ticketJourneyUpsertQuery = `
-		INSERT INTO ticket_journeys (user_id, event_id, status)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id, event_id) DO UPDATE SET status = $3
-		WHERE ticket_journeys.status <> $3
+		INSERT INTO ticket_journeys (user_id, event_id, status, status_set_by)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, event_id) DO UPDATE SET status = $3, status_set_by = $4
+		WHERE ticket_journeys.status <> $3 OR ticket_journeys.status_set_by <> $4
+	`
+	// ticketJourneyInsertIfAbsentQuery creates the journey only when the fan
+	// has none for the event; a conflict waits for a concurrent insert.
+	ticketJourneyInsertIfAbsentQuery = `
+		INSERT INTO ticket_journeys (user_id, event_id, status, status_set_by)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, event_id) DO NOTHING
+	`
+	// ticketJourneyLockQuery reads the journey under its row lock, which a
+	// concurrent ticketJourneyUpsertQuery waits for (or holds first).
+	ticketJourneyLockQuery = `
+		SELECT status, status_set_by
+		FROM ticket_journeys
+		WHERE user_id = $1 AND event_id = $2
+		FOR UPDATE
+	`
+	ticketJourneyUpdateQuery = `
+		UPDATE ticket_journeys
+		SET status = $3, status_set_by = $4
+		WHERE user_id = $1 AND event_id = $2
 	`
 	ticketJourneyDeleteQuery = `
 		DELETE FROM ticket_journeys
 		WHERE user_id = $1 AND event_id = $2
 	`
 	ticketJourneyListByUserQuery = `
-		SELECT event_id, status
+		SELECT event_id, status, status_set_by
 		FROM ticket_journeys
 		WHERE user_id = $1
 	`
@@ -81,29 +101,31 @@ func NewTicketJourneyRepository(db *Database, outbox Announcer) *TicketJourneyRe
 // Returns apperr.ErrNotFound when no journey exists for the pair.
 func (r *TicketJourneyRepository) Get(ctx context.Context, userID, eventID string) (*entity.TicketJourney, error) {
 	row := r.db.Pool.QueryRow(ctx, ticketJourneyGetQuery, userID, eventID)
-	var gotEventID string
+	var gotEventID, setBy string
 	var status int16
-	if err := row.Scan(&gotEventID, &status); err != nil {
+	if err := row.Scan(&gotEventID, &status, &setBy); err != nil {
 		return nil, toAppErr(err, "failed to get ticket journey",
 			slog.String("user_id", userID),
 			slog.String("event_id", eventID),
 		)
 	}
 	return &entity.TicketJourney{
-		UserID:  userID,
-		EventID: gotEventID,
-		Status:  entity.TicketJourneyStatus(status),
+		UserID:      userID,
+		EventID:     gotEventID,
+		Status:      entity.TicketJourneyStatus(status),
+		StatusSetBy: entity.TicketJourneySetBy(setBy),
 	}, nil
 }
 
-// Upsert creates or updates a ticket journey for the given user and event.
-// A journey already at the given status is left unchanged.
+// Upsert creates or updates a ticket journey for the given user and event,
+// with its status and who set it. A journey already at both is left
+// unchanged.
 //
 // # Announces
 //
-// TICKET_JOURNEY.status_changed with the journey at its new status, in the
-// transaction of the change, when it created the journey or changed its
-// status. Nothing when the status was already the given one.
+// TICKET_JOURNEY.status_changed with the journey at its new status and set by,
+// in the transaction of the change, when it created the journey or changed
+// either. Nothing when the journey already had both.
 func (r *TicketJourneyRepository) Upsert(ctx context.Context, journey *entity.TicketJourney) error {
 	attrs := []slog.Attr{slog.String("user_id", journey.UserID), slog.String("event_id", journey.EventID)}
 	tx, err := r.db.Pool.Begin(ctx)
@@ -112,7 +134,7 @@ func (r *TicketJourneyRepository) Upsert(ctx context.Context, journey *entity.Ti
 	}
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
-	tag, err := tx.Exec(ctx, ticketJourneyUpsertQuery, journey.UserID, journey.EventID, journey.Status)
+	tag, err := tx.Exec(ctx, ticketJourneyUpsertQuery, journey.UserID, journey.EventID, journey.Status, string(journey.StatusSetBy))
 	if err != nil {
 		return toAppErr(err, "failed to upsert ticket journey", attrs...)
 	}
@@ -131,8 +153,81 @@ func (r *TicketJourneyRepository) Upsert(ctx context.Context, journey *entity.Ti
 		slog.String("userID", journey.UserID),
 		slog.String("eventID", journey.EventID),
 		slog.Int("status", int(journey.Status)),
+		slog.String("statusSetBy", string(journey.StatusSetBy)),
 	)
 	return nil
+}
+
+// UpsertIfReplaceable stores journey when the fan has no journey for the event
+// or [entity.TicketJourney.ReplaceableBy] allows replacing it, and reports
+// whether it stored it. It first inserts with ON CONFLICT DO NOTHING; on a
+// conflict it reads the journey under its row lock, so the check and the write
+// are one step with the fan's Upsert of the same journey.
+//
+// # Announces
+//
+// TICKET_JOURNEY.status_changed with the journey at its new status and set by,
+// in the transaction of the change. Nothing when it stored nothing or on
+// failure.
+func (r *TicketJourneyRepository) UpsertIfReplaceable(ctx context.Context, journey *entity.TicketJourney) (bool, error) {
+	attrs := []slog.Attr{
+		slog.String("user_id", journey.UserID),
+		slog.String("event_id", journey.EventID),
+		slog.Int("status", int(journey.Status)),
+		slog.String("status_set_by", string(journey.StatusSetBy)),
+	}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return false, toAppErr(err, "failed to begin ticket journey guarded upsert", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	stored, err := r.storeIfReplaceable(ctx, tx, journey, attrs)
+	if err != nil || !stored {
+		return false, err
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, messaging.Announcement{Payload: pb.FromTicketJourney(journey)}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, toAppErr(err, "failed to commit ticket journey guarded upsert", attrs...)
+	}
+	r.db.logger.Info(ctx, "ticket journey stored over a replaceable journey", attrs...)
+	return true, nil
+}
+
+// storeIfReplaceable writes journey in tx when the fan has no journey or the
+// existing one is replaceable by it and differs from it. A journey deleted
+// between the insert's conflict and the lock is inserted again.
+func (r *TicketJourneyRepository) storeIfReplaceable(ctx context.Context, tx pgx.Tx, journey *entity.TicketJourney, attrs []slog.Attr) (bool, error) {
+	for range 2 {
+		tag, err := tx.Exec(ctx, ticketJourneyInsertIfAbsentQuery, journey.UserID, journey.EventID, journey.Status, string(journey.StatusSetBy))
+		if err != nil {
+			return false, toAppErr(err, "failed to insert ticket journey", attrs...)
+		}
+		if tag.RowsAffected() == 1 {
+			return true, nil
+		}
+		var status int16
+		var setBy string
+		err = tx.QueryRow(ctx, ticketJourneyLockQuery, journey.UserID, journey.EventID).Scan(&status, &setBy)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return false, toAppErr(err, "failed to read ticket journey", attrs...)
+		}
+		current := &entity.TicketJourney{UserID: journey.UserID, EventID: journey.EventID, Status: entity.TicketJourneyStatus(status), StatusSetBy: entity.TicketJourneySetBy(setBy)}
+		if (current.Status == journey.Status && current.StatusSetBy == journey.StatusSetBy) || !current.ReplaceableBy(journey.Status, journey.StatusSetBy) {
+			return false, nil
+		}
+		if _, err := tx.Exec(ctx, ticketJourneyUpdateQuery, journey.UserID, journey.EventID, journey.Status, string(journey.StatusSetBy)); err != nil {
+			return false, toAppErr(err, "failed to update ticket journey", attrs...)
+		}
+		return true, nil
+	}
+	return false, apperr.New(codes.Aborted, "ticket journey changed concurrently", attrs...)
 }
 
 // Delete removes a ticket journey for the given user and event.
@@ -163,15 +258,16 @@ func (r *TicketJourneyRepository) ListByUser(ctx context.Context, userID string)
 
 	var journeys []*entity.TicketJourney
 	for rows.Next() {
-		var eventID string
+		var eventID, setBy string
 		var status int16
-		if err := rows.Scan(&eventID, &status); err != nil {
+		if err := rows.Scan(&eventID, &status, &setBy); err != nil {
 			return nil, toAppErr(err, "failed to scan ticket journey")
 		}
 		journeys = append(journeys, &entity.TicketJourney{
-			UserID:  userID,
-			EventID: eventID,
-			Status:  entity.TicketJourneyStatus(status),
+			UserID:      userID,
+			EventID:     eventID,
+			Status:      entity.TicketJourneyStatus(status),
+			StatusSetBy: entity.TicketJourneySetBy(setBy),
 		})
 	}
 	if err := rows.Err(); err != nil {

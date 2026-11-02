@@ -21,6 +21,20 @@ var HypeFromProto = map[entityv1.HypeType]entity.Hype{
 	entityv1.HypeType_HYPE_TYPE_AWAY:   entity.HypeAway,
 }
 
+// hypeSetByToProto maps a domain HypeSetBy value to its Protobuf enum value.
+var hypeSetByToProto = map[entity.HypeSetBy]entityv1.HypeSetBy{
+	entity.HypeSetByDefault:   entityv1.HypeSetBy_HYPE_SET_BY_DEFAULT,
+	entity.HypeSetByFan:       entityv1.HypeSetBy_HYPE_SET_BY_FAN,
+	entity.HypeSetByInference: entityv1.HypeSetBy_HYPE_SET_BY_INFERENCE,
+}
+
+// HypeSetByFromProto maps a Protobuf HypeSetBy enum to its domain value.
+var HypeSetByFromProto = map[entityv1.HypeSetBy]entity.HypeSetBy{
+	entityv1.HypeSetBy_HYPE_SET_BY_DEFAULT:   entity.HypeSetByDefault,
+	entityv1.HypeSetBy_HYPE_SET_BY_FAN:       entity.HypeSetByFan,
+	entityv1.HypeSetBy_HYPE_SET_BY_INFERENCE: entity.HypeSetByInference,
+}
+
 // FromFollowedArtist maps a domain FollowedArtist to its Protobuf wire representation.
 func FromFollowedArtist(fa *entity.FollowedArtist) *entityv1.FollowedArtist {
 	if fa == nil {
@@ -41,15 +55,16 @@ func FromFollowedArtists(followed []*entity.FollowedArtist) []*entityv1.Followed
 	return result
 }
 
-// FromFollow maps one fan's follow of an Artist, with its hype level, to
-// Protobuf.
+// FromFollow maps one fan's follow of an Artist, with its hype level and who
+// set it, to Protobuf.
 func FromFollow(f *entity.Follow) *entityv1.Follow {
 	if f == nil {
 		return nil
 	}
 	return &entityv1.Follow{
-		UserId:   &entityv1.UserId{Value: f.UserID},
-		ArtistId: &entityv1.ArtistId{Value: f.ArtistID},
-		Hype:     hypeToProto[f.Hype],
+		UserId:    &entityv1.UserId{Value: f.UserID},
+		ArtistId:  &entityv1.ArtistId{Value: f.ArtistID},
+		Hype:      hypeToProto[f.Hype],
+		HypeSetBy: hypeSetByToProto[f.HypeSetBy],
 	}
 }

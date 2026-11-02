@@ -37,9 +37,10 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 				cleanDatabase(t)
 				userID, eventID := seedJourneyDeps(t)
 				return &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID,
-					Status:  entity.TicketJourneyStatusTracking,
+					UserID:      userID,
+					EventID:     eventID,
+					Status:      entity.TicketJourneyStatusTracking,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				}
 			},
 			check: func(t *testing.T, userID string) {
@@ -57,16 +58,18 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 				userID, eventID := seedJourneyDeps(t)
 
 				err := repo.Upsert(ctx, &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID,
-					Status:  entity.TicketJourneyStatusTracking,
+					UserID:      userID,
+					EventID:     eventID,
+					Status:      entity.TicketJourneyStatusTracking,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				})
 				require.NoError(t, err)
 
 				return &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID,
-					Status:  entity.TicketJourneyStatusApplied,
+					UserID:      userID,
+					EventID:     eventID,
+					Status:      entity.TicketJourneyStatusApplied,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				}
 			},
 			check: func(t *testing.T, userID string) {
@@ -106,9 +109,10 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 				cleanDatabase(t)
 				userID, eventID = seedJourneyDeps(t)
 				err := repo.Upsert(ctx, &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID,
-					Status:  entity.TicketJourneyStatusTracking,
+					UserID:      userID,
+					EventID:     eventID,
+					Status:      entity.TicketJourneyStatusTracking,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				})
 				require.NoError(t, err)
 				return userID, eventID
@@ -160,7 +164,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 	}
 	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 		t.Helper()
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status, StatusSetBy: entity.TicketJourneySetByFan}))
 	}
 	byUser := func(trackers []*entity.SeriesTracker) map[string]string {
 		out := make(map[string]string, len(trackers))
@@ -302,16 +306,18 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 				eventID2 := seedEvent(t, venueID2, artistID2, "journey-event-2", "2026-07-01")
 
 				err := repo.Upsert(ctx, &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID1,
-					Status:  entity.TicketJourneyStatusTracking,
+					UserID:      userID,
+					EventID:     eventID1,
+					Status:      entity.TicketJourneyStatusTracking,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				})
 				require.NoError(t, err)
 
 				err = repo.Upsert(ctx, &entity.TicketJourney{
-					UserID:  userID,
-					EventID: eventID2,
-					Status:  entity.TicketJourneyStatusApplied,
+					UserID:      userID,
+					EventID:     eventID2,
+					Status:      entity.TicketJourneyStatusApplied,
+					StatusSetBy: entity.TicketJourneySetByFan,
 				})
 				require.NoError(t, err)
 
@@ -352,7 +358,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
 	}
 	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 		t.Helper()
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status, StatusSetBy: entity.TicketJourneySetByFan}))
 	}
 	byUser := func(trackers []*entity.SeriesTracker) map[string]string {
 		out := make(map[string]string, len(trackers))

@@ -43,6 +43,30 @@ func (s TicketJourneyStatus) IsValid() bool {
 	return s >= TicketJourneyStatusTracking && s <= TicketJourneyStatusPaid
 }
 
+// TicketJourneySetBy says who set a ticket journey's status.
+type TicketJourneySetBy string
+
+const (
+	// TicketJourneySetByFan is a status the fan chose.
+	TicketJourneySetByFan TicketJourneySetBy = "fan"
+	// TicketJourneySetByPlatform is a fact the platform recorded: Applied for a
+	// lottery entry, Paid for a paid Order on Liverty Music.
+	TicketJourneySetByPlatform TicketJourneySetBy = "platform"
+	// TicketJourneySetByInference is a status the app inferred from the fan's
+	// own action: Tracking after a calendar add.
+	TicketJourneySetByInference TicketJourneySetBy = "inference"
+)
+
+// IsValid reports whether s is a recognized TicketJourneySetBy value.
+func (s TicketJourneySetBy) IsValid() bool {
+	switch s {
+	case TicketJourneySetByFan, TicketJourneySetByPlatform, TicketJourneySetByInference:
+		return true
+	default:
+		return false
+	}
+}
+
 // TicketJourney represents a fan's personal ticket acquisition status for a specific event.
 type TicketJourney struct {
 	// UserID is the internal UUID of the fan.
@@ -51,6 +75,32 @@ type TicketJourney struct {
 	EventID string
 	// Status is the current position in the ticket acquisition process.
 	Status TicketJourneyStatus
+	// StatusSetBy says who set Status.
+	StatusSetBy TicketJourneySetBy
+}
+
+// ReplaceableBy reports whether the platform or the app may replace j with
+// status, set by setBy. No journey (a nil j) is replaceable by anything. A
+// status set by inference replaces no journey. Applied set by the platform
+// replaces a journey at Tracking, Applied or Lost, whoever set it, but not one
+// at Unpaid or Paid, where the fan already has a ticket. Any other status set
+// by the platform replaces any journey. A status the fan sets is stored with
+// [TicketJourneyRepository.Upsert] and never asks this.
+func (j *TicketJourney) ReplaceableBy(status TicketJourneyStatus, setBy TicketJourneySetBy) bool {
+	if j == nil {
+		return true
+	}
+	switch setBy {
+	case TicketJourneySetByInference:
+		return false
+	case TicketJourneySetByPlatform:
+		if status == TicketJourneyStatusApplied {
+			return j.Status != TicketJourneyStatusUnpaid && j.Status != TicketJourneyStatusPaid
+		}
+		return true
+	default:
+		return true
+	}
 }
 
 // TicketJourneyRepository defines the persistence layer operations for ticket journeys.
@@ -63,17 +113,40 @@ type TicketJourneyRepository interface {
 	//   - Internal: database query failure.
 	Get(ctx context.Context, userID, eventID string) (*TicketJourney, error)
 
-	// Upsert creates or updates a ticket journey for the given user and event.
+	// Upsert creates or updates a ticket journey for the given user and event,
+	// with its status and who set it.
 	//
 	// # Possible errors:
 	//
+	//   - Unavailable: the announcement could not be recorded; nothing changed.
 	//   - Internal: database execution failure.
 	//
 	// # Announces
 	//
-	// TICKET_JOURNEY.status_changed with the journey at its new status, together
-	// with the change. Nothing when the status was already the given one.
+	// TICKET_JOURNEY.status_changed with the journey at its new status and set
+	// by, together with the change. Nothing when the journey already had both.
 	Upsert(ctx context.Context, journey *TicketJourney) error
+
+	// UpsertIfReplaceable stores journey (its status set by the platform or by
+	// inference) when the fan has no journey for the event or the fan's journey
+	// is [TicketJourney.ReplaceableBy] it, and reports whether it stored it. A
+	// journey that already has the status and set by is left unchanged. The
+	// check and the write hold the journey's row (or the insert's conflict), so
+	// a status the fan stores at the same moment is never replaced.
+	//
+	// # Possible errors:
+	//
+	//   - FailedPrecondition: the event or the fan does not exist.
+	//   - Aborted: the journey was deleted and recreated by concurrent writes
+	//     while it was being read; nothing changed, and a retry may succeed.
+	//   - Unavailable: the announcement could not be recorded; nothing changed.
+	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// TICKET_JOURNEY.status_changed with the journey at its new status and set
+	// by, together with the change. Nothing when it stored nothing.
+	UpsertIfReplaceable(ctx context.Context, journey *TicketJourney) (bool, error)
 
 	// Delete removes a ticket journey for the given user and event.
 	// This is idempotent — deleting a non-existent journey succeeds silently.

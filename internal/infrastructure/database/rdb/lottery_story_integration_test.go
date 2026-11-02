@@ -94,9 +94,9 @@ type lotteryStory struct {
 	// event consumer does.
 	worker *workflow.Runtime
 	client *workflow.Client
-	// drawnMark and paidMark are the outbox offsets up to which the story
-	// handed announcements to their consumers.
-	drawnMark, paidMark int64
+	// drawnMark, paidMark and enteredMark are the outbox offsets up to which
+	// the story handed announcements to their consumers.
+	drawnMark, paidMark, enteredMark int64
 	// followUps are the issue and release workflows started for drawn
 	// entries and not awaited yet.
 	followUps []string
@@ -134,6 +134,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		pushes:      &pushStarts{},
 		drawnMark:   outboxMark(t),
 		paidMark:    outboxMark(t),
+		enteredMark: outboxMark(t),
 		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
 		userRepo:    rdb.NewUserRepository(testDB, testOutbox),
 		journeyRepo: rdb.NewTicketJourneyRepository(testDB, testOutbox),
@@ -179,7 +180,8 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
 		rdb.NewRejectedScanRepository(testDB), logger)
-	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, logger)
+	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(testDB, testOutbox),
+		rdb.NewFollowRepository(testDB, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil,
 		s.orders, logger)
@@ -446,6 +448,27 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 	}
 }
 
+// markEnteredApplied hands the ORDER.lottery_entry_entered announcements of
+// the story's event recorded since the previous call to the ticket journey,
+// as the mark-ticket-journey-applied consumer does.
+func (s *lotteryStory) markEnteredApplied() {
+	s.t.Helper()
+	next := outboxMark(s.t)
+	orders := announcedSince(s.t, s.enteredMark, entity.SubjectLotteryEntryEntered, func() *entityv1.Order { return &entityv1.Order{} },
+		func(o *entityv1.Order) bool {
+			var eventID string
+			require.NoError(s.t, testDB.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
+				o.GetTicketStockId().GetValue()).Scan(&eventID))
+			return eventID == s.eventID
+		})
+	s.enteredMark = next
+	for _, o := range orders {
+		require.NoError(s.t, s.journeys.MarkApplied(s.ctx, entity.LotteryEntryEnteredData{
+			LotteryEntryID: entity.LotteryEntryID(o.GetLotteryEntryId().GetValue()), UserID: o.GetUserId().GetValue(), EventID: s.eventID,
+		}))
+	}
+}
+
 // takePaid returns the ORDER.paid announcements of the story's event recorded
 // since the previous take, as the order-paid consumers read them.
 func (s *lotteryStory) takePaid() []entity.OrderPaidData {
@@ -584,6 +607,53 @@ func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 	emails := s.emailsTo(fan)
 	require.Len(t, emails, 1, "one email")
 	assert.Contains(t, emails[0].subject, "当選しました", "the confirmation says the entry won")
+}
+
+func TestLotteryStory_EntryMarksJourneyApplied(t *testing.T) {
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	fan := s.newFan()
+	entry := s.enter(sale, stock.ID, fan, 2)
+	entered := entity.LotteryEntryEnteredData{LotteryEntryID: entry.ID, UserID: string(fan), EventID: s.eventID}
+
+	t.Run("entry made", func(t *testing.T) {
+		// @spec stories/win-tickets-in-a-lottery "Entry made"
+		// The entry is announced, and its receiver records Applied.
+		s.markEnteredApplied()
+
+		journey, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.TicketJourneyStatusApplied, journey.Status)
+		assert.Equal(t, entity.TicketJourneySetByPlatform, journey.StatusSetBy)
+
+		// A redelivered announcement changes nothing.
+		require.NoError(t, s.journeys.MarkApplied(s.ctx, entered))
+		again, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
+		require.NoError(t, err)
+		assert.Equal(t, journey, again)
+	})
+
+	t.Run("entry wins", func(t *testing.T) {
+		// @spec stories/win-tickets-in-a-lottery "Entry wins"
+		s.closeAndDraw(end)
+		s.issueWins(entry)
+
+		journey, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.TicketJourneyStatusPaid, journey.Status)
+		assert.Equal(t, entity.TicketJourneySetByPlatform, journey.StatusSetBy)
+
+		// The entry's announcement held back until after the draw records
+		// nothing.
+		require.NoError(t, s.journeys.MarkApplied(s.ctx, entered))
+		late, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.TicketJourneyStatusPaid, late.Status)
+	})
 }
 
 func TestLotteryStory_OversubscribedSale(t *testing.T) {

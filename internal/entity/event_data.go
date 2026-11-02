@@ -84,10 +84,11 @@ const (
 	// SubjectUserPasskeyRemoved announces a Passkey that Passkey.Delete
 	// removed, as it was. UserUseCase.NotifyPasskeyChange runs from it.
 	SubjectUserPasskeyRemoved = "USER.passkey_removed"
-	// SubjectArtistHypeChanged announces that a fan set the hype level of a
-	// followed artist. FollowUseCase.SetHype publishes it on every successful
-	// set; the analytics consumer forwards it as artist.hype.changed. The name
-	// is kept for the existing durable track-artist-hype-changed.
+	// SubjectArtistHypeChanged announces a changed hype level of a Follow,
+	// with who set it: Follow.SetHype (the fan) and Follow.RaiseHype
+	// (inference) record it with the change; the analytics consumer forwards
+	// it as artist.hype.changed. The name is kept for the existing durable
+	// track-artist-hype-changed.
 	SubjectArtistHypeChanged = "ARTIST.hype_changed"
 	// SubjectLotteryEntryDrawn announces one entry's draw result (Won or
 	// Lost). LotteryEntry.PersistDrawOutcome and LotteryEntry.RevertWin
@@ -95,6 +96,11 @@ const (
 	// it, the loss notice is sent from it, and the analytics consumer forwards
 	// it as ticket.lottery.result.
 	SubjectLotteryEntryDrawn = "ORDER.lottery_entry_drawn"
+	// SubjectLotteryEntryEntered announces a new lottery entry, with its
+	// Pending Order as the payload. LotteryEntry.Create records it in the
+	// transaction that stores the entry; TicketJourneyUseCase.MarkApplied
+	// receives it and records the fan's journey as Applied.
+	SubjectLotteryEntryEntered = "ORDER.lottery_entry_entered"
 	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed.
 	// CheckoutUseCase.ReleaseExpired publishes it when it makes the Checkout
 	// Expired; the analytics consumer forwards it as checkout.expired.
@@ -133,8 +139,21 @@ var AllSubjects = []string{
 	SubjectUserPasskeyRemoved,
 	SubjectArtistHypeChanged,
 	SubjectLotteryEntryDrawn,
+	SubjectLotteryEntryEntered,
 	SubjectCheckoutExpired,
 	SubjectTicketAdmitted,
+}
+
+// LotteryEntryEnteredData is what the receiver of an
+// ORDER.lottery_entry_entered announcement reads from the new entry's Pending
+// Order and the event of its TicketStock.
+type LotteryEntryEnteredData struct {
+	// LotteryEntryID is the new entry, which names the Order.
+	LotteryEntryID LotteryEntryID
+	// UserID is the platform-internal id of the Order's user.
+	UserID string
+	// EventID is the event of the Order's TicketStock.
+	EventID string
 }
 
 // OrderPaidData is what the receivers of an ORDER.paid announcement read

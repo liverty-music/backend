@@ -47,11 +47,11 @@ const (
 
 // Ticket journey events emitted from the backend.
 const (
-	// EventTicketJourneyStatusChanged is recorded after a fan's ticket
-	// journey status is successfully updated via SetStatus. It is
-	// suppressed when the incoming status equals the stored status
-	// (no-op upsert) to avoid noise in downstream funnels.
-	// Properties: event_id, from_status, to_status.
+	// EventTicketJourneyStatusChanged is recorded for each
+	// TICKET_JOURNEY.status_changed announcement: a journey whose status or
+	// who set it changed, by the fan, the platform or inference. A write that
+	// changes neither announces nothing. Properties: event_id, to_status,
+	// set_by.
 	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
 )
 
@@ -99,9 +99,10 @@ const (
 // Fan-level commerce and engagement events forwarded by the analytics
 // consumer from domain events.
 const (
-	// EventArtistHypeChanged is recorded each time a fan sets the hype level
-	// of a followed artist (ARTIST.hype_changed), including a set to the level
-	// it already had. Properties: artist_id, hype.
+	// EventArtistHypeChanged is recorded for each ARTIST.hype_changed
+	// announcement: a hype level the fan set (also the level the Follow
+	// already had when the fan had not set it) or the app raised.
+	// Properties: artist_id, hype, set_by.
 	EventArtistHypeChanged AnalyticsEventName = "artist.hype.changed"
 
 	// EventOrderPaid is recorded for each ORDER.paid announcement, with the

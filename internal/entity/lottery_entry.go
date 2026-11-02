@@ -226,8 +226,15 @@ type LotteryEntryRepository interface {
 	//    is stored.
 	//  - NotFound: the user does not exist, also when it was deleted while
 	//    the call waited; nothing is stored.
-	//  - Unavailable: the wait for a concurrent call or a lock timed out.
+	//  - Unavailable: the wait for a concurrent call or a lock timed out, or
+	//    the announcement could not be recorded; nothing is stored.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.lottery_entry_entered with the new entry's Pending Order, which
+	// names the entry, the user and the TicketStock, together with the entry.
+	// Nothing when it returns an existing entry or fails.
 	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
 
 	// Get returns the entry with the given id, in any state.

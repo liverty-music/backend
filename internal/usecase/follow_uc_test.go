@@ -165,6 +165,18 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 		assert.NoError(t, d.uc.SetHype(ctx, "user-1", "artist-1", entity.HypeAway))
 	})
 
+	t.Run("every level accepted", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/follow/set-hype "Every level accepted"
+		// Follow.SetHype records each level as set by the fan.
+		for _, h := range []entity.Hype{entity.HypeWatch, entity.HypeHome, entity.HypeNearby, entity.HypeAway} {
+			d := newFollowTestDeps(t)
+			d.followRepo.EXPECT().SetHype(ctx, "user-1", "artist-1", h).Return(nil).Once()
+
+			assert.NoError(t, d.uc.SetHype(ctx, "user-1", "artist-1", h), h)
+		}
+	})
+
 	t.Run("artist not followed", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/follow/set-hype "Artist not followed"

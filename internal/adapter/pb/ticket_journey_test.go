@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestFromTicketJourney(t *testing.T) {
@@ -185,6 +186,26 @@ func TestTicketJourneyStatusFromProto(t *testing.T) {
 
 			got := pb.TicketJourneyStatusFromProto[tt.proto]
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFromTicketJourney_StatusSetBy(t *testing.T) {
+	t.Parallel()
+
+	for _, setBy := range []entity.TicketJourneySetBy{entity.TicketJourneySetByFan, entity.TicketJourneySetByPlatform, entity.TicketJourneySetByInference} {
+		t.Run(string(setBy), func(t *testing.T) {
+			t.Parallel()
+			journey := &entity.TicketJourney{UserID: "user-1", EventID: "event-1", Status: entity.TicketJourneyStatusApplied, StatusSetBy: setBy}
+
+			msg := pb.FromTicketJourney(journey)
+			wire, err := proto.Marshal(msg)
+			require.NoError(t, err)
+			var decoded entityv1.TicketJourney
+			require.NoError(t, proto.Unmarshal(wire, &decoded))
+
+			assert.Equal(t, setBy, pb.TicketJourneySetByFromProto[decoded.GetStatusSetBy()])
+			assert.Equal(t, entity.TicketJourneyStatusApplied, pb.TicketJourneyStatusFromProto[decoded.GetStatus()])
 		})
 	}
 }
