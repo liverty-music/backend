@@ -302,14 +302,17 @@ CREATE TABLE IF NOT EXISTS followed_artists (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     hype TEXT NOT NULL DEFAULT 'nearby',
+    hype_set_by TEXT NOT NULL DEFAULT 'default',
     PRIMARY KEY (user_id, artist_id),
-    CONSTRAINT chk_followed_artists_hype CHECK (hype IN ('watch', 'home', 'nearby', 'away'))
+    CONSTRAINT chk_followed_artists_hype CHECK (hype IN ('watch', 'home', 'nearby', 'away')),
+    CONSTRAINT chk_followed_artists_hype_set_by CHECK (hype_set_by IN ('default', 'fan', 'inference'))
 );
 
 COMMENT ON TABLE followed_artists IS 'Tracks which artists a user is following for discovery and personalization';
 COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is following';
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
 COMMENT ON COLUMN followed_artists.hype IS 'User enthusiasm tier: watch (no notifications), home (home area only), nearby (within ~200km of home, default), or away (all concerts)';
+COMMENT ON COLUMN followed_artists.hype_set_by IS 'Who set the hype level: default (the level a new follow starts at), fan (chosen by the fan; never changed by the app), or inference (raised by the app to match a concert the fan''s journey showed interest in)';
 
 -- Concert searches table (the latest search per artist)
 CREATE TABLE IF NOT EXISTS concert_searches (
@@ -326,19 +329,22 @@ COMMENT ON COLUMN concert_searches.searched_at IS 'Timestamp of the most recent 
 COMMENT ON COLUMN concert_searches.status IS 'Search job status: pending, completed, or failed';
 COMMENT ON COLUMN concert_searches.last_found_at IS 'Timestamp of the most recent search that discovered at least one new concert; NULL if none ever found';
 
--- Ticket journeys table (user-managed ticket acquisition tracking)
+-- Ticket journeys table (per-fan ticket acquisition tracking)
 CREATE TABLE IF NOT EXISTS ticket_journeys (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     status SMALLINT NOT NULL,
+    status_set_by TEXT NOT NULL DEFAULT 'fan',
     PRIMARY KEY (user_id, event_id),
-    CONSTRAINT chk_ticket_journeys_status CHECK (status BETWEEN 1 AND 5)
+    CONSTRAINT chk_ticket_journeys_status CHECK (status BETWEEN 1 AND 5),
+    CONSTRAINT chk_ticket_journeys_status_set_by CHECK (status_set_by IN ('fan', 'platform', 'inference'))
 );
 
 COMMENT ON TABLE ticket_journeys IS 'Per-user ticket acquisition status tracking for events. Status values: 1=TRACKING, 2=APPLIED, 3=LOST, 4=UNPAID, 5=PAID';
 COMMENT ON COLUMN ticket_journeys.user_id IS 'Reference to the fan tracking this event';
 COMMENT ON COLUMN ticket_journeys.event_id IS 'Reference to the event being tracked';
 COMMENT ON COLUMN ticket_journeys.status IS 'Ticket journey status: 1=TRACKING, 2=APPLIED, 3=LOST, 4=UNPAID, 5=PAID';
+COMMENT ON COLUMN ticket_journeys.status_set_by IS 'Who set the status: fan, platform (Applied for a lottery entry or Paid for a paid order on Liverty Music), or inference (Tracking after the fan added the concert to their calendar; replaces no journey)';
 
 -- Push subscriptions table
 CREATE TABLE IF NOT EXISTS push_subscriptions (

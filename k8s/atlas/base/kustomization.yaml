@@ -140,3 +140,4 @@ configMapGenerator:
   - migrations/20261030130100_grant_events_outbox_inserts.sql
   - migrations/20261031090000_grant_dbos_to_backend_app_and_admin_console_api.sql
   - migrations/20261102120000_lottery_entry_loss_email.sql
+  - migrations/20261102130000_add_hype_and_status_set_by.sql
