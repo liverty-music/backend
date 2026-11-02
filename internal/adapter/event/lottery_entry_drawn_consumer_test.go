@@ -70,7 +70,6 @@ func TestLotteryEntryDrawnConsumer_HandleStartWorkflow(t *testing.T) {
 
 	t.Run("a reverted win starts its release", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/order/release-card-authorization "Win reverted"
 		consumer, started := startedWorkflows(t)
 
 		require.NoError(t, consumer.HandleStartWorkflow(makeDrawnMsg(t, "announcement-3",

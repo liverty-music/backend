@@ -693,17 +693,19 @@ func TestLotteryStory_StoppedAfterTheFirstCharge(t *testing.T) {
 	}
 	s.issueWins(won...)
 
+	// The random order decides which entries win (both 2-ticket entries, or
+	// the 3-ticket one alone); whatever it was, the restart keeps it.
+	require.NotEmpty(t, won)
 	for i, e := range entries {
 		ref := e.Order.CardAuthorizationID
-		if e.Order.TicketCount == 3 {
-			assert.Equal(t, entity.LotteryEntryStateLost, winnersBefore[e.ID], "the 3-ticket entry is Lost")
-			assert.Zero(t, s.cards.charged(ref), "and never charged")
+		if winnersBefore[e.ID] == entity.LotteryEntryStateWon {
+			assert.Equal(t, 1, s.cards.charged(ref), "each winner is charged once")
+			assert.Len(t, s.eventTickets(fans[i]), e.Order.TicketCount, "and holds its Issued Tickets")
+		} else {
+			assert.Equal(t, entity.LotteryEntryStateLost, winnersBefore[e.ID])
+			assert.Zero(t, s.cards.charged(ref), "a losing entry is never charged")
 			assert.Equal(t, entity.CardAuthorizationStatusReleased, s.cards.status(ref))
 			assert.Empty(t, s.eventTickets(fans[i]))
-		} else {
-			assert.Equal(t, entity.LotteryEntryStateWon, winnersBefore[e.ID], "each 2-ticket entry is Won")
-			assert.Equal(t, 1, s.cards.charged(ref), "each winner is charged once")
-			assert.Len(t, s.eventTickets(fans[i]), 2, "and holds 2 Issued Tickets")
 		}
 		assert.Len(t, s.emailsTo(fans[i]), 1, "one email per fan")
 	}
@@ -711,6 +713,7 @@ func TestLotteryStory_StoppedAfterTheFirstCharge(t *testing.T) {
 
 func TestLotteryStory_CardClosedBeforeTheCharge(t *testing.T) {
 	// @spec stories/win-tickets-in-a-lottery "Card closed before the charge"
+	// @spec components/usecase/order/release-card-authorization "Win reverted"
 	s := newLotteryStory(t)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
@@ -728,6 +731,8 @@ func TestLotteryStory_CardClosedBeforeTheCharge(t *testing.T) {
 	assert.Equal(t, entity.LotteryEntryStateLost, got.State, "the fan's entry is Lost")
 	assert.Equal(t, entity.LotteryEntryLostReasonCardNotCharged, got.LostReason)
 	assert.Zero(t, s.cards.charged(entry.Order.CardAuthorizationID), "nothing is charged")
+	assert.Equal(t, entity.CardAuthorizationStatusReleased, s.cards.status(entry.Order.CardAuthorizationID),
+		"the reverted win's card authorization is released")
 	assert.Empty(t, s.eventTickets(fan), "the fan holds no Ticket for the event")
 	s.assertOrderVoid(entry.ID)
 	emails := s.emailsTo(fan)

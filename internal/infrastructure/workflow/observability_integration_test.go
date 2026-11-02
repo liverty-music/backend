@@ -120,7 +120,9 @@ func TestRuntime_ScheduledRunTraces(t *testing.T) {
 	})
 
 	t.Run("scheduled run that finds a due sale", func(t *testing.T) {
-		// @spec components/infrastructure/backend/process/trace-propagation "Scheduled run that finds a due sale"
+		// The first half of trace-propagation "Scheduled run that finds a due
+		// sale": the draw is a new trace. That its issue and release workflows
+		// join it is checked in production (design.md @spec-manual).
 		recorder.Reset()
 		due.Store(true)
 		_, err := workflow.TriggerSchedule(client, "draw-due-sales")
