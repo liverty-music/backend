@@ -20,6 +20,8 @@ atlas migrate apply --env local
 atlas migrate validate --env local
 ```
 
+`env "local"` applies with `search_path=app`, as production does, and keeps the revision table in `app.atlas_schema_revisions`. A local database migrated before #769 has its older tables in `public` and its revisions in schema `atlas_schema_revisions`; reset it once (`docker compose down -v`, then `docker compose up -d postgres` and `atlas migrate apply --env local`).
+
 Migration files live in `k8s/atlas/base/migrations/`. The desired-state schema is at `internal/infrastructure/database/rdb/schema/schema.sql`.
 
 #### Production (GKE)
@@ -36,7 +38,7 @@ When adding a new migration:
 1. Edit `schema.sql` to the desired state first; never write a schema migration by hand (functions are the exception, see "Function migrations"). Lock-safety rules for the generated SQL (concurrent indexes, `NOT VALID` constraints, expand and contract) are in the `postgres-migration` skill.
 2. Generate the file with `atlas migrate diff --env local <descriptive_name>` (needs Docker for the `dev` database). An empty diff means no migration is needed. An unexpected `DROP` + `CREATE` pair means `schema.sql` drifted from the migrations; fix `schema.sql` instead of the generated file.
 3. To add data changes (a backfill) or `-- atlas:txmode none` (required for `CREATE INDEX CONCURRENTLY`), edit the generated file and run `atlas migrate hash --env local`.
-   Atlas writes names qualified with `"app".`; remove the qualifier and start the file with `SET search_path TO app, public;`, as the other migrations do, then rehash. Production applies migrations with `search_path: app` (`atlas-migration.yaml`), but the local database, CI and the `dev` replay apply them without one, so tables created by a migration without `SET search_path` sit in `public` there and a qualified `"app".<table>` fails.
+   Atlas writes names qualified with `"app".`; remove the qualifier and start the file with `SET search_path TO app, public;`, as the other migrations do, then rehash. Production, the local database and CI's test database apply migrations with `search_path=app`, so every table is in `app` there. But `migrate diff` and `migrate validate` replay the directory in a fresh database without a search_path (a schema-scoped replay fails: `app` does not exist yet, and a pre-created `app` breaks on the `dbos` migration). In that replay the tables of migrations without `SET search_path` sit in `public`, and a qualified `"app".<table>` fails.
 4. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`.
 5. Run `scripts/check-migration-drift.sh` (kustomization listing, `schema.sql` changed with the migrations, `atlas migrate validate`, timestamp order against `origin/main`) and `make lint-schema`.
 6. All of these changes go in the same PR.
