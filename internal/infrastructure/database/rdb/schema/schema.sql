@@ -536,6 +536,11 @@ COMMENT ON INDEX idx_artist_official_site_artist_id IS 'Optimizes retrieval of o
 CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_google_place_id ON venues (google_place_id) WHERE google_place_id IS NOT NULL;
 COMMENT ON INDEX idx_venues_google_place_id IS 'Ensures uniqueness of Google Maps Place ID across venue records';
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_listed_name_admin_area
+    ON venues (listed_venue_name, admin_area) NULLS NOT DISTINCT
+    WHERE listed_venue_name IS NOT NULL;
+COMMENT ON INDEX idx_venues_listed_name_admin_area IS 'One venue per scraped name and admin area: the DB-first venue lookup, and a conflict that VenueRepository.Create resolves to the existing row';
+
 -- Series indexes (first-party authoring)
 CREATE INDEX IF NOT EXISTS idx_series_organizer_id ON series(organizer_id) WHERE organizer_id IS NOT NULL;
 COMMENT ON INDEX idx_series_organizer_id IS 'Optimizes listing an organizer own authored series (List) and ownership checks';
@@ -927,34 +932,10 @@ COMMENT ON INDEX uq_checkouts_order_id IS 'One checkout per order';
 CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_sale_id ON checkouts(ticket_sale_id);
 COMMENT ON INDEX idx_checkouts_ticket_sale_id IS 'Optimizes the ON DELETE RESTRICT check of a sale delete';
 
--- delete_ticket_stock removes a ticket stock with its Void orders and their
--- checkouts and lottery entries (TicketStock.Delete). It runs as its owner so
--- the organizer server, which may never delete orders, checkouts or lottery
--- entries itself, can remove only Void ones of a stock it deletes. It locks the
--- stock row first; an order inserted meanwhile takes a key-share lock on that
--- row through its foreign key, so it either is seen here or fails on the
--- missing stock. Returns false when no stock has the id. Raises
--- restrict_violation (23001) when an order that is not Void names the stock.
-CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
-BEGIN
-  PERFORM 1 FROM ticket_stocks WHERE id = p_ticket_stock_id FOR UPDATE;
-  IF NOT FOUND THEN
-    RETURN FALSE;
-  END IF;
-  IF EXISTS (SELECT 1 FROM orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
-    RAISE EXCEPTION 'ticket stock % is named by an order that is not void', p_ticket_stock_id USING ERRCODE = '23001';
-  END IF;
-  DELETE FROM checkouts WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM lottery_entries WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
-  DELETE FROM orders WHERE ticket_stock_id = p_ticket_stock_id;
-  DELETE FROM ticket_stocks WHERE id = p_ticket_stock_id;
-  RETURN TRUE;
-END
-$$;
-
-COMMENT ON FUNCTION delete_ticket_stock(UUID) IS 'TicketStock.Delete: removes a stock with its Void orders and their checkouts and lottery entries, refused (23001) while a live order names it. SECURITY DEFINER; EXECUTE is granted only to the organizer server.';
-REVOKE ALL ON FUNCTION delete_ticket_stock(UUID) FROM PUBLIC;
+-- delete_ticket_stock(UUID) (TicketStock.Delete) is defined by hand-written
+-- migrations only, latest 20261103100000_drop_checkout_card_authorization_release.sql:
+-- Atlas Community cannot read functions from this file, so a function here
+-- would stop `atlas migrate diff` from working without `atlas login`.
 
 -- Tickets: account-bound covered tickets (特定興行入場券) issued when their order
 -- becomes Paid. One order issues the N tickets of its companion group. The face
