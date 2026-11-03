@@ -71,6 +71,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/entity/follow/list-by-user "Fan follows nobody"
 			name: "no followed artists returns empty slice",
 			setup: func() string {
 				cleanDatabase(t)
