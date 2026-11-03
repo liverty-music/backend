@@ -67,8 +67,8 @@ func setupTestDatabase() *rdb.Database {
 		Name:    testDBName(),
 		User:    "test-user",
 		SSLMode: "disable",
-		// Same search_path as production (app, public): migrations that set
-		// search_path create their tables in app, older ones in public.
+		// Same search_path as production (app, public); the migrations are
+		// applied with search_path=app, so every table is in app.
 		Schema:            "app",
 		MaxOpenConns:      10,
 		MaxIdleConns:      2,

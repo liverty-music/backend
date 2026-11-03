@@ -1,7 +1,10 @@
 // Define the "local" environment for development.
 env "local" {
-  // The actual database to apply migrations to, matching compose.yml.
-  url = "postgres://test-user@localhost:15432/test-db?sslmode=disable"
+  // The actual database to apply migrations to, matching compose.yml. Its
+  // search_path is the operator's (k8s/atlas/base/atlas-migration.yaml), so
+  // every table lands in app as in production, and Atlas keeps its revision
+  // table in app.atlas_schema_revisions.
+  url = "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app"
 
   // A temporary database for schema analysis (diffing, linting), in a fresh
   // container. Database scope, like the dev database of atlas-ci: Atlas reads

@@ -162,8 +162,10 @@ jobs:
       - name: Setup Atlas
         uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
 
+      # search_path=app as the Atlas Operator applies them in production, so
+      # every table lands in app (#769).
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run integration tests
         run: make test-integration GOTEST_FLAGS="-v -coverprofile=coverage.out -covermode=atomic"
@@ -282,8 +284,10 @@ jobs:
       - name: Setup Atlas
         uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
 
+      # search_path=app as the Atlas Operator applies them in production, so
+      # every table lands in app (#769).
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app" --dir "file://k8s/atlas/base/migrations"
 
       # The Makefile and Dockerfile set the same variable; without it
       # `internal/di` panics at init on the zitadel-go / pocketsign
