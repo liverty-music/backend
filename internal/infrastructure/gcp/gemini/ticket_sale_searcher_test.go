@@ -582,7 +582,9 @@ func TestTicketSaleSearcher_ReportsDiscardedSale(t *testing.T) {
 
 	require.Len(t, rec.gens, 1)
 	g := rec.gens[0]
-	assert.Equal(t, &posthog.SaleParseResult{Returned: 3, Kept: 2, Dropped: map[string]int{"already started": 1}}, g.Sales)
+	assert.Equal(t, &posthog.SaleParseResult{
+		Returned: 3, Kept: 2, Dropped: map[string]int{"already started": 1}, DroppedResultDates: map[string]int{},
+	}, g.Sales)
 	assert.Equal(t, posthog.LLMRequest{ArtistID: "artist-1", OfficialSiteURL: "https://kinggnu.jp/", SeriesIDs: []string{spTourA, spTourB}}, g.Request)
 	assert.Equal(t, posthog.LLMUsage{PromptTokens: 50, ToolUseTokens: 300}, g.Usage)
 	assert.Empty(t, g.ErrorKind)
@@ -610,4 +612,98 @@ func TestTicketSaleSearcher_ReportsBothRequestsAfterAnInvalidOne(t *testing.T) {
 	assert.Equal(t, "invalid_request", rec.gens[0].ErrorKind)
 	assert.Equal(t, "invalid_json", rec.gens[1].ErrorKind)
 	assert.Nil(t, rec.gens[1].Sales)
+}
+
+// withResultDate returns the phase with the given result_date.
+func withResultDate(p map[string]any, date string) map[string]any {
+	p["result_date"] = date
+	return p
+}
+
+func TestTicketSaleSearcher_ResultDate(t *testing.T) {
+	t.Parallel()
+
+	nov3 := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)
+	lottery := func() map[string]any {
+		return phase(spTourA, "オフィシャル先行", salesMethodLottery, "2026-10-10T18:00:00+09:00", "2026-10-22T23:59:00+09:00")
+	}
+	tests := []struct {
+		name          string
+		phase         map[string]any
+		want          *time.Time
+		droppedReason string
+	}{
+		{
+			// @spec components/entity/ticket-sale/search-published-sales "Lottery page states the result day"
+			name:  "lottery page states the result day",
+			phase: withResultDate(lottery(), "2026-11-03"),
+			want:  &nov3,
+		},
+		{
+			// @spec components/entity/ticket-sale/search-published-sales "Result announced over several days"
+			// The schema asks for the first day of a stated range; the
+			// searcher keeps the first day the model returns.
+			name:  "result announced over several days",
+			phase: withResultDate(lottery(), "2026-11-03"),
+			want:  &nov3,
+		},
+		{
+			// @spec components/entity/ticket-sale/search-published-sales "No result day on the page"
+			name:  "no result day on the page",
+			phase: lottery(),
+		},
+		{
+			// @spec components/entity/ticket-sale/search-published-sales "Result day before the close"
+			name:          "result day before the close",
+			phase:         withResultDate(lottery(), "2026-10-20"),
+			droppedReason: "result_date before the end date",
+		},
+		{
+			name:          "unparsable result day",
+			phase:         withResultDate(lottery(), "11月3日"),
+			droppedReason: "unparseable result_date",
+		},
+		{
+			name: "first-come sale with a result day",
+			phase: withResultDate(
+				phase(spTourB, "一般発売", salesMethodFirstCome, "2026-11-20T10:00:00+09:00", "2026-11-22T23:59:00+09:00"),
+				"2026-11-25"),
+			droppedReason: "result_date on a first-come sale",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := newTestTicketSaleSearcher(t, &fakeGemini{resp: jsonResponse(t, tt.phase)}, nil)
+			rec := &generationRecorder{}
+			s.config.Reporter = rec
+
+			got, err := s.SearchPublishedSales(context.Background(), spInput())
+			require.NoError(t, err)
+
+			require.Len(t, got, 1, "the sale itself is always returned")
+			assert.Equal(t, tt.want, got[0].ResultDate)
+			require.Len(t, rec.gens, 1)
+			dropped := map[string]int{}
+			if tt.droppedReason != "" {
+				dropped[tt.droppedReason] = 1
+			}
+			assert.Equal(t, dropped, rec.gens[0].Sales.DroppedResultDates)
+			wantKept := 0
+			if tt.want != nil {
+				wantKept = 1
+			}
+			assert.Equal(t, wantKept, rec.gens[0].Sales.ResultDates)
+		})
+	}
+}
+
+func TestTicketSaleSearcher_ResultDateInSchema(t *testing.T) {
+	t.Parallel()
+
+	schema := publishedSalesResponseSchema([]string{spTourA})
+	items := schema["properties"].(map[string]any)["phases"].(map[string]any)["items"].(map[string]any)
+
+	assert.Contains(t, items["properties"], "result_date")
+	assert.NotContains(t, items["required"], "result_date", "result_date is optional")
 }

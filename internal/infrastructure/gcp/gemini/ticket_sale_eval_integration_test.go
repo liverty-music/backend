@@ -41,6 +41,9 @@ type spEvalExpected struct {
 	Method         entity.TicketSaleMethod
 	ApplyStartTime string
 	ApplyEndTime   string
+	// ResultDate is the expected result date (YYYY-MM-DD); empty means the
+	// sale must have none.
+	ResultDate string
 }
 
 type spEvalCase struct {
@@ -75,11 +78,15 @@ var spEvalCases = []spEvalCase{
 			}},
 		},
 		// clubgnu.com/10th_KICKOFF/: CLUB GNU 最速先行 and 2次受付 (lottery).
+		// Each states 「抽選結果確認/入金期間」 starting 11月3日(火・祝)15:00 and
+		// 12月2日(水)15:00 (checked 2026-11-03).
 		Expected: []spEvalExpected{
 			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-10-05T18:00:00+09:00", ApplyEndTime: "2026-10-22T23:59:00+09:00"},
+				ApplyStartTime: "2026-10-05T18:00:00+09:00", ApplyEndTime: "2026-10-22T23:59:00+09:00",
+				ResultDate: "2026-11-03"},
 			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00"},
+				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00",
+				ResultDate: "2026-12-02"},
 		},
 	},
 	{
@@ -100,7 +107,8 @@ var spEvalCases = []spEvalCase{
 				},
 			},
 		},
-		// eplus.jp/sf/detail/4594420001-P0030001P021001: オフィシャル先着先行 on e+.
+		// eplus.jp/sf/detail/4594420001-P0030001P021001: オフィシャル先着先行 on e+;
+		// a first-come sale has no result date.
 		Expected: []spEvalExpected{
 			{SeriesID: "01a06ba9-f4c6-7e6e-ba1f-28cac928dcde", Method: entity.TicketSaleMethodFirstCome,
 				ApplyStartTime: "2026-10-06T19:00:00+09:00", ApplyEndTime: "2026-10-25T23:59:00+09:00"},
@@ -160,6 +168,13 @@ func spEvalScore(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) 
 		if !spEvalSame(e.ApplyEndTime, c.SaleEndTime) {
 			wrong = append(wrong, e.ApplyStartTime+" apply_end="+c.SaleEndTime.Format(time.RFC3339)+" want "+e.ApplyEndTime)
 		}
+		gotResult := ""
+		if c.ResultDate != nil {
+			gotResult = c.ResultDate.Format(time.DateOnly)
+		}
+		if gotResult != e.ResultDate {
+			wrong = append(wrong, e.ApplyStartTime+" result_date="+gotResult+" want "+e.ResultDate)
+		}
 	}
 	for _, u := range used {
 		if !u {
@@ -176,6 +191,7 @@ func spEvalScore(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) 
 //
 // @spec components/entity/ticket-sale/search-published-sales "Artist with two tours"
 // @spec components/entity/ticket-sale/search-published-sales "Official ticket trade"
+// @spec components/entity/ticket-sale/search-published-sales "Lottery page states the result day"
 func TestTicketSaleSearchEval(t *testing.T) {
 	if os.Getenv("GEMINI_SP_EVAL") != "1" {
 		t.Skip("set GEMINI_SP_EVAL=1 to run")
