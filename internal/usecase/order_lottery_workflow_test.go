@@ -435,7 +435,6 @@ func TestOrderUseCase_ReleaseCardAuthorization(t *testing.T) {
 
 	t.Run("order removed", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/entity/ticket-stock/delete "Void order with a card authorization not yet released"
 		// A delete removed the Void Order while its release was due: the
 		// workflow ends with NotFound, which the runtime reports to an admin,
 		// and nothing is released.
