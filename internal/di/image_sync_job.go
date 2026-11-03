@@ -63,10 +63,9 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 	}
 	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
-	logoFetcher := fanarttv.NewLogoFetcher(extHTTPClient)
 
 	// Use Cases
-	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
+	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

@@ -113,7 +113,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Infrastructure - fanart.tv (for artist image resolution)
 	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
-	logoFetcher := fanarttv.NewLogoFetcher(extHTTPClient)
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
@@ -179,7 +178,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
-	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
+	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
 
 	// ConcertUseCase: needed here (not just by the RPC server) so the
 	// search-first-followed-artist consumer can call

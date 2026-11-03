@@ -48,40 +48,11 @@ func fanartToProto(f *entity.Fanart) *entityv1.Fanart {
 	if url := entity.BestByLikes(f.ArtistBackground); url != "" {
 		proto.ArtistBackground = &entityv1.Url{Value: url}
 	}
-	if url := entity.BestByLikes(f.HDMusicLogo); url != "" {
-		proto.HdMusicLogo = &entityv1.Url{Value: url}
-	}
-	if url := entity.BestByLikes(f.MusicLogo); url != "" {
-		proto.MusicLogo = &entityv1.Url{Value: url}
-	}
 	if url := entity.BestByLikes(f.MusicBanner); url != "" {
 		proto.MusicBanner = &entityv1.Url{Value: url}
 	}
 
-	if f.LogoColorProfile != nil {
-		proto.LogoColorProfile = logoColorProfileToProto(f.LogoColorProfile)
-	}
-
 	return proto
-}
-
-// logoColorProfileToProto maps a domain LogoColorProfile to its Protobuf
-// wire representation.
-func logoColorProfileToProto(p *entity.LogoColorProfile) *entityv1.LogoColorProfile {
-	if p == nil {
-		return nil
-	}
-
-	pb := &entityv1.LogoColorProfile{
-		DominantLightness: float32(p.DominantLightness),
-		IsChromatic:       p.IsChromatic,
-	}
-
-	if p.DominantHue != nil {
-		pb.SetDominantHue(float32(*p.DominantHue))
-	}
-
-	return pb
 }
 
 // FromArtists maps a collection of domain Artist entities to a collection of Protobuf messages.

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -26,16 +27,6 @@ func newTestLogger(t *testing.T) *logging.Logger {
 func TestClient_ResolveImages(t *testing.T) {
 	t.Parallel()
 
-	type wantImages struct {
-		thumbCount  int
-		thumb0URL   string
-		thumb0Likes int
-		thumb1URL   string
-		thumb1Likes int
-		logoCount   int
-		logo0URL    string
-	}
-
 	tests := []struct {
 		name         string
 		mbid         string
@@ -44,10 +35,11 @@ func TestClient_ResolveImages(t *testing.T) {
 		contentType  string
 		cancelCtx    bool
 		wantErr      error
-		want         *wantImages
+		want         *entity.Fanart
 	}{
 		{
-			name:        "parses successful response",
+			// @spec components/entity/artist/resolve-images "All kinds available"
+			name:        "returns images in every kind when the catalog has all of them",
 			mbid:        "mbid-123",
 			statusCode:  http.StatusOK,
 			contentType: "application/json",
@@ -56,23 +48,54 @@ func TestClient_ResolveImages(t *testing.T) {
 					{"id": "100", "url": "https://assets.fanart.tv/thumb1.jpg", "likes": "5", "lang": "en"},
 					{"id": "101", "url": "https://assets.fanart.tv/thumb2.jpg", "likes": "12", "lang": "ja"}
 				],
-				"hdmusiclogo": [
-					{"id": "200", "url": "https://assets.fanart.tv/logo.png", "likes": "8", "lang": "en"}
+				"artistbackground": [
+					{"id": "300", "url": "https://assets.fanart.tv/background.jpg", "likes": "3", "lang": ""}
 				],
-				"musicbanner": []
+				"musicbanner": [
+					{"id": "400", "url": "https://assets.fanart.tv/banner.jpg", "likes": "1", "lang": "en"}
+				]
 			}`,
-			want: &wantImages{
-				thumbCount:  2,
-				thumb0URL:   "https://assets.fanart.tv/thumb1.jpg",
-				thumb0Likes: 5,
-				thumb1URL:   "https://assets.fanart.tv/thumb2.jpg",
-				thumb1Likes: 12,
-				logoCount:   1,
-				logo0URL:    "https://assets.fanart.tv/logo.png",
+			want: &entity.Fanart{
+				ArtistThumb: []entity.FanartImage{
+					{ID: "100", URL: "https://assets.fanart.tv/thumb1.jpg", Likes: 5, Lang: "en"},
+					{ID: "101", URL: "https://assets.fanart.tv/thumb2.jpg", Likes: 12, Lang: "ja"},
+				},
+				ArtistBackground: []entity.FanartImage{
+					{ID: "300", URL: "https://assets.fanart.tv/background.jpg", Likes: 3, Lang: ""},
+				},
+				MusicBanner: []entity.FanartImage{
+					{ID: "400", URL: "https://assets.fanart.tv/banner.jpg", Likes: 1, Lang: "en"},
+				},
 			},
 		},
 		{
-			name:         "returns nil for 404 not found",
+			// @spec components/entity/artist/resolve-images "Some kinds available"
+			name:        "returns only artist_thumb and artist_background when the catalog has only those",
+			mbid:        "mbid-456",
+			statusCode:  http.StatusOK,
+			contentType: "application/json",
+			responseBody: `{
+				"artistthumb": [
+					{"id": "100", "url": "https://assets.fanart.tv/thumb.jpg", "likes": "5", "lang": "en"}
+				],
+				"artistbackground": [
+					{"id": "300", "url": "https://assets.fanart.tv/background.jpg", "likes": "3", "lang": ""}
+				],
+				"musicbanner": []
+			}`,
+			want: &entity.Fanart{
+				ArtistThumb: []entity.FanartImage{
+					{ID: "100", URL: "https://assets.fanart.tv/thumb.jpg", Likes: 5, Lang: "en"},
+				},
+				ArtistBackground: []entity.FanartImage{
+					{ID: "300", URL: "https://assets.fanart.tv/background.jpg", Likes: 3, Lang: ""},
+				},
+				MusicBanner: []entity.FanartImage{},
+			},
+		},
+		{
+			// @spec components/entity/artist/resolve-images "No entry"
+			name:         "returns no fanart and no error when the catalog has no entry",
 			mbid:         "mbid-unknown",
 			statusCode:   http.StatusNotFound,
 			responseBody: "",
@@ -138,27 +161,7 @@ func TestClient_ResolveImages(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-
-			if tt.want == nil {
-				assert.Nil(t, result)
-				return
-			}
-
-			require.NotNil(t, result)
-			assert.Len(t, result.ArtistThumb, tt.want.thumbCount)
-			if tt.want.thumbCount >= 1 {
-				assert.Equal(t, tt.want.thumb0URL, result.ArtistThumb[0].URL)
-				assert.Equal(t, tt.want.thumb0Likes, result.ArtistThumb[0].Likes)
-			}
-			if tt.want.thumbCount >= 2 {
-				assert.Equal(t, tt.want.thumb1URL, result.ArtistThumb[1].URL)
-				assert.Equal(t, tt.want.thumb1Likes, result.ArtistThumb[1].Likes)
-			}
-			assert.Len(t, result.HDMusicLogo, tt.want.logoCount)
-			if tt.want.logoCount >= 1 {
-				assert.Equal(t, tt.want.logo0URL, result.HDMusicLogo[0].URL)
-			}
-			assert.Empty(t, result.MusicBanner)
+			assert.Equal(t, tt.want, result)
 		})
 	}
 }

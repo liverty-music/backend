@@ -27,7 +27,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 			name: "includes fanart when artist has fanart data",
 			setup: func() string {
 				cleanDatabase(t)
-				created, err := artistRepo.Create(ctx, entity.NewArtist("Logo Artist", "f1000000-0000-0000-0000-00000000fa01"))
+				created, err := artistRepo.Create(ctx, entity.NewArtist("Fanart Artist", "f1000000-0000-0000-0000-00000000fa01"))
 				require.NoError(t, err)
 				artistID := created[0].ID
 
@@ -37,8 +37,8 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 					ArtistThumb: []entity.FanartImage{
 						{ID: "100", URL: "https://assets.fanart.tv/thumb.jpg", Likes: 5, Lang: "en"},
 					},
-					HDMusicLogo: []entity.FanartImage{
-						{ID: "200", URL: "https://assets.fanart.tv/logo.png", Likes: 10, Lang: "ja"},
+					ArtistBackground: []entity.FanartImage{
+						{ID: "200", URL: "https://assets.fanart.tv/background.jpg", Likes: 10, Lang: "ja"},
 					},
 				}
 				err = artistRepo.UpdateFanart(ctx, artistID, fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
@@ -54,14 +54,14 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 			want: []*entity.FollowedArtist{
 				{
 					Artist: &entity.Artist{
-						Name: "Logo Artist",
+						Name: "Fanart Artist",
 						MBID: "f1000000-0000-0000-0000-00000000fa01",
 						Fanart: &entity.Fanart{
 							ArtistThumb: []entity.FanartImage{
 								{ID: "100", URL: "https://assets.fanart.tv/thumb.jpg", Likes: 5, Lang: "en"},
 							},
-							HDMusicLogo: []entity.FanartImage{
-								{ID: "200", URL: "https://assets.fanart.tv/logo.png", Likes: 10, Lang: "ja"},
+							ArtistBackground: []entity.FanartImage{
+								{ID: "200", URL: "https://assets.fanart.tv/background.jpg", Likes: 10, Lang: "ja"},
 							},
 						},
 					},
