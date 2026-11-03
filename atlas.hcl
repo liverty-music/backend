@@ -3,9 +3,12 @@ env "local" {
   // The actual database to apply migrations to, matching compose.yml.
   url = "postgres://test-user@localhost:15432/test-db?sslmode=disable"
 
-  // A temporary database for schema analysis (diffing, linting).
-  // Use a temporary database container for schema analysis to ensure a clean environment.
-  dev = "docker://postgres/18/postgres?search_path=app,public"
+  // A temporary database for schema analysis (diffing, linting), in a fresh
+  // container. Database scope, like the dev database of atlas-ci: Atlas reads
+  // search_path as the one schema to inspect, so "app,public" names a schema
+  // that does not exist and "app" one the replayed migrations have not
+  // created yet.
+  dev = "docker://postgres/18/dev"
 
   // This is the "desired state" of the database, generated from models.
   schema {

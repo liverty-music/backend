@@ -66,7 +66,7 @@ General Go guidance comes from the `go` plugin skills (go-errors, go-doc-comment
 
 ### Database schema
 
-`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `updated_at` / `deleted_at`, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
+`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `updated_at` / `deleted_at`, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. Functions are not in `schema.sql`: Atlas Community cannot read them, and one there makes `atlas migrate diff` refuse to run without `atlas login` (#765); a function is written by hand in a migration (`db-migration-workflow` skill). General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
 
 ## Development Workflows
 

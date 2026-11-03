@@ -142,3 +142,4 @@ configMapGenerator:
   - migrations/20261102120000_lottery_entry_loss_email.sql
   - migrations/20261102130000_add_hype_and_status_set_by.sql
   - migrations/20261103100000_drop_checkout_card_authorization_release.sql
+  - migrations/20261103100001_sync_schema_comments.sql
