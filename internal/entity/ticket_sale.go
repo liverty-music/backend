@@ -116,6 +116,12 @@ type TicketSale struct {
 	// EventIDs are the events an Organizer's sale sells, at least one, each an
 	// event of its Series. A discovered sale names none.
 	EventIDs []string
+	// ResultDate is the calendar day, in Japan time, on which a discovered
+	// lottery's results are announced: its year, month and day, at midnight
+	// UTC. It is no earlier than the Japan-time day of SaleEndTime. Nil when
+	// the pages do not state it, and always nil on a first-come sale and on an
+	// Organizer's sale.
+	ResultDate *time.Time
 }
 
 // NewTicketSale returns an Organizer's sale of the events with a generated
@@ -164,7 +170,18 @@ func (s *TicketSale) Validate() error {
 		if s.VerificationRequirement != VerificationRequirementNone {
 			return errors.New("a discovered sale has no verification requirement")
 		}
+		if s.ResultDate != nil {
+			if s.Method != TicketSaleMethodLottery {
+				return errors.New("only a lottery has a result date")
+			}
+			if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime) {
+				return errors.New("a result date is no earlier than the day of the sale end")
+			}
+		}
 		return nil
+	}
+	if s.ResultDate != nil {
+		return errors.New("an Organizer's sale has no result date")
 	}
 	if len(s.EventIDs) == 0 {
 		return errors.New("an Organizer's sale names at least one event")
@@ -177,6 +194,27 @@ func (s *TicketSale) Validate() error {
 		events[id] = struct{}{}
 	}
 	return nil
+}
+
+// JapanDate returns the calendar day of t in Japan time (Asia/Tokyo), at
+// midnight UTC: the form of [TicketSale.ResultDate].
+func JapanDate(t time.Time) time.Time {
+	y, m, d := t.In(japanTime).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// IsResultDateOnOrAfterEnd reports whether the result date (a calendar day, see
+// [TicketSale.ResultDate]) is no earlier than the Japan-time day of end.
+func IsResultDateOnOrAfterEnd(resultDate, end time.Time) bool {
+	y, m, d := resultDate.Date()
+	return !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(JapanDate(end))
+}
+
+// ResultDayAt returns hour:00 on the sale's result date in tz. The sale must
+// have a result date.
+func (s *TicketSale) ResultDayAt(hour int, tz *time.Location) time.Time {
+	y, m, d := s.ResultDate.Date()
+	return time.Date(y, m, d, hour, 0, 0, 0, tz)
 }
 
 // CheckEventsOfSeries reports whether every event the sale names is among
@@ -295,11 +333,13 @@ type TicketSaleRepository interface {
 	// UpsertDiscovered stores a discovered sale. The known discovered sale with
 	// the same series and method and a start time on the same calendar day in
 	// Japan time (Asia/Tokyo) is the same sale: its name, start and end times
-	// are replaced with the discovered ones, its id, series, method and
-	// discovered time are kept, and UpsertOutcomeUpdated is returned with its
-	// id. Otherwise a new discovered sale with a new id and the current time as
-	// discovered time is created, and UpsertOutcomeInserted is returned with
-	// the new id.
+	// are replaced with the discovered ones, its result date is replaced only
+	// when the discovered sale has one (a stored result date before the
+	// Japan-time day of the new end time is cleared), its id, series, method
+	// and discovered time are kept, and UpsertOutcomeUpdated is returned with
+	// its id. Otherwise a new discovered sale, with the discovered result date
+	// when there is one, a new id and the current time as discovered time, is
+	// created, and UpsertOutcomeInserted is returned with the new id.
 	//
 	// A discovered sale with a zero start or end time is skipped: ("",
 	// UpsertOutcomeSkipped, nil), nothing written. It never removes a sale.
@@ -329,8 +369,10 @@ type TicketSaleRepository interface {
 
 	// ListWithPendingMilestones returns every sale, discovered or an
 	// Organizer's, whose start time is no later than now plus lookahead and
-	// whose end time is no earlier than now minus lookback, ordered by start
-	// time, each with its events. An Organizer's sale is returned only while
+	// whose end time is no earlier than now minus lookback, or whose result
+	// date is no earlier than the day before the Japan-time day of now minus
+	// lookback (a fan behind Japan time reaches 22:00 on the result date up to
+	// a calendar day later), ordered by start time, each with its events. An Organizer's sale is returned only while
 	// its Series is Published (at least one of its events is PUBLISHED).
 	//
 	// # Possible errors

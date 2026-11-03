@@ -276,7 +276,7 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 // Every stage other than the first-come APPLY_OPEN that falls in the quiet
 // window (22:00–08:00 in tz) fires at the next 08:00.
 func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *time.Location) (fire time.Time, expiry time.Time, ok bool) {
-	base, ok := stage.Anchor(sale)
+	base, ok := stage.Anchor(sale, tz)
 	if !ok {
 		return time.Time{}, time.Time{}, false
 	}

@@ -19,6 +19,9 @@ type DiscoveredTicketSale struct {
 	SaleStartTime time.Time
 	// SaleEndTime is when the sale closes. Zero when the pages do not say.
 	SaleEndTime time.Time
+	// ResultDate is the calendar day on which a lottery's results are
+	// announced, as [TicketSale.ResultDate]. Nil when the pages do not say.
+	ResultDate *time.Time
 }
 
 // TicketSale returns the discovered TicketSale with the given discovered time
@@ -31,6 +34,7 @@ func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 		SaleStartTime:  d.SaleStartTime,
 		SaleEndTime:    d.SaleEndTime,
 		DiscoveredTime: &discovered,
+		ResultDate:     d.ResultDate,
 	}
 	return sale
 }
