@@ -201,7 +201,15 @@ type CheckoutRepository interface {
 	//  - FailedPrecondition: the application does not fit the event.
 	//  - NotFound: no TicketStock has the id, or the user does not exist, also
 	//    when it was deleted while the call waited.
+	//  - Unavailable: an announcement could not be recorded; nothing changed.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// On creation, ORDER.checkout_held with the new Checkout as Held, and
+	// ORDER.checkout_released or ORDER.checkout_expired with each Checkout it
+	// ends as it is after the change, all together with the creation. Nothing
+	// when it returns an existing holding Checkout.
 	GetOrCreateHeld(ctx context.Context, stockID TicketStockID, saleID TicketSaleID, userID UserID, count int, referralCode *ReferralCode, now time.Time) (*Checkout, error)
 
 	// Get returns the Checkout with the given id, whatever its status.
