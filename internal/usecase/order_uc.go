@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -12,13 +13,14 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// OrderUseCase handles Orders: a fan reads their own Order and an admin reads
-// one with its Settlement; ⑤'s post-capture pipeline turns a captured payment
-// (a won lottery entry's, or a first-come checkout's after committing and
-// charging it) into an Order plus N account-bound covered tickets and a Held
-// Settlement for the event's Organizer, together with the Order's ORDER.paid
-// announcement, and owns issuance idempotency (one Order per source); and the
-// refund policy delegates the money movement to the settlement layer.
+// OrderUseCase handles Orders: a fan reads their own Order and places the
+// order of their Checkout, and an admin reads one with its Settlement; the
+// issue workflow charges a Pending Order (a won lottery entry's, or a
+// first-come checkout's after committing it) and makes it Paid with N
+// account-bound covered tickets and a Held Settlement for the event's
+// Organizer, together with the Order's ORDER.paid announcement, and owns
+// issuance idempotency (one Order per source); and the refund policy delegates
+// the money movement to the settlement layer.
 type OrderUseCase interface {
 	// Get returns one of the calling fan's own Orders. An Order whose user
 	// is another account is reported as NotFound (non-revealing), never
@@ -31,12 +33,13 @@ type OrderUseCase interface {
 	Get(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error)
 
 	// GetWithSettlement returns the Order and its Settlement with the
-	// Settlement's splits. The Settlement is nil when the Order has none; that
-	// is not an error.
+	// Settlement's splits. A Pending or Void Order, never paid, is returned
+	// with a nil Settlement, without reading one.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no Order has the id.
+	//  - Internal: the Order is Paid or Refunded and has no Settlement.
 	//  - Errors of reading the Order or the Settlement, unchanged.
 	GetWithSettlement(ctx context.Context, orderID entity.OrderID) (*entity.Order, *entity.Settlement, error)
 
@@ -53,8 +56,8 @@ type OrderUseCase interface {
 
 	// Refund applies the refund policy for the given reason and executes
 	// the money-movement: issues a platform-balance Refund, voids the Order's
-	// tickets, sets Order status=refunded, and (if a Settlement exists) reverses
-	// any paid-out Transfer(s) and marks the Settlement reversed.
+	// tickets, sets Order status=refunded, and reverses any paid-out
+	// Transfer(s) of the Order's Settlement and marks it reversed.
 	//
 	// It is IDEMPOTENT: a replayed call on an already-refunded Order is a
 	// no-op that returns the existing Order.
@@ -81,24 +84,29 @@ type OrderUseCase interface {
 	//  - FailedPrecondition: the Order is not refundable (not Paid), or the
 	//    reason is CANCELLATION and the Order's Event is not CANCELLED.
 	//  - InvalidArgument: the reason is UNSPECIFIED.
-	//  - Internal: database or payment provider failure.
+	//  - Internal: database or payment provider failure, or the Paid Order
+	//    has no Settlement (nothing is refunded).
 	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
 
-	// Issue is the issue workflow of one Won lottery entry ([WorkflowIssue],
-	// named [IssueWorkflowID] after the entry's Order): it reads everything it
-	// needs first, then charges the Order's card authorization once and makes
-	// the Pending Order Paid with its account-bound covered tickets (bound to
-	// the user's IdentityVerification when the sale requires verification)
-	// and a Held Settlement, with Order.Issue, which announces it as paid. A
-	// card authorization that can no longer be charged reverts the win with
-	// LotteryEntry.RevertWin and ends with a result that says so; that is not
-	// an error. A run again for a Paid Order returns it.
+	// Issue is the issue workflow of one Order's source ([WorkflowIssue],
+	// named [IssueWorkflowID] after the Order): a Won lottery entry, or a
+	// Checkout whose order [Place] placed. It reads everything it needs first;
+	// for a Checkout it then commits the tickets at the time the commit runs.
+	// It charges the Order's card authorization once and makes the Pending
+	// Order Paid with its account-bound covered tickets (bound to the user's
+	// IdentityVerification when the sale requires verification) and a Held
+	// Settlement, with Order.Issue, which announces it as paid. A hold that was
+	// over at the commit ends with the Order not Paid, and a card
+	// authorization that can no longer be charged reverts the win with
+	// LotteryEntry.RevertWin or the commit with Checkout.RevertCommit; both are
+	// results that say so, not errors. A run again for a Paid Order returns it.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no entry has the id, the event's Organizer cannot be
-	//    resolved, or the sale requires verification and the user has no
-	//    IdentityVerification. Nothing is charged.
+	//  - InvalidArgument: the request names no source or both.
+	//  - NotFound: no entry or Checkout has the id, the event's Organizer
+	//    cannot be resolved, or the sale requires verification and the user
+	//    has no IdentityVerification. Nothing is committed or charged.
 	//  - FailedPrecondition: the entry is not Won or its Order is not Pending.
 	//    Nothing is charged.
 	//  - Errors of the reads, of the charge or of the issuance, unchanged;
@@ -129,50 +137,32 @@ type OrderUseCase interface {
 	//  - Errors of starting the workflow, unchanged.
 	StartDrawnEntryWorkflow(ctx context.Context, entry *entity.LotteryEntry) error
 
-	// IssueFromCheckout finishes a checkout: while its hold lasts it commits
-	// the held tickets, charges the card once and makes its Pending Order Paid
-	// with its tickets, bound to the user's IdentityVerification when the sale
-	// requires verification. caller is the fan placing the order, or nil for
-	// the stalled-checkout job and the payment webhook. Calls for the same
-	// Checkout run one after the other, and a Checkout whose Order is already
-	// Paid returns it.
+	// Place places the calling fan's order for their Checkout at now. It
+	// checks first what the fan can still fix: while the Checkout is Held, that
+	// it is holding, that the concert is published, that the Order's card
+	// authorization is Authorized for its amount, and that the fan has an
+	// IdentityVerification when the sale requires verification; each refusal
+	// leaves the Checkout Held and its Order Pending. It then runs [Issue] for
+	// the Checkout ([WorkflowIssue], named [IssueWorkflowID] after its Order,
+	// on [CheckoutQueue]) and returns the Paid Order. Every Place for the same
+	// Checkout shares that one run. An Order already Paid is returned as it is.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: the Checkout does not exist or is another fan's
-	//    (non-revealing; only with a caller).
-	//  - FailedPrecondition: the hold lapsed, the concert is not published, the
-	//    card was not authenticated, the commit found the Checkout not
-	//    holding, or the card could no longer be charged (the commit is given
-	//    back). Nothing is charged.
-	//  - NotFound: the sale requires verification and the user has no IdentityVerification.
-	//    Nothing is charged.
-	//  - Unavailable: the charge's outcome is not known yet, or issuance failed
-	//    after the charge; the stalled-checkout job finishes it.
-	IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error)
-
-	// IssueDueCheckouts runs IssueFromCheckout for every Committed Checkout
-	// committed more than 1 minute ago, and reports each charged one still
-	// unissued 10 minutes after its charge as needing an admin.
-	//
-	// # Possible errors
-	//
-	//  - The listing's error; nothing is issued then.
-	IssueDueCheckouts(ctx context.Context) error
-
-	// FulfillPayment turns a charge the payment provider reports as completed
-	// into an issued Order and announces it as ORDER.paid. It finds the
-	// charge's source by its card authorization: for a Checkout it runs the
-	// idempotent issuance, so a repeated report finds the same Order; for a
-	// LotteryEntry it succeeds without effect, because [OrderUseCase.Issue]
-	// charged the entry's Order and made it Paid. A charge of no source
-	// succeeds without effect.
-	//
-	// # Possible errors
-	//
-	//  - The issuance's or the announcement's error, unchanged; the provider
-	//    reports the charge again.
-	FulfillPayment(ctx context.Context, cardAuthorizationID string) error
+	//    (non-revealing).
+	//  - FailedPrecondition: the Checkout Expired or was Released, the hold
+	//    lapsed, the concert is not published, the card was not authenticated,
+	//    or Issue ended without a Paid Order (the hold was over at the commit,
+	//    or the card could no longer be charged).
+	//  - InvalidArgument: the card authorization's amount differs from the
+	//    Order's.
+	//  - NotFound: the sale requires verification and the user has no
+	//    IdentityVerification.
+	//  - Unavailable: Issue has not ended 30 seconds after it started; it
+	//    goes on.
+	//  - Errors of the reads and of starting or awaiting Issue, unchanged.
+	Place(ctx context.Context, checkoutID entity.CheckoutID, userID entity.UserID, now time.Time) (*entity.Order, error)
 }
 
 // orderUseCase implements [OrderUseCase].
@@ -217,14 +207,14 @@ type OrderDeps struct {
 	EventState EventPublishStatePort
 	// EventRepo reads the Event of an Order a cancellation refund is for.
 	EventRepo entity.EventRepository
-	// CardAuthorizations is the checkout's card authorization repository; it
-	// also reads a lottery entry's captured payment.
+	// CardAuthorizations reads, captures and releases the card authorization
+	// of an Order of either source.
 	CardAuthorizations entity.CardAuthorizationRepository
 	Clock              Clock
 	RefundRepo         entity.RefundRepository
 	SettlementRepo     entity.SettlementRepository
-	// Workflows starts the workflows that follow a drawn entry; a process
-	// that never starts them may leave it nil.
+	// Workflows starts the workflows that follow a drawn entry and the issue
+	// of a placed Checkout; a process that never starts them may leave it nil.
 	Workflows Workflows
 	Logger    *logging.Logger
 }
@@ -278,9 +268,15 @@ func (uc *orderUseCase) GetWithSettlement(ctx context.Context, orderID entity.Or
 	if err != nil {
 		return nil, nil, err
 	}
+	if !isPaid(order) {
+		// A Pending or Void Order was never paid and has no Settlement.
+		return order, nil, nil
+	}
 	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
 	if errors.Is(err, apperr.ErrNotFound) {
-		return order, nil, nil
+		// Order.Issue stores the Settlement with the Paid Order.
+		return nil, nil, apperr.Wrap(err, codes.Internal, "the paid Order has no Settlement",
+			slog.String("order_id", string(orderID)))
 	}
 	if err != nil {
 		return nil, nil, err

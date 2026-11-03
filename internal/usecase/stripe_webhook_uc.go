@@ -32,8 +32,8 @@ const (
 	// StripeEventPayoutFailed fires when the platform's own payout fails.
 	StripeEventPayoutFailed StripeEventType = "payout.failed"
 	// StripeEventPaymentIntentSucceeded fires when a card authorization is captured:
-	// a checkout's capture or a lottery win's capture at the draw. It drives
-	// the fulfillment that announces the paid Order.
+	// a checkout's or a lottery win's capture, both made by OrderUseCase.Issue.
+	// It is acknowledged without effect.
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 	// StripeEventPaymentIntentAmountCapturableUpdated fires when a card
 	// authorization becomes Authorized: the fan completed card authentication.
@@ -47,15 +47,6 @@ const (
 type OrderRefunder interface {
 	// Refund applies the refund policy for the reason; see [OrderUseCase].
 	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
-}
-
-// PaymentFulfiller turns a completed charge into an issued, announced Order.
-// OrderUseCase satisfies it. Interfaces are defined where consumed
-// (AGENTS.md rule).
-type PaymentFulfiller interface {
-	// FulfillPayment issues, or finds, the Order of the charge's source and
-	// announces it as paid. A charge of no source succeeds without effect.
-	FulfillPayment(ctx context.Context, cardAuthorizationID string) error
 }
 
 // StripeWebhookEvent carries the parsed, signature-verified payload from a
@@ -126,7 +117,6 @@ type stripeWebhookService struct {
 	// this service calls GetByProviderPaymentID.
 	orderRepo entity.OrderRepository
 	refunder  OrderRefunder
-	fulfiller PaymentFulfiller
 	logger    *logging.Logger
 }
 
@@ -139,14 +129,12 @@ func NewStripeWebhookService(
 	processedRepo ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
 	refunder OrderRefunder,
-	fulfiller PaymentFulfiller,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
 		processedRepo: processedRepo,
 		orderRepo:     orderRepo,
 		refunder:      refunder,
-		fulfiller:     fulfiller,
 		logger:        logger,
 	}
 }
@@ -207,7 +195,14 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 	case StripeEventChargeDisputeCreated:
 		return s.handleDisputeCreated(ctx, event)
 	case StripeEventPaymentIntentSucceeded:
-		return s.handlePaymentIntentSucceeded(ctx, event)
+		// The capture is the response to the platform's own call, made inside
+		// OrderUseCase.Issue, and Order.Issue announced the Order when Issue
+		// made it Paid; the notice changes nothing.
+		s.logger.Info(ctx, "stripe webhook: payment_intent.succeeded received (informational; issued by its issue workflow)",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID),
+		)
+		return nil
 	case StripeEventChargeRefunded:
 		// A refund that we initiated via RefundOrder is already applied by the
 		// use case. This event confirms it at the Stripe level; informational.
@@ -234,24 +229,6 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 		)
 		return nil
 	}
-}
-
-// handlePaymentIntentSucceeded handles payment_intent.succeeded: the charge
-// is fulfilled (its Order issued, or found, and announced as paid). A failure
-// is returned as Internal so the event is not marked processed and Stripe
-// delivers it again.
-func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context, event StripeWebhookEvent) error {
-	if event.ProviderPaymentID == "" {
-		s.logger.Warn(ctx, "stripe webhook: payment_intent.succeeded without a provider payment ID; skipped",
-			slog.String("event_id", event.ProviderEventID))
-		return nil
-	}
-	if err := s.fulfiller.FulfillPayment(ctx, event.ProviderPaymentID); err != nil {
-		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to fulfill the completed charge",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("provider_payment_id", event.ProviderPaymentID))
-	}
-	return nil
 }
 
 // handleDisputeCreated handles charge.dispute.created — a chargeback opened

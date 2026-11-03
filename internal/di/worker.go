@@ -188,10 +188,12 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	return nil
 }
 
-// registerLotteryWorkflows registers the lottery draw, its schedule, and the
-// issue and release-card-authorization workflows of each drawn entry, which
-// call the payment provider from the payment queue (OpenSpec change
-// make-lottery-draw-durable).
+// registerLotteryWorkflows registers the lottery draw, its schedule, the
+// issue workflow of a Won entry or a placed Checkout, the
+// release-card-authorization workflow of a Void Order, and the expiry of a
+// Checkout's hold. The issue of an entry and every release call the payment
+// provider from the payment queue, the issue of a Checkout from the checkout
+// queue (OpenSpec changes make-lottery-draw-durable, unify-order-issuance).
 func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
 	cardAuthorizations := entity.CardAuthorizationRepository(infrapayment.NewNoopCardAuthorizationRepository(logger))
 	if cfg.StripeSecretKey != "" {
@@ -220,12 +222,16 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.RegisterSchedule(rt, usecase.WorkflowDrawDueSales, usecase.DrawDueSalesSchedule, lottery.DrawDueSales)
 	workflow.Register(rt, usecase.WorkflowDraw, lottery.Draw)
 
-	// The worker's OrderUseCase charges and releases; it starts no workflow
-	// and runs no checkout or refund.
+	// The worker's OrderUseCase commits, charges and releases; it starts no
+	// workflow, places no order and runs no refund. A card authorization's
+	// policy only names the keys of its Create, so the lottery's repository
+	// also captures and releases a Checkout's.
+	checkoutRepo := rdb.NewCheckoutRepository(db, outbox)
 	orders := usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(db, outbox),
 		OrderRepo:                orderRepo,
 		EntryRepo:                entryRepo,
+		CheckoutRepo:             checkoutRepo,
 		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
 		OrganizerRepo:            rdb.NewOrganizerRepository(db, outbox),
 		IdentityVerificationRepo: identityVerificationRepo,
@@ -238,8 +244,19 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	if err := rt.RegisterQueue(usecase.PaymentQueue, usecase.PaymentQueueConcurrency); err != nil {
 		return err
 	}
+	if err := rt.RegisterQueue(usecase.CheckoutQueue, usecase.CheckoutQueueConcurrency); err != nil {
+		return err
+	}
 	workflow.Register(rt, usecase.WorkflowIssue, orders.Issue)
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, orders.ReleaseCardAuthorization)
+
+	// The worker's CheckoutUseCase only ends holds.
+	checkouts := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+		CheckoutRepo: checkoutRepo,
+		Clock:        time.Now,
+		Logger:       logger,
+	})
+	workflow.Register(rt, usecase.WorkflowExpireCheckout, checkouts.Expire)
 	return nil
 }
 

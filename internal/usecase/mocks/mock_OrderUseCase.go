@@ -49,63 +49,6 @@ func (_m *MockOrderUseCase) EXPECT() *MockOrderUseCase_Expecter {
 	return &MockOrderUseCase_Expecter{mock: &_m.Mock}
 }
 
-// FulfillPayment provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID string) error {
-	ret := _mock.Called(ctx, cardAuthorizationID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FulfillPayment")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, cardAuthorizationID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockOrderUseCase_FulfillPayment_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FulfillPayment'
-type MockOrderUseCase_FulfillPayment_Call struct {
-	*mock.Call
-}
-
-// FulfillPayment is a helper method to define mock.On call
-//   - ctx context.Context
-//   - cardAuthorizationID string
-func (_e *MockOrderUseCase_Expecter) FulfillPayment(ctx any, cardAuthorizationID any) *MockOrderUseCase_FulfillPayment_Call {
-	return &MockOrderUseCase_FulfillPayment_Call{Call: _e.mock.On("FulfillPayment", ctx, cardAuthorizationID)}
-}
-
-func (_c *MockOrderUseCase_FulfillPayment_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockOrderUseCase_FulfillPayment_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrderUseCase_FulfillPayment_Call) Return(err error) *MockOrderUseCase_FulfillPayment_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockOrderUseCase_FulfillPayment_Call) RunAndReturn(run func(ctx context.Context, cardAuthorizationID string) error) *MockOrderUseCase_FulfillPayment_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Get provides a mock function for the type MockOrderUseCase
 func (_mock *MockOrderUseCase) Get(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
 	ret := _mock.Called(ctx, userID, orderID)
@@ -328,131 +271,6 @@ func (_c *MockOrderUseCase_Issue_Call) RunAndReturn(run func(ctx context.Context
 	return _c
 }
 
-// IssueDueCheckouts provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) IssueDueCheckouts(ctx context.Context) error {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IssueDueCheckouts")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockOrderUseCase_IssueDueCheckouts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueDueCheckouts'
-type MockOrderUseCase_IssueDueCheckouts_Call struct {
-	*mock.Call
-}
-
-// IssueDueCheckouts is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockOrderUseCase_Expecter) IssueDueCheckouts(ctx any) *MockOrderUseCase_IssueDueCheckouts_Call {
-	return &MockOrderUseCase_IssueDueCheckouts_Call{Call: _e.mock.On("IssueDueCheckouts", ctx)}
-}
-
-func (_c *MockOrderUseCase_IssueDueCheckouts_Call) Run(run func(ctx context.Context)) *MockOrderUseCase_IssueDueCheckouts_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueDueCheckouts_Call) Return(err error) *MockOrderUseCase_IssueDueCheckouts_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueDueCheckouts_Call) RunAndReturn(run func(ctx context.Context) error) *MockOrderUseCase_IssueDueCheckouts_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// IssueFromCheckout provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
-	ret := _mock.Called(ctx, checkoutID, caller)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IssueFromCheckout")
-	}
-
-	var r0 *entity.Order
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, *entity.UserID) (*entity.Order, error)); ok {
-		return returnFunc(ctx, checkoutID, caller)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, *entity.UserID) *entity.Order); ok {
-		r0 = returnFunc(ctx, checkoutID, caller)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Order)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.CheckoutID, *entity.UserID) error); ok {
-		r1 = returnFunc(ctx, checkoutID, caller)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockOrderUseCase_IssueFromCheckout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueFromCheckout'
-type MockOrderUseCase_IssueFromCheckout_Call struct {
-	*mock.Call
-}
-
-// IssueFromCheckout is a helper method to define mock.On call
-//   - ctx context.Context
-//   - checkoutID entity.CheckoutID
-//   - caller *entity.UserID
-func (_e *MockOrderUseCase_Expecter) IssueFromCheckout(ctx any, checkoutID any, caller any) *MockOrderUseCase_IssueFromCheckout_Call {
-	return &MockOrderUseCase_IssueFromCheckout_Call{Call: _e.mock.On("IssueFromCheckout", ctx, checkoutID, caller)}
-}
-
-func (_c *MockOrderUseCase_IssueFromCheckout_Call) Run(run func(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID)) *MockOrderUseCase_IssueFromCheckout_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 entity.CheckoutID
-		if args[1] != nil {
-			arg1 = args[1].(entity.CheckoutID)
-		}
-		var arg2 *entity.UserID
-		if args[2] != nil {
-			arg2 = args[2].(*entity.UserID)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueFromCheckout_Call) Return(order *entity.Order, err error) *MockOrderUseCase_IssueFromCheckout_Call {
-	_c.Call.Return(order, err)
-	return _c
-}
-
-func (_c *MockOrderUseCase_IssueFromCheckout_Call) RunAndReturn(run func(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error)) *MockOrderUseCase_IssueFromCheckout_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByEvent provides a mock function for the type MockOrderUseCase
 func (_mock *MockOrderUseCase) ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error) {
 	ret := _mock.Called(ctx, eventID)
@@ -517,6 +335,86 @@ func (_c *MockOrderUseCase_ListByEvent_Call) Return(orders []*entity.Order, err 
 }
 
 func (_c *MockOrderUseCase_ListByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) ([]*entity.Order, error)) *MockOrderUseCase_ListByEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Place provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID, userID entity.UserID, now time.Time) (*entity.Order, error) {
+	ret := _mock.Called(ctx, checkoutID, userID, now)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Place")
+	}
+
+	var r0 *entity.Order
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, entity.UserID, time.Time) (*entity.Order, error)); ok {
+		return returnFunc(ctx, checkoutID, userID, now)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, entity.UserID, time.Time) *entity.Order); ok {
+		r0 = returnFunc(ctx, checkoutID, userID, now)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Order)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.CheckoutID, entity.UserID, time.Time) error); ok {
+		r1 = returnFunc(ctx, checkoutID, userID, now)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockOrderUseCase_Place_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Place'
+type MockOrderUseCase_Place_Call struct {
+	*mock.Call
+}
+
+// Place is a helper method to define mock.On call
+//   - ctx context.Context
+//   - checkoutID entity.CheckoutID
+//   - userID entity.UserID
+//   - now time.Time
+func (_e *MockOrderUseCase_Expecter) Place(ctx any, checkoutID any, userID any, now any) *MockOrderUseCase_Place_Call {
+	return &MockOrderUseCase_Place_Call{Call: _e.mock.On("Place", ctx, checkoutID, userID, now)}
+}
+
+func (_c *MockOrderUseCase_Place_Call) Run(run func(ctx context.Context, checkoutID entity.CheckoutID, userID entity.UserID, now time.Time)) *MockOrderUseCase_Place_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.CheckoutID
+		if args[1] != nil {
+			arg1 = args[1].(entity.CheckoutID)
+		}
+		var arg2 entity.UserID
+		if args[2] != nil {
+			arg2 = args[2].(entity.UserID)
+		}
+		var arg3 time.Time
+		if args[3] != nil {
+			arg3 = args[3].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_Place_Call) Return(order *entity.Order, err error) *MockOrderUseCase_Place_Call {
+	_c.Call.Return(order, err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_Place_Call) RunAndReturn(run func(ctx context.Context, checkoutID entity.CheckoutID, userID entity.UserID, now time.Time) (*entity.Order, error)) *MockOrderUseCase_Place_Call {
 	_c.Call.Return(run)
 	return _c
 }

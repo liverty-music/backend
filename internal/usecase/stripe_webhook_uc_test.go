@@ -54,18 +54,7 @@ func newWebhookSvc(
 	refundUC usecase.OrderRefunder,
 	t *testing.T,
 ) usecase.StripeWebhookService {
-	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, &stubFulfiller{}, newTestLogger(t))
-}
-
-// stubFulfiller records the charges it was asked to fulfill.
-type stubFulfiller struct {
-	refs []string
-	err  error
-}
-
-func (s *stubFulfiller) FulfillPayment(_ context.Context, cardAuthorizationID string) error {
-	s.refs = append(s.refs, cardAuthorizationID)
-	return s.err
+	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, newTestLogger(t))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,29 +416,39 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 		ReceivedAt:        time.Now(),
 	}
 
-	t.Run("checkout charge completes", func(t *testing.T) {
+	t.Run("completed charge", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/webhook/payment-events "Checkout charge completes"
-		processed := &stubProcessedWebhookEventRepo{}
-		fulfiller := &stubFulfiller{}
-		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, fulfiller, newTestLogger(t))
+		// @spec components/adapter/fan/api/webhook/payment-events "Completed charge"
+		// No Order is read or refunded: OrderUseCase.Issue made the Order
+		// Paid, and Order.Issue announced it.
+		marked := 0
+		processed := &stubProcessedWebhookEventRepo{markProcessedFn: func(context.Context, string) error { marked++; return nil }}
+		orders := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) {
+			t.Fatal("the notice reads no Order")
+			return nil, nil
+		}}
+		refunds := &stubRefundUC{refundOrderFn: func(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error) {
+			t.Fatal("the notice refunds nothing")
+			return nil, nil
+		}}
+		svc := usecase.NewStripeWebhookService(processed, orders, refunds, newTestLogger(t))
 
 		require.NoError(t, svc.HandleEvent(context.Background(), event))
 
-		assert.Equal(t, []string{"pi_1"}, fulfiller.refs)
+		assert.Equal(t, 1, marked, "the notice is recorded as processed")
 	})
 
-	t.Run("fulfillment fails", func(t *testing.T) {
+	t.Run("redelivered", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/webhook/payment-events "Fulfillment fails"
 		marked := 0
-		processed := &stubProcessedWebhookEventRepo{markProcessedFn: func(context.Context, string) error { marked++; return nil }}
-		fulfiller := &stubFulfiller{err: apperr.New(apperr.ErrUnavailable.Code, "nats down")}
-		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, fulfiller, newTestLogger(t))
+		processed := &stubProcessedWebhookEventRepo{
+			isProcessedFn:   func(context.Context, string) (bool, error) { return true, nil },
+			markProcessedFn: func(context.Context, string) error { marked++; return nil },
+		}
+		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, newTestLogger(t))
 
-		err := svc.HandleEvent(context.Background(), event)
+		require.NoError(t, svc.HandleEvent(context.Background(), event))
 
-		assert.ErrorIs(t, err, apperr.ErrInternal)
-		assert.Zero(t, marked, "the notice is not counted as applied, so a redelivery fulfills it")
+		assert.Zero(t, marked, "a redelivered notice stays a no-op")
 	})
 }

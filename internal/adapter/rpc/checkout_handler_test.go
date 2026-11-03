@@ -23,7 +23,7 @@ import (
 // The usecase mocks fail the test on any call not expected.
 type checkoutFixture struct {
 	checkouts *ucmocks.MockCheckoutUseCase
-	issuance  *ucmocks.MockOrderUseCase
+	orders    *ucmocks.MockOrderUseCase
 	users     *ucmocks.MockUserUseCase
 	client    checkoutv1connect.CheckoutServiceClient
 }
@@ -32,12 +32,12 @@ func newCheckoutFixture(t *testing.T, decorate func(context.Context) context.Con
 	t.Helper()
 	f := &checkoutFixture{
 		checkouts: ucmocks.NewMockCheckoutUseCase(t),
-		issuance:  ucmocks.NewMockOrderUseCase(t),
+		orders:    ucmocks.NewMockOrderUseCase(t),
 		users:     ucmocks.NewMockUserUseCase(t),
 	}
 	logger, err := logging.New()
 	require.NoError(t, err)
-	h := handler.NewCheckoutHandler(f.checkouts, f.issuance, f.users, logger)
+	h := handler.NewCheckoutHandler(f.checkouts, f.orders, f.users, logger)
 	srv := serveValidated(t, func(s *connect.Server) {
 		checkoutv1connect.RegisterCheckoutServiceHandler(s, h)
 	}, decorate)
@@ -156,7 +156,7 @@ func TestCheckoutHandler(t *testing.T) {
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
 		caller := entity.UserID(tkFanUserID)
-		f.issuance.EXPECT().IssueFromCheckout(mock.Anything, entity.CheckoutID(tkCheckoutID), &caller).Return(&entity.Order{
+		f.orders.EXPECT().Place(mock.Anything, entity.CheckoutID(tkCheckoutID), caller, mock.Anything).Return(&entity.Order{
 			ID: tkOrderID, UserID: caller, TicketStockID: tkStockID, TicketCount: 2, CheckoutID: tkCheckoutID,
 			Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY",
 		}, nil)

@@ -31,7 +31,7 @@ var _ entity.CheckoutRepository = (*CheckoutRepository)(nil)
 // checkoutSelect reads checkouts (aliased c) with their orders (aliased o), in
 // the column order scanCheckout expects; a WHERE on c or o follows.
 const checkoutSelect = `
-	SELECT c.id, c.order_id, c.ticket_sale_id, c.card_authorization_release_at, c.status,
+	SELECT c.id, c.order_id, c.ticket_sale_id, c.status,
 		c.hold_expire_at, c.commit_at, c.capture_at,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
@@ -94,22 +94,6 @@ const (
 		UPDATE checkouts SET capture_at = $2
 		WHERE id = $1 AND status = 2 AND capture_at IS NULL
 	`
-	checkoutRecordCardAuthorizationReleaseQuery = `
-		UPDATE checkouts c SET card_authorization_release_at = $2
-		FROM orders o
-		WHERE o.id = c.order_id AND c.id = $1 AND c.status IN (4, 5)
-		  AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL
-	`
-	checkoutListDueQuery = checkoutSelect + `
-		WHERE (c.status = 1 AND c.hold_expire_at <= $1)
-		   OR (c.status IN (4, 5) AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL)
-		   OR (c.status = 2 AND c.commit_at < $2)
-		ORDER BY c.hold_expire_at, c.id
-	`
-	// checkoutAdvisoryLockQuery takes a transaction-scoped advisory lock
-	// keyed on the checkout id; it is released at commit or rollback, and
-	// when the session ends.
-	checkoutAdvisoryLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('checkout:' || $1, 0))`
 )
 
 // NewCheckoutRepository creates a new checkout repository instance.
@@ -167,6 +151,13 @@ func insertPendingOrder(ctx context.Context, tx pgx.Tx, o *entity.Order) error {
 // GetOrCreateHeld returns the user's holding checkout of the sale for the
 // stock with the same count, or creates a new Held one with its Pending Order
 // under the user's row lock and the stock's row lock.
+//
+// # Announces
+//
+// On creation, ORDER.checkout_held with the new Checkout, and
+// ORDER.checkout_released or ORDER.checkout_expired with each Checkout it
+// ends, in the transaction of the creation. Nothing when it returns an
+// existing holding Checkout.
 func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity.TicketStockID, saleID entity.TicketSaleID, userID entity.UserID, count int, referralCode *entity.ReferralCode, now time.Time) (*entity.Checkout, error) {
 	attrs := []slog.Attr{slog.String("ticket_stock_id", string(stockID)), slog.String("user_id", string(userID))}
 	tx, err := r.db.Pool.Begin(ctx)
@@ -234,6 +225,15 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 		if _, err := tx.Exec(ctx, orderVoidQuery, string(c.OrderID)); err != nil {
 			return nil, toAppErr(err, "failed to void the replaced checkout's order", attrs...)
 		}
+		ended := *c
+		ended.Status = next
+		subject := entity.SubjectCheckoutExpired
+		if next == entity.CheckoutStatusReleased {
+			subject = entity.SubjectCheckoutReleased
+		}
+		if err := announce(ctx, r.outbox, tx, subject, messaging.Announcement{Payload: pb.FromCheckout(&ended)}); err != nil {
+			return nil, err
+		}
 	}
 
 	order := entity.NewPendingOrder(userID, stock, count, referralCode, entity.OrderPaymentProvider)
@@ -243,6 +243,9 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 	}
 	if _, err := tx.Exec(ctx, checkoutInsertQuery, string(checkout.ID), string(order.ID), string(saleID), checkout.HoldExpireTime); err != nil {
 		return nil, toAppErr(err, "failed to insert checkout", attrs...)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutHeld, messaging.Announcement{Payload: pb.FromCheckout(checkout)}); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit checkout start", attrs...)
@@ -387,6 +390,11 @@ func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, 
 
 // RevertCommit makes a Committed, uncharged checkout Released and its order
 // Void, under the stock's row lock.
+//
+// # Announces
+//
+// ORDER.checkout_released with the Checkout as Released, in the transaction
+// of the revert. Nothing when it changed nothing.
 func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.CheckoutID) error {
 	attrs := slog.String("checkout_id", string(id))
 	current, err := r.Get(ctx, id)
@@ -429,6 +437,13 @@ func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.Checkou
 	if _, err := tx.Exec(ctx, orderVoidQuery, orderID); err != nil {
 		return toAppErr(err, "failed to void the reverted checkout's order", attrs)
 	}
+	reverted, err := scanCheckout(tx.QueryRow(ctx, checkoutGetQuery, string(id)))
+	if err != nil {
+		return toAppErr(err, "failed to read the reverted checkout", attrs)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutReleased, messaging.Announcement{Payload: pb.FromCheckout(reverted)}); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit checkout revert", attrs)
 	}
@@ -454,37 +469,9 @@ func (r *CheckoutRepository) RecordCapture(ctx context.Context, id entity.Checko
 	return apperr.New(codes.FailedPrecondition, "checkout is not Committed", slog.String("checkout_id", string(id)))
 }
 
-// RecordCardAuthorizationRelease sets the card authorization release time of
-// an Expired or Released checkout whose order has a card authorization, once.
-func (r *CheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
-	tag, err := r.db.Pool.Exec(ctx, checkoutRecordCardAuthorizationReleaseQuery, string(id), at)
-	if err != nil {
-		return toAppErr(err, "failed to record card authorization release", slog.String("checkout_id", string(id)))
-	}
-	if tag.RowsAffected() > 0 {
-		return nil
-	}
-	current, err := r.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	ended := current.Status == entity.CheckoutStatusExpired || current.Status == entity.CheckoutStatusReleased
-	if ended && current.CardAuthorizationReleaseTime != nil {
-		return nil
-	}
-	return apperr.New(codes.FailedPrecondition, "checkout is not an ended checkout whose order has a card authorization",
-		slog.String("checkout_id", string(id)))
-}
-
 // ListByUser returns every checkout of the user, newest first.
 func (r *CheckoutRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Checkout, error) {
 	return r.list(ctx, checkoutListByUserQuery, []any{string(userID)}, slog.String("user_id", string(userID)))
-}
-
-// ListDue returns the lapsed holds, the card authorizations to give back and
-// the stalled commits, oldest hold first.
-func (r *CheckoutRepository) ListDue(ctx context.Context, now time.Time) ([]*entity.Checkout, error) {
-	return r.list(ctx, checkoutListDueQuery, []any{now, now.Add(-entity.CheckoutStalledCommitAge)})
 }
 
 // list runs a checkoutSelect query and collects the checkouts.
@@ -500,35 +487,17 @@ func (r *CheckoutRepository) list(ctx context.Context, query string, args []any,
 	return checkouts, nil
 }
 
-// Serialize runs fn while holding an advisory lock keyed on the checkout,
-// taken in a transaction on its own connection. fn's own writes run on other
-// connections, so they never wait for this lock.
-func (r *CheckoutRepository) Serialize(ctx context.Context, id entity.CheckoutID, fn func(ctx context.Context) error) error {
-	attrs := slog.String("checkout_id", string(id))
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin checkout lock", attrs)
-	}
-	// Rollback releases the lock; it is the only way the transaction ends.
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-
-	if _, err := tx.Exec(ctx, checkoutAdvisoryLockQuery, string(id)); err != nil {
-		return toAppErr(err, "failed to lock checkout", attrs)
-	}
-	return fn(ctx)
-}
-
 // scanCheckout maps one row selected with checkoutSelect: the checkout's own
 // columns, then its order's in orderSelect's order.
 func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	var (
-		c                                      entity.Checkout
-		id, orderID, saleID                    string
-		authReleasedAt, committedAt, captureAt sql.NullTime
-		status                                 int16
-		orderCols                              orderColumns
+		c                      entity.Checkout
+		id, orderID, saleID    string
+		committedAt, captureAt sql.NullTime
+		status                 int16
+		orderCols              orderColumns
 	)
-	dest := append([]any{&id, &orderID, &saleID, &authReleasedAt, &status, &c.HoldExpireTime, &committedAt, &captureAt}, orderCols.dest()...)
+	dest := append([]any{&id, &orderID, &saleID, &status, &c.HoldExpireTime, &committedAt, &captureAt}, orderCols.dest()...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
@@ -536,7 +505,6 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	c.OrderID = entity.OrderID(orderID)
 	c.TicketSaleID = entity.TicketSaleID(saleID)
 	c.Status = entity.CheckoutStatus(status)
-	c.CardAuthorizationReleaseTime = optionalTime(authReleasedAt)
 	c.CommitTime = optionalTime(committedAt)
 	c.CaptureTime = optionalTime(captureAt)
 	c.Order = orderCols.order()

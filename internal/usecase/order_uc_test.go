@@ -20,6 +20,8 @@ func TestOrderUseCase_GetWithSettlement(t *testing.T) {
 
 	const orderID = entity.OrderID("019a0000-0000-7000-8000-0000000000a1")
 	order := &entity.Order{ID: orderID, Status: entity.OrderStatusPaid, Amount: 6000, Currency: "JPY"}
+	pending := &entity.Order{ID: orderID, Status: entity.OrderStatusPending, Amount: 6000, Currency: "JPY"}
+	void := &entity.Order{ID: orderID, Status: entity.OrderStatusVoid, Amount: 6000, Currency: "JPY"}
 	held := &entity.Settlement{
 		ID: "019a0000-0000-7000-8000-0000000000b1", OrderID: orderID, Status: entity.SettlementStatusHeld,
 		Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 5520}},
@@ -47,12 +49,27 @@ func TestOrderUseCase_GetWithSettlement(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/order/get-with-settlement "Order with no settlement yet"
-			name: "return the order and no settlement when it has none",
+			name: "return a pending order alone without reading a settlement",
+			setup: func(orders *entitymocks.MockOrderRepository, _ *entitymocks.MockSettlementRepository) {
+				orders.EXPECT().Get(mock.Anything, orderID).Return(pending, nil)
+			},
+			want: want{order: pending},
+		},
+		{
+			name: "return a void order alone without reading a settlement",
+			setup: func(orders *entitymocks.MockOrderRepository, _ *entitymocks.MockSettlementRepository) {
+				orders.EXPECT().Get(mock.Anything, orderID).Return(void, nil)
+			},
+			want: want{order: void},
+		},
+		{
+			// @spec components/usecase/order/get-with-settlement "Settlement missing"
+			name: "return Internal when a paid order has no settlement",
 			setup: func(orders *entitymocks.MockOrderRepository, settlements *entitymocks.MockSettlementRepository) {
 				orders.EXPECT().Get(mock.Anything, orderID).Return(order, nil)
 				settlements.EXPECT().GetByOrderID(mock.Anything, orderID).Return(nil, apperr.New(codes.NotFound, "no settlement"))
 			},
-			want: want{order: order},
+			wantErr: apperr.ErrInternal,
 		},
 		{
 			// @spec components/usecase/order/get-with-settlement "Order not found"

@@ -281,6 +281,90 @@ func TestCheckoutRepository_GetOrCreateHeld(t *testing.T) {
 	})
 }
 
+// checkoutAnnouncements returns the announcements of subject recorded after
+// mark that carry the Checkout id.
+func checkoutAnnouncements(t *testing.T, mark int64, subject string, id entity.CheckoutID) []*entityv1.Checkout {
+	t.Helper()
+	return announcedSince(t, mark, subject, func() *entityv1.Checkout { return &entityv1.Checkout{} },
+		func(c *entityv1.Checkout) bool { return c.GetId().GetValue() == string(id) })
+}
+
+func TestCheckoutRepository_GetOrCreateHeldAnnounces(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
+	ctx := context.Background()
+	at := saleWindowStart.Add(time.Hour)
+
+	t.Run("count changed", func(t *testing.T) {
+		// @spec components/entity/checkout/get-or-create-held "Count changed"
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		fan := nextFan(t)
+		mark := outboxMark(t)
+		first, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
+		require.NoError(t, err)
+		second, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 3, nil, at.Add(time.Minute))
+		require.NoError(t, err)
+
+		released := checkoutAnnouncements(t, mark, entity.SubjectCheckoutReleased, first.ID)
+		require.Len(t, released, 1, "the 2-ticket Checkout is announced as released")
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_RELEASED, released[0].GetStatus())
+		assert.Equal(t, string(first.OrderID), released[0].GetOrderId().GetValue())
+		held := checkoutAnnouncements(t, mark, entity.SubjectCheckoutHeld, second.ID)
+		require.Len(t, held, 1, "the 3-ticket Checkout is announced as held")
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_HELD, held[0].GetStatus())
+		assert.True(t, second.HoldExpireTime.Equal(held[0].GetHoldExpireTime().AsTime()))
+	})
+
+	t.Run("lapsed hold replaced", func(t *testing.T) {
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		fan := nextFan(t)
+		lapsed, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
+		require.NoError(t, err)
+		mark := outboxMark(t)
+		_, err = repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, lapsed.HoldExpireTime.Add(time.Minute))
+		require.NoError(t, err)
+
+		expired := checkoutAnnouncements(t, mark, entity.SubjectCheckoutExpired, lapsed.ID)
+		require.Len(t, expired, 1, "the lapsed hold is announced as expired")
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_EXPIRED, expired[0].GetStatus())
+	})
+
+	t.Run("same hold resumed", func(t *testing.T) {
+		// @spec components/entity/checkout/get-or-create-held "Same hold resumed"
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		fan := nextFan(t)
+		first, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
+		require.NoError(t, err)
+		mark := outboxMark(t)
+		again, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at.Add(time.Minute))
+		require.NoError(t, err)
+
+		require.Equal(t, first.ID, again.ID)
+		for _, subject := range []string{entity.SubjectCheckoutHeld, entity.SubjectCheckoutReleased, entity.SubjectCheckoutExpired} {
+			assert.Empty(t, checkoutAnnouncements(t, mark, subject, first.ID), subject)
+		}
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/checkout/get-or-create-held "Announcement cannot be recorded"
+		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		fan := nextFan(t)
+		earlier, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
+		require.NoError(t, err)
+
+		_, err = rdb.NewCheckoutRepository(testDB, failingOutbox{}).GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 3, nil, at.Add(time.Minute))
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		got, err := repo.Get(ctx, earlier.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CheckoutStatusHeld, got.Status, "the earlier hold stays Held")
+		_, heldCount := stockCounts(t, f.ID, at.Add(time.Minute))
+		assert.Equal(t, 2, heldCount, "no Checkout is created")
+	})
+}
+
 // heldCheckout starts a checkout of a new fan for count tickets on a fresh
 // first-come stock of 150 tickets with a per-account limit of 10.
 func heldCheckout(t *testing.T, repo *rdb.CheckoutRepository, count int, at time.Time) *entity.Checkout {
@@ -572,6 +656,32 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.ErrorIs(t, repo.RevertCommit(ctx, entity.CheckoutID(entity.NewID())), apperr.ErrNotFound)
 	})
 
+	t.Run("revert commit announces", func(t *testing.T) {
+		committedAt := start.Add(10 * time.Minute)
+
+		// @spec components/entity/checkout/revert-commit "Commit reverted"
+		c := heldCheckout(t, repo, 2, start)
+		_, err := repo.Commit(ctx, c.ID, committedAt)
+		require.NoError(t, err)
+		mark := outboxMark(t)
+		require.NoError(t, repo.RevertCommit(ctx, c.ID))
+		require.NoError(t, repo.RevertCommit(ctx, c.ID), "a second revert changes nothing")
+		got := checkoutAnnouncements(t, mark, entity.SubjectCheckoutReleased, c.ID)
+		require.Len(t, got, 1, "one checkout release is announced")
+		assert.Equal(t, entityv1.CheckoutStatus_CHECKOUT_STATUS_RELEASED, got[0].GetStatus())
+
+		// @spec components/entity/checkout/revert-commit "Announcement cannot be recorded"
+		failing := heldCheckout(t, repo, 2, start)
+		_, err = repo.Commit(ctx, failing.ID, committedAt)
+		require.NoError(t, err)
+		err = rdb.NewCheckoutRepository(testDB, failingOutbox{}).RevertCommit(ctx, failing.ID)
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		after, err := repo.Get(ctx, failing.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CheckoutStatusCommitted, after.Status)
+		assert.Equal(t, entity.OrderStatusPending, after.Order.Status)
+	})
+
 	t.Run("record capture", func(t *testing.T) {
 		c := heldCheckout(t, repo, 2, start)
 		_, err := repo.Commit(ctx, c.ID, start.Add(time.Minute))
@@ -593,124 +703,6 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		held := heldCheckout(t, repo, 1, start)
 		assert.ErrorIs(t, repo.RecordCapture(ctx, held.ID, chargedAt), apperr.ErrFailedPrecondition)
 	})
-
-	t.Run("record card authorization release", func(t *testing.T) {
-		// @spec components/entity/checkout/record-card-authorization-release "Card authorization given back"
-		c := heldCheckout(t, repo, 1, start)
-		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_rel_"+string(c.ID)))
-		_, err := repo.Release(ctx, c.ID, expiry)
-		require.NoError(t, err)
-		releasedAt := expiry.Add(time.Minute)
-
-		require.NoError(t, repo.RecordCardAuthorizationRelease(ctx, c.ID, releasedAt))
-
-		got, err := repo.Get(ctx, c.ID)
-		require.NoError(t, err)
-		assert.Equal(t, releasedAt, got.CardAuthorizationReleaseTime.UTC())
-		require.NoError(t, repo.RecordCardAuthorizationRelease(ctx, c.ID, releasedAt.Add(time.Hour)), "already set: no change")
-		got, err = repo.Get(ctx, c.ID)
-		require.NoError(t, err)
-		assert.Equal(t, releasedAt, got.CardAuthorizationReleaseTime.UTC())
-
-		held := heldCheckout(t, repo, 1, start)
-		require.NoError(t, repo.SetCardAuthorization(ctx, held.ID, "pi_rel_"+string(held.ID)))
-		assert.ErrorIs(t, repo.RecordCardAuthorizationRelease(ctx, held.ID, releasedAt), apperr.ErrFailedPrecondition, "a Held checkout")
-
-		noCard := heldCheckout(t, repo, 1, start)
-		_, err = repo.Release(ctx, noCard.ID, expiry)
-		require.NoError(t, err)
-		assert.ErrorIs(t, repo.RecordCardAuthorizationRelease(ctx, noCard.ID, releasedAt), apperr.ErrFailedPrecondition, "an Order without a card authorization")
-
-		assert.ErrorIs(t, repo.RecordCardAuthorizationRelease(ctx, entity.CheckoutID(entity.NewID()), releasedAt), apperr.ErrNotFound)
-	})
-}
-
-func TestCheckoutRepository_ListDue(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
-	ctx := context.Background()
-	t0 := saleWindowStart.Add(time.Hour)
-	now := t0.Add(30 * time.Minute)
-
-	// @spec components/entity/checkout/list-due "One of each"
-	lapsed := heldCheckout(t, repo, 1, t0.Add(5*time.Minute)) // expired at t0+20m
-	released := heldCheckout(t, repo, 1, t0)
-	require.NoError(t, repo.SetCardAuthorization(ctx, released.ID, "pi_released_"+string(released.ID)))
-	_, err := repo.Release(ctx, released.ID, t0.Add(16*time.Minute))
-	require.NoError(t, err)
-	stalled := heldCheckout(t, repo, 1, t0.Add(20*time.Minute))
-	_, err = repo.Commit(ctx, stalled.ID, now.Add(-2*time.Minute))
-	require.NoError(t, err)
-
-	// @spec components/entity/checkout/list-due "Fresh commit"
-	fresh := heldCheckout(t, repo, 1, t0.Add(20*time.Minute))
-	_, err = repo.Commit(ctx, fresh.ID, now.Add(-30*time.Second))
-	require.NoError(t, err)
-
-	// @spec components/entity/checkout/list-due "Card authorization already given back"
-	givenBack := heldCheckout(t, repo, 1, t0)
-	require.NoError(t, repo.SetCardAuthorization(ctx, givenBack.ID, "pi_given_back_"+string(givenBack.ID)))
-	_, err = repo.Release(ctx, givenBack.ID, t0.Add(16*time.Minute))
-	require.NoError(t, err)
-	require.NoError(t, repo.RecordCardAuthorizationRelease(ctx, givenBack.ID, t0.Add(17*time.Minute)))
-
-	// An Expired checkout whose Order never had a card authorization has
-	// nothing to give back.
-	noCard := heldCheckout(t, repo, 1, t0)
-	_, err = repo.Release(ctx, noCard.ID, t0.Add(16*time.Minute))
-	require.NoError(t, err)
-
-	due, err := repo.ListDue(ctx, now)
-
-	require.NoError(t, err)
-	ids := make([]entity.CheckoutID, 0, len(due))
-	for _, r := range due {
-		ids = append(ids, r.ID)
-		assert.NotNil(t, r.Order, "every checkout is read with its order")
-	}
-	// Oldest hold first: released (t0+15m), lapsed (t0+20m), stalled (t0+35m).
-	assert.Equal(t, []entity.CheckoutID{released.ID, lapsed.ID, stalled.ID}, ids)
-}
-
-func TestCheckoutRepository_Serialize(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
-	ctx := context.Background()
-	id := entity.CheckoutID(entity.NewID())
-
-	// Two calls for the same checkout never overlap.
-	var mu sync.Mutex
-	inside, overlapped := 0, false
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			err := repo.Serialize(ctx, id, func(context.Context) error {
-				mu.Lock()
-				inside++
-				if inside > 1 {
-					overlapped = true
-				}
-				mu.Unlock()
-				time.Sleep(50 * time.Millisecond)
-				mu.Lock()
-				inside--
-				mu.Unlock()
-				return nil
-			})
-			assert.NoError(t, err)
-		})
-	}
-	wg.Wait()
-	assert.False(t, overlapped)
-
-	// fn's error is returned unchanged.
-	want := apperr.ErrUnavailable
-	assert.ErrorIs(t, repo.Serialize(ctx, id, func(context.Context) error { return want }), want)
 }
 
 // completedCheckout drives a checkout of a new fan for 2 tickets on a fresh

@@ -253,3 +253,44 @@ func announcedMessages(t *testing.T, mark int64, subject string) []*message.Mess
 	}
 	return out
 }
+
+// routedCards captures, releases and reads a card authorization with the
+// in-memory provider when it opened it, and with other otherwise: the worker
+// of a first-come story charges both a presale's and a checkout's Orders.
+type routedCards struct {
+	fake  *fakeCards
+	other entity.CardAuthorizationRepository
+}
+
+var _ entity.CardAuthorizationRepository = (*routedCards)(nil)
+
+// pick returns the provider that holds the card authorization id.
+func (r *routedCards) pick(id string) entity.CardAuthorizationRepository {
+	r.fake.mu.Lock()
+	_, ok := r.fake.byID[id]
+	r.fake.mu.Unlock()
+	if ok || r.other == nil {
+		return r.fake
+	}
+	return r.other
+}
+
+// Create opens a card authorization with the in-memory provider.
+func (r *routedCards) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+	return r.fake.Create(ctx, purchase, amountJPY)
+}
+
+// Get reads the card authorization from the provider that holds it.
+func (r *routedCards) Get(ctx context.Context, id string) (*entity.CardAuthorization, error) {
+	return r.pick(id).Get(ctx, id)
+}
+
+// Capture charges the card authorization at the provider that holds it.
+func (r *routedCards) Capture(ctx context.Context, id string) error {
+	return r.pick(id).Capture(ctx, id)
+}
+
+// Release gives the card authorization back at the provider that holds it.
+func (r *routedCards) Release(ctx context.Context, id string) error {
+	return r.pick(id).Release(ctx, id)
+}

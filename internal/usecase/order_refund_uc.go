@@ -75,9 +75,14 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		}
 	}
 
-	// -- load the settlement (may not exist yet if payout sweep hasn't run). --
+	// -- load the settlement: Order.Issue stored it with the Paid Order, so a
+	// missing one is broken data and nothing is refunded silently. --
 	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
-	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, apperr.ErrNotFound) {
+		return nil, apperr.Wrap(err, codes.Internal, "the Paid Order has no Settlement",
+			slog.String("order_id", string(orderID)))
+	}
+	if err != nil {
 		return nil, err
 	}
 	// A settlement given up because every ticket was resold has nothing left

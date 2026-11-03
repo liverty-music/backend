@@ -899,7 +899,6 @@ COMMENT ON INDEX idx_lottery_entries_ticket_sale_state IS 'Optimizes listing a s
 -- checkout (capture_at set) is never Expired or Released.
 CREATE TABLE IF NOT EXISTS checkouts (
     id                        UUID        PRIMARY KEY,
-    card_authorization_release_at TIMESTAMPTZ,
     status                    SMALLINT    NOT NULL,
     hold_expire_at            TIMESTAMPTZ NOT NULL,
     commit_at                 TIMESTAMPTZ,
@@ -915,7 +914,6 @@ CREATE TABLE IF NOT EXISTS checkouts (
 
 COMMENT ON TABLE checkouts IS 'How one fan''s order is bought first come: during a first-come sale it holds the order''s tickets of its ticket stock for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
 COMMENT ON COLUMN checkouts.id IS 'Unique checkout identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN checkouts.card_authorization_release_at IS 'When the order''s card authorization was released without a charge; NULL unless released';
 COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
 COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
 COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
@@ -929,9 +927,6 @@ COMMENT ON INDEX uq_checkouts_order_id IS 'One checkout per order';
 CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_sale_id ON checkouts(ticket_sale_id);
 COMMENT ON INDEX idx_checkouts_ticket_sale_id IS 'Optimizes the ON DELETE RESTRICT check of a sale delete';
 
-CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND card_authorization_release_at IS NULL);
-COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card authorizations to release and stalled commits';
-
 -- delete_ticket_stock removes a ticket stock with its Void orders and their
 -- checkouts and lottery entries (TicketStock.Delete). It runs as its owner so
 -- the organizer server, which may never delete orders, checkouts or lottery
@@ -939,8 +934,7 @@ COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card aut
 -- stock row first; an order inserted meanwhile takes a key-share lock on that
 -- row through its foreign key, so it either is seen here or fails on the
 -- missing stock. Returns false when no stock has the id. Raises
--- restrict_violation (23001) when an order that is not Void names the stock,
--- or when a Void order's checkout has not released its card authorization.
+-- restrict_violation (23001) when an order that is not Void names the stock.
 CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
 BEGIN
@@ -951,12 +945,6 @@ BEGIN
   IF EXISTS (SELECT 1 FROM orders WHERE ticket_stock_id = p_ticket_stock_id AND status <> 5) THEN
     RAISE EXCEPTION 'ticket stock % is named by an order that is not void', p_ticket_stock_id USING ERRCODE = '23001';
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM orders o JOIN checkouts c ON c.order_id = o.id
-    WHERE o.ticket_stock_id = p_ticket_stock_id AND o.card_authorization_id IS NOT NULL AND c.card_authorization_release_at IS NULL
-  ) THEN
-    RAISE EXCEPTION 'ticket stock % has a void order whose card authorization is not released', p_ticket_stock_id USING ERRCODE = '23001';
-  END IF;
   DELETE FROM checkouts WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
   DELETE FROM lottery_entries WHERE order_id IN (SELECT id FROM orders WHERE ticket_stock_id = p_ticket_stock_id);
   DELETE FROM orders WHERE ticket_stock_id = p_ticket_stock_id;
@@ -965,7 +953,7 @@ BEGIN
 END
 $$;
 
-COMMENT ON FUNCTION delete_ticket_stock(UUID) IS 'TicketStock.Delete: removes a stock with its Void orders and their checkouts and lottery entries, refused (23001) while a live order names it or a Void order''s card authorization is not released. SECURITY DEFINER; EXECUTE is granted only to the organizer server.';
+COMMENT ON FUNCTION delete_ticket_stock(UUID) IS 'TicketStock.Delete: removes a stock with its Void orders and their checkouts and lottery entries, refused (23001) while a live order names it. SECURITY DEFINER; EXECUTE is granted only to the organizer server.';
 REVOKE ALL ON FUNCTION delete_ticket_stock(UUID) FROM PUBLIC;
 
 -- Tickets: account-bound covered tickets (特定興行入場券) issued when their order

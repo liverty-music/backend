@@ -60,3 +60,38 @@ func LotteryEntryFromAnnouncement(e *entityv1.LotteryEntry) *entity.LotteryEntry
 	}
 	return entry
 }
+
+// CheckoutFromAnnouncement maps the Checkout an ORDER.checkout_held,
+// ORDER.checkout_expired or ORDER.checkout_released announcement carries back
+// to the domain Checkout, without its Order.
+func CheckoutFromAnnouncement(c *entityv1.Checkout) *entity.Checkout {
+	checkout := &entity.Checkout{
+		ID:             entity.CheckoutID(c.GetId().GetValue()),
+		OrderID:        entity.OrderID(c.GetOrderId().GetValue()),
+		TicketSaleID:   entity.TicketSaleID(c.GetTicketSaleId().GetValue()),
+		Status:         checkoutStatusFromProto(c.GetStatus()),
+		HoldExpireTime: c.GetHoldExpireTime().AsTime(),
+	}
+	if c.CommitTime != nil {
+		t := c.GetCommitTime().AsTime()
+		checkout.CommitTime = &t
+	}
+	if c.CaptureTime != nil {
+		t := c.GetCaptureTime().AsTime()
+		checkout.CaptureTime = &t
+	}
+	return checkout
+}
+
+// checkoutStatusFromProto returns the CheckoutStatus of its wire form.
+func checkoutStatusFromProto(s entityv1.CheckoutStatus) entity.CheckoutStatus {
+	for _, status := range []entity.CheckoutStatus{
+		entity.CheckoutStatusHeld, entity.CheckoutStatusCommitted, entity.CheckoutStatusCompleted,
+		entity.CheckoutStatusExpired, entity.CheckoutStatusReleased,
+	} {
+		if checkoutStatusToProto(status) == s {
+			return status
+		}
+	}
+	return entity.CheckoutStatusUnspecified
+}

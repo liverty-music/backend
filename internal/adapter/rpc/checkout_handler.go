@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 
@@ -103,7 +104,7 @@ func (h *CheckoutHandler) Confirm(
 		return nil, err
 	}
 
-	order, err := h.orderUC.IssueFromCheckout(ctx, entity.CheckoutID(req.GetCheckoutId().GetValue()), &userID)
+	order, err := h.orderUC.Place(ctx, entity.CheckoutID(req.GetCheckoutId().GetValue()), userID, time.Now())
 	if err != nil {
 		return nil, err
 	}

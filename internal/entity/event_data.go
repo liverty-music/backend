@@ -101,10 +101,21 @@ const (
 	// transaction that stores the entry; TicketJourneyUseCase.MarkApplied
 	// receives it and records the fan's journey as Applied.
 	SubjectLotteryEntryEntered = "ORDER.lottery_entry_entered"
-	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed.
-	// CheckoutUseCase.ReleaseExpired publishes it when it makes the Checkout
-	// Expired; the analytics consumer forwards it as checkout.expired.
+	// SubjectCheckoutHeld announces a new Held Checkout, with the Checkout as
+	// the payload. Checkout.GetOrCreateHeld records it with the creation;
+	// CheckoutUseCase.Expire is started from it.
+	SubjectCheckoutHeld = "ORDER.checkout_held"
+	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed,
+	// with the Checkout as Expired. Checkout.Release and
+	// Checkout.GetOrCreateHeld record it with the change; the release of its
+	// Order's card authorization is started from it, and the analytics
+	// consumer forwards it as checkout.expired.
 	SubjectCheckoutExpired = "ORDER.checkout_expired"
+	// SubjectCheckoutReleased announces a Checkout ended without a charge, with
+	// the Checkout as Released. Checkout.GetOrCreateHeld (a replaced hold) and
+	// Checkout.RevertCommit record it with the change; the release of its
+	// Order's card authorization is started from it.
+	SubjectCheckoutReleased = "ORDER.checkout_released"
 	// SubjectTicketAdmitted announces that a scan admitted a Ticket.
 	// TicketUseCase.Admit publishes it once per admitted Ticket; the analytics
 	// consumer forwards it as ticket.admitted.
@@ -140,7 +151,9 @@ var AllSubjects = []string{
 	SubjectArtistHypeChanged,
 	SubjectLotteryEntryDrawn,
 	SubjectLotteryEntryEntered,
+	SubjectCheckoutHeld,
 	SubjectCheckoutExpired,
+	SubjectCheckoutReleased,
 	SubjectTicketAdmitted,
 }
 

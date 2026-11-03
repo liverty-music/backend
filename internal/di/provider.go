@@ -464,9 +464,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
 	scannerUC := usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
 
-	// Orders: the fan's and the admin's reads, the issuance pipeline that turns
-	// Won-captured lottery entries and committed first-come checkouts into
-	// Orders + tickets, and the refund policy (refundRepo provides the single
+	// Orders: the fan's and the admin's reads, the placing of a fan's
+	// Checkout (its issue runs as a workflow in the workflow worker), and the
+	// refund policy (refundRepo provides the single
 	// atomic DB commit; the idempotent Stripe calls run first).
 	orderUC := usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             issuanceRepo,
@@ -477,6 +477,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		IdentityVerificationRepo: identityVerificationRepo,
 		CheckoutRepo:             checkoutRepo,
 		TicketSaleRepo:           ticketSaleRepo,
+		StockRepo:                ticketStockRepo,
 		TicketRepo:               ticketRepo,
 		EventState:               eventPublishState,
 		EventRepo:                eventRepo,
@@ -484,6 +485,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Clock:                    time.Now,
 		RefundRepo:               refundRepo,
 		SettlementRepo:           settlementRepo,
+		Workflows:                workflows,
 		Logger:                   logger,
 	})
 
@@ -509,7 +511,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	stripeWebhookSvc := usecase.NewStripeWebhookService(
 		processedWebhookEventRepo,
 		orderRepo,
-		orderUC,
 		orderUC,
 		logger,
 	)
@@ -544,12 +545,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
-		// The checkout sweepers release lapsed holds and card authorizations,
-		// finish stalled commits and refund resold listings; all reach Stripe,
-		// so they run beside the others.
-		startCheckoutSweepers(ctx, checkoutUC, orderUC, resaleListingUC, logger)
+		// The resale refund sweeper refunds resold listings; it reaches
+		// Stripe, so it runs beside the settlement sweeper. Checkouts end and
+		// are issued by workflows in the workflow worker.
+		startResaleRefundSweeper(ctx, resaleListingUC, logger)
 	} else {
-		logger.Info(ctx, "settlement and checkout sweepers disabled on this workload",
+		logger.Info(ctx, "settlement and resale refund sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
 	}
 

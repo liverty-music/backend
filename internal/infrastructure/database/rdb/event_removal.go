@@ -41,9 +41,8 @@ var eventRemovalLockQueries = []string{
 const (
 	// eventRemovalBlockersQuery reports, for the events bound to $1, whether
 	// any has a Paid Order, a Settlement that is not Reversed, or a purchase in
-	// progress: a Pending Order, or a Void Order whose checkout has not
-	// released its card authorization. A Lost entry's card authorization is
-	// released by the draw before the outcome is recorded.
+	// progress: a Pending Order. A Void Order's card authorization is
+	// released by its own workflow, which reports a removed Order to an admin.
 	eventRemovalBlockersQuery = `
 		SELECT
 			EXISTS (
@@ -56,11 +55,7 @@ const (
 			),
 			EXISTS (
 				SELECT 1 FROM orders o
-				LEFT JOIN checkouts c ON c.order_id = o.id
-				WHERE o.id IN (` + eventOrderIDsSubquery + `)
-				  AND (o.status = $4
-				       OR (o.status = $5 AND o.card_authorization_id IS NOT NULL
-				           AND c.id IS NOT NULL AND c.card_authorization_release_at IS NULL))
+				WHERE o.id IN (` + eventOrderIDsSubquery + `) AND o.status = $4
 			)
 	`
 	selectEventTicketSaleIDsQuery = `
@@ -134,7 +129,7 @@ func lockAndCheckEventRemoval(ctx context.Context, tx pgx.Tx, eventIDs []string)
 	var paidOrder, unreversedSettlement, purchaseInProgress bool
 	if err := tx.QueryRow(ctx, eventRemovalBlockersQuery, eventIDs,
 		int16(entity.OrderStatusPaid), int16(entity.SettlementStatusReversed),
-		int16(entity.OrderStatusPending), int16(entity.OrderStatusVoid),
+		int16(entity.OrderStatusPending),
 	).Scan(&paidOrder, &unreversedSettlement, &purchaseInProgress); err != nil {
 		return toAppErr(err, "failed to check event removal blockers")
 	}

@@ -1,4 +1,4 @@
-h1:tSNVdqsDIrUSHaEEbRXqEZ9sRputyBY/+NWfNU1tBXU=
+h1:GPjfmFxifcAZc8LOSejz5q7eg027ulK03iXDuEAEVOM=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -127,3 +127,4 @@ h1:tSNVdqsDIrUSHaEEbRXqEZ9sRputyBY/+NWfNU1tBXU=
 20261031090000_grant_dbos_to_backend_app_and_admin_console_api.sql h1:Tn9t2CWrDISne3xdAyl8J4N/w8N8IVA2nteQPoEptO0=
 20261102120000_lottery_entry_loss_email.sql h1:7vme1Xqkc4F0OTLYFEzLyZQe0rR24qLZ1cUFbGyP6Zo=
 20261102130000_add_hype_and_status_set_by.sql h1:+vlE1Rs2j0Yu7a8soOZOyFvS9OpcGU0bsg/XtGvfrrI=
+20261103100000_drop_checkout_card_authorization_release.sql h1:t4iuoVz+itGUbHs6OK3ufgboiY0s1KfAa39thwr8ft4=

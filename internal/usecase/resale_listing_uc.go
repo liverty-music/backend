@@ -13,6 +13,12 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
+// LogKeyNeedsOperator is the log message of a purchase that needs an admin:
+// a resold listing is still not refunded. A log-based alert on it pages the admin; the alert in
+// cloud-provisioning (monitoring.ts) matches this text, so the constant and
+// its text keep their names.
+const LogKeyNeedsOperator = "checkout needs an operator"
+
 // unrefundedListingReportAge is how long a Sold listing may stay unrefunded
 // before every run of the refund job reports it to an admin.
 const unrefundedListingReportAge = 10 * time.Minute

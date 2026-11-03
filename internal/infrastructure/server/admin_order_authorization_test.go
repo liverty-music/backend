@@ -133,8 +133,10 @@ func TestAdminServer_OrderGet(t *testing.T) {
 	t.Run("order without a settlement", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/order "Order without a settlement"
+		void := *paid
+		void.Status = entity.OrderStatusVoid
 		orders := usecasemocks.NewMockOrderUseCase(t)
-		orders.EXPECT().GetWithSettlement(mock.Anything, entity.OrderID(adminOrderOrderID)).Return(paid, nil, nil)
+		orders.EXPECT().GetWithSettlement(mock.Anything, entity.OrderID(adminOrderOrderID)).Return(&void, nil, nil)
 		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})
 
 		resp, err := get(t, ts, adminOrderToken, &entityv1.OrderId{Value: adminOrderOrderID})
@@ -142,6 +144,19 @@ func TestAdminServer_OrderGet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, adminOrderOrderID, resp.GetOrder().GetId().GetValue())
 		assert.Nil(t, resp.GetSettlement())
+	})
+
+	t.Run("paid order without its settlement", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/order "Paid order without its settlement"
+		orders := usecasemocks.NewMockOrderUseCase(t)
+		orders.EXPECT().GetWithSettlement(mock.Anything, entity.OrderID(adminOrderOrderID)).
+			Return(nil, nil, apperr.New(codes.Internal, "the paid Order has no Settlement"))
+		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})
+
+		_, err := get(t, ts, adminOrderToken, &entityv1.OrderId{Value: adminOrderOrderID})
+
+		assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 	})
 
 	t.Run("unknown order", func(t *testing.T) {

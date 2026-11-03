@@ -117,6 +117,15 @@ func (s refundEvents) Get(_ context.Context, id string) (*entity.Event, error) {
 	return &entity.Event{ID: id, PublishState: &state}, nil
 }
 
+// heldSettlements is a Settlement repository whose every Paid Order has a
+// Held Settlement of one 5000 yen split, as Order.Issue stores it.
+func heldSettlements() *stubSettlementRepo {
+	return &stubSettlementRepo{getByOrderIDFn: func(_ context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
+		return &entity.Settlement{ID: "settle-" + entity.SettlementID(orderID), OrderID: orderID, Status: entity.SettlementStatusHeld,
+			Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 5000}}}, nil
+	}}
+}
+
 func newRefundUCWithLogger(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
@@ -257,66 +266,36 @@ func TestOrderUseCase_Refund_Cancellation_HappyPath(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CANCELLATION — no settlement yet (payout sweep hasn't run)
+// Missing settlement — broken data, nothing refunded
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestOrderUseCase_Refund_Cancellation_NoSettlement(t *testing.T) {
+func TestOrderUseCase_Refund_SettlementUnreadable(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
+	// @spec components/usecase/order/refund "Settlement unreadable"
 	now := time.Now()
-	paidAt := now.Add(-7 * 24 * time.Hour)
-
 	const orderID = entity.OrderID("order-no-settle")
-
-	order := paidOrder(orderID, 5000, "pi_no_settle", paidAt)
-
-	var (
-		refundCalled bool
-		commitCalled bool
-	)
+	order := paidOrder(orderID, 5000, "pi_no_settle", now.Add(-7*24*time.Hour))
 
 	settleRepo := &stubSettlementRepo{
-
 		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
 			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
 		},
 	}
-
-	refundRepo := &stubRefundRepo{
-		commitRefundFn: func(_ context.Context, commit entity.RefundCommit) error {
-			assert.Equal(t, orderID, commit.OrderID)
-			// No settlement → SettlementID must be empty.
-			assert.Equal(t, entity.SettlementID(""), commit.SettlementID)
-			commitCalled = true
-			return nil
-		},
-	}
-
-	port := &stubRefundSettlementPayouts{
-		resolveProviderChargeIDFn: func(_ context.Context, providerPaymentID string) (string, error) {
-			assert.Equal(t, "pi_no_settle", providerPaymentID)
-			return "ch_no_settle", nil
-		},
-		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
-			// Fix #2: key is order-based even without a settlement row.
-			assert.Equal(t, orderID, params.OrderID)
-			refundCalled = true
-			return "re_no_settle", nil
-		},
-	}
-
-	orderRepo := &stubOrderRepo{
-		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
-	}
-
+	refundRepo := &stubRefundRepo{commitRefundFn: func(context.Context, entity.RefundCommit) error {
+		t.Fatal("nothing is recorded")
+		return nil
+	}}
+	port := &stubRefundSettlementPayouts{createRefundFn: func(context.Context, entity.RefundParams) (string, error) {
+		t.Fatal("no money moves")
+		return "", nil
+	}}
+	orderRepo := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) { return order, nil }}
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
-	require.NoError(t, err)
-	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
-	assert.True(t, refundCalled, "CreateRefund must be called even without a settlement row")
-	assert.True(t, commitCalled, "CommitRefund must be called")
+	_, err := uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute, now)
+
+	assert.ErrorIs(t, err, apperr.ErrInternal)
+	assert.Equal(t, entity.OrderStatusPaid, order.Status, "the Order stays Paid")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,7 +335,7 @@ func TestOrderUseCase_Refund_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 		},
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, port, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, heldSettlements(), port, t)
 
 	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
@@ -390,7 +369,7 @@ func TestOrderUseCase_Refund_NotRefundable_PendingOrder(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return pendingOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, heldSettlements(), &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.Error(t, err)
@@ -502,18 +481,14 @@ func TestOrderUseCase_Refund_EventState(t *testing.T) {
 		}
 		return orderRepo, refundRepo, port, &m
 	}
-	noSettlement := &stubSettlementRepo{
-		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
-			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
-		},
-	}
+	settlements := heldSettlements()
 
 	t.Run("a cancellation refund for an event still on sale fails and moves no money", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/refund "Cancellation refund for an event still on sale"
 		// @spec stories/remove-a-cancelled-concert "Refund before cancellation"
 		orderRepo, refundRepo, port, moved := setup(t)
-		uc := newRefundUCForEvent(orderRepo, refundRepo, noSettlement, port, t,
+		uc := newRefundUCForEvent(orderRepo, refundRepo, settlements, port, t,
 			refundEvents{state: entity.PublishStatePublished})
 
 		_, err := uc.Refund(context.Background(), orderID, usecase.RefundReasonCancellation, now)
@@ -527,7 +502,7 @@ func TestOrderUseCase_Refund_EventState(t *testing.T) {
 		// @spec components/usecase/order/refund "Dispute for an event still on sale"
 		orderRepo, refundRepo, port, _ := setup(t)
 		var reads int
-		uc := newRefundUCForEvent(orderRepo, refundRepo, noSettlement, port, t,
+		uc := newRefundUCForEvent(orderRepo, refundRepo, settlements, port, t,
 			refundEvents{state: entity.PublishStatePublished, reads: &reads})
 
 		got, err := uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute, now)
@@ -549,7 +524,7 @@ func TestOrderUseCase_Refund_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
+	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, heldSettlements(), &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.Refund(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
 	require.Error(t, err)
@@ -572,7 +547,7 @@ func TestOrderUseCase_Refund_OrderNotFound(t *testing.T) {
 		},
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, heldSettlements(), &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.Refund(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -683,7 +658,7 @@ func TestOrderUseCase_Refund_NonStripeProvider_FailedPrecondition(t *testing.T) 
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return komojuOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, heldSettlements(), &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.Refund(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -714,7 +689,7 @@ func TestOrderUseCase_Refund_EmptyProviderPaymentID_FailedPrecondition(t *testin
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return badOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, heldSettlements(), &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -736,12 +711,7 @@ func TestOrderUseCase_Refund_ConcurrentRefund_IdempotentViaCommitFailedPrecondit
 
 	order := paidOrder(orderID, 9000, "pi_concurrent", now.Add(-24*time.Hour))
 
-	settleRepo := &stubSettlementRepo{
-
-		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
-			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
-		},
-	}
+	settleRepo := heldSettlements()
 
 	// CommitRefund returns FailedPrecondition to simulate a concurrent refund
 	// that already set the settlement to Reversed between our Stripe calls and
