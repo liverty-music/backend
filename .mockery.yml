@@ -27,7 +27,6 @@ packages:
       IdentityRemover: {}
       IdentityVerificationRepository: {}
       IssuanceRepository: {}
-      LogoImageFetcher: {}
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
       NotificationRepository: {}

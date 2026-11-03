@@ -167,7 +167,7 @@ func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart
 	c.logger.Info(ctx, "resolved artist images",
 		slog.String("mbid", mbid),
 		slog.Int("thumbs", len(fanart.ArtistThumb)),
-		slog.Int("logos", len(fanart.HDMusicLogo)),
+		slog.Int("backgrounds", len(fanart.ArtistBackground)),
 	)
 
 	return &fanart, nil

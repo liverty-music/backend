@@ -199,8 +199,8 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 			ArtistThumb: []entity.FanartImage{
 				{ID: "100", URL: "https://assets.fanart.tv/thumb.jpg", Likes: 5, Lang: "en"},
 			},
-			HDMusicLogo: []entity.FanartImage{
-				{ID: "200", URL: "https://assets.fanart.tv/logo.png", Likes: 10, Lang: "ja"},
+			ArtistBackground: []entity.FanartImage{
+				{ID: "200", URL: "https://assets.fanart.tv/background.jpg", Likes: 10, Lang: "ja"},
 			},
 		}
 		syncTime := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
@@ -214,8 +214,8 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 		assert.Len(t, got.Fanart.ArtistThumb, 1)
 		assert.Equal(t, "https://assets.fanart.tv/thumb.jpg", got.Fanart.ArtistThumb[0].URL)
 		assert.Equal(t, 5, got.Fanart.ArtistThumb[0].Likes)
-		assert.Len(t, got.Fanart.HDMusicLogo, 1)
-		assert.Equal(t, "https://assets.fanart.tv/logo.png", got.Fanart.HDMusicLogo[0].URL)
+		assert.Len(t, got.Fanart.ArtistBackground, 1)
+		assert.Equal(t, "https://assets.fanart.tv/background.jpg", got.Fanart.ArtistBackground[0].URL)
 		require.NotNil(t, got.FanartSyncTime)
 		assert.True(t, syncTime.Equal(*got.FanartSyncTime))
 	})

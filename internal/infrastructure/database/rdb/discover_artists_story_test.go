@@ -5,20 +5,26 @@ import (
 	"testing"
 	"time"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"uuid"
 )
 
-// Story test for stories/discover-artists "Artist images are kept current".
-// It runs the real ArtistUseCase, FollowUseCase and ArtistImageSyncUseCase
-// over the real repositories and local Postgres, and runs the daily image run
-// as cmd/job/artist-image-sync does. The image catalog, MusicBrainz and the
-// official site lookup are faked.
+// Story tests for stories/discover-artists. They run the real ArtistUseCase,
+// FollowUseCase, ArtistNameResolutionUseCase and ArtistImageSyncUseCase over
+// the real repositories and local Postgres, hand each recorded ARTIST.created
+// announcement to the consumers the event consumer runs, and run the daily
+// image run as cmd/job/artist-image-sync does. The artist catalog, the image
+// catalog, MusicBrainz and the official site lookup are faked.
 
 // Daily image run settings, as in cmd/job/artist-image-sync.
 const (
@@ -37,6 +43,23 @@ func (c *storyImageCatalog) ResolveImages(_ context.Context, mbid string) (*enti
 	return &entity.Fanart{ArtistThumb: []entity.FanartImage{
 		{ID: mbid, URL: "https://images.example/" + mbid + ".jpg", Likes: 1, Lang: "en"},
 	}}, nil
+}
+
+// storyArtistCatalog returns the artists a search or a chart lists.
+type storyArtistCatalog struct {
+	results []*entity.Artist
+}
+
+func (c *storyArtistCatalog) Search(context.Context, string) ([]*entity.Artist, error) {
+	return c.results, nil
+}
+
+func (c *storyArtistCatalog) ListSimilar(context.Context, *entity.Artist, int32) ([]*entity.Artist, error) {
+	return c.results, nil
+}
+
+func (c *storyArtistCatalog) ListTop(context.Context, string, string, int32) ([]*entity.Artist, error) {
+	return c.results, nil
 }
 
 // storyMusicBrainz knows every artist under the name it was registered with.
@@ -66,6 +89,9 @@ type discoverStory struct {
 	artists    usecase.ArtistUseCase
 	follows    usecase.FollowUseCase
 	imageSync  usecase.ArtistImageSyncUseCase
+	names      usecase.ArtistNameResolutionUseCase
+	logger     *logging.Logger
+	found      *storyArtistCatalog
 	catalog    *storyImageCatalog
 	mb         *storyMusicBrainz
 }
@@ -80,15 +106,37 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 		t:          t,
 		ctx:        context.Background(),
 		artistRepo: rdb.NewArtistRepository(testDB, testOutbox),
+		logger:     logger,
+		found:      &storyArtistCatalog{},
 		catalog:    &storyImageCatalog{lookups: map[string]int{}},
 		mb:         &storyMusicBrainz{names: map[string]string{}},
 	}
-	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, nil, s.mb, nil, logger)
+	discoveries := cache.NewMemoryCache(usecase.ArtistCacheTTL)
+	t.Cleanup(func() { _ = discoveries.Close() })
+	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, s.found, s.mb, discoveries, logger)
 	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB, testOutbox), s.artistRepo, storyNoOfficialSite{},
 		storyFollowMetrics{}, logger)
-	// The catalog returns no logo, so the logo is never downloaded.
-	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, nil, logger)
+	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, logger)
+	s.names = usecase.NewArtistNameResolutionUseCase(s.artistRepo, s.mb, logger)
 	return s
+}
+
+// createdSince returns the ARTIST.created announcements of the MBID recorded
+// after mark.
+func (s *discoverStory) createdSince(mark int64, mbid string) []*entityv1.Artist {
+	s.t.Helper()
+	return announcedSince(s.t, mark, entity.SubjectArtistCreated, func() *entityv1.Artist { return &entityv1.Artist{} },
+		func(a *entityv1.Artist) bool { return a.GetMbid().GetValue() == mbid })
+}
+
+// handleCreated hands an ARTIST.created announcement to the name and image
+// consumers, as the event consumer does.
+func (s *discoverStory) handleCreated(announced *entityv1.Artist) {
+	s.t.Helper()
+	payload, err := proto.Marshal(announced)
+	require.NoError(s.t, err)
+	require.NoError(s.t, event.NewArtistNameConsumer(s.names, s.logger).Handle(message.NewMessage(uuid.NewV7().String(), payload)))
+	require.NoError(s.t, event.NewArtistImageConsumer(s.imageSync, s.logger).Handle(message.NewMessage(uuid.NewV7().String(), payload)))
 }
 
 // register registers an artist through ArtistUseCase.Create.
@@ -141,6 +189,56 @@ func (s *discoverStory) requireCheckedSince(artistID string, since time.Time) {
 
 func daysBefore(n int) time.Time {
 	return time.Now().Add(-time.Duration(n) * 24 * time.Hour)
+}
+
+func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	t.Run("a newly found artist is registered and gets its canonical name and images", func(t *testing.T) {
+		// @spec stories/discover-artists "Newly discovered artist"
+		s := newDiscoverStory(t)
+		mbid := uuid.NewV4().String()
+		s.mb.names[mbid] = "ヨルシカ"
+		s.found.results = []*entity.Artist{{Name: "yorushika", MBID: mbid}}
+		mark := outboxMark(t)
+
+		got, err := s.artists.Search(s.ctx, "yorushika")
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		registered, err := s.artistRepo.Get(s.ctx, got[0].ID)
+		require.NoError(t, err, "the result is a registered artist")
+		assert.Equal(t, mbid, registered.MBID)
+		announced := s.createdSince(mark, mbid)
+		require.Len(t, announced, 1, "the new artist is announced as created")
+		assert.Equal(t, got[0].ID, announced[0].GetId().GetValue())
+
+		s.handleCreated(announced[0])
+
+		enriched, err := s.artistRepo.Get(s.ctx, got[0].ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ヨルシカ", enriched.Name)
+		require.NotNil(t, enriched.FanartSyncTime)
+		require.NotNil(t, enriched.Fanart)
+		assert.Len(t, enriched.Fanart.ArtistThumb, 1)
+	})
+
+	t.Run("a chart listing a registered artist returns it and announces nothing", func(t *testing.T) {
+		// @spec stories/discover-artists "Already registered artist"
+		s := newDiscoverStory(t)
+		artist := s.register("Known Band")
+		s.found.results = []*entity.Artist{{Name: "Known Band", MBID: artist.MBID}}
+		mark := outboxMark(t)
+
+		got, err := s.artists.ListTop(s.ctx, "JP", "", 10)
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, artist.ID, got[0].ID)
+		assert.Empty(t, s.createdSince(mark, artist.MBID))
+	})
 }
 
 func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
