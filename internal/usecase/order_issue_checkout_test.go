@@ -489,7 +489,6 @@ func TestOrderUseCase_Place(t *testing.T) {
 	t.Run("double tap on the action", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/place "Double tap on the action"
-		// @spec components/usecase/order/issue "Placed checkout"
 		f := newCheckoutOrderFixture(t, placeAt)
 		placeable(f)
 		f.auth.EXPECT().Get(mock.Anything, "pi_1").Return(authorizedPI(), nil).Twice()

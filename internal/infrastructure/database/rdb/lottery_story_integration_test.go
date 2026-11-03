@@ -433,16 +433,20 @@ func (s *lotteryStory) awaitFollowUps() {
 	}
 }
 
-// startCheckoutFollowUps hands the ORDER.checkout_held, ORDER.checkout_expired
-// and ORDER.checkout_released announcements recorded since the last call to
-// the workflow starter, as NATS delivers them, at the story's clock, and
-// returns the ids of the workflows it starts: a hold's expiry, delayed until
-// the hold expiry, and the release of an ended Checkout's card authorization.
-func (s *lotteryStory) startCheckoutFollowUps() []string {
+// startCheckoutFollowUps hands the announcements of subjects (by default
+// ORDER.checkout_held, ORDER.checkout_expired and ORDER.checkout_released)
+// recorded since the last call to the workflow starter, as NATS delivers
+// them, at the story's clock, and returns the ids of the workflows it starts:
+// a hold's expiry, delayed until the hold expiry, and the release of an ended
+// Checkout's card authorization.
+func (s *lotteryStory) startCheckoutFollowUps(subjects ...string) []string {
 	s.t.Helper()
+	if len(subjects) == 0 {
+		subjects = []string{entity.SubjectCheckoutHeld, entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased}
+	}
 	next := outboxMark(s.t)
 	var ids []string
-	for _, subject := range []string{entity.SubjectCheckoutHeld, entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased} {
+	for _, subject := range subjects {
 		for _, msg := range announcedMessages(s.t, s.checkoutMark, subject) {
 			require.NoError(s.t, s.checkoutStarter.HandleStartWorkflow(msg))
 			var c entityv1.Checkout
@@ -467,6 +471,15 @@ func (s *lotteryStory) endLapsedHolds() {
 		for _, id := range ids {
 			s.await(id)
 		}
+	}
+}
+
+// releaseEndedCheckouts runs the release of the card authorization of each
+// Checkout announced as ended, leaving the holds' expiries unstarted.
+func (s *lotteryStory) releaseEndedCheckouts() {
+	s.t.Helper()
+	for _, id := range s.startCheckoutFollowUps(entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased) {
+		s.await(id)
 	}
 }
 

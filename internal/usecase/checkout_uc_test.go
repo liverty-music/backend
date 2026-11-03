@@ -715,7 +715,6 @@ func TestCheckoutUseCase_StartCheckoutWorkflow(t *testing.T) {
 
 	t.Run("hold starts its expiry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/expire "Fan walked away"
 		f := newCheckoutFixture(t, start)
 		held := fanCheckout(start)
 		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowExpireCheckout, "expire:checkout-1",
@@ -751,8 +750,6 @@ func TestCheckoutUseCase_StartCheckoutWorkflow(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// @spec components/usecase/order/release-card-authorization "Hold expired"
-			// @spec components/usecase/order/release-card-authorization "Count changed after authorizing"
 			f := newCheckoutFixture(t, expiry)
 			ended := fanCheckout(start)
 			ended.Status = tc.status

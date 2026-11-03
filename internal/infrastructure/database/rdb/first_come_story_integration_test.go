@@ -365,6 +365,7 @@ func TestFirstComeStory_HoldRanOut(t *testing.T) {
 
 func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 	// @spec stories/buy-tickets-first-come "Double tap everywhere"
+	// @spec components/usecase/order/issue "Placed checkout"
 	s := newFirstComeStory(t)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
@@ -413,6 +414,8 @@ func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 
 func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
 	// @spec stories/buy-tickets-first-come "Fan closes the tab"
+	// @spec components/usecase/checkout/expire "Fan walked away"
+	// @spec components/usecase/order/release-card-authorization "Hold expired"
 	s := newFirstComeStory(t)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
@@ -437,6 +440,30 @@ func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
 	pi := s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived)
+}
+
+func TestFirstComeStory_CountChangedAfterAuthorizing(t *testing.T) {
+	// @spec components/usecase/order/release-card-authorization "Count changed after authorizing"
+	s := newFirstComeStory(t)
+	stock := s.stock("S席", 3000, 150)
+	s.openFirstCome()
+
+	// -- the fan authorizes their card for 2 tickets, then starts again for 3 --
+	fan := s.newFan()
+	two := s.hold(stock.ID, fan, 2, nil)
+	authorization := s.authorizeCheckout(two, fan)
+	three := s.hold(stock.ID, fan, 3, nil)
+	require.NotEqual(t, two.ID, three.ID)
+
+	// -- the 2-ticket Checkout's card authorization is released --
+	s.releaseEndedCheckouts()
+	pi := s.paymentIntent(authorization)
+	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
+	assert.Zero(t, pi.AmountReceived)
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, two.OrderID))
+	got, err := s.checkouts.Get(s.ctx, fan, three.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.CheckoutStatusHeld, got.Status, "the new hold lasts")
 }
 
 // TestFirstComeStory_PresaleWinnerTopsUpInTheGeneralSale checks the

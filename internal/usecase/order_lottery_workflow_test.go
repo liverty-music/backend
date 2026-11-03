@@ -433,6 +433,21 @@ func TestOrderUseCase_ReleaseCardAuthorization(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
+	t.Run("order removed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/ticket-stock/delete "Void order with a card authorization not yet released"
+		// A delete removed the Void Order while its release was due: the
+		// workflow ends with NotFound, which the runtime reports to an admin,
+		// and nothing is released.
+		f := newReleaseFixture(t)
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(nil, apperr.New(codes.NotFound, "order removed"))
+
+		_, err := f.uc.ReleaseCardAuthorization(ctx, &inlineFlow{}, "order-1")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		f.cardAuthorizations.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
+	})
+
 	t.Run("no card authorization", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/release-card-authorization "No card authorization"
