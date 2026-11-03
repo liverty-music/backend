@@ -34,7 +34,7 @@ type rowQuerier interface {
 // ticketSaleColumns selects a ticket_sales row (aliased ts).
 const ticketSaleColumns = `
 	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_at, ts.sale_end_at,
-	ts.verification_requirement, ts.discovered_at
+	ts.verification_requirement, ts.discovered_at, ts.result_date
 `
 
 const (
@@ -74,14 +74,17 @@ const (
 		ORDER BY ts.sale_start_at, ts.id
 	`
 	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
-	// within the lookahead ($1 seconds) and whose end, the latest milestone,
-	// is no further back than the lookback ($2 seconds). An Organizer's sale
-	// is returned only while its Series is Published, that is while one of
-	// its events is PUBLISHED.
+	// within the lookahead ($1 seconds) and whose end is no further back than
+	// the lookback ($2 seconds), or whose result date is no earlier than the
+	// day before the Japan-time day of now minus the lookback: a fan behind
+	// Japan time reaches 22:00 on the result date up to a calendar day later.
+	// An Organizer's sale is returned only while its Series is Published, that
+	// is while one of its events is PUBLISHED.
 	ticketSaleListWithPendingMilestonesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.sale_start_at <= NOW() + make_interval(secs => $1)
-		  AND ts.sale_end_at >= NOW() - make_interval(secs => $2)
+		  AND (ts.sale_end_at >= NOW() - make_interval(secs => $2)
+		       OR ts.result_date >= ((NOW() - make_interval(secs => $2)) AT TIME ZONE 'Asia/Tokyo')::date - 1)
 		  AND (ts.discovered_at IS NOT NULL OR EXISTS (
 		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
 		ORDER BY ts.sale_start_at, ts.id
@@ -91,19 +94,26 @@ const (
 	// not exist or has an Organizer, so nothing is written and no row is
 	// returned. A known discovered sale with the same series, method and start
 	// date in Japan time (uq_ticket_sales_discovered_convergence) gets the new
-	// name and times and keeps its id, series, method and discovered_at.
+	// name and times and keeps its id, series, method and discovered_at. It
+	// takes the new result date when there is one; otherwise it keeps the
+	// stored one while it is no earlier than the Japan-time day of the new end
+	// time, and clears it once a later end time makes it impossible.
 	// xmax = 0 is true only for a freshly inserted row.
 	ticketSaleUpsertDiscoveredQuery = `
 		INSERT INTO ticket_sales (
 			id, series_id, name, method, sale_start_at, sale_end_at,
-			verification_requirement, discovered_at
+			verification_requirement, discovered_at, result_date
 		)
-		SELECT $1, s.id, $3, $4, $5, $6, 0, NOW()
+		SELECT $1, s.id, $3, $4, $5, $6, 0, NOW(), $7::date
 		FROM series s WHERE s.id = $2 AND s.organizer_id IS NULL
 		ON CONFLICT (series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL DO UPDATE
 		SET name          = EXCLUDED.name,
 		    sale_start_at = EXCLUDED.sale_start_at,
-		    sale_end_at   = EXCLUDED.sale_end_at
+		    sale_end_at   = EXCLUDED.sale_end_at,
+		    result_date   = CASE
+		        WHEN EXCLUDED.result_date IS NOT NULL THEN EXCLUDED.result_date
+		        WHEN ticket_sales.result_date >= (EXCLUDED.sale_end_at AT TIME ZONE 'Asia/Tokyo')::date THEN ticket_sales.result_date
+		    END
 		RETURNING id, (xmax = 0) AS inserted
 	`
 	// ticketSaleEventsOfSalesQuery returns the events the sales in $1 name.
@@ -253,6 +263,7 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		int16(found.Method),
 		found.SaleStartTime,
 		found.SaleEndTime,
+		found.ResultDate,
 	).Scan(&id, &inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.FailedPrecondition,
@@ -412,10 +423,11 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 		method       int16
 		verifReq     int16
 		discoveredAt sql.NullTime
+		resultDate   sql.NullTime
 	)
 	if err := row.Scan(
 		&id, &s.SeriesID, &s.Name, &method, &s.SaleStartTime, &s.SaleEndTime,
-		&verifReq, &discoveredAt,
+		&verifReq, &discoveredAt, &resultDate,
 	); err != nil {
 		return nil, err
 	}
@@ -423,5 +435,6 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	s.Method = entity.TicketSaleMethod(method)
 	s.VerificationRequirement = entity.VerificationRequirement(verifReq)
 	s.DiscoveredTime = optionalTime(discoveredAt)
+	s.ResultDate = optionalTime(resultDate)
 	return &s, nil
 }
