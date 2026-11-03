@@ -30,7 +30,8 @@ const (
 // recorded in the sent-log.
 type TicketSaleReminderUseCase interface {
 	// ScanDueReminders runs one scan pass. It lists the sales with a pending
-	// milestone, resolves each sale's audience, applies quiet hours, checks
+	// milestone, resolves each sale's audiences (tracking fans, and applied
+	// fans for a discovered lottery's result day), applies quiet hours, checks
 	// the sent-log, and publishes due reminders. Returns the number of events
 	// published.
 	ScanDueReminders(ctx context.Context) (int, error)
@@ -115,34 +116,100 @@ func (uc *ticketSaleReminderUseCase) ScanDueReminders(ctx context.Context) (int,
 	return totalPublished, nil
 }
 
-// allStages is the full ordered set of reminder stages evaluated each scan.
-var allStages = []entity.ReminderStage{
+// trackingStages are the stages whose audience is the fans tracking the
+// sale's events.
+var trackingStages = []entity.ReminderStage{
 	entity.ReminderStageApplyOpen,
 	entity.ReminderStageApplyClose24H,
 }
 
-// saleAudience returns the fans to remind of a sale, each with the event the
-// reminder links them to. A discovered sale reaches every fan tracking an
-// event of its series. An Organizer's sale reaches only the fans tracking an
-// event it names, because it may cover only some events of the tour.
-func (uc *ticketSaleReminderUseCase) saleAudience(ctx context.Context, sale *entity.TicketSale) ([]*entity.SeriesTracker, error) {
-	if sale.IsDiscovered() {
-		return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
+// reminderAudience is one set of stages of a sale with the operation that
+// lists the fans to remind of them.
+type reminderAudience struct {
+	stages []entity.ReminderStage
+	list   func(ctx context.Context) ([]*entity.SeriesTracker, error)
+}
+
+// saleAudiences returns the stages of a sale grouped by audience, each fan
+// with the event the reminder links them to. APPLY_OPEN and APPLY_CLOSE_24H
+// of a discovered sale reach every fan tracking an event of its series, and
+// those of an Organizer's sale only the fans tracking an event it names,
+// because it may cover only some events of the tour. RESULT_DAY of a
+// discovered lottery with a result date reaches every fan who applied for an
+// event of its series.
+func (uc *ticketSaleReminderUseCase) saleAudiences(sale *entity.TicketSale) []reminderAudience {
+	if !sale.IsDiscovered() {
+		return []reminderAudience{{
+			stages: trackingStages,
+			list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
+				return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
+			},
+		}}
 	}
-	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
+	audiences := []reminderAudience{{
+		stages: trackingStages,
+		list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
+			return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
+		},
+	}}
+	if sale.Method == entity.TicketSaleMethodLottery && sale.ResultDate != nil {
+		audiences = append(audiences, reminderAudience{
+			stages: []entity.ReminderStage{entity.ReminderStageResultDay},
+			list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
+				return uc.journeyRepo.ListUserIDsAppliedSeries(ctx, sale.SeriesID)
+			},
+		})
+	}
+	return audiences
 }
 
 // processSale evaluates all reminder stages for one sale and returns the
 // number of reminder events published.
 func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *entity.TicketSale, now time.Time) (int, error) {
+	// The series title is read once per sale; it is the last line of every
+	// reminder text. It is read lazily, so a sale with nothing due costs no
+	// lookup.
+	var seriesTitle *string
+	title := func() (string, error) {
+		if seriesTitle == nil {
+			series, err := uc.seriesRepo.Get(ctx, sale.SeriesID)
+			if err != nil {
+				return "", err
+			}
+			seriesTitle = &series.Title
+		}
+		return *seriesTitle, nil
+	}
+
+	var published int
+	for _, audience := range uc.saleAudiences(sale) {
+		trackers, err := audience.list(ctx)
+		if err != nil {
+			return published, fmt.Errorf("ticket_sale_reminder: list audience: %w", err)
+		}
+		n, err := uc.remindAudience(ctx, sale, audience.stages, trackers, now, title)
+		published += n
+		if err != nil {
+			return published, err
+		}
+	}
+	return published, nil
+}
+
+// remindAudience requests the due reminders of the stages for each fan of
+// one audience of the sale and returns the number of reminder events
+// published.
+func (uc *ticketSaleReminderUseCase) remindAudience(
+	ctx context.Context,
+	sale *entity.TicketSale,
+	stages []entity.ReminderStage,
+	trackers []*entity.SeriesTracker,
+	now time.Time,
+	title func() (string, error),
+) (int, error) {
 	attrs := []slog.Attr{
 		slog.String("ticket_sale_id", string(sale.ID)),
 		slog.String("series_id", sale.SeriesID),
-	}
-
-	trackers, err := uc.saleAudience(ctx, sale)
-	if err != nil {
-		return 0, fmt.Errorf("ticket_sale_reminder: list tracking users: %w", err)
 	}
 	if len(trackers) == 0 {
 		return 0, nil
@@ -168,7 +235,8 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 		return 0, nil
 	}
 
-	// Batch already-sent check: one query per sale instead of per (user,stage).
+	// Batch already-sent check: one query per audience instead of per
+	// (user,stage).
 	onlyUserIDs := make([]string, len(recipients))
 	for i, r := range recipients {
 		onlyUserIDs[i] = r.user.ID
@@ -180,23 +248,8 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 		sentSet = make(map[string]map[entity.ReminderStage]bool)
 	}
 
-	// The series title is read once per sale; it is the last line of every
-	// reminder text. It is read lazily, so a sale with nothing due costs no
-	// lookup.
-	var seriesTitle *string
-	title := func() (string, error) {
-		if seriesTitle == nil {
-			series, err := uc.seriesRepo.Get(ctx, sale.SeriesID)
-			if err != nil {
-				return "", err
-			}
-			seriesTitle = &series.Title
-		}
-		return *seriesTitle, nil
-	}
-
 	var published int
-	for _, stage := range allStages {
+	for _, stage := range stages {
 		for _, r := range recipients {
 			if ctx.Err() != nil {
 				return published, nil
@@ -272,6 +325,9 @@ func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *enti
 //   - APPLY_CLOSE_24H, Lottery: anchor = end - 24h; expiry = end. The next
 //     08:00 after an anchor in quiet hours is always before the end, because
 //     the anchor is 24 hours before it.
+//   - RESULT_DAY, discovered Lottery with a result date: anchor = 09:00 on
+//     the result date in tz; expiry = 22:00 that day. It never falls in quiet
+//     hours.
 //
 // Every stage other than the first-come APPLY_OPEN that falls in the quiet
 // window (22:00–08:00 in tz) fires at the next 08:00.
@@ -292,6 +348,8 @@ func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *
 		}
 	case entity.ReminderStageApplyClose24H:
 		expiry = sale.SaleEndTime
+	case entity.ReminderStageResultDay:
+		expiry = sale.ResultDayAt(entity.ResultDayExpiryHour, tz)
 	}
 
 	// First-sight guard: a discovered sale whose anchor was already in the
@@ -357,6 +415,9 @@ func buildReminderPayload(
 		key, at = copyApplyOpenLottery, sale.SaleEndTime
 	case stage == entity.ReminderStageApplyClose24H:
 		key, at = copyApplyClose24HLottery, sale.SaleEndTime
+	case stage == entity.ReminderStageResultDay:
+		title, text := ticketSaleText(lang, copyResultDayLottery, "", seriesTitle)
+		return entity.NewNotificationPayload(title, text, url, tag)
 	default:
 		return entity.NewNotificationPayload("", "", url, tag)
 	}

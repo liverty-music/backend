@@ -440,6 +440,102 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	assert.Empty(t, d.push.to(noBrowser))
 }
 
+// TestStory_LotteryResultDay runs the scan and the delivery over three
+// discovered lotteries: KICKOFF closes in 12 hours and announces its results
+// later, SHADOWS closed 3 days ago and announces its results today, and
+// BANQUET closed 3 days ago without a stated result day. One fan tracks and
+// one has applied for an event of KICKOFF and of SHADOWS; another has applied
+// for the BANQUET event only.
+//
+// @spec stories/get-reminded-of-ticket-sale-milestones "Fan who has applied"
+// @spec stories/get-reminded-of-ticket-sale-milestones "Result day not stated"
+// @spec stories/get-reminded-of-ticket-sale-milestones "Fan still tracking on the result day"
+// The time of the result-day push (09:00 in the fan's time zone) is covered
+// by TestScheduledFireTime in the usecase package.
+func TestStory_LotteryResultDay(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	cleanDatabase(t)
+	ctx := context.Background()
+	d := newStoryDeps(t)
+	sales := rdb.NewTicketSaleRepository(testDB, testOutbox)
+
+	artistID := seedArtist(t, "story-artist", "11112222-3333-4444-5555-666677778800")
+	venueID := seedVenue(t, "story-venue")
+	kickoff := seedSeriesOnly(t, "KICKOFF")
+	kickoffEvent := seedEventForSeries(t, kickoff, venueID, artistID, storyDay(60))
+	shadows := seedSeriesOnly(t, "SHADOWS")
+	shadowsEvent := seedEventForSeries(t, shadows, venueID, artistID, storyDay(20))
+	banquet := seedSeriesOnly(t, "BANQUET")
+	banquetEvent := seedEventForSeries(t, banquet, venueID, artistID, storyDay(30))
+
+	tz := storyNoonZone()
+	tracking := storyFan(t, "tracking", "ja", tz)
+	applied := storyFan(t, "applied", "ja", tz)
+	unstated := storyFan(t, "unstated", "ja", tz)
+	storyJourney(t, tracking, kickoffEvent, entity.TicketJourneyStatusTracking)
+	storyJourney(t, tracking, shadowsEvent, entity.TicketJourneyStatusTracking)
+	storyJourney(t, applied, kickoffEvent, entity.TicketJourneyStatusApplied)
+	storyJourney(t, applied, shadowsEvent, entity.TicketJourneyStatusApplied)
+	storyJourney(t, unstated, banquetEvent, entity.TicketJourneyStatusApplied)
+
+	now := time.Now()
+	y, m, dd := now.In(mustLoadLocation(t, tz)).Date()
+	today := time.Date(y, m, dd, 0, 0, 0, 0, time.UTC)
+	kickoffEnd := now.Add(12 * time.Hour)
+	kickoffResult := entity.JapanDate(kickoffEnd).AddDate(0, 0, 10)
+	for _, sale := range []*entity.DiscoveredTicketSale{
+		{SeriesID: kickoff, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: now.AddDate(0, 0, -10), SaleEndTime: kickoffEnd, ResultDate: &kickoffResult},
+		{SeriesID: shadows, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: now.AddDate(0, 0, -15), SaleEndTime: now.AddDate(0, 0, -3), ResultDate: &today},
+		{SeriesID: banquet, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: now.AddDate(0, 0, -15), SaleEndTime: now.AddDate(0, 0, -3)},
+	} {
+		_, _, err := sales.UpsertDiscovered(ctx, sale)
+		require.NoError(t, err)
+	}
+	// Known since after the lotteries opened, so only the closing reminder of
+	// KICKOFF and the result day of SHADOWS are due.
+	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET discovered_at = NOW() - INTERVAL '9 days' WHERE discovered_at IS NOT NULL`)
+	require.NoError(t, err)
+
+	scan := usecase.NewTicketSaleReminderUseCase(
+		sales, rdb.NewTicketSaleReminderRepository(testDB), rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		rdb.NewUserRepository(testDB, testOutbox), rdb.NewSeriesRepository(testDB, testOutbox), d.wf, 7*24*time.Hour, d.logger)
+
+	requested, err := scan.ScanDueReminders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, requested, "the KICKOFF close for the tracking fan and the SHADOWS result day for the applied fan")
+	d.deliverReminders(t)
+
+	appliedPushes := d.push.to(applied)
+	require.Len(t, appliedPushes, 1, "the applied fan gets no closing reminder and one result-day push")
+	assert.Equal(t, "今日は抽選結果の発表日", appliedPushes[0].Title)
+	assert.Equal(t, "申し込んだチケット抽選の結果が今日発表されます!!\nSHADOWS", appliedPushes[0].Body)
+	assert.Equal(t, "/concerts/"+shadowsEvent, appliedPushes[0].Data[entity.NotificationDataKeyURL])
+	assert.Equal(t, 1, d.notificationsOf(t, applied, entity.NotificationTypeSalesReminder))
+
+	trackingPushes := d.push.to(tracking)
+	require.Len(t, trackingPushes, 1, "the tracking fan gets the closing reminder and no result-day push")
+	assert.Equal(t, "抽選の申し込み締切が近づいています", trackingPushes[0].Title)
+
+	assert.Empty(t, d.push.to(unstated), "no result-day push when the page states no result day")
+
+	// The next scan sends the result day again to nobody.
+	requested, err = scan.ScanDueReminders(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, requested)
+}
+
+func mustLoadLocation(t *testing.T, name string) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation(name)
+	require.NoError(t, err)
+	return loc
+}
+
 // TestStory_OrganizerSalesAreReminded runs the scan and the delivery over an
 // Organizer's sales: a lottery and a first-come sale offering only the Tokyo
 // event of a Published tour, and a lottery of a Cancelled tour.
@@ -499,6 +595,9 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	assert.True(t, ok, "the Organizer's first-come sale is reminded before it opens")
 	assert.Equal(t, 2, d.notificationsOf(t, tokyoFan, entity.NotificationTypeSalesReminder))
 
+	for title := range titles {
+		assert.NotEqual(t, "今日は抽選結果の発表日", title, "an Organizer's lottery has no result-day reminder")
+	}
 	assert.Empty(t, d.push.to(osakaFan), "no reminder for a sale that does not offer the tracked event")
 	assert.Empty(t, d.push.to(cancelledFan), "no reminder for a sale of a cancelled Series")
 }

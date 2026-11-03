@@ -16,10 +16,12 @@ const (
 	copyApplyOpenFirstCome   = "apply_open_first_come"
 	copyApplyOpenLottery     = "apply_open_lottery"
 	copyApplyClose24HLottery = "apply_close_24h_lottery"
+	copyResultDayLottery     = "result_day_lottery"
 )
 
 // ticketSaleCopy is one notification's title and sentence. The sentence holds
-// one %s for a formatted time ({start}, {end} or {result}).
+// one %s for a formatted time ({start} or {end}), or none when it names no
+// time.
 type ticketSaleCopy struct {
 	title    string
 	sentence string
@@ -33,6 +35,7 @@ var ticketSaleCopies = map[string]map[string]ticketSaleCopy{
 		copyApplyOpenFirstCome:   {"まもなく先着販売開始", "%sからチケットの先着販売スタート!!"},
 		copyApplyOpenLottery:     {"チケット申し込み受付開始", "チケットの抽選申し込みがスタートしました!! 締切は%s"},
 		copyApplyClose24HLottery: {"抽選の申し込み締切が近づいています", "チケットの抽選申し込み締切は%s!!"},
+		copyResultDayLottery:     {"今日は抽選結果の発表日", "申し込んだチケット抽選の結果が今日発表されます!!"},
 	},
 	"en": {
 		copyAnnounceFirstCome:    {"First-Come Ticket Sale", "Ticket sale (first come) starts %s!"},
@@ -40,6 +43,7 @@ var ticketSaleCopies = map[string]map[string]ticketSaleCopy{
 		copyApplyOpenFirstCome:   {"First-Come Sale Starting Soon", "Ticket sale (first come) starts %s!"},
 		copyApplyOpenLottery:     {"Ticket Lottery Open", "Ticket lottery entry is open! Closes %s."},
 		copyApplyClose24HLottery: {"Ticket Lottery Closing Soon", "Ticket lottery entry closes %s!"},
+		copyResultDayLottery:     {"Lottery Results Today", "The results of the ticket lottery you entered come out today!"},
 	},
 }
 
@@ -65,10 +69,15 @@ func formatSalesTime(t time.Time, tz *time.Location, lang string) string {
 }
 
 // ticketSaleText renders a notification's title and text: the sentence with
-// the formatted time, then a line break and the series title.
+// the formatted time when it holds one, then a line break and the series
+// title.
 func ticketSaleText(lang, key, timeStr, seriesTitle string) (title, text string) {
 	c := ticketSaleCopies[lang][key]
-	return c.title, fmt.Sprintf(c.sentence, timeStr) + "\n" + seriesTitle
+	sentence := c.sentence
+	if strings.Contains(sentence, "%s") {
+		sentence = fmt.Sprintf(sentence, timeStr)
+	}
+	return c.title, sentence + "\n" + seriesTitle
 }
 
 // concertLinkURL is the deep link that opens an event's detail sheet.

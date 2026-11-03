@@ -166,6 +166,22 @@ func TestScheduledFireTime(t *testing.T) {
 			tz: jst, wantTime: jstAt(2026, 10, 6, 21, 0), wantExpiry: jstAt(2026, 10, 7, 0, 0), wantOK: true,
 		},
 
+		// @spec components/entity/ticket-sale-reminder "Result day stage"
+		{
+			name: "Result day stage: 09:00 on the result date, until 22:00", stage: entity.ReminderStageResultDay,
+			sale: withResultDate(kickoff, 11, 3), tz: jst,
+			wantTime: jstAt(2026, 11, 3, 9, 0), wantExpiry: jstAt(2026, 11, 3, 22, 0), wantOK: true,
+		},
+		{
+			name: "result day in the fan's time zone", stage: entity.ReminderStageResultDay,
+			sale: withResultDate(kickoff, 11, 3), tz: la,
+			wantTime: time.Date(2026, 11, 3, 9, 0, 0, 0, la), wantExpiry: time.Date(2026, 11, 3, 22, 0, 0, 0, la), wantOK: true,
+		},
+		// @spec components/entity/ticket-sale-reminder "Lottery without a result date"
+		{
+			name: "Lottery without a result date: no RESULT_DAY", stage: entity.ReminderStageResultDay, sale: kickoff, tz: jst, wantOK: false,
+		},
+
 		// @spec components/usecase/ticket-sale/scan-due-reminders "Organizer's sale created after it opened"
 		{
 			// No first-sight guard: an Organizer's sale has no discovered time.
@@ -187,6 +203,14 @@ func TestScheduledFireTime(t *testing.T) {
 			assert.True(t, tt.wantExpiry.Equal(gotExpiry), "expiry: got %s, want %s", gotExpiry.In(tt.tz), tt.wantExpiry.In(tt.tz))
 		})
 	}
+}
+
+// withResultDate returns a copy of sale with the result date 2026-month-day.
+func withResultDate(sale *entity.TicketSale, month time.Month, day int) *entity.TicketSale {
+	c := *sale
+	d := time.Date(2026, month, day, 0, 0, 0, 0, time.UTC)
+	c.ResultDate = &d
+	return &c
 }
 
 // ---- buildReminderPayload ----
@@ -251,6 +275,17 @@ func TestBuildReminderPayload(t *testing.T) {
 			wantText:  "Ticket sale (first come) starts Oct 6 (Tue) 19:00!\n" + kickoffTitle,
 		},
 		{
+			// @spec components/usecase/ticket-sale/scan-due-reminders "Result day in Japanese"
+			name: "Result day in Japanese", sale: lottery, stage: entity.ReminderStageResultDay, user: ja,
+			wantTitle: "今日は抽選結果の発表日",
+			wantText:  "申し込んだチケット抽選の結果が今日発表されます!!\n" + kickoffTitle,
+		},
+		{
+			name: "result day in English", sale: lottery, stage: entity.ReminderStageResultDay, user: en,
+			wantTitle: "Lottery Results Today",
+			wantText:  "The results of the ticket lottery you entered come out today!\n" + kickoffTitle,
+		},
+		{
 			name: "times are in the fan's time zone", sale: firstCome, stage: entity.ReminderStageApplyOpen,
 			user:      &entity.User{PreferredLanguage: "en", TimeZone: "Asia/Taipei"},
 			wantTitle: "First-Come Sale Starting Soon",
@@ -284,7 +319,9 @@ func TestBuildReminderPayload(t *testing.T) {
 
 		open := usecase.ExportedBuildReminderPayload(lottery, entity.ReminderStageApplyOpen, ja, kickoffTitle, "e")
 		closing := usecase.ExportedBuildReminderPayload(lottery, entity.ReminderStageApplyClose24H, ja, kickoffTitle, "e")
+		result := usecase.ExportedBuildReminderPayload(lottery, entity.ReminderStageResultDay, ja, kickoffTitle, "e")
 		assert.NotEqual(t, open.Tag, closing.Tag)
+		assert.NotEqual(t, closing.Tag, result.Tag)
 	})
 }
 
@@ -661,4 +698,127 @@ func TestReminderWorkflowID(t *testing.T) {
 		other.Stage = int16(entity.ReminderStageApplyClose24H)
 		assert.NotEqual(t, usecase.ExportedReminderWorkflowID(data, at(18, 30)), usecase.ExportedReminderWorkflowID(other, at(18, 30)))
 	})
+}
+
+// eveningZone returns an Etc/GMT zone in which now is between 23:00 and
+// 23:59, after the RESULT_DAY expiry but still on the same local day.
+func eveningZone(now time.Time) string {
+	offset := 23 - now.UTC().Hour()
+	if offset > 14 {
+		offset -= 24
+	}
+	switch {
+	case offset == 0:
+		return "Etc/GMT"
+	case offset > 0:
+		return fmt.Sprintf("Etc/GMT-%d", offset)
+	default:
+		return fmt.Sprintf("Etc/GMT+%d", -offset)
+	}
+}
+
+// closedLotteryWithResultToday returns a discovered lottery that closed 3 days
+// before now and whose result date is today in zone.
+func closedLotteryWithResultToday(now time.Time, zone string) *entity.TicketSale {
+	y, m, d := now.In(timeZone(zone)).Date()
+	result := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return &entity.TicketSale{
+		ID: "sale-result", SeriesID: "series-result", Method: entity.TicketSaleMethodLottery,
+		SaleStartTime:  now.AddDate(0, 0, -15),
+		SaleEndTime:    now.AddDate(0, 0, -3),
+		DiscoveredTime: new(now.AddDate(0, 0, -30)),
+		ResultDate:     &result,
+	}
+}
+
+func timeZone(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}
+
+// @spec components/usecase/ticket-sale/scan-due-reminders "Applied fan on the result day"
+// @spec components/usecase/ticket-sale/scan-due-reminders "Result day morning"
+func TestScanDueReminders_AppliedFanOnTheResultDay(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	zone := noonZone(now)
+	sale := closedLotteryWithResultToday(now, zone)
+	user := &entity.User{ID: "fan-applied", PreferredLanguage: "ja", TimeZone: zone}
+
+	d := newScanDeps(t, sale)
+	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-result").Return(nil, nil).Once()
+	d.journeyRepo.EXPECT().ListUserIDsAppliedSeries(mock.Anything, "series-result").
+		Return([]*entity.SeriesTracker{{UserID: user.ID, EventID: "event-nov1"}}, nil).Once()
+	d.recipient(sale, user, nil)
+	d.seriesTitle("series-result", "KICKOFF")
+	d.expectReminder("fan-applied", "sale-result", entity.ReminderStageResultDay, func(p *entity.NotificationPayload) bool {
+		return p.Title == "今日は抽選結果の発表日" &&
+			p.Body == "申し込んだチケット抽選の結果が今日発表されます!!\nKICKOFF" &&
+			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-nov1"
+	})
+
+	published, err := d.uc.ScanDueReminders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, published)
+}
+
+// @spec components/usecase/ticket-sale/scan-due-reminders "Tracking fan on the result day"
+func TestScanDueReminders_TrackingFanOnTheResultDay(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	zone := noonZone(now)
+	sale := closedLotteryWithResultToday(now, zone)
+	user := &entity.User{ID: "fan-tracking", PreferredLanguage: "ja", TimeZone: zone}
+
+	d := newScanDeps(t, sale)
+	d.audience(sale, user, "event-nov1", nil)
+	d.journeyRepo.EXPECT().ListUserIDsAppliedSeries(mock.Anything, "series-result").Return(nil, nil).Once()
+	// No publish is expected: the tracking fan's stages expired with the
+	// close, and RESULT_DAY reaches applied fans only.
+
+	published, err := d.uc.ScanDueReminders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, published)
+}
+
+// @spec components/usecase/ticket-sale/scan-due-reminders "Applied in the evening of the result day"
+func TestScanDueReminders_AppliedInTheEveningOfTheResultDay(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	zone := eveningZone(now)
+	sale := closedLotteryWithResultToday(now, zone)
+	user := &entity.User{ID: "fan-late", PreferredLanguage: "ja", TimeZone: zone}
+
+	d := newScanDeps(t, sale)
+	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-result").Return(nil, nil).Once()
+	d.journeyRepo.EXPECT().ListUserIDsAppliedSeries(mock.Anything, "series-result").
+		Return([]*entity.SeriesTracker{{UserID: user.ID, EventID: "event-nov1"}}, nil).Once()
+	d.recipient(sale, user, nil)
+	// No publish is expected: RESULT_DAY expired at 22:00 on the result date.
+
+	published, err := d.uc.ScanDueReminders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, published)
+}
+
+func TestScanDueReminders_NoAppliedLookupWithoutAResultDate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	sale := closedLotteryWithResultToday(now, noonZone(now))
+	sale.ResultDate = nil
+
+	d := newScanDeps(t, sale)
+	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-result").Return(nil, nil).Once()
+	// ListUserIDsAppliedSeries is not expected: the mock fails on a call.
+
+	published, err := d.uc.ScanDueReminders(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, published)
 }
