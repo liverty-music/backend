@@ -59,10 +59,6 @@ func (s CheckoutStatus) String() string {
 // is never extended.
 const CheckoutHoldDuration = 15 * time.Minute
 
-// CheckoutStalledCommitAge is how long a Committed Checkout may stay
-// uncompleted before the stalled-checkout job finishes it.
-const CheckoutStalledCommitAge = time.Minute
-
 // Checkout is how one fan's Order is bought first come, first served: during
 // a FirstCome TicketSale it holds the Order's tickets of its TicketStock for
 // 15 minutes while the fan confirms their 本人確認 (identity check) details and
@@ -81,9 +77,6 @@ type Checkout struct {
 	// TicketSaleID is the FirstCome TicketSale the checkout buys from; it
 	// names the event of the Order's TicketStock.
 	TicketSaleID TicketSaleID
-	// CardAuthorizationReleaseTime is when the Order's card authorization was
-	// given back without a charge; nil unless released. Set once.
-	CardAuthorizationReleaseTime *time.Time
 	// Status is the checkout's lifecycle status.
 	Status CheckoutStatus
 	// HoldExpireTime is 15 minutes after the checkout started; never extended.
@@ -139,8 +132,8 @@ func (r *Checkout) IsHoldingAt(t time.Time) bool {
 }
 
 // StatusAt returns the Checkout's status as of t: a Held Checkout whose
-// hold has lapsed is Expired, since it can never be committed, even before the
-// sweeper stores that; any other status is returned as stored.
+// hold has lapsed is Expired, since it can never be committed, even before
+// CheckoutUseCase.Expire stores that; any other status is returned as stored.
 func (r *Checkout) StatusAt(t time.Time) CheckoutStatus {
 	if r.Status == CheckoutStatusHeld && !r.IsHoldingAt(t) {
 		return CheckoutStatusExpired
@@ -208,7 +201,15 @@ type CheckoutRepository interface {
 	//  - FailedPrecondition: the application does not fit the event.
 	//  - NotFound: no TicketStock has the id, or the user does not exist, also
 	//    when it was deleted while the call waited.
+	//  - Unavailable: an announcement could not be recorded; nothing changed.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// On creation, ORDER.checkout_held with the new Checkout as Held, and
+	// ORDER.checkout_released or ORDER.checkout_expired with each Checkout it
+	// ends as it is after the change, all together with the creation. Nothing
+	// when it returns an existing holding Checkout.
 	GetOrCreateHeld(ctx context.Context, stockID TicketStockID, saleID TicketSaleID, userID UserID, count int, referralCode *ReferralCode, now time.Time) (*Checkout, error)
 
 	// Get returns the Checkout with the given id, whatever its status.
@@ -284,7 +285,13 @@ type CheckoutRepository interface {
 	//
 	//  - FailedPrecondition: the Checkout has a capture time.
 	//  - NotFound: no Checkout has the id.
+	//  - Unavailable: the announcement could not be recorded; nothing changed.
 	//  - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.checkout_released with the Checkout as Released, together with the
+	// revert. Nothing when it changed nothing.
 	RevertCommit(ctx context.Context, id CheckoutID) error
 
 	// RecordCapture stores the capture time of a Committed Checkout; the
@@ -297,37 +304,4 @@ type CheckoutRepository interface {
 	//  - NotFound: no Checkout has the id.
 	//  - Internal: database failure.
 	RecordCapture(ctx context.Context, id CheckoutID, at time.Time) error
-
-	// RecordCardAuthorizationRelease sets the card authorization release time
-	// of an Expired or Released Checkout whose Order has a card authorization.
-	// It changes nothing when the time is already set.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the Checkout is in another status or its Order
-	//    has no card authorization.
-	//  - NotFound: no Checkout has the id.
-	//  - Internal: database failure.
-	RecordCardAuthorizationRelease(ctx context.Context, id CheckoutID, at time.Time) error
-
-	// ListDue returns, oldest hold first, the Held Checkouts whose hold expired
-	// at or before now, the Expired and Released Checkouts whose Order has a
-	// card authorization and that have no card authorization release time,
-	// and the Committed Checkouts committed more than 1 minute before now.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database failure.
-	ListDue(ctx context.Context, now time.Time) ([]*Checkout, error)
-
-	// Serialize runs fn while holding an exclusive lock keyed on the
-	// Checkout, so calls for the same Checkout run one after the other
-	// and a second caller waits for the first. The lock is released when fn
-	// returns, and also when the process holding it dies.
-	//
-	// # Possible errors
-	//
-	//  - Internal: the lock could not be taken.
-	//  - Any error returned by fn, unchanged.
-	Serialize(ctx context.Context, id CheckoutID, fn func(ctx context.Context) error) error
 }

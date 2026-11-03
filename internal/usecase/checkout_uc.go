@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -16,8 +15,9 @@ import (
 // CheckoutUseCase runs a signed-in fan's first-come checkout on a TicketStock
 // while a FirstCome TicketSale of its event is open: holding the tickets,
 // reading the checkout, and storing the fan's 本人確認 (identity check)
-// details and opening the card authorization, plus the job that ends lapsed
-// checkouts and releases leftover card authorizations.
+// details and opening the card authorization, plus the workflow that ends
+// each hold at its expiry and the start of the release of each ended
+// Checkout's card authorization.
 type CheckoutUseCase interface {
 	// Start holds count tickets of the stock for the fan for 15 minutes with
 	// a Pending Order, or resumes the fan's holding Checkout of the stock with
@@ -61,15 +61,32 @@ type CheckoutUseCase interface {
 	//  - Unavailable: card payments cannot be reached.
 	AuthorizeCard(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error)
 
-	// ReleaseExpired makes lapsed Held Checkouts Expired with their Orders
-	// Void and gives back the card authorization of every ended Checkout's
-	// Order, reporting a captured one on an ended Checkout as needing an
-	// admin. One Checkout's failure never stops the others.
+	// Expire is the expiry workflow of one Held Checkout
+	// ([WorkflowExpireCheckout], named [ExpireWorkflowID]), which
+	// [CheckoutUseCase.StartCheckoutWorkflow] starts to run at the hold's
+	// expiry: it calls Checkout.Release with the hold expiry, which makes a
+	// Checkout still Held Expired and its Order Void, and leaves a Checkout
+	// committed, replaced or already ended unchanged.
 	//
 	// # Possible errors
 	//
-	//  - The listing's error.
-	ReleaseExpired(ctx context.Context) error
+	//  - NotFound: no Checkout has the id.
+	//  - Errors of the release, unchanged; Unavailable is tried again until
+	//    the workflow's deadline.
+	Expire(ctx context.Context, f Flow, in ExpireRequest) (struct{}, error)
+
+	// StartCheckoutWorkflow starts the workflow that follows one announced
+	// Checkout, as the consumer of its announcement: Expire for a Held
+	// Checkout, delayed until its hold expiry, and
+	// OrderUseCase.ReleaseCardAuthorization for the Order of an Expired or
+	// Released one. Each is named after the Checkout or its Order, so a
+	// repeated announcement starts nothing new. A Checkout in any other status
+	// starts nothing.
+	//
+	// # Possible errors
+	//
+	//  - Errors of starting the workflow, unchanged.
+	StartCheckoutWorkflow(ctx context.Context, checkout *entity.Checkout) error
 }
 
 // checkoutUseCase implements [CheckoutUseCase].
@@ -84,6 +101,7 @@ type checkoutUseCase struct {
 	eventState               EventPublishStatePort
 	eventRepo                entity.EventRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
+	workflows                Workflows
 	clock                    Clock
 	logger                   *logging.Logger
 }
@@ -91,7 +109,8 @@ type checkoutUseCase struct {
 // Compile-time interface compliance check.
 var _ CheckoutUseCase = (*checkoutUseCase)(nil)
 
-// CheckoutDeps are the dependencies of [NewCheckoutUseCase]. All are required.
+// CheckoutDeps are the dependencies of [NewCheckoutUseCase]. All are required
+// unless noted.
 type CheckoutDeps struct {
 	CheckoutRepo             entity.CheckoutRepository
 	SaleRepo                 entity.TicketSaleRepository
@@ -103,8 +122,11 @@ type CheckoutDeps struct {
 	EventState               EventPublishStatePort
 	EventRepo                entity.EventRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
-	Clock                    Clock
-	Logger                   *logging.Logger
+	// Workflows starts the workflow that follows an announced Checkout; a
+	// process that never starts them may leave it nil.
+	Workflows Workflows
+	Clock     Clock
+	Logger    *logging.Logger
 }
 
 // NewCheckoutUseCase constructs a CheckoutUseCase.
@@ -120,6 +142,7 @@ func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 		eventState:               d.EventState,
 		eventRepo:                d.EventRepo,
 		cardAuthorizations:       d.CardAuthorizations,
+		workflows:                d.Workflows,
 		clock:                    d.Clock,
 		logger:                   d.Logger,
 	}
@@ -314,47 +337,28 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 	return authorization.Secret, nil
 }
 
-// ReleaseExpired implements [CheckoutUseCase].
-func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
-	now := uc.clock()
-	due, err := uc.checkoutRepo.ListDue(ctx, now)
-	if err != nil {
-		return err
-	}
-	for _, checkout := range due {
-		switch checkout.Status {
-		case entity.CheckoutStatusHeld:
-			// Checkout.Release announces the Checkout it makes Expired.
-			if _, err := uc.checkoutRepo.Release(ctx, checkout.ID, now); err != nil {
-				uc.logger.Warn(ctx, "release sweep: failed to release checkout; retrying next run",
-					slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
-			}
-		case entity.CheckoutStatusExpired, entity.CheckoutStatusReleased:
-			uc.releaseCardAuthorization(ctx, checkout, now)
-		}
-	}
-	return nil
+// Expire implements [CheckoutUseCase].
+func (uc *checkoutUseCase) Expire(ctx context.Context, f Flow, in ExpireRequest) (struct{}, error) {
+	return Step(ctx, f, "release", func(ctx context.Context) (struct{}, error) {
+		_, err := uc.checkoutRepo.Release(ctx, in.CheckoutID, in.HoldExpireTime)
+		return struct{}{}, err
+	})
 }
 
-// releaseCardAuthorization releases the card authorization of an ended
-// checkout's Order and records it. A captured card authorization is reported
-// as needing an admin.
-func (uc *checkoutUseCase) releaseCardAuthorization(ctx context.Context, checkout *entity.Checkout, now time.Time) {
-	if err := uc.cardAuthorizations.Release(ctx, checkout.Order.CardAuthorizationID); err != nil {
-		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card authorization of an ended checkout was charged"),
-				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("card_authorization_id", checkout.Order.CardAuthorizationID),
-				slog.String("status", checkout.Status.String()),
-			)
-			return
-		}
-		uc.logger.Warn(ctx, "release sweep: failed to cancel card authorization; retrying next run",
-			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
-		return
-	}
-	if err := uc.checkoutRepo.RecordCardAuthorizationRelease(ctx, checkout.ID, now); err != nil {
-		uc.logger.Warn(ctx, "release sweep: failed to record card authorization release; retrying next run",
-			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
+// StartCheckoutWorkflow implements [CheckoutUseCase].
+func (uc *checkoutUseCase) StartCheckoutWorkflow(ctx context.Context, checkout *entity.Checkout) error {
+	now := uc.clock()
+	switch checkout.Status {
+	case entity.CheckoutStatusHeld:
+		// A late announcement starts the expiry at once.
+		delay := max(checkout.HoldExpireTime.Sub(now), 0)
+		return uc.workflows.Start(ctx, WorkflowExpireCheckout, ExpireWorkflowID(checkout.ID),
+			ExpireRequest{CheckoutID: checkout.ID, HoldExpireTime: checkout.HoldExpireTime},
+			WithDelay(delay), WithDeadline(now.Add(delay+expireWorkflowDeadline)))
+	case entity.CheckoutStatusExpired, entity.CheckoutStatusReleased:
+		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(checkout.OrderID), checkout.OrderID,
+			WithQueue(PaymentQueue), WithDeadline(now.Add(paymentWorkflowDeadline)))
+	default:
+		return nil
 	}
 }

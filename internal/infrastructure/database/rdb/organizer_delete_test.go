@@ -151,7 +151,7 @@ func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEv
 	buyerID := saleFan(t)
 	at := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
 	firstCome := seedStockForEvent(t, e.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-	e.checkoutID, e.checkoutOrderID = insertStockCheckout(t, firstCome, buyerID, entity.OrderStatusRefunded, entity.CheckoutStatusCompleted, 1, at, true, nil)
+	e.checkoutID, e.checkoutOrderID = insertStockCheckout(t, firstCome, buyerID, entity.OrderStatusRefunded, entity.CheckoutStatusCompleted, 1, at, true)
 	e.checkoutTicket = entity.NewID()
 	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		e.checkoutTicket, e.checkoutOrderID, buyerID, e.eventID, int16(entity.TicketStatusVoided), at)
@@ -331,15 +331,6 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			},
 		},
 		{
-			name: "an expired checkout whose card authorization is not released",
-			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
-				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
-				f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-				insertStockCheckout(t, f, o.followerID, entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, saleWindowStart, true, nil)
-				return o, nil
-			},
-		},
-		{
 			// @spec components/entity/organizer/delete "Payout account"
 			name: "a payout account",
 			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
@@ -379,12 +370,11 @@ func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 	ctx := context.Background()
 	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	start := saleWindowStart.Add(time.Hour)
-	released := start.Add(time.Minute)
 
 	t.Run("removes the sale and its ended checkouts", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		checkoutID, orderID := insertStockCheckout(t, f, o.followerID, entity.OrderStatusVoid, entity.CheckoutStatusReleased, 2, start, true, &released)
+		checkoutID, orderID := insertStockCheckout(t, f, o.followerID, entity.OrderStatusVoid, entity.CheckoutStatusReleased, 2, start, true)
 
 		require.NoError(t, repo.Delete(ctx, o.organizerID, false))
 
@@ -397,7 +387,7 @@ func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
 	t.Run("refuses a committed checkout's pending order", func(t *testing.T) {
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		checkoutID, _ := insertStockCheckout(t, f, o.followerID, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 2, start, true, nil)
+		checkoutID, _ := insertStockCheckout(t, f, o.followerID, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 2, start, true)
 
 		err := repo.Delete(ctx, o.organizerID, false)
 

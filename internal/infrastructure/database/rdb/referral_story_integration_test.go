@@ -123,11 +123,9 @@ func TestReferralStory_AbandonedCheckoutIsNotCounted(t *testing.T) {
 	checkout := s.hold(stock.ID, fan, 2, referralCode("member-a"))
 	s.authorizeCheckout(checkout, fan)
 
-	// The hold lapses and the release job ends the checkout.
+	// The hold lapses and its expiry ends the checkout.
 	s.now = checkout.HoldExpireTime.Add(time.Minute)
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
-	s.now = s.now.Add(time.Minute)
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
+	s.endLapsedHolds()
 	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, checkout.OrderID))
 	assert.Empty(t, s.salesTab(), "nothing is counted under member-a")
 }

@@ -28,6 +28,7 @@ type checkoutFixture struct {
 	events                *ucmocks.MockEventPublishStatePort
 	eventRepo             *entitymocks.MockEventRepository
 	auth                  *entitymocks.MockCardAuthorizationRepository
+	workflows             *ucmocks.MockWorkflows
 	uc                    usecase.CheckoutUseCase
 }
 
@@ -44,6 +45,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		events:                ucmocks.NewMockEventPublishStatePort(t),
 		eventRepo:             entitymocks.NewMockEventRepository(t),
 		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
+		workflows:             ucmocks.NewMockWorkflows(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             f.checkouts,
@@ -56,6 +58,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		EventState:               f.events,
 		EventRepo:                f.eventRepo,
 		CardAuthorizations:       f.auth,
+		Workflows:                f.workflows,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	})
@@ -642,72 +645,151 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 	})
 }
 
-func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
+func TestCheckoutUseCase_Expire(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
-	now := start.Add(16 * time.Minute)
+	expiry := start.Add(15 * time.Minute)
+	in := usecase.ExpireRequest{CheckoutID: "checkout-1", HoldExpireTime: expiry}
 
-	t.Run("count changed after authorizing", func(t *testing.T) {
+	t.Run("fan walked away", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Count changed after authorizing"
-		f := newCheckoutFixture(t, now)
-		replaced := fanCheckout(start)
-		replaced.Status, replaced.Order.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_2"
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{replaced}, nil)
-		f.auth.EXPECT().Release(mock.Anything, "pi_2").Return(nil)
-		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
+		// @spec components/usecase/checkout/expire "Fan walked away"
+		f := newCheckoutFixture(t, expiry)
+		// Release makes the still-Held Checkout Expired and its Order Void,
+		// judged at the hold expiry.
+		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), expiry).Return(true, nil).Once()
 
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
+		_, err := f.uc.Expire(context.Background(), &inlineFlow{}, in)
+
+		require.NoError(t, err)
 	})
 
-	t.Run("committed at the last moment", func(t *testing.T) {
+	t.Run("committed before the expiry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Committed at the last moment"
-		f := newCheckoutFixture(t, now)
-		lapsed := fanCheckout(start)
-		lapsed.Order.CardAuthorizationID = "pi_3"
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil)
-		// Committed meanwhile: Release changes nothing, and no card authorization is cancelled.
-		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(false, nil)
+		// @spec components/usecase/checkout/expire "Committed before the expiry"
+		f := newCheckoutFixture(t, expiry)
+		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), expiry).Return(false, nil).Once()
 
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
+		_, err := f.uc.Expire(context.Background(), &inlineFlow{}, in)
+
+		require.NoError(t, err, "a committed Checkout is left as it is")
 	})
 
-	t.Run("cancellation fails", func(t *testing.T) {
+	t.Run("process stopped while waiting", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Release fails"
-		f := newCheckoutFixture(t, now)
-		first := fanCheckout(start)
-		first.ID, first.Status, first.Order.CardAuthorizationID = "checkout-a", entity.CheckoutStatusExpired, "pi_a"
-		second := fanCheckout(start)
-		second.ID, second.Status, second.Order.CardAuthorizationID = "checkout-b", entity.CheckoutStatusExpired, "pi_b"
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{first, second}, nil)
-		f.auth.EXPECT().Release(mock.Anything, "pi_a").Return(apperr.New(apperr.ErrUnavailable.Code, "stripe down"))
-		f.auth.EXPECT().Release(mock.Anything, "pi_b").Return(nil)
-		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-b"), now).Return(nil)
+		// @spec components/usecase/checkout/expire "Process stopped while waiting"
+		// The expiry waits as the workflow's start delay, which the workflow
+		// runtime keeps across a stop; a run resumed after its release
+		// returns the recorded step and ends the hold only once.
+		f := newCheckoutFixture(t, expiry.Add(5*time.Minute))
+		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), expiry).Return(true, nil).Once()
+		flow := newReplayFlow()
 
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
+		_, err := f.uc.Expire(context.Background(), flow, in)
+		require.NoError(t, err)
+		_, err = f.uc.Expire(context.Background(), flow, in)
+
+		require.NoError(t, err)
 	})
 
-	t.Run("money taken on an ended checkout", func(t *testing.T) {
+	t.Run("release unavailable", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Money taken on an ended checkout"
-		f := newCheckoutFixture(t, now)
-		released := fanCheckout(start)
-		released.Status, released.Order.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil)
-		f.auth.EXPECT().Release(mock.Anything, "pi_charged").
-			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card authorization has already been charged"))
+		f := newCheckoutFixture(t, expiry)
+		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), expiry).Return(false, unavailable).Once()
 
-		// Reported (logged as needing an admin) and not recorded as released.
-		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
+		_, err := f.uc.Expire(context.Background(), &inlineFlow{}, in)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable, "the step is tried again until the deadline")
+	})
+}
+
+func TestCheckoutUseCase_StartCheckoutWorkflow(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
+	expiry := start.Add(15 * time.Minute)
+
+	// startOptions returns the options a Start was given.
+	startOptions := func(opts []usecase.StartOption) usecase.StartOptions {
+		return usecase.NewStartOptions(opts...)
+	}
+
+	t.Run("hold starts its expiry", func(t *testing.T) {
+		t.Parallel()
+		f := newCheckoutFixture(t, start)
+		held := fanCheckout(start)
+		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowExpireCheckout, "expire:checkout-1",
+			usecase.ExpireRequest{CheckoutID: "checkout-1", HoldExpireTime: expiry}, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _, _ string, _ any, opts ...usecase.StartOption) error {
+				o := startOptions(opts)
+				assert.Equal(t, 15*time.Minute, o.Delay, "it waits until the hold expiry")
+				assert.Equal(t, expiry.Add(24*time.Hour), o.Deadline)
+				return nil
+			}).Once()
+
+		require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), held))
 	})
 
-	t.Run("listing fails", func(t *testing.T) {
+	t.Run("late announcement expires at once", func(t *testing.T) {
 		t.Parallel()
-		f := newCheckoutFixture(t, now)
-		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return(nil, apperr.ErrInternal)
+		f := newCheckoutFixture(t, expiry.Add(time.Minute))
+		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowExpireCheckout, "expire:checkout-1", mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _, _ string, _ any, opts ...usecase.StartOption) error {
+				assert.Zero(t, startOptions(opts).Delay)
+				return nil
+			}).Once()
 
-		assert.ErrorIs(t, f.uc.ReleaseExpired(context.Background()), apperr.ErrInternal)
+		require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), fanCheckout(start)))
+	})
+
+	for _, tc := range []struct {
+		name, scenario string
+		status         entity.CheckoutStatus
+	}{
+		{"hold expired", "Hold expired", entity.CheckoutStatusExpired},
+		{"count changed after authorizing", "Count changed after authorizing", entity.CheckoutStatusReleased},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newCheckoutFixture(t, expiry)
+			ended := fanCheckout(start)
+			ended.Status = tc.status
+			f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowReleaseCardAuthorization, "release:order-1",
+				entity.OrderID("order-1"), mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _, _ string, _ any, opts ...usecase.StartOption) error {
+					o := startOptions(opts)
+					assert.Equal(t, usecase.PaymentQueue, o.Queue)
+					assert.Equal(t, expiry.Add(24*time.Hour), o.Deadline)
+					return nil
+				}).Once()
+
+			require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), ended), tc.scenario)
+		})
+	}
+
+	t.Run("repeated delivery", func(t *testing.T) {
+		t.Parallel()
+		// A redelivered announcement starts the same id, which the workflow
+		// runtime starts once.
+		f := newCheckoutFixture(t, start)
+		var ids []string
+		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowExpireCheckout, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
+				ids = append(ids, id)
+				return nil
+			}).Twice()
+
+		require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), fanCheckout(start)))
+		require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), fanCheckout(start)))
+
+		assert.Equal(t, []string{"expire:checkout-1", "expire:checkout-1"}, ids)
+	})
+
+	t.Run("committed checkout starts nothing", func(t *testing.T) {
+		t.Parallel()
+		f := newCheckoutFixture(t, start)
+		committed := fanCheckout(start)
+		committed.Status = entity.CheckoutStatusCommitted
+
+		require.NoError(t, f.uc.StartCheckoutWorkflow(context.Background(), committed))
 	})
 }

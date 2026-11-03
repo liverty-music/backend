@@ -13,7 +13,7 @@ import (
 )
 
 // EventOrganizerRepository resolves the Organizer that owns an event, via its
-// Series, so the issuance path can stamp the denormalized OrganizerID on the
+// Series, so the issue workflow can stamp the denormalized OrganizerID on the
 // Held Settlement it creates alongside the Order (backend#468). A minimal
 // read-only interface so OrderUseCase does not depend on the full
 // SeriesRepository. Interfaces are defined where consumed (AGENTS.md rule).
@@ -27,31 +27,6 @@ type EventOrganizerRepository interface {
 	//    organizer-authored (a discovery-pipeline series has no Organizer).
 	//  - Internal: database query failure.
 	GetOrganizerID(ctx context.Context, eventID string) (string, error)
-}
-
-// unissuedChargeReportAge is how long a charged checkout may stay unissued
-// before every run of the stalled-checkout job reports it to an admin.
-const unissuedChargeReportAge = 10 * time.Minute
-
-// LogKeyNeedsOperator is the log message of a purchase that needs an admin:
-// money was taken without tickets. A log-based alert on it pages the admin;
-// the alert in cloud-provisioning (monitoring.ts) matches this text and reads
-// the checkout_id and card_authorization_id fields, so the constant and its
-// text keep their names.
-const LogKeyNeedsOperator = "checkout needs an operator"
-
-// issue is the issuance core of a checkout: it resolves the event's Organizer
-// and its fee rate and issues the Order with issueWith.
-func (uc *orderUseCase) issue(ctx context.Context, order *entity.Order, eventID, identityVerificationID string, captured *entity.CapturedPayment) (*entity.Order, error) {
-	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
-	if err != nil {
-		return nil, err
-	}
-	return uc.issueWith(ctx, order, eventID, organizerID, organizer.PlatformFeeRateBps, identityVerificationID, captured)
 }
 
 // issueWith makes the Pending Order Paid with the captured payment, builds
@@ -121,186 +96,205 @@ func (uc *orderUseCase) identityVerificationBinding(ctx context.Context, sale *e
 	return identityVerification.ID, nil
 }
 
-// IssueFromCheckout implements [OrderUseCase]. The whole call runs under
-// the Checkout's lock, so a double tap or the stalled-checkout job waits for
-// the first call and then takes the idempotent path.
-func (uc *orderUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
-	var order *entity.Order
-	err := uc.checkoutRepo.Serialize(ctx, checkoutID, func(ctx context.Context) error {
-		var err error
-		order, err = uc.issueFromCheckout(ctx, checkoutID, caller)
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	return order, nil
-}
+// placeWait is how long Place waits for the issue of a Checkout before it
+// tells the fan the purchase is still being completed.
+const placeWait = 30 * time.Second
 
-func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
+// Place implements [OrderUseCase]. Every check a fan can fix runs here, before
+// the workflow starts: a workflow runs once per id, so an outcome it records
+// would answer the fan's next try too.
+func (uc *orderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID, userID entity.UserID, now time.Time) (*entity.Order, error) {
 	attrs := slog.String("checkout_id", string(checkoutID))
 
-	// 1. Ownership first, without revealing whether the Checkout exists.
+	// Ownership first, without revealing whether the Checkout exists, so a fan
+	// never joins another fan's workflow.
 	checkout, err := uc.checkoutRepo.Get(ctx, checkoutID)
-	if err != nil {
-		if caller != nil && errors.Is(err, apperr.ErrNotFound) {
-			return nil, apperr.New(codes.PermissionDenied, "checkout is not the caller's", attrs)
-		}
-		return nil, err
-	}
-	if caller != nil && checkout.Order.UserID != *caller {
+	if errors.Is(err, apperr.ErrNotFound) {
 		return nil, apperr.New(codes.PermissionDenied, "checkout is not the caller's", attrs)
 	}
-
-	// 2. A Paid Order ends the call.
-	if isPaid(checkout.Order) {
-		return checkout.Order, nil
-	}
-
-	now := uc.clock()
-	sale, err := uc.ticketSaleRepo.Get(ctx, checkout.TicketSaleID)
 	if err != nil {
 		return nil, err
 	}
-	eventID, err := uc.orderRepo.GetEventID(ctx, checkout.OrderID)
+	order, err := uc.orderRepo.Get(ctx, checkout.OrderID)
 	if err != nil {
 		return nil, err
 	}
-
-	if checkout.Status == entity.CheckoutStatusHeld {
-		// 3. Holding, published and authorized, checked before the card.
-		if !checkout.IsHoldingAt(now) {
-			return nil, apperr.New(codes.FailedPrecondition, "the hold has lapsed", attrs)
-		}
-		published, err := uc.eventState.IsEventPublished(ctx, eventID)
-		if err != nil {
-			return nil, err
-		}
-		if !published {
-			return nil, apperr.New(codes.FailedPrecondition, "the concert is not published", attrs)
-		}
-		if checkout.Order.CardAuthorizationID == "" {
-			return nil, apperr.New(codes.FailedPrecondition, "the card was not authorized", attrs)
-		}
+	if order.UserID != userID {
+		return nil, apperr.New(codes.PermissionDenied, "checkout is not the caller's", attrs)
 	}
-
-	// The IdentityVerification binding is read before the commit and the charge, so a user
-	// without a IdentityVerification is never charged.
-	identityVerificationID, err := uc.identityVerificationBinding(ctx, sale, checkout.Order.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	if checkout.Status == entity.CheckoutStatusHeld {
-		// 4. The card authorization must be authorized and for the Order's amount.
-		authorization, err := uc.cardAuthorizations.Get(ctx, checkout.Order.CardAuthorizationID)
-		if err != nil {
-			return nil, err
-		}
-		if err := authorization.Confirm(entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: checkout.ID}, checkout.Order.Amount); err != nil {
-			return nil, err
-		}
-		// 5. Commit while holding.
-		outcome, err := uc.checkoutRepo.Commit(ctx, checkoutID, now)
-		if err != nil {
-			return nil, err
-		}
-		if outcome == entity.CommitOutcomeNotHeld {
-			return nil, apperr.New(codes.FailedPrecondition, "the checkout is no longer holding", attrs)
-		}
-		if checkout, err = uc.checkoutRepo.Get(ctx, checkoutID); err != nil {
-			return nil, err
-		}
+	if isPaid(order) {
+		return order, nil
 	}
 
 	switch checkout.Status {
-	case entity.CheckoutStatusCommitted, entity.CheckoutStatusCompleted:
+	case entity.CheckoutStatusHeld:
+		if err := uc.checkPlaceable(ctx, checkout, order, now); err != nil {
+			return nil, err
+		}
+	case entity.CheckoutStatusCommitted:
+		// Placed before: wait for the same run.
 	default:
 		return nil, apperr.New(codes.FailedPrecondition, "the checkout has ended", attrs,
 			slog.String("status", checkout.Status.String()))
 	}
 
-	// Charge once: a Checkout with a capture time is never charged again.
-	if !checkout.IsCharged() {
-		if err := uc.cardAuthorizations.Capture(ctx, checkout.Order.CardAuthorizationID); err != nil {
-			if errors.Is(err, apperr.ErrFailedPrecondition) {
-				if revertErr := uc.checkoutRepo.RevertCommit(ctx, checkoutID); revertErr != nil {
-					return nil, revertErr
-				}
-			}
-			return nil, err
-		}
-		if err := uc.checkoutRepo.RecordCapture(ctx, checkoutID, uc.clock()); err != nil {
-			return nil, err
-		}
+	id := IssueWorkflowID(order.ID)
+	if err := uc.workflows.Start(ctx, WorkflowIssue, id, IssueRequest{CheckoutID: checkout.ID},
+		WithQueue(CheckoutQueue), WithDeadline(now.Add(paymentWorkflowDeadline))); err != nil {
+		return nil, err
 	}
-
-	// The charge is the card authorization; its facets are read back from the provider,
-	// as for a lottery win.
-	captured, err := uc.capturedPayment(ctx, checkout.Order.CardAuthorizationID)
+	result, err := Await[IssueResult](ctx, uc.workflows, id, placeWait)
+	if errors.Is(err, apperr.ErrDeadlineExceeded) {
+		return nil, apperr.Wrap(err, codes.Unavailable, "the purchase is still being completed", attrs)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return uc.issue(ctx, checkout.Order, eventID, identityVerificationID, captured)
+	if !result.Paid {
+		return nil, apperr.New(codes.FailedPrecondition, "the order could not be placed: the hold was over or the card could not be charged", attrs)
+	}
+	return uc.orderRepo.Get(ctx, order.ID)
 }
 
-// IssueDueCheckouts implements [OrderUseCase].
-func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
-	now := uc.clock()
-	due, err := uc.checkoutRepo.ListDue(ctx, now)
+// checkPlaceable checks a Held Checkout and its Order before anything is
+// committed: holding at now, the concert published, the card authorization
+// Authorized for the Order's amount, and the user's IdentityVerification when
+// the sale requires verification.
+func (uc *orderUseCase) checkPlaceable(ctx context.Context, checkout *entity.Checkout, order *entity.Order, now time.Time) error {
+	attrs := slog.String("checkout_id", string(checkout.ID))
+	if !checkout.IsHoldingAt(now) {
+		return apperr.New(codes.FailedPrecondition, "the hold has lapsed", attrs)
+	}
+	stock, err := uc.stockRepo.Get(ctx, order.TicketStockID, now)
 	if err != nil {
 		return err
 	}
-	for _, checkout := range due {
-		if checkout.Status != entity.CheckoutStatusCommitted {
-			continue
-		}
-		if checkout.IsCharged() && now.Sub(*checkout.CaptureTime) > unissuedChargeReportAge {
-			uc.logger.Error(ctx, LogKeyNeedsOperator,
-				errors.New("a charged checkout is still not issued"),
-				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("card_authorization_id", checkout.Order.CardAuthorizationID),
-				slog.Time("capture_time", *checkout.CaptureTime),
-			)
-		}
-		if _, err := uc.IssueFromCheckout(ctx, checkout.ID, nil); err != nil {
-			// One failure never stops the others; the next run retries.
-			uc.logger.Warn(ctx, "stalled-checkout sweep: failed to issue checkout; skipping",
-				slog.String("checkout_id", string(checkout.ID)),
-				slog.Any("error", err),
-			)
-		}
-	}
-	return nil
-}
-
-// FulfillPayment implements [OrderUseCase]. Order.Issue announces the
-// issued Order as paid (ORDER.paid); a charge reported again finds the Order
-// Paid and announces nothing.
-func (uc *orderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID string) error {
-	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
-	switch {
-	case err == nil:
-		_, err = uc.IssueFromCheckout(ctx, checkout.ID, nil)
-		return err
-	case !errors.Is(err, apperr.ErrNotFound):
-		return err
-	}
-	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
-	if errors.Is(err, apperr.ErrNotFound) {
-		uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
-			slog.String("card_authorization_id", cardAuthorizationID))
-		return nil
-	}
+	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
 	if err != nil {
 		return err
 	}
-	// The issue workflow charged the entry's Order and made it Paid; the
-	// notice of that charge changes nothing.
-	uc.logger.Info(ctx, "completed charge of a lottery entry; issued by its issue workflow",
-		slog.String("card_authorization_id", cardAuthorizationID),
-		slog.String("lottery_entry_id", string(entry.ID)))
-	return nil
+	if !published {
+		return apperr.New(codes.FailedPrecondition, "the concert is not published", attrs)
+	}
+	if order.CardAuthorizationID == "" {
+		return apperr.New(codes.FailedPrecondition, "the card was not authorized", attrs)
+	}
+	authorization, err := uc.cardAuthorizations.Get(ctx, order.CardAuthorizationID)
+	if err != nil {
+		return err
+	}
+	if err := authorization.Confirm(entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: checkout.ID}, order.Amount); err != nil {
+		return err
+	}
+	sale, err := uc.ticketSaleRepo.Get(ctx, checkout.TicketSaleID)
+	if err != nil {
+		return err
+	}
+	_, err = uc.identityVerificationBinding(ctx, sale, order.UserID)
+	return err
+}
+
+// checkoutCommit is what the commit step of a Checkout's issue records.
+type checkoutCommit struct {
+	// Committed is false when the Checkout was not holding at the commit.
+	Committed bool `json:"committed"`
+	// Charged is true when the Checkout already has a capture time.
+	Charged bool `json:"charged"`
+}
+
+// issueCheckout commits a placed Checkout's tickets, charges its Order once
+// and issues it.
+func (uc *orderUseCase) issueCheckout(ctx context.Context, f Flow, checkoutID entity.CheckoutID) (IssueResult, error) {
+	attrs := slog.String("checkout_id", string(checkoutID))
+	// Every read that can fail for a data reason runs before the commit and
+	// the charge.
+	plan, err := Step(ctx, f, "read", func(ctx context.Context) (issuePlan, error) {
+		return uc.planCheckoutIssue(ctx, checkoutID)
+	})
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if plan.Paid {
+		return IssueResult{OrderID: plan.OrderID, Paid: true}, nil
+	}
+
+	// The commit judges "holding" at the time the step runs, never the
+	// placement time: a hold that lapsed while Issue waited in the queue may
+	// have had its tickets sold to another fan.
+	commit, err := Step(ctx, f, "commit", func(ctx context.Context) (checkoutCommit, error) {
+		outcome, err := uc.checkoutRepo.Commit(ctx, checkoutID, uc.clock())
+		if err != nil || outcome == entity.CommitOutcomeNotHeld {
+			return checkoutCommit{}, err
+		}
+		checkout, err := uc.checkoutRepo.Get(ctx, checkoutID)
+		if err != nil {
+			return checkoutCommit{}, err
+		}
+		return checkoutCommit{Committed: true, Charged: checkout.IsCharged()}, nil
+	})
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if !commit.Committed {
+		uc.logger.Info(ctx, "checkout not issued: the hold was over at the commit", attrs,
+			slog.String("order_id", string(plan.OrderID)))
+		return IssueResult{OrderID: plan.OrderID}, nil
+	}
+
+	// Charge once: a Checkout with a capture time is never charged again.
+	if !commit.Charged {
+		charged, err := uc.capture(ctx, f, plan)
+		if err != nil {
+			return IssueResult{}, err
+		}
+		if !charged {
+			if _, err := Step(ctx, f, "revert commit", func(ctx context.Context) (struct{}, error) {
+				return struct{}{}, uc.checkoutRepo.RevertCommit(ctx, checkoutID)
+			}); err != nil {
+				return IssueResult{}, err
+			}
+			uc.logger.Info(ctx, "checkout commit reverted: the card could not be charged", attrs,
+				slog.String("order_id", string(plan.OrderID)))
+			return IssueResult{OrderID: plan.OrderID}, nil
+		}
+		if _, err := Step(ctx, f, "record capture", func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, uc.checkoutRepo.RecordCapture(ctx, checkoutID, uc.clock())
+		}); err != nil {
+			return IssueResult{}, err
+		}
+	}
+
+	return uc.issueCaptured(ctx, f, plan)
+}
+
+// planCheckoutIssue reads the Checkout, its Order, the Order's stock, the
+// Checkout's sale, the event's Organizer and the IdentityVerification binding.
+func (uc *orderUseCase) planCheckoutIssue(ctx context.Context, checkoutID entity.CheckoutID) (issuePlan, error) {
+	checkout, err := uc.checkoutRepo.Get(ctx, checkoutID)
+	if err != nil {
+		return issuePlan{}, err
+	}
+	order, err := uc.orderRepo.Get(ctx, checkout.OrderID)
+	if err != nil {
+		return issuePlan{}, err
+	}
+	if isPaid(order) {
+		return issuePlan{OrderID: order.ID, Paid: true}, nil
+	}
+	return uc.planOrder(ctx, order, checkout.TicketSaleID)
+}
+
+// capture charges the plan's card authorization as the step "capture" and
+// reports whether it was charged; false means it can no longer be charged.
+func (uc *orderUseCase) capture(ctx context.Context, f Flow, plan issuePlan) (bool, error) {
+	return Step(ctx, f, "capture", func(ctx context.Context) (bool, error) {
+		err := uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
+		if errors.Is(err, apperr.ErrFailedPrecondition) {
+			// The card authorization can no longer be charged: a result.
+			return false, nil
+		}
+		return err == nil, err
+	})
 }
 
 // capturedPayment reads the payment a Captured CardAuthorization took, for the

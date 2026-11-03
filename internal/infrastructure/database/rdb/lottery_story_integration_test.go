@@ -75,9 +75,12 @@ type lotteryStory struct {
 	eventID     string
 	saleIDs     []entity.TicketSaleID
 
-	cards  *fakeCards
-	mailer *storyMailer
-	pushes *pushStarts
+	cards *fakeCards
+	// checkoutCards captures and releases the card authorizations the
+	// in-memory provider did not open: the first-come stories' Stripe ones.
+	checkoutCards *routedCards
+	mailer        *storyMailer
+	pushes        *pushStarts
 
 	seatTypes     usecase.SeatTypeUseCase
 	stocks        usecase.TicketStockUseCase
@@ -89,6 +92,10 @@ type lotteryStory struct {
 	webhooks      usecase.StripeWebhookService
 	notifications usecase.NotificationUseCase
 	drawn         *event.LotteryEntryDrawnConsumer
+	// expiry is the worker's CheckoutUseCase; checkoutStarter starts the
+	// workflows that follow an announced Checkout, as the event consumer does.
+	expiry          usecase.CheckoutUseCase
+	checkoutStarter *event.CheckoutConsumer
 
 	// worker runs the workflows; client starts and awaits them, as the
 	// event consumer does.
@@ -96,7 +103,7 @@ type lotteryStory struct {
 	client *workflow.Client
 	// drawnMark, paidMark and enteredMark are the outbox offsets up to which
 	// the story handed announcements to their consumers.
-	drawnMark, paidMark, enteredMark int64
+	drawnMark, paidMark, enteredMark, checkoutMark int64
 	// followUps are the issue and release workflows started for drawn
 	// entries and not awaited yet.
 	followUps []string
@@ -128,18 +135,20 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		t:   t,
 		ctx: context.Background(),
 		// The Organizer sets the sale up a day before it opens.
-		now:         storyWindowStart.Add(-24 * time.Hour),
-		logger:      logger,
-		cards:       newFakeCards(),
-		pushes:      &pushStarts{},
-		drawnMark:   outboxMark(t),
-		paidMark:    outboxMark(t),
-		enteredMark: outboxMark(t),
-		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
-		userRepo:    rdb.NewUserRepository(testDB, testOutbox),
-		journeyRepo: rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		now:          storyWindowStart.Add(-24 * time.Hour),
+		logger:       logger,
+		cards:        newFakeCards(),
+		pushes:       &pushStarts{},
+		drawnMark:    outboxMark(t),
+		paidMark:     outboxMark(t),
+		enteredMark:  outboxMark(t),
+		checkoutMark: outboxMark(t),
+		orderRepo:    orderRepository(t, rdb.NewOrderRepository(testDB)),
+		userRepo:     rdb.NewUserRepository(testDB, testOutbox),
+		journeyRepo:  rdb.NewTicketJourneyRepository(testDB, testOutbox),
 	}
 	s.seedOrganizerEvent()
+	s.checkoutCards = &routedCards{fake: s.cards}
 
 	clock := usecase.Clock(func() time.Time { return s.now })
 	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
@@ -173,9 +182,12 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		TicketRepo:               ticketRepo,
 		EventState:               eventState,
 		EventRepo:                eventRepo,
-		CardAuthorizations:       s.cards,
+		CardAuthorizations:       s.checkoutCards,
 		Clock:                    clock,
 		Logger:                   logger,
+	})
+	s.expiry = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+		CheckoutRepo: rdb.NewCheckoutRepository(testDB, testOutbox), Clock: clock, Logger: logger,
 	})
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
 		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
@@ -183,8 +195,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(testDB, testOutbox),
 		rdb.NewFollowRepository(testDB, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil,
-		s.orders, logger)
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
@@ -210,6 +221,9 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.drawn = event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
 	}), s.notifications, logger)
+	s.checkoutStarter = event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+		Workflows: s.client, Clock: clock, Logger: logger,
+	}), logger)
 	return s
 }
 
@@ -235,6 +249,8 @@ func (s *lotteryStory) startWorker() {
 	require.NoError(s.t, rt.RegisterQueue(usecase.PaymentQueue, usecase.PaymentQueueConcurrency))
 	workflow.Register(rt, usecase.WorkflowIssue, s.orders.Issue)
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, s.orders.ReleaseCardAuthorization)
+	require.NoError(s.t, rt.RegisterQueue(usecase.CheckoutQueue, usecase.CheckoutQueueConcurrency))
+	workflow.Register(rt, usecase.WorkflowExpireCheckout, s.expiry.Expire)
 	require.NoError(s.t, rt.Launch())
 	var once sync.Once
 	s.worker = rt
@@ -414,6 +430,56 @@ func (s *lotteryStory) awaitFollowUps() {
 			s.await(id)
 		}
 		s.startFollowUps()
+	}
+}
+
+// startCheckoutFollowUps hands the announcements of subjects (by default
+// ORDER.checkout_held, ORDER.checkout_expired and ORDER.checkout_released)
+// recorded since the last call to the workflow starter, as NATS delivers
+// them, at the story's clock, and returns the ids of the workflows it starts:
+// a hold's expiry, delayed until the hold expiry, and the release of an ended
+// Checkout's card authorization.
+func (s *lotteryStory) startCheckoutFollowUps(subjects ...string) []string {
+	s.t.Helper()
+	if len(subjects) == 0 {
+		subjects = []string{entity.SubjectCheckoutHeld, entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased}
+	}
+	next := outboxMark(s.t)
+	var ids []string
+	for _, subject := range subjects {
+		for _, msg := range announcedMessages(s.t, s.checkoutMark, subject) {
+			require.NoError(s.t, s.checkoutStarter.HandleStartWorkflow(msg))
+			var c entityv1.Checkout
+			require.NoError(s.t, proto.Unmarshal(msg.Payload, &c))
+			if subject == entity.SubjectCheckoutHeld {
+				ids = append(ids, usecase.ExpireWorkflowID(entity.CheckoutID(c.GetId().GetValue())))
+			} else {
+				ids = append(ids, usecase.ReleaseWorkflowID(entity.OrderID(c.GetOrderId().GetValue())))
+			}
+		}
+	}
+	s.checkoutMark = next
+	return ids
+}
+
+// endLapsedHolds runs, at the story's clock after the holds lapsed, the work
+// that follows each announced Checkout: the expiry of each hold, then the
+// release of each ended Checkout's card authorization.
+func (s *lotteryStory) endLapsedHolds() {
+	s.t.Helper()
+	for ids := s.startCheckoutFollowUps(); len(ids) > 0; ids = s.startCheckoutFollowUps() {
+		for _, id := range ids {
+			s.await(id)
+		}
+	}
+}
+
+// releaseEndedCheckouts runs the release of the card authorization of each
+// Checkout announced as ended, leaving the holds' expiries unstarted.
+func (s *lotteryStory) releaseEndedCheckouts() {
+	s.t.Helper()
+	for _, id := range s.startCheckoutFollowUps(entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased) {
+		s.await(id)
 	}
 }
 

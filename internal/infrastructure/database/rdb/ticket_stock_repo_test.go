@@ -45,9 +45,9 @@ func insertStockOrder(t *testing.T, f *stockFixture, userID string, status entit
 // insertStockCheckout stores a Checkout in the given status, holding until
 // holdExpire, that names a new Order of count tickets of the stock in
 // orderStatus, and returns the checkout's and the order's ids. withAuth gives
-// the Order a card authorization; releaseAt, when set, records it released.
+// the Order a card authorization.
 func insertStockCheckout(t *testing.T, f *stockFixture, userID string, orderStatus entity.OrderStatus, status entity.CheckoutStatus,
-	count int, holdExpire time.Time, withAuth bool, releaseAt *time.Time,
+	count int, holdExpire time.Time, withAuth bool,
 ) (checkoutID, orderID string) {
 	t.Helper()
 	orderID = insertStockOrder(t, f, userID, orderStatus, count, withAuth)
@@ -60,9 +60,9 @@ func insertStockCheckout(t *testing.T, f *stockFixture, userID string, orderStat
 		captureAt = holdExpire.Add(-time.Minute)
 	}
 	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO checkouts (id, status, hold_expire_at, commit_at, capture_at, card_authorization_release_at, order_id, ticket_sale_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		checkoutID, int16(status), holdExpire, commitAt, captureAt, releaseAt, orderID, string(f.SaleID))
+		INSERT INTO checkouts (id, status, hold_expire_at, commit_at, capture_at, order_id, ticket_sale_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		checkoutID, int16(status), holdExpire, commitAt, captureAt, orderID, string(f.SaleID))
 	require.NoError(t, err)
 	return checkoutID, orderID
 }
@@ -86,7 +86,7 @@ func insertStockEntry(t *testing.T, f *stockFixture, userID string, orderStatus 
 func insertHolds(t *testing.T, f *stockFixture, holdExpire time.Time, counts ...int) {
 	t.Helper()
 	for _, n := range counts {
-		insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, n, holdExpire, true, nil)
+		insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, n, holdExpire, true)
 	}
 }
 
@@ -245,7 +245,6 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 	holding := at.Add(entity.CheckoutHoldDuration)
-	released := at.Add(-time.Hour)
 
 	read := func(t *testing.T, f *stockFixture) *entity.TicketStock {
 		t.Helper()
@@ -299,14 +298,14 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
 		pending, paid, refunded, void := entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid
 		// Held: a Pending Order whose Checkout holds at the read time.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 1, holding, true, nil)
+		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 1, holding, true)
 		// Neither: the hold lapsed at the read time, not yet recorded Expired.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 2, at, true, nil)
+		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 2, at, true)
 		// Sold: a Pending Order whose Checkout is Committed.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusCommitted, 3, holding, true, nil)
+		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusCommitted, 3, holding, true)
 		// Sold: Paid and Refunded Orders of a Completed Checkout.
-		insertStockCheckout(t, f, saleFan(t), paid, entity.CheckoutStatusCompleted, 4, holding, true, nil)
-		insertStockCheckout(t, f, saleFan(t), refunded, entity.CheckoutStatusCompleted, 5, holding, true, nil)
+		insertStockCheckout(t, f, saleFan(t), paid, entity.CheckoutStatusCompleted, 4, holding, true)
+		insertStockCheckout(t, f, saleFan(t), refunded, entity.CheckoutStatusCompleted, 5, holding, true)
 		// Sold: a Pending Order of a Won entry and a Refunded one of a Won entry.
 		insertStockEntry(t, f, saleFan(t), pending, entity.LotteryEntryStateWon, 6)
 		insertStockEntry(t, f, saleFan(t), refunded, entity.LotteryEntryStateWon, 7)
@@ -314,8 +313,8 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 		// entry and of Expired and Released Checkouts.
 		insertStockEntry(t, f, saleFan(t), pending, entity.LotteryEntryStateEntered, 8)
 		insertStockEntry(t, f, saleFan(t), void, entity.LotteryEntryStateLost, 9)
-		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusExpired, 10, at.Add(-time.Hour), true, &released)
-		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusReleased, 10, holding, true, &released)
+		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusExpired, 10, at.Add(-time.Hour), true)
+		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusReleased, 10, holding, true)
 
 		got := read(t, f)
 
@@ -395,7 +394,6 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 	repo := rdb.NewTicketStockRepository(testDB)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
-	released := at.Add(-time.Minute)
 
 	stockExists := func(t *testing.T, f *stockFixture) bool {
 		t.Helper()
@@ -419,11 +417,15 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 
 	t.Run("stock with an abandoned checkout", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/delete "Stock with an abandoned checkout"
+		// @spec components/entity/ticket-stock/delete "Void order with a card authorization not yet released"
+		// The Void Order's card authorization may still be held: its release
+		// workflow, failing with NotFound on the removed Order, is reported to
+		// an admin (OrderUseCase.ReleaseCardAuthorization).
 		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
-		checkoutID, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 2, at, true, &released)
+		checkoutID, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 2, at, true)
 		// A checkout that expired before the fan authorized a card has nothing
 		// to release.
-		unauthorizedID, unauthorizedOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, false, nil)
+		unauthorizedID, unauthorizedOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, false)
 
 		require.NoError(t, repo.Delete(ctx, f.ID))
 
@@ -450,18 +452,10 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 		setup func(t *testing.T, f *stockFixture) string
 	}{
 		{
-			// @spec components/entity/ticket-stock/delete "Void order with a card authorization not yet released"
-			name: "a void order whose card authorization is not yet released",
-			setup: func(t *testing.T, f *stockFixture) string {
-				_, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 2, at, true, nil)
-				return orderID
-			},
-		},
-		{
 			// @spec components/entity/ticket-stock/delete "Stock with a pending order"
 			name: "a pending order of a held checkout",
 			setup: func(t *testing.T, f *stockFixture) string {
-				_, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, 2, at.Add(entity.CheckoutHoldDuration), true, nil)
+				_, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, 2, at.Add(entity.CheckoutHoldDuration), true)
 				return orderID
 			},
 		},
@@ -491,7 +485,7 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 		t.Run("refuses "+tc.name+" and removes nothing", func(t *testing.T) {
 			f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
 			// An abandoned checkout the delete would remove with the stock.
-			_, voidOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, true, &released)
+			_, voidOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, true)
 			blocker := tc.setup(t, f)
 
 			err := repo.Delete(ctx, f.ID)

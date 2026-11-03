@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -131,6 +132,78 @@ func (_c *MockCheckoutUseCase_AuthorizeCard_Call) RunAndReturn(run func(ctx cont
 	return _c
 }
 
+// Expire provides a mock function for the type MockCheckoutUseCase
+func (_mock *MockCheckoutUseCase) Expire(ctx context.Context, f usecase.Flow, in usecase.ExpireRequest) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Expire")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ExpireRequest) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ExpireRequest) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.ExpireRequest) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockCheckoutUseCase_Expire_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Expire'
+type MockCheckoutUseCase_Expire_Call struct {
+	*mock.Call
+}
+
+// Expire is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.ExpireRequest
+func (_e *MockCheckoutUseCase_Expecter) Expire(ctx any, f any, in any) *MockCheckoutUseCase_Expire_Call {
+	return &MockCheckoutUseCase_Expire_Call{Call: _e.mock.On("Expire", ctx, f, in)}
+}
+
+func (_c *MockCheckoutUseCase_Expire_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.ExpireRequest)) *MockCheckoutUseCase_Expire_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.ExpireRequest
+		if args[2] != nil {
+			arg2 = args[2].(usecase.ExpireRequest)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCheckoutUseCase_Expire_Call) Return(val struct{}, err error) *MockCheckoutUseCase_Expire_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockCheckoutUseCase_Expire_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.ExpireRequest) (struct{}, error)) *MockCheckoutUseCase_Expire_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function for the type MockCheckoutUseCase
 func (_mock *MockCheckoutUseCase) Get(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID) (*entity.Checkout, error) {
 	ret := _mock.Called(ctx, userID, checkoutID)
@@ -201,57 +274,6 @@ func (_c *MockCheckoutUseCase_Get_Call) Return(checkout *entity.Checkout, err er
 }
 
 func (_c *MockCheckoutUseCase_Get_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID) (*entity.Checkout, error)) *MockCheckoutUseCase_Get_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReleaseExpired provides a mock function for the type MockCheckoutUseCase
-func (_mock *MockCheckoutUseCase) ReleaseExpired(ctx context.Context) error {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReleaseExpired")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockCheckoutUseCase_ReleaseExpired_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseExpired'
-type MockCheckoutUseCase_ReleaseExpired_Call struct {
-	*mock.Call
-}
-
-// ReleaseExpired is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockCheckoutUseCase_Expecter) ReleaseExpired(ctx any) *MockCheckoutUseCase_ReleaseExpired_Call {
-	return &MockCheckoutUseCase_ReleaseExpired_Call{Call: _e.mock.On("ReleaseExpired", ctx)}
-}
-
-func (_c *MockCheckoutUseCase_ReleaseExpired_Call) Run(run func(ctx context.Context)) *MockCheckoutUseCase_ReleaseExpired_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCheckoutUseCase_ReleaseExpired_Call) Return(err error) *MockCheckoutUseCase_ReleaseExpired_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockCheckoutUseCase_ReleaseExpired_Call) RunAndReturn(run func(ctx context.Context) error) *MockCheckoutUseCase_ReleaseExpired_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -338,6 +360,63 @@ func (_c *MockCheckoutUseCase_Start_Call) Return(checkout *entity.Checkout, err 
 }
 
 func (_c *MockCheckoutUseCase_Start_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID, stockID entity.TicketStockID, count int, code *entity.ReferralCode) (*entity.Checkout, error)) *MockCheckoutUseCase_Start_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartCheckoutWorkflow provides a mock function for the type MockCheckoutUseCase
+func (_mock *MockCheckoutUseCase) StartCheckoutWorkflow(ctx context.Context, checkout *entity.Checkout) error {
+	ret := _mock.Called(ctx, checkout)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartCheckoutWorkflow")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.Checkout) error); ok {
+		r0 = returnFunc(ctx, checkout)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockCheckoutUseCase_StartCheckoutWorkflow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartCheckoutWorkflow'
+type MockCheckoutUseCase_StartCheckoutWorkflow_Call struct {
+	*mock.Call
+}
+
+// StartCheckoutWorkflow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - checkout *entity.Checkout
+func (_e *MockCheckoutUseCase_Expecter) StartCheckoutWorkflow(ctx any, checkout any) *MockCheckoutUseCase_StartCheckoutWorkflow_Call {
+	return &MockCheckoutUseCase_StartCheckoutWorkflow_Call{Call: _e.mock.On("StartCheckoutWorkflow", ctx, checkout)}
+}
+
+func (_c *MockCheckoutUseCase_StartCheckoutWorkflow_Call) Run(run func(ctx context.Context, checkout *entity.Checkout)) *MockCheckoutUseCase_StartCheckoutWorkflow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.Checkout
+		if args[1] != nil {
+			arg1 = args[1].(*entity.Checkout)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCheckoutUseCase_StartCheckoutWorkflow_Call) Return(err error) *MockCheckoutUseCase_StartCheckoutWorkflow_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockCheckoutUseCase_StartCheckoutWorkflow_Call) RunAndReturn(run func(ctx context.Context, checkout *entity.Checkout) error) *MockCheckoutUseCase_StartCheckoutWorkflow_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -261,6 +261,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		Clock:     time.Now,
 		Logger:    logger,
 	}), notificationUC, logger)
+	// The consumer's CheckoutUseCase only starts the workflow that follows
+	// each announced Checkout; the workflow worker runs it.
+	checkoutConsumer := event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+		Workflows: workflows,
+		Clock:     time.Now,
+		Logger:    logger,
+	}), logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -299,6 +306,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
 		{"start-lottery-entry-workflow", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleStartWorkflow},
 		{"send-lottery-loss", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleSendLotteryLoss},
+		{"start-checkout-expiry", entity.SubjectCheckoutHeld, checkoutConsumer.HandleStartWorkflow},
+		{"release-expired-checkout", entity.SubjectCheckoutExpired, checkoutConsumer.HandleStartWorkflow},
+		{"release-released-checkout", entity.SubjectCheckoutReleased, checkoutConsumer.HandleStartWorkflow},
 	}
 
 	// Router

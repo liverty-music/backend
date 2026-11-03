@@ -82,7 +82,6 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	suppressedRepo := rdb.NewSuppressedConcertRepository(testDB)
 	ctx := context.Background()
 	localDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	released := saleWindowStart.Add(time.Hour)
 	exec := func(t *testing.T, query string, args ...any) {
 		t.Helper()
 		_, err := testDB.Pool.Exec(ctx, query, args...)
@@ -173,7 +172,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		cleanDatabase(t)
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		checkoutID, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, saleWindowStart, true, &released)
+		checkoutID, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, saleWindowStart, true)
 
 		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
 
@@ -256,21 +255,14 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			name: "concert with a checkout in progress",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-				insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, 1, time.Now().Add(10*time.Minute), false, nil)
+				insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, 1, time.Now().Add(10*time.Minute), false)
 			},
 		},
 		{
 			name: "concert with a committed checkout",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-				insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, time.Now().Add(10*time.Minute), true, nil)
-			},
-		},
-		{
-			name: "concert with an expired checkout whose card authorization is open",
-			setup: func(t *testing.T, o deletableOrganizer) {
-				f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-				insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, time.Now().Add(-time.Minute), true, nil)
+				insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, time.Now().Add(10*time.Minute), true)
 			},
 		},
 		{

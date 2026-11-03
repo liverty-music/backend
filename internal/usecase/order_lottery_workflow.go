@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -13,8 +12,8 @@ import (
 )
 
 const (
-	// WorkflowIssue is the stable name of the workflow that charges a Won
-	// lottery entry's Order and issues it.
+	// WorkflowIssue is the stable name of the workflow that charges the
+	// Order of a Won lottery entry or a placed Checkout and issues it.
 	WorkflowIssue = "issue"
 
 	// WorkflowReleaseCardAuthorization is the stable name of the workflow
@@ -31,14 +30,24 @@ const (
 	// connections, so 2 leave room for DBOS and the draw.
 	PaymentQueueConcurrency = 2
 
+	// CheckoutQueue runs the issue of a placed Checkout, apart from
+	// [PaymentQueue], so a fan waiting on the screen never waits behind a
+	// large lottery's issues.
+	CheckoutQueue = "checkout"
+
+	// CheckoutQueueConcurrency is how many workflows of [CheckoutQueue] run at
+	// once, for the same reason as [PaymentQueueConcurrency].
+	CheckoutQueueConcurrency = 2
+
 	// paymentWorkflowDeadline is how long Issue and ReleaseCardAuthorization
 	// try before they stop and an admin is told. A JPY card authorization in
 	// Japan holds for up to 30 days, so a resumed capture still finds it.
 	paymentWorkflowDeadline = 24 * time.Hour
 )
 
-// IssueWorkflowID names the issue of a Won entry after its Order: one per
-// Order, so a repeated announcement starts nothing new.
+// IssueWorkflowID names the issue of an Order: one per Order, so a repeated
+// announcement or a second Place starts nothing new. Each Order has exactly
+// one source, so the two sources never share an id.
 func IssueWorkflowID(orderID entity.OrderID) string {
 	return "issue:" + string(orderID)
 }
@@ -48,20 +57,24 @@ func ReleaseWorkflowID(orderID entity.OrderID) string {
 	return "release:" + string(orderID)
 }
 
-// IssueRequest is the input of [OrderUseCase.Issue]. The tags pin the
-// recorded names, which a resumed run reads.
+// IssueRequest is the input of [OrderUseCase.Issue]: the Order's source,
+// exactly one of a Won entry and a placed Checkout. The tags pin the recorded
+// names, which a resumed run reads.
 type IssueRequest struct {
 	// LotteryEntryID is the Won entry whose Order is issued.
-	LotteryEntryID entity.LotteryEntryID `json:"lottery_entry_id"`
+	LotteryEntryID entity.LotteryEntryID `json:"lottery_entry_id,omitempty"`
+	// CheckoutID is the placed Checkout whose Order is issued.
+	CheckoutID entity.CheckoutID `json:"checkout_id,omitempty"`
 }
 
 // IssueResult is the outcome of [OrderUseCase.Issue].
 type IssueResult struct {
-	// OrderID is the entry's Order.
+	// OrderID is the source's Order.
 	OrderID entity.OrderID `json:"order_id"`
-	// Paid is true when the Order is Paid, and false when its card
-	// authorization could no longer be charged and the win was reverted, the
-	// Order Void.
+	// Paid is true when the Order is Paid. It is false when the card
+	// authorization could no longer be charged and the win or the commit was
+	// reverted, the Order Void, and when a Checkout's hold was over at the
+	// commit, the Order left Pending until the hold's expiry makes it Void.
 	Paid bool `json:"paid"`
 }
 
@@ -108,10 +121,22 @@ func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *enti
 
 // Issue implements [OrderUseCase].
 func (uc *orderUseCase) Issue(ctx context.Context, f Flow, in IssueRequest) (IssueResult, error) {
+	switch {
+	case (in.LotteryEntryID == "") == (in.CheckoutID == ""):
+		return IssueResult{}, apperr.New(codes.InvalidArgument, "an issue names exactly one source")
+	case in.CheckoutID != "":
+		return uc.issueCheckout(ctx, f, in.CheckoutID)
+	default:
+		return uc.issueEntry(ctx, f, in.LotteryEntryID)
+	}
+}
+
+// issueEntry charges a Won entry's Order and issues it.
+func (uc *orderUseCase) issueEntry(ctx context.Context, f Flow, entryID entity.LotteryEntryID) (IssueResult, error) {
 	// Every read that can fail for a data reason runs before the charge, so a
 	// fan is never charged and then stopped by a missing record.
 	plan, err := Step(ctx, f, "read", func(ctx context.Context) (issuePlan, error) {
-		return uc.planIssue(ctx, in.LotteryEntryID)
+		return uc.planIssue(ctx, entryID)
 	})
 	if err != nil {
 		return IssueResult{}, err
@@ -120,30 +145,29 @@ func (uc *orderUseCase) Issue(ctx context.Context, f Flow, in IssueRequest) (Iss
 		return IssueResult{OrderID: plan.OrderID, Paid: true}, nil
 	}
 
-	charged, err := Step(ctx, f, "capture", func(ctx context.Context) (bool, error) {
-		err := uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
-		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			// The card authorization can no longer be charged: a result.
-			return false, nil
-		}
-		return err == nil, err
-	})
+	charged, err := uc.capture(ctx, f, plan)
 	if err != nil {
 		return IssueResult{}, err
 	}
 	if !charged {
 		// No promotion of a loser (繰上げ): the tickets stay unallocated.
 		if _, err := Step(ctx, f, "revert win", func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, uc.entryRepo.RevertWin(ctx, in.LotteryEntryID)
+			return struct{}{}, uc.entryRepo.RevertWin(ctx, entryID)
 		}); err != nil {
 			return IssueResult{}, err
 		}
 		uc.logger.Info(ctx, "lottery win reverted: the card could not be charged",
-			slog.String("lottery_entry_id", string(in.LotteryEntryID)),
+			slog.String("lottery_entry_id", string(entryID)),
 			slog.String("order_id", string(plan.OrderID)))
 		return IssueResult{OrderID: plan.OrderID}, nil
 	}
 
+	return uc.issueCaptured(ctx, f, plan)
+}
+
+// issueCaptured reads the captured payment and makes the plan's Order Paid
+// with Order.Issue, as the steps after the charge of either source.
+func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePlan) (IssueResult, error) {
 	facets, err := Step(ctx, f, "read captured payment", func(ctx context.Context) (capturedFacets, error) {
 		captured, err := uc.capturedPayment(ctx, plan.CardAuthorizationID)
 		if err != nil {
@@ -194,11 +218,17 @@ func (uc *orderUseCase) planIssue(ctx context.Context, entryID entity.LotteryEnt
 		return issuePlan{}, apperr.New(codes.FailedPrecondition, "the entry's Order is not Pending; nothing is charged",
 			attrs, slog.String("order_status", order.Status.String()))
 	}
+	return uc.planOrder(ctx, order, entry.TicketSaleID)
+}
+
+// planOrder reads, for a Pending Order bought from the sale, the Order's
+// stock, the sale, the event's Organizer and the IdentityVerification binding.
+func (uc *orderUseCase) planOrder(ctx context.Context, order *entity.Order, saleID entity.TicketSaleID) (issuePlan, error) {
 	stock, err := uc.stockRepo.Get(ctx, order.TicketStockID, uc.clock())
 	if err != nil {
 		return issuePlan{}, err
 	}
-	sale, err := uc.ticketSaleRepo.Get(ctx, entry.TicketSaleID)
+	sale, err := uc.ticketSaleRepo.Get(ctx, saleID)
 	if err != nil {
 		return issuePlan{}, err
 	}

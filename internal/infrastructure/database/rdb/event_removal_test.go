@@ -165,7 +165,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		fan := saleFan(t)
 		captured := time.Now()
-		checkoutID, orderID := insertStockCheckout(t, f, fan, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, captured, true, nil)
+		checkoutID, orderID := insertStockCheckout(t, f, fan, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, captured, true)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE checkouts SET capture_at = now() WHERE id = $1`, checkoutID)
 		require.NoError(t, err)
 

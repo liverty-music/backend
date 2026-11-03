@@ -25,10 +25,14 @@ import (
 // naming it, the fan holds tickets with CheckoutUseCase.Start, authorizes
 // their card with CheckoutUseCase.AuthorizeCard (card authentication stands
 // in as a server-side confirmation with a non-3DS test card), and places the
-// order with OrderUseCase.IssueFromCheckout; Stripe's
-// payment_intent.succeeded then announces ORDER.paid, which the ticket journey
-// and the confirmation email consume. They build on the lottery story's
-// wiring, so a presale and a general sale of one event share one stock.
+// order with OrderUseCase.Place, which has the workflow worker run
+// OrderUseCase.Issue for the Checkout; Order.Issue announces ORDER.paid,
+// which the ticket journey and the confirmation email consume, and Stripe's
+// payment_intent.succeeded changes nothing. A lapsed hold is ended by
+// CheckoutUseCase.Expire and its card authorization released by
+// OrderUseCase.ReleaseCardAuthorization, started from the Checkout's
+// announcements. They build on the lottery story's wiring, so a presale and a
+// general sale of one event share one stock.
 
 // firstComeStory adds the first-come checkout and the resale listings to the
 // lottery story's use cases, over the same repositories and clock. Its
@@ -40,9 +44,8 @@ type firstComeStory struct {
 	key       string
 	checkouts usecase.CheckoutUseCase
 	resale    usecase.ResaleListingUseCase
-	// issuance places a checkout's order; webhooks fulfils its charge.
+	// issuance places a checkout's order, as the fan API does.
 	issuance  usecase.OrderUseCase
-	webhooks  usecase.StripeWebhookService
 	stockRepo *rdb.TicketStockRepository
 }
 
@@ -64,24 +67,21 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
 	checkoutCards := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger)
+	// The worker captures and releases the checkouts' card authorizations
+	// through the Stripe test API.
+	s.checkoutCards.other = checkoutCards
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
-		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
-		OrganizerRepo:            rdb.NewOrganizerRepository(testDB, testOutbox),
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		TicketSaleRepo:           rdb.NewTicketSaleRepository(testDB, testOutbox),
 		StockRepo:                s.stockRepo,
-		TicketRepo:               rdb.NewTicketRepository(testDB, testOutbox),
 		EventState:               eventState,
-		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCards,
+		Workflows:                s.client,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, s.issuance, logger)
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
 		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
@@ -172,7 +172,7 @@ func (s *firstComeStory) authorizeCheckout(checkout *entity.Checkout, fan entity
 // Order and the ORDER.paid announcements made for it.
 func (s *firstComeStory) place(checkout *entity.Checkout, fan entity.UserID, cardAuthorizationID string) (*entity.Order, []entity.OrderPaidData) {
 	s.t.Helper()
-	order, err := s.issuance.IssueFromCheckout(s.ctx, checkout.ID, &fan)
+	order, err := s.issuance.Place(s.ctx, checkout.ID, fan, s.now)
 	require.NoError(s.t, err)
 	require.NoError(s.t, s.webhooks.HandleEvent(s.ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_" + uuid.NewV7().String(),
@@ -348,17 +348,14 @@ func TestFirstComeStory_HoldRanOut(t *testing.T) {
 
 	// -- the fan places the order 1 minute after the hold expired --
 	s.now = checkout.HoldExpireTime.Add(time.Minute)
-	_, err := s.issuance.IssueFromCheckout(s.ctx, checkout.ID, &fan)
+	_, err := s.issuance.Place(s.ctx, checkout.ID, fan, s.now)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the purchase is refused")
 	pi := s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusRequiresCapture, pi.Status, "nothing is charged")
 	assert.Zero(t, pi.AmountReceived)
 
-	// -- the release job, running every minute, releases the card
-	//    authorization within 2 minutes --
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
-	s.now = s.now.Add(time.Minute)
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
+	// -- the hold's expiry ends it and the card authorization is released --
+	s.endLapsedHolds()
 	pi = s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived, "the fan is not charged")
@@ -368,6 +365,7 @@ func TestFirstComeStory_HoldRanOut(t *testing.T) {
 
 func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 	// @spec stories/buy-tickets-first-come "Double tap everywhere"
+	// @spec components/usecase/order/issue "Placed checkout"
 	s := newFirstComeStory(t)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
@@ -395,7 +393,7 @@ func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 	)
 	for i := range orders {
 		wg.Go(func() {
-			orders[i], errs[i] = s.issuance.IssueFromCheckout(s.ctx, first.ID, &fan)
+			orders[i], errs[i] = s.issuance.Place(s.ctx, first.ID, fan, s.now)
 		})
 	}
 	wg.Wait()
@@ -416,6 +414,8 @@ func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 
 func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
 	// @spec stories/buy-tickets-first-come "Fan closes the tab"
+	// @spec components/usecase/checkout/expire "Fan walked away"
+	// @spec components/usecase/order/release-card-authorization "Hold expired"
 	s := newFirstComeStory(t)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
@@ -428,20 +428,42 @@ func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
 	assert.Equal(t, 148, s.stockAt(stock.ID).Remaining())
 	holdTime := s.now
 
-	// -- by 18:16 the 2 tickets are on sale again --
+	// -- at 18:15 the hold's expiry ends it: the 2 tickets are on sale again
+	//    and the card authorization is released --
 	s.now = holdTime.Add(16 * time.Minute)
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
+	s.endLapsedHolds()
 	assert.Equal(t, 150, s.stockAt(stock.ID).Remaining(), "the tickets are on sale again")
 	expired, err := s.checkouts.Get(s.ctx, fan, checkout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.CheckoutStatusExpired, expired.Status)
-
-	// -- by 18:17 the card authorization is released --
-	s.now = holdTime.Add(17 * time.Minute)
-	require.NoError(t, s.checkouts.ReleaseExpired(s.ctx))
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, checkout.OrderID))
 	pi := s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived)
+}
+
+func TestFirstComeStory_CountChangedAfterAuthorizing(t *testing.T) {
+	// @spec components/usecase/order/release-card-authorization "Count changed after authorizing"
+	s := newFirstComeStory(t)
+	stock := s.stock("S席", 3000, 150)
+	s.openFirstCome()
+
+	// -- the fan authorizes their card for 2 tickets, then starts again for 3 --
+	fan := s.newFan()
+	two := s.hold(stock.ID, fan, 2, nil)
+	authorization := s.authorizeCheckout(two, fan)
+	three := s.hold(stock.ID, fan, 3, nil)
+	require.NotEqual(t, two.ID, three.ID)
+
+	// -- the 2-ticket Checkout's card authorization is released --
+	s.releaseEndedCheckouts()
+	pi := s.paymentIntent(authorization)
+	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
+	assert.Zero(t, pi.AmountReceived)
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, two.OrderID))
+	got, err := s.checkouts.Get(s.ctx, fan, three.ID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.CheckoutStatusHeld, got.Status, "the new hold lasts")
 }
 
 // TestFirstComeStory_PresaleWinnerTopsUpInTheGeneralSale checks the
