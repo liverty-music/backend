@@ -136,6 +136,87 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
 	})
 
+	resultDay := func(month time.Month, d int) *time.Time {
+		t := time.Date(2026, month, d, 0, 0, 0, 0, time.UTC)
+		return &t
+	}
+	withResult := func(sale *entity.DiscoveredTicketSale, date *time.Time) *entity.DiscoveredTicketSale {
+		sale.ResultDate = date
+		return sale
+	}
+
+	// @spec components/entity/ticket-sale/upsert-discovered "Re-discovery adds a result date"
+	t.Run("Re-discovery adds a result date", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		firstID, _ := upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At18))
+
+		id, outcome := upsertDiscovered(t, repo, ctx, withResult(lottery(seriesID, oct5At18), resultDay(time.November, 3)))
+
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		assert.Equal(t, firstID, id)
+		sales := listOf(t, seriesID)
+		require.Len(t, sales, 1)
+		assert.Equal(t, resultDay(time.November, 3), sales[0].ResultDate)
+	})
+
+	// @spec components/entity/ticket-sale/upsert-discovered "Re-discovery without a result date keeps the stored one"
+	t.Run("Re-discovery without a result date keeps the stored one", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		upsertDiscovered(t, repo, ctx, withResult(lottery(seriesID, oct5At18), resultDay(time.November, 3)))
+
+		_, outcome := upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At16))
+
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		sales := listOf(t, seriesID)
+		require.Len(t, sales, 1)
+		assert.Equal(t, resultDay(time.November, 3), sales[0].ResultDate)
+	})
+
+	// @spec components/entity/ticket-sale/upsert-discovered "A later end time clears an impossible result date"
+	t.Run("A later end time clears an impossible result date", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		stored := lottery(seriesID, oct5At18)
+		stored.SaleEndTime = time.Date(2026, 10, 20, 23, 59, 0, 0, jst)
+		upsertDiscovered(t, repo, ctx, withResult(stored, resultDay(time.October, 22)))
+
+		later := lottery(seriesID, oct5At18)
+		later.SaleEndTime = time.Date(2026, 10, 25, 23, 59, 0, 0, jst)
+		_, outcome := upsertDiscovered(t, repo, ctx, later)
+
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		sales := listOf(t, seriesID)
+		require.Len(t, sales, 1)
+		assert.True(t, later.SaleEndTime.Equal(sales[0].SaleEndTime))
+		assert.Nil(t, sales[0].ResultDate)
+	})
+
+	// @spec components/entity/ticket-sale/upsert-discovered "New lottery with a result date"
+	t.Run("New lottery with a result date", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		_, outcome := upsertDiscovered(t, repo, ctx, withResult(lottery(seriesID, oct5At18), resultDay(time.November, 3)))
+
+		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
+		sales := listOf(t, seriesID)
+		require.Len(t, sales, 1)
+		assert.Equal(t, resultDay(time.November, 3), sales[0].ResultDate)
+		assert.NoError(t, sales[0].Validate())
+	})
+
+	t.Run("Result date before the close is rejected", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		_, _, err := repo.UpsertDiscovered(ctx, withResult(lottery(seriesID, oct5At18), resultDay(time.October, 20)))
+
+		assertAppErrCode(t, err, codes.InvalidArgument)
+		assert.Empty(t, listOf(t, seriesID))
+	})
+
 	skipped := []struct {
 		name string
 		sale func(seriesID string) *entity.DiscoveredTicketSale
@@ -394,6 +475,57 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
 		assert.Equal(t, []entity.TicketSaleID{id}, saleIDs(sales))
+	})
+
+	// lottery stores a discovered lottery with the given window and result
+	// date.
+	lotteryWithResult := func(t *testing.T, start, end time.Time, result time.Time) entity.TicketSaleID {
+		t.Helper()
+		id, _ := upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			SeriesID: seedSeriesOnly(t, "Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: start, SaleEndTime: end, ResultDate: &result,
+		})
+		return id
+	}
+	// lookbackDay is the Japan-time calendar day of now minus the lookback,
+	// in the form of TicketSale.ResultDate.
+	lookbackDay := entity.JapanDate(now.Add(-lookback))
+
+	// @spec components/entity/ticket-sale/list-with-pending-milestones "Result date was yesterday in Japan"
+	// The database clock cannot be frozen at 02:30 on 13 October; the
+	// scenario's rule is checked at its boundary instead: a result date one
+	// day before the Japan-time day of now minus the lookback is still
+	// returned, and one two days before is not (see "Result date long past").
+	t.Run("Result date was yesterday in Japan", func(t *testing.T) {
+		cleanDatabase(t)
+		yesterday := lookbackDay.AddDate(0, 0, -1)
+		id := lotteryWithResult(t, now.Add(-20*day), yesterday.Add(-5*day), yesterday)
+
+		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		require.Equal(t, []entity.TicketSaleID{id}, saleIDs(sales))
+		assert.True(t, yesterday.Equal(*sales[0].ResultDate))
+	})
+
+	// @spec components/entity/ticket-sale/list-with-pending-milestones "Closed lottery with its result date ahead"
+	t.Run("Closed lottery with its result date ahead", func(t *testing.T) {
+		cleanDatabase(t)
+		id := lotteryWithResult(t, now.Add(-15*day), now.Add(-5*day), entity.JapanDate(now.Add(day)))
+
+		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Equal(t, []entity.TicketSaleID{id}, saleIDs(sales))
+	})
+
+	// @spec components/entity/ticket-sale/list-with-pending-milestones "Result date long past"
+	t.Run("Result date long past", func(t *testing.T) {
+		cleanDatabase(t)
+		lotteryWithResult(t, now.Add(-30*day), now.Add(-20*day), entity.JapanDate(now.Add(-10*day)))
+		lotteryWithResult(t, now.Add(-30*day), now.Add(-20*day), lookbackDay.AddDate(0, 0, -2))
+
+		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Empty(t, sales)
 	})
 
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Organizer's sale opening tomorrow"

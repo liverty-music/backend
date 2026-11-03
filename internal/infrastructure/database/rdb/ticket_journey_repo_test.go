@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -273,6 +274,116 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
 		require.NoError(t, err)
 		assert.Empty(t, trackers)
+	})
+}
+
+func TestTicketJourneyRepository_ListUserIDsAppliedSeries(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	ctx := context.Background()
+
+	// day returns the date offset from today, so "upcoming" and "past" hold
+	// whenever the test runs.
+	day := func(offset int) string {
+		return time.Now().AddDate(0, 0, offset).Format(time.DateOnly)
+	}
+	set := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
+		t.Helper()
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status, StatusSetBy: entity.TicketJourneySetByFan}))
+	}
+	byUser := func(trackers []*entity.SeriesTracker) map[string]string {
+		out := make(map[string]string, len(trackers))
+		for _, tr := range trackers {
+			out[tr.UserID] = tr.EventID
+		}
+		return out
+	}
+	seed := func(t *testing.T) (artistID, venueID, seriesID string) {
+		t.Helper()
+		return seedArtist(t, "applied-artist", "11112222-3333-4444-5555-666677778888"),
+			seedVenue(t, "applied-venue"),
+			seedSeriesOnly(t, "AppliedTour")
+	}
+
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "Fans who applied for events of the series"
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "A fan still tracking"
+	t.Run("Fans who applied for events of the series", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID, venueID, seriesID := seed(t)
+		eventA := seedEventForSeries(t, seriesID, venueID, artistID, day(10))
+		eventB := seedEventForSeries(t, seriesID, venueID, artistID, day(11))
+		otherEvent := seedEventForSeries(t, seedSeriesOnly(t, "OtherTour"), venueID, artistID, day(20))
+
+		fanA := seedUser(t, "applied-a", "applied-a@test.com", "ext-applied-a")
+		fanB := seedUser(t, "applied-b", "applied-b@test.com", "ext-applied-b")
+		fanC := seedUser(t, "tracking", "tracking@test.com", "ext-tracking")
+		fanD := seedUser(t, "paid", "paid@test.com", "ext-paid")
+		fanE := seedUser(t, "other-series", "other@test.com", "ext-other")
+
+		set(t, fanA, eventA, entity.TicketJourneyStatusApplied)
+		set(t, fanA, eventB, entity.TicketJourneyStatusApplied)
+		set(t, fanB, eventB, entity.TicketJourneyStatusApplied)
+		set(t, fanC, eventA, entity.TicketJourneyStatusTracking)
+		set(t, fanD, eventA, entity.TicketJourneyStatusPaid)
+		set(t, fanE, otherEvent, entity.TicketJourneyStatusApplied)
+
+		applied, err := repo.ListUserIDsAppliedSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Len(t, applied, 2, "each fan appears once")
+		assert.Equal(t, map[string]string{fanA: eventA, fanB: eventB}, byUser(applied))
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "Linked event is the earliest upcoming applied event"
+	t.Run("Linked event is the earliest upcoming applied event", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID, venueID, seriesID := seed(t)
+		oct20 := seedEventForSeries(t, seriesID, venueID, artistID, day(14))
+		nov1 := seedEventForSeries(t, seriesID, venueID, artistID, day(26))
+		nov15 := seedEventForSeries(t, seriesID, venueID, artistID, day(40))
+
+		fanA := seedUser(t, "applied-a", "applied-a@test.com", "ext-applied-a")
+		set(t, fanA, nov15, entity.TicketJourneyStatusApplied)
+		set(t, fanA, oct20, entity.TicketJourneyStatusTracking)
+		set(t, fanA, nov1, entity.TicketJourneyStatusApplied)
+
+		applied, err := repo.ListUserIDsAppliedSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{fanA: nov1}, byUser(applied))
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "Every applied event is past"
+	t.Run("Every applied event is past", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID, venueID, seriesID := seed(t)
+		sep1 := seedEventForSeries(t, seriesID, venueID, artistID, day(-35))
+		sep5 := seedEventForSeries(t, seriesID, venueID, artistID, day(-31))
+
+		fanA := seedUser(t, "applied-a", "applied-a@test.com", "ext-applied-a")
+		set(t, fanA, sep5, entity.TicketJourneyStatusApplied)
+		set(t, fanA, sep1, entity.TicketJourneyStatusApplied)
+
+		applied, err := repo.ListUserIDsAppliedSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{fanA: sep1}, byUser(applied))
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "Nobody applied"
+	t.Run("Nobody applied", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "EmptyAppliedTour")
+
+		applied, err := repo.ListUserIDsAppliedSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Empty(t, applied)
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-applied-series "No series given"
+	t.Run("No series given", func(t *testing.T) {
+		_, err := repo.ListUserIDsAppliedSeries(ctx, "")
+		assertAppErrCode(t, err, codes.InvalidArgument)
 	})
 }
 

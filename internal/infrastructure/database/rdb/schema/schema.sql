@@ -679,12 +679,14 @@ CREATE TABLE IF NOT EXISTS ticket_sales (
     verification_requirement SMALLINT    NOT NULL DEFAULT 0,
     discovered_at            TIMESTAMPTZ,
     sale_start_date_jst      DATE GENERATED ALWAYS AS ((sale_start_at AT TIME ZONE 'Asia/Tokyo')::date) STORED,
+    result_date              DATE,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
     CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
     CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
-    CONSTRAINT chk_ticket_sales_discovered CHECK (discovered_at IS NULL OR verification_requirement = 0)
+    CONSTRAINT chk_ticket_sales_discovered CHECK (discovered_at IS NULL OR verification_requirement = 0),
+    CONSTRAINT chk_ticket_sales_result_date CHECK (result_date IS NULL OR (discovered_at IS NOT NULL AND method = 2 AND result_date >= (sale_end_at AT TIME ZONE 'Asia/Tokyo')::date))
 );
 
 COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method and a window. An Organizer''s sale (discovered_at NULL) also has a verification requirement and names its events in ticket_sale_events; it sells every ticket stock of those events. A discovered sale (discovered_at set) belongs to a Series without an Organizer, names no event and is only reported to fans. A closed Organizer''s lottery is drawn once none of its lottery entries is Entered.';
@@ -697,6 +699,7 @@ COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_
 COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required); always 0 on a discovered sale';
 COMMENT ON COLUMN ticket_sales.discovered_at IS 'When discovery first stored the sale; set on insert and never updated. NULL exactly on an Organizer''s sale. The reminder scan uses it as the first-sight guard: a stage whose anchor is before discovered_at is not sent.';
 COMMENT ON COLUMN ticket_sales.sale_start_date_jst IS 'Calendar date of sale_start_at in Asia/Tokyo; part of the discovered-sale convergence key';
+COMMENT ON COLUMN ticket_sales.result_date IS 'Calendar day in Japan time (Asia/Tokyo) on which a discovered lottery''s results are announced, as its pages state it; no earlier than the Japan-time day of sale_end_at. NULL when the pages do not state it, and always NULL on a first-come sale and on an Organizer''s sale. Anchors the RESULT_DAY reminder.';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
 COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
@@ -731,14 +734,14 @@ CREATE TABLE IF NOT EXISTS ticket_sale_reminders (
     sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_ticket_sale_reminders UNIQUE (user_id, ticket_sale_id, stage),
     CONSTRAINT chk_ticket_sale_reminders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage IN (1, 2))
+    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage IN (1, 2, 4))
 );
 
 COMMENT ON TABLE ticket_sale_reminders IS 'Sent-log for ticket sale reminder notifications, for discovered and Organizer''s sales alike. UNIQUE (user_id, ticket_sale_id, stage) prevents duplicate dispatches.';
 COMMENT ON COLUMN ticket_sale_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sale_reminders.user_id IS 'Reference to the user who received the reminder';
 COMMENT ON COLUMN ticket_sale_reminders.ticket_sale_id IS 'Reference to the ticket sale this reminder relates to';
-COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only). 3 was APPLY_CLOSE_1H and 4 was RESULT_DAY; neither is used.';
+COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only), 4=RESULT_DAY (09:00 on the result date in the fan''s time zone, discovered lottery with a result date only). 3 was APPLY_CLOSE_1H and is not used.';
 COMMENT ON COLUMN ticket_sale_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sale_reminders_user_id ON ticket_sale_reminders(user_id);

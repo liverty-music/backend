@@ -72,7 +72,10 @@ func TestLLMGeneration_Properties(t *testing.T) {
 				Model:     "gemini-3.8-flash",
 				Request:   posthog.LLMRequest{ArtistID: "artist-1", SeriesIDs: []string{"s1"}},
 				ErrorKind: "transient",
-				Sales:     &posthog.SaleParseResult{Returned: 3, Kept: 2, Dropped: map[string]int{"already started": 1}},
+				Sales: &posthog.SaleParseResult{
+					Returned: 3, Kept: 2, Dropped: map[string]int{"already started": 1},
+					ResultDates: 1, DroppedResultDates: map[string]int{"result_date before the end date": 1},
+				},
 			},
 			want: usecase.AnalyticsProperties{
 				"$ai_trace_id":                "trace-1",
@@ -97,6 +100,8 @@ func TestLLMGeneration_Properties(t *testing.T) {
 				"returned_sales":              3,
 				"kept_sales":                  2,
 				"dropped_sales":               map[string]int{"already started": 1},
+				"result_dates":                1,
+				"dropped_result_dates":        map[string]int{"result_date before the end date": 1},
 			},
 		},
 	}

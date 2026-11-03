@@ -61,6 +61,8 @@ Sources: the artist's official site, official tour pages, and ticketing-service 
 
 Return a sale only if a source page states every required field. If any required field is missing, leave the sale out. Never infer or guess a value.
 
+For a lottery, also return result_date when a source page states the day its results are announced. If no page states that day, omit result_date and still return the sale.
+
 Return JSON that follows the response schema. Return an empty phases array if no sale qualifies.`
 
 // publishedSaleDateTimeDesc is the shared description of the time fields.
@@ -100,6 +102,11 @@ func publishedSalesResponseSchema(seriesIDs []string) map[string]any {
 						"apply_start_time": str(publishedSaleDateTimeDesc + " When applications or purchases open."),
 						"apply_end_time": str(publishedSaleDateTimeDesc + " When applications or purchases close. " +
 							"Leave the sale out if the page states no end time, also for a sale that ends when tickets run out."),
+						"result_date": str("Lottery only. YYYY-MM-DD date, in the time zone of the source page, of the first day " +
+							"the page says the lottery's results are announced (当落発表, 抽選結果発表, 当選発表, or the start of " +
+							"抽選結果確認期間), e.g. 2026-11-03 for 「当落発表：11月3日(月)〜11月5日(水)」 or " +
+							"「抽選結果確認/入金期間：11月3日(火・祝)15:00～11月8日(日)23:59」. Omit it when the page states no such day, and for a first_come sale; " +
+							"the sale is still returned."),
 					},
 				},
 			},
@@ -124,6 +131,7 @@ type publishedSaleJSON struct {
 	Method         string `json:"method"`
 	ApplyStartTime string `json:"apply_start_time"`
 	ApplyEndTime   string `json:"apply_end_time"`
+	ResultDate     string `json:"result_date"`
 }
 
 // generateContentFunc is the Gemini call, injectable for tests.
@@ -264,11 +272,13 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 
 	candidates := make([]*entity.DiscoveredTicketSale, 0, len(out.Phases))
 	dropped := map[string]int{}
+	droppedResultDates := map[string]int{}
+	resultDates := 0
 	for _, p := range out.Phases {
 		if p == nil {
 			continue
 		}
-		c, reason := validatePublishedSale(p, now, series)
+		c, reason, resultDateReason := validatePublishedSale(p, now, series)
 		if reason != "" {
 			dropped[reason]++
 			s.logger.Info(ctx, "TicketSaleSearcher: dropping sale",
@@ -280,9 +290,28 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 				)...)
 			continue
 		}
+		if resultDateReason != "" {
+			droppedResultDates[resultDateReason]++
+			s.logger.Info(ctx, "TicketSaleSearcher: dropping result date",
+				append(attrs,
+					slog.String("reason", resultDateReason),
+					slog.String("series_id", p.SeriesID),
+					slog.String("result_date", p.ResultDate),
+					slog.String("apply_end_time", p.ApplyEndTime),
+				)...)
+		}
+		if c.ResultDate != nil {
+			resultDates++
+		}
 		candidates = append(candidates, c)
 	}
-	gens[len(gens)-1].Sales = &posthog.SaleParseResult{Returned: len(out.Phases), Kept: len(candidates), Dropped: dropped}
+	gens[len(gens)-1].Sales = &posthog.SaleParseResult{
+		Returned:           len(out.Phases),
+		Kept:               len(candidates),
+		Dropped:            dropped,
+		ResultDates:        resultDates,
+		DroppedResultDates: droppedResultDates,
+	}
 
 	s.logger.Info(ctx, "TicketSaleSearcher: search complete",
 		append(attrs,
@@ -452,15 +481,17 @@ func publishedSalesCallErr(err error, attrs ...slog.Attr) error {
 }
 
 // validatePublishedSale applies the deterministic checks of design D3 and returns
-// the candidate, or the reason the sale is dropped.
+// the candidate, or the reason the sale is dropped. A result date that cannot
+// be kept drops only the date: the candidate is returned without one, with
+// the reason in resultDateReason.
 func validatePublishedSale(
 	p *publishedSaleJSON,
 	now time.Time,
 	series map[string]*entity.SalesSeriesRef,
-) (*entity.DiscoveredTicketSale, string) {
+) (c *entity.DiscoveredTicketSale, reason, resultDateReason string) {
 	sr, ok := series[p.SeriesID]
 	if !ok {
-		return nil, "unknown series_id"
+		return nil, "unknown series_id", ""
 	}
 
 	var method entity.TicketSaleMethod
@@ -470,30 +501,30 @@ func validatePublishedSale(
 	case salesMethodFirstCome:
 		method = entity.TicketSaleMethodFirstCome
 	default:
-		return nil, "unknown method"
+		return nil, "unknown method", ""
 	}
 
 	start, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ApplyStartTime))
 	if err != nil {
-		return nil, "unparseable apply_start_time"
+		return nil, "unparseable apply_start_time", ""
 	}
 	if !start.After(now) {
-		return nil, "already started"
+		return nil, "already started", ""
 	}
 
 	name := strings.TrimSpace(p.Name)
 	if name == "" {
-		return nil, "no name"
+		return nil, "no name", ""
 	}
 	if strings.TrimSpace(p.ApplyEndTime) == "" {
-		return nil, "no apply_end_time"
+		return nil, "no apply_end_time", ""
 	}
 	end, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ApplyEndTime))
 	if err != nil {
-		return nil, "unparseable apply_end_time"
+		return nil, "unparseable apply_end_time", ""
 	}
 
-	c := &entity.DiscoveredTicketSale{
+	c = &entity.DiscoveredTicketSale{
 		SeriesID:      p.SeriesID,
 		Name:          name,
 		Method:        method,
@@ -501,13 +532,36 @@ func validatePublishedSale(
 		SaleEndTime:   end,
 	}
 	if err := c.Validate(); err != nil {
-		return nil, err.Error()
+		return nil, err.Error(), ""
 	}
 
 	if _, last, ok := eventPeriod(sr); ok && start.After(last.AddDate(0, 0, 1)) {
-		return nil, "apply_start_time after the series' last event"
+		return nil, "apply_start_time after the series' last event", ""
 	}
-	return c, ""
+	c.ResultDate, resultDateReason = publishedResultDate(p.ResultDate, method, end)
+	return c, "", resultDateReason
+}
+
+// publishedResultDate parses a sale's result_date. It returns nil and no
+// reason when the page states none, and nil with the reason when the date is
+// stated but cannot be kept: on a first-come sale, unparsable, or before the
+// Japan-time day of the end time.
+func publishedResultDate(raw string, method entity.TicketSaleMethod, end time.Time) (*time.Time, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, ""
+	}
+	if method != entity.TicketSaleMethodLottery {
+		return nil, "result_date on a first-come sale"
+	}
+	d, err := time.Parse(time.DateOnly, raw)
+	if err != nil {
+		return nil, "unparseable result_date"
+	}
+	if !entity.IsResultDateOnOrAfterEnd(d, end) {
+		return nil, "result_date before the end date"
+	}
+	return &d, ""
 }
 
 // logResponseMetadata logs the metadata of a Gemini response for tuning and

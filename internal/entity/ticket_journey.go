@@ -182,6 +182,22 @@ type TicketJourneyRepository interface {
 	//   - Internal: database query failure.
 	ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*SeriesTracker, error)
 
+	// ListUserIDsAppliedSeries returns every user that has an Applied ticket
+	// journey ([TicketJourneyStatusApplied]) on any event of the given series,
+	// once each, with the event to link that user to: the earliest upcoming
+	// event (date today or later) the user applied for in the series,
+	// otherwise the earliest one. It is the audience of a discovered lottery's
+	// RESULT_DAY reminder. Fans whose journeys on the series are all in
+	// another status are excluded. The result has no particular order.
+	//
+	// An empty result (nobody applied) returns (nil, nil).
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: If seriesID is empty.
+	//   - Internal: database query failure.
+	ListUserIDsAppliedSeries(ctx context.Context, seriesID string) ([]*SeriesTracker, error)
+
 	// ListUserIDsTrackingEvents returns every user that has a Tracking ticket
 	// journey on at least one of the given events, once each, with the event
 	// to link that user to, chosen among the given events the user tracks: the

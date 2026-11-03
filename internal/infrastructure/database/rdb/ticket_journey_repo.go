@@ -79,6 +79,19 @@ const (
 		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
 	`
 
+	// ticketJourneyListUserIDsAppliedSeriesQuery is
+	// ticketJourneyListUserIDsTrackingSeriesQuery for Applied journeys
+	// (status = 2): the linked event is the earliest upcoming applied event,
+	// otherwise the earliest applied event.
+	ticketJourneyListUserIDsAppliedSeriesQuery = `
+		SELECT DISTINCT ON (tj.user_id) tj.user_id, tj.event_id
+		FROM ticket_journeys tj
+		JOIN events e ON e.id = tj.event_id
+		WHERE e.series_id = $1
+		  AND tj.status = 2
+		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
+	`
+
 	// ticketJourneyListUserIDsTrackingEventsQuery is
 	// ticketJourneyListUserIDsTrackingSeriesQuery over the given events
 	// instead of a series, so the linked event is one of them.
@@ -286,6 +299,20 @@ func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context,
 	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingSeriesQuery, seriesID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list users tracking series", slog.String("series_id", seriesID))
+	}
+	return scanSeriesTrackers(rows)
+}
+
+// ListUserIDsAppliedSeries returns each user with an Applied journey on any
+// event of the given series, with the user's linked event.
+func (r *TicketJourneyRepository) ListUserIDsAppliedSeries(ctx context.Context, seriesID string) ([]*entity.SeriesTracker, error) {
+	if seriesID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	}
+
+	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsAppliedSeriesQuery, seriesID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list users applied for series", slog.String("series_id", seriesID))
 	}
 	return scanSeriesTrackers(rows)
 }

@@ -445,3 +445,86 @@ func TestTicketSale_IsNotYetOverAt(t *testing.T) {
 		assert.False(t, sale.IsNotYetOverAt(nov(20, 20, 0)))
 	})
 }
+
+// day returns the calendar day 2026-month-d in the form of
+// TicketSale.ResultDate.
+func day(month time.Month, d int) *time.Time {
+	t := time.Date(2026, month, d, 0, 0, 0, 0, time.UTC)
+	return &t
+}
+
+func TestTicketSale_Validate_ResultDate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		sale  func() *entity.TicketSale
+		valid bool
+	}{
+		{
+			// @spec components/entity/ticket-sale "Discovered lottery with a result date"
+			name: "discovered lottery with a result date after its close",
+			sale: func() *entity.TicketSale {
+				s := discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
+				s.ResultDate = day(time.November, 3)
+				return s
+			},
+			valid: true,
+		},
+		{
+			name: "discovered lottery with a result date on the day of its close",
+			sale: func() *entity.TicketSale {
+				s := discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
+				s.ResultDate = day(time.October, 22)
+				return s
+			},
+			valid: true,
+		},
+		{
+			// @spec components/entity/ticket-sale "Result date before the close"
+			name: "discovered lottery with a result date before its close",
+			sale: func() *entity.TicketSale {
+				s := discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
+				s.ResultDate = day(time.October, 20)
+				return s
+			},
+		},
+		{
+			// @spec components/entity/ticket-sale "First-come sale with a result date"
+			name: "discovered first-come sale with a result date",
+			sale: func() *entity.TicketSale {
+				s := discoveredSale(entity.TicketSaleMethodFirstCome, oct(6, 19, 0), oct(10, 23, 59))
+				s.ResultDate = day(time.November, 3)
+				return s
+			},
+		},
+		{
+			// @spec components/entity/ticket-sale "Organizer's lottery with a result date"
+			name: "Organizer's lottery with a result date",
+			sale: func() *entity.TicketSale {
+				s := saleWindow(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(12, 23, 59))
+				s.ResultDate = day(time.November, 3)
+				return s
+			},
+		},
+		{
+			// @spec components/entity/ticket-sale "Discovered lottery without a result date"
+			name: "discovered lottery without a result date",
+			sale: func() *entity.TicketSale {
+				return discoveredSale(entity.TicketSaleMethodLottery, oct(5, 18, 0), oct(22, 23, 59))
+			},
+			valid: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.sale().Validate()
+			if tt.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}

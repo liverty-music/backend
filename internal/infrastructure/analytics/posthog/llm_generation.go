@@ -106,6 +106,11 @@ type SaleParseResult struct {
 	Kept     int
 	// Dropped counts the discarded sales per reason.
 	Dropped map[string]int
+	// ResultDates counts the kept sales that carry a lottery result date.
+	ResultDates int
+	// DroppedResultDates counts, per reason, the result dates discarded from
+	// sales that were kept without one.
+	DroppedResultDates map[string]int
 }
 
 // Properties maps the generation to $ai_generation properties: PostHog's
@@ -157,9 +162,15 @@ func (g LLMGeneration) Properties(traceID, spanID string) usecase.AnalyticsPrope
 		if dropped == nil {
 			dropped = map[string]int{}
 		}
+		droppedResultDates := s.DroppedResultDates
+		if droppedResultDates == nil {
+			droppedResultDates = map[string]int{}
+		}
 		p["returned_sales"] = s.Returned
 		p["kept_sales"] = s.Kept
 		p["dropped_sales"] = dropped
+		p["result_dates"] = s.ResultDates
+		p["dropped_result_dates"] = droppedResultDates
 	}
 	return p
 }
