@@ -20,10 +20,10 @@ import (
 )
 
 // The resale fixtures are about event-1, starting 2026-11-20 19:00 JST, so
-// its resale deadline is 16:00 that day.
+// its resale deadline, the last draw, is 12:00 that day.
 var (
 	resaleEventStart = time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
-	resaleDeadline   = time.Date(2026, 11, 20, 16, 0, 0, 0, tsJST)
+	resaleDeadline   = time.Date(2026, 11, 20, 12, 0, 0, 0, tsJST)
 	resaleWeekBefore = time.Date(2026, 11, 13, 12, 0, 0, 0, tsJST)
 )
 

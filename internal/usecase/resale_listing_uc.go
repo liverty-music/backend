@@ -28,7 +28,7 @@ const unrefundedListingReportAge = 10 * time.Minute
 type ResaleListingAt struct {
 	// Listing is the stored listing.
 	Listing *entity.ResaleListing
-	// Deadline is 3 hours before its event's start time.
+	// Deadline is its event's resale deadline ([entity.ResaleDeadlineOf]).
 	Deadline time.Time
 	// Status is the listing's status at the time it was read.
 	Status entity.ResaleListingStatus

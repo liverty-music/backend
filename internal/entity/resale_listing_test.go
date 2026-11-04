@@ -44,23 +44,24 @@ func TestResaleListing_FeeAndRefundAmount(t *testing.T) {
 func TestResaleDeadlineOf(t *testing.T) {
 	t.Parallel()
 
+	jst := time.FixedZone("JST", 9*60*60)
 	date := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
-	ptr := func(t time.Time) *time.Time { return &t }
+	on := func(h int) *time.Time { t := time.Date(2026, 11, 20, h, 0, 0, 0, jst); return &t }
 
 	t.Run("event with an open time", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-listing "Event with an open time"
-		got, ok := entity.ResaleDeadlineOf(&entity.Event{LocalDate: date, OpenTime: ptr(at(18, 0, 0)), StartTime: ptr(at(19, 0, 0))})
+		got, ok := entity.ResaleDeadlineOf(&entity.Event{LocalDate: date, OpenTime: on(18), StartTime: on(19)})
 		require.True(t, ok)
-		assert.True(t, got.Equal(at(16, 0, 0)))
+		assert.True(t, got.Equal(*on(12)), "12:00 that day, earlier than 3 hours before the start")
 	})
 
 	t.Run("event without an open time", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-listing "Event without an open time"
-		got, ok := entity.ResaleDeadlineOf(&entity.Event{LocalDate: date, StartTime: ptr(at(19, 0, 0))})
+		got, ok := entity.ResaleDeadlineOf(&entity.Event{LocalDate: date, StartTime: on(14)})
 		require.True(t, ok)
-		assert.True(t, got.Equal(at(16, 0, 0)))
+		assert.True(t, got.Equal(*on(11)), "3 hours before a 14:00 start, earlier than 12:00")
 	})
 
 	t.Run("event without a start time has no deadline", func(t *testing.T) {
@@ -69,14 +70,14 @@ func TestResaleDeadlineOf(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("the deadline is when admission opens", func(t *testing.T) {
+	t.Run("resale is closed when admission opens", func(t *testing.T) {
 		t.Parallel()
-		event := &entity.Event{LocalDate: date, OpenTime: ptr(at(17, 0, 0)), StartTime: ptr(at(19, 0, 0))}
+		event := &entity.Event{LocalDate: date, OpenTime: on(13), StartTime: on(14)}
 		deadline, ok := entity.ResaleDeadlineOf(event)
 		require.True(t, ok)
 		window, ok := entity.AdmissionWindowOf(event)
 		require.True(t, ok)
-		assert.True(t, deadline.Equal(window.OpenTime))
+		assert.False(t, deadline.After(window.OpenTime))
 	})
 }
 

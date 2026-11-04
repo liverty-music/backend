@@ -149,16 +149,18 @@ type Order struct {
 	// ReferralCode is the code of the link the fan came from; nil without one.
 	// Set at creation and never changed.
 	ReferralCode *ReferralCode
-	// CardAuthorizationID is the payment provider's ID for the card
-	// authorization on the fan's card for the amount (a Stripe "pi_..." id);
-	// empty until the fan authorizes, then set once.
+	// CardAuthorizationID is the id of the card authorization on the fan's
+	// card for the amount; empty until the fan authorizes, then set once.
 	CardAuthorizationID string
 	// LotteryEntryID is the LotteryEntry that names the Order; empty when its
 	// source is a Checkout. Read from the entry, never stored on the Order.
 	LotteryEntryID LotteryEntryID
 	// CheckoutID is the Checkout that names the Order; empty when its source
-	// is a LotteryEntry. Read from the checkout, never stored on the Order.
+	// is another. Read from the checkout, never stored on the Order.
 	CheckoutID CheckoutID
+	// ResaleEntryID is the ResaleEntry that names the Order; empty when its
+	// source is another. Read from the entry, never stored on the Order.
+	ResaleEntryID ResaleEntryID
 	// Payment is the provider and, once Paid, the opaque reference to the
 	// captured payment plus safe display facets. Never raw card data.
 	Payment Payment
@@ -221,11 +223,16 @@ func ValidateTicketCount(count int, event *Event) error {
 }
 
 // ValidateSource reports whether the Order is applied for through exactly one
-// source: a LotteryEntry or a Checkout.
+// source: a LotteryEntry, a Checkout or a ResaleEntry.
 func (o *Order) ValidateSource() error {
-	hasEntry, hasCheckout := o.LotteryEntryID != "", o.CheckoutID != ""
-	if hasEntry == hasCheckout {
-		return errors.New("an order must come from exactly one of a lottery entry and a checkout")
+	sources := 0
+	for _, named := range []bool{o.LotteryEntryID != "", o.CheckoutID != "", o.ResaleEntryID != ""} {
+		if named {
+			sources++
+		}
+	}
+	if sources != 1 {
+		return errors.New("an order must come from exactly one of a lottery entry, a checkout and a resale entry")
 	}
 	return nil
 }
