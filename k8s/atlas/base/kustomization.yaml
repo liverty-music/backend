@@ -145,3 +145,4 @@ configMapGenerator:
   - migrations/20261103100001_sync_schema_comments.sql
   - migrations/20261103101331_add_ticket_sale_result_date.sql
   - migrations/20261105120000_upgrade_dbos_schema_to_125.sql
+  - migrations/20261105130000_add_resale_entries_and_card_authorizations.sql

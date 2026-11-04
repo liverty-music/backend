@@ -1,4 +1,4 @@
-h1:80US7DpBgyHaZHNlbeWjAenaNSQrSNETuCZuFd+x3MI=
+h1:yp69li1fATq71UA4TH2XqHzt+6VNT1JPhv3ToHsMpac=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -131,3 +131,4 @@ h1:80US7DpBgyHaZHNlbeWjAenaNSQrSNETuCZuFd+x3MI=
 20261103100001_sync_schema_comments.sql h1:NSdgQch/QgUJi/Vuu6t4LtuaHdYMKghCBSV4/kH+eM0=
 20261103101331_add_ticket_sale_result_date.sql h1:OqjlyuIWKwFJg9im6TLQLNIHsEii3Ypv2h+GOnp4j2k=
 20261105120000_upgrade_dbos_schema_to_125.sql h1:Jqphn6YcesVNkv3CLnwByKNKKdNPeYf8QBIctcufExI=
+20261105130000_add_resale_entries_and_card_authorizations.sql h1:l0o38OXN51p8igigqU7w/12MBc/1HKSrUE1d8JWsMtQ=

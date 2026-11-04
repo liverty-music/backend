@@ -804,6 +804,23 @@ COMMENT ON COLUMN ticket_stocks.quantity IS 'Tickets in the stock, at least 1; n
 CREATE INDEX IF NOT EXISTS idx_ticket_stocks_seat_type_id ON ticket_stocks(seat_type_id);
 COMMENT ON INDEX idx_ticket_stocks_seat_type_id IS 'Optimizes the foreign key check of a seat type delete';
 
+-- Card authorizations: the platform's record of the authorization on a fan's
+-- card for one purchase; the payment provider holds the rest.
+CREATE TABLE IF NOT EXISTS card_authorizations (
+    id                             UUID        PRIMARY KEY,
+    provider_card_authorization_id TEXT        NOT NULL,
+    expire_at                      TIMESTAMPTZ,
+    CONSTRAINT chk_card_authorizations_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_card_authorizations_provider_id CHECK (char_length(provider_card_authorization_id) BETWEEN 1 AND 255)
+);
+COMMENT ON TABLE card_authorizations IS 'The platform''s record of a card authorization on a fan''s card for the amount of one purchase (a checkout, a lottery entry or a resale entry). The purchase, amount, card brand and status are read from the payment provider; this row gives it a platform id and keeps the expiry a resale draw reads.';
+COMMENT ON COLUMN card_authorizations.id IS 'Unique card authorization identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN card_authorizations.provider_card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); unique';
+COMMENT ON COLUMN card_authorizations.expire_at IS 'When the authorized amount can no longer be charged (Stripe capture_before). NULL until recorded; recorded when a resale entry is made from the card authorization, since only the resale draw reads it';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_card_authorizations_provider_id ON card_authorizations(provider_card_authorization_id);
+COMMENT ON INDEX uq_card_authorizations_provider_id IS 'One record per payment provider card authorization; the lookup of a provider notice';
+
 -- Orders: one fan's application for tickets of one ticket stock and, once its
 -- payment is captured, the purchase record. Created Pending when the fan applies
 -- through a lottery entry or a checkout, which names it; Paid when the payment
@@ -827,7 +844,7 @@ CREATE TABLE IF NOT EXISTS orders (
     ticket_stock_id    UUID    NOT NULL REFERENCES ticket_stocks(id) ON DELETE RESTRICT,
     ticket_count       INTEGER NOT NULL,
     referral_code      TEXT,
-    card_authorization_id TEXT,
+    card_authorization_id UUID REFERENCES card_authorizations(id) ON DELETE RESTRICT,
     CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
     CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 4, 5)),
@@ -835,7 +852,6 @@ CREATE TABLE IF NOT EXISTS orders (
     CONSTRAINT chk_orders_currency_len CHECK (char_length(currency) = 3),
     CONSTRAINT chk_orders_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
     CONSTRAINT chk_orders_referral_code CHECK (referral_code ~ '^[a-z0-9-]{1,32}$'),
-    CONSTRAINT chk_orders_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
     CONSTRAINT chk_orders_provider_payment_id_not_empty CHECK (provider_payment_id IS NULL OR provider_payment_id <> ''),
     CONSTRAINT chk_orders_paid_payment_id CHECK ((status IN (1, 2)) = (provider_payment_id IS NOT NULL)),
     CONSTRAINT chk_orders_paid_pay_time CHECK ((status IN (1, 2)) = (pay_at IS NOT NULL)),
@@ -859,7 +875,7 @@ COMMENT ON COLUMN orders.provider_refund_id IS 'The payment provider''s ID for t
 COMMENT ON COLUMN orders.ticket_stock_id IS 'The ticket stock the tickets are of, which gives their event and seat type';
 COMMENT ON COLUMN orders.ticket_count IS 'Tickets applied for, a companion group: 1 to the per-account limit of the stock''s event';
 COMMENT ON COLUMN orders.referral_code IS 'The referral code of the link the fan came from, from its ?ref=: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; set at creation and never changed';
-COMMENT ON COLUMN orders.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...) on the fan''s card for the amount; NULL until the fan authorizes, then set once; unique';
+COMMENT ON COLUMN orders.card_authorization_id IS 'The card authorization on the fan''s card for the amount; NULL until the fan authorizes, then set once; unique';
 
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders and the tickets a user holds for an event';
@@ -868,7 +884,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_ticket_stock_status ON orders(ticket_stock
 COMMENT ON INDEX idx_orders_ticket_stock_status IS 'Optimizes the sold and held counts of a ticket stock and the delete guard of a stock';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_card_authorization_id ON orders(card_authorization_id) WHERE card_authorization_id IS NOT NULL;
-COMMENT ON INDEX uq_orders_card_authorization_id IS 'At most one order per card authorization; the lookup of a lottery entry or checkout by its card authorization';
+COMMENT ON INDEX uq_orders_card_authorization_id IS 'At most one order per card authorization; the lookup of a lottery entry, checkout or resale entry by its card authorization';
 
 -- Lottery entries: how one fan's order takes part in a lottery sale, made
 -- Entered when the fan confirms an authorized card authorization. One entry per
@@ -901,6 +917,40 @@ COMMENT ON INDEX uq_lottery_entries_order_id IS 'One lottery entry per order';
 
 CREATE INDEX IF NOT EXISTS idx_lottery_entries_ticket_sale_state ON lottery_entries(ticket_sale_id, state);
 COMMENT ON INDEX idx_lottery_entries_ticket_sale_state IS 'Optimizes listing a sale''s entries (draw batch load, stats, whether a closed lottery is drawn)';
+
+-- Resale entries: a fan's official resale application, allocated by a daily
+-- draw.
+CREATE TABLE IF NOT EXISTS resale_entries (
+    id                  UUID        PRIMARY KEY,
+    order_id            UUID        NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+    state               SMALLINT    NOT NULL,
+    lost_reason         SMALLINT,
+    created_at          TIMESTAMPTZ NOT NULL,
+    draw_at             TIMESTAMPTZ,
+    withdraw_at         TIMESTAMPTZ,
+    ended_email_send_at TIMESTAMPTZ,
+    CONSTRAINT chk_resale_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_resale_entries_state CHECK (state BETWEEN 1 AND 5),
+    CONSTRAINT chk_resale_entries_lost_reason CHECK ((state = 3 AND lost_reason BETWEEN 1 AND 4) OR (state <> 3 AND lost_reason IS NULL)),
+    CONSTRAINT chk_resale_entries_draw_time CHECK ((state IN (2, 3, 4)) = (draw_at IS NOT NULL)),
+    CONSTRAINT chk_resale_entries_withdraw_time CHECK ((state = 5) = (withdraw_at IS NOT NULL)),
+    CONSTRAINT chk_resale_entries_ended_email CHECK (ended_email_send_at IS NULL OR state IN (3, 4))
+);
+COMMENT ON TABLE resale_entries IS 'One fan''s application, through its order, for official resale (公式リセール) tickets of a sold-out ticket stock, allocated all-or-nothing by a daily draw. At most one Entered entry per (user, event), checked by the application under the users row lock. State: 1=Entered, 2=Won, 3=Lost, 4=Lapsed, 5=Withdrawn.';
+COMMENT ON COLUMN resale_entries.id IS 'Unique resale entry identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN resale_entries.order_id IS 'The order the entry applies for: user, ticket stock, ticket count, referral code and card authorization; unique';
+COMMENT ON COLUMN resale_entries.state IS 'Lifecycle: 1=Entered (waiting for a draw), 2=Won (allocated listings; the order is Pending until charged, then Paid), 3=Lost (no ticket left at the last draw, concert cancelled, or a win that could not be charged; the order is Void), 4=Lapsed (the card authorization would expire within 24 hours of a draw; the order is Void), 5=Withdrawn (by the fan while Entered; the order is Void)';
+COMMENT ON COLUMN resale_entries.lost_reason IS 'Why a Lost entry lost: 1=no ticket left at the last draw, 2=concert cancelled, 3=the card could not be charged after it won, 4=the payment was not completed before the show. NULL unless state is 3 (Lost)';
+COMMENT ON COLUMN resale_entries.created_at IS 'When the fan applied';
+COMMENT ON COLUMN resale_entries.draw_at IS 'The draw that ended the entry: the draw it won, lost or lapsed at; set exactly when Won, Lost or Lapsed';
+COMMENT ON COLUMN resale_entries.withdraw_at IS 'When the fan withdrew it; set exactly when Withdrawn';
+COMMENT ON COLUMN resale_entries.ended_email_send_at IS 'When the email telling the fan that the entry lapsed or lost was sent; set once right after a successful send';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_resale_entries_order_id ON resale_entries(order_id);
+COMMENT ON INDEX uq_resale_entries_order_id IS 'One resale entry per order';
+
+CREATE INDEX IF NOT EXISTS idx_resale_entries_entered ON resale_entries(order_id) WHERE state = 1;
+COMMENT ON INDEX idx_resale_entries_entered IS 'Optimizes finding the Entered entries a draw takes part in and a fan''s Entered entry for an event';
 
 -- Checkouts: how one fan's order is bought first come during a first-come
 -- sale. A hold lasts exactly 15 minutes and is never extended. A charged
@@ -936,7 +986,7 @@ CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_sale_id ON checkouts(ticket_sale
 COMMENT ON INDEX idx_checkouts_ticket_sale_id IS 'Optimizes the ON DELETE RESTRICT check of a sale delete';
 
 -- delete_ticket_stock(UUID) (TicketStock.Delete) is defined by hand-written
--- migrations only, latest 20261103100000_drop_checkout_card_authorization_release.sql:
+-- migrations only, latest 20261105130000_add_resale_entries_and_card_authorizations.sql:
 -- Atlas Community cannot read functions from this file, so a function here
 -- would stop `atlas migrate diff` from working without `atlas login`.
 
@@ -994,6 +1044,7 @@ CREATE TABLE IF NOT EXISTS resale_listings (
     refund_at           TIMESTAMPTZ,
     sold_email_send_at  TIMESTAMPTZ,
     ticket_stock_id     UUID        NOT NULL REFERENCES ticket_stocks(id) ON DELETE RESTRICT,
+    resale_entry_id     UUID        REFERENCES resale_entries(id) ON DELETE SET NULL,
     CONSTRAINT chk_resale_listings_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_resale_listings_price CHECK (price BETWEEN 1 AND 1000000),
     CONSTRAINT chk_resale_listings_status CHECK (status BETWEEN 1 AND 4),
@@ -1017,6 +1068,7 @@ COMMENT ON COLUMN resale_listings.withdraw_at IS 'When the fan withdrew it; set 
 COMMENT ON COLUMN resale_listings.provider_refund_id IS 'The payment provider''s ID for the refund of the refund amount to the listing''s user (e.g. Stripe "re_..."); set once together with refund_at';
 COMMENT ON COLUMN resale_listings.refund_at IS 'When the listing''s user was refunded; set once together with provider_refund_id';
 COMMENT ON COLUMN resale_listings.sold_email_send_at IS 'When the email telling the user the ticket sold was sent; set once right after a successful send';
+COMMENT ON COLUMN resale_listings.resale_entry_id IS 'The resale entry a draw allocated the listing to; NULL until allocated. A listing whose entry is Lost is free for the next draw again';
 COMMENT ON COLUMN resale_listings.ticket_stock_id IS 'The ticket stock the ticket is of (ticket → order → ticket stock), resolved when listed';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_resale_listings_listed_ticket ON resale_listings(ticket_id) WHERE status = 1;
@@ -1024,6 +1076,9 @@ COMMENT ON INDEX uq_resale_listings_listed_ticket IS 'At most one Listed listing
 
 CREATE INDEX IF NOT EXISTS idx_resale_listings_listed_by_ticket_stock ON resale_listings(ticket_stock_id, created_at) WHERE status = 1;
 COMMENT ON INDEX idx_resale_listings_listed_by_ticket_stock IS 'Optimizes listing the open listings of a ticket stock, oldest first';
+
+CREATE INDEX IF NOT EXISTS idx_resale_listings_resale_entry_id ON resale_listings(resale_entry_id) WHERE resale_entry_id IS NOT NULL;
+COMMENT ON INDEX idx_resale_listings_resale_entry_id IS 'Optimizes finding the listings allocated to an entry and the foreign key check of an entry delete';
 
 CREATE INDEX IF NOT EXISTS idx_resale_listings_user_id ON resale_listings(user_id, created_at);
 COMMENT ON INDEX idx_resale_listings_user_id IS 'Optimizes a fan''s listings, newest first';
