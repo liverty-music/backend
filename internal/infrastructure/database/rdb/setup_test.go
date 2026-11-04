@@ -378,3 +378,17 @@ func newCardAuthorizationID() string {
 	}
 	return id
 }
+
+// providerCardAuthorizationID returns the payment provider's ID of the card
+// authorization with the id, for tests that call the payment provider
+// directly; an id that is already the provider's is returned as is.
+func providerCardAuthorizationID(t *testing.T, id string) string {
+	t.Helper()
+	if strings.HasPrefix(id, "pi_") {
+		return id
+	}
+	var providerID string
+	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+		`SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`, id).Scan(&providerID))
+	return providerID
+}

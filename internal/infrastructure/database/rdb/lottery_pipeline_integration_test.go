@@ -73,7 +73,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		authorization, err := uc.AuthorizeCard(ctx, f.SaleID, f.ID, userID, 1, "Test Fan", "+819012345678", nil)
 		require.NoError(t, err)
-		confirmCardAuthorization(t, key, authorization.ProviderID) // → requires_capture
+		confirmCardAuthorization(t, key, authorization.ID) // → requires_capture
 		entered, err := uc.Confirm(ctx, authorization.ID, &userID)
 		require.NoError(t, err)
 		require.Equal(t, entity.LotteryEntryStateEntered, entered.State)
@@ -198,7 +198,7 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), cardAuthorizationID, &stripe.PaymentIntentConfirmParams{
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 func piStatus(t *testing.T, key, cardAuthorizationID string) stripe.PaymentIntentStatus {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), cardAuthorizationID, nil)
+	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), nil)
 	require.NoError(t, err)
 	return pi.Status
 }

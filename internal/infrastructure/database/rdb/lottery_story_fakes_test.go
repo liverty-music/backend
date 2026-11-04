@@ -43,25 +43,35 @@ const fakeProviderPrefix = "pi_fake_"
 // no longer be charged.
 var fakeExpireTime = time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
 
-// fakeKey returns the key of a fake card authorization from its platform id or
-// its payment provider's ID.
-func fakeKey(id string) string { return strings.TrimPrefix(id, fakeProviderPrefix) }
+// fakeKey returns the key of a fake card authorization from its payment
+// provider's ID, or from its platform id through its card_authorizations
+// record.
+func fakeKey(id string) string {
+	if !strings.HasPrefix(id, fakeProviderPrefix) {
+		var providerID string
+		if err := testDB.Pool.QueryRow(context.Background(),
+			`SELECT provider_card_authorization_id FROM card_authorizations WHERE id::text = $1`, id).Scan(&providerID); err == nil {
+			id = providerID
+		}
+	}
+	return strings.TrimPrefix(id, fakeProviderPrefix)
+}
 
 func newFakeCards() *fakeCards {
 	return &fakeCards{byID: map[string]*entity.CardAuthorization{}, charges: map[string]int{}, closed: map[string]bool{}}
 }
 
 // Create opens a Pending card authorization for the purchase.
-func (c *fakeCards) Create(_ context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+func (c *fakeCards) Create(_ context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if amountJPY <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "amount must be positive")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := &entity.CardAuthorization{
-		ID: id, ProviderID: fakeProviderPrefix + id, Amount: amountJPY, Status: entity.CardAuthorizationStatusPending, Purchase: purchase,
+		ProviderID: fakeProviderPrefix + entity.NewID(), Amount: amountJPY, Status: entity.CardAuthorizationStatusPending, Purchase: purchase,
 	}
-	c.byID[id] = a
+	c.byID[fakeKey(a.ProviderID)] = a
 	copied := *a
 	copied.Secret = a.ProviderID + "_secret"
 	return &copied, nil
@@ -290,8 +300,8 @@ func (r *routedCards) pick(id string) rdb.CardAuthorizationProvider {
 }
 
 // Create opens a card authorization with the in-memory provider.
-func (r *routedCards) Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
-	return r.fake.Create(ctx, id, purchase, amountJPY)
+func (r *routedCards) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+	return r.fake.Create(ctx, purchase, amountJPY)
 }
 
 // Get reads the card authorization from the provider that holds it.

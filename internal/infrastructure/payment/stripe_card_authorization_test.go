@@ -161,12 +161,11 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 6000, "jpy", ""))}
 		repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
 
-		got, err := repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", checkout, 6000)
+		got, err := repo.Create(context.Background(), checkout, 6000)
 
 		require.NoError(t, err)
 		assert.Equal(t, "pi_stub", got.ProviderID)
 		assert.Equal(t, "pi_stub_secret_stub", got.Secret)
-		assert.Equal(t, "019a0000-0000-7000-8000-0000000000aa", stub.createForm.Get("metadata[card_authorization_id]"), "the platform's id travels with it")
 		assert.Equal(t, int64(6000), got.Amount)
 		assert.Equal(t, entity.CardAuthorizationStatusPending, got.Status)
 		assert.Equal(t, "6000", stub.createForm.Get("amount"))
@@ -189,9 +188,9 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 6000, "jpy", ""))}
 		repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
 
-		_, err := repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", checkout, 6000)
+		_, err := repo.Create(context.Background(), checkout, 6000)
 		require.NoError(t, err)
-		_, err = repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", checkout, 6000)
+		_, err = repo.Create(context.Background(), checkout, 6000)
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{"ticket-sale-authorize:checkout-1", "ticket-sale-authorize:checkout-1"}, stub.keys)
@@ -213,9 +212,9 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 			}
 		}
 
-		_, err := repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", entry(2), 16000)
+		_, err := repo.Create(context.Background(), entry(2), 16000)
 		require.NoError(t, err)
-		_, err = repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", entry(3), 24000)
+		_, err = repo.Create(context.Background(), entry(3), 24000)
 		require.NoError(t, err)
 
 		require.Len(t, stub.keys, 2)
@@ -243,7 +242,7 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 			stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 1, "jpy", ""))}
 			repo := newStubRepo(t, stub, payment.CheckoutCardAuthorizationPolicy)
 
-			_, err := repo.Create(context.Background(), "019a0000-0000-7000-8000-0000000000aa", checkout, amount)
+			_, err := repo.Create(context.Background(), checkout, amount)
 
 			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			assert.Nil(t, stub.createForm, "no card authorization is opened")
@@ -255,7 +254,7 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 		// @spec components/entity/card-authorization/create "Payment provider unavailable"
 		repo, ctx := unreachable(t)
 
-		_, err := repo.Create(ctx, "019a0000-0000-7000-8000-0000000000aa", checkout, 6000)
+		_, err := repo.Create(ctx, checkout, 6000)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})

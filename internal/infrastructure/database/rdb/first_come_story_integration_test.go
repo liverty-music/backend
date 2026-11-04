@@ -113,7 +113,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 // paymentIntent reads a PaymentIntent from the Stripe test API.
 func (s *firstComeStory) paymentIntent(cardAuthorizationID string) *stripe.PaymentIntent {
 	s.t.Helper()
-	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, cardAuthorizationID, nil)
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, cardAuthorizationID), nil)
 	require.NoError(s.t, err)
 	return pi
 }
@@ -163,10 +163,7 @@ func (s *firstComeStory) authorizeCheckout(checkout *entity.Checkout, fan entity
 	require.NoError(s.t, err)
 	id := got.Order.CardAuthorizationID
 	require.NotEmpty(s.t, id)
-	var providerID string
-	require.NoError(s.t, testDB.Pool.QueryRow(s.ctx,
-		`SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`, id).Scan(&providerID))
-	confirmCardAuthorization(s.t, s.key, providerID)
+	confirmCardAuthorization(s.t, s.key, providerCardAuthorizationID(s.t, id))
 	return id
 }
 

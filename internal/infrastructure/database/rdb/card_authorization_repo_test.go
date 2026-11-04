@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,9 +23,9 @@ type retriedCards struct {
 	first *entity.CardAuthorization
 }
 
-func (c *retriedCards) Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+func (c *retriedCards) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if c.first == nil {
-		first, err := c.fakeCards.Create(ctx, id, purchase, amountJPY)
+		first, err := c.fakeCards.Create(ctx, purchase, amountJPY)
 		if err != nil {
 			return nil, err
 		}
@@ -57,7 +58,7 @@ func TestCardAuthorizationRepository(t *testing.T) {
 		parsed, err := uuid.Parse(opened.ID)
 		require.NoError(t, err, "the id is a UUID")
 		assert.Equal(t, uuid.Version(7), parsed.Version())
-		assert.Equal(t, fakeProviderPrefix+opened.ID, opened.ProviderID)
+		assert.True(t, strings.HasPrefix(opened.ProviderID, fakeProviderPrefix))
 		got, err := repo.Get(ctx, opened.ID)
 		require.NoError(t, err)
 		assert.Equal(t, opened.ID, got.ID)

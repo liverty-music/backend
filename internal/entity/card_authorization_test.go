@@ -2,6 +2,7 @@ package entity_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -119,4 +120,32 @@ func TestCardAuthorization_Confirm(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestCardAuthorization_ChargeableAt(t *testing.T) {
+	t.Parallel()
+	jst := time.FixedZone("JST", 9*60*60)
+	expire := time.Date(2026, 11, 30, 12, 0, 0, 0, jst)
+	authorized := &entity.CardAuthorization{Status: entity.CardAuthorizationStatusAuthorized, ExpireTime: &expire}
+
+	t.Run("before expiry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization "Before expiry"
+		assert.True(t, authorized.ChargeableAt(time.Date(2026, 11, 20, 12, 0, 0, 0, jst)))
+	})
+
+	t.Run("after expiry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization "After expiry"
+		assert.False(t, authorized.ChargeableAt(expire))
+	})
+
+	t.Run("not authorized or without an expiry", func(t *testing.T) {
+		t.Parallel()
+		pending := &entity.CardAuthorization{Status: entity.CardAuthorizationStatusPending, ExpireTime: &expire}
+		unknown := &entity.CardAuthorization{Status: entity.CardAuthorizationStatusAuthorized}
+		at := time.Date(2026, 11, 20, 12, 0, 0, 0, jst)
+		assert.False(t, pending.ChargeableAt(at))
+		assert.False(t, unknown.ChargeableAt(at))
+	})
 }

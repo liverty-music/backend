@@ -32,7 +32,7 @@ func (p *NoopCardAuthorizationProvider) errPaymentNotConfigured(ctx context.Cont
 
 // Create always fails with
 // Unavailable.
-func (p *NoopCardAuthorizationProvider) Create(ctx context.Context, _ string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+func (p *NoopCardAuthorizationProvider) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	return nil, p.errPaymentNotConfigured(ctx, "create",
 		slog.String("ticket_stock_id", string(purchase.TicketStockID)), slog.Int64("amount_jpy", amountJPY))
 }

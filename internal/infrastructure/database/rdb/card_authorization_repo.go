@@ -16,11 +16,10 @@ import (
 // provider's ID and reports everything but the platform's record. The Stripe
 // and no-op providers of package payment implement it.
 type CardAuthorizationProvider interface {
-	// Create opens a Pending card authorization that carries id, the
-	// platform's id for it, and the purchase, and returns it with its
-	// ProviderID. A retried Create for the same Checkout returns the first
-	// one, with the id it was opened with.
-	Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error)
+	// Create opens a Pending card authorization that carries the purchase and
+	// returns it with its ProviderID. A retried Create for the same Checkout
+	// returns the first one.
+	Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error)
 	// Get reads the card authorization whose payment provider's ID is
 	// providerID.
 	Get(ctx context.Context, providerID string) (*entity.CardAuthorization, error)
@@ -74,19 +73,15 @@ const (
 // authorization with the payment provider first and records it after, so a
 // record always names a card authorization that exists; one whose record
 // failed is never returned to the fan and lapses holding nothing, because its
-// secret never reached the browser.
+// secret never reached the browser. A retried Checkout gets back its first
+// card authorization and, by its payment provider's ID, its first record.
 func (r *CardAuthorizationRepository) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
-	id := entity.NewID()
-	ca, err := r.provider.Create(ctx, id, purchase, amountJPY)
+	ca, err := r.provider.Create(ctx, purchase, amountJPY)
 	if err != nil {
 		return nil, err
 	}
-	if ca.ID != "" {
-		// A retried Checkout's card authorization carries its first id.
-		id = ca.ID
-	}
 	var recorded string
-	if err := r.db.Pool.QueryRow(ctx, cardAuthorizationRecordQuery, id, ca.ProviderID).Scan(&recorded); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, cardAuthorizationRecordQuery, entity.NewID(), ca.ProviderID).Scan(&recorded); err != nil {
 		return nil, toAppErr(err, "failed to record the card authorization",
 			slog.String("provider_card_authorization_id", ca.ProviderID))
 	}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
@@ -43,7 +44,7 @@ func TestStripeCardAuthorizationProvider_Integration(t *testing.T) {
 			EventID:       entity.NewID(),
 			TicketCount:   2,
 		}
-		got, err := repo.Create(ctx, entity.NewID(), purchase, amountJPY)
+		got, err := repo.Create(ctx, purchase, amountJPY)
 		require.NoError(t, err)
 		require.NotEmpty(t, got.Secret)
 		return got, purchase
@@ -58,10 +59,9 @@ func TestStripeCardAuthorizationProvider_Integration(t *testing.T) {
 		assert.Equal(t, stripe.PaymentIntentCaptureMethodManual, pi.CaptureMethod)
 		assert.Equal(t, string(purchase.CheckoutID), pi.Metadata["checkout_id"])
 
-		again, err := checkout.Create(ctx, entity.NewID(), purchase, amountJPY)
+		again, err := checkout.Create(ctx, purchase, amountJPY)
 		require.NoError(t, err)
 		assert.Equal(t, opened.ProviderID, again.ProviderID)
-		assert.Equal(t, opened.ID, again.ID, "a retried checkout keeps the id it was opened with")
 		require.NoError(t, checkout.Release(ctx, opened.ProviderID))
 	})
 
@@ -99,9 +99,9 @@ func TestStripeCardAuthorizationProvider_Integration(t *testing.T) {
 				ReferralCode:  &code,
 			}
 		}
-		two, err := lottery.Create(ctx, entity.NewID(), entry(2), 16000)
+		two, err := lottery.Create(ctx, entry(2), 16000)
 		require.NoError(t, err)
-		three, err := lottery.Create(ctx, entity.NewID(), entry(3), 24000)
+		three, err := lottery.Create(ctx, entry(3), 24000)
 		require.NoError(t, err)
 		require.NotEqual(t, two.ProviderID, three.ProviderID, "each call opens a new card authorization")
 
@@ -146,6 +146,25 @@ func TestStripeCardAuthorizationProvider_Integration(t *testing.T) {
 		assert.Equal(t, "4242", captured.CapturedPayment.CardLast4)
 
 		assert.ErrorIs(t, lottery.Release(ctx, opened.ProviderID), apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("authorized card authorization reports its expiry", func(t *testing.T) {
+		// A JPY authorization of a Japan-based account can be captured for up
+		// to 30 days on Visa, Mastercard, JCB, Diners and Discover, and for 7
+		// days on American Express, without request_extended_authorization
+		// (design D5). The window is read from the charge's capture_before.
+		for brand, wantDays := range map[string]int{"pm_card_jcb": 30, "pm_card_visa": 30, "pm_card_amex": 7} {
+			opened, _ := open(t, checkout)
+			confirmWith(t, key, opened.ProviderID, brand)
+
+			authorized, err := checkout.Get(ctx, opened.ProviderID)
+			require.NoError(t, err, brand)
+			require.NotNil(t, authorized.ExpireTime, brand)
+			days := time.Until(*authorized.ExpireTime).Hours() / 24
+			t.Logf("%s: capture_before %s (%.1f days)", brand, authorized.ExpireTime.Format(time.RFC3339), days)
+			assert.InDelta(t, float64(wantDays), days, 1, brand)
+			require.NoError(t, checkout.Release(ctx, opened.ProviderID))
+		}
 	})
 
 	t.Run("release once, then capture fails", func(t *testing.T) {

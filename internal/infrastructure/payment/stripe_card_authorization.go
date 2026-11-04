@@ -104,29 +104,28 @@ func newStripeCardAuthorizationProvider(secretKey, apiURL string, policy CardAut
 // PaymentIntent metadata keys that carry the purchase a card authorization
 // pays for.
 const (
-	metadataCardAuthorizationID = "card_authorization_id"
-	metadataCheckoutID          = "checkout_id"
-	metadataUserID              = "user_id"
-	metadataTicketSaleID        = "ticket_sale_id"
-	metadataTicketStockID       = "ticket_stock_id"
-	metadataTicketCount         = "ticket_count"
-	metadataEventID             = "event_id"
-	metadataReferralCode        = "referral_code"
+	metadataCheckoutID    = "checkout_id"
+	metadataUserID        = "user_id"
+	metadataTicketSaleID  = "ticket_sale_id"
+	metadataTicketStockID = "ticket_stock_id"
+	metadataTicketCount   = "ticket_count"
+	metadataEventID       = "event_id"
+	metadataReferralCode  = "referral_code"
 )
 
 // Create opens a Pending card authorization, a PaymentIntent that carries the
-// platform's id for it (id) and the purchase as metadata, and returns it with
-// its card authorization secret. A Checkout's idempotency key is its id, so a
-// retried Create returns the first PaymentIntent, with the id it was opened
-// with; a lottery or resale entry's Create sends no key and opens a new
-// PaymentIntent each time.
+// purchase as metadata, and returns it with its card authorization secret and
+// the payment provider's ID; its platform id is left empty. A Checkout's
+// idempotency key is its id, so a retried Create returns the first
+// PaymentIntent; a lottery or resale entry's Create sends no key and opens a
+// new PaymentIntent each time.
 //
 // # Possible errors
 //
 //   - InvalidArgument: amountJPY is zero or negative.
 //   - Unavailable: the payment provider cannot be reached.
 //   - Internal: unexpected provider error.
-func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if amountJPY <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "amountJPY must be positive")
 	}
@@ -147,7 +146,6 @@ func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, id string,
 			params.AddMetadata(key, value)
 		}
 	}
-	addMetadata(metadataCardAuthorizationID, id)
 	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
 		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
 	}
@@ -180,8 +178,8 @@ func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, id string,
 }
 
 // Get returns the card authorization whose payment provider's ID is
-// providerID as the payment provider reports it now. Its ID is the platform id
-// it was opened with, empty for one opened before card authorizations had one.
+// providerID as the payment provider reports it now; its platform id is left
+// empty.
 //
 // # Possible errors
 //
@@ -293,7 +291,6 @@ func (p *StripeCardAuthorizationProvider) retrieve(ctx context.Context, id strin
 // cardAuthorization maps a PaymentIntent to the CardAuthorization it holds.
 func cardAuthorization(pi *stripe.PaymentIntent) *entity.CardAuthorization {
 	a := &entity.CardAuthorization{
-		ID:         pi.Metadata[metadataCardAuthorizationID],
 		ProviderID: pi.ID,
 		Amount:     pi.Amount,
 		CardBrand:  extractCardBrand(pi),
