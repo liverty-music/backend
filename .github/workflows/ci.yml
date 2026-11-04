@@ -133,6 +133,9 @@ jobs:
     services:
       postgres:
         image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+        # Throwaway test database: durability is traded for speed (PostgreSQL
+        # docs, "Non-Durable Settings"). Same settings as compose.yml.
+        command: -c fsync=off -c synchronous_commit=off -c full_page_writes=off
         env:
           POSTGRES_USER: test-user
           POSTGRES_DB: test-db
