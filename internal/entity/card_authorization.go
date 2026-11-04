@@ -77,6 +77,9 @@ const (
 	// CardAuthorizationPurposeLotteryEntry pays for a lottery entry, which is
 	// made from it at Confirm.
 	CardAuthorizationPurposeLotteryEntry
+	// CardAuthorizationPurposeResaleEntry pays for an official resale entry,
+	// which is made from it at Confirm.
+	CardAuthorizationPurposeResaleEntry
 )
 
 // CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
@@ -110,12 +113,18 @@ func (p CardAuthorizationPurchase) IsLotteryEntry() bool {
 	return p.Purpose == CardAuthorizationPurposeLotteryEntry
 }
 
+// IsResaleEntry reports whether the purchase is an official resale entry.
+func (p CardAuthorizationPurchase) IsResaleEntry() bool {
+	return p.Purpose == CardAuthorizationPurposeResaleEntry
+}
+
 // AcceptsCardBrand reports whether a card of the brand may pay for the
-// purchase: a Checkout accepts every brand, a LotteryEntry every brand but
-// American Express ([IsAcceptedCardBrand]); an unknown brand is accepted for
-// both.
+// purchase: a Checkout and a ResaleEntry accept every brand, a LotteryEntry
+// every brand but American Express ([IsAcceptedCardBrand]); an unknown brand
+// is accepted for all. An American Express resale entry lapses sooner, since
+// its card authorization lasts about a week.
 func (p CardAuthorizationPurchase) AcceptsCardBrand(brand CardBrand) bool {
-	return p.Purpose == CardAuthorizationPurposeCheckout || IsAcceptedCardBrand(brand)
+	return p.Purpose == CardAuthorizationPurposeCheckout || p.Purpose == CardAuthorizationPurposeResaleEntry || IsAcceptedCardBrand(brand)
 }
 
 // Confirm returns nil when the card authorization confirms the purchase: it is

@@ -98,7 +98,7 @@ func signedBody(t *testing.T, payload map[string]any, secret string) ([]byte, st
 func TestStripeWebhookHandler_InvalidSignature_Returns401(t *testing.T) {
 	t.Parallel()
 
-	h := webhook.NewStripeWebhookHandler("whsec_correct_secret", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler("whsec_correct_secret", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	body := []byte(`{"id":"evt_test","object":"event","type":"charge.refunded","data":{"object":{}}}`)
 	req := httptest.NewRequest(http.MethodPost, "/stripe-webhook", bytes.NewReader(body))
@@ -119,7 +119,7 @@ func TestStripeWebhookHandler_InvalidSignature_Returns401(t *testing.T) {
 func TestStripeWebhookHandler_NoSigningSecret_Returns503(t *testing.T) {
 	t.Parallel()
 
-	h := webhook.NewStripeWebhookHandler("", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler("", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	req := httptest.NewRequest(http.MethodPost, "/stripe-webhook", bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Stripe-Signature", "t=1,v1=fake")
@@ -137,7 +137,7 @@ func TestStripeWebhookHandler_NoSigningSecret_Returns503(t *testing.T) {
 func TestStripeWebhookHandler_WrongMethod_Returns405(t *testing.T) {
 	t.Parallel()
 
-	h := webhook.NewStripeWebhookHandler("whsec_secret", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler("whsec_secret", &stubWebhookSvc{}, usecasemocks.NewMockLotteryEntryUseCase(t), usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	req := httptest.NewRequest(http.MethodGet, "/stripe-webhook", nil)
 	w := httptest.NewRecorder()
@@ -175,7 +175,7 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 	}
 
 	lotteryEntries := usecasemocks.NewMockLotteryEntryUseCase(t)
-	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	// Dispute object: data.object.id = dp_, data.object.charge = ch_,
 	// data.object.payment_intent = pi_ (string form, no expansion).
@@ -230,7 +230,7 @@ func TestStripeWebhookHandler_ValidSignature_ChargeRefunded_ExtractsProviderChar
 	}
 
 	lotteryEntries := usecasemocks.NewMockLotteryEntryUseCase(t)
-	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	// For charge.refunded data.object IS a Charge: id = ch_, payment_intent = pi_.
 	payload := map[string]any{
@@ -273,7 +273,7 @@ func TestStripeWebhookHandler_ServiceError_Returns500(t *testing.T) {
 	}
 
 	lotteryEntries := usecasemocks.NewMockLotteryEntryUseCase(t)
-	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, newTestLoggerWH(t))
+	h := webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t))
 
 	payload := map[string]any{
 		"id":     "evt_svc_err",
@@ -314,7 +314,7 @@ func TestStripeWebhookHandler_PaymentIntentSucceeded(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sigHeader)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		webhook.NewStripeWebhookHandler(secret, svc, usecasemocks.NewMockLotteryEntryUseCase(t), newTestLoggerWH(t)).ServeHTTP(w, req)
+		webhook.NewStripeWebhookHandler(secret, svc, usecasemocks.NewMockLotteryEntryUseCase(t), usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t)).ServeHTTP(w, req)
 		return w
 	}
 
@@ -368,7 +368,7 @@ func TestStripeWebhookHandler_CardAuthorizationAuthorized(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sigHeader)
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, newTestLoggerWH(t)).ServeHTTP(w, req)
+		webhook.NewStripeWebhookHandler(secret, svc, lotteryEntries, usecasemocks.NewMockResaleEntryUseCase(t), newTestLoggerWH(t)).ServeHTTP(w, req)
 		return w
 	}
 	entered := &entity.LotteryEntry{ID: "entry-1", State: entity.LotteryEntryStateEntered, Order: &entity.Order{CardAuthorizationID: caID}}
@@ -439,6 +439,31 @@ func TestStripeWebhookHandler_CardAuthorizationAuthorized(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.True(t, svc.processed["evt_capturable_5"], "the notice is acknowledged")
+	})
+
+	t.Run("resale application, browser closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Resale application, browser closed"
+		resaleEntries := usecasemocks.NewMockResaleEntryUseCase(t)
+		resaleEntries.EXPECT().Confirm(mock.Anything, caID, (*entity.UserID)(nil)).
+			Return(&entity.ResaleEntry{ID: "resale-1", State: entity.ResaleEntryStateEntered}, nil).Once()
+		svc := &stubWebhookSvc{cards: map[string]*entity.CardAuthorization{
+			piID: {ID: caID, ProviderID: piID, Status: entity.CardAuthorizationStatusAuthorized,
+				Purchase: entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeResaleEntry}},
+		}}
+		payload := map[string]any{
+			"id": "evt_capturable_7", "object": "event", "type": "payment_intent.amount_capturable_updated",
+			"data": map[string]any{"object": map[string]any{"id": piID, "object": "payment_intent", "status": "requires_capture"}},
+		}
+		body, sigHeader := signedBody(t, payload, secret)
+		req := httptest.NewRequest(http.MethodPost, "/stripe-webhook", bytes.NewReader(body))
+		req.Header.Set("Stripe-Signature", sigHeader)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		webhook.NewStripeWebhookHandler(secret, svc, usecasemocks.NewMockLotteryEntryUseCase(t), resaleEntries, newTestLoggerWH(t)).ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.True(t, svc.processed["evt_capturable_7"])
 	})
 
 	t.Run("checkout card authorization acknowledged", func(t *testing.T) {

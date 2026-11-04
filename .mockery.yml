@@ -98,6 +98,7 @@ packages:
       IdentityVerifier: {}
       ImageStorer: {}
       LotteryEntryUseCase: {}
+      ResaleEntryUseCase: {}
       NotificationUseCase: {}
       OfficialSiteUseCase: {}
       OrderUseCase: {}

@@ -34,6 +34,12 @@ type lotteryEntryConfirmer interface {
 	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)
 }
 
+// resaleEntryConfirmer is the subset of [usecase.ResaleEntryUseCase] that the
+// handler depends on.
+type resaleEntryConfirmer interface {
+	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error)
+}
+
 // StripeWebhookHandler serves `POST /stripe-webhook`. It verifies the
 // Stripe-Signature header against the configured webhook signing secret (using
 // the Stripe SDK's webhook.ConstructEvent) and then dispatches the parsed event
@@ -64,6 +70,7 @@ type StripeWebhookHandler struct {
 	signingSecret  string
 	webhookSvc     stripeWebhookUseCase
 	lotteryEntries lotteryEntryConfirmer
+	resaleEntries  resaleEntryConfirmer
 	logger         *logging.Logger
 }
 
@@ -77,12 +84,14 @@ func NewStripeWebhookHandler(
 	signingSecret string,
 	webhookSvc stripeWebhookUseCase,
 	lotteryEntries lotteryEntryConfirmer,
+	resaleEntries resaleEntryConfirmer,
 	logger *logging.Logger,
 ) *StripeWebhookHandler {
 	return &StripeWebhookHandler{
 		signingSecret:  signingSecret,
 		webhookSvc:     webhookSvc,
 		lotteryEntries: lotteryEntries,
+		resaleEntries:  resaleEntries,
 		logger:         logger,
 	}
 }
@@ -173,8 +182,9 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 // confirmEntry finds the card authorization the payment provider reports
-// Authorized by the payment provider's ID and, when it pays for a lottery
-// entry, runs LotteryEntryUseCase.Confirm for it without a calling fan. A
+// Authorized by the payment provider's ID and, when it pays for a lottery or
+// resale entry, runs LotteryEntryUseCase.Confirm or ResaleEntryUseCase.Confirm
+// for it without a calling fan. A
 // card authorization the platform did not open (NotFound) or that pays for a
 // Checkout is acknowledged without effect, and so is a rejection by Confirm
 // (PermissionDenied, FailedPrecondition, InvalidArgument, AlreadyExists):
@@ -198,10 +208,14 @@ func (h *StripeWebhookHandler) confirmEntry(ctx context.Context, event usecase.S
 			slog.String("event_id", event.ProviderEventID),
 			slog.String("provider_payment_id", event.ProviderPaymentID))
 	}
-	if !ca.Purchase.IsLotteryEntry() {
+	switch {
+	case ca.Purchase.IsLotteryEntry():
+		_, err = h.lotteryEntries.Confirm(ctx, ca.ID, nil)
+	case ca.Purchase.IsResaleEntry():
+		_, err = h.resaleEntries.Confirm(ctx, ca.ID, nil)
+	default:
 		return nil
 	}
-	_, err = h.lotteryEntries.Confirm(ctx, ca.ID, nil)
 	switch {
 	case err == nil:
 		return nil
@@ -209,14 +223,14 @@ func (h *StripeWebhookHandler) confirmEntry(ctx context.Context, event usecase.S
 		errors.Is(err, apperr.ErrFailedPrecondition),
 		errors.Is(err, apperr.ErrInvalidArgument),
 		errors.Is(err, apperr.ErrAlreadyExists):
-		h.logger.Info(ctx, "stripe webhook: card authorization not made into a lottery entry; acknowledged",
+		h.logger.Info(ctx, "stripe webhook: card authorization not made into an entry; acknowledged",
 			slog.String("event_id", event.ProviderEventID),
 			slog.String("provider_payment_id", event.ProviderPaymentID),
 			slog.Any("error", err),
 		)
 		return nil
 	default:
-		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to confirm the lottery entry",
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to confirm the entry",
 			slog.String("event_id", event.ProviderEventID),
 			slog.String("provider_payment_id", event.ProviderPaymentID))
 	}

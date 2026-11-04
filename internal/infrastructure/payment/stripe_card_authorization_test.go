@@ -542,3 +542,48 @@ func TestStripeCardAuthorizationProvider_Release(t *testing.T) {
 		assert.NotEqual(t, stub.keys[0], stub.keys[1], "the later call does not reuse the failed call's key")
 	})
 }
+
+// TestStripeCardAuthorizationProvider_ResaleEntry checks that a resale entry's
+// card authorization carries its purchase and is read back as one.
+func TestStripeCardAuthorizationProvider_ResaleEntry(t *testing.T) {
+	t.Parallel()
+	resale := entity.CardAuthorizationPurchase{
+		Purpose: entity.CardAuthorizationPurposeResaleEntry, UserID: "user-1", TicketStockID: "stock-1", EventID: "event-1", TicketCount: 2,
+	}
+
+	t.Run("resale entry authorized", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/card-authorization/create "Resale entry authorized"
+		stub := &stripeStub{create: ok(paymentIntentBody("requires_payment_method", 10000, "jpy", ""))}
+		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
+
+		got, err := repo.Create(context.Background(), resale, 10000)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.CardAuthorizationStatusPending, got.Status)
+		assert.Equal(t, "10000", stub.createForm.Get("amount"))
+		assert.Equal(t, "manual", stub.createForm.Get("capture_method"), "nothing is charged")
+		assert.Equal(t, "resale_entry", stub.createForm.Get("metadata[purchase]"))
+		assert.Equal(t, "user-1", stub.createForm.Get("metadata[user_id]"))
+		assert.Equal(t, "stock-1", stub.createForm.Get("metadata[ticket_stock_id]"))
+		assert.Equal(t, "2", stub.createForm.Get("metadata[ticket_count]"))
+		assert.Empty(t, stub.createForm.Get("metadata[ticket_sale_id]"))
+		assert.Zero(t, stub.captures)
+	})
+
+	t.Run("read back as a resale entry", func(t *testing.T) {
+		t.Parallel()
+		body := paymentIntentBody("requires_capture", 10000, "jpy", "amex")
+		body["metadata"] = map[string]any{"purchase": "resale_entry", "user_id": "user-1", "ticket_stock_id": "stock-1", "event_id": "event-1", "ticket_count": "2"}
+		body["latest_charge"].(map[string]any)["payment_method_details"].(map[string]any)["card"].(map[string]any)["capture_before"] = 1795000000
+		repo := newStubRepo(t, &stripeStub{retrieve: ok(body)}, payment.LotteryCardAuthorizationPolicy)
+
+		got, err := repo.Get(context.Background(), "pi_stub")
+
+		require.NoError(t, err)
+		assert.Equal(t, resale, got.Purchase)
+		require.NotNil(t, got.ExpireTime)
+		assert.Equal(t, int64(1795000000), got.ExpireTime.Unix())
+		assert.NoError(t, got.Confirm(got.Purchase, 10000), "American Express is accepted for a resale entry")
+	})
+}

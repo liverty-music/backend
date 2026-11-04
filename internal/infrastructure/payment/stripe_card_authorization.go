@@ -101,9 +101,14 @@ func newStripeCardAuthorizationProvider(secretKey, apiURL string, policy CardAut
 	}
 }
 
+// purchaseResaleEntry is the metadata value of purchase for an official
+// resale entry, which, unlike a lottery entry, names no TicketSale.
+const purchaseResaleEntry = "resale_entry"
+
 // PaymentIntent metadata keys that carry the purchase a card authorization
 // pays for.
 const (
+	metadataPurchase      = "purchase"
 	metadataCheckoutID    = "checkout_id"
 	metadataUserID        = "user_id"
 	metadataTicketSaleID  = "ticket_sale_id"
@@ -145,6 +150,9 @@ func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, purchase e
 		if value != "" {
 			params.AddMetadata(key, value)
 		}
+	}
+	if purchase.IsResaleEntry() {
+		addMetadata(metadataPurchase, purchaseResaleEntry)
 	}
 	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
 		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
@@ -327,6 +335,8 @@ func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPu
 		purchase.ReferralCode = &c
 	}
 	switch {
+	case metadata[metadataPurchase] == purchaseResaleEntry && purchase.UserID != "" && purchase.TicketStockID != "":
+		purchase.Purpose = entity.CardAuthorizationPurposeResaleEntry
 	case purchase.CheckoutID != "":
 		purchase.Purpose = entity.CardAuthorizationPurposeCheckout
 	case purchase.UserID != "" && purchase.TicketSaleID != "":

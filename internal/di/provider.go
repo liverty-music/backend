@@ -438,6 +438,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Logger:                   logger,
 	})
 
+	// Official resale by lottery: a resale entry's card authorization, like a
+	// lottery entry's, sends no idempotency key, so it shares the lottery's.
+	resaleEntryRepo := rdb.NewResaleEntryRepository(db, newOutbox(logger))
+	resaleEntryUC := usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo:                resaleEntryRepo,
+		StockRepo:                ticketStockRepo,
+		SaleRepo:                 ticketSaleRepo,
+		OrderRepo:                orderRepo,
+		EventRepo:                eventRepo,
+		EventState:               eventPublishState,
+		IdentityVerificationRepo: identityVerificationRepo,
+		UserRepo:                 userRepo,
+		CardAuthorizations:       lotteryCardAuthorizations,
+		Clock:                    time.Now,
+		Logger:                   logger,
+	})
+
 	// Seat types and ticket stocks, the sales (Lottery and FirstCome) that
 	// sell the stocks of their events, and the fan's 15-minute first-come
 	// checkout.
@@ -883,6 +900,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		cfg.Stripe.WebhookSigningSecret,
 		stripeWebhookSvc,
 		lotteryEntryUC,
+		resaleEntryUC,
 		logger,
 	)
 
