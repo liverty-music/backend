@@ -287,3 +287,77 @@ func (_c *MockResaleEntryUseCase_List_Call) RunAndReturn(run func(ctx context.Co
 	_c.Call.Return(run)
 	return _c
 }
+
+// Withdraw provides a mock function for the type MockResaleEntryUseCase
+func (_mock *MockResaleEntryUseCase) Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID) (*entity.ResaleEntry, error) {
+	ret := _mock.Called(ctx, userID, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Withdraw")
+	}
+
+	var r0 *entity.ResaleEntry
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.ResaleEntryID) (*entity.ResaleEntry, error)); ok {
+		return returnFunc(ctx, userID, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.ResaleEntryID) *entity.ResaleEntry); ok {
+		r0 = returnFunc(ctx, userID, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.ResaleEntry)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.UserID, entity.ResaleEntryID) error); ok {
+		r1 = returnFunc(ctx, userID, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryUseCase_Withdraw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Withdraw'
+type MockResaleEntryUseCase_Withdraw_Call struct {
+	*mock.Call
+}
+
+// Withdraw is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID entity.UserID
+//   - id entity.ResaleEntryID
+func (_e *MockResaleEntryUseCase_Expecter) Withdraw(ctx any, userID any, id any) *MockResaleEntryUseCase_Withdraw_Call {
+	return &MockResaleEntryUseCase_Withdraw_Call{Call: _e.mock.On("Withdraw", ctx, userID, id)}
+}
+
+func (_c *MockResaleEntryUseCase_Withdraw_Call) Run(run func(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID)) *MockResaleEntryUseCase_Withdraw_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.UserID
+		if args[1] != nil {
+			arg1 = args[1].(entity.UserID)
+		}
+		var arg2 entity.ResaleEntryID
+		if args[2] != nil {
+			arg2 = args[2].(entity.ResaleEntryID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_Withdraw_Call) Return(resaleEntry *entity.ResaleEntry, err error) *MockResaleEntryUseCase_Withdraw_Call {
+	_c.Call.Return(resaleEntry, err)
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_Withdraw_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID) (*entity.ResaleEntry, error)) *MockResaleEntryUseCase_Withdraw_Call {
+	_c.Call.Return(run)
+	return _c
+}

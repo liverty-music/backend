@@ -380,6 +380,25 @@ type ResaleEntryRepository interface {
 	// with the entry as it is after the draw, together with the outcome.
 	PersistDrawOutcome(ctx context.Context, stockID TicketStockID, drawTime time.Time, outcome ResaleDrawOutcome) error
 
+	// Withdraw makes the Entered entry Withdrawn at the time and its Order
+	// Void, in one transaction under the row lock of its Order's TicketStock,
+	// the lock a draw takes before it reads the Entered entries (design D8),
+	// and returns the entry as it is after the change.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no entry has the id.
+	//   - FailedPrecondition: the entry is no longer Entered, also when a draw
+	//     running at the same moment recorded it first; nothing changes.
+	//   - Unavailable: the announcement cannot be recorded; nothing changes.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.resale_entry_changed with the Withdrawn entry, together with the
+	// change. Nothing when it fails.
+	Withdraw(ctx context.Context, id ResaleEntryID, at time.Time) (*ResaleEntry, error)
+
 	// MarkEndedEmailSent sets the entry's ended email send time when it is
 	// unset; an already set time is kept.
 	//

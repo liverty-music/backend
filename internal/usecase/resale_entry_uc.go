@@ -83,6 +83,19 @@ type ResaleEntryUseCase interface {
 	//
 	//  - Errors of reading the entries, stocks or events, unchanged.
 	List(ctx context.Context, userID entity.UserID) ([]*ResaleEntryView, error)
+
+	// Withdraw withdraws the fan's own Entered entry now and returns it
+	// Withdrawn with its Order Void. The release of its card authorization
+	// runs from the withdrawal's announcement, so Withdraw does not wait for
+	// the payment provider; no email or push is sent.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the entry does not exist or its Order is another user's.
+	//  - FailedPrecondition: the entry is no longer Entered (a draw decided
+	//    it, or it was withdrawn); nothing changes.
+	//  - Errors of reading or withdrawing the entry, unchanged.
+	Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID) (*entity.ResaleEntry, error)
 }
 
 // resaleEntryUseCase implements [ResaleEntryUseCase].
@@ -294,6 +307,18 @@ func (uc *resaleEntryUseCase) reject(ctx context.Context, cardAuthorizationID st
 		slog.Any("refusal", refusal),
 	)
 	return refusal
+}
+
+// Withdraw implements [ResaleEntryUseCase].
+func (uc *resaleEntryUseCase) Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID) (*entity.ResaleEntry, error) {
+	entry, err := uc.entryRepo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if entry.Order == nil || entry.Order.UserID != userID {
+		return nil, apperr.New(codes.NotFound, "no resale entry of the fan has the id", slog.String("resale_entry_id", string(id)))
+	}
+	return uc.entryRepo.Withdraw(ctx, id, uc.clock())
 }
 
 // List implements [ResaleEntryUseCase].

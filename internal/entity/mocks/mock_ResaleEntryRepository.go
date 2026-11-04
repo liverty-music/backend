@@ -519,3 +519,77 @@ func (_c *MockResaleEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run fu
 	_c.Call.Return(run)
 	return _c
 }
+
+// Withdraw provides a mock function for the type MockResaleEntryRepository
+func (_mock *MockResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEntryID, at time.Time) (*entity.ResaleEntry, error) {
+	ret := _mock.Called(ctx, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Withdraw")
+	}
+
+	var r0 *entity.ResaleEntry
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.ResaleEntryID, time.Time) (*entity.ResaleEntry, error)); ok {
+		return returnFunc(ctx, id, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.ResaleEntryID, time.Time) *entity.ResaleEntry); ok {
+		r0 = returnFunc(ctx, id, at)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.ResaleEntry)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.ResaleEntryID, time.Time) error); ok {
+		r1 = returnFunc(ctx, id, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryRepository_Withdraw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Withdraw'
+type MockResaleEntryRepository_Withdraw_Call struct {
+	*mock.Call
+}
+
+// Withdraw is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.ResaleEntryID
+//   - at time.Time
+func (_e *MockResaleEntryRepository_Expecter) Withdraw(ctx any, id any, at any) *MockResaleEntryRepository_Withdraw_Call {
+	return &MockResaleEntryRepository_Withdraw_Call{Call: _e.mock.On("Withdraw", ctx, id, at)}
+}
+
+func (_c *MockResaleEntryRepository_Withdraw_Call) Run(run func(ctx context.Context, id entity.ResaleEntryID, at time.Time)) *MockResaleEntryRepository_Withdraw_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.ResaleEntryID
+		if args[1] != nil {
+			arg1 = args[1].(entity.ResaleEntryID)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_Withdraw_Call) Return(resaleEntry *entity.ResaleEntry, err error) *MockResaleEntryRepository_Withdraw_Call {
+	_c.Call.Return(resaleEntry, err)
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_Withdraw_Call) RunAndReturn(run func(ctx context.Context, id entity.ResaleEntryID, at time.Time) (*entity.ResaleEntry, error)) *MockResaleEntryRepository_Withdraw_Call {
+	_c.Call.Return(run)
+	return _c
+}

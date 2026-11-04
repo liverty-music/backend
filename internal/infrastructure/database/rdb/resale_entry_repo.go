@@ -99,6 +99,12 @@ const (
 		       OR EXISTS (SELECT 1 FROM resale_entries x WHERE x.id = rl.resale_entry_id AND x.state = 3))
 		RETURNING rl.id
 	`
+	// resaleEntryStockQuery reads the stock of the entry's Order; no row when
+	// no entry has the id.
+	resaleEntryStockQuery = `SELECT o.ticket_stock_id FROM resale_entries re JOIN orders o ON o.id = re.order_id WHERE re.id = $1`
+	// resaleEntryWithdrawQuery makes the Entered entry Withdrawn at $2.
+	resaleEntryWithdrawQuery  = `UPDATE resale_entries SET state = 5, withdraw_at = $2 WHERE id = $1 AND state = 1`
+	resaleEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
 	// resaleEntryMarkEndedEmailSentQuery sets the ended email send time once
 	// and returns the row while the entry exists.
 	resaleEntryMarkEndedEmailSentQuery = `
@@ -328,6 +334,52 @@ func (r *ResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID 
 	r.db.logger.Info(ctx, "resale draw recorded", append(attrs,
 		slog.Int("won", len(outcome.Winners)), slog.Int("lapsed", len(outcome.Lapsed)), slog.Int("lost", len(outcome.Lost)))...)
 	return nil
+}
+
+// Withdraw makes the Entered entry Withdrawn under its stock's row lock.
+//
+// # Announces
+//
+// ORDER.resale_entry_changed with the Withdrawn entry, in the transaction
+// that withdraws it.
+func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEntryID, at time.Time) (*entity.ResaleEntry, error) {
+	attrs := slog.String("resale_entry_id", string(id))
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, toAppErr(err, "failed to begin the resale withdrawal", attrs)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var stockID string
+	if err := tx.QueryRow(ctx, resaleEntryStockQuery, string(id)).Scan(&stockID); err != nil {
+		return nil, toAppErr(err, "failed to read the resale entry's stock", attrs)
+	}
+	if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
+		return nil, toAppErr(err, "failed to lock the ticket stock", attrs)
+	}
+	tag, err := tx.Exec(ctx, resaleEntryWithdrawQuery, string(id), at)
+	if err != nil {
+		return nil, toAppErr(err, "failed to withdraw the resale entry", attrs)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is no longer waiting for a draw", attrs)
+	}
+	entry, err := scanResaleEntry(tx.QueryRow(ctx, resaleEntryGetQuery, string(id)))
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the withdrawn resale entry", attrs)
+	}
+	if _, err := tx.Exec(ctx, resaleEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
+		return nil, toAppErr(err, "failed to void the resale entry's order", attrs)
+	}
+	entry.Order.Status = entity.OrderStatusVoid
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, toAppErr(err, "failed to commit the resale withdrawal", attrs)
+	}
+	return entry, nil
 }
 
 // drawn returns a copy of the entry as a draw at drawTime leaves it.

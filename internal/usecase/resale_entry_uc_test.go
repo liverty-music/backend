@@ -310,3 +310,70 @@ func TestResaleEntryUseCase_List(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+func TestResaleEntryUseCase_Withdraw(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	mine := func(state entity.ResaleEntryState) *entity.ResaleEntry {
+		return &entity.ResaleEntry{ID: "entry-1", State: state, Order: &entity.Order{ID: "order-1", UserID: "fan-1", TicketCount: 2, Status: entity.OrderStatusPending}}
+	}
+
+	t.Run("fan withdraws", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/withdraw "Fan withdraws"
+		f := newResaleEntryFixture(t)
+		f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(mine(entity.ResaleEntryStateEntered), nil)
+		withdrawn := mine(entity.ResaleEntryStateWithdrawn)
+		withdrawn.Order.Status = entity.OrderStatusVoid
+		f.entries.EXPECT().Withdraw(mock.Anything, entity.ResaleEntryID("entry-1"), reNow).Return(withdrawn, nil)
+
+		got, err := f.uc.Withdraw(ctx, "fan-1", "entry-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateWithdrawn, got.State)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+		// The card authorization is released from the withdrawal's
+		// announcement (workflow starter), never by Withdraw itself.
+		f.cardAuthorizations.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
+	})
+
+	t.Run("another fan's entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/withdraw "Another fan's entry"
+		f := newResaleEntryFixture(t)
+		f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(mine(entity.ResaleEntryStateEntered), nil)
+
+		_, err := f.uc.Withdraw(ctx, "fan-2", "entry-1")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("already drawn", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/withdraw "Already drawn"
+		f := newResaleEntryFixture(t)
+		f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(mine(entity.ResaleEntryStateWon), nil)
+		f.entries.EXPECT().Withdraw(mock.Anything, entity.ResaleEntryID("entry-1"), reNow).Return(nil, apperr.New(codes.FailedPrecondition, "drawn"))
+
+		_, err := f.uc.Withdraw(ctx, "fan-1", "entry-1")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("payment provider unreachable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/withdraw "Payment provider unreachable"
+		// Withdraw never calls the payment provider: the entry is Withdrawn
+		// whether or not the release, started from the announcement, can
+		// reach it, and that release retries (OrderUseCase.ReleaseCardAuthorization).
+		f := newResaleEntryFixture(t)
+		f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(mine(entity.ResaleEntryStateEntered), nil)
+		f.entries.EXPECT().Withdraw(mock.Anything, entity.ResaleEntryID("entry-1"), reNow).Return(mine(entity.ResaleEntryStateWithdrawn), nil)
+
+		got, err := f.uc.Withdraw(ctx, "fan-1", "entry-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateWithdrawn, got.State)
+		f.cardAuthorizations.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
+	})
+}
