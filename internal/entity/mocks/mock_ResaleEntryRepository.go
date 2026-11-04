@@ -450,3 +450,72 @@ func (_c *MockResaleEntryRepository_MarkEndedEmailSent_Call) RunAndReturn(run fu
 	_c.Call.Return(run)
 	return _c
 }
+
+// PersistDrawOutcome provides a mock function for the type MockResaleEntryRepository
+func (_mock *MockResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome) error {
+	ret := _mock.Called(ctx, stockID, drawTime, outcome)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PersistDrawOutcome")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketStockID, time.Time, entity.ResaleDrawOutcome) error); ok {
+		r0 = returnFunc(ctx, stockID, drawTime, outcome)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockResaleEntryRepository_PersistDrawOutcome_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PersistDrawOutcome'
+type MockResaleEntryRepository_PersistDrawOutcome_Call struct {
+	*mock.Call
+}
+
+// PersistDrawOutcome is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stockID entity.TicketStockID
+//   - drawTime time.Time
+//   - outcome entity.ResaleDrawOutcome
+func (_e *MockResaleEntryRepository_Expecter) PersistDrawOutcome(ctx any, stockID any, drawTime any, outcome any) *MockResaleEntryRepository_PersistDrawOutcome_Call {
+	return &MockResaleEntryRepository_PersistDrawOutcome_Call{Call: _e.mock.On("PersistDrawOutcome", ctx, stockID, drawTime, outcome)}
+}
+
+func (_c *MockResaleEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome)) *MockResaleEntryRepository_PersistDrawOutcome_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.TicketStockID
+		if args[1] != nil {
+			arg1 = args[1].(entity.TicketStockID)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		var arg3 entity.ResaleDrawOutcome
+		if args[3] != nil {
+			arg3 = args[3].(entity.ResaleDrawOutcome)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_PersistDrawOutcome_Call) Return(err error) *MockResaleEntryRepository_PersistDrawOutcome_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run func(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome) error) *MockResaleEntryRepository_PersistDrawOutcome_Call {
+	_c.Call.Return(run)
+	return _c
+}

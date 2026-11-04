@@ -29,11 +29,12 @@ var _ entity.ResaleListingRepository = (*ResaleListingRepository)(nil)
 const resaleListingColumns = `
 	rl.id, rl.ticket_id, t.order_id, rl.user_id, t.event_id, rl.ticket_stock_id, rl.price, rl.status,
 	rl.created_at, rl.sold_at, rl.withdraw_at, rl.provider_refund_id,
-	rl.refund_at, rl.sold_email_send_at
+	rl.refund_at, rl.sold_email_send_at, rl.resale_entry_id, ra.state
 `
 
 const (
-	resaleListingFrom     = ` FROM resale_listings rl JOIN tickets t ON t.id = rl.ticket_id `
+	resaleListingFrom = ` FROM resale_listings rl JOIN tickets t ON t.id = rl.ticket_id
+		LEFT JOIN resale_entries ra ON ra.id = rl.resale_entry_id `
 	resaleListingGetQuery = `SELECT ` + resaleListingColumns + resaleListingFrom + `WHERE rl.id = $1`
 	// resaleListingLockTicketQuery locks the ticket being listed, so a refund
 	// voiding it or an admission waits for the listing (or the other way
@@ -149,7 +150,7 @@ func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.Resale
 	}
 	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{StartTime: optionalTime(startAt)})
 	if !ok || !l.IsWithdrawableAt(now, deadline) {
-		return apperr.New(codes.FailedPrecondition, "the listing is sold, cancelled or expired", attrs)
+		return apperr.New(codes.FailedPrecondition, "the listing is sold, cancelled, expired or allocated to a resale entry being charged", attrs)
 	}
 	if _, err := tx.Exec(ctx, resaleListingWithdrawQuery, string(id), now); err != nil {
 		return toAppErr(err, "failed to withdraw resale listing", attrs)
@@ -257,11 +258,13 @@ func scanResaleListing(row pgx.Row, extra ...any) (*entity.ResaleListing, error)
 		status                                  int16
 		providerRefundID                        sql.NullString
 		soldAt, withdrawAt, refundAt, emailedAt sql.NullTime
+		entryID                                 sql.NullString
+		entryState                              sql.NullInt16
 	)
 	dest := append([]any{
 		&id, &ticketID, &orderID, &userID, &eventID, &stockID, &l.Price, &status,
 		&l.CreateTime, &soldAt, &withdrawAt, &providerRefundID,
-		&refundAt, &emailedAt,
+		&refundAt, &emailedAt, &entryID, &entryState,
 	}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
@@ -280,5 +283,9 @@ func scanResaleListing(row pgx.Row, extra ...any) (*entity.ResaleListing, error)
 	l.WithdrawTime = optionalTime(withdrawAt)
 	l.RefundTime = optionalTime(refundAt)
 	l.SoldEmailSendTime = optionalTime(emailedAt)
+	if entryID.Valid {
+		l.ResaleEntryID = entity.ResaleEntryID(entryID.String)
+		l.ResaleEntryState = entity.ResaleEntryState(entryState.Int16)
+	}
 	return &l, nil
 }

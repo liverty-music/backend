@@ -96,6 +96,13 @@ const (
 	// it, the loss notice is sent from it, and the analytics consumer forwards
 	// it as ticket.lottery.result.
 	SubjectLotteryEntryDrawn = "ORDER.lottery_entry_drawn"
+	// SubjectResaleEntryChanged announces a resale entry that a draw made
+	// Won, Lapsed or Lost, that RevertWin made Lost or that the fan withdrew,
+	// with the entry as the payload; its state tells them apart. The workflow
+	// starter starts the issue of a Won entry and the release of the others
+	// from it, and the ended message of a Lapsed or Lost entry is sent from it
+	// (design D4, D6, D8).
+	SubjectResaleEntryChanged = "ORDER.resale_entry_changed"
 	// SubjectLotteryEntryEntered announces a new lottery entry, with its
 	// Pending Order as the payload. LotteryEntry.Create records it in the
 	// transaction that stores the entry; TicketJourneyUseCase.MarkApplied

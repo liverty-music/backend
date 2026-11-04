@@ -11,7 +11,9 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // ResaleEntryRepository implements [entity.ResaleEntryRepository] for
@@ -74,6 +76,29 @@ const (
 	// order is creation order.
 	resaleEntryListByUserQuery  = resaleEntrySelect + ` WHERE o.user_id = $1 ORDER BY re.id DESC`
 	resaleEntryListEnteredQuery = resaleEntrySelect + ` WHERE o.ticket_stock_id = $1 AND re.state = 1`
+	// resaleEntryWinQuery makes the Entered entry Won at the draw time.
+	resaleEntryWinQuery = `UPDATE resale_entries SET state = 2, draw_at = $2 WHERE id = $1 AND state = 1`
+	// resaleEntryEndQuery makes the Entered entry Lapsed or Lost ($2) with
+	// the lost reason $3 at the draw time $4 and voids its Pending Order.
+	resaleEntryEndQuery = `
+		WITH ended AS (
+			UPDATE resale_entries SET state = $2, lost_reason = $3, draw_at = $4
+			WHERE id = $1 AND state = 1
+			RETURNING order_id
+		)
+		UPDATE orders SET status = 5 FROM ended WHERE orders.id = ended.order_id AND orders.status = 4
+		RETURNING orders.id
+	`
+	// resaleEntryAllocateQuery allocates the listings $2 of the stock $3 to
+	// the entry $1 when each is Listed and allocated to no entry or to a Lost
+	// one, and returns the listings it allocated.
+	resaleEntryAllocateQuery = `
+		UPDATE resale_listings rl SET resale_entry_id = $1
+		WHERE rl.id = ANY($2::uuid[]) AND rl.ticket_stock_id = $3 AND rl.status = 1
+		  AND (rl.resale_entry_id IS NULL
+		       OR EXISTS (SELECT 1 FROM resale_entries x WHERE x.id = rl.resale_entry_id AND x.state = 3))
+		RETURNING rl.id
+	`
 	// resaleEntryMarkEndedEmailSentQuery sets the ended email send time once
 	// and returns the row while the entry exists.
 	resaleEntryMarkEndedEmailSentQuery = `
@@ -219,6 +244,106 @@ func (r *ResaleEntryRepository) MarkEndedEmailSent(ctx context.Context, id entit
 		return toAppErr(err, "failed to mark the resale entry's ended email sent", slog.String("resale_entry_id", string(id)))
 	}
 	return nil
+}
+
+// PersistDrawOutcome records one draw of the stock under the stock's row lock.
+//
+// # Announces
+//
+// ORDER.resale_entry_changed with each entry it makes Won, Lapsed or Lost, in
+// the transaction that records the draw.
+func (r *ResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome) error {
+	attrs := []slog.Attr{slog.String("ticket_stock_id", string(stockID)), slog.Time("draw_time", drawTime)}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin the resale draw", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, ticketStockLockQuery, string(stockID)); err != nil {
+		return toAppErr(err, "failed to lock the ticket stock", attrs...)
+	}
+	var changed []*entity.ResaleEntry
+	for _, win := range outcome.Winners {
+		tag, err := tx.Exec(ctx, resaleEntryWinQuery, string(win.Entry.ID), drawTime)
+		if err != nil {
+			return toAppErr(err, "failed to record a resale win", attrs...)
+		}
+		if tag.RowsAffected() != 1 {
+			return apperr.New(codes.FailedPrecondition, "a winning resale entry is no longer entered", attrs...)
+		}
+		ids := make([]string, len(win.Listings))
+		for i, l := range win.Listings {
+			ids[i] = string(l)
+		}
+		rows, err := tx.Query(ctx, resaleEntryAllocateQuery, string(win.Entry.ID), ids, string(stockID))
+		if err != nil {
+			return toAppErr(err, "failed to allocate the listings", attrs...)
+		}
+		allocated := 0
+		for rows.Next() {
+			allocated++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return toAppErr(err, "failed to allocate the listings", attrs...)
+		}
+		if allocated != len(ids) {
+			return apperr.New(codes.FailedPrecondition, "a listing is no longer free for a draw", attrs...)
+		}
+		changed = append(changed, drawn(win.Entry, entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, drawTime))
+	}
+	end := func(entries []*entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason) error {
+		var lostReason any
+		if state == entity.ResaleEntryStateLost {
+			lostReason = int16(reason)
+		}
+		for _, e := range entries {
+			var orderID string
+			if err := tx.QueryRow(ctx, resaleEntryEndQuery, string(e.ID), int16(state), lostReason, drawTime).Scan(&orderID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return apperr.New(codes.FailedPrecondition, "a resale entry is no longer entered", attrs...)
+				}
+				return toAppErr(err, "failed to end a resale entry", attrs...)
+			}
+			changed = append(changed, drawn(e, state, reason, drawTime))
+		}
+		return nil
+	}
+	if err := end(outcome.Lapsed, entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonUnspecified); err != nil {
+		return err
+	}
+	if err := end(outcome.Lost, entity.ResaleEntryStateLost, outcome.LostReason); err != nil {
+		return err
+	}
+	for _, e := range changed {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit the resale draw", attrs...)
+	}
+	r.db.logger.Info(ctx, "resale draw recorded", append(attrs,
+		slog.Int("won", len(outcome.Winners)), slog.Int("lapsed", len(outcome.Lapsed)), slog.Int("lost", len(outcome.Lost)))...)
+	return nil
+}
+
+// drawn returns a copy of the entry as a draw at drawTime leaves it.
+func drawn(e *entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason, drawTime time.Time) *entity.ResaleEntry {
+	copied := *e
+	copied.State = state
+	copied.DrawTime = &drawTime
+	if state == entity.ResaleEntryStateLost {
+		copied.LostReason = reason
+	}
+	if copied.Order != nil && state != entity.ResaleEntryStateWon {
+		order := *copied.Order
+		order.Status = entity.OrderStatusVoid
+		copied.Order = &order
+	}
+	return &copied
 }
 
 // list runs a resale entry query with one argument.

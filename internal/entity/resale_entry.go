@@ -358,6 +358,28 @@ type ResaleEntryRepository interface {
 	//  - Internal: database failure.
 	ListEnteredByTicketStock(ctx context.Context, stockID TicketStockID) ([]*ResaleEntry, error)
 
+	// PersistDrawOutcome records one draw of the stock at drawTime in one
+	// transaction under the stock's row lock, which ResaleListing.Withdraw
+	// and ResaleEntry.Withdraw also take: every winner becomes Won with the
+	// draw time and its listings are allocated to it, every lapsing entry
+	// becomes Lapsed and every loser Lost with the outcome's lost reason, both
+	// with the draw time and their Orders Void. Every entry must still be
+	// Entered and every listing still Listed and allocated to no entry or to
+	// a Lost one; otherwise nothing is recorded.
+	//
+	// # Possible errors
+	//
+	//   - FailedPrecondition: an entry is no longer Entered or a listing is no
+	//     longer free for a draw; nothing is recorded.
+	//   - Unavailable: an announcement cannot be recorded; nothing is recorded.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.resale_entry_changed once per entry it makes Won, Lapsed or Lost,
+	// with the entry as it is after the draw, together with the outcome.
+	PersistDrawOutcome(ctx context.Context, stockID TicketStockID, drawTime time.Time, outcome ResaleDrawOutcome) error
+
 	// MarkEndedEmailSent sets the entry's ended email send time when it is
 	// unset; an already set time is kept.
 	//
