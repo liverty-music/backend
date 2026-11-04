@@ -40,3 +40,9 @@ func NewPostmarkEmailVerificationSenderForTest(codes EmailVerificationCodeIssuer
 func NewPostmarkLotteryLossSenderForTest(entries LotteryEntryStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkLotteryLossSender {
 	return newPostmarkLotteryLossSender(entries, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
 }
+
+// NewPostmarkResaleEntryEndedSenderForTest points the sender at a stub
+// Postmark API.
+func NewPostmarkResaleEntryEndedSenderForTest(entries ResaleEntryStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleEntryEndedSender {
+	return newPostmarkResaleEntryEndedSender(entries, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+}

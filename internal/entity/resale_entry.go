@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -264,4 +265,105 @@ func DrawResale(entries []*ResaleEntry, freeListings []ResaleListingID, drawTime
 		}
 	}
 	return out
+}
+
+// ResaleEntryEndedEmail is the finished message telling a fan that their
+// entry lapsed or lost, already rendered in the language of its Order's user.
+type ResaleEntryEndedEmail struct {
+	// Subject is the email subject line.
+	Subject string
+	// TextBody is the plain-text email body.
+	TextBody string
+}
+
+// ResaleEntryEndedEmailSender sends a Lapsed or Lost entry's ended email at
+// most once. The implementation lives in internal/infrastructure/mail/.
+//
+// Interfaces are defined where consumed (AGENTS.md rule).
+type ResaleEntryEndedEmailSender interface {
+	// SendEndedEmail sends msg to the address when the entry has no ended
+	// email send time, then sets that time. When the time is already set it
+	// sends nothing and succeeds. A failure between sending and recording can
+	// lead to a second email on retry; no other case sends twice.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the address or the message is empty.
+	//   - FailedPrecondition: the entry is not Lapsed or Lost.
+	//   - Unavailable: email cannot be sent; the send time stays unset.
+	//   - NotFound: no entry has the id.
+	SendEndedEmail(ctx context.Context, id ResaleEntryID, to string, msg ResaleEntryEndedEmail) error
+}
+
+// ResaleEntryRepository persists [ResaleEntry] records together with their
+// Orders. Every read returns the entry with its Order. Implementations live in
+// internal/infrastructure/database/rdb/.
+//
+// Interfaces are defined where consumed (AGENTS.md rule).
+type ResaleEntryRepository interface {
+	// Create stores the new Entered entry together with its Pending Order
+	// (entry.Order, which carries the authorized card authorization) at the
+	// entry's create time, and records the card authorization's expiry time
+	// (entry.CardAuthorizationExpireTime) for the draws. When an Order
+	// already holds the card authorization, it stores nothing and returns
+	// that Order's entry. It locks the user's users row first, so checking
+	// and storing are one indivisible step with every other creation of an
+	// Order by the user.
+	//
+	// # Possible errors
+	//
+	//  - AlreadyExists: the user already has an Entered resale entry for the
+	//    stock's event; nothing is stored.
+	//  - FailedPrecondition: the stock's resale is not open at the create
+	//    time, or the application does not fit the stock's event
+	//    ([Event.Fits] with [OrderRepository.GetHeldForEvent]); nothing is
+	//    stored.
+	//  - NotFound: the TicketStock or the user does not exist; nothing is
+	//    stored.
+	//  - Unavailable: a lock wait timed out; nothing is stored.
+	//  - Internal: database failure.
+	Create(ctx context.Context, entry *ResaleEntry) (*ResaleEntry, error)
+
+	// Get returns the entry with the given id, in any state.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no entry has the id.
+	//  - Internal: database failure.
+	Get(ctx context.Context, id ResaleEntryID) (*ResaleEntry, error)
+
+	// GetByCardAuthorizationID returns the entry whose Order's card
+	// authorization has the given id.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: there is none.
+	//  - Internal: database failure.
+	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*ResaleEntry, error)
+
+	// ListByUser returns every entry whose Order's user is the user, in every
+	// state, newest first. It returns an empty slice when there is none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database failure.
+	ListByUser(ctx context.Context, userID UserID) ([]*ResaleEntry, error)
+
+	// ListEnteredByTicketStock returns every Entered entry whose Order is of
+	// the stock, each with its card authorization's expiry time, in no
+	// particular order. It returns an empty slice when there is none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database failure.
+	ListEnteredByTicketStock(ctx context.Context, stockID TicketStockID) ([]*ResaleEntry, error)
+
+	// MarkEndedEmailSent sets the entry's ended email send time when it is
+	// unset; an already set time is kept.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no entry has the id.
+	//   - Internal: database failure.
+	MarkEndedEmailSent(ctx context.Context, id ResaleEntryID, at time.Time) error
 }

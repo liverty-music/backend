@@ -433,7 +433,7 @@ type OrderRepository interface {
 	// Tickets of the user's Paid Orders for the event plus the ticket counts
 	// of the user's Pending Orders for the event that still hold or may still
 	// receive tickets (a Checkout holding at `at` or Committed, or a
-	// LotteryEntry Entered or Won), and, when that count is above 0, the
+	// LotteryEntry or ResaleEntry Entered or Won), and, when that count is above 0, the
 	// SeatType of the Orders counted. The Order except names, when given, is
 	// not counted: it is the Order of the user's own holding Checkout that the
 	// new application resumes or replaces. Void and Refunded Orders, Pending

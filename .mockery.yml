@@ -29,6 +29,8 @@ packages:
       IssuanceRepository: {}
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
+      ResaleEntryRepository: {}
+      ResaleEntryEndedEmailSender: {}
       NotificationRepository: {}
       OfficialSiteResolver: {}
       OrderConfirmationSender: {}
