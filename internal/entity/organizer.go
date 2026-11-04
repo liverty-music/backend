@@ -312,13 +312,13 @@ type OrganizerRepository interface {
 	// TicketSales, and their Events (with each Event's TicketStocks, ticket
 	// journeys, performers, Scanners, admissions and rejected scans), the Void
 	// and Refunded Orders for those Events with their lottery entries,
-	// Checkouts and Tickets, the Tickets' ResaleListings and the Orders'
+	// Checkouts, resale entries, card authorizations and Tickets, the Tickets'
+	// ResaleListings and the Orders'
 	// Reversed Settlements, its SeriesImage records, its artist associations
 	// and its payout-account record. It removes nothing when the Organizer is
 	// not deactivated, when any of its Events has a Paid Order, a Settlement
-	// that is not Reversed, or a purchase in progress (a Pending Order, or a
-	// Void Order whose card authorization is not yet released), or when the
-	// Organizer has a payout-account record.
+	// that is not Reversed, or a purchase in progress (a Pending Order), or
+	// when the Organizer has a payout-account record.
 	//
 	// With dryRun it runs the same checks and removes nothing, so a caller can
 	// learn whether deletion is blocked before removing anything kept outside

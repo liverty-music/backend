@@ -37,7 +37,9 @@ const (
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 	// StripeEventPaymentIntentAmountCapturableUpdated fires when a card
 	// authorization becomes Authorized: the fan completed card authentication.
-	// The webhook adapter routes it to [LotteryEntryUseCase.Confirm] through
+	// The webhook adapter finds the card authorization with
+	// [StripeWebhookService.GetCardAuthorization] and routes it to its entry's
+	// Confirm through
 	// [StripeWebhookService.ApplyOnce], not to HandleEvent.
 	StripeEventPaymentIntentAmountCapturableUpdated StripeEventType = "payment_intent.amount_capturable_updated"
 )
@@ -103,6 +105,17 @@ type StripeWebhookService interface {
 	//  - The error of apply, unchanged.
 	//  - Internal: reading or recording the processed event failed.
 	ApplyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error
+
+	// GetCardAuthorization returns the card authorization a provider notice
+	// names by the payment provider's ID, with its own id and the purchase it
+	// pays for (CardAuthorization.GetByProviderCardAuthorizationID).
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the platform did not open a card authorization with the ID.
+	//  - InvalidArgument: it is not in yen.
+	//  - Unavailable: the payment provider cannot be reached.
+	GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error)
 }
 
 // stripeWebhookService implements [StripeWebhookService].
@@ -115,9 +128,10 @@ type stripeWebhookService struct {
 	// not, since extracting the pi_ from the event data was not being passed
 	// through). Fixed: the HTTP handler now extracts ProviderChargeID+ProviderPaymentID;
 	// this service calls GetByProviderPaymentID.
-	orderRepo entity.OrderRepository
-	refunder  OrderRefunder
-	logger    *logging.Logger
+	orderRepo          entity.OrderRepository
+	refunder           OrderRefunder
+	cardAuthorizations entity.CardAuthorizationRepository
+	logger             *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -129,14 +143,21 @@ func NewStripeWebhookService(
 	processedRepo ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
 	refunder OrderRefunder,
+	cardAuthorizations entity.CardAuthorizationRepository,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
-		processedRepo: processedRepo,
-		orderRepo:     orderRepo,
-		refunder:      refunder,
-		logger:        logger,
+		processedRepo:      processedRepo,
+		orderRepo:          orderRepo,
+		refunder:           refunder,
+		cardAuthorizations: cardAuthorizations,
+		logger:             logger,
 	}
+}
+
+// GetCardAuthorization implements [StripeWebhookService].
+func (s *stripeWebhookService) GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error) {
+	return s.cardAuthorizations.GetByProviderCardAuthorizationID(ctx, providerCardAuthorizationID)
 }
 
 // HandleEvent implements [StripeWebhookService].

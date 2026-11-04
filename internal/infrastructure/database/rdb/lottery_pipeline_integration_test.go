@@ -52,7 +52,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
-	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
+	stripePort := rdb.NewCardAuthorizationRepository(testDB, payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, logger))
 
 	// -- a Lottery sale of a stock of 2 tickets, so 3 single-ticket entries force one loss --
 	const (
@@ -73,7 +73,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		authorization, err := uc.AuthorizeCard(ctx, f.SaleID, f.ID, userID, 1, "Test Fan", "+819012345678", nil)
 		require.NoError(t, err)
-		confirmCardAuthorization(t, key, authorization.ID) // → requires_capture
+		confirmCardAuthorization(t, key, authorization.ProviderID) // → requires_capture
 		entered, err := uc.Confirm(ctx, authorization.ID, &userID)
 		require.NoError(t, err)
 		require.Equal(t, entity.LotteryEntryStateEntered, entered.State)

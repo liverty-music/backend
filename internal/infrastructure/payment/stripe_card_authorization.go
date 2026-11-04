@@ -37,9 +37,6 @@ import (
 // are propagated in addition to this ceiling (the per-call ctx argument).
 const stripeHTTPTimeout = 30 * time.Second
 
-// Compile-time interface compliance check.
-var _ entity.CardAuthorizationRepository = (*StripeCardAuthorizationRepository)(nil)
-
 // CardAuthorizationPolicy is what differs between the purchases a card
 // authorization pays for: the prefix of every idempotency key it sends, so the
 // keys of a lottery entry never collide with a checkout's. Only a Checkout's
@@ -79,23 +76,25 @@ func newStripeClient(secretKey, apiURL string) *stripe.Client {
 	return stripe.NewClient(secretKey, stripe.WithBackends(backends))
 }
 
-// StripeCardAuthorizationRepository implements
+// StripeCardAuthorizationProvider implements
 // [entity.CardAuthorizationRepository] with Stripe PaymentIntents in
 // manual-capture mode, under one [CardAuthorizationPolicy].
-type StripeCardAuthorizationRepository struct {
+type StripeCardAuthorizationProvider struct {
 	client *stripe.Client
 	logger *logging.Logger
 	policy CardAuthorizationPolicy
 }
 
-// NewStripeCardAuthorizationRepository creates a Stripe-backed
-// CardAuthorizationRepository for the purchases of the policy.
-func NewStripeCardAuthorizationRepository(secretKey string, policy CardAuthorizationPolicy, logger *logging.Logger) *StripeCardAuthorizationRepository {
-	return newStripeCardAuthorizationRepository(secretKey, "", policy, logger)
+// NewStripeCardAuthorizationProvider creates the Stripe side of the
+// card authorizations of the policy's purchases. It works on the payment
+// provider's IDs; rdb.CardAuthorizationRepository gives each card
+// authorization its platform id.
+func NewStripeCardAuthorizationProvider(secretKey string, policy CardAuthorizationPolicy, logger *logging.Logger) *StripeCardAuthorizationProvider {
+	return newStripeCardAuthorizationProvider(secretKey, "", policy, logger)
 }
 
-func newStripeCardAuthorizationRepository(secretKey, apiURL string, policy CardAuthorizationPolicy, logger *logging.Logger) *StripeCardAuthorizationRepository {
-	return &StripeCardAuthorizationRepository{
+func newStripeCardAuthorizationProvider(secretKey, apiURL string, policy CardAuthorizationPolicy, logger *logging.Logger) *StripeCardAuthorizationProvider {
+	return &StripeCardAuthorizationProvider{
 		client: newStripeClient(secretKey, apiURL),
 		logger: logger,
 		policy: policy,
@@ -105,20 +104,29 @@ func newStripeCardAuthorizationRepository(secretKey, apiURL string, policy CardA
 // PaymentIntent metadata keys that carry the purchase a card authorization
 // pays for.
 const (
-	metadataCheckoutID    = "checkout_id"
-	metadataUserID        = "user_id"
-	metadataTicketSaleID  = "ticket_sale_id"
-	metadataTicketStockID = "ticket_stock_id"
-	metadataTicketCount   = "ticket_count"
-	metadataEventID       = "event_id"
-	metadataReferralCode  = "referral_code"
+	metadataCardAuthorizationID = "card_authorization_id"
+	metadataCheckoutID          = "checkout_id"
+	metadataUserID              = "user_id"
+	metadataTicketSaleID        = "ticket_sale_id"
+	metadataTicketStockID       = "ticket_stock_id"
+	metadataTicketCount         = "ticket_count"
+	metadataEventID             = "event_id"
+	metadataReferralCode        = "referral_code"
 )
 
-// Create implements [entity.CardAuthorizationRepository]. The PaymentIntent
-// carries the purchase as metadata. A Checkout's idempotency key is its id, so
-// a retried Create returns the same PaymentIntent; a lottery entry's Create
-// sends no key and opens a new PaymentIntent each time.
-func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+// Create opens a Pending card authorization, a PaymentIntent that carries the
+// platform's id for it (id) and the purchase as metadata, and returns it with
+// its card authorization secret. A Checkout's idempotency key is its id, so a
+// retried Create returns the first PaymentIntent, with the id it was opened
+// with; a lottery or resale entry's Create sends no key and opens a new
+// PaymentIntent each time.
+//
+// # Possible errors
+//
+//   - InvalidArgument: amountJPY is zero or negative.
+//   - Unavailable: the payment provider cannot be reached.
+//   - Internal: unexpected provider error.
+func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if amountJPY <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "amountJPY must be positive")
 	}
@@ -139,6 +147,7 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 			params.AddMetadata(key, value)
 		}
 	}
+	addMetadata(metadataCardAuthorizationID, id)
 	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
 		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
 	}
@@ -170,9 +179,17 @@ func (p *StripeCardAuthorizationRepository) Create(ctx context.Context, purchase
 	return cardAuthorization(pi), nil
 }
 
-// Get implements [entity.CardAuthorizationRepository].
-func (p *StripeCardAuthorizationRepository) Get(ctx context.Context, id string) (*entity.CardAuthorization, error) {
-	pi, err := p.retrieve(ctx, id)
+// Get returns the card authorization whose payment provider's ID is
+// providerID as the payment provider reports it now. Its ID is the platform id
+// it was opened with, empty for one opened before card authorizations had one.
+//
+// # Possible errors
+//
+//   - NotFound: no PaymentIntent has the id.
+//   - InvalidArgument: it is not in yen.
+//   - Unavailable: the payment provider cannot be reached.
+func (p *StripeCardAuthorizationProvider) Get(ctx context.Context, providerID string) (*entity.CardAuthorization, error) {
+	pi, err := p.retrieve(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +199,8 @@ func (p *StripeCardAuthorizationRepository) Get(ctx context.Context, id string) 
 	return cardAuthorization(pi), nil
 }
 
-// Capture implements [entity.CardAuthorizationRepository]. The outcome
+// Capture charges the card authorization whose payment provider's ID is id,
+// with the outcomes of [entity.CardAuthorizationRepository.Capture]. The outcome
 // follows the PaymentIntent's status rather than the capture call's error, so
 // a capture repeated days later still succeeds without charging twice.
 //
@@ -192,7 +210,7 @@ func (p *StripeCardAuthorizationRepository) Get(ctx context.Context, id string) 
 // so a fixed key would return an earlier failure after Stripe recovered. A
 // PaymentIntent is captured at most once, and the outcome is read from it
 // after every error, so a new key per call never charges twice.
-func (p *StripeCardAuthorizationRepository) Capture(ctx context.Context, id string) error {
+func (p *StripeCardAuthorizationProvider) Capture(ctx context.Context, id string) error {
 	params := &stripe.PaymentIntentCaptureParams{}
 
 	_, captureErr := p.client.V1PaymentIntents.Capture(ctx, id, params)
@@ -226,11 +244,12 @@ func (p *StripeCardAuthorizationRepository) Capture(ctx context.Context, id stri
 	}
 }
 
-// Release implements [entity.CardAuthorizationRepository]. A PaymentIntent
+// Release gives back the card authorization whose payment provider's ID is
+// id, with the outcomes of [entity.CardAuthorizationRepository.Release]. A PaymentIntent
 // that is already cancelled (released, or lapsed on the card) succeeds. Like
 // Capture it sends no idempotency key of its own, so an earlier failure is
 // never replayed; a PaymentIntent is cancelled at most once.
-func (p *StripeCardAuthorizationRepository) Release(ctx context.Context, id string) error {
+func (p *StripeCardAuthorizationProvider) Release(ctx context.Context, id string) error {
 	params := &stripe.PaymentIntentCancelParams{}
 
 	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, id, params)
@@ -261,7 +280,7 @@ func (p *StripeCardAuthorizationRepository) Release(ctx context.Context, id stri
 
 // retrieve reads the PaymentIntent with its latest charge expanded, so the
 // card brand and last four digits are present.
-func (p *StripeCardAuthorizationRepository) retrieve(ctx context.Context, id string) (*stripe.PaymentIntent, error) {
+func (p *StripeCardAuthorizationProvider) retrieve(ctx context.Context, id string) (*stripe.PaymentIntent, error) {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, id, params)
@@ -274,12 +293,14 @@ func (p *StripeCardAuthorizationRepository) retrieve(ctx context.Context, id str
 // cardAuthorization maps a PaymentIntent to the CardAuthorization it holds.
 func cardAuthorization(pi *stripe.PaymentIntent) *entity.CardAuthorization {
 	a := &entity.CardAuthorization{
-		ID:        pi.ID,
-		Amount:    pi.Amount,
-		CardBrand: extractCardBrand(pi),
-		Status:    cardAuthorizationStatus(pi.Status),
-		Secret:    pi.ClientSecret,
-		Purchase:  purchaseFromMetadata(pi.Metadata),
+		ID:         pi.Metadata[metadataCardAuthorizationID],
+		ProviderID: pi.ID,
+		Amount:     pi.Amount,
+		CardBrand:  extractCardBrand(pi),
+		Status:     cardAuthorizationStatus(pi.Status),
+		Secret:     pi.ClientSecret,
+		Purchase:   purchaseFromMetadata(pi.Metadata),
+		ExpireTime: captureBefore(pi),
 	}
 	if a.Status == entity.CardAuthorizationStatusCaptured {
 		a.CapturedPayment = capturedPayment(pi)
@@ -357,6 +378,21 @@ func extractCardFacets(pi *stripe.PaymentIntent) (brand string, last4 string) {
 		return "", ""
 	}
 	return string(details.Card.Brand), details.Card.Last4
+}
+
+// captureBefore returns when the PaymentIntent's authorized amount can no
+// longer be captured, from its latest charge's card details, or nil when the
+// charge or its card details are not present.
+func captureBefore(pi *stripe.PaymentIntent) *time.Time {
+	if pi.LatestCharge == nil || pi.LatestCharge.PaymentMethodDetails == nil || pi.LatestCharge.PaymentMethodDetails.Card == nil {
+		return nil
+	}
+	sec := pi.LatestCharge.PaymentMethodDetails.Card.CaptureBefore
+	if sec == 0 {
+		return nil
+	}
+	t := time.Unix(sec, 0).UTC()
+	return &t
 }
 
 // extractCardBrand returns the brand of the PaymentIntent's latest charge, or

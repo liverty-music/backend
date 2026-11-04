@@ -195,12 +195,13 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 // provider from the payment queue, the issue of a Checkout from the checkout
 // queue (OpenSpec changes make-lottery-draw-durable, unify-order-issuance).
 func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
-	cardAuthorizations := entity.CardAuthorizationRepository(infrapayment.NewNoopCardAuthorizationRepository(logger))
+	provider := rdb.CardAuthorizationProvider(infrapayment.NewNoopCardAuthorizationProvider(logger))
 	if cfg.StripeSecretKey != "" {
-		cardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.StripeSecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
+		provider = infrapayment.NewStripeCardAuthorizationProvider(cfg.StripeSecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
 	} else {
 		logger.Warn(ctx, "STRIPE_SECRET_KEY is not set; lottery captures and releases fail with Unavailable")
 	}
+	cardAuthorizations := entity.CardAuthorizationRepository(rdb.NewCardAuthorizationRepository(db, provider))
 	saleRepo := rdb.NewTicketSaleRepository(db, outbox)
 	stockRepo := rdb.NewTicketStockRepository(db)
 	entryRepo := rdb.NewLotteryEntryRepository(db, outbox)

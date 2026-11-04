@@ -51,7 +51,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 				repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 				return func() error {
 						order := entity.NewPendingOrder(userID, stock, 1, nil, entity.OrderPaymentProvider)
-						order.CardAuthorizationID = "pi_" + string(order.ID)
+						order.CardAuthorizationID = newCardAuthorizationID()
 						_, err := repo.Create(ctx, entity.NewLotteryEntry(order, f.SaleID))
 						return err
 					}, func() int {

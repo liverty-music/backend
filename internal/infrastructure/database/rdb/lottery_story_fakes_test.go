@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -31,25 +33,37 @@ type fakeCards struct {
 	afterCharge func(ctx context.Context, id string) error
 }
 
-var _ entity.CardAuthorizationRepository = (*fakeCards)(nil)
+var _ rdb.CardAuthorizationProvider = (*fakeCards)(nil)
+
+// fakeProviderPrefix starts the payment provider's ID of a fake card
+// authorization: "pi_fake_" followed by its platform id.
+const fakeProviderPrefix = "pi_fake_"
+
+// fakeExpireTime is when a fake card authorization the fan authenticated can
+// no longer be charged.
+var fakeExpireTime = time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
+
+// fakeKey returns the key of a fake card authorization from its platform id or
+// its payment provider's ID.
+func fakeKey(id string) string { return strings.TrimPrefix(id, fakeProviderPrefix) }
 
 func newFakeCards() *fakeCards {
 	return &fakeCards{byID: map[string]*entity.CardAuthorization{}, charges: map[string]int{}, closed: map[string]bool{}}
 }
 
 // Create opens a Pending card authorization for the purchase.
-func (c *fakeCards) Create(_ context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+func (c *fakeCards) Create(_ context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
 	if amountJPY <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "amount must be positive")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := &entity.CardAuthorization{
-		ID: "pi_fake_" + entity.NewID(), Amount: amountJPY, Status: entity.CardAuthorizationStatusPending, Purchase: purchase,
+		ID: id, ProviderID: fakeProviderPrefix + id, Amount: amountJPY, Status: entity.CardAuthorizationStatusPending, Purchase: purchase,
 	}
-	c.byID[a.ID] = a
+	c.byID[id] = a
 	copied := *a
-	copied.Secret = a.ID + "_secret"
+	copied.Secret = a.ProviderID + "_secret"
 	return &copied, nil
 }
 
@@ -58,10 +72,12 @@ func (c *fakeCards) authenticate(t *testing.T, id string) {
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[id]
+	a, ok := c.byID[fakeKey(id)]
 	require.True(t, ok, "card authorization %s", id)
 	require.Equal(t, entity.CardAuthorizationStatusPending, a.Status)
 	a.Status, a.CardBrand = entity.CardAuthorizationStatusAuthorized, "visa"
+	expire := fakeExpireTime
+	a.ExpireTime = &expire
 }
 
 // closeCard closes the card behind the card authorization: it can no longer
@@ -69,14 +85,14 @@ func (c *fakeCards) authenticate(t *testing.T, id string) {
 func (c *fakeCards) closeCard(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.closed[id] = true
+	c.closed[fakeKey(id)] = true
 }
 
 // Get returns the card authorization.
 func (c *fakeCards) Get(_ context.Context, id string) (*entity.CardAuthorization, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[id]
+	a, ok := c.byID[fakeKey(id)]
 	if !ok {
 		return nil, apperr.New(codes.NotFound, "no card authorization has the id")
 	}
@@ -87,7 +103,7 @@ func (c *fakeCards) Get(_ context.Context, id string) (*entity.CardAuthorization
 // Capture charges an Authorized card authorization once.
 func (c *fakeCards) Capture(ctx context.Context, id string) error {
 	c.mu.Lock()
-	a, ok := c.byID[id]
+	a, ok := c.byID[fakeKey(id)]
 	switch {
 	case !ok:
 		c.mu.Unlock()
@@ -95,16 +111,16 @@ func (c *fakeCards) Capture(ctx context.Context, id string) error {
 	case a.Status == entity.CardAuthorizationStatusCaptured:
 		c.mu.Unlock()
 		return nil
-	case a.Status != entity.CardAuthorizationStatusAuthorized || c.closed[id]:
+	case a.Status != entity.CardAuthorizationStatusAuthorized || c.closed[fakeKey(id)]:
 		c.mu.Unlock()
 		return apperr.New(codes.FailedPrecondition, "the card authorization can no longer be charged")
 	}
 	a.Status = entity.CardAuthorizationStatusCaptured
 	a.CapturedPayment = &entity.CapturedPayment{
-		Provider: entity.PaymentProviderStripe, ProviderPaymentID: id, AmountJPY: a.Amount, Currency: "JPY",
+		Provider: entity.PaymentProviderStripe, ProviderPaymentID: a.ProviderID, AmountJPY: a.Amount, Currency: "JPY",
 		CardBrand: string(a.CardBrand), CardLast4: "4242",
 	}
-	c.charges[id]++
+	c.charges[fakeKey(id)]++
 	hook := c.afterCharge
 	c.mu.Unlock()
 	if hook != nil {
@@ -117,7 +133,7 @@ func (c *fakeCards) Capture(ctx context.Context, id string) error {
 func (c *fakeCards) Release(_ context.Context, id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[id]
+	a, ok := c.byID[fakeKey(id)]
 	switch {
 	case !ok:
 		return apperr.New(codes.NotFound, "no card authorization has the id")
@@ -132,14 +148,14 @@ func (c *fakeCards) Release(_ context.Context, id string) error {
 func (c *fakeCards) status(id string) entity.CardAuthorizationStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.byID[id].Status
+	return c.byID[fakeKey(id)].Status
 }
 
 // charged returns how many times the card authorization was charged.
 func (c *fakeCards) charged(id string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.charges[id]
+	return c.charges[fakeKey(id)]
 }
 
 // sentEmail is one email a storyMailer sent.
@@ -259,25 +275,23 @@ func announcedMessages(t *testing.T, mark int64, subject string) []*message.Mess
 // of a first-come story charges both a presale's and a checkout's Orders.
 type routedCards struct {
 	fake  *fakeCards
-	other entity.CardAuthorizationRepository
+	other rdb.CardAuthorizationProvider
 }
 
-var _ entity.CardAuthorizationRepository = (*routedCards)(nil)
+var _ rdb.CardAuthorizationProvider = (*routedCards)(nil)
 
-// pick returns the provider that holds the card authorization id.
-func (r *routedCards) pick(id string) entity.CardAuthorizationRepository {
-	r.fake.mu.Lock()
-	_, ok := r.fake.byID[id]
-	r.fake.mu.Unlock()
-	if ok || r.other == nil {
+// pick returns the provider that holds the card authorization with the
+// payment provider's ID.
+func (r *routedCards) pick(id string) rdb.CardAuthorizationProvider {
+	if strings.HasPrefix(id, fakeProviderPrefix) || r.other == nil {
 		return r.fake
 	}
 	return r.other
 }
 
 // Create opens a card authorization with the in-memory provider.
-func (r *routedCards) Create(ctx context.Context, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
-	return r.fake.Create(ctx, purchase, amountJPY)
+func (r *routedCards) Create(ctx context.Context, id string, purchase entity.CardAuthorizationPurchase, amountJPY int64) (*entity.CardAuthorization, error) {
+	return r.fake.Create(ctx, id, purchase, amountJPY)
 }
 
 // Get reads the card authorization from the provider that holds it.

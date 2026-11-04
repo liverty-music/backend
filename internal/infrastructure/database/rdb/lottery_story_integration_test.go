@@ -149,6 +149,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	}
 	s.seedOrganizerEvent()
 	s.checkoutCards = &routedCards{fake: s.cards}
+	cardAuthorizations := rdb.NewCardAuthorizationRepository(testDB, s.checkoutCards)
 
 	clock := usecase.Clock(func() time.Time { return s.now })
 	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
@@ -167,7 +168,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
 		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, s.cards, clock, logger))
+	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, clock, logger))
 	// The worker's OrderUseCase: issue, release, and the webhook's fulfilment.
 	s.orders = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
@@ -182,7 +183,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		TicketRepo:               ticketRepo,
 		EventState:               eventState,
 		EventRepo:                eventRepo,
-		CardAuthorizations:       s.checkoutCards,
+		CardAuthorizations:       cardAuthorizations,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
@@ -195,7 +196,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(testDB, testOutbox),
 		rdb.NewFollowRepository(testDB, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, logger)
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, cardAuthorizations, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
@@ -504,7 +505,7 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 		require.NoError(s.t, s.webhooks.HandleEvent(s.ctx, usecase.StripeWebhookEvent{
 			ProviderEventID:   "evt_" + uuid.NewV7().String(),
 			Type:              usecase.StripeEventPaymentIntentSucceeded,
-			ProviderPaymentID: e.Order.CardAuthorizationID,
+			ProviderPaymentID: fakeProviderPrefix + e.Order.CardAuthorizationID,
 			ReceivedAt:        s.now,
 		}))
 	}

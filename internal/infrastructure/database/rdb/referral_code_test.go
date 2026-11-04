@@ -13,7 +13,7 @@ import (
 
 // seedLotteryEntryWithState stores a lottery entry of the stock's sale in
 // the given state for userID with its Order of count tickets (Pending, or
-// Void when Lost) whose card authorization is "pi_<entry id>", and returns
+// Void when Lost) with a card authorization recorded for it, and returns
 // the entry's id.
 func seedLotteryEntryWithState(t *testing.T, f *stockFixture, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
 	t.Helper()
@@ -44,7 +44,7 @@ func seedLotteryEntryWithCode(t *testing.T, f *stockFixture, saleID entity.Ticke
 	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, referral_code, card_authorization_id, provider, status, amount, currency)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, 'JPY')`,
-		orderID, userID, string(f.ID), count, referralCode, "pi_"+id, int16(status), f.Price()*int64(count))
+		orderID, userID, string(f.ID), count, referralCode, newCardAuthorizationID(), int16(status), f.Price()*int64(count))
 	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx, `
 		INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, $2, $3, $4)`,

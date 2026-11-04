@@ -265,8 +265,8 @@ func seedPaidOrder(t *testing.T, f *stockFixture, userID string, n int, payTime 
 	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider,
 			provider_payment_id, status, amount, currency, pay_at)
-		VALUES ($1, $2, $3, $4, $5, 1, $5, 1, $6, 'JPY', $7)`,
-		orderID, userID, string(f.ID), n, "pi_"+orderID, f.Price()*int64(n), payTime)
+		VALUES ($1, $2, $3, $4, $5, 1, $6, 1, $7, 'JPY', $8)`,
+		orderID, userID, string(f.ID), n, newCardAuthorizationID(), "pi_"+orderID, f.Price()*int64(n), payTime)
 	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx, `
 		INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, 2, $2, $3)`,
@@ -365,4 +365,16 @@ func orderRepository(t *testing.T, orders *rdb.OrderRepository) entity.OrderRepo
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return repository.NewOrderRepository(orders, payment.NewNoopOrderPayments(logger))
+}
+
+// newCardAuthorizationID records a card authorization whose payment
+// provider's ID is "pi_<id>" and returns its id, for fixtures whose Order
+// names one.
+func newCardAuthorizationID() string {
+	id := entity.NewID()
+	if _, err := testDB.Pool.Exec(context.Background(),
+		`INSERT INTO card_authorizations (id, provider_card_authorization_id) VALUES ($1, $2)`, id, "pi_"+id); err != nil {
+		panic("failed to record a card authorization: " + err.Error())
+	}
+	return id
 }

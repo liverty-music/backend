@@ -68,6 +68,8 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 	for _, table := range tables {
 		assert.Zerof(t, count(table), "%s keeps rows of the deleted event", table)
 	}
+	assert.False(t, rowExists(t, `SELECT 1 FROM card_authorizations WHERE id = $1`, e.resaleCardAuthorizationID),
+		"the card authorization of a removed Order is removed with it")
 	assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, e.eventID), "event")
 	assert.Equal(t, 1, count("suppressed_concerts"), "the slot is suppressed")
 }

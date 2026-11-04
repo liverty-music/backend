@@ -45,7 +45,7 @@ func newLotteryEntryFixture(t *testing.T, decorate func(context.Context) context
 func TestLotteryEntryHandler(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	const cardAuthorizationID = "pi_1"
+	const cardAuthorizationID = "019a0000-0000-7000-8000-000000000001"
 	authorizeReq := func(phone string) *lotteryentryv1.AuthorizeCardRequest {
 		return &lotteryentryv1.AuthorizeCardRequest{
 			TicketSaleId:  &entityv1.TicketSaleId{Value: tkSaleID},

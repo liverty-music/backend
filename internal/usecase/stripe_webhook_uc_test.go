@@ -54,7 +54,7 @@ func newWebhookSvc(
 	refundUC usecase.OrderRefunder,
 	t *testing.T,
 ) usecase.StripeWebhookService {
-	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, newTestLogger(t))
+	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, nil, newTestLogger(t))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,7 +431,7 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 			t.Fatal("the notice refunds nothing")
 			return nil, nil
 		}}
-		svc := usecase.NewStripeWebhookService(processed, orders, refunds, newTestLogger(t))
+		svc := usecase.NewStripeWebhookService(processed, orders, refunds, nil, newTestLogger(t))
 
 		require.NoError(t, svc.HandleEvent(context.Background(), event))
 
@@ -445,7 +445,7 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 			isProcessedFn:   func(context.Context, string) (bool, error) { return true, nil },
 			markProcessedFn: func(context.Context, string) error { marked++; return nil },
 		}
-		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, newTestLogger(t))
+		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, nil, newTestLogger(t))
 
 		require.NoError(t, svc.HandleEvent(context.Background(), event))
 

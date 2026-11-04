@@ -66,10 +66,11 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	clock := usecase.Clock(func() time.Time { return s.now })
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
-	checkoutCards := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger)
+	stripeCards := payment.NewStripeCardAuthorizationProvider(key, payment.CheckoutCardAuthorizationPolicy, logger)
 	// The worker captures and releases the checkouts' card authorizations
 	// through the Stripe test API.
-	s.checkoutCards.other = checkoutCards
+	s.checkoutCards.other = stripeCards
+	checkoutCards := rdb.NewCardAuthorizationRepository(testDB, stripeCards)
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		OrderRepo:                s.orderRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
@@ -162,7 +163,10 @@ func (s *firstComeStory) authorizeCheckout(checkout *entity.Checkout, fan entity
 	require.NoError(s.t, err)
 	id := got.Order.CardAuthorizationID
 	require.NotEmpty(s.t, id)
-	confirmCardAuthorization(s.t, s.key, id)
+	var providerID string
+	require.NoError(s.t, testDB.Pool.QueryRow(s.ctx,
+		`SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`, id).Scan(&providerID))
+	confirmCardAuthorization(s.t, s.key, providerID)
 	return id
 }
 

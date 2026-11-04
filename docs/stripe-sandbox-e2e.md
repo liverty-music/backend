@@ -11,7 +11,7 @@ fully isolated. A `test`-mode key can never touch livemode.
 
 | Suite | Leg | Asserts |
 |---|---|---|
-| `TestStripeCardAuthorizationRepository_Integration` (④) | authorize hold → confirm (test card) → capture / cancel | manual-capture hold model; a repeated capture or cancel succeeds from the PaymentIntent's status, without an idempotency key of ours; amount-mismatch verify rejects |
+| `TestStripeCardAuthorizationProvider_Integration` (④) | authorize hold → confirm (test card) → capture / cancel | manual-capture hold model; a repeated capture or cancel succeeds from the PaymentIntent's status, without an idempotency key of ours; amount-mismatch verify rejects |
 | `TestStripeConnect_Settlement_PoC` (money-out) | self-provision JP recipient account → platform charge → transfer (`source_transaction`) → payout | separate charges & transfers; platform fee kept as the non-transferred remainder (no `application_fee_amount`); payout best-effort in test mode |
 
 The ⑤ issuance logic (the `Issue` workflow → Order + N tickets → ticket-journey

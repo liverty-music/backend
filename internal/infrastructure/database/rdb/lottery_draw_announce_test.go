@@ -98,16 +98,20 @@ func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
 	userID := newUserID(t)
 
 	rows, err := testDB.Pool.Query(ctx, `
-		WITH o AS (
+		WITH ca AS (
+			INSERT INTO card_authorizations (id, provider_card_authorization_id)
+			SELECT uuidv7(), 'pi_' || gen_random_uuid() FROM generate_series(1, $3)
+			RETURNING id
+		), o AS (
 			INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider, status, amount, currency)
-			SELECT uuidv7(), $1, $2, 1, 'pi_' || gen_random_uuid(), 1, 4, 1000, 'JPY' FROM generate_series(1, $3)
+			SELECT uuidv7(), $1, $2, 1, ca.id, 1, 4, 1000, 'JPY' FROM ca
 			RETURNING id, card_authorization_id
 		), e AS (
 			INSERT INTO lottery_entries (id, order_id, ticket_sale_id, state)
 			SELECT uuidv7(), o.id, $4, 1 FROM o
 			RETURNING id, order_id
 		)
-		SELECT e.id::text, o.card_authorization_id FROM e JOIN o ON o.id = e.order_id`,
+		SELECT e.id::text, o.card_authorization_id::text FROM e JOIN o ON o.id = e.order_id`,
 		string(userID), string(f.ID), entries, string(f.SaleID))
 	require.NoError(t, err)
 	type seeded struct {

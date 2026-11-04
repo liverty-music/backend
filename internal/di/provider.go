@@ -419,10 +419,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		checkoutCardAuthorizations entity.CardAuthorizationRepository
 	)
 	if paymentConfigured {
-		lotteryCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
-		checkoutCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger)
+		lotteryCardAuthorizations = rdb.NewCardAuthorizationRepository(db, infrapayment.NewStripeCardAuthorizationProvider(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger))
+		checkoutCardAuthorizations = rdb.NewCardAuthorizationRepository(db, infrapayment.NewStripeCardAuthorizationProvider(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger))
 	} else {
-		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
+		noop := rdb.NewCardAuthorizationRepository(db, infrapayment.NewNoopCardAuthorizationProvider(logger))
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 	}
 	lotteryEntryUC := usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
@@ -512,6 +512,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		processedWebhookEventRepo,
 		orderRepo,
 		orderUC,
+		lotteryCardAuthorizations,
 		logger,
 	)
 

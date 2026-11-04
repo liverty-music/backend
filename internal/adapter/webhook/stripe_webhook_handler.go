@@ -25,6 +25,7 @@ import (
 type stripeWebhookUseCase interface {
 	HandleEvent(ctx context.Context, event usecase.StripeWebhookEvent) error
 	ApplyOnce(ctx context.Context, providerEventID string, eventType usecase.StripeEventType, apply func(ctx context.Context) error) error
+	GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error)
 }
 
 // lotteryEntryConfirmer is the subset of [usecase.LotteryEntryUseCase] that
@@ -150,7 +151,7 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	var dispatchErr error
 	if parsed.Type == usecase.StripeEventPaymentIntentAmountCapturableUpdated {
 		dispatchErr = h.webhookSvc.ApplyOnce(ctx, parsed.ProviderEventID, parsed.Type, func(ctx context.Context) error {
-			return h.confirmLotteryEntry(ctx, parsed)
+			return h.confirmEntry(ctx, parsed)
 		})
 	} else {
 		dispatchErr = h.webhookSvc.HandleEvent(ctx, parsed)
@@ -171,25 +172,43 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// confirmLotteryEntry runs LotteryEntryUseCase.Confirm for a card
-// authorization the payment provider reports Authorized, without a calling
-// fan. A rejection (PermissionDenied, FailedPrecondition, InvalidArgument) is
-// acknowledged: Confirm has already released what it rejected, or the card
-// authorization is not a lottery entry's. Any other failure is returned as
-// Internal so the provider delivers the notice again.
-func (h *StripeWebhookHandler) confirmLotteryEntry(ctx context.Context, event usecase.StripeWebhookEvent) error {
+// confirmEntry finds the card authorization the payment provider reports
+// Authorized by the payment provider's ID and, when it pays for a lottery
+// entry, runs LotteryEntryUseCase.Confirm for it without a calling fan. A
+// card authorization the platform did not open (NotFound) or that pays for a
+// Checkout is acknowledged without effect, and so is a rejection by Confirm
+// (PermissionDenied, FailedPrecondition, InvalidArgument, AlreadyExists):
+// Confirm has already released what it rejected. Any other failure is
+// returned as Internal so the provider delivers the notice again.
+func (h *StripeWebhookHandler) confirmEntry(ctx context.Context, event usecase.StripeWebhookEvent) error {
 	if event.ProviderPaymentID == "" {
 		h.logger.Warn(ctx, "stripe webhook: amount_capturable_updated without a PaymentIntent id; skipped",
 			slog.String("event_id", event.ProviderEventID))
 		return nil
 	}
-	_, err := h.lotteryEntries.Confirm(ctx, event.ProviderPaymentID, nil)
+	ca, err := h.webhookSvc.GetCardAuthorization(ctx, event.ProviderPaymentID)
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		h.logger.Info(ctx, "stripe webhook: card authorization the platform did not open; acknowledged",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
+		return nil
+	case err != nil:
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to find the card authorization",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
+	}
+	if !ca.Purchase.IsLotteryEntry() {
+		return nil
+	}
+	_, err = h.lotteryEntries.Confirm(ctx, ca.ID, nil)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, apperr.ErrPermissionDenied),
 		errors.Is(err, apperr.ErrFailedPrecondition),
-		errors.Is(err, apperr.ErrInvalidArgument):
+		errors.Is(err, apperr.ErrInvalidArgument),
+		errors.Is(err, apperr.ErrAlreadyExists):
 		h.logger.Info(ctx, "stripe webhook: card authorization not made into a lottery entry; acknowledged",
 			slog.String("event_id", event.ProviderEventID),
 			slog.String("provider_payment_id", event.ProviderPaymentID),

@@ -124,7 +124,7 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	logger := mustLogger(t)
 	orders := payment.NewStripeOrderPayments(key, logger)
 	settlement := payment.NewStripeSettlementPayouts(key, logger)
-	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
+	cardAuthorizations := payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, logger)
 	ctx := context.Background()
 
 	// The payee must already be able to receive transfers. Provisioning a fresh
@@ -142,9 +142,9 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	// ── Capture: fan's funds land on the PLATFORM balance ──────────────────
 	// A plain platform charge, not a destination charge: settlement to the
 	// Organizer happens later, via Transfer.
-	opened, err := cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: entity.UserID(entity.NewID()), TicketSaleID: entity.TicketSaleID(entity.NewID()), TicketStockID: entity.TicketStockID(entity.NewID()), TicketCount: 1}, grossJPY)
+	opened, err := cardAuthorizations.Create(ctx, entity.NewID(), entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: entity.UserID(entity.NewID()), TicketSaleID: entity.TicketSaleID(entity.NewID()), TicketStockID: entity.TicketStockID(entity.NewID()), TicketCount: 1}, grossJPY)
 	require.NoError(t, err, "authorize the fan's card")
-	providerPaymentID := opened.ID
+	providerPaymentID := opened.ProviderID
 	confirmWith(t, key, providerPaymentID, "pm_card_visa")
 	require.NoError(t, cardAuthorizations.Capture(ctx, providerPaymentID), "capture the card authorization")
 

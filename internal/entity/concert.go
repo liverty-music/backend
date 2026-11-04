@@ -620,8 +620,7 @@ type ConcertRepository interface {
 	// # Possible errors
 	//
 	//  - FailedPrecondition: the event has a Paid Order, a Settlement that is
-	//    not Reversed, or a purchase in progress (a Pending Order, or a Void
-	//    Order whose card authorization is not yet released).
+	//    not Reversed, or a purchase in progress (a Pending Order).
 	DeleteAndSuppress(ctx context.Context, eventID string) error
 }
 

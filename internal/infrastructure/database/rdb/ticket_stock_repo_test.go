@@ -28,7 +28,7 @@ func insertStockOrder(t *testing.T, f *stockFixture, userID string, status entit
 	id := entity.NewID()
 	var cardAuth, paymentID, payAt any
 	if withAuth || status == entity.OrderStatusPaid || status == entity.OrderStatusRefunded {
-		cardAuth = "pi_auth_" + id
+		cardAuth = newCardAuthorizationID()
 	}
 	if status == entity.OrderStatusPaid || status == entity.OrderStatusRefunded {
 		paymentID, payAt = "pi_pay_"+id, issuedTicketsTime

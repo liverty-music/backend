@@ -141,15 +141,16 @@ type TicketStockRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id TicketStockID, at time.Time) (*TicketStock, error)
 
-	// Delete removes the TicketStock together with the Void Orders that name it
-	// and their LotteryEntries and Checkouts, all together or not at all,
-	// under the stock's row lock.
+	// Delete removes the TicketStock together with the Void Orders that name it,
+	// their LotteryEntries, Checkouts and ResaleEntries and their card
+	// authorizations, all together or not at all, under the stock's row lock.
+	// A Void Order whose card authorization is not yet released does not keep
+	// the stock: its release workflow gives it back.
 	//
 	// # Possible errors
 	//
 	//  - FailedPrecondition: an Order that is not Void names the stock, also
-	//    one created while Delete runs, or a Void Order's card authorization
-	//    is not yet released; nothing is removed.
+	//    one created while Delete runs; nothing is removed.
 	//  - NotFound: no TicketStock has the id.
 	//  - Internal: database failure.
 	Delete(ctx context.Context, id TicketStockID) error
