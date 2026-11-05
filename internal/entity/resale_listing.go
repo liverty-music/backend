@@ -170,17 +170,18 @@ func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 }
 
 // IsFreeForDrawAt reports whether a draw at t may allocate the listing: it is
-// open at t and no ResaleEntry is allocated to it, or the entry allocated to
-// it is Lost.
+// Listed, t is not after its deadline (the last draw runs at the deadline),
+// and no ResaleEntry is allocated to it, or the entry allocated to it is Lost.
 func (l *ResaleListing) IsFreeForDrawAt(t, deadline time.Time) bool {
-	return l.IsOpenAt(t, deadline) && (l.ResaleEntryID == "" || l.ResaleEntryState == ResaleEntryStateLost)
+	return l.Status == ResaleListingStatusListed && !t.After(deadline) &&
+		(l.ResaleEntryID == "" || l.ResaleEntryState == ResaleEntryStateLost)
 }
 
 // IsWithdrawableAt reports whether the fan can withdraw the listing at t: it
-// is free for a draw at t, so a listing allocated to an entry being charged
-// cannot be withdrawn.
+// is open at t and free for a draw, so a listing allocated to an entry being
+// charged cannot be withdrawn.
 func (l *ResaleListing) IsWithdrawableAt(t, deadline time.Time) bool {
-	return l.IsFreeForDrawAt(t, deadline)
+	return l.IsOpenAt(t, deadline) && l.IsFreeForDrawAt(t, deadline)
 }
 
 // ResaleListingSoldEmail is the finished "your ticket sold" message for one

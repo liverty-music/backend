@@ -238,9 +238,11 @@ func TestResaleListing_IsFreeForDrawAt(t *testing.T) {
 		assert.True(t, l.IsFreeForDrawAt(at, deadline))
 	})
 
-	t.Run("after the deadline", func(t *testing.T) {
+	t.Run("the last draw at the deadline", func(t *testing.T) {
 		t.Parallel()
 		l := &entity.ResaleListing{Status: entity.ResaleListingStatusListed}
-		assert.False(t, l.IsFreeForDrawAt(deadline, deadline))
+		assert.True(t, l.IsFreeForDrawAt(deadline, deadline), "the last draw still allocates it")
+		assert.False(t, l.IsWithdrawableAt(deadline, deadline), "but it can no longer be withdrawn")
+		assert.False(t, l.IsFreeForDrawAt(deadline.Add(time.Minute), deadline))
 	})
 }
