@@ -97,6 +97,10 @@ type capturedFacets struct {
 	Provider  entity.PaymentProvider `json:"provider"`
 	CardBrand string                 `json:"card_brand"`
 	CardLast4 string                 `json:"card_last4"`
+	// ProviderPaymentID is the payment provider's ID for the captured
+	// payment. A run recorded before it was added has none; the issue step
+	// then reads it again.
+	ProviderPaymentID string `json:"provider_payment_id,omitempty"`
 }
 
 // StartDrawnEntryWorkflow starts the work that follows one entry's draw
@@ -208,7 +212,8 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 		if err != nil {
 			return capturedFacets{}, err
 		}
-		return capturedFacets{Provider: captured.Provider, CardBrand: captured.CardBrand, CardLast4: captured.CardLast4}, nil
+		return capturedFacets{Provider: captured.Provider, CardBrand: captured.CardBrand, CardLast4: captured.CardLast4,
+			ProviderPaymentID: captured.ProviderPaymentID}, nil
 	})
 	if err != nil {
 		return IssueResult{}, err
@@ -222,7 +227,15 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 		if isPaid(order) {
 			return struct{}{}, nil
 		}
-		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4}
+		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4,
+			ProviderPaymentID: facets.ProviderPaymentID}
+		if captured.ProviderPaymentID == "" {
+			again, err := uc.capturedPayment(ctx, plan.CardAuthorizationID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			captured.ProviderPaymentID = again.ProviderPaymentID
+		}
 		_, err = uc.issueWith(ctx, order, plan.EventID, plan.OrganizerID, plan.PlatformFeeRateBps, plan.IdentityVerificationID, captured)
 		return struct{}{}, err
 	}); err != nil {

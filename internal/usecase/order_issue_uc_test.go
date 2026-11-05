@@ -134,6 +134,13 @@ func (s *stubCardAuthorizations) Get(ctx context.Context, id string) (*entity.Ca
 // capturedCardAuthorization is the Captured card authorization id that took
 // the payment.
 func capturedCardAuthorization(id string, payment *entity.CapturedPayment) *entity.CardAuthorization {
+	if payment.ProviderPaymentID == "" {
+		// The fixtures name the card authorization as the provider names
+		// the payment it captured.
+		copied := *payment
+		copied.ProviderPaymentID = id
+		payment = &copied
+	}
 	return &entity.CardAuthorization{ID: id, Amount: payment.AmountJPY, Status: entity.CardAuthorizationStatusCaptured, CapturedPayment: payment}
 }
 

@@ -177,15 +177,19 @@ type sentEmail struct {
 // keeping each to one per Order or entry with the send times the
 // repositories record, as the Postmark senders do.
 type storyMailer struct {
-	mu      sync.Mutex
-	orders  entity.OrderRepository
-	entries entity.LotteryEntryRepository
-	sent    []sentEmail
+	mu            sync.Mutex
+	orders        entity.OrderRepository
+	entries       entity.LotteryEntryRepository
+	listings      *rdb.ResaleListingRepository
+	resaleEntries *rdb.ResaleEntryRepository
+	sent          []sentEmail
 }
 
 var (
-	_ entity.OrderConfirmationSender = (*storyMailer)(nil)
-	_ entity.LotteryLossEmailSender  = (*storyMailer)(nil)
+	_ entity.OrderConfirmationSender      = (*storyMailer)(nil)
+	_ entity.ResaleListingSoldEmailSender = (*storyMailer)(nil)
+	_ entity.ResaleEntryEndedEmailSender  = (*storyMailer)(nil)
+	_ entity.LotteryLossEmailSender       = (*storyMailer)(nil)
 )
 
 func (m *storyMailer) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
@@ -210,6 +214,30 @@ func (m *storyMailer) SendLossEmail(ctx context.Context, id entity.LotteryEntryI
 	}
 	m.record(to, msg.Subject, msg.TextBody)
 	return m.entries.MarkLossEmailSent(ctx, id, time.Now())
+}
+
+func (m *storyMailer) SendSoldEmail(ctx context.Context, id entity.ResaleListingID, to string, msg entity.ResaleListingSoldEmail) error {
+	l, err := m.listings.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if l.SoldEmailSendTime != nil {
+		return nil
+	}
+	m.record(to, msg.Subject, msg.TextBody)
+	return m.listings.MarkSoldEmailSent(ctx, id, time.Now())
+}
+
+func (m *storyMailer) SendEndedEmail(ctx context.Context, id entity.ResaleEntryID, to string, msg entity.ResaleEntryEndedEmail) error {
+	e, err := m.resaleEntries.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if e.EndedEmailSendTime != nil {
+		return nil
+	}
+	m.record(to, msg.Subject, msg.TextBody)
+	return m.resaleEntries.MarkEndedEmailSent(ctx, id, time.Now())
 }
 
 func (m *storyMailer) record(to, subject, body string) {

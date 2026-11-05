@@ -3,6 +3,9 @@ package rdb_test
 import (
 	"context"
 	"fmt"
+	"github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -108,6 +111,13 @@ type lotteryStory struct {
 	// entries and not awaited yet.
 	followUps []string
 
+	// resaleWorker is the worker's ResaleEntryUseCase, which draws; and
+	// resaleRefunds the worker's ResaleListingUseCase, which refunds a sold
+	// listing through refundOrders (the Stripe test API when a test key is
+	// set).
+	resaleWorker  usecase.ResaleEntryUseCase
+	resaleRefunds usecase.ResaleListingUseCase
+
 	orderRepo   entity.OrderRepository
 	userRepo    *rdb.UserRepository
 	journeyRepo *rdb.TicketJourneyRepository
@@ -162,7 +172,9 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
-	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo}
+	resaleEntryRepo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	resaleListingRepo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo, listings: resaleListingRepo, resaleEntries: resaleEntryRepo}
 
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
@@ -174,6 +186,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
 		EntryRepo:                entryRepo,
+		ResaleEntryRepo:          resaleEntryRepo,
 		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
@@ -202,18 +215,32 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
 		rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, s.pushes, nil, logger,
 		usecase.OrderConfirmationDeps{
-			Orders:         s.orderRepo,
-			Users:          s.userRepo,
-			Concerts:       rdb.NewConcertRepository(testDB, testOutbox),
-			EventOrganizer: eventOrganizerRepo,
-			Organizers:     organizerRepo,
-			Mailer:         s.mailer,
-			Entries:        entryRepo,
-			Stocks:         stockRepo,
-			LossMailer:     s.mailer,
-			TimeZone:       japanTime,
+			Orders:            s.orderRepo,
+			Users:             s.userRepo,
+			Concerts:          rdb.NewConcertRepository(testDB, testOutbox),
+			EventOrganizer:    eventOrganizerRepo,
+			Organizers:        organizerRepo,
+			Mailer:            s.mailer,
+			Entries:           entryRepo,
+			Stocks:            stockRepo,
+			LossMailer:        s.mailer,
+			ResaleListings:    resaleListingRepo,
+			ResaleMailer:      s.mailer,
+			ResaleEntries:     resaleEntryRepo,
+			ResaleEntryMailer: s.mailer,
+			TimeZone:          japanTime,
 		}, usecase.NewConcertsDeps{})
 
+	s.resaleWorker = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo: resaleEntryRepo, StockRepo: stockRepo, EventRepo: eventRepo, EventState: eventState, Clock: clock, Logger: logger,
+	})
+	refundOrders := s.orderRepo
+	if key := os.Getenv("STRIPE_SECRET_KEY"); strings.HasPrefix(key, "sk_test_") || strings.HasPrefix(key, "rk_test_") {
+		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(key, logger))
+	}
+	s.resaleRefunds = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Listings: resaleListingRepo, Orders: refundOrders, Clock: clock, Logger: logger,
+	})
 	s.startWorker()
 	s.client, err = workflow.NewClient(s.ctx, s.newPool(), logger)
 	require.NoError(t, err)
@@ -252,6 +279,9 @@ func (s *lotteryStory) startWorker() {
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, s.orders.ReleaseCardAuthorization)
 	require.NoError(s.t, rt.RegisterQueue(usecase.CheckoutQueue, usecase.CheckoutQueueConcurrency))
 	workflow.Register(rt, usecase.WorkflowExpireCheckout, s.expiry.Expire)
+	workflow.Register(rt, usecase.WorkflowDrawResaleStock, s.resaleWorker.DrawStock)
+	workflow.Register(rt, usecase.WorkflowDrawResale, s.resaleWorker.DrawResale)
+	workflow.Register(rt, usecase.WorkflowRefundSold, s.resaleRefunds.RefundSold)
 	require.NoError(s.t, rt.Launch())
 	var once sync.Once
 	s.worker = rt

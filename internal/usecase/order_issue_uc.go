@@ -38,7 +38,7 @@ func (uc *orderUseCase) issueWith(ctx context.Context, order *entity.Order, even
 	paid := *order
 	paid.Payment = entity.Payment{
 		Provider:          captured.Provider,
-		ProviderPaymentID: order.CardAuthorizationID,
+		ProviderPaymentID: captured.ProviderPaymentID,
 		CardBrand:         captured.CardBrand,
 		CardLast4:         captured.CardLast4,
 	}
