@@ -191,20 +191,29 @@ func (_c *MockResaleListingUseCase_List_Call) RunAndReturn(run func(ctx context.
 }
 
 // RefundSold provides a mock function for the type MockResaleListingUseCase
-func (_mock *MockResaleListingUseCase) RefundSold(ctx context.Context) error {
-	ret := _mock.Called(ctx)
+func (_mock *MockResaleListingUseCase) RefundSold(ctx context.Context, f usecase.Flow, listingID entity.ResaleListingID) (struct{}, error) {
+	ret := _mock.Called(ctx, f, listingID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RefundSold")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.ResaleListingID) (struct{}, error)); ok {
+		return returnFunc(ctx, f, listingID)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, entity.ResaleListingID) struct{}); ok {
+		r0 = returnFunc(ctx, f, listingID)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, entity.ResaleListingID) error); ok {
+		r1 = returnFunc(ctx, f, listingID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockResaleListingUseCase_RefundSold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RefundSold'
@@ -214,29 +223,98 @@ type MockResaleListingUseCase_RefundSold_Call struct {
 
 // RefundSold is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockResaleListingUseCase_Expecter) RefundSold(ctx any) *MockResaleListingUseCase_RefundSold_Call {
-	return &MockResaleListingUseCase_RefundSold_Call{Call: _e.mock.On("RefundSold", ctx)}
+//   - f usecase.Flow
+//   - listingID entity.ResaleListingID
+func (_e *MockResaleListingUseCase_Expecter) RefundSold(ctx any, f any, listingID any) *MockResaleListingUseCase_RefundSold_Call {
+	return &MockResaleListingUseCase_RefundSold_Call{Call: _e.mock.On("RefundSold", ctx, f, listingID)}
 }
 
-func (_c *MockResaleListingUseCase_RefundSold_Call) Run(run func(ctx context.Context)) *MockResaleListingUseCase_RefundSold_Call {
+func (_c *MockResaleListingUseCase_RefundSold_Call) Run(run func(ctx context.Context, f usecase.Flow, listingID entity.ResaleListingID)) *MockResaleListingUseCase_RefundSold_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 entity.ResaleListingID
+		if args[2] != nil {
+			arg2 = args[2].(entity.ResaleListingID)
+		}
 		run(
 			arg0,
+			arg1,
+			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *MockResaleListingUseCase_RefundSold_Call) Return(err error) *MockResaleListingUseCase_RefundSold_Call {
+func (_c *MockResaleListingUseCase_RefundSold_Call) Return(val struct{}, err error) *MockResaleListingUseCase_RefundSold_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockResaleListingUseCase_RefundSold_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, listingID entity.ResaleListingID) (struct{}, error)) *MockResaleListingUseCase_RefundSold_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartRefundSold provides a mock function for the type MockResaleListingUseCase
+func (_mock *MockResaleListingUseCase) StartRefundSold(ctx context.Context, listingID entity.ResaleListingID) error {
+	ret := _mock.Called(ctx, listingID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartRefundSold")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.ResaleListingID) error); ok {
+		r0 = returnFunc(ctx, listingID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockResaleListingUseCase_StartRefundSold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartRefundSold'
+type MockResaleListingUseCase_StartRefundSold_Call struct {
+	*mock.Call
+}
+
+// StartRefundSold is a helper method to define mock.On call
+//   - ctx context.Context
+//   - listingID entity.ResaleListingID
+func (_e *MockResaleListingUseCase_Expecter) StartRefundSold(ctx any, listingID any) *MockResaleListingUseCase_StartRefundSold_Call {
+	return &MockResaleListingUseCase_StartRefundSold_Call{Call: _e.mock.On("StartRefundSold", ctx, listingID)}
+}
+
+func (_c *MockResaleListingUseCase_StartRefundSold_Call) Run(run func(ctx context.Context, listingID entity.ResaleListingID)) *MockResaleListingUseCase_StartRefundSold_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.ResaleListingID
+		if args[1] != nil {
+			arg1 = args[1].(entity.ResaleListingID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleListingUseCase_StartRefundSold_Call) Return(err error) *MockResaleListingUseCase_StartRefundSold_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockResaleListingUseCase_RefundSold_Call) RunAndReturn(run func(ctx context.Context) error) *MockResaleListingUseCase_RefundSold_Call {
+func (_c *MockResaleListingUseCase_StartRefundSold_Call) RunAndReturn(run func(ctx context.Context, listingID entity.ResaleListingID) error) *MockResaleListingUseCase_StartRefundSold_Call {
 	_c.Call.Return(run)
 	return _c
 }

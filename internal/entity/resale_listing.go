@@ -238,14 +238,6 @@ type ResaleListingRepository interface {
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*ResaleListing, error)
 
-	// ListSoldUnrefunded returns every Sold listing that has no refund time,
-	// oldest sold time first; an empty slice when there are none.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database failure.
-	ListSoldUnrefunded(ctx context.Context) ([]*ResaleListing, error)
-
 	// RecordRefund sets the provider refund ID and refund time of a Sold
 	// listing that has no refund time. A listing with a refund time is left
 	// unchanged.

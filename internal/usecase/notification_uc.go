@@ -99,6 +99,17 @@ type NotificationUseCase interface {
 	//   - Any read or send failure, unchanged; the announcement is redelivered.
 	SendLotteryLoss(ctx context.Context, entryID entity.LotteryEntryID) error
 
+	// SendResaleEntryEnded tells the fan of a Lapsed or Lost resale entry
+	// that it ended and nothing was charged: an email sent at most once per
+	// entry (ResaleEntry.SendEndedEmail) and a push started as Deliver named
+	// after the type and the entry. An entry in another state sends nothing.
+	//
+	// # Possible errors
+	//
+	//  - Errors of reading the entry, its user, stock or concert, or of
+	//    sending, unchanged; the caller runs it again.
+	SendResaleEntryEnded(ctx context.Context, entryID entity.ResaleEntryID) error
+
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist for the specified newly created concerts. The delivery pipeline
 	// hydrates the artist and concert entities internally, applies hype-level

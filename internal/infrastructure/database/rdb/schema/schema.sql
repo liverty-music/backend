@@ -1083,8 +1083,6 @@ COMMENT ON INDEX idx_resale_listings_resale_entry_id IS 'Optimizes finding the l
 CREATE INDEX IF NOT EXISTS idx_resale_listings_user_id ON resale_listings(user_id, created_at);
 COMMENT ON INDEX idx_resale_listings_user_id IS 'Optimizes a fan''s listings, newest first';
 
-CREATE INDEX IF NOT EXISTS idx_resale_listings_sold_unfinished ON resale_listings(sold_at) WHERE status = 2 AND (refund_at IS NULL OR sold_email_send_at IS NULL);
-COMMENT ON INDEX idx_resale_listings_sold_unfinished IS 'Optimizes ListSoldUnrefunded: Sold listings not yet refunded or not yet emailed';
 
 -- ============================================================
 -- Settlement / payout tables (ticket-settlement-and-payout)

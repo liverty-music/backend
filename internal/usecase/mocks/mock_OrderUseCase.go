@@ -627,3 +627,60 @@ func (_c *MockOrderUseCase_StartDrawnEntryWorkflow_Call) RunAndReturn(run func(c
 	_c.Call.Return(run)
 	return _c
 }
+
+// StartResaleEntryWorkflow provides a mock function for the type MockOrderUseCase
+func (_mock *MockOrderUseCase) StartResaleEntryWorkflow(ctx context.Context, entry *entity.ResaleEntry) error {
+	ret := _mock.Called(ctx, entry)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartResaleEntryWorkflow")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.ResaleEntry) error); ok {
+		r0 = returnFunc(ctx, entry)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockOrderUseCase_StartResaleEntryWorkflow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartResaleEntryWorkflow'
+type MockOrderUseCase_StartResaleEntryWorkflow_Call struct {
+	*mock.Call
+}
+
+// StartResaleEntryWorkflow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entry *entity.ResaleEntry
+func (_e *MockOrderUseCase_Expecter) StartResaleEntryWorkflow(ctx any, entry any) *MockOrderUseCase_StartResaleEntryWorkflow_Call {
+	return &MockOrderUseCase_StartResaleEntryWorkflow_Call{Call: _e.mock.On("StartResaleEntryWorkflow", ctx, entry)}
+}
+
+func (_c *MockOrderUseCase_StartResaleEntryWorkflow_Call) Run(run func(ctx context.Context, entry *entity.ResaleEntry)) *MockOrderUseCase_StartResaleEntryWorkflow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.ResaleEntry
+		if args[1] != nil {
+			arg1 = args[1].(*entity.ResaleEntry)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockOrderUseCase_StartResaleEntryWorkflow_Call) Return(err error) *MockOrderUseCase_StartResaleEntryWorkflow_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockOrderUseCase_StartResaleEntryWorkflow_Call) RunAndReturn(run func(ctx context.Context, entry *entity.ResaleEntry) error) *MockOrderUseCase_StartResaleEntryWorkflow_Call {
+	_c.Call.Return(run)
+	return _c
+}

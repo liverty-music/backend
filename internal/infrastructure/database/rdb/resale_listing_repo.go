@@ -58,10 +58,6 @@ const (
 		WHERE rl.user_id = $1
 		ORDER BY rl.created_at DESC, rl.id DESC
 	`
-	resaleListingSoldUnrefundedQuery = `SELECT ` + resaleListingColumns + resaleListingFrom + `
-		WHERE rl.status = 2 AND rl.refund_at IS NULL
-		ORDER BY rl.sold_at, rl.id
-	`
 	resaleListingRecordRefundQuery = `
 		UPDATE resale_listings SET provider_refund_id = $2, refund_at = $3
 		WHERE id = $1 AND status = 2 AND refund_at IS NULL
@@ -164,12 +160,6 @@ func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.Resale
 // ListByUser returns the user's listings, newest first.
 func (r *ResaleListingRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.ResaleListing, error) {
 	return r.list(ctx, "failed to list the user's resale listings", resaleListingByUserQuery, string(userID))
-}
-
-// ListSoldUnrefunded returns the Sold listings not yet refunded, oldest sale
-// first.
-func (r *ResaleListingRepository) ListSoldUnrefunded(ctx context.Context) ([]*entity.ResaleListing, error) {
-	return r.list(ctx, "failed to list sold resale listings to finish", resaleListingSoldUnrefundedQuery)
 }
 
 // RecordRefund sets the refund of a Sold listing once.

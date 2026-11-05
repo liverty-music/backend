@@ -266,6 +266,16 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.Register(rt, usecase.WorkflowIssue, orders.Issue)
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, orders.ReleaseCardAuthorization)
 
+	// A sold listing's refund runs in its own workflow, started from the
+	// sale's announcement (design D10).
+	resaleListings := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Listings: rdb.NewResaleListingRepository(db, outbox),
+		Orders:   orderRepo,
+		Clock:    time.Now,
+		Logger:   logger,
+	})
+	workflow.Register(rt, usecase.WorkflowRefundSold, resaleListings.RefundSold)
+
 	// The worker's CheckoutUseCase only ends holds.
 	checkouts := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo: checkoutRepo,

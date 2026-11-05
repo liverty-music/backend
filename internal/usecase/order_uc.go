@@ -137,6 +137,18 @@ type OrderUseCase interface {
 	//  - Errors of starting the workflow, unchanged.
 	StartDrawnEntryWorkflow(ctx context.Context, entry *entity.LotteryEntry) error
 
+	// StartResaleEntryWorkflow starts the workflow that follows a resale
+	// entry's change, as the consumer of its announcement: Issue for a Won
+	// entry's Order and ReleaseCardAuthorization for the Order of a Lapsed,
+	// Withdrawn or Lost entry, except a Lost entry whose payment was not
+	// completed before the show, which Issue released already. A repeated
+	// announcement starts nothing new.
+	//
+	// # Possible errors
+	//
+	//  - Errors of starting the workflow, unchanged.
+	StartResaleEntryWorkflow(ctx context.Context, entry *entity.ResaleEntry) error
+
 	// Place places the calling fan's order for their Checkout at now. It
 	// checks first what the fan can still fix: while the Checkout is Held, that
 	// it is holding, that the concert is published, that the Order's card

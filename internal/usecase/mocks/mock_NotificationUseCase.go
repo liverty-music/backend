@@ -497,6 +497,63 @@ func (_c *MockNotificationUseCase_SendOrderConfirmation_Call) RunAndReturn(run f
 	return _c
 }
 
+// SendResaleEntryEnded provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) SendResaleEntryEnded(ctx context.Context, entryID entity.ResaleEntryID) error {
+	ret := _mock.Called(ctx, entryID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendResaleEntryEnded")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.ResaleEntryID) error); ok {
+		r0 = returnFunc(ctx, entryID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockNotificationUseCase_SendResaleEntryEnded_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendResaleEntryEnded'
+type MockNotificationUseCase_SendResaleEntryEnded_Call struct {
+	*mock.Call
+}
+
+// SendResaleEntryEnded is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entryID entity.ResaleEntryID
+func (_e *MockNotificationUseCase_Expecter) SendResaleEntryEnded(ctx any, entryID any) *MockNotificationUseCase_SendResaleEntryEnded_Call {
+	return &MockNotificationUseCase_SendResaleEntryEnded_Call{Call: _e.mock.On("SendResaleEntryEnded", ctx, entryID)}
+}
+
+func (_c *MockNotificationUseCase_SendResaleEntryEnded_Call) Run(run func(ctx context.Context, entryID entity.ResaleEntryID)) *MockNotificationUseCase_SendResaleEntryEnded_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.ResaleEntryID
+		if args[1] != nil {
+			arg1 = args[1].(entity.ResaleEntryID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendResaleEntryEnded_Call) Return(err error) *MockNotificationUseCase_SendResaleEntryEnded_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendResaleEntryEnded_Call) RunAndReturn(run func(ctx context.Context, entryID entity.ResaleEntryID) error) *MockNotificationUseCase_SendResaleEntryEnded_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SendResaleSold provides a mock function for the type MockNotificationUseCase
 func (_mock *MockNotificationUseCase) SendResaleSold(ctx context.Context, refunded entity.ResaleListingRefundedData) error {
 	ret := _mock.Called(ctx, refunded)

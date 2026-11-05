@@ -19,10 +19,6 @@ import (
 // its text keep their names.
 const LogKeyNeedsOperator = "checkout needs an operator"
 
-// unrefundedListingReportAge is how long a Sold listing may stay unrefunded
-// before every run of the refund job reports it to an admin.
-const unrefundedListingReportAge = 10 * time.Minute
-
 // ResaleListingAt is a listing with its deadline and its status at the time
 // it was read: a Listed listing past its deadline is Expired.
 type ResaleListingAt struct {
@@ -63,16 +59,37 @@ type ResaleListingUseCase interface {
 	// an empty slice when there are none.
 	List(ctx context.Context, userID entity.UserID) ([]*ResaleListingAt, error)
 
-	// RefundSold refunds the user of every Sold listing its refund amount and
-	// records the refund, which announces it (ORDER.resale_listing_refunded).
-	// One listing's failure never stops the others; it is tried again on the next run. A listing left unrefunded
-	// for more than 10 minutes after its sale is reported as needing an admin
-	// on every run.
+	// StartRefundSold starts the refund workflow of a listing Order.Issue made
+	// Sold ([WorkflowRefundSold]), named [RefundSoldWorkflowID] so a repeated
+	// announcement starts nothing new, with a 24-hour deadline.
 	//
 	// # Possible errors
 	//
-	//  - The error of [entity.ResaleListingRepository.ListSoldUnrefunded].
-	RefundSold(ctx context.Context) error
+	//  - Errors of starting the workflow, unchanged.
+	StartRefundSold(ctx context.Context, listingID entity.ResaleListingID) error
+
+	// RefundSold is the refund workflow of one Sold listing: it refunds the
+	// listing's user its refund amount of its Order's charge, for the purpose
+	// of this listing, and records the refund, which announces it
+	// (ORDER.resale_listing_refunded). A listing already refunded is left as
+	// it is. A step that fails with Unavailable is tried again until the
+	// workflow's deadline; a failure ends it and an admin is told.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: the listing is not Sold.
+	//  - Errors of reading the listing or its Order, of the refund or of
+	//    recording it, unchanged.
+	RefundSold(ctx context.Context, f Flow, listingID entity.ResaleListingID) (struct{}, error)
+}
+
+// WorkflowRefundSold is the stable name of the workflow that refunds the user
+// of one Sold listing.
+const WorkflowRefundSold = "refund-sold"
+
+// RefundSoldWorkflowID names the refund of a listing: one per listing.
+func RefundSoldWorkflowID(listingID entity.ResaleListingID) string {
+	return "refund:" + string(listingID)
 }
 
 // ResaleListingDeps are the dependencies of [NewResaleListingUseCase]. All are
@@ -84,8 +101,11 @@ type ResaleListingDeps struct {
 	Stocks     entity.TicketStockRepository
 	EventState EventPublishStatePort
 	Events     entity.EventRepository
-	Clock      Clock
-	Logger     *logging.Logger
+	// Workflows starts the refund workflow of a Sold listing; a process that
+	// never starts it may leave it nil.
+	Workflows Workflows
+	Clock     Clock
+	Logger    *logging.Logger
 }
 
 // resaleListingUseCase implements [ResaleListingUseCase].
@@ -203,27 +223,30 @@ func (uc *resaleListingUseCase) List(ctx context.Context, userID entity.UserID) 
 	return out, nil
 }
 
+// StartRefundSold implements [ResaleListingUseCase].
+func (uc *resaleListingUseCase) StartRefundSold(ctx context.Context, listingID entity.ResaleListingID) error {
+	return uc.Workflows.Start(ctx, WorkflowRefundSold, RefundSoldWorkflowID(listingID), listingID,
+		WithQueue(PaymentQueue), WithDeadline(uc.Clock().Add(paymentWorkflowDeadline)))
+}
+
 // RefundSold implements [ResaleListingUseCase].
-func (uc *resaleListingUseCase) RefundSold(ctx context.Context) error {
-	listings, err := uc.Listings.ListSoldUnrefunded(ctx)
-	if err != nil {
-		return err
-	}
-	for _, l := range listings {
-		attrs := []slog.Attr{slog.String("resale_listing_id", string(l.ID)), slog.String("order_id", string(l.OrderID))}
-		now := uc.Clock()
-		if l.SoldTime != nil && now.Sub(*l.SoldTime) > unrefundedListingReportAge {
-			uc.Logger.Error(ctx, LogKeyNeedsOperator, errors.New("a resold listing is still not refunded"),
-				append(attrs, slog.Time("sold_time", *l.SoldTime))...)
+func (uc *resaleListingUseCase) RefundSold(ctx context.Context, f Flow, listingID entity.ResaleListingID) (struct{}, error) {
+	return Step(ctx, f, "refund", func(ctx context.Context) (struct{}, error) {
+		l, err := uc.Listings.Get(ctx, listingID)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if l.Status != entity.ResaleListingStatusSold {
+			return struct{}{}, apperr.New(codes.FailedPrecondition, "only a Sold listing is refunded",
+				slog.String("resale_listing_id", string(listingID)), slog.String("order_id", string(l.OrderID)))
+		}
+		if l.RefundTime != nil {
+			return struct{}{}, nil
 		}
 		// ResaleListing.RecordRefund announces the refund, which the sold
 		// email is sent from.
-		if err := uc.refund(ctx, l, now); err != nil {
-			// One failure never stops the others; the next run retries.
-			uc.Logger.Warn(ctx, "resale refund: failed to refund listing; skipping", append(attrs, slog.Any("error", err))...)
-		}
-	}
-	return nil
+		return struct{}{}, uc.refund(ctx, l, uc.Clock())
+	})
 }
 
 // refund refunds the listing's refund amount of its Order's charge, for the

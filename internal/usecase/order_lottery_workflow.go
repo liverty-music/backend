@@ -121,6 +121,31 @@ func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *enti
 	}
 }
 
+// StartResaleEntryWorkflow starts the work that follows a resale entry's
+// change: [OrderUseCase.Issue] for a Won entry's Order and
+// [OrderUseCase.ReleaseCardAuthorization] for the Order of a Lapsed,
+// Withdrawn or Lost entry, on [PaymentQueue] with a 24-hour deadline, each
+// named after the Order so a repeated announcement starts nothing new. A
+// Lost entry whose payment was not completed before the show was released by
+// Issue already and starts nothing, as does an Entered entry.
+//
+// # Possible errors
+//
+//   - Errors of starting the workflow, unchanged.
+func (uc *orderUseCase) StartResaleEntryWorkflow(ctx context.Context, entry *entity.ResaleEntry) error {
+	opts := []StartOption{WithQueue(PaymentQueue), WithDeadline(uc.clock().Add(paymentWorkflowDeadline))}
+	switch {
+	case entry.State == entity.ResaleEntryStateWon:
+		return uc.workflows.Start(ctx, WorkflowIssue, IssueWorkflowID(entry.OrderID), IssueRequest{ResaleEntryID: entry.ID}, opts...)
+	case entry.State == entity.ResaleEntryStateLost && entry.LostReason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
+		return nil
+	case entry.State == entity.ResaleEntryStateLapsed, entry.State == entity.ResaleEntryStateLost, entry.State == entity.ResaleEntryStateWithdrawn:
+		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(entry.OrderID), entry.OrderID, opts...)
+	default:
+		return nil
+	}
+}
+
 // Issue implements [OrderUseCase].
 func (uc *orderUseCase) Issue(ctx context.Context, f Flow, in IssueRequest) (IssueResult, error) {
 	sources := 0

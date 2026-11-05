@@ -563,12 +563,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
-		// The resale refund sweeper refunds resold listings; it reaches
-		// Stripe, so it runs beside the settlement sweeper. Checkouts end and
-		// are issued by workflows in the workflow worker.
-		startResaleRefundSweeper(ctx, resaleListingUC, logger)
 	} else {
-		logger.Info(ctx, "settlement and resale refund sweepers disabled on this workload",
+		logger.Info(ctx, "settlement sweeper disabled on this workload",
 			slog.String("workload", cfg.Workload))
 	}
 

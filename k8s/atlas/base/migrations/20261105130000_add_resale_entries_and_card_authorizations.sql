@@ -83,6 +83,10 @@ COMMENT ON INDEX idx_resale_entries_entered IS 'Optimizes finding the Entered en
 ALTER TABLE resale_listings ADD COLUMN resale_entry_id UUID REFERENCES resale_entries(id) ON DELETE SET NULL;
 COMMENT ON COLUMN resale_listings.resale_entry_id IS 'The resale entry a draw allocated the listing to; NULL until allocated. A listing whose entry is Lost is free for the next draw again';
 
+-- Each Sold listing is refunded by its own workflow, started from its sale's
+-- announcement (design D10), so nothing lists the unrefunded ones any more.
+DROP INDEX idx_resale_listings_sold_unfinished;
+
 CREATE INDEX idx_resale_listings_resale_entry_id ON resale_listings(resale_entry_id) WHERE resale_entry_id IS NOT NULL;
 COMMENT ON INDEX idx_resale_listings_resale_entry_id IS 'Optimizes finding the listings allocated to an entry and the foreign key check of an entry delete';
 
