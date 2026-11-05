@@ -52,18 +52,16 @@ func NewCardAuthorizationRepository(db *Database, provider CardAuthorizationProv
 const (
 	// cardAuthorizationRecordQuery records a card authorization once per
 	// payment provider ID and returns the id of its record: a retried Create
-	// of a Checkout gets back the record of its first attempt.
+	// of a Checkout gets back the record of its first attempt. The conflict
+	// arm rewrites the same value so that RETURNING yields the existing row
+	// even when a concurrent Create committed it after this statement's
+	// snapshot, which a separate SELECT in the statement would not see.
 	cardAuthorizationRecordQuery = `
-		WITH inserted AS (
-			INSERT INTO card_authorizations (id, provider_card_authorization_id)
-			VALUES ($1, $2)
-			ON CONFLICT (provider_card_authorization_id) DO NOTHING
-			RETURNING id
-		)
-		SELECT id FROM inserted
-		UNION ALL
-		SELECT id FROM card_authorizations WHERE provider_card_authorization_id = $2
-		LIMIT 1
+		INSERT INTO card_authorizations (id, provider_card_authorization_id)
+		VALUES ($1, $2)
+		ON CONFLICT (provider_card_authorization_id) DO UPDATE
+			SET provider_card_authorization_id = EXCLUDED.provider_card_authorization_id
+		RETURNING id
 	`
 	cardAuthorizationProviderIDQuery = `SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`
 	cardAuthorizationIDQuery         = `SELECT id FROM card_authorizations WHERE provider_card_authorization_id = $1`
