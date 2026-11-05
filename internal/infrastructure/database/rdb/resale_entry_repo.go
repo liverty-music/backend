@@ -105,6 +105,24 @@ const (
 	// resaleEntryWithdrawQuery makes the Entered entry Withdrawn at $2.
 	resaleEntryWithdrawQuery  = `UPDATE resale_entries SET state = 5, withdraw_at = $2 WHERE id = $1 AND state = 1`
 	resaleEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
+	// resaleEntryFreeListingsQuery lists the stock's listings free for a
+	// draw, oldest first: Listed and allocated to no entry or a Lost one.
+	resaleEntryFreeListingsQuery = `
+		SELECT rl.id FROM resale_listings rl
+		LEFT JOIN resale_entries x ON x.id = rl.resale_entry_id
+		WHERE rl.ticket_stock_id = $1 AND rl.status = 1 AND (rl.resale_entry_id IS NULL OR x.state = 3)
+		ORDER BY rl.created_at, rl.id
+	`
+	// resaleEntryStocksWithEnteredQuery lists the stocks with Entered
+	// entries, with their event and its start time.
+	resaleEntryStocksWithEnteredQuery = `
+		SELECT DISTINCT s.id, e.id, e.start_at
+		FROM resale_entries re
+		JOIN orders o ON o.id = re.order_id
+		JOIN ticket_stocks s ON s.id = o.ticket_stock_id
+		JOIN events e ON e.id = s.event_id
+		WHERE re.state = 1
+	`
 	// resaleEntryMarkEndedEmailSentQuery sets the ended email send time once
 	// and returns the row while the entry exists.
 	resaleEntryMarkEndedEmailSentQuery = `
@@ -259,81 +277,158 @@ func (r *ResaleEntryRepository) MarkEndedEmailSent(ctx context.Context, id entit
 // ORDER.resale_entry_changed with each entry it makes Won, Lapsed or Lost, in
 // the transaction that records the draw.
 func (r *ResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome) error {
+	_, err := r.draw(ctx, stockID, drawTime, func(pgx.Tx) (entity.ResaleDrawOutcome, error) { return outcome, nil })
+	return err
+}
+
+// DrawUnderLock runs one draw of the stock at drawTime in one transaction
+// under the stock's row lock (design D4): it reads the stock's Entered
+// entries with their card authorization's expiry and its listings free for a
+// draw, oldest first, passes them to decide and records the outcome decide
+// returns as PersistDrawOutcome does. Nothing a draw reads can change before
+// it records, so it is never refused for a withdrawal that came first.
+//
+// # Announces
+//
+// ORDER.resale_entry_changed with each entry it makes Won, Lapsed or Lost.
+func (r *ResaleEntryRepository) DrawUnderLock(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) (entity.ResaleDrawOutcome, error) {
+	return r.draw(ctx, stockID, drawTime, func(tx pgx.Tx) (entity.ResaleDrawOutcome, error) {
+		entries, err := scanResaleEntries(tx.Query(ctx, resaleEntryListEnteredQuery, string(stockID)))
+		if err != nil {
+			return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to list the draw's candidates", slog.String("ticket_stock_id", string(stockID)))
+		}
+		rows, err := tx.Query(ctx, resaleEntryFreeListingsQuery, string(stockID))
+		if err != nil {
+			return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to list the free listings", slog.String("ticket_stock_id", string(stockID)))
+		}
+		defer rows.Close()
+		var listings []entity.ResaleListingID
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to scan a free listing")
+			}
+			listings = append(listings, entity.ResaleListingID(id))
+		}
+		if err := rows.Err(); err != nil {
+			return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to list the free listings")
+		}
+		return decide(entries, listings), nil
+	})
+}
+
+// draw records, under the stock's row lock, the outcome that outcomeOf
+// returns in the same transaction.
+func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcomeOf func(tx pgx.Tx) (entity.ResaleDrawOutcome, error)) (entity.ResaleDrawOutcome, error) {
 	attrs := []slog.Attr{slog.String("ticket_stock_id", string(stockID)), slog.Time("draw_time", drawTime)}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return toAppErr(err, "failed to begin the resale draw", attrs...)
+		return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to begin the resale draw", attrs...)
 	}
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, ticketStockLockQuery, string(stockID)); err != nil {
-		return toAppErr(err, "failed to lock the ticket stock", attrs...)
+		return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to lock the ticket stock", attrs...)
 	}
-	var changed []*entity.ResaleEntry
-	for _, win := range outcome.Winners {
-		tag, err := tx.Exec(ctx, resaleEntryWinQuery, string(win.Entry.ID), drawTime)
-		if err != nil {
-			return toAppErr(err, "failed to record a resale win", attrs...)
-		}
-		if tag.RowsAffected() != 1 {
-			return apperr.New(codes.FailedPrecondition, "a winning resale entry is no longer entered", attrs...)
-		}
-		ids := make([]string, len(win.Listings))
-		for i, l := range win.Listings {
-			ids[i] = string(l)
-		}
-		rows, err := tx.Query(ctx, resaleEntryAllocateQuery, string(win.Entry.ID), ids, string(stockID))
-		if err != nil {
-			return toAppErr(err, "failed to allocate the listings", attrs...)
-		}
-		allocated := 0
-		for rows.Next() {
-			allocated++
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return toAppErr(err, "failed to allocate the listings", attrs...)
-		}
-		if allocated != len(ids) {
-			return apperr.New(codes.FailedPrecondition, "a listing is no longer free for a draw", attrs...)
-		}
-		changed = append(changed, drawn(win.Entry, entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, drawTime))
+	outcome, err := outcomeOf(tx)
+	if err != nil {
+		return entity.ResaleDrawOutcome{}, err
 	}
-	end := func(entries []*entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason) error {
-		var lostReason any
-		if state == entity.ResaleEntryStateLost {
-			lostReason = int16(reason)
-		}
-		for _, e := range entries {
-			var orderID string
-			if err := tx.QueryRow(ctx, resaleEntryEndQuery, string(e.ID), int16(state), lostReason, drawTime).Scan(&orderID); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return apperr.New(codes.FailedPrecondition, "a resale entry is no longer entered", attrs...)
-				}
-				return toAppErr(err, "failed to end a resale entry", attrs...)
+	if err := func() error {
+		var changed []*entity.ResaleEntry
+		for _, win := range outcome.Winners {
+			tag, err := tx.Exec(ctx, resaleEntryWinQuery, string(win.Entry.ID), drawTime)
+			if err != nil {
+				return toAppErr(err, "failed to record a resale win", attrs...)
 			}
-			changed = append(changed, drawn(e, state, reason, drawTime))
+			if tag.RowsAffected() != 1 {
+				return apperr.New(codes.FailedPrecondition, "a winning resale entry is no longer entered", attrs...)
+			}
+			ids := make([]string, len(win.Listings))
+			for i, l := range win.Listings {
+				ids[i] = string(l)
+			}
+			rows, err := tx.Query(ctx, resaleEntryAllocateQuery, string(win.Entry.ID), ids, string(stockID))
+			if err != nil {
+				return toAppErr(err, "failed to allocate the listings", attrs...)
+			}
+			allocated := 0
+			for rows.Next() {
+				allocated++
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return toAppErr(err, "failed to allocate the listings", attrs...)
+			}
+			if allocated != len(ids) {
+				return apperr.New(codes.FailedPrecondition, "a listing is no longer free for a draw", attrs...)
+			}
+			changed = append(changed, drawn(win.Entry, entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, drawTime))
 		}
-		return nil
-	}
-	if err := end(outcome.Lapsed, entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonUnspecified); err != nil {
-		return err
-	}
-	if err := end(outcome.Lost, entity.ResaleEntryStateLost, outcome.LostReason); err != nil {
-		return err
-	}
-	for _, e := range changed {
-		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
+		end := func(entries []*entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason) error {
+			var lostReason any
+			if state == entity.ResaleEntryStateLost {
+				lostReason = int16(reason)
+			}
+			for _, e := range entries {
+				var orderID string
+				if err := tx.QueryRow(ctx, resaleEntryEndQuery, string(e.ID), int16(state), lostReason, drawTime).Scan(&orderID); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return apperr.New(codes.FailedPrecondition, "a resale entry is no longer entered", attrs...)
+					}
+					return toAppErr(err, "failed to end a resale entry", attrs...)
+				}
+				changed = append(changed, drawn(e, state, reason, drawTime))
+			}
+			return nil
+		}
+		if err := end(outcome.Lapsed, entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonUnspecified); err != nil {
 			return err
 		}
+		if err := end(outcome.Lost, entity.ResaleEntryStateLost, outcome.LostReason); err != nil {
+			return err
+		}
+		for _, e := range changed {
+			if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return entity.ResaleDrawOutcome{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit the resale draw", attrs...)
+		return entity.ResaleDrawOutcome{}, toAppErr(err, "failed to commit the resale draw", attrs...)
 	}
 	r.db.logger.Info(ctx, "resale draw recorded", append(attrs,
 		slog.Int("won", len(outcome.Winners)), slog.Int("lapsed", len(outcome.Lapsed)), slog.Int("lost", len(outcome.Lost)))...)
-	return nil
+	return outcome, nil
+}
+
+// ListDueStocks returns, for every TicketStock with Entered resale entries,
+// the stock, its event and the event's start time and publish state.
+func (r *ResaleEntryRepository) ListDueStocks(ctx context.Context) ([]entity.ResaleDrawStock, error) {
+	rows, err := r.db.Pool.Query(ctx, resaleEntryStocksWithEnteredQuery)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list the stocks with resale entries")
+	}
+	defer rows.Close()
+	var out []entity.ResaleDrawStock
+	for rows.Next() {
+		var (
+			stockID, eventID string
+			startAt          sql.NullTime
+		)
+		if err := rows.Scan(&stockID, &eventID, &startAt); err != nil {
+			return nil, toAppErr(err, "failed to scan a stock with resale entries")
+		}
+		out = append(out, entity.ResaleDrawStock{StockID: entity.TicketStockID(stockID), EventID: eventID, StartTime: optionalTime(startAt)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to list the stocks with resale entries")
+	}
+	return out, nil
 }
 
 // Withdraw makes the Entered entry Withdrawn under its stock's row lock.
@@ -400,23 +495,28 @@ func drawn(e *entity.ResaleEntry, state entity.ResaleEntryState, reason entity.R
 
 // list runs a resale entry query with one argument.
 func (r *ResaleEntryRepository) list(ctx context.Context, query string, arg any, attr slog.Attr) ([]*entity.ResaleEntry, error) {
-	rows, err := r.db.Pool.Query(ctx, query, arg)
+	entries, err := scanResaleEntries(r.db.Pool.Query(ctx, query, arg))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list resale entries", attr)
+	}
+	return entries, nil
+}
+
+// scanResaleEntries scans the rows of a resale entry query.
+func scanResaleEntries(rows pgx.Rows, err error) ([]*entity.ResaleEntry, error) {
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 	entries := []*entity.ResaleEntry{}
 	for rows.Next() {
 		entry, err := scanResaleEntry(rows)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan resale entry", attr)
+			return nil, err
 		}
 		entries = append(entries, entry)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to list resale entries", attr)
-	}
-	return entries, nil
+	return entries, rows.Err()
 }
 
 // scanResaleEntry scans one row of resaleEntrySelect.

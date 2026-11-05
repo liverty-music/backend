@@ -267,6 +267,17 @@ func DrawResale(entries []*ResaleEntry, freeListings []ResaleListingID, drawTime
 	return out
 }
 
+// ResaleDrawStock is a TicketStock with Entered resale entries, with its event
+// and the event's start time, from which its draw times follow.
+type ResaleDrawStock struct {
+	// StockID is the TicketStock.
+	StockID TicketStockID
+	// EventID is its event.
+	EventID string
+	// StartTime is the event's start time; nil when it has none.
+	StartTime *time.Time
+}
+
 // ResaleEntryEndedEmail is the finished message telling a fan that their
 // entry lapsed or lost, already rendered in the language of its Order's user.
 type ResaleEntryEndedEmail struct {
@@ -398,6 +409,31 @@ type ResaleEntryRepository interface {
 	// ORDER.resale_entry_changed with the Withdrawn entry, together with the
 	// change. Nothing when it fails.
 	Withdraw(ctx context.Context, id ResaleEntryID, at time.Time) (*ResaleEntry, error)
+
+	// DrawUnderLock runs one draw of the stock at drawTime in one transaction
+	// under the stock's row lock: it reads the stock's Entered entries (as
+	// ListEnteredByTicketStock) and its listings free for a draw, oldest
+	// first, passes them to decide and records decide's outcome as
+	// PersistDrawOutcome does, so nothing it reads changes before it records
+	// (design D4). It returns the outcome it recorded.
+	//
+	// # Possible errors
+	//
+	//   - Unavailable: an announcement cannot be recorded; nothing is recorded.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.resale_entry_changed once per entry it makes Won, Lapsed or Lost.
+	DrawUnderLock(ctx context.Context, stockID TicketStockID, drawTime time.Time, decide func(entries []*ResaleEntry, freeListings []ResaleListingID) ResaleDrawOutcome) (ResaleDrawOutcome, error)
+
+	// ListDueStocks returns every TicketStock with Entered entries, with its
+	// event and the event's start time.
+	//
+	// # Possible errors
+	//
+	//   - Internal: database failure.
+	ListDueStocks(ctx context.Context) ([]ResaleDrawStock, error)
 
 	// MarkEndedEmailSent sets the entry's ended email send time when it is
 	// unset; an already set time is kept.

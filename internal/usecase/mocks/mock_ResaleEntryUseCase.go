@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -216,6 +217,150 @@ func (_c *MockResaleEntryUseCase_Confirm_Call) Return(resaleEntry *entity.Resale
 }
 
 func (_c *MockResaleEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error)) *MockResaleEntryUseCase_Confirm_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DrawResale provides a mock function for the type MockResaleEntryUseCase
+func (_mock *MockResaleEntryUseCase) DrawResale(ctx context.Context, f usecase.Flow, at time.Time) (int, error) {
+	ret := _mock.Called(ctx, f, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DrawResale")
+	}
+
+	var r0 int
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) (int, error)); ok {
+		return returnFunc(ctx, f, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) int); ok {
+		r0 = returnFunc(ctx, f, at)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, time.Time) error); ok {
+		r1 = returnFunc(ctx, f, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryUseCase_DrawResale_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DrawResale'
+type MockResaleEntryUseCase_DrawResale_Call struct {
+	*mock.Call
+}
+
+// DrawResale is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - at time.Time
+func (_e *MockResaleEntryUseCase_Expecter) DrawResale(ctx any, f any, at any) *MockResaleEntryUseCase_DrawResale_Call {
+	return &MockResaleEntryUseCase_DrawResale_Call{Call: _e.mock.On("DrawResale", ctx, f, at)}
+}
+
+func (_c *MockResaleEntryUseCase_DrawResale_Call) Run(run func(ctx context.Context, f usecase.Flow, at time.Time)) *MockResaleEntryUseCase_DrawResale_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_DrawResale_Call) Return(n int, err error) *MockResaleEntryUseCase_DrawResale_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_DrawResale_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, at time.Time) (int, error)) *MockResaleEntryUseCase_DrawResale_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DrawStock provides a mock function for the type MockResaleEntryUseCase
+func (_mock *MockResaleEntryUseCase) DrawStock(ctx context.Context, f usecase.Flow, in usecase.ResaleStockDraw) (int, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DrawStock")
+	}
+
+	var r0 int
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ResaleStockDraw) (int, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ResaleStockDraw) int); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.ResaleStockDraw) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryUseCase_DrawStock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DrawStock'
+type MockResaleEntryUseCase_DrawStock_Call struct {
+	*mock.Call
+}
+
+// DrawStock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.ResaleStockDraw
+func (_e *MockResaleEntryUseCase_Expecter) DrawStock(ctx any, f any, in any) *MockResaleEntryUseCase_DrawStock_Call {
+	return &MockResaleEntryUseCase_DrawStock_Call{Call: _e.mock.On("DrawStock", ctx, f, in)}
+}
+
+func (_c *MockResaleEntryUseCase_DrawStock_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.ResaleStockDraw)) *MockResaleEntryUseCase_DrawStock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.ResaleStockDraw
+		if args[2] != nil {
+			arg2 = args[2].(usecase.ResaleStockDraw)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_DrawStock_Call) Return(n int, err error) *MockResaleEntryUseCase_DrawStock_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockResaleEntryUseCase_DrawStock_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.ResaleStockDraw) (int, error)) *MockResaleEntryUseCase_DrawStock_Call {
 	_c.Call.Return(run)
 	return _c
 }

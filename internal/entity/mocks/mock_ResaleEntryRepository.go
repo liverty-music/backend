@@ -116,6 +116,84 @@ func (_c *MockResaleEntryRepository_Create_Call) RunAndReturn(run func(ctx conte
 	return _c
 }
 
+// DrawUnderLock provides a mock function for the type MockResaleEntryRepository
+func (_mock *MockResaleEntryRepository) DrawUnderLock(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) (entity.ResaleDrawOutcome, error) {
+	ret := _mock.Called(ctx, stockID, drawTime, decide)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DrawUnderLock")
+	}
+
+	var r0 entity.ResaleDrawOutcome
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketStockID, time.Time, func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) (entity.ResaleDrawOutcome, error)); ok {
+		return returnFunc(ctx, stockID, drawTime, decide)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketStockID, time.Time, func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) entity.ResaleDrawOutcome); ok {
+		r0 = returnFunc(ctx, stockID, drawTime, decide)
+	} else {
+		r0 = ret.Get(0).(entity.ResaleDrawOutcome)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketStockID, time.Time, func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) error); ok {
+		r1 = returnFunc(ctx, stockID, drawTime, decide)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryRepository_DrawUnderLock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DrawUnderLock'
+type MockResaleEntryRepository_DrawUnderLock_Call struct {
+	*mock.Call
+}
+
+// DrawUnderLock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stockID entity.TicketStockID
+//   - drawTime time.Time
+//   - decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome
+func (_e *MockResaleEntryRepository_Expecter) DrawUnderLock(ctx any, stockID any, drawTime any, decide any) *MockResaleEntryRepository_DrawUnderLock_Call {
+	return &MockResaleEntryRepository_DrawUnderLock_Call{Call: _e.mock.On("DrawUnderLock", ctx, stockID, drawTime, decide)}
+}
+
+func (_c *MockResaleEntryRepository_DrawUnderLock_Call) Run(run func(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome)) *MockResaleEntryRepository_DrawUnderLock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.TicketStockID
+		if args[1] != nil {
+			arg1 = args[1].(entity.TicketStockID)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		var arg3 func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome
+		if args[3] != nil {
+			arg3 = args[3].(func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_DrawUnderLock_Call) Return(resaleDrawOutcome entity.ResaleDrawOutcome, err error) *MockResaleEntryRepository_DrawUnderLock_Call {
+	_c.Call.Return(resaleDrawOutcome, err)
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_DrawUnderLock_Call) RunAndReturn(run func(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) (entity.ResaleDrawOutcome, error)) *MockResaleEntryRepository_DrawUnderLock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function for the type MockResaleEntryRepository
 func (_mock *MockResaleEntryRepository) Get(ctx context.Context, id entity.ResaleEntryID) (*entity.ResaleEntry, error) {
 	ret := _mock.Called(ctx, id)
@@ -316,6 +394,68 @@ func (_c *MockResaleEntryRepository_ListByUser_Call) Return(resaleEntrys []*enti
 }
 
 func (_c *MockResaleEntryRepository_ListByUser_Call) RunAndReturn(run func(ctx context.Context, userID entity.UserID) ([]*entity.ResaleEntry, error)) *MockResaleEntryRepository_ListByUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListDueStocks provides a mock function for the type MockResaleEntryRepository
+func (_mock *MockResaleEntryRepository) ListDueStocks(ctx context.Context) ([]entity.ResaleDrawStock, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDueStocks")
+	}
+
+	var r0 []entity.ResaleDrawStock
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]entity.ResaleDrawStock, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []entity.ResaleDrawStock); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]entity.ResaleDrawStock)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockResaleEntryRepository_ListDueStocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDueStocks'
+type MockResaleEntryRepository_ListDueStocks_Call struct {
+	*mock.Call
+}
+
+// ListDueStocks is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockResaleEntryRepository_Expecter) ListDueStocks(ctx any) *MockResaleEntryRepository_ListDueStocks_Call {
+	return &MockResaleEntryRepository_ListDueStocks_Call{Call: _e.mock.On("ListDueStocks", ctx)}
+}
+
+func (_c *MockResaleEntryRepository_ListDueStocks_Call) Run(run func(ctx context.Context)) *MockResaleEntryRepository_ListDueStocks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_ListDueStocks_Call) Return(resaleDrawStocks []entity.ResaleDrawStock, err error) *MockResaleEntryRepository_ListDueStocks_Call {
+	_c.Call.Return(resaleDrawStocks, err)
+	return _c
+}
+
+func (_c *MockResaleEntryRepository_ListDueStocks_Call) RunAndReturn(run func(ctx context.Context) ([]entity.ResaleDrawStock, error)) *MockResaleEntryRepository_ListDueStocks_Call {
 	_c.Call.Return(run)
 	return _c
 }

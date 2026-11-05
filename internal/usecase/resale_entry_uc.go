@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	mrand "math/rand/v2"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -96,6 +97,32 @@ type ResaleEntryUseCase interface {
 	//    it, or it was withdrawn); nothing changes.
 	//  - Errors of reading or withdrawing the entry, unchanged.
 	Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleEntryID) (*entity.ResaleEntry, error)
+
+	// DrawResale is the draw-resale workflow, run by its schedule every
+	// minute with the time of the run: it lists the TicketStocks with Entered
+	// entries whose event has a draw at that time and starts the draw of each
+	// as its own workflow, named [DrawResaleStockWorkflowID], so a stock is
+	// drawn once per time and a failing stock leaves the others drawn. It
+	// returns the number of stocks it started.
+	//
+	// # Possible errors
+	//
+	//  - Errors of listing the stocks or of starting a draw, unchanged.
+	DrawResale(ctx context.Context, f Flow, at time.Time) (int, error)
+
+	// DrawStock is the draw of one stock at one time ([WorkflowDrawResaleStock]),
+	// in one step: under the stock's row lock it takes the Entered entries in
+	// a random order and the free listings oldest first and records
+	// [entity.DrawResale]'s outcome, ending every entry as losing when the
+	// stock's event is no longer published. It starts no other workflow: the
+	// work that follows runs from each recorded entry's announcement. It
+	// returns the number of entries it recorded.
+	//
+	// # Possible errors
+	//
+	//  - Errors of reading the stock or its event or of recording the draw,
+	//    unchanged.
+	DrawStock(ctx context.Context, f Flow, in ResaleStockDraw) (int, error)
 }
 
 // resaleEntryUseCase implements [ResaleEntryUseCase].
@@ -110,6 +137,7 @@ type resaleEntryUseCase struct {
 	userRepo                 entity.UserRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    Clock
+	newRand                  func() *mrand.Rand
 	logger                   *logging.Logger
 }
 
@@ -132,9 +160,16 @@ type ResaleEntryDeps struct {
 	Logger                   *logging.Logger
 }
 
-// NewResaleEntryUseCase constructs a ResaleEntryUseCase.
+// NewResaleEntryUseCase constructs a ResaleEntryUseCase whose draws take
+// entries in an order from a cryptographic random source.
 func NewResaleEntryUseCase(d ResaleEntryDeps) ResaleEntryUseCase {
+	return newResaleEntryUseCase(d, cryptoSeededRand)
+}
+
+// newResaleEntryUseCase constructs the use case with the draw's random source.
+func newResaleEntryUseCase(d ResaleEntryDeps, newRand func() *mrand.Rand) *resaleEntryUseCase {
 	return &resaleEntryUseCase{
+		newRand:                  newRand,
 		entryRepo:                d.EntryRepo,
 		stockRepo:                d.StockRepo,
 		saleRepo:                 d.SaleRepo,

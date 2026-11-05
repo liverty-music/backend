@@ -223,6 +223,19 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.RegisterSchedule(rt, usecase.WorkflowDrawDueSales, usecase.DrawDueSalesSchedule, lottery.DrawDueSales)
 	workflow.Register(rt, usecase.WorkflowDraw, lottery.Draw)
 
+	// Official resale by lottery: draw-resale every minute starts the draw of
+	// each stock due at that time (OpenSpec change resell-tickets-by-lottery).
+	resale := usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo:  rdb.NewResaleEntryRepository(db, outbox),
+		StockRepo:  stockRepo,
+		EventRepo:  rdb.NewEventRepository(db),
+		EventState: rdb.NewEventPublishStateRepository(db),
+		Clock:      time.Now,
+		Logger:     logger,
+	})
+	workflow.RegisterSchedule(rt, usecase.WorkflowDrawResale, usecase.DrawResaleSchedule, resale.DrawResale)
+	workflow.Register(rt, usecase.WorkflowDrawResaleStock, resale.DrawStock)
+
 	// The worker's OrderUseCase commits, charges and releases; it starts no
 	// workflow, places no order and runs no refund. A card authorization's
 	// policy only names the keys of its Create, so the lottery's repository
