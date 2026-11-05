@@ -1,4 +1,4 @@
-h1:sVAfypIjQr/8w0+U61tm531+WMFOjpIAs2EDTIX4yMg=
+h1:80US7DpBgyHaZHNlbeWjAenaNSQrSNETuCZuFd+x3MI=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -130,3 +130,4 @@ h1:sVAfypIjQr/8w0+U61tm531+WMFOjpIAs2EDTIX4yMg=
 20261103100000_drop_checkout_card_authorization_release.sql h1:t4iuoVz+itGUbHs6OK3ufgboiY0s1KfAa39thwr8ft4=
 20261103100001_sync_schema_comments.sql h1:NSdgQch/QgUJi/Vuu6t4LtuaHdYMKghCBSV4/kH+eM0=
 20261103101331_add_ticket_sale_result_date.sql h1:OqjlyuIWKwFJg9im6TLQLNIHsEii3Ypv2h+GOnp4j2k=
+20261105120000_upgrade_dbos_schema_to_125.sql h1:Jqphn6YcesVNkv3CLnwByKNKKdNPeYf8QBIctcufExI=
