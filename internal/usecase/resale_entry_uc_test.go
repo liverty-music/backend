@@ -194,6 +194,7 @@ func TestResaleEntryUseCase_Confirm(t *testing.T) {
 		f.cardAuthorizations.EXPECT().Get(mock.Anything, "ca-1").Return(ca, nil)
 		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "ca-1").Return(nil, apperr.New(codes.NotFound, "none"))
 		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-s"), reNow).Return(soldOutStock("stock-s", reSeatS, true), nil)
+		f.events.EXPECT().Get(mock.Anything, "event-1").Return(resaleEvent(), nil)
 		f.entries.EXPECT().Create(mock.Anything, mock.MatchedBy(func(e *entity.ResaleEntry) bool {
 			return e.State == entity.ResaleEntryStateEntered && e.Order.TicketCount == 2 && e.Order.CardAuthorizationID == "ca-1" &&
 				e.CardAuthorizationExpireTime != nil && e.CardAuthorizationExpireTime.Equal(*ca.ExpireTime)
@@ -202,8 +203,10 @@ func TestResaleEntryUseCase_Confirm(t *testing.T) {
 		got, err := f.uc.Confirm(ctx, "ca-1", &fan)
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.ResaleEntryStateEntered, got.State)
-		assert.Equal(t, 2, got.Order.TicketCount)
+		assert.Equal(t, entity.ResaleEntryStateEntered, got.Entry.State)
+		assert.Equal(t, 2, got.Entry.Order.TicketCount)
+		require.NotNil(t, got.NextDrawTime, "with the time of the next draw")
+		assert.True(t, got.NextDrawTime.Equal(time.Date(2026, 11, 6, 12, 0, 0, 0, reJST)))
 	})
 
 	t.Run("stock no longer sold out", func(t *testing.T) {
@@ -225,7 +228,9 @@ func TestResaleEntryUseCase_Confirm(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-entry/confirm "Fan and notice both confirm"
 		f := newResaleEntryFixture(t)
-		existing := &entity.ResaleEntry{ID: "entry-1", State: entity.ResaleEntryStateEntered, Order: &entity.Order{CardAuthorizationID: "ca-1"}}
+		existing := &entity.ResaleEntry{ID: "entry-1", State: entity.ResaleEntryStateEntered, Order: &entity.Order{CardAuthorizationID: "ca-1", TicketStockID: "stock-s"}}
+		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-s"), reNow).Return(soldOutStock("stock-s", reSeatS, true), nil)
+		f.events.EXPECT().Get(mock.Anything, "event-1").Return(resaleEvent(), nil)
 		f.cardAuthorizations.EXPECT().Get(mock.Anything, "ca-1").Return(resaleAuthorization(2, entity.CardAuthorizationStatusAuthorized), nil).Twice()
 		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "ca-1").Return(existing, nil).Twice()
 
@@ -234,8 +239,8 @@ func TestResaleEntryUseCase_Confirm(t *testing.T) {
 		byNotice, err := f.uc.Confirm(ctx, "ca-1", nil)
 		require.NoError(t, err)
 
-		assert.Equal(t, existing.ID, byFan.ID)
-		assert.Equal(t, existing.ID, byNotice.ID)
+		assert.Equal(t, existing.ID, byFan.Entry.ID)
+		assert.Equal(t, existing.ID, byNotice.Entry.ID)
 	})
 
 	t.Run("card authentication not finished", func(t *testing.T) {

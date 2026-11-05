@@ -148,23 +148,23 @@ func (_c *MockResaleEntryUseCase_AuthorizeCard_Call) RunAndReturn(run func(ctx c
 }
 
 // Confirm provides a mock function for the type MockResaleEntryUseCase
-func (_mock *MockResaleEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error) {
+func (_mock *MockResaleEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*usecase.ResaleEntryView, error) {
 	ret := _mock.Called(ctx, cardAuthorizationID, caller)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Confirm")
 	}
 
-	var r0 *entity.ResaleEntry
+	var r0 *usecase.ResaleEntryView
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) (*entity.ResaleEntry, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) (*usecase.ResaleEntryView, error)); ok {
 		return returnFunc(ctx, cardAuthorizationID, caller)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) *entity.ResaleEntry); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.UserID) *usecase.ResaleEntryView); ok {
 		r0 = returnFunc(ctx, cardAuthorizationID, caller)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.ResaleEntry)
+			r0 = ret.Get(0).(*usecase.ResaleEntryView)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *entity.UserID) error); ok {
@@ -211,12 +211,12 @@ func (_c *MockResaleEntryUseCase_Confirm_Call) Run(run func(ctx context.Context,
 	return _c
 }
 
-func (_c *MockResaleEntryUseCase_Confirm_Call) Return(resaleEntry *entity.ResaleEntry, err error) *MockResaleEntryUseCase_Confirm_Call {
-	_c.Call.Return(resaleEntry, err)
+func (_c *MockResaleEntryUseCase_Confirm_Call) Return(resaleEntryView *usecase.ResaleEntryView, err error) *MockResaleEntryUseCase_Confirm_Call {
+	_c.Call.Return(resaleEntryView, err)
 	return _c
 }
 
-func (_c *MockResaleEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error)) *MockResaleEntryUseCase_Confirm_Call {
+func (_c *MockResaleEntryUseCase_Confirm_Call) RunAndReturn(run func(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*usecase.ResaleEntryView, error)) *MockResaleEntryUseCase_Confirm_Call {
 	_c.Call.Return(run)
 	return _c
 }

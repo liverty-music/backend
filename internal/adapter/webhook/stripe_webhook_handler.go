@@ -37,7 +37,7 @@ type lotteryEntryConfirmer interface {
 // resaleEntryConfirmer is the subset of [usecase.ResaleEntryUseCase] that the
 // handler depends on.
 type resaleEntryConfirmer interface {
-	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error)
+	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*usecase.ResaleEntryView, error)
 }
 
 // StripeWebhookHandler serves `POST /stripe-webhook`. It verifies the

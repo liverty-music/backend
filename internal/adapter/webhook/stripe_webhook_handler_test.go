@@ -446,7 +446,7 @@ func TestStripeWebhookHandler_CardAuthorizationAuthorized(t *testing.T) {
 		// @spec components/adapter/fan/api/webhook/payment-events "Resale application, browser closed"
 		resaleEntries := usecasemocks.NewMockResaleEntryUseCase(t)
 		resaleEntries.EXPECT().Confirm(mock.Anything, caID, (*entity.UserID)(nil)).
-			Return(&entity.ResaleEntry{ID: "resale-1", State: entity.ResaleEntryStateEntered}, nil).Once()
+			Return(&usecase.ResaleEntryView{Entry: &entity.ResaleEntry{ID: "resale-1", State: entity.ResaleEntryStateEntered}}, nil).Once()
 		svc := &stubWebhookSvc{cards: map[string]*entity.CardAuthorization{
 			piID: {ID: caID, ProviderID: piID, Status: entity.CardAuthorizationStatusAuthorized,
 				Purchase: entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeResaleEntry}},

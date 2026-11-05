@@ -52,8 +52,9 @@ type ResaleEntryUseCase interface {
 	AuthorizeCard(ctx context.Context, stockID entity.TicketStockID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error)
 
 	// Confirm makes the Entered entry and its Pending Order from an
-	// Authorized card authorization for a resale entry and returns it, or
-	// returns the entry the card authorization already made. caller is the
+	// Authorized card authorization for a resale entry and returns it with its
+	// stock and next draw time, or returns the entry the card authorization
+	// already made. caller is the
 	// fan who confirms; nil when the payment provider reports the card
 	// authorization Authorized. An Authorized card authorization that
 	// ResaleEntry.Create refuses is released before Confirm fails with the
@@ -74,7 +75,7 @@ type ResaleEntryUseCase interface {
 	//  - Errors of reading the card authorization or the TicketStock, of
 	//    storing the entry, or of releasing a rejected card authorization,
 	//    unchanged.
-	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error)
+	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*ResaleEntryView, error)
 
 	// List returns the fan's resale entries, newest first, each with its
 	// TicketStock and SeatType and, for an Entered one, its event's next draw
@@ -270,7 +271,20 @@ func (uc *resaleEntryUseCase) checkVerification(ctx context.Context, eventID str
 }
 
 // Confirm implements [ResaleEntryUseCase].
-func (uc *resaleEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error) {
+func (uc *resaleEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*ResaleEntryView, error) {
+	entry, err := uc.confirm(ctx, cardAuthorizationID, caller)
+	if err != nil {
+		return nil, err
+	}
+	views, err := uc.views(ctx, []*entity.ResaleEntry{entry})
+	if err != nil {
+		return nil, err
+	}
+	return views[0], nil
+}
+
+// confirm makes or returns the entry of the card authorization.
+func (uc *resaleEntryUseCase) confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.ResaleEntry, error) {
 	notCallers := func() error {
 		return apperr.New(codes.PermissionDenied, "the card authorization is not the caller's resale entry",
 			slog.String("card_authorization_id", cardAuthorizationID))
@@ -362,6 +376,12 @@ func (uc *resaleEntryUseCase) List(ctx context.Context, userID entity.UserID) ([
 	if err != nil {
 		return nil, err
 	}
+	return uc.views(ctx, entries)
+}
+
+// views reads each entry's stock and, for an Entered one, its event's next
+// draw time.
+func (uc *resaleEntryUseCase) views(ctx context.Context, entries []*entity.ResaleEntry) ([]*ResaleEntryView, error) {
 	now := uc.clock()
 	stocks := map[entity.TicketStockID]*entity.TicketStock{}
 	starts := map[string]*time.Time{}
@@ -369,6 +389,7 @@ func (uc *resaleEntryUseCase) List(ctx context.Context, userID entity.UserID) ([
 	for _, e := range entries {
 		stock, ok := stocks[e.Order.TicketStockID]
 		if !ok {
+			var err error
 			if stock, err = uc.stockRepo.Get(ctx, e.Order.TicketStockID, now); err != nil {
 				return nil, err
 			}

@@ -37,6 +37,7 @@ import (
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	passkeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/passkey/v1/passkeyv1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	resaleentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_entry/v1/resale_entryv1connect"
 	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket/v1/ticketv1connect"
@@ -728,6 +729,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(s *connect.Server) {
 			resalelistingconnect.RegisterResaleListingServiceHandler(s, rpc.NewResaleListingHandler(resaleListingUC, userUC, logger))
+		},
+		func(s *connect.Server) {
+			resaleentryconnect.RegisterResaleEntryServiceHandler(s, rpc.NewResaleEntryHandler(resaleEntryUC, userUC, logger))
 		},
 	)
 
