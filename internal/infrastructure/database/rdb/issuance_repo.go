@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -69,6 +71,48 @@ const (
 		UPDATE checkouts SET status = 3
 		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
 	`
+	// issuanceResaleEntryQuery reads the resale entry that names the Order,
+	// if any, and its Order's stock.
+	issuanceResaleEntryQuery = `
+		SELECT re.id, o.ticket_stock_id FROM resale_entries re JOIN orders o ON o.id = re.order_id WHERE re.order_id = $1
+	`
+	// issuanceLockResaleEntryQuery locks the resale entry and reads its state.
+	issuanceLockResaleEntryQuery = `SELECT state FROM resale_entries WHERE id = $1 FOR UPDATE`
+	// issuanceLockResoldTicketsQuery locks, in id order, the tickets of the
+	// Listed listings allocated to the entry. Rows are locked tickets first,
+	// then listings, then settlements, as CommitRefund does, so the two never
+	// deadlock.
+	issuanceLockResoldTicketsQuery = `
+		SELECT t.id FROM tickets t
+		JOIN resale_listings rl ON rl.ticket_id = t.id
+		WHERE rl.resale_entry_id = $1 AND rl.status = 1
+		ORDER BY t.id
+		FOR UPDATE OF t
+	`
+	// issuanceSellListingsQuery sells the Listed listings allocated to the
+	// entry and returns each listing, its ticket and the ticket's order.
+	issuanceSellListingsQuery = `
+		UPDATE resale_listings rl SET status = 2, sold_at = $2
+		FROM tickets t
+		WHERE rl.resale_entry_id = $1 AND rl.status = 1 AND t.id = rl.ticket_id
+		RETURNING rl.id, rl.ticket_id, t.order_id
+	`
+	// issuanceIssuedTicketsQuery counts the order's tickets that are still
+	// Issued. It runs under the order's settlement lock, so a concurrent
+	// resale of the same order has either committed its voids or not started.
+	issuanceIssuedTicketsQuery = `SELECT count(*)::int FROM tickets WHERE order_id = $1 AND status = 1`
+	issuanceVoidTicketsQuery   = `UPDATE tickets SET status = 2 WHERE id = ANY($1::uuid[]) AND status = 1`
+	// issuanceLockSettlementQuery locks the settlement of an original order.
+	issuanceLockSettlementQuery = `SELECT id, status FROM settlements WHERE order_id = $1 FOR UPDATE`
+	issuanceSplitsQuery         = `
+		SELECT payee_organizer_id, amount FROM settlement_splits
+		WHERE settlement_id = $1 ORDER BY payee_organizer_id
+	`
+	issuanceSetSettlementStatusQuery = `UPDATE settlements SET status = $2 WHERE id = $1`
+	issuanceSetSplitAmountQuery      = `
+		UPDATE settlement_splits SET amount = $3
+		WHERE settlement_id = $1 AND payee_organizer_id = $2
+	`
 )
 
 // NewIssuanceRepository creates a new issuance repository instance.
@@ -102,9 +146,21 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
-		status     int16
-		checkoutID sql.NullString
+		status                 int16
+		checkoutID             sql.NullString
+		resaleEntryID, stockID string
 	)
+	// A won resale entry's stock is locked before its Order, as the draw and
+	// RevertWin lock the stock before the entry and its Order.
+	err = tx.QueryRow(ctx, issuanceResaleEntryQuery, string(order.ID)).Scan(&resaleEntryID, &stockID)
+	switch {
+	case err == nil:
+		if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
+			return toAppErr(err, "failed to lock the resale entry's stock", attrs...)
+		}
+	case !errors.Is(err, pgx.ErrNoRows):
+		return toAppErr(err, "failed to read the order's resale entry", attrs...)
+	}
 	err = tx.QueryRow(ctx, issuanceLockCheckoutQuery, string(order.ID)).Scan(&checkoutID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return toAppErr(err, "failed to lock the order's checkout", attrs...)
@@ -128,6 +184,13 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		if tag.RowsAffected() == 0 {
 			return apperr.New(codes.FailedPrecondition, "checkout is not Committed and charged",
 				append(attrs, slog.String("checkout_id", checkoutID.String))...)
+		}
+	}
+
+	var sold []*entity.ResaleListing
+	if resaleEntryID != "" {
+		if sold, err = sellResaleListings(ctx, tx, resaleEntryID, order); err != nil {
+			return err
 		}
 	}
 
@@ -169,6 +232,13 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, messaging.Announcement{Payload: pb.FromOrder(&paid)}); err != nil {
 		return err
 	}
+	for _, l := range sold {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingSold, messaging.Announcement{
+			Payload: pb.FromResaleListing(&usecase.ResaleListingAt{Listing: l, Status: l.Status}),
+		}); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit issuance transaction", attrs...)
 	}
@@ -180,6 +250,133 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		slog.String("checkoutID", checkoutID.String),
 		slog.Int("ticketCount", len(tickets)),
 	)
+	return nil
+}
+
+// sellResaleListings, for a won resale entry, sells the listings allocated to
+// it with the order's pay time, voids their tickets and takes the share of the
+// resold tickets off the Held settlement of each original order, inside tx,
+// and returns the listings as Sold.
+func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *entity.Order) ([]*entity.ResaleListing, error) {
+	attrs := slog.String("resale_entry_id", entryID)
+	var state int16
+	if err := tx.QueryRow(ctx, issuanceLockResaleEntryQuery, entryID).Scan(&state); err != nil {
+		return nil, toAppErr(err, "failed to lock the resale entry", attrs)
+	}
+	if entity.ResaleEntryState(state) != entity.ResaleEntryStateWon {
+		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is not won", attrs)
+	}
+	if _, err := tx.Exec(ctx, issuanceLockResoldTicketsQuery, entryID); err != nil {
+		return nil, toAppErr(err, "failed to lock resold tickets", attrs)
+	}
+	rows, err := tx.Query(ctx, issuanceSellListingsQuery, entryID, order.PayTime)
+	if err != nil {
+		return nil, toAppErr(err, "failed to sell resale listings", attrs)
+	}
+	var listingIDs, ticketIDs []string
+	resold := map[string]int{} // original order id -> tickets resold now
+	for rows.Next() {
+		var listingID, ticketID, orderID string
+		if err := rows.Scan(&listingID, &ticketID, &orderID); err != nil {
+			rows.Close()
+			return nil, toAppErr(err, "failed to scan a sold listing", attrs)
+		}
+		listingIDs = append(listingIDs, listingID)
+		ticketIDs = append(ticketIDs, ticketID)
+		resold[orderID]++
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to sell resale listings", attrs)
+	}
+	if len(ticketIDs) != order.TicketCount {
+		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is not allocated a listing for every ticket",
+			attrs, slog.Int("ticket_count", order.TicketCount), slog.Int("listings", len(ticketIDs)))
+	}
+
+	// Lock each original settlement in a fixed order and count the order's
+	// Issued tickets under that lock, before this resale voids any of them.
+	orderIDs := make([]string, 0, len(resold))
+	for id := range resold {
+		orderIDs = append(orderIDs, id)
+	}
+	slices.Sort(orderIDs)
+	settlements := make([]*entity.Settlement, len(orderIDs))
+	issued := make([]int, len(orderIDs))
+	for i, id := range orderIDs {
+		if settlements[i], err = lockSettlement(ctx, tx, id); err != nil {
+			return nil, err
+		}
+		if err := tx.QueryRow(ctx, issuanceIssuedTicketsQuery, id).Scan(&issued[i]); err != nil {
+			return nil, toAppErr(err, "failed to count the original order's tickets", slog.String("order_id", id))
+		}
+	}
+	tag, err := tx.Exec(ctx, issuanceVoidTicketsQuery, ticketIDs)
+	if err != nil {
+		return nil, toAppErr(err, "failed to void resold tickets", attrs)
+	}
+	if int(tag.RowsAffected()) != len(ticketIDs) {
+		return nil, apperr.New(codes.FailedPrecondition, "a resold ticket is no longer Issued", attrs)
+	}
+	for i, id := range orderIDs {
+		if err := giveUpResoldShare(ctx, tx, settlements[i], id, resold[id], issued[i]); err != nil {
+			return nil, err
+		}
+	}
+	sold := make([]*entity.ResaleListing, 0, len(listingIDs))
+	for _, id := range listingIDs {
+		l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingGetQuery, id))
+		if err != nil {
+			return nil, toAppErr(err, "failed to read a sold listing", attrs)
+		}
+		sold = append(sold, l)
+	}
+	return sold, nil
+}
+
+// lockSettlement locks the settlement of the order inside tx and reads it with
+// its splits.
+func lockSettlement(ctx context.Context, tx pgx.Tx, orderID string) (*entity.Settlement, error) {
+	attrs := slog.String("order_id", orderID)
+	var id string
+	var status int16
+	if err := tx.QueryRow(ctx, issuanceLockSettlementQuery, orderID).Scan(&id, &status); err != nil {
+		return nil, toAppErr(err, "failed to lock the original order's settlement", attrs)
+	}
+	rows, err := tx.Query(ctx, issuanceSplitsQuery, id)
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the original settlement's splits", attrs)
+	}
+	splits, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (entity.SettlementSplit, error) {
+		var split entity.SettlementSplit
+		err := row.Scan(&split.PayeeOrganizerID, &split.Amount)
+		return split, err
+	})
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the original settlement's splits", attrs)
+	}
+	return &entity.Settlement{ID: entity.SettlementID(id), Status: entity.SettlementStatus(status), Splits: splits}, nil
+}
+
+// giveUpResoldShare takes the share of k resold tickets, of the m that were
+// Issued, off the locked Held settlement of the original order, inside tx.
+func giveUpResoldShare(ctx context.Context, tx pgx.Tx, settlement *entity.Settlement, orderID string, k, m int) error {
+	attrs := slog.String("order_id", orderID)
+	id := string(settlement.ID)
+	if err := settlement.GiveUpResoldShare(k, m); err != nil {
+		return apperr.Wrap(err, codes.FailedPrecondition, "the original settlement cannot give up the resold share", attrs)
+	}
+	if settlement.Status == entity.SettlementStatusReversed {
+		if _, err := tx.Exec(ctx, issuanceSetSettlementStatusQuery, id, int16(settlement.Status)); err != nil {
+			return toAppErr(err, "failed to reverse the original settlement", attrs)
+		}
+		return nil
+	}
+	for _, split := range settlement.Splits {
+		if _, err := tx.Exec(ctx, issuanceSetSplitAmountQuery, id, split.PayeeOrganizerID, split.Amount); err != nil {
+			return toAppErr(err, "failed to lower the original settlement's split", attrs)
+		}
+	}
 	return nil
 }
 

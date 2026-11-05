@@ -316,21 +316,26 @@ type IssuanceRepository interface {
 	// payment ID, payment method, card brand, card last four and pay time),
 	// stores its N account-bound tickets and the Held settlement (with its
 	// split) that pays out the Order's event Organizer, and, when the Order's
-	// source is a Checkout, makes that Checkout Completed, all in one
-	// transaction.
+	// source is a Checkout, makes that Checkout Completed, or, when it is a
+	// Won ResaleEntry, makes each listing allocated to it Sold, Voids each
+	// listing's Ticket and has the Settlement of each Order those Tickets came
+	// from give up the resold share ([Settlement.GiveUpResoldShare]), all in
+	// one transaction.
 	//
 	// # Possible errors
 	//
 	//  - AlreadyExists: the Order is already Paid or Refunded (the caller
 	//    re-reads it).
-	//  - FailedPrecondition: the Order is Void, or its source Checkout is not
-	//    Committed with a capture time; nothing is stored.
+	//  - FailedPrecondition: the Order is Void, its source Checkout is not
+	//    Committed with a capture time, or its source ResaleEntry is not Won
+	//    or not allocated a listing for every ticket; nothing is stored.
 	//  - NotFound: no Order has the id.
 	//  - Internal: database transaction or query failure.
 	//
 	// # Announces
 	//
-	// ORDER.paid with the Order as Paid, together with the issuance. Nothing when
+	// ORDER.paid with the Order as Paid, and ORDER.resale_listing_sold with
+	// each listing it makes Sold, together with the issuance. Nothing when
 	// Issue fails, including with AlreadyExists.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 }

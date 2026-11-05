@@ -72,6 +72,11 @@ const (
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
 	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
 	SubjectOrderPaid = "ORDER.paid"
+	// SubjectResaleListingSold announces a ResaleListing that Order.Issue made
+	// Sold for a won resale entry, with the listing as Sold, in the
+	// transaction of the issuance. The workflow starter starts
+	// ResaleListingUseCase.RefundSold (refund:<listing>) from it (design D10).
+	SubjectResaleListingSold = "ORDER.resale_listing_sold"
 	// SubjectResaleListingRefunded announces that the user of a resold
 	// ResaleListing was refunded from the listing's Order's charge.
 	// ResaleListing.RecordRefund announces it once, with the refund; the
