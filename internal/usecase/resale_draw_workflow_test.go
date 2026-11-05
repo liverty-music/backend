@@ -153,6 +153,7 @@ func TestResaleEntryUseCase_DrawStock(t *testing.T) {
 
 	t.Run("last draw missed", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/resale-entry/draw "Last draw missed"
 		// The worker was down at the deadline: the next run ends the entries
 		// and allocates none of the listings, which expired at the deadline.
 		f := newDrawFixture(t)
