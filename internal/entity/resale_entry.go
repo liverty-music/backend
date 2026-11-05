@@ -77,7 +77,9 @@ const (
 	ResaleEntryLostReasonNoTicketLeft ResaleEntryLostReason = 1
 
 	// ResaleEntryLostReasonConcertCancelled means the concert was cancelled
-	// (中止) while the entry was Entered, so the next draw ended it.
+	// (中止): while the entry was Entered, so the next draw ended it, or after
+	// it won but before its card authorization was captured, so nothing was
+	// charged.
 	ResaleEntryLostReasonConcertCancelled ResaleEntryLostReason = 2
 
 	// ResaleEntryLostReasonCardNotCharged means the entry won but its Order's
@@ -88,6 +90,12 @@ const (
 	// but its payment could not be completed before its event's start time,
 	// so its card authorization was released without a charge.
 	ResaleEntryLostReasonPaymentNotCompletedBeforeShow ResaleEntryLostReason = 4
+
+	// ResaleEntryLostReasonListingCancelled means the entry won and its card
+	// authorization was captured, but a listing allocated to it was cancelled
+	// before its tickets were issued, because the Order of the fan who listed
+	// it was refunded; the charge was refunded in full.
+	ResaleEntryLostReasonListingCancelled ResaleEntryLostReason = 5
 )
 
 // ResaleEntry is one fan account's application, through its Order, for
@@ -151,8 +159,9 @@ func (e *ResaleEntry) IsWithdrawable() bool {
 var ErrResaleWinNotRevertible = errors.New("only a won resale entry whose order is pending can be made lost")
 
 // RevertWin makes a Won entry whose Order is Pending Lost with the reason,
-// and its Order Void, so the listings allocated to it are free for the next
-// draw ([ResaleListing.IsFreeForDraw]). An entry already Lost is left as it is.
+// and its Order Void, so the listings allocated to it that are still Listed
+// are free for the next draw ([ResaleListing.IsFreeForDrawAt]); a Cancelled
+// one never is. An entry already Lost is left as it is.
 func (e *ResaleEntry) RevertWin(reason ResaleEntryLostReason) error {
 	if e.State == ResaleEntryStateLost {
 		return nil
@@ -446,10 +455,11 @@ type ResaleEntryRepository interface {
 	ListDueStocks(ctx context.Context) ([]ResaleDrawStock, error)
 
 	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
-	// reason (card not charged, or payment not completed before the show) and
-	// its Order Void, in one transaction under the row lock of its Order's
-	// TicketStock, so the listings allocated to it are free for the next
-	// draw. An entry already Lost is left as it is.
+	// reason (card not charged, payment not completed before the show,
+	// concert cancelled, or listing cancelled after the charge was refunded)
+	// and its Order Void, in one transaction under the row lock of its Order's
+	// TicketStock, so the listings allocated to it that are still Listed are
+	// free for the next draw. An entry already Lost is left as it is.
 	//
 	// # Possible errors
 	//
