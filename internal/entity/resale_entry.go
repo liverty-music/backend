@@ -435,6 +435,26 @@ type ResaleEntryRepository interface {
 	//   - Internal: database failure.
 	ListDueStocks(ctx context.Context) ([]ResaleDrawStock, error)
 
+	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
+	// reason (card not charged, or payment not completed before the show) and
+	// its Order Void, in one transaction under the row lock of its Order's
+	// TicketStock, so the listings allocated to it are free for the next
+	// draw. An entry already Lost is left as it is.
+	//
+	// # Possible errors
+	//
+	//   - FailedPrecondition: the entry is Entered, Lapsed or Withdrawn, or
+	//     its Order is Paid or Refunded; nothing changes.
+	//   - NotFound: no entry has the id.
+	//   - Unavailable: the announcement cannot be recorded; nothing changes.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.resale_entry_changed with the entry as Lost, together with the
+	// change. Nothing when the entry was already Lost.
+	RevertWin(ctx context.Context, id ResaleEntryID, reason ResaleEntryLostReason) error
+
 	// MarkEndedEmailSent sets the entry's ended email send time when it is
 	// unset; an already set time is kept.
 	//

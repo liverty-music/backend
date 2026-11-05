@@ -105,6 +105,11 @@ const (
 	// resaleEntryWithdrawQuery makes the Entered entry Withdrawn at $2.
 	resaleEntryWithdrawQuery  = `UPDATE resale_entries SET state = 5, withdraw_at = $2 WHERE id = $1 AND state = 1`
 	resaleEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
+	// resaleEntryLockForRevertQuery locks the entry and its Order.
+	resaleEntryLockForRevertQuery = resaleEntrySelect + ` WHERE re.id = $1 FOR UPDATE OF re, o`
+	// resaleEntryRevertWinQuery makes the Won entry Lost with the lost reason
+	// $2, keeping its draw time.
+	resaleEntryRevertWinQuery = `UPDATE resale_entries SET state = 3, lost_reason = $2 WHERE id = $1 AND state = 2`
 	// resaleEntryFreeListingsQuery lists the stock's listings free for a
 	// draw, oldest first: Listed and allocated to no entry or a Lost one.
 	resaleEntryFreeListingsQuery = `
@@ -475,6 +480,55 @@ func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEn
 		return nil, toAppErr(err, "failed to commit the resale withdrawal", attrs)
 	}
 	return entry, nil
+}
+
+// RevertWin makes a Won entry whose Order is Pending Lost under its stock's
+// row lock.
+//
+// # Announces
+//
+// ORDER.resale_entry_changed with the entry as Lost, in the transaction that
+// changes it. Nothing when it was already Lost.
+func (r *ResaleEntryRepository) RevertWin(ctx context.Context, id entity.ResaleEntryID, reason entity.ResaleEntryLostReason) error {
+	attrs := slog.String("resale_entry_id", string(id))
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin the resale revert", attrs)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var stockID string
+	if err := tx.QueryRow(ctx, resaleEntryStockQuery, string(id)).Scan(&stockID); err != nil {
+		return toAppErr(err, "failed to read the resale entry's stock", attrs)
+	}
+	if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
+		return toAppErr(err, "failed to lock the ticket stock", attrs)
+	}
+	entry, err := scanResaleEntry(tx.QueryRow(ctx, resaleEntryLockForRevertQuery, string(id)))
+	if err != nil {
+		return toAppErr(err, "failed to lock the resale entry", attrs)
+	}
+	if entry.State == entity.ResaleEntryStateLost {
+		// Already Lost: nothing changes and nothing is announced again.
+		return nil
+	}
+	if err := entry.RevertWin(reason); err != nil {
+		return apperr.Wrap(err, codes.FailedPrecondition, "the resale entry is not a won entry with a pending order", attrs)
+	}
+	if _, err := tx.Exec(ctx, resaleEntryRevertWinQuery, string(id), int16(reason)); err != nil {
+		return toAppErr(err, "failed to make the resale entry lost", attrs)
+	}
+	if _, err := tx.Exec(ctx, resaleEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
+		return toAppErr(err, "failed to void the resale entry's order", attrs)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit the resale revert", attrs)
+	}
+	return nil
 }
 
 // drawn returns a copy of the entry as a draw at drawTime leaves it.

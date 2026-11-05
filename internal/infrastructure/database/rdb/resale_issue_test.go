@@ -111,3 +111,102 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 		assert.Equal(t, entity.ResaleListingStatusListed, entity.ResaleListingStatus(listingStatus))
 	})
 }
+
+func TestResaleEntryRepository_RevertWin(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	// wonWithTwo stores a Won entry for 2 tickets allocated two listings.
+	wonWithTwo := func(t *testing.T) (*entity.ResaleEntry, []entity.ResaleListingID) {
+		t.Helper()
+		f := seedResaleStock(t, 4, 4)
+		listings := []entity.ResaleListingID{seedListing(t, f), seedListing(t, f)}
+		e := enterResale(t, repo, f, 2)
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
+			Winners: []entity.ResaleWin{{Entry: e, Listings: listings}},
+		}))
+		return e, listings
+	}
+	free := func(t *testing.T, id entity.ResaleListingID) bool {
+		t.Helper()
+		var ok bool
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `
+			SELECT rl.status = 1 AND (rl.resale_entry_id IS NULL OR x.state = 3)
+			FROM resale_listings rl LEFT JOIN resale_entries x ON x.id = rl.resale_entry_id WHERE rl.id = $1`, string(id)).Scan(&ok))
+		return ok
+	}
+
+	t.Run("win reverted", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Win reverted"
+		e, listings := wonWithTwo(t)
+
+		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged))
+
+		got, err := repo.Get(ctx, e.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateLost, got.State)
+		assert.Equal(t, entity.ResaleEntryLostReasonCardNotCharged, got.LostReason)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+		for _, l := range listings {
+			assert.True(t, free(t, l), "free for the next draw")
+		}
+	})
+
+	t.Run("already reverted", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Already reverted"
+		e, _ := wonWithTwo(t)
+		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged))
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged))
+
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) }), "nothing changes or is announced")
+	})
+
+	t.Run("win already issued", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Win already issued"
+		e, _ := wonWithTwo(t)
+		_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_x', pay_at = now() WHERE id = $1`, string(e.OrderID))
+		require.NoError(t, err)
+
+		assert.ErrorIs(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrFailedPrecondition)
+		got, err := repo.Get(ctx, e.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateWon, got.State)
+	})
+
+	t.Run("unknown entry", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Unknown entry"
+		assert.ErrorIs(t, repo.RevertWin(ctx, entity.ResaleEntryID(entity.NewID()), entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrNotFound)
+	})
+
+	t.Run("win reverted and announced", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Win reverted and announced"
+		e, _ := wonWithTwo(t)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow))
+
+		got := announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) })
+		require.Len(t, got, 1)
+		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LOST, got[0].GetState())
+		assert.Equal(t, entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_PAYMENT_NOT_COMPLETED_BEFORE_SHOW, got[0].GetLostReason())
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Announcement cannot be recorded"
+		e, _ := wonWithTwo(t)
+
+		err := rdb.NewResaleEntryRepository(testDB, failingOutbox{}).RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		got, err := repo.Get(ctx, e.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateWon, got.State)
+		assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
+	})
+}

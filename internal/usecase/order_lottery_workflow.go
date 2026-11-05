@@ -65,6 +65,8 @@ type IssueRequest struct {
 	LotteryEntryID entity.LotteryEntryID `json:"lottery_entry_id,omitempty"`
 	// CheckoutID is the placed Checkout whose Order is issued.
 	CheckoutID entity.CheckoutID `json:"checkout_id,omitempty"`
+	// ResaleEntryID is the Won resale entry whose Order is issued.
+	ResaleEntryID entity.ResaleEntryID `json:"resale_entry_id,omitempty"`
 }
 
 // IssueResult is the outcome of [OrderUseCase.Issue].
@@ -121,11 +123,19 @@ func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *enti
 
 // Issue implements [OrderUseCase].
 func (uc *orderUseCase) Issue(ctx context.Context, f Flow, in IssueRequest) (IssueResult, error) {
+	sources := 0
+	for _, named := range []bool{in.LotteryEntryID != "", in.CheckoutID != "", in.ResaleEntryID != ""} {
+		if named {
+			sources++
+		}
+	}
 	switch {
-	case (in.LotteryEntryID == "") == (in.CheckoutID == ""):
+	case sources != 1:
 		return IssueResult{}, apperr.New(codes.InvalidArgument, "an issue names exactly one source")
 	case in.CheckoutID != "":
 		return uc.issueCheckout(ctx, f, in.CheckoutID)
+	case in.ResaleEntryID != "":
+		return uc.issueResaleEntry(ctx, f, in.ResaleEntryID)
 	default:
 		return uc.issueEntry(ctx, f, in.LotteryEntryID)
 	}

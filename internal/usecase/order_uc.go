@@ -170,6 +170,7 @@ type orderUseCase struct {
 	issuanceRepo             entity.IssuanceRepository
 	orderRepo                entity.OrderRepository
 	entryRepo                entity.LotteryEntryRepository
+	resaleEntryRepo          entity.ResaleEntryRepository
 	eventOrganizerRepo       EventOrganizerRepository
 	organizerRepo            entity.OrganizerRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
@@ -192,9 +193,11 @@ var _ OrderUseCase = (*orderUseCase)(nil)
 
 // OrderDeps are the dependencies of [NewOrderUseCase]. All are required.
 type OrderDeps struct {
-	IssuanceRepo             entity.IssuanceRepository
-	OrderRepo                entity.OrderRepository
-	EntryRepo                entity.LotteryEntryRepository
+	IssuanceRepo entity.IssuanceRepository
+	OrderRepo    entity.OrderRepository
+	EntryRepo    entity.LotteryEntryRepository
+	// ResaleEntryRepo reads and reverts a Won resale entry.
+	ResaleEntryRepo          entity.ResaleEntryRepository
 	EventOrganizerRepo       EventOrganizerRepository
 	OrganizerRepo            entity.OrganizerRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
@@ -225,6 +228,7 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		issuanceRepo:             d.IssuanceRepo,
 		orderRepo:                d.OrderRepo,
 		entryRepo:                d.EntryRepo,
+		resaleEntryRepo:          d.ResaleEntryRepo,
 		eventOrganizerRepo:       d.EventOrganizerRepo,
 		organizerRepo:            d.OrganizerRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
