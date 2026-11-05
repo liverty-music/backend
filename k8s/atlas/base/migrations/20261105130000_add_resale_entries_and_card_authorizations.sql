@@ -90,6 +90,8 @@ DROP INDEX idx_resale_listings_sold_unfinished;
 CREATE INDEX idx_resale_listings_resale_entry_id ON resale_listings(resale_entry_id) WHERE resale_entry_id IS NOT NULL;
 COMMENT ON INDEX idx_resale_listings_resale_entry_id IS 'Optimizes finding the listings allocated to an entry and the foreign key check of an entry delete';
 
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss, resale_entry_lapsed, resale_entry_lost';
+
 CREATE OR REPLACE FUNCTION delete_ticket_stock(p_ticket_stock_id UUID) RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, public, pg_temp AS $$
 BEGIN

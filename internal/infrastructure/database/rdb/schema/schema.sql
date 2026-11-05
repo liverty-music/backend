@@ -389,7 +389,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
 COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
 COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss, resale_entry_lapsed, resale_entry_lost';
 COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
 COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
 COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
