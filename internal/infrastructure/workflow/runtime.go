@@ -40,11 +40,7 @@ func NewRuntime(ctx context.Context, pool *pgxpool.Pool, logger *logging.Logger)
 		SystemDBPool:       pool,
 		DatabaseSchema:     Schema,
 		SkipMigrations:     true,
-		// Patch and DeprecatePatch refuse to run without it in v1.7.0
-		// (dbos/workflow.go Patch). The fixed ApplicationVersion is kept: DBOS
-		// only defaults the version when it is empty.
-		EnablePatching: true,
-		Logger:         logger.Slog(),
+		Logger:             logger.Slog(),
 	}
 	dctx, err := newContext(ctx, cfg, logger)
 	if err != nil {
