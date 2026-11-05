@@ -22,6 +22,12 @@ const (
 	// NotificationTypeLotteryLoss tells a fan their lottery entry lost and
 	// opens the event's page.
 	NotificationTypeLotteryLoss NotificationType = "lottery_loss"
+	// NotificationTypeResaleEntryLapsed tells a fan their official resale
+	// entry lapsed before a ticket was found and nothing was charged.
+	NotificationTypeResaleEntryLapsed NotificationType = "resale_entry_lapsed"
+	// NotificationTypeResaleEntryLost tells a fan their official resale entry
+	// ended without a ticket and nothing was charged.
+	NotificationTypeResaleEntryLost NotificationType = "resale_entry_lost"
 )
 
 // NotificationDeliveryStatus is the per-channel delivery state of a notification.

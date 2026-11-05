@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
@@ -14,7 +15,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v87"
 )
 
-// TestStripeCardAuthorizationRepository_Integration exercises the real Stripe
+// TestStripeCardAuthorizationProvider_Integration exercises the real Stripe
 // test API for the manual-capture card authorization of a lottery entry and of
 // a checkout: open, read, capture or release, each idempotent.
 //
@@ -23,17 +24,17 @@ import (
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run Integration -v
-func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
+func TestStripeCardAuthorizationProvider_Integration(t *testing.T) {
 	key := stripeTestKey(t)
 	ctx := context.Background()
-	lottery := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, mustLogger(t))
-	checkout := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, mustLogger(t))
+	lottery := payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, mustLogger(t))
+	checkout := payment.NewStripeCardAuthorizationProvider(key, payment.CheckoutCardAuthorizationPolicy, mustLogger(t))
 	const amountJPY int64 = 6000
 	fanID, saleID, ticketStockID, eventID := entity.NewID(), entity.NewID(), entity.NewID(), entity.NewID()
 
 	// open opens a card authorization for a fresh checkout, so every subtest
 	// has its own idempotency keys.
-	open := func(t *testing.T, repo *payment.StripeCardAuthorizationRepository) (*entity.CardAuthorization, entity.CardAuthorizationPurchase) {
+	open := func(t *testing.T, repo *payment.StripeCardAuthorizationProvider) (*entity.CardAuthorization, entity.CardAuthorizationPurchase) {
 		t.Helper()
 		purchase := entity.CardAuthorizationPurchase{
 			Purpose:       entity.CardAuthorizationPurposeCheckout,
@@ -53,33 +54,33 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		// @spec components/entity/card-authorization/create "Card authorization opened"
 		// @spec components/entity/card-authorization/create "Retried after a lost response"
 		opened, purchase := open(t, checkout)
-		pi := retrievePaymentIntent(t, key, opened.ID)
+		pi := retrievePaymentIntent(t, key, opened.ProviderID)
 		assert.Equal(t, amountJPY, pi.Amount)
 		assert.Equal(t, stripe.PaymentIntentCaptureMethodManual, pi.CaptureMethod)
 		assert.Equal(t, string(purchase.CheckoutID), pi.Metadata["checkout_id"])
 
 		again, err := checkout.Create(ctx, purchase, amountJPY)
 		require.NoError(t, err)
-		assert.Equal(t, opened.ID, again.ID)
-		require.NoError(t, checkout.Release(ctx, opened.ID))
+		assert.Equal(t, opened.ProviderID, again.ProviderID)
+		require.NoError(t, checkout.Release(ctx, opened.ProviderID))
 	})
 
 	t.Run("read before and after card authentication", func(t *testing.T) {
 		opened, purchase := open(t, checkout)
-		pending, err := checkout.Get(ctx, opened.ID)
+		pending, err := checkout.Get(ctx, opened.ProviderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusPending, pending.Status)
 		assert.Equal(t, opened.Secret, pending.Secret)
 
-		confirmWith(t, key, opened.ID, "pm_card_amex")
-		authorized, err := checkout.Get(ctx, opened.ID)
+		confirmWith(t, key, opened.ProviderID, "pm_card_amex")
+		authorized, err := checkout.Get(ctx, opened.ProviderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusAuthorized, authorized.Status)
 		require.NoError(t, authorized.Confirm(purchase, amountJPY), "a checkout accepts American Express")
 		assert.Error(t, authorized.Confirm(entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeLotteryEntry}, amountJPY),
 			"a lottery entry does not")
 		assert.Equal(t, purchase, authorized.Purchase, "the checkout it was opened for")
-		require.NoError(t, checkout.Release(ctx, opened.ID))
+		require.NoError(t, checkout.Release(ctx, opened.ProviderID))
 	})
 
 	t.Run("lottery entry authorized again, then read", func(t *testing.T) {
@@ -102,16 +103,16 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		require.NoError(t, err)
 		three, err := lottery.Create(ctx, entry(3), 24000)
 		require.NoError(t, err)
-		require.NotEqual(t, two.ID, three.ID, "each call opens a new card authorization")
+		require.NotEqual(t, two.ProviderID, three.ProviderID, "each call opens a new card authorization")
 
-		pending, err := lottery.Get(ctx, two.ID)
+		pending, err := lottery.Get(ctx, two.ProviderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusPending, pending.Status)
 		assert.Equal(t, two.Secret, pending.Secret)
 		assert.Equal(t, entry(2), pending.Purchase)
 
-		confirmWith(t, key, three.ID, "pm_card_visa")
-		authorized, err := lottery.Get(ctx, three.ID)
+		confirmWith(t, key, three.ProviderID, "pm_card_visa")
+		authorized, err := lottery.Get(ctx, three.ProviderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.CardAuthorizationStatusAuthorized, authorized.Status)
 		assert.Equal(t, int64(24000), authorized.Amount)
@@ -119,8 +120,8 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		assert.Equal(t, entry(3), authorized.Purchase)
 		assert.Nil(t, authorized.CapturedPayment, "nothing is charged")
 
-		require.NoError(t, lottery.Release(ctx, two.ID))
-		require.NoError(t, lottery.Release(ctx, three.ID))
+		require.NoError(t, lottery.Release(ctx, two.ProviderID))
+		require.NoError(t, lottery.Release(ctx, three.ProviderID))
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
@@ -131,12 +132,12 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 
 	t.Run("capture once, then read the captured payment", func(t *testing.T) {
 		opened, _ := open(t, lottery)
-		confirmWith(t, key, opened.ID, "pm_card_visa")
+		confirmWith(t, key, opened.ProviderID, "pm_card_visa")
 
-		require.NoError(t, lottery.Capture(ctx, opened.ID))
-		require.NoError(t, lottery.Capture(ctx, opened.ID), "a retried capture charges once")
+		require.NoError(t, lottery.Capture(ctx, opened.ProviderID))
+		require.NoError(t, lottery.Capture(ctx, opened.ProviderID), "a retried capture charges once")
 
-		captured, err := lottery.Get(ctx, opened.ID)
+		captured, err := lottery.Get(ctx, opened.ProviderID)
 		require.NoError(t, err)
 		require.NotNil(t, captured.CapturedPayment)
 		assert.Equal(t, amountJPY, captured.CapturedPayment.AmountJPY)
@@ -144,16 +145,35 @@ func TestStripeCardAuthorizationRepository_Integration(t *testing.T) {
 		assert.Equal(t, "visa", captured.CapturedPayment.CardBrand)
 		assert.Equal(t, "4242", captured.CapturedPayment.CardLast4)
 
-		assert.ErrorIs(t, lottery.Release(ctx, opened.ID), apperr.ErrFailedPrecondition)
+		assert.ErrorIs(t, lottery.Release(ctx, opened.ProviderID), apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("authorized card authorization reports its expiry", func(t *testing.T) {
+		// A JPY authorization of a Japan-based account can be captured for up
+		// to 30 days on Visa, Mastercard, JCB, Diners and Discover, and for 7
+		// days on American Express, without request_extended_authorization
+		// (design D5). The window is read from the charge's capture_before.
+		for brand, wantDays := range map[string]int{"pm_card_jcb": 30, "pm_card_visa": 30, "pm_card_amex": 7} {
+			opened, _ := open(t, checkout)
+			confirmWith(t, key, opened.ProviderID, brand)
+
+			authorized, err := checkout.Get(ctx, opened.ProviderID)
+			require.NoError(t, err, brand)
+			require.NotNil(t, authorized.ExpireTime, brand)
+			days := time.Until(*authorized.ExpireTime).Hours() / 24
+			t.Logf("%s: capture_before %s (%.1f days)", brand, authorized.ExpireTime.Format(time.RFC3339), days)
+			assert.InDelta(t, float64(wantDays), days, 1, brand)
+			require.NoError(t, checkout.Release(ctx, opened.ProviderID))
+		}
 	})
 
 	t.Run("release once, then capture fails", func(t *testing.T) {
 		opened, _ := open(t, checkout)
-		confirmWith(t, key, opened.ID, "pm_card_visa")
+		confirmWith(t, key, opened.ProviderID, "pm_card_visa")
 
-		require.NoError(t, checkout.Release(ctx, opened.ID))
-		require.NoError(t, checkout.Release(ctx, opened.ID))
-		assert.ErrorIs(t, checkout.Capture(ctx, opened.ID), apperr.ErrFailedPrecondition)
+		require.NoError(t, checkout.Release(ctx, opened.ProviderID))
+		require.NoError(t, checkout.Release(ctx, opened.ProviderID))
+		assert.ErrorIs(t, checkout.Capture(ctx, opened.ProviderID), apperr.ErrFailedPrecondition)
 	})
 }
 

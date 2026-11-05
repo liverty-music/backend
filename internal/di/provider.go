@@ -37,6 +37,7 @@ import (
 	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	passkeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/passkey/v1/passkeyv1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
+	resaleentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_entry/v1/resale_entryv1connect"
 	resalelistingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/resale_listing/v1/resale_listingv1connect"
 	scannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/scanner/v1/scannerv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/ticket/v1/ticketv1connect"
@@ -419,10 +420,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		checkoutCardAuthorizations entity.CardAuthorizationRepository
 	)
 	if paymentConfigured {
-		lotteryCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
-		checkoutCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger)
+		lotteryCardAuthorizations = rdb.NewCardAuthorizationRepository(db, infrapayment.NewStripeCardAuthorizationProvider(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger))
+		checkoutCardAuthorizations = rdb.NewCardAuthorizationRepository(db, infrapayment.NewStripeCardAuthorizationProvider(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger))
 	} else {
-		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
+		noop := rdb.NewCardAuthorizationRepository(db, infrapayment.NewNoopCardAuthorizationProvider(logger))
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 	}
 	lotteryEntryUC := usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
@@ -431,6 +432,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EntryRepo:                lotteryEntryRepo,
 		OrderRepo:                orderRepo,
 		EventRepo:                eventRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		UserRepo:                 userRepo,
+		CardAuthorizations:       lotteryCardAuthorizations,
+		Clock:                    time.Now,
+		Logger:                   logger,
+	})
+
+	// Official resale by lottery: a resale entry's card authorization, like a
+	// lottery entry's, sends no idempotency key, so it shares the lottery's.
+	resaleEntryRepo := rdb.NewResaleEntryRepository(db, newOutbox(logger))
+	resaleEntryUC := usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo:                resaleEntryRepo,
+		StockRepo:                ticketStockRepo,
+		SaleRepo:                 ticketSaleRepo,
+		OrderRepo:                orderRepo,
+		EventRepo:                eventRepo,
+		EventState:               eventPublishState,
 		IdentityVerificationRepo: identityVerificationRepo,
 		UserRepo:                 userRepo,
 		CardAuthorizations:       lotteryCardAuthorizations,
@@ -512,6 +530,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		processedWebhookEventRepo,
 		orderRepo,
 		orderUC,
+		lotteryCardAuthorizations,
 		logger,
 	)
 
@@ -545,12 +564,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
-		// The resale refund sweeper refunds resold listings; it reaches
-		// Stripe, so it runs beside the settlement sweeper. Checkouts end and
-		// are issued by workflows in the workflow worker.
-		startResaleRefundSweeper(ctx, resaleListingUC, logger)
 	} else {
-		logger.Info(ctx, "settlement and resale refund sweepers disabled on this workload",
+		logger.Info(ctx, "settlement sweeper disabled on this workload",
 			slog.String("workload", cfg.Workload))
 	}
 
@@ -714,6 +729,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(s *connect.Server) {
 			resalelistingconnect.RegisterResaleListingServiceHandler(s, rpc.NewResaleListingHandler(resaleListingUC, userUC, logger))
+		},
+		func(s *connect.Server) {
+			resaleentryconnect.RegisterResaleEntryServiceHandler(s, rpc.NewResaleEntryHandler(resaleEntryUC, userUC, logger))
 		},
 	)
 
@@ -882,6 +900,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		cfg.Stripe.WebhookSigningSecret,
 		stripeWebhookSvc,
 		lotteryEntryUC,
+		resaleEntryUC,
 		logger,
 	)
 

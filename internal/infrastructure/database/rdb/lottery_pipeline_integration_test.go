@@ -52,7 +52,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
-	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
+	stripePort := rdb.NewCardAuthorizationRepository(testDB, payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, logger))
 
 	// -- a Lottery sale of a stock of 2 tickets, so 3 single-ticket entries force one loss --
 	const (
@@ -198,7 +198,7 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), cardAuthorizationID, &stripe.PaymentIntentConfirmParams{
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 func piStatus(t *testing.T, key, cardAuthorizationID string) stripe.PaymentIntentStatus {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), cardAuthorizationID, nil)
+	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), nil)
 	require.NoError(t, err)
 	return pi.Status
 }

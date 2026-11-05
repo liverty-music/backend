@@ -66,10 +66,11 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	clock := usecase.Clock(func() time.Time { return s.now })
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	eventRepo := rdb.NewEventRepository(testDB)
-	checkoutCards := payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger)
+	stripeCards := payment.NewStripeCardAuthorizationProvider(key, payment.CheckoutCardAuthorizationPolicy, logger)
 	// The worker captures and releases the checkouts' card authorizations
 	// through the Stripe test API.
-	s.checkoutCards.other = checkoutCards
+	s.checkoutCards.other = stripeCards
+	checkoutCards := rdb.NewCardAuthorizationRepository(testDB, stripeCards)
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		OrderRepo:                s.orderRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
@@ -112,7 +113,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 // paymentIntent reads a PaymentIntent from the Stripe test API.
 func (s *firstComeStory) paymentIntent(cardAuthorizationID string) *stripe.PaymentIntent {
 	s.t.Helper()
-	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, cardAuthorizationID, nil)
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, cardAuthorizationID), nil)
 	require.NoError(s.t, err)
 	return pi
 }
@@ -162,7 +163,7 @@ func (s *firstComeStory) authorizeCheckout(checkout *entity.Checkout, fan entity
 	require.NoError(s.t, err)
 	id := got.Order.CardAuthorizationID
 	require.NotEmpty(s.t, id)
-	confirmCardAuthorization(s.t, s.key, id)
+	confirmCardAuthorization(s.t, s.key, providerCardAuthorizationID(s.t, id))
 	return id
 }
 

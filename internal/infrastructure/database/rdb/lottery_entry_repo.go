@@ -39,7 +39,7 @@ const lotteryEntrySelect = `
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
 		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
-		le.id, NULL::uuid
+		le.id, NULL::uuid, NULL::uuid
 	FROM lottery_entries le
 	JOIN orders o ON o.id = le.order_id
 `

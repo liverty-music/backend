@@ -13,9 +13,8 @@ import (
 // The story tests of stories/resell-a-ticket list a ticket of a sold-out
 // TicketStock, bought first come or won in a lottery, with
 // ResaleListingUseCase.Create and read it with ResaleListingUseCase.List, over
-// the first-come story's wiring (real Postgres, real Stripe test API). Buying
-// a listing arrives with the change resell-tickets-by-lottery, so no listing
-// is bought here.
+// the first-come story's wiring (real Postgres, real Stripe test API). A
+// listing is bought through the resale draw in resale_draw_story_integration_test.go.
 
 // listOne lists the first of the fan's Tickets for the event and returns the
 // listing as created.

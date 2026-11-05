@@ -3,6 +3,9 @@ package rdb_test
 import (
 	"context"
 	"fmt"
+	"github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -108,6 +111,13 @@ type lotteryStory struct {
 	// entries and not awaited yet.
 	followUps []string
 
+	// resaleWorker is the worker's ResaleEntryUseCase, which draws; and
+	// resaleRefunds the worker's ResaleListingUseCase, which refunds a sold
+	// listing through refundOrders (the Stripe test API when a test key is
+	// set).
+	resaleWorker  usecase.ResaleEntryUseCase
+	resaleRefunds usecase.ResaleListingUseCase
+
 	orderRepo   entity.OrderRepository
 	userRepo    *rdb.UserRepository
 	journeyRepo *rdb.TicketJourneyRepository
@@ -149,6 +159,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	}
 	s.seedOrganizerEvent()
 	s.checkoutCards = &routedCards{fake: s.cards}
+	cardAuthorizations := rdb.NewCardAuthorizationRepository(testDB, s.checkoutCards)
 
 	clock := usecase.Clock(func() time.Time { return s.now })
 	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
@@ -161,18 +172,21 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
-	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo}
+	resaleEntryRepo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	resaleListingRepo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo, listings: resaleListingRepo, resaleEntries: resaleEntryRepo}
 
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
 		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, s.cards, clock, logger))
+	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, clock, logger))
 	// The worker's OrderUseCase: issue, release, and the webhook's fulfilment.
 	s.orders = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
 		OrderRepo:                s.orderRepo,
 		EntryRepo:                entryRepo,
+		ResaleEntryRepo:          resaleEntryRepo,
 		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
@@ -182,7 +196,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		TicketRepo:               ticketRepo,
 		EventState:               eventState,
 		EventRepo:                eventRepo,
-		CardAuthorizations:       s.checkoutCards,
+		CardAuthorizations:       cardAuthorizations,
 		Clock:                    clock,
 		Logger:                   logger,
 	})
@@ -195,24 +209,38 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(testDB, testOutbox),
 		rdb.NewFollowRepository(testDB, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, logger)
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, cardAuthorizations, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
 		rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, s.pushes, nil, logger,
 		usecase.OrderConfirmationDeps{
-			Orders:         s.orderRepo,
-			Users:          s.userRepo,
-			Concerts:       rdb.NewConcertRepository(testDB, testOutbox),
-			EventOrganizer: eventOrganizerRepo,
-			Organizers:     organizerRepo,
-			Mailer:         s.mailer,
-			Entries:        entryRepo,
-			Stocks:         stockRepo,
-			LossMailer:     s.mailer,
-			TimeZone:       japanTime,
+			Orders:            s.orderRepo,
+			Users:             s.userRepo,
+			Concerts:          rdb.NewConcertRepository(testDB, testOutbox),
+			EventOrganizer:    eventOrganizerRepo,
+			Organizers:        organizerRepo,
+			Mailer:            s.mailer,
+			Entries:           entryRepo,
+			Stocks:            stockRepo,
+			LossMailer:        s.mailer,
+			ResaleListings:    resaleListingRepo,
+			ResaleMailer:      s.mailer,
+			ResaleEntries:     resaleEntryRepo,
+			ResaleEntryMailer: s.mailer,
+			TimeZone:          japanTime,
 		}, usecase.NewConcertsDeps{})
 
+	s.resaleWorker = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo: resaleEntryRepo, StockRepo: stockRepo, EventRepo: eventRepo, EventState: eventState, Clock: clock, Logger: logger,
+	})
+	refundOrders := s.orderRepo
+	if key := os.Getenv("STRIPE_SECRET_KEY"); strings.HasPrefix(key, "sk_test_") || strings.HasPrefix(key, "rk_test_") {
+		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(key, logger))
+	}
+	s.resaleRefunds = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Listings: resaleListingRepo, Orders: refundOrders, Clock: clock, Logger: logger,
+	})
 	s.startWorker()
 	s.client, err = workflow.NewClient(s.ctx, s.newPool(), logger)
 	require.NoError(t, err)
@@ -251,6 +279,9 @@ func (s *lotteryStory) startWorker() {
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, s.orders.ReleaseCardAuthorization)
 	require.NoError(s.t, rt.RegisterQueue(usecase.CheckoutQueue, usecase.CheckoutQueueConcurrency))
 	workflow.Register(rt, usecase.WorkflowExpireCheckout, s.expiry.Expire)
+	workflow.Register(rt, usecase.WorkflowDrawResaleStock, s.resaleWorker.DrawStock)
+	workflow.Register(rt, usecase.WorkflowDrawResale, s.resaleWorker.DrawResale)
+	workflow.Register(rt, usecase.WorkflowRefundSold, s.resaleRefunds.RefundSold)
 	require.NoError(s.t, rt.Launch())
 	var once sync.Once
 	s.worker = rt
@@ -504,7 +535,7 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 		require.NoError(s.t, s.webhooks.HandleEvent(s.ctx, usecase.StripeWebhookEvent{
 			ProviderEventID:   "evt_" + uuid.NewV7().String(),
 			Type:              usecase.StripeEventPaymentIntentSucceeded,
-			ProviderPaymentID: e.Order.CardAuthorizationID,
+			ProviderPaymentID: fakeProviderPrefix + e.Order.CardAuthorizationID,
 			ReceivedAt:        s.now,
 		}))
 	}

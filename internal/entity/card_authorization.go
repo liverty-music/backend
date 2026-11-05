@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -27,13 +28,14 @@ const (
 )
 
 // CardAuthorization is the authorization placed on a fan's card for the
-// amount of one purchase, a LotteryEntry or a Checkout. The payment provider
-// holds it and is its only record, with the purchase it pays for; the
+// amount of one purchase, a Checkout, a LotteryEntry or a ResaleEntry. The
 // purchase's Order refers to it by its id.
 type CardAuthorization struct {
-	// ID is the payment provider's ID for the card authorization (a Stripe
-	// "pi_..."), 1 to 255 characters.
+	// ID is the card authorization's own id (UUIDv7).
 	ID string
+	// ProviderID is the payment provider's ID for the card authorization (a
+	// Stripe "pi_..."), 1 to 255 characters.
+	ProviderID string
 	// Amount is the amount authorized on the card, in whole yen.
 	Amount int64
 	// CardBrand is the brand of the card the fan authorized; empty until the
@@ -50,6 +52,16 @@ type CardAuthorization struct {
 	CapturedPayment *CapturedPayment
 	// Purchase is what the card authorization pays for, fixed at creation.
 	Purchase CardAuthorizationPurchase
+	// ExpireTime is when the authorized amount can no longer be charged; nil
+	// until it is Authorized, or when the payment provider does not report it.
+	ExpireTime *time.Time
+}
+
+// ChargeableAt reports whether the card authorization can still be charged at
+// t: it is Authorized and t is before its expiry time. One without an expiry
+// time cannot be charged.
+func (a *CardAuthorization) ChargeableAt(t time.Time) bool {
+	return a.Status == CardAuthorizationStatusAuthorized && a.ExpireTime != nil && t.Before(*a.ExpireTime)
 }
 
 // CardAuthorizationPurpose is the kind of purchase a CardAuthorization pays
@@ -65,6 +77,9 @@ const (
 	// CardAuthorizationPurposeLotteryEntry pays for a lottery entry, which is
 	// made from it at Confirm.
 	CardAuthorizationPurposeLotteryEntry
+	// CardAuthorizationPurposeResaleEntry pays for an official resale entry,
+	// which is made from it at Confirm.
+	CardAuthorizationPurposeResaleEntry
 )
 
 // CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
@@ -98,12 +113,18 @@ func (p CardAuthorizationPurchase) IsLotteryEntry() bool {
 	return p.Purpose == CardAuthorizationPurposeLotteryEntry
 }
 
+// IsResaleEntry reports whether the purchase is an official resale entry.
+func (p CardAuthorizationPurchase) IsResaleEntry() bool {
+	return p.Purpose == CardAuthorizationPurposeResaleEntry
+}
+
 // AcceptsCardBrand reports whether a card of the brand may pay for the
-// purchase: a Checkout accepts every brand, a LotteryEntry every brand but
-// American Express ([IsAcceptedCardBrand]); an unknown brand is accepted for
-// both.
+// purchase: a Checkout and a ResaleEntry accept every brand, a LotteryEntry
+// every brand but American Express ([IsAcceptedCardBrand]); an unknown brand
+// is accepted for all. An American Express resale entry lapses sooner, since
+// its card authorization lasts about a week.
 func (p CardAuthorizationPurchase) AcceptsCardBrand(brand CardBrand) bool {
-	return p.Purpose == CardAuthorizationPurposeCheckout || IsAcceptedCardBrand(brand)
+	return p.Purpose == CardAuthorizationPurposeCheckout || p.Purpose == CardAuthorizationPurposeResaleEntry || IsAcceptedCardBrand(brand)
 }
 
 // Confirm returns nil when the card authorization confirms the purchase: it is
@@ -130,9 +151,9 @@ func (a *CardAuthorization) Confirm(purchase CardAuthorizationPurchase, expected
 	return nil
 }
 
-// CardAuthorizationRepository opens, reads, captures and releases the
-// CardAuthorizations held by the payment provider. Each operation is
-// idempotent per card authorization, and Create per Checkout.
+// CardAuthorizationRepository opens, reads, captures and releases
+// CardAuthorizations. Each operation is idempotent per card authorization, and
+// Create per Checkout.
 type CardAuthorizationRepository interface {
 	// Create opens a Pending CardAuthorization in yen for amountJPY that
 	// carries the purchase, charging nothing until Capture runs, and returns
@@ -149,7 +170,7 @@ type CardAuthorizationRepository interface {
 
 	// Get returns the CardAuthorization with its card authorization secret,
 	// the purchase it was opened with, its amount, card brand and status as
-	// the payment provider reports them now, and, when it is Captured, the
+	// the payment provider reports them now, its expiry time once Authorized, and, when it is Captured, the
 	// captured payment an Order records. It never charges the card.
 	//
 	// # Possible errors
@@ -158,6 +179,17 @@ type CardAuthorizationRepository interface {
 	//  - InvalidArgument: it is not in yen.
 	//  - Unavailable: the payment provider cannot be reached.
 	Get(ctx context.Context, id string) (*CardAuthorization, error)
+
+	// GetByProviderCardAuthorizationID returns the same CardAuthorization as
+	// Get for the one whose payment provider's ID is providerID, so a notice
+	// from the payment provider reaches it.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no CardAuthorization has the payment provider's ID.
+	//  - InvalidArgument: it is not in yen.
+	//  - Unavailable: the payment provider cannot be reached.
+	GetByProviderCardAuthorizationID(ctx context.Context, providerID string) (*CardAuthorization, error)
 
 	// Capture charges the card the CardAuthorization's amount, exactly once
 	// however often and however late it is repeated; one already Captured

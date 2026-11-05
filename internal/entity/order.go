@@ -149,16 +149,18 @@ type Order struct {
 	// ReferralCode is the code of the link the fan came from; nil without one.
 	// Set at creation and never changed.
 	ReferralCode *ReferralCode
-	// CardAuthorizationID is the payment provider's ID for the card
-	// authorization on the fan's card for the amount (a Stripe "pi_..." id);
-	// empty until the fan authorizes, then set once.
+	// CardAuthorizationID is the id of the card authorization on the fan's
+	// card for the amount; empty until the fan authorizes, then set once.
 	CardAuthorizationID string
 	// LotteryEntryID is the LotteryEntry that names the Order; empty when its
 	// source is a Checkout. Read from the entry, never stored on the Order.
 	LotteryEntryID LotteryEntryID
 	// CheckoutID is the Checkout that names the Order; empty when its source
-	// is a LotteryEntry. Read from the checkout, never stored on the Order.
+	// is another. Read from the checkout, never stored on the Order.
 	CheckoutID CheckoutID
+	// ResaleEntryID is the ResaleEntry that names the Order; empty when its
+	// source is another. Read from the entry, never stored on the Order.
+	ResaleEntryID ResaleEntryID
 	// Payment is the provider and, once Paid, the opaque reference to the
 	// captured payment plus safe display facets. Never raw card data.
 	Payment Payment
@@ -221,11 +223,16 @@ func ValidateTicketCount(count int, event *Event) error {
 }
 
 // ValidateSource reports whether the Order is applied for through exactly one
-// source: a LotteryEntry or a Checkout.
+// source: a LotteryEntry, a Checkout or a ResaleEntry.
 func (o *Order) ValidateSource() error {
-	hasEntry, hasCheckout := o.LotteryEntryID != "", o.CheckoutID != ""
-	if hasEntry == hasCheckout {
-		return errors.New("an order must come from exactly one of a lottery entry and a checkout")
+	sources := 0
+	for _, named := range []bool{o.LotteryEntryID != "", o.CheckoutID != "", o.ResaleEntryID != ""} {
+		if named {
+			sources++
+		}
+	}
+	if sources != 1 {
+		return errors.New("an order must come from exactly one of a lottery entry, a checkout and a resale entry")
 	}
 	return nil
 }
@@ -309,21 +316,26 @@ type IssuanceRepository interface {
 	// payment ID, payment method, card brand, card last four and pay time),
 	// stores its N account-bound tickets and the Held settlement (with its
 	// split) that pays out the Order's event Organizer, and, when the Order's
-	// source is a Checkout, makes that Checkout Completed, all in one
-	// transaction.
+	// source is a Checkout, makes that Checkout Completed, or, when it is a
+	// Won ResaleEntry, makes each listing allocated to it Sold, Voids each
+	// listing's Ticket and has the Settlement of each Order those Tickets came
+	// from give up the resold share ([Settlement.GiveUpResoldShare]), all in
+	// one transaction.
 	//
 	// # Possible errors
 	//
 	//  - AlreadyExists: the Order is already Paid or Refunded (the caller
 	//    re-reads it).
-	//  - FailedPrecondition: the Order is Void, or its source Checkout is not
-	//    Committed with a capture time; nothing is stored.
+	//  - FailedPrecondition: the Order is Void, its source Checkout is not
+	//    Committed with a capture time, or its source ResaleEntry is not Won
+	//    or not allocated a listing for every ticket; nothing is stored.
 	//  - NotFound: no Order has the id.
 	//  - Internal: database transaction or query failure.
 	//
 	// # Announces
 	//
-	// ORDER.paid with the Order as Paid, together with the issuance. Nothing when
+	// ORDER.paid with the Order as Paid, and ORDER.resale_listing_sold with
+	// each listing it makes Sold, together with the issuance. Nothing when
 	// Issue fails, including with AlreadyExists.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 }
@@ -426,7 +438,7 @@ type OrderRepository interface {
 	// Tickets of the user's Paid Orders for the event plus the ticket counts
 	// of the user's Pending Orders for the event that still hold or may still
 	// receive tickets (a Checkout holding at `at` or Committed, or a
-	// LotteryEntry Entered or Won), and, when that count is above 0, the
+	// LotteryEntry or ResaleEntry Entered or Won), and, when that count is above 0, the
 	// SeatType of the Orders counted. The Order except names, when given, is
 	// not counted: it is the Order of the user's own holding Checkout that the
 	// new application resumes or replaces. Void and Refunded Orders, Pending

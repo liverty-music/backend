@@ -18,16 +18,17 @@ type OrderRepository struct {
 	db *Database
 }
 
-// orderSelect reads orders (aliased o) with the id of the LotteryEntry or
-// Checkout that names each.
+// orderSelect reads orders (aliased o) with the id of the LotteryEntry,
+// Checkout or ResaleEntry that names each.
 const orderSelect = `
 	SELECT o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
 		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
-		le.id, c.id
+		le.id, c.id, re.id
 	FROM orders o
 	LEFT JOIN lottery_entries le ON le.order_id = o.id
 	LEFT JOIN checkouts c ON c.order_id = o.id
+	LEFT JOIN resale_entries re ON re.order_id = o.id
 `
 
 const (
@@ -70,7 +71,8 @@ const (
 	// ($2), leaving out the order $3 when given, at $4: the Issued tickets of
 	// the user's Paid orders, plus the ticket counts of the user's Pending
 	// orders that still hold or may receive tickets (a checkout holding at $4
-	// or Committed, or a lottery entry Entered or Won), with the seat type of
+	// or Committed, or a lottery or resale entry Entered or Won), with the
+	// seat type of
 	// the orders counted. A Paid order whose tickets are all Voided counts 0
 	// and names no seat type.
 	orderHeldForEventQuery = `
@@ -84,9 +86,10 @@ const (
 			JOIN ticket_stocks s ON s.id = o.ticket_stock_id
 			LEFT JOIN checkouts c ON c.order_id = o.id
 			LEFT JOIN lottery_entries le ON le.order_id = o.id
+			LEFT JOIN resale_entries re ON re.order_id = o.id
 			WHERE o.user_id = $1 AND s.event_id = $2 AND ($3::uuid IS NULL OR o.id <> $3::uuid)
 			  AND (o.status = 1
-			       OR (o.status = 4 AND ((c.status = 1 AND c.hold_expire_at > $4) OR c.status = 2 OR le.state IN (1, 2))))
+			       OR (o.status = 4 AND ((c.status = 1 AND c.hold_expire_at > $4) OR c.status = 2 OR le.state IN (1, 2) OR re.state IN (1, 2))))
 		)
 		SELECT COALESCE(SUM(n), 0)::int, (array_agg(seat_type_id) FILTER (WHERE n > 0))[1] FROM counted
 	`
@@ -281,7 +284,7 @@ type orderColumns struct {
 	o                                                    entity.Order
 	id, userID, stockID                                  string
 	referralCode, cardAuthorizationID, providerPaymentID sql.NullString
-	lotteryEntryID, checkoutID                           sql.NullString
+	lotteryEntryID, checkoutID, resaleEntryID            sql.NullString
 	provider, status                                     int16
 	payAt, confirmationSentAt                            sql.NullTime
 }
@@ -292,7 +295,7 @@ func (c *orderColumns) dest() []any {
 		&c.id, &c.userID, &c.stockID, &c.o.TicketCount, &c.referralCode, &c.cardAuthorizationID,
 		&c.provider, &c.providerPaymentID, &c.o.Payment.ProviderPaymentMethodID, &c.o.Payment.CardBrand, &c.o.Payment.CardLast4,
 		&c.status, &c.o.Amount, &c.o.Currency, &c.payAt, &c.o.ProviderRefundID, &c.confirmationSentAt,
-		&c.lotteryEntryID, &c.checkoutID,
+		&c.lotteryEntryID, &c.checkoutID, &c.resaleEntryID,
 	}
 }
 
@@ -317,6 +320,9 @@ func (c *orderColumns) order() *entity.Order {
 	}
 	if c.checkoutID.Valid {
 		o.CheckoutID = entity.CheckoutID(c.checkoutID.String)
+	}
+	if c.resaleEntryID.Valid {
+		o.ResaleEntryID = entity.ResaleEntryID(c.resaleEntryID.String)
 	}
 	o.PayTime = optionalTime(c.payAt)
 	o.ConfirmationSendTime = optionalTime(c.confirmationSentAt)

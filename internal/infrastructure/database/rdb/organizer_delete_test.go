@@ -130,6 +130,10 @@ type removableEvent struct {
 	checkoutTicket  string
 	// resaleListingID is the Sold listing of the lottery Ticket.
 	resaleListingID string
+	// resaleEntryID is a Lost resale entry the listing was allocated to,
+	// with a Void Order that names resaleCardAuthorizationID.
+	resaleEntryID             string
+	resaleCardAuthorizationID string
 }
 
 // seedRemovableEvent seeds a removableEvent for an Organizer in the given
@@ -155,10 +159,18 @@ func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEv
 	e.checkoutTicket = entity.NewID()
 	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		e.checkoutTicket, e.checkoutOrderID, buyerID, e.eventID, int16(entity.TicketStatusVoided), at)
+	resaleOrderID := entity.NewID()
+	e.resaleCardAuthorizationID = newCardAuthorizationID()
+	exec(`INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider, status, amount, currency)
+		VALUES ($1, $2, $3, 1, $4, 1, 5, 3000, 'JPY')`,
+		resaleOrderID, buyerID, string(e.stock.ID), e.resaleCardAuthorizationID)
+	e.resaleEntryID = entity.NewID()
+	exec(`INSERT INTO resale_entries (id, order_id, state, lost_reason, created_at, draw_at) VALUES ($1, $2, 3, 3, $3, $3)`,
+		e.resaleEntryID, resaleOrderID, at)
 	e.resaleListingID = entity.NewID()
-	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at, sold_at)
-		VALUES ($1, $2, $3, $4, 3000, 2, $5, $5)`,
-		e.resaleListingID, e.lottery.ticketID, e.followerID, string(e.stock.ID), at)
+	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at, sold_at, resale_entry_id)
+		VALUES ($1, $2, $3, $4, 3000, 2, $5, $5, $6)`,
+		e.resaleListingID, e.lottery.ticketID, e.followerID, string(e.stock.ID), at, e.resaleEntryID)
 	return e
 }
 

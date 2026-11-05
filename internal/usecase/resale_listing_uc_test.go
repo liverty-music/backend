@@ -2,8 +2,6 @@ package usecase_test
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,10 +18,10 @@ import (
 )
 
 // The resale fixtures are about event-1, starting 2026-11-20 19:00 JST, so
-// its resale deadline is 16:00 that day.
+// its resale deadline, the last draw, is 12:00 that day.
 var (
 	resaleEventStart = time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
-	resaleDeadline   = time.Date(2026, 11, 20, 16, 0, 0, 0, tsJST)
+	resaleDeadline   = time.Date(2026, 11, 20, 12, 0, 0, 0, tsJST)
 	resaleWeekBefore = time.Date(2026, 11, 13, 12, 0, 0, 0, tsJST)
 )
 
@@ -364,26 +362,29 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 	t.Run("ticket resold", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/refund-sold "Ticket resold"
-		now := soldAt.Add(time.Minute)
+		now := soldAt.Add(time.Second)
 		f := newResaleFixture(t, now)
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil)
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(soldListing("l-1", soldAt), nil)
 		f.expectOrderCharge()
 		f.orders.EXPECT().CreateRefund(mock.Anything, entity.RefundParams{
 			OrderID: "order-1", ResaleListingID: "l-1", ProviderChargeID: "ch_1", Amount: 4500,
 		}).Return("re_1", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
 
-		require.NoError(t, f.uc.RefundSold(ctx))
+		_, err := f.uc.RefundSold(ctx, &inlineFlow{}, "l-1")
+
+		require.NoError(t, err)
 	})
 
 	t.Run("refund fails once", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/refund-sold "Refund fails once"
-		now := soldAt.Add(time.Minute)
+		// Each listing has its own workflow: one listing's Unavailable fails
+		// only its own step, which is tried again, and the other is refunded.
+		now := soldAt.Add(time.Second)
 		f := newResaleFixture(t, now)
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{
-			soldListing("l-1", soldAt), soldListing("l-2", soldAt),
-		}, nil)
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(soldListing("l-1", soldAt), nil)
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-2")).Return(soldListing("l-2", soldAt), nil)
 		f.expectOrderCharge()
 		f.orders.EXPECT().CreateRefund(mock.Anything, mock.MatchedBy(func(p entity.RefundParams) bool { return p.ResaleListingID == "l-1" })).
 			Return("", apperr.New(codes.Unavailable, "stripe down"))
@@ -391,7 +392,11 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 			Return("re_2", nil)
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-2"), "re_2", now).Return(nil)
 
-		require.NoError(t, f.uc.RefundSold(ctx))
+		_, failed := f.uc.RefundSold(ctx, &inlineFlow{}, "l-1")
+		_, refunded := f.uc.RefundSold(ctx, &inlineFlow{}, "l-2")
+
+		assert.ErrorIs(t, failed, apperr.ErrUnavailable, "the failed one is tried again")
+		require.NoError(t, refunded)
 	})
 
 	t.Run("refunded but not recorded", func(t *testing.T) {
@@ -399,7 +404,7 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 		// @spec components/usecase/resale-listing/refund-sold "Refunded but not recorded"
 		now := soldAt.Add(2 * time.Minute)
 		f := newResaleFixture(t, now)
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil)
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(soldListing("l-1", soldAt), nil)
 		f.expectOrderCharge()
 		// The provider replays the first refund for the same purpose.
 		f.orders.EXPECT().CreateRefund(mock.Anything, entity.RefundParams{
@@ -407,54 +412,47 @@ func TestResaleListingUseCase_RefundSold(t *testing.T) {
 		}).Return("re_1", nil).Once()
 		f.listings.EXPECT().RecordRefund(mock.Anything, entity.ResaleListingID("l-1"), "re_1", now).Return(nil)
 
-		require.NoError(t, f.uc.RefundSold(ctx))
+		_, err := f.uc.RefundSold(ctx, &inlineFlow{}, "l-1")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("already refunded", func(t *testing.T) {
+		t.Parallel()
+		f := newResaleFixture(t, soldAt)
+		refunded := soldListing("l-1", soldAt)
+		refunded.RefundTime = &soldAt
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(refunded, nil)
+
+		_, err := f.uc.RefundSold(ctx, &inlineFlow{}, "l-1")
+
+		require.NoError(t, err, "nothing is refunded twice")
 	})
 
 	t.Run("charge cannot be refunded", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/resale-listing/refund-sold "Charge cannot be refunded"
-		logger, buf := newCaptureLogger(t)
-		listings := entitymocks.NewMockResaleListingRepository(t)
-		orders := entitymocks.NewMockOrderRepository(t)
-		uc := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-			Listings: listings, Orders: orders, Clock: fixedClock(soldAt.Add(11 * time.Minute)), Logger: logger,
-		})
-		listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil).Twice()
-		orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{ID: "order-1", Payment: entity.Payment{ProviderPaymentID: "pi_1"}}, nil)
-		orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil)
-		orders.EXPECT().CreateRefund(mock.Anything, mock.Anything).Return("", apperr.New(codes.FailedPrecondition, "refunded")).Twice()
-
-		// Reported on every run, and tried again each time.
-		require.NoError(t, uc.RefundSold(ctx))
-		require.NoError(t, uc.RefundSold(ctx))
-
-		out := buf.String()
-		assert.Equal(t, 2, strings.Count(out, usecase.LogKeyNeedsOperator))
-		assert.Contains(t, out, `"resale_listing_id":"l-1"`)
-		assert.Contains(t, out, `"order_id":"order-1"`)
-	})
-
-	t.Run("a fresh sale is not reported", func(t *testing.T) {
-		t.Parallel()
-		logger, buf := newCaptureLogger(t)
-		listings := entitymocks.NewMockResaleListingRepository(t)
-		orders := entitymocks.NewMockOrderRepository(t)
-		uc := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-			Listings: listings, Orders: orders, Clock: fixedClock(soldAt.Add(9 * time.Minute)), Logger: logger,
-		})
-		listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return([]*entity.ResaleListing{soldListing("l-1", soldAt)}, nil)
-		orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(nil, apperr.New(codes.Unavailable, "db"))
-
-		require.NoError(t, uc.RefundSold(ctx))
-
-		assert.NotContains(t, buf.String(), usecase.LogKeyNeedsOperator)
-	})
-
-	t.Run("listing fails", func(t *testing.T) {
-		t.Parallel()
+		// A failure other than Unavailable ends the workflow with it, and the
+		// runtime reports the run to an admin (Workflow Needs Admin) with its
+		// id, refund:<listing>; the error names the Order.
 		f := newResaleFixture(t, soldAt)
-		f.listings.EXPECT().ListSoldUnrefunded(mock.Anything).Return(nil, errors.New("db down"))
+		f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(soldListing("l-1", soldAt), nil)
+		f.expectOrderCharge()
+		f.orders.EXPECT().CreateRefund(mock.Anything, mock.Anything).Return("", apperr.New(codes.FailedPrecondition, "refunded"))
 
-		assert.Error(t, f.uc.RefundSold(ctx))
+		_, err := f.uc.RefundSold(ctx, &inlineFlow{}, "l-1")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Equal(t, "refund:l-1", usecase.RefundSoldWorkflowID("l-1"))
+	})
+
+	t.Run("started once per listing", func(t *testing.T) {
+		t.Parallel()
+		workflows := ucmocks.NewMockWorkflows(t)
+		uc := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{Workflows: workflows, Clock: fixedClock(soldAt), Logger: newTestLogger(t)})
+		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowRefundSold, "refund:l-1", entity.ResaleListingID("l-1"), mock.Anything, mock.Anything).Return(nil).Twice()
+
+		require.NoError(t, uc.StartRefundSold(ctx, "l-1"))
+		require.NoError(t, uc.StartRefundSold(ctx, "l-1"), "a repeated delivery starts the same named workflow, which runs once")
 	})
 }

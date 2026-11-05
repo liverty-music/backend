@@ -63,7 +63,7 @@ func issuanceCheckout(t *testing.T, captured bool) (*entity.Checkout, *stockFixt
 	start := saleWindowStart.Add(time.Hour)
 	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, newUserID(t), 2, nil, start)
 	require.NoError(t, err)
-	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, newCardAuthorizationID()))
 	outcome, err := repo.Commit(ctx, c.ID, start.Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, entity.CommitOutcomeCommitted, outcome)

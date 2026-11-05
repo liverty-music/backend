@@ -147,24 +147,33 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		lossSender = mail.NewPostmarkLotteryLossSender(lotteryEntryRepo, cfg.Postmark.ServerToken,
 			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
 	}
+	// The ended email of a Lapsed or Lost resale entry goes the same way.
+	resaleEntryRepo := rdb.NewResaleEntryRepository(db, newOutbox(logger))
+	var resaleEntryEndedSender entity.ResaleEntryEndedEmailSender = mail.NewNoopResaleEntryEndedSender(logger)
+	if cfg.Postmark.ServerToken != "" {
+		resaleEntryEndedSender = mail.NewPostmarkResaleEntryEndedSender(resaleEntryRepo, cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+	}
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
 	}
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
-			Orders:         orderRepo,
-			Users:          userRepo,
-			Concerts:       concertRepo,
-			EventOrganizer: rdb.NewEventOrganizerRepository(db),
-			Organizers:     rdb.NewOrganizerRepository(db, newOutbox(logger)),
-			Mailer:         confirmationSender,
-			ResaleListings: resaleListingRepo,
-			ResaleMailer:   resaleSoldSender,
-			Entries:        lotteryEntryRepo,
-			Stocks:         rdb.NewTicketStockRepository(db),
-			LossMailer:     lossSender,
-			TimeZone:       japanTime,
+			Orders:            orderRepo,
+			Users:             userRepo,
+			Concerts:          concertRepo,
+			EventOrganizer:    rdb.NewEventOrganizerRepository(db),
+			Organizers:        rdb.NewOrganizerRepository(db, newOutbox(logger)),
+			Mailer:            confirmationSender,
+			ResaleListings:    resaleListingRepo,
+			ResaleMailer:      resaleSoldSender,
+			Entries:           lotteryEntryRepo,
+			Stocks:            rdb.NewTicketStockRepository(db),
+			LossMailer:        lossSender,
+			ResaleEntries:     resaleEntryRepo,
+			ResaleEntryMailer: resaleEntryEndedSender,
+			TimeZone:          japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, userRepo, concertRepo, followRepo, lotteryEntryRepo, logger)
@@ -260,6 +269,18 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		Clock:     time.Now,
 		Logger:    logger,
 	}), notificationUC, logger)
+	// The resale entry's workflow starter and ended notice, and the start of a
+	// sold listing's refund; the workflow worker runs the workflows.
+	resaleEntryChangedConsumer := event.NewResaleEntryChangedConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+		Workflows: workflows,
+		Clock:     time.Now,
+		Logger:    logger,
+	}), notificationUC, logger)
+	resaleListingSoldConsumer := event.NewResaleListingSoldConsumer(usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Workflows: workflows,
+		Clock:     time.Now,
+		Logger:    logger,
+	}), logger)
 	// The consumer's CheckoutUseCase only starts the workflow that follows
 	// each announced Checkout; the workflow worker runs it.
 	checkoutConsumer := event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
@@ -305,6 +326,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
 		{"start-lottery-entry-workflow", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleStartWorkflow},
 		{"send-lottery-loss", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleSendLotteryLoss},
+		{"start-resale-entry-workflow", entity.SubjectResaleEntryChanged, resaleEntryChangedConsumer.HandleStartWorkflow},
+		{"send-resale-entry-ended", entity.SubjectResaleEntryChanged, resaleEntryChangedConsumer.HandleSendResaleEntryEnded},
+		{"start-resale-refund", entity.SubjectResaleListingSold, resaleListingSoldConsumer.HandleStartRefund},
 		{"start-checkout-expiry", entity.SubjectCheckoutHeld, checkoutConsumer.HandleStartWorkflow},
 		{"release-expired-checkout", entity.SubjectCheckoutExpired, checkoutConsumer.HandleStartWorkflow},
 		{"release-released-checkout", entity.SubjectCheckoutReleased, checkoutConsumer.HandleStartWorkflow},

@@ -401,12 +401,13 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 
 	t.Run("set card authorization", func(t *testing.T) {
 		c := heldCheckout(t, repo, 2, start)
+		auth1 := newCardAuthorizationID()
 
 		// @spec components/entity/checkout/set-card-authorization "First card authorization"
-		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_auth_1"))
+		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, auth1))
 		got, err := repo.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "pi_auth_1", got.Order.CardAuthorizationID)
+		assert.Equal(t, auth1, got.Order.CardAuthorizationID)
 		assert.Equal(t, c.Status, got.Status)
 		assert.Equal(t, c.Order.TicketCount, got.Order.TicketCount)
 		assert.Equal(t, c.Order.Amount, got.Order.Amount)
@@ -414,27 +415,27 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.True(t, c.HoldExpireTime.Equal(got.HoldExpireTime))
 
 		// @spec components/entity/checkout/set-card-authorization "Same card authorization on retry"
-		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_auth_1"))
+		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, auth1))
 		got, err = repo.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "pi_auth_1", got.Order.CardAuthorizationID)
+		assert.Equal(t, auth1, got.Order.CardAuthorizationID)
 
 		// @spec components/entity/checkout/set-card-authorization "Another card authorization"
-		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, c.ID, "pi_other"), apperr.ErrFailedPrecondition)
+		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, c.ID, newCardAuthorizationID()), apperr.ErrFailedPrecondition)
 		got, err = repo.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "pi_auth_1", got.Order.CardAuthorizationID, "nothing changes")
+		assert.Equal(t, auth1, got.Order.CardAuthorizationID, "nothing changes")
 
 		// @spec components/entity/checkout/set-card-authorization "Expired checkout"
 		lapsed := heldCheckout(t, repo, 1, start)
 		_, err = repo.Release(ctx, lapsed.ID, expiry)
 		require.NoError(t, err)
-		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, lapsed.ID, "pi_x"), apperr.ErrFailedPrecondition)
+		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, lapsed.ID, newCardAuthorizationID()), apperr.ErrFailedPrecondition)
 		got, err = repo.Get(ctx, lapsed.ID)
 		require.NoError(t, err)
 		assert.Empty(t, got.Order.CardAuthorizationID)
 
-		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, entity.CheckoutID(entity.NewID()), "pi_y"), apperr.ErrNotFound)
+		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, entity.CheckoutID(entity.NewID()), newCardAuthorizationID()), apperr.ErrNotFound)
 	})
 
 	t.Run("commit", func(t *testing.T) {
@@ -722,7 +723,7 @@ func completedCheckoutOf(t *testing.T, repo *rdb.CheckoutRepository, issuance *r
 	ctx := context.Background()
 	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, count, nil, start)
 	require.NoError(t, err)
-	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, newCardAuthorizationID()))
 	_, err = repo.Commit(ctx, c.ID, start.Add(time.Minute))
 	require.NoError(t, err)
 	require.NoError(t, repo.RecordCapture(ctx, c.ID, start.Add(2*time.Minute)))
@@ -772,7 +773,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 	t.Run("charged checkout", func(t *testing.T) {
 		// @spec components/entity/checkout/get-by-card-authorization-id "Charged checkout"
 		c := heldCheckout(t, repo, 1, start)
-		ref := "pi_lookup_" + string(c.ID)
+		ref := newCardAuthorizationID()
 		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, ref))
 
 		got, err := repo.GetByCardAuthorizationID(ctx, ref)
@@ -784,7 +785,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 
 	t.Run("unknown card authorization", func(t *testing.T) {
 		// @spec components/entity/checkout/get-by-card-authorization-id "Unknown card authorization"
-		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
+		_, err := repo.GetByCardAuthorizationID(ctx, entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

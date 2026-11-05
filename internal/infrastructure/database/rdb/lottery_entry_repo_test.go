@@ -26,10 +26,10 @@ func stockOf(f *stockFixture) *entity.TicketStock {
 
 // newEntry returns a new Entered entry in the sale with its Pending Order of
 // the user for count tickets of the fixture's stock, made from a fresh card
-// authorization "pi_<id>".
+// authorization.
 func newEntry(f *stockFixture, saleID entity.TicketSaleID, userID entity.UserID, count int, code *entity.ReferralCode) *entity.LotteryEntry {
 	order := entity.NewPendingOrder(userID, stockOf(f), count, code, entity.OrderPaymentProvider)
-	order.CardAuthorizationID = "pi_" + entity.NewID()
+	order.CardAuthorizationID = newCardAuthorizationID()
 	return entity.NewLotteryEntry(order, saleID)
 }
 
@@ -276,7 +276,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 
 		// Twice at the same time: one entry, returned to both.
 		other := openLotteryStock(t)
-		cardAuthorizationID := "pi_" + entity.NewID()
+		cardAuthorizationID := newCardAuthorizationID()
 		var wg sync.WaitGroup
 		results := make([]*entity.LotteryEntry, 2)
 		errs := make([]error, 2)
@@ -447,7 +447,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 
 	t.Run("unknown card authorization", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Unknown card authorization"
-		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
+		_, err := repo.GetByCardAuthorizationID(ctx, entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

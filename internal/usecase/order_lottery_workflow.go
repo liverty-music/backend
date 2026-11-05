@@ -65,6 +65,8 @@ type IssueRequest struct {
 	LotteryEntryID entity.LotteryEntryID `json:"lottery_entry_id,omitempty"`
 	// CheckoutID is the placed Checkout whose Order is issued.
 	CheckoutID entity.CheckoutID `json:"checkout_id,omitempty"`
+	// ResaleEntryID is the Won resale entry whose Order is issued.
+	ResaleEntryID entity.ResaleEntryID `json:"resale_entry_id,omitempty"`
 }
 
 // IssueResult is the outcome of [OrderUseCase.Issue].
@@ -95,6 +97,10 @@ type capturedFacets struct {
 	Provider  entity.PaymentProvider `json:"provider"`
 	CardBrand string                 `json:"card_brand"`
 	CardLast4 string                 `json:"card_last4"`
+	// ProviderPaymentID is the payment provider's ID for the captured
+	// payment. A run recorded before it was added has none; the issue step
+	// then reads it again.
+	ProviderPaymentID string `json:"provider_payment_id,omitempty"`
 }
 
 // StartDrawnEntryWorkflow starts the work that follows one entry's draw
@@ -119,13 +125,46 @@ func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *enti
 	}
 }
 
+// StartResaleEntryWorkflow starts the work that follows a resale entry's
+// change: [OrderUseCase.Issue] for a Won entry's Order and
+// [OrderUseCase.ReleaseCardAuthorization] for the Order of a Lapsed,
+// Withdrawn or Lost entry, on [PaymentQueue] with a 24-hour deadline, each
+// named after the Order so a repeated announcement starts nothing new. A
+// Lost entry whose payment was not completed before the show was released by
+// Issue already and starts nothing, as does an Entered entry.
+//
+// # Possible errors
+//
+//   - Errors of starting the workflow, unchanged.
+func (uc *orderUseCase) StartResaleEntryWorkflow(ctx context.Context, entry *entity.ResaleEntry) error {
+	opts := []StartOption{WithQueue(PaymentQueue), WithDeadline(uc.clock().Add(paymentWorkflowDeadline))}
+	switch {
+	case entry.State == entity.ResaleEntryStateWon:
+		return uc.workflows.Start(ctx, WorkflowIssue, IssueWorkflowID(entry.OrderID), IssueRequest{ResaleEntryID: entry.ID}, opts...)
+	case entry.State == entity.ResaleEntryStateLost && entry.LostReason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
+		return nil
+	case entry.State == entity.ResaleEntryStateLapsed, entry.State == entity.ResaleEntryStateLost, entry.State == entity.ResaleEntryStateWithdrawn:
+		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(entry.OrderID), entry.OrderID, opts...)
+	default:
+		return nil
+	}
+}
+
 // Issue implements [OrderUseCase].
 func (uc *orderUseCase) Issue(ctx context.Context, f Flow, in IssueRequest) (IssueResult, error) {
+	sources := 0
+	for _, named := range []bool{in.LotteryEntryID != "", in.CheckoutID != "", in.ResaleEntryID != ""} {
+		if named {
+			sources++
+		}
+	}
 	switch {
-	case (in.LotteryEntryID == "") == (in.CheckoutID == ""):
+	case sources != 1:
 		return IssueResult{}, apperr.New(codes.InvalidArgument, "an issue names exactly one source")
 	case in.CheckoutID != "":
 		return uc.issueCheckout(ctx, f, in.CheckoutID)
+	case in.ResaleEntryID != "":
+		return uc.issueResaleEntry(ctx, f, in.ResaleEntryID)
 	default:
 		return uc.issueEntry(ctx, f, in.LotteryEntryID)
 	}
@@ -173,7 +212,8 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 		if err != nil {
 			return capturedFacets{}, err
 		}
-		return capturedFacets{Provider: captured.Provider, CardBrand: captured.CardBrand, CardLast4: captured.CardLast4}, nil
+		return capturedFacets{Provider: captured.Provider, CardBrand: captured.CardBrand, CardLast4: captured.CardLast4,
+			ProviderPaymentID: captured.ProviderPaymentID}, nil
 	})
 	if err != nil {
 		return IssueResult{}, err
@@ -187,7 +227,15 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 		if isPaid(order) {
 			return struct{}{}, nil
 		}
-		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4}
+		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4,
+			ProviderPaymentID: facets.ProviderPaymentID}
+		if captured.ProviderPaymentID == "" {
+			again, err := uc.capturedPayment(ctx, plan.CardAuthorizationID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			captured.ProviderPaymentID = again.ProviderPaymentID
+		}
 		_, err = uc.issueWith(ctx, order, plan.EventID, plan.OrganizerID, plan.PlatformFeeRateBps, plan.IdentityVerificationID, captured)
 		return struct{}{}, err
 	}); err != nil {

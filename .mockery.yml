@@ -29,6 +29,8 @@ packages:
       IssuanceRepository: {}
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
+      ResaleEntryRepository: {}
+      ResaleEntryEndedEmailSender: {}
       NotificationRepository: {}
       OfficialSiteResolver: {}
       OrderConfirmationSender: {}
@@ -96,6 +98,7 @@ packages:
       IdentityVerifier: {}
       ImageStorer: {}
       LotteryEntryUseCase: {}
+      ResaleEntryUseCase: {}
       NotificationUseCase: {}
       OfficialSiteUseCase: {}
       OrderUseCase: {}

@@ -33,8 +33,7 @@ type TicketStockUseCase interface {
 	//
 	//  - PermissionDenied: the stock does not exist or its event's Series is
 	//    another Organizer's; it is not revealed which.
-	//  - FailedPrecondition: an Order that is not Void names the stock, or a
-	//    Void Order's card authorization is not yet released.
+	//  - FailedPrecondition: an Order that is not Void names the stock.
 	Delete(ctx context.Context, organizerID string, id entity.TicketStockID) error
 
 	// ListByEvent returns the TicketStocks of one of the Organizer's events,

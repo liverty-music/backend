@@ -41,18 +41,33 @@ const (
 const ResaleFeePercent = 10
 
 // ResaleDeadlineLead is how long before its event's start time a listing's
-// deadline falls. It equals the admission window's lead, so resale closes the
-// moment admission opens.
+// deadline falls at the latest. It equals the admission window's lead, so
+// resale is closed when admission opens.
 const ResaleDeadlineLead = admissionWindowLead
 
-// ResaleDeadlineOf returns the resale deadline of the event: 3 hours before
-// its current start time, which is when its admission window opens. ok is
-// false when the event has no start time.
+// ResaleDeadlineAt returns the resale deadline of an event starting at start,
+// which is also its last resale draw: 12:00 Japan time on the event's day, or
+// 3 hours before the start time, when admission opens, if that is earlier.
+// It is on a whole minute, rounded down from a start time with seconds: the
+// draw schedule runs on whole minutes, and a deadline between two of them
+// would never be drawn.
+func ResaleDeadlineAt(start time.Time) time.Time {
+	local := start.In(japanTime)
+	noon := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, japanTime)
+	if beforeAdmission := start.Add(-ResaleDeadlineLead).Truncate(time.Minute); beforeAdmission.Before(noon) {
+		return beforeAdmission
+	}
+	return noon
+}
+
+// ResaleDeadlineOf returns the resale deadline of the event
+// ([ResaleDeadlineAt] of its current start time). ok is false when the event
+// has no start time.
 func ResaleDeadlineOf(event *Event) (deadline time.Time, ok bool) {
 	if event == nil || event.StartTime == nil {
 		return time.Time{}, false
 	}
-	return event.StartTime.Add(-ResaleDeadlineLead), true
+	return ResaleDeadlineAt(*event.StartTime), true
 }
 
 // ResaleFee returns the resale fee of a listing priced price in yen: 10% of
@@ -105,6 +120,12 @@ type ResaleListing struct {
 	// SoldEmailSendTime is when the email telling the user the Ticket sold
 	// was sent; nil until sent, then set once.
 	SoldEmailSendTime *time.Time
+	// ResaleEntryID is the ResaleEntry a draw allocated the listing to; empty
+	// until allocated.
+	ResaleEntryID ResaleEntryID
+	// ResaleEntryState is the state of that entry, read with the listing;
+	// unspecified when it has none.
+	ResaleEntryState ResaleEntryState
 }
 
 // NewResaleListing returns a Listed ResaleListing with a generated UUIDv7 id
@@ -151,10 +172,19 @@ func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 	return l.Status
 }
 
+// IsFreeForDrawAt reports whether a draw at t may allocate the listing: it is
+// Listed, t is not after its deadline (the last draw runs at the deadline),
+// and no ResaleEntry is allocated to it, or the entry allocated to it is Lost.
+func (l *ResaleListing) IsFreeForDrawAt(t, deadline time.Time) bool {
+	return l.Status == ResaleListingStatusListed && !t.After(deadline) &&
+		(l.ResaleEntryID == "" || l.ResaleEntryState == ResaleEntryStateLost)
+}
+
 // IsWithdrawableAt reports whether the fan can withdraw the listing at t: it
-// is open at t.
+// is open at t and free for a draw, so a listing allocated to an entry being
+// charged cannot be withdrawn.
 func (l *ResaleListing) IsWithdrawableAt(t, deadline time.Time) bool {
-	return l.IsOpenAt(t, deadline)
+	return l.IsOpenAt(t, deadline) && l.IsFreeForDrawAt(t, deadline)
 }
 
 // ResaleListingSoldEmail is the finished "your ticket sold" message for one
@@ -211,14 +241,6 @@ type ResaleListingRepository interface {
 	//
 	//  - Internal: database failure.
 	ListByUser(ctx context.Context, userID UserID) ([]*ResaleListing, error)
-
-	// ListSoldUnrefunded returns every Sold listing that has no refund time,
-	// oldest sold time first; an empty slice when there are none.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database failure.
-	ListSoldUnrefunded(ctx context.Context) ([]*ResaleListing, error)
 
 	// RecordRefund sets the provider refund ID and refund time of a Sold
 	// listing that has no refund time. A listing with a refund time is left

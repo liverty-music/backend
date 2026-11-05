@@ -195,12 +195,13 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 // provider from the payment queue, the issue of a Checkout from the checkout
 // queue (OpenSpec changes make-lottery-draw-durable, unify-order-issuance).
 func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
-	cardAuthorizations := entity.CardAuthorizationRepository(infrapayment.NewNoopCardAuthorizationRepository(logger))
+	provider := rdb.CardAuthorizationProvider(infrapayment.NewNoopCardAuthorizationProvider(logger))
 	if cfg.StripeSecretKey != "" {
-		cardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.StripeSecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
+		provider = infrapayment.NewStripeCardAuthorizationProvider(cfg.StripeSecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
 	} else {
 		logger.Warn(ctx, "STRIPE_SECRET_KEY is not set; lottery captures and releases fail with Unavailable")
 	}
+	cardAuthorizations := entity.CardAuthorizationRepository(rdb.NewCardAuthorizationRepository(db, provider))
 	saleRepo := rdb.NewTicketSaleRepository(db, outbox)
 	stockRepo := rdb.NewTicketStockRepository(db)
 	entryRepo := rdb.NewLotteryEntryRepository(db, outbox)
@@ -222,6 +223,19 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.RegisterSchedule(rt, usecase.WorkflowDrawDueSales, usecase.DrawDueSalesSchedule, lottery.DrawDueSales)
 	workflow.Register(rt, usecase.WorkflowDraw, lottery.Draw)
 
+	// Official resale by lottery: draw-resale every minute starts the draw of
+	// each stock due at that time (OpenSpec change resell-tickets-by-lottery).
+	resale := usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
+		EntryRepo:  rdb.NewResaleEntryRepository(db, outbox),
+		StockRepo:  stockRepo,
+		EventRepo:  rdb.NewEventRepository(db),
+		EventState: rdb.NewEventPublishStateRepository(db),
+		Clock:      time.Now,
+		Logger:     logger,
+	})
+	workflow.RegisterSchedule(rt, usecase.WorkflowDrawResale, usecase.DrawResaleSchedule, resale.DrawResale)
+	workflow.Register(rt, usecase.WorkflowDrawResaleStock, resale.DrawStock)
+
 	// The worker's OrderUseCase commits, charges and releases; it starts no
 	// workflow, places no order and runs no refund. A card authorization's
 	// policy only names the keys of its Create, so the lottery's repository
@@ -231,6 +245,8 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 		IssuanceRepo:             rdb.NewIssuanceRepository(db, outbox),
 		OrderRepo:                orderRepo,
 		EntryRepo:                entryRepo,
+		ResaleEntryRepo:          rdb.NewResaleEntryRepository(db, outbox),
+		EventRepo:                rdb.NewEventRepository(db),
 		CheckoutRepo:             checkoutRepo,
 		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
 		OrganizerRepo:            rdb.NewOrganizerRepository(db, outbox),
@@ -249,6 +265,16 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	}
 	workflow.Register(rt, usecase.WorkflowIssue, orders.Issue)
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, orders.ReleaseCardAuthorization)
+
+	// A sold listing's refund runs in its own workflow, started from the
+	// sale's announcement (design D10).
+	resaleListings := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
+		Listings: rdb.NewResaleListingRepository(db, outbox),
+		Orders:   orderRepo,
+		Clock:    time.Now,
+		Logger:   logger,
+	})
+	workflow.Register(rt, usecase.WorkflowRefundSold, resaleListings.RefundSold)
 
 	// The worker's CheckoutUseCase only ends holds.
 	checkouts := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{

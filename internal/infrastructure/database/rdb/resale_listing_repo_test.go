@@ -293,7 +293,7 @@ func TestResaleListingRepository_ListByUser(t *testing.T) {
 	})
 }
 
-func TestResaleListingRepository_ListSoldUnrefundedAndRecordRefund(t *testing.T) {
+func TestResaleListingRepository_RecordRefund(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -324,33 +324,6 @@ func TestResaleListingRepository_ListSoldUnrefundedAndRecordRefund(t *testing.T)
 		return announcedSince(t, mark, entity.SubjectResaleListingRefunded, func() *entityv1.ResaleListing { return &entityv1.ResaleListing{} },
 			func(l *entityv1.ResaleListing) bool { return l.GetId().GetValue() == string(id) })
 	}
-
-	got, err := repo.ListSoldUnrefunded(ctx)
-	require.NoError(t, err)
-	ids := make([]entity.ResaleListingID, len(got))
-	for i, l := range got {
-		ids[i] = l.ID
-	}
-
-	t.Run("just sold", func(t *testing.T) {
-		// @spec components/entity/resale-listing/list-sold-unrefunded "Just sold"
-		assert.Contains(t, ids, justSold.ID)
-	})
-	t.Run("refunded, email not sent", func(t *testing.T) {
-		// @spec components/entity/resale-listing/list-sold-unrefunded "Refunded, email not sent"
-		assert.NotContains(t, ids, refundedNotEmailed.ID)
-	})
-	t.Run("finished", func(t *testing.T) {
-		// @spec components/entity/resale-listing/list-sold-unrefunded "Finished"
-		assert.NotContains(t, ids, finished.ID)
-	})
-	t.Run("listed listing", func(t *testing.T) {
-		// @spec components/entity/resale-listing/list-sold-unrefunded "Listed listing"
-		assert.NotContains(t, ids, listed.ID)
-	})
-	t.Run("oldest sale first", func(t *testing.T) {
-		assert.Equal(t, []entity.ResaleListingID{justSold.ID}, ids)
-	})
 
 	t.Run("refund recorded", func(t *testing.T) {
 		// @spec components/entity/resale-listing/record-refund "Refund recorded"

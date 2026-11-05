@@ -31,7 +31,7 @@ type orderSeed struct {
 }
 
 // insertOrder stores an order of the stock as s describes it, with a card
-// authorization "pi_auth_<id>", and the captured payment a Paid or Refunded
+// authorization recorded for it, and the captured payment a Paid or Refunded
 // order needs, and returns its id. Its source is stored by the caller.
 func insertOrder(t *testing.T, f *stockFixture, s orderSeed) entity.OrderID {
 	t.Helper()
@@ -62,7 +62,7 @@ func insertOrder(t *testing.T, f *stockFixture, s orderSeed) entity.OrderID {
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, referral_code, card_authorization_id, provider,
 			provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, 'JPY', $10)`,
-		id, string(s.user), string(f.ID), s.count, code, "pi_auth_"+id, paymentID, int16(s.status), s.amount, payAt)
+		id, string(s.user), string(f.ID), s.count, code, newCardAuthorizationID(), paymentID, int16(s.status), s.amount, payAt)
 	require.NoError(t, err)
 	return entity.OrderID(id)
 }

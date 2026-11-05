@@ -13,6 +13,8 @@ var notificationTypeToProto = map[entity.NotificationType]entityv1.NotificationT
 	entity.NotificationTypeTicketSaleAnnouncement: entityv1.NotificationType_NOTIFICATION_TYPE_TICKET_SALE_ANNOUNCEMENT,
 	entity.NotificationTypeOrderConfirmation:      entityv1.NotificationType_NOTIFICATION_TYPE_ORDER_CONFIRMATION,
 	entity.NotificationTypeLotteryLoss:            entityv1.NotificationType_NOTIFICATION_TYPE_LOTTERY_LOSS,
+	entity.NotificationTypeResaleEntryLapsed:      entityv1.NotificationType_NOTIFICATION_TYPE_RESALE_ENTRY_LAPSED,
+	entity.NotificationTypeResaleEntryLost:        entityv1.NotificationType_NOTIFICATION_TYPE_RESALE_ENTRY_LOST,
 }
 
 var notificationDeliveryStatusToProto = map[entity.NotificationDeliveryStatus]entityv1.NotificationDeliveryStatus{

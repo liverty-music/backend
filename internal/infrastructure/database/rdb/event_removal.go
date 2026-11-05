@@ -19,9 +19,10 @@ const eventOrderIDsSubquery = `
 `
 
 // eventRemovalLockQueries lock, FOR UPDATE, the events' TicketStocks bound
-// to $1, then their checkouts and lottery entries, then their Orders, then the
-// events: the order every purchase path takes them in (the stock before the
-// rows that change its counts, a checkout or entry before its Order), so the
+// to $1, then their checkouts, lottery entries and resale entries, then their
+// Orders, then the events: the order every purchase path takes them in (the
+// stock before the rows that change its counts, a checkout or entry before its
+// Order), so the
 // removal never deadlocks with one. A purchase that inserts an Order reaches
 // its stock only through the stock's row lock or a foreign-key check (FOR KEY
 // SHARE): one that inserts before the stocks are locked is waited for and
@@ -33,6 +34,8 @@ var eventRemovalLockQueries = []string{
 	 WHERE s.event_id = ANY($1::uuid[]) ORDER BY c.id FOR UPDATE OF c`,
 	`SELECT 1 FROM lottery_entries le JOIN orders o ON o.id = le.order_id JOIN ticket_stocks s ON s.id = o.ticket_stock_id
 	 WHERE s.event_id = ANY($1::uuid[]) ORDER BY le.id FOR UPDATE OF le`,
+	`SELECT 1 FROM resale_entries re JOIN orders o ON o.id = re.order_id JOIN ticket_stocks s ON s.id = o.ticket_stock_id
+	 WHERE s.event_id = ANY($1::uuid[]) ORDER BY re.id FOR UPDATE OF re`,
 	`SELECT 1 FROM orders o JOIN ticket_stocks s ON s.id = o.ticket_stock_id
 	 WHERE s.event_id = ANY($1::uuid[]) ORDER BY o.id FOR UPDATE OF o`,
 	`SELECT 1 FROM events WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
@@ -90,9 +93,19 @@ const (
 		DELETE FROM lottery_entries le USING orders o
 		WHERE le.order_id = o.id AND o.id IN (` + eventOrderIDsSubquery + `) AND o.status = ANY($2::smallint[])
 	`
+	removeEventResaleEntriesQuery = `
+		DELETE FROM resale_entries re USING orders o
+		WHERE re.order_id = o.id AND o.id IN (` + eventOrderIDsSubquery + `) AND o.status = ANY($2::smallint[])
+	`
+	// removeEventOrdersQuery removes the Orders and then the card
+	// authorizations they named, which nothing else names.
 	removeEventOrdersQuery = `
-		DELETE FROM orders o
-		WHERE o.id IN (` + eventOrderIDsSubquery + `) AND o.status = ANY($2::smallint[])
+		WITH removed AS (
+			DELETE FROM orders o
+			WHERE o.id IN (` + eventOrderIDsSubquery + `) AND o.status = ANY($2::smallint[])
+			RETURNING o.card_authorization_id
+		)
+		DELETE FROM card_authorizations WHERE id IN (SELECT card_authorization_id FROM removed)
 	`
 	// removeEventsQuery cascades the events' ticket stocks and sale events.
 	removeEventsQuery = `DELETE FROM events WHERE id = ANY($1::uuid[])`
@@ -147,8 +160,9 @@ func lockAndCheckEventRemoval(ctx context.Context, tx pgx.Tx, eventIDs []string)
 // removeEvents removes the events and every record that depends only on them,
 // within tx, in RESTRICT-safe order: the admission records (admissions,
 // rejected scans, Scanners), the resale listings of the events' TicketStocks,
-// the Reversed Settlements, the Tickets, Checkouts and lottery entries of the
-// Void and Refunded Orders and those Orders, then the events (which cascades
+// the Reversed Settlements, the Tickets, Checkouts, lottery entries and resale
+// entries of the Void and Refunded Orders, those Orders and their card
+// authorizations, then the events (which cascades
 // their TicketStocks, sale events, concerts, performers and ticket journeys),
 // then the Organizer's TicketSales and first-party Series the removal leaves
 // empty.
@@ -179,6 +193,7 @@ func removeEvents(ctx context.Context, tx pgx.Tx, eventIDs []string) error {
 		{removeEventTicketsQuery, []any{eventIDs, endedOrders}, "tickets"},
 		{removeEventCheckoutsQuery, []any{eventIDs, endedOrders}, "checkouts"},
 		{removeEventLotteryEntriesQuery, []any{eventIDs, endedOrders}, "lottery entries"},
+		{removeEventResaleEntriesQuery, []any{eventIDs, endedOrders}, "resale entries"},
 		{removeEventOrdersQuery, []any{eventIDs, endedOrders}, "orders"},
 		{removeEventsQuery, []any{eventIDs}, "events"},
 		{removeEmptiedTicketSalesQuery, []any{saleIDs}, "ticket sales"},

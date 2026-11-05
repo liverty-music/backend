@@ -41,6 +41,11 @@ type OrderConfirmationDeps struct {
 	Stocks entity.TicketStockRepository
 	// LossMailer sends a Lost entry's loss email at most once.
 	LossMailer entity.LotteryLossEmailSender
+	// ResaleEntries reads a Lapsed or Lost resale entry for its ended
+	// message.
+	ResaleEntries entity.ResaleEntryRepository
+	// ResaleEntryMailer sends a resale entry's ended email at most once.
+	ResaleEntryMailer entity.ResaleEntryEndedEmailSender
 	// TimeZone renders the concert and payment times (Asia/Tokyo).
 	TimeZone *time.Location
 }

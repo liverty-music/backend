@@ -36,7 +36,7 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 	setSaleEndByDatabaseClock(t, f.SaleID, 5*time.Second)
 	fan := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-	const cardAuthorizationID = "pi_fan_and_notice"
+	cardAuthorizationID := newCardAuthorizationID()
 	cardAuthorizations := entitymocks.NewMockCardAuthorizationRepository(t)
 	cardAuthorizations.EXPECT().Get(mock.Anything, cardAuthorizationID).Return(&entity.CardAuthorization{
 		ID: cardAuthorizationID, Amount: f.SeatType.AmountFor(2), CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized,

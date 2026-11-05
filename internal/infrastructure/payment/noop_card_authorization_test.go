@@ -19,11 +19,11 @@ func mustLogger(t *testing.T) *logging.Logger {
 	return logger
 }
 
-// TestNoopCardAuthorizationRepository checks that every call fails with
+// TestNoopCardAuthorizationProvider checks that every call fails with
 // Unavailable when no Stripe key is configured.
-func TestNoopCardAuthorizationRepository(t *testing.T) {
+func TestNoopCardAuthorizationProvider(t *testing.T) {
 	t.Parallel()
-	repo := payment.NewNoopCardAuthorizationRepository(mustLogger(t))
+	repo := payment.NewNoopCardAuthorizationProvider(mustLogger(t))
 	ctx := context.Background()
 
 	_, err := repo.Create(ctx, entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: "checkout-1"}, 6000)
