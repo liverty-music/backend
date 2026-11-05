@@ -337,6 +337,7 @@ func TestResaleDrawStory_AuthorizationAboutToExpire(t *testing.T) {
 
 func TestResaleDrawStory_PlansChanged(t *testing.T) {
 	// @spec stories/resell-a-ticket "Plans changed"
+	// @spec components/usecase/order/release-card-authorization "Resale entry withdrawn"
 	s := newResaleStory(t)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)

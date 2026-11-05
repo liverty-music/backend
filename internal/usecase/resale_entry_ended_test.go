@@ -95,6 +95,7 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 	t.Run("lapsed entry", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-resale-entry-ended "Lapsed entry"
+		// @spec components/usecase/notification/deliver "Resale entry ended"
 		f := newEndedFixture(t, open)
 		f.ended(entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonUnspecified)
 		var mail entity.ResaleEntryEndedEmail
