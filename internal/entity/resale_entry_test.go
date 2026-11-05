@@ -68,6 +68,16 @@ func TestResaleDrawAt(t *testing.T) {
 		assert.False(t, draw, "no draw at 12:00 that day")
 	})
 
+	t.Run("start time with seconds", func(t *testing.T) {
+		t.Parallel()
+		// The schedule runs on whole minutes: a start at 14:00:30 has its last
+		// draw at 11:00, not at 11:00:30, which no run would reach.
+		start := novJST(10, 14).Add(30 * time.Second)
+		draw, last := entity.ResaleDrawAt(novJST(10, 11), start)
+		assert.True(t, draw)
+		assert.True(t, last)
+	})
+
 	t.Run("other times", func(t *testing.T) {
 		t.Parallel()
 		draw, _ := entity.ResaleDrawAt(novJST(9, 13), novJST(10, 19))
