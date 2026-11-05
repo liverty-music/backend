@@ -47,7 +47,9 @@ func (uc *resaleEntryUseCase) DrawResale(ctx context.Context, f Flow, at time.Ti
 			if s.StartTime == nil {
 				continue
 			}
-			if draw, _ := entity.ResaleDrawAt(at, *s.StartTime); draw {
+			// A stock listed here still has Entered entries, so one past its
+			// deadline missed its last draw and is drawn now.
+			if draw, _ := entity.ResaleDrawAt(at, *s.StartTime); draw || entity.ResaleLastDrawMissed(at, *s.StartTime) {
 				ids = append(ids, s.StockID)
 			}
 		}
@@ -81,7 +83,8 @@ func (uc *resaleEntryUseCase) DrawStock(ctx context.Context, f Flow, in ResaleSt
 			return resaleDrawCounts{}, nil
 		}
 		draw, last := entity.ResaleDrawAt(in.At, *event.StartTime)
-		if !draw {
+		missed := entity.ResaleLastDrawMissed(in.At, *event.StartTime)
+		if !draw && !missed {
 			return resaleDrawCounts{}, nil
 		}
 		published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
@@ -90,6 +93,11 @@ func (uc *resaleEntryUseCase) DrawStock(ctx context.Context, f Flow, in ResaleSt
 		}
 		rnd := uc.newRand()
 		recorded, err := uc.entryRepo.DrawUnderLock(ctx, in.StockID, in.At, func(entries []*entity.ResaleEntry, free []entity.ResaleListingID) entity.ResaleDrawOutcome {
+			if missed {
+				// Every listing expired at the deadline: the missed last
+				// draw only ends the entries.
+				return entity.DrawResale(entries, nil, in.At, true, !published)
+			}
 			shuffled := shuffleResaleEntries(entries, rnd)
 			return entity.DrawResale(shuffled, free, in.At, last, !published)
 		})

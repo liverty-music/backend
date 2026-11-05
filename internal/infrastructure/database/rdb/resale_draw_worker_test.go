@@ -43,8 +43,8 @@ func TestResaleDraw_Worker(t *testing.T) {
 	require.NoError(t, err)
 	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
 
-	// Events on 10 March 2027, so only these stocks are due at 12:00 on
-	// 9 March; the other fixtures' events closed resale in December.
+	// Events on 10 March 2027, so these stocks have a daily draw at 12:00 on
+	// 9 March.
 	start := time.Date(2027, 3, 10, 19, 0, 0, 0, resaleJST)
 	at := time.Date(2027, 3, 9, 12, 0, 0, 0, resaleJST)
 	apply := time.Date(2027, 3, 1, 10, 0, 0, 0, resaleJST)
@@ -92,7 +92,9 @@ func TestResaleDraw_Worker(t *testing.T) {
 		require.NoError(t, client.Start(ctx, usecase.WorkflowDrawResale, id, at))
 		due, err := usecase.Await[int](ctx, client, id, storyWait)
 		require.NoError(t, err)
-		assert.Equal(t, 2, due)
+		// Other tests' stocks whose resale closed with Entered entries left
+		// are due too, as missed last draws; this test's two are among them.
+		assert.GreaterOrEqual(t, due, 2)
 	}
 
 	require.NoError(t, client.Await(ctx, usecase.DrawResaleStockWorkflowID(drawnStock.ID, at), storyWait, nil))

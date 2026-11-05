@@ -85,6 +85,14 @@ func TestResaleDrawAt(t *testing.T) {
 		draw, _ = entity.ResaleDrawAt(novJST(11, 12), novJST(10, 19))
 		assert.False(t, draw, "after the last draw")
 	})
+
+}
+
+func TestResaleLastDrawMissed(t *testing.T) {
+	t.Parallel()
+	assert.False(t, entity.ResaleLastDrawMissed(novJST(10, 12), novJST(10, 19)), "at the deadline the last draw runs")
+	assert.True(t, entity.ResaleLastDrawMissed(novJST(10, 12).Add(time.Minute), novJST(10, 19)))
+	assert.False(t, entity.ResaleLastDrawMissed(novJST(9, 12), novJST(10, 19)))
 }
 
 func TestNextResaleDrawTime(t *testing.T) {

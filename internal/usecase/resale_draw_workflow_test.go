@@ -151,6 +151,23 @@ func TestResaleEntryUseCase_DrawStock(t *testing.T) {
 		assert.Equal(t, entity.ResaleEntryLostReasonConcertCancelled, decided.LostReason)
 	})
 
+	t.Run("last draw missed", func(t *testing.T) {
+		t.Parallel()
+		// The worker was down at the deadline: the next run ends the entries
+		// and allocates none of the listings, which expired at the deadline.
+		f := newDrawFixture(t)
+		late := reLastDraw.Add(5 * time.Minute)
+		a, b := candidate("a", 1, week), candidate("b", 2, week)
+		decided := expectDraw(f, late, true, []*entity.ResaleEntry{a, b}, []entity.ResaleListingID{"l1", "l2", "l3"})
+
+		_, err := f.uc.DrawStock(ctx, &inlineFlow{}, in(late))
+
+		require.NoError(t, err)
+		assert.Empty(t, decided.Winners, "no expired listing is allocated")
+		assert.ElementsMatch(t, []*entity.ResaleEntry{a, b}, decided.Lost)
+		assert.Equal(t, entity.ResaleEntryLostReasonNoTicketLeft, decided.LostReason)
+	})
+
 	t.Run("not a draw time of the event", func(t *testing.T) {
 		t.Parallel()
 		f := newDrawFixture(t)
@@ -184,10 +201,11 @@ func TestResaleEntryUseCase_DrawResale(t *testing.T) {
 		n, err := f.uc.DrawResale(ctx, flow, reDrawAt)
 
 		require.NoError(t, err)
-		assert.Equal(t, 2, n, "the matinee on 6 November drew at 11:00, not 12:00")
+		assert.Equal(t, 3, n, "the matinee on 6 November still has Entered entries, so its 11:00 last draw was missed and runs now")
 		assert.Equal(t, []string{
 			usecase.DrawResaleStockWorkflowID("stock-s", reDrawAt),
 			usecase.DrawResaleStockWorkflowID("stock-a", reDrawAt),
+			usecase.DrawResaleStockWorkflowID("stock-m", reDrawAt),
 		}, flow.started)
 	})
 

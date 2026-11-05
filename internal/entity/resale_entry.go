@@ -189,6 +189,16 @@ func ResaleDrawAt(t, start time.Time) (draw, last bool) {
 	return local.Hour() == ResaleDrawHour && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0, false
 }
 
+// ResaleLastDrawMissed reports whether t is after the resale deadline of the
+// event starting at start. A stock that still has Entered entries then
+// missed its last draw (the worker was down at the deadline, and the
+// schedule does not backfill): the next run ends them as the last draw
+// would have, except that it allocates no listing, since every listing
+// expired at the deadline.
+func ResaleLastDrawMissed(t, start time.Time) bool {
+	return t.After(ResaleDeadlineAt(start))
+}
+
 // NextResaleDrawTime returns the first resale draw of the event starting at
 // start that runs after now, and false when its last draw has passed.
 func NextResaleDrawTime(now, start time.Time) (time.Time, bool) {
