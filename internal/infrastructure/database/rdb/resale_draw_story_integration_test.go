@@ -117,7 +117,10 @@ func noonAfter(t time.Time) time.Time {
 func (s *resaleStory) draw(at time.Time, stocks ...entity.TicketStockID) {
 	s.t.Helper()
 	s.now = at
-	id := usecase.WorkflowDrawResale + ":" + at.UTC().Format(time.RFC3339)
+	// The id carries the real time too: the workflow system database keeps
+	// finished runs, and another story's or test run's run for the same draw
+	// time would answer without drawing this story's stocks.
+	id := usecase.WorkflowDrawResale + ":" + at.UTC().Format(time.RFC3339) + ":" + time.Now().Format(time.RFC3339Nano)
 	require.NoError(s.t, s.client.Start(s.ctx, usecase.WorkflowDrawResale, id, at))
 	_, err := usecase.Await[int](s.ctx, s.client, id, storyWait)
 	require.NoError(s.t, err)

@@ -84,8 +84,10 @@ func TestResaleDraw_Worker(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	// The schedule runs one workflow per scheduled time; a second start of the
-	// same run starts nothing new.
-	id := usecase.WorkflowDrawResale + ":" + at.UTC().Format(time.RFC3339)
+	// same run starts nothing new. The id carries this test run's time too:
+	// the workflow system database keeps finished runs, and a run left by an
+	// earlier test run would answer without starting this run's stocks.
+	id := usecase.WorkflowDrawResale + ":" + at.UTC().Format(time.RFC3339) + ":" + time.Now().Format(time.RFC3339Nano)
 	for range 2 {
 		require.NoError(t, client.Start(ctx, usecase.WorkflowDrawResale, id, at))
 		due, err := usecase.Await[int](ctx, client, id, storyWait)
