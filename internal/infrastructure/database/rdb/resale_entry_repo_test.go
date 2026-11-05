@@ -185,12 +185,10 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 		var wg sync.WaitGroup
 		start := make(chan struct{})
 		for i, e := range entries {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				<-start
 				_, errs[i] = repo.Create(ctx, e)
-			}()
+			})
 		}
 		close(start)
 		wg.Wait()

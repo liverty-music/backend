@@ -120,7 +120,7 @@ func (uc *orderUseCase) planResaleIssue(ctx context.Context, entryID entity.Resa
 	}
 	order := entry.Order
 	if isPaid(order) {
-		return resaleIssuePlan{issuePlan: issuePlan{OrderID: order.ID, Paid: true}}, nil
+		return resaleIssuePlan{OrderID: order.ID, Paid: true}, nil
 	}
 	if entry.State != entity.ResaleEntryStateWon {
 		return resaleIssuePlan{}, apperr.New(codes.FailedPrecondition, "resale entry is not Won; nothing is charged", attrs)
@@ -153,15 +153,13 @@ func (uc *orderUseCase) planResaleIssue(ctx context.Context, entryID entity.Resa
 		return resaleIssuePlan{}, err
 	}
 	return resaleIssuePlan{
-		issuePlan: issuePlan{
-			OrderID:                order.ID,
-			CardAuthorizationID:    order.CardAuthorizationID,
-			EventID:                stock.EventID,
-			OrganizerID:            organizerID,
-			PlatformFeeRateBps:     organizer.PlatformFeeRateBps,
-			IdentityVerificationID: identityVerificationID,
-		},
-		StartTime: *event.StartTime,
+		OrderID:                order.ID,
+		CardAuthorizationID:    order.CardAuthorizationID,
+		EventID:                stock.EventID,
+		OrganizerID:            organizerID,
+		PlatformFeeRateBps:     organizer.PlatformFeeRateBps,
+		IdentityVerificationID: identityVerificationID,
+		StartTime:              *event.StartTime,
 	}, nil
 }
 
