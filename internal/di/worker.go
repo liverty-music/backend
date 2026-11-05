@@ -247,6 +247,7 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 		EntryRepo:                entryRepo,
 		ResaleEntryRepo:          rdb.NewResaleEntryRepository(db, outbox),
 		EventRepo:                rdb.NewEventRepository(db),
+		EventState:               rdb.NewEventPublishStateRepository(db),
 		CheckoutRepo:             checkoutRepo,
 		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
 		OrganizerRepo:            rdb.NewOrganizerRepository(db, outbox),

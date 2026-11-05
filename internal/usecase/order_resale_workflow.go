@@ -28,15 +28,21 @@ type resaleCapture struct {
 	// TooLate is true when the event's start time came before a charge
 	// succeeded; nothing more is tried.
 	TooLate bool `json:"too_late"`
+	// ConcertCancelled is true when the event was no longer PUBLISHED before
+	// the charge, so nothing was charged.
+	ConcertCancelled bool `json:"concert_cancelled,omitempty"`
 }
 
 // issueResaleEntry charges a Won resale entry's Order and issues it with its
-// listings. A card authorization that can no longer be charged makes the entry
-// Lost; at the event's start time it stops charging, releases the card
-// authorization and makes the entry Lost only once the payment provider
-// confirms nothing was charged, or issues the Order when an earlier attempt
-// did charge it. It never makes the entry Lost while a charge's outcome is
-// unknown.
+// listings. A concert that is no longer PUBLISHED, or a card authorization
+// that can no longer be charged, makes the entry Lost without a charge; at the
+// event's start time it stops charging, releases the card authorization and
+// makes the entry Lost only once the payment provider confirms nothing was
+// charged, or issues the Order when an earlier attempt did charge it. When a
+// listing allocated to the entry was cancelled after the charge, it refunds
+// the whole charge and then makes the entry Lost. It never makes the entry
+// Lost while a charge's outcome is unknown or a charge it made is not
+// refunded.
 func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID entity.ResaleEntryID) (IssueResult, error) {
 	attrs := slog.String("resale_entry_id", string(entryID))
 	plan, err := Step(ctx, f, "read", func(ctx context.Context) (resaleIssuePlan, error) {
@@ -50,12 +56,21 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	}
 
 	// The step is retried while the payment provider cannot be reached; each
-	// try first checks the clock, so the retries end at the start time.
+	// try first checks the event and the clock, so the retries end at the
+	// start time. The event is checked inside this step, so a resumed run
+	// does not check it again after a capture that happened.
 	outcome, err := Step(ctx, f, "capture", func(ctx context.Context) (resaleCapture, error) {
+		published, err := uc.eventState.IsEventPublished(ctx, plan.EventID)
+		if err != nil {
+			return resaleCapture{}, err
+		}
+		if !published {
+			return uc.resaleCaptureOfCancelledConcert(ctx, plan.CardAuthorizationID)
+		}
 		if !uc.clock().Before(plan.StartTime) {
 			return resaleCapture{TooLate: true}, nil
 		}
-		err := uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
+		err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
 			return resaleCapture{}, nil
 		}
@@ -66,7 +81,14 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	}
 	switch {
 	case outcome.Charged:
-		return uc.issueCaptured(ctx, f, plan.issuePlan)
+		return uc.issueChargedResaleEntry(ctx, f, entryID, plan.issuePlan)
+	case outcome.ConcertCancelled:
+		if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonConcertCancelled); err != nil {
+			return IssueResult{}, err
+		}
+		uc.logger.Info(ctx, "resale win reverted: the concert was cancelled before the charge", attrs,
+			slog.String("order_id", string(plan.OrderID)))
+		return IssueResult{OrderID: plan.OrderID}, nil
 	case !outcome.TooLate:
 		if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonCardNotCharged); err != nil {
 			return IssueResult{}, err
@@ -91,7 +113,7 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	}
 	if !released {
 		// The card was charged after all: the fan gets the tickets they paid for.
-		return uc.issueCaptured(ctx, f, plan.issuePlan)
+		return uc.issueChargedResaleEntry(ctx, f, entryID, plan.issuePlan)
 	}
 	if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow); err != nil {
 		return IssueResult{}, err
@@ -99,6 +121,73 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	uc.logger.Info(ctx, "resale win reverted: the payment was not completed before the show", attrs,
 		slog.String("order_id", string(plan.OrderID)))
 	return IssueResult{OrderID: plan.OrderID}, nil
+}
+
+// resaleCaptureOfCancelledConcert is the capture step's outcome for a Won
+// entry whose event is no longer PUBLISHED: nothing is charged. An earlier try
+// of the step may have captured the card authorization with its outcome
+// unknown, so the payment provider is asked first; a captured one is issued
+// as charged, and the cancellation refund of the fan's own Order covers it.
+func (uc *orderUseCase) resaleCaptureOfCancelledConcert(ctx context.Context, cardAuthorizationID string) (resaleCapture, error) {
+	authorization, err := uc.cardAuthorizations.Get(ctx, cardAuthorizationID)
+	if err != nil {
+		return resaleCapture{}, err
+	}
+	if authorization.Status == entity.CardAuthorizationStatusCaptured {
+		return resaleCapture{Charged: true}, nil
+	}
+	return resaleCapture{ConcertCancelled: true}, nil
+}
+
+// issueChargedResaleEntry issues the charged Order of a Won resale entry.
+// When a listing allocated to the entry was cancelled after the charge, it
+// refunds the whole charge as the Order's own refund, keeping the entry Won
+// until the refund succeeds, and then makes the entry Lost with the lost
+// reason "listing cancelled". No card authorization is released for it.
+func (uc *orderUseCase) issueChargedResaleEntry(ctx context.Context, f Flow, entryID entity.ResaleEntryID, plan issuePlan) (IssueResult, error) {
+	result, listingCancelled, err := uc.issueCaptured(ctx, f, plan)
+	if err != nil || !listingCancelled {
+		return result, err
+	}
+	// Retried while the payment provider cannot be reached, up to the
+	// workflow's deadline, after which an admin is told.
+	if _, err := Step(ctx, f, "refund cancelled win", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, uc.refundWholeCharge(ctx, plan.OrderID, plan.CardAuthorizationID)
+	}); err != nil {
+		return IssueResult{}, err
+	}
+	if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonListingCancelled); err != nil {
+		return IssueResult{}, err
+	}
+	uc.logger.Info(ctx, "resale win reverted: a listing was cancelled after the charge, which was refunded",
+		slog.String("resale_entry_id", string(entryID)), slog.String("order_id", string(plan.OrderID)))
+	return IssueResult{OrderID: plan.OrderID}, nil
+}
+
+// refundWholeCharge refunds the whole captured charge of the Order's card
+// authorization as the Order's own refund, so a repeated call refunds once.
+//
+// # Possible errors
+//
+//   - FailedPrecondition: the card authorization is not captured, or the
+//     charge was already refunded beyond what the refund needs.
+//   - Unavailable: the payment provider cannot be reached.
+//   - Errors of reading the card authorization, unchanged.
+func (uc *orderUseCase) refundWholeCharge(ctx context.Context, orderID entity.OrderID, cardAuthorizationID string) error {
+	captured, err := uc.capturedPayment(ctx, cardAuthorizationID)
+	if err != nil {
+		return err
+	}
+	chargeID, err := uc.orderRepo.GetProviderChargeID(ctx, captured.ProviderPaymentID)
+	if err != nil {
+		return err
+	}
+	_, err = uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
+		OrderID:          orderID,
+		ProviderChargeID: chargeID,
+		Amount:           captured.AmountJPY,
+	})
+	return err
 }
 
 // revertResaleWin makes the Won entry Lost with the reason in its own step.

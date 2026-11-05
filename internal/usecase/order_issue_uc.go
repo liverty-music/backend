@@ -264,7 +264,8 @@ func (uc *orderUseCase) issueCheckout(ctx context.Context, f Flow, checkoutID en
 		}
 	}
 
-	return uc.issueCaptured(ctx, f, plan)
+	result, _, err := uc.issueCaptured(ctx, f, plan)
+	return result, err
 }
 
 // planCheckoutIssue reads the Checkout, its Order, the Order's stock, the

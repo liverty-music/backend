@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // resaleIssueFixture holds the mocks of the issue of a Won resale entry.
@@ -27,14 +28,31 @@ type resaleIssueFixture struct {
 	sales              *entitymocks.MockTicketSaleRepository
 	organizers         *entitymocks.MockOrganizerRepository
 	cardAuthorizations *entitymocks.MockCardAuthorizationRepository
-	uc                 usecase.OrderUseCase
+	eventState         *ucmocks.MockEventPublishStatePort
+	// published is what the event's publish state reads; true unless a test
+	// cancels the concert.
+	published bool
+	// publishChecks counts the reads of the event's publish state.
+	publishChecks int
+	amount        int64
+	uc            usecase.OrderUseCase
 }
 
 // newResaleIssueFixture builds the use case at now, for a Won entry for 2
 // tickets of 5000 yen of an event starting at reStart.
 func newResaleIssueFixture(t *testing.T, now time.Time) *resaleIssueFixture {
 	t.Helper()
+	return newResaleIssueFixtureOf(t, now, 2)
+}
+
+// newResaleIssueFixtureOf builds the use case at now, for a Won entry for
+// count tickets of 5000 yen of a PUBLISHED event starting at reStart.
+func newResaleIssueFixtureOf(t *testing.T, now time.Time, count int) *resaleIssueFixture {
+	t.Helper()
 	f := &resaleIssueFixture{
+		eventState:         ucmocks.NewMockEventPublishStatePort(t),
+		published:          true,
+		amount:             int64(count) * 5000,
 		now:                now,
 		entries:            entitymocks.NewMockResaleEntryRepository(t),
 		issuance:           entitymocks.NewMockIssuanceRepository(t),
@@ -55,13 +73,15 @@ func newResaleIssueFixture(t *testing.T, now time.Time) *resaleIssueFixture {
 		OrganizerRepo:      f.organizers,
 		EventOrganizerRepo: &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "organizer-1", nil }},
 		CardAuthorizations: f.cardAuthorizations,
+		EventState:         f.eventState,
 		Clock:              fixedClock(now),
 		Logger:             newTestLogger(t),
 	})
-	won := &entity.ResaleEntry{ID: "entry-1", OrderID: "order-1", State: entity.ResaleEntryStateWon, Order: &entity.Order{
-		ID: "order-1", UserID: "fan-1", TicketStockID: "stock-s", TicketCount: 2, Amount: 10000, Currency: "JPY",
-		Status: entity.OrderStatusPending, CardAuthorizationID: "ca-1", ResaleEntryID: "entry-1",
-	}}
+	f.eventState.EXPECT().IsEventPublished(mock.Anything, "event-1").RunAndReturn(func(context.Context, string) (bool, error) {
+		f.publishChecks++
+		return f.published, nil
+	}).Maybe()
+	won := &entity.ResaleEntry{ID: "entry-1", OrderID: "order-1", State: entity.ResaleEntryStateWon, Order: f.pendingOrder(count)}
 	f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(won, nil).Maybe()
 	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-s"), now).Return(soldOutStock("stock-s", reSeatS, true), nil).Maybe()
 	f.events.EXPECT().Get(mock.Anything, "event-1").Return(resaleEvent(), nil).Maybe()
@@ -70,21 +90,44 @@ func newResaleIssueFixture(t *testing.T, now time.Time) *resaleIssueFixture {
 	return f
 }
 
-// expectIssued expects the Order to be made Paid with its 2 Tickets.
-func (f *resaleIssueFixture) expectIssued(t *testing.T) {
-	t.Helper()
+// pendingOrder is the Won entry's Pending Order for count tickets.
+func (f *resaleIssueFixture) pendingOrder(count int) *entity.Order {
+	return &entity.Order{
+		ID: "order-1", UserID: "fan-1", TicketStockID: "stock-s", TicketCount: count, Amount: int64(count) * 5000, Currency: "JPY",
+		Status: entity.OrderStatusPending, CardAuthorizationID: "ca-1", ResaleEntryID: "entry-1",
+	}
+}
+
+// expectCaptured makes the card authorization read back as Captured for the
+// Order's amount.
+func (f *resaleIssueFixture) expectCaptured() {
 	f.cardAuthorizations.EXPECT().Get(mock.Anything, "ca-1").Return(&entity.CardAuthorization{
 		ID: "ca-1", Status: entity.CardAuthorizationStatusCaptured,
-		CapturedPayment: &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, AmountJPY: 10000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"},
+		CapturedPayment: &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", AmountJPY: f.amount, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"},
 	}, nil)
-	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{
-		ID: "order-1", UserID: "fan-1", TicketStockID: "stock-s", TicketCount: 2, Amount: 10000, Currency: "JPY",
-		Status: entity.OrderStatusPending, CardAuthorizationID: "ca-1", ResaleEntryID: "entry-1",
-	}, nil)
+}
+
+// expectIssue expects one attempt to make the Order Paid with its Tickets,
+// which ends with err.
+func (f *resaleIssueFixture) expectIssue(err error) {
+	f.expectCaptured()
+	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
+		return f.pendingOrder(int(f.amount / 5000)), nil
+	})
 	f.issuance.EXPECT().Issue(mock.Anything, mock.MatchedBy(func(o *entity.Order) bool {
 		return o.ID == "order-1" && o.Status == entity.OrderStatusPaid && o.ResaleEntryID == "entry-1"
-	}), mock.MatchedBy(func(ts []*entity.Ticket) bool { return len(ts) == 2 }), mock.Anything).Return(nil).Once()
+	}), mock.MatchedBy(func(ts []*entity.Ticket) bool { return int64(len(ts))*5000 == f.amount }), mock.Anything).Return(err).Once()
 }
+
+// expectIssued expects the Order to be made Paid with its Tickets.
+func (f *resaleIssueFixture) expectIssued(t *testing.T) {
+	t.Helper()
+	f.expectIssue(nil)
+}
+
+// listingCancelled is the failure of Order.Issue when a listing allocated to
+// the entry was cancelled.
+var listingCancelled = apperr.Wrap(entity.ErrResaleListingCancelled, codes.FailedPrecondition, "a listing was cancelled")
 
 func issueResale(f *resaleIssueFixture) (usecase.IssueResult, error) {
 	return f.uc.Issue(context.Background(), &inlineFlow{}, usecase.IssueRequest{ResaleEntryID: "entry-1"})
@@ -169,6 +212,111 @@ func TestOrderUseCase_IssueResaleEntry(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.True(t, got.Paid, "the fan holds the tickets they paid for")
+		f.entries.AssertNotCalled(t, "RevertWin", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("concert cancelled before the charge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/issue "Concert cancelled before the charge"
+		f := newResaleIssueFixture(t, beforeShow)
+		f.published = false
+		f.cardAuthorizations.EXPECT().Get(mock.Anything, "ca-1").Return(&entity.CardAuthorization{
+			ID: "ca-1", Status: entity.CardAuthorizationStatusAuthorized,
+		}, nil).Once()
+		f.entries.EXPECT().RevertWin(mock.Anything, entity.ResaleEntryID("entry-1"), entity.ResaleEntryLostReasonConcertCancelled).Return(nil).Once()
+
+		got, err := issueResale(f)
+
+		require.NoError(t, err)
+		assert.Equal(t, usecase.IssueResult{OrderID: "order-1"}, got)
+		f.cardAuthorizations.AssertNotCalled(t, "Capture", mock.Anything, mock.Anything)
+		f.cardAuthorizations.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
+		f.issuance.AssertNotCalled(t, "Issue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("concert cancelled after a capture whose outcome was unknown", func(t *testing.T) {
+		t.Parallel()
+		// An earlier try of the capture step ended with Unavailable but did
+		// charge the card: the entry is issued, never made Lost while charged.
+		f := newResaleIssueFixture(t, beforeShow)
+		f.published = false
+		f.expectIssued(t)
+
+		got, err := issueResale(f)
+
+		require.NoError(t, err)
+		assert.True(t, got.Paid)
+		f.cardAuthorizations.AssertNotCalled(t, "Capture", mock.Anything, mock.Anything)
+		f.entries.AssertNotCalled(t, "RevertWin", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("resumed after the capture does not check the event again", func(t *testing.T) {
+		t.Parallel()
+		f := newResaleIssueFixture(t, beforeShow)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, "ca-1").Return(nil).Once()
+		flow := newReplayFlow()
+		flow.stopAt = "read captured payment"
+		_, err := f.uc.Issue(context.Background(), flow, usecase.IssueRequest{ResaleEntryID: "entry-1"})
+		require.ErrorIs(t, err, errStopped)
+
+		// The concert is cancelled while the worker is stopped.
+		f.published = false
+		flow.stopAt = ""
+		f.expectIssued(t)
+		got, err := f.uc.Issue(context.Background(), flow, usecase.IssueRequest{ResaleEntryID: "entry-1"})
+
+		require.NoError(t, err)
+		assert.True(t, got.Paid, "the charge already made is issued")
+		assert.Equal(t, 1, f.publishChecks, "the recorded capture is not checked again")
+	})
+
+	t.Run("listing cancelled after the charge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/issue "Listing cancelled after the charge"
+		f := newResaleIssueFixtureOf(t, beforeShow, 1)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, "ca-1").Return(nil).Once()
+		f.expectIssue(listingCancelled)
+		f.orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil)
+		f.orders.EXPECT().CreateRefund(mock.Anything, entity.RefundParams{OrderID: "order-1", ProviderChargeID: "ch_1", Amount: 5000}).Return("re_1", nil).Once()
+		f.entries.EXPECT().RevertWin(mock.Anything, entity.ResaleEntryID("entry-1"), entity.ResaleEntryLostReasonListingCancelled).Return(nil).Once()
+
+		got, err := issueResale(f)
+
+		require.NoError(t, err)
+		assert.Equal(t, usecase.IssueResult{OrderID: "order-1"}, got, "5000 yen refunded, the entry Lost and no Ticket issued")
+	})
+
+	t.Run("listing cancelled: a resumed run refunds once", func(t *testing.T) {
+		t.Parallel()
+		f := newResaleIssueFixtureOf(t, beforeShow, 1)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, "ca-1").Return(nil).Once()
+		f.expectIssue(listingCancelled)
+		f.orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil)
+		f.orders.EXPECT().CreateRefund(mock.Anything, mock.Anything).Return("re_1", nil).Once()
+		f.entries.EXPECT().RevertWin(mock.Anything, entity.ResaleEntryID("entry-1"), entity.ResaleEntryLostReasonListingCancelled).Return(nil).Once()
+		flow := newReplayFlow()
+		flow.stopAt = "revert win"
+		_, err := f.uc.Issue(context.Background(), flow, usecase.IssueRequest{ResaleEntryID: "entry-1"})
+		require.ErrorIs(t, err, errStopped)
+
+		flow.stopAt = ""
+		got, err := f.uc.Issue(context.Background(), flow, usecase.IssueRequest{ResaleEntryID: "entry-1"})
+
+		require.NoError(t, err)
+		assert.False(t, got.Paid)
+	})
+
+	t.Run("listing cancelled: refund unavailable keeps the entry won", func(t *testing.T) {
+		t.Parallel()
+		f := newResaleIssueFixtureOf(t, beforeShow, 1)
+		f.cardAuthorizations.EXPECT().Capture(mock.Anything, "ca-1").Return(nil).Once()
+		f.expectIssue(listingCancelled)
+		f.orders.EXPECT().GetProviderChargeID(mock.Anything, "pi_1").Return("ch_1", nil)
+		f.orders.EXPECT().CreateRefund(mock.Anything, mock.Anything).Return("", unavailable).Once()
+
+		_, err := issueResale(f)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable, "the refund is tried again and an admin is told at the deadline")
 		f.entries.AssertNotCalled(t, "RevertWin", mock.Anything, mock.Anything, mock.Anything)
 	})
 

@@ -126,6 +126,13 @@ func (c resaleEntryEndedContent) lead(lang string) (subject, lead string, applyA
 		}
 		return "【Liverty Music】公式リセールの当選の取り消しのお知らせ",
 			"公式リセールに当選しましたが、決済事業者の障害により開演までに決済を完了できなかったため、当選を取り消しました。", false
+	case c.reason == entity.ResaleEntryLostReasonListingCancelled:
+		if en {
+			return "[Liverty Music] Your official resale win was cancelled",
+				"Your official resale application won, but the ticket allocated to it could no longer be sold, so the win was cancelled.", false
+		}
+		return "【Liverty Music】公式リセールの当選の取り消しのお知らせ",
+			"公式リセールに当選しましたが、お申し込みに割り当てたチケットを販売できなくなったため、当選を取り消しました。", false
 	default:
 		if en {
 			return "[Liverty Music] Your official resale result",
@@ -146,13 +153,17 @@ func (c resaleEntryEndedContent) email(lang string) entity.ResaleEntryEndedEmail
 	if lang == "en" {
 		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s\nVenue: %s\n\n", c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), venue)
 		fmt.Fprintf(&b, "[Your application]\nSeat type: %s\nTickets: %d\n\n", c.seatType, c.count)
-		fmt.Fprintf(&b, "[Payment]\nYour card was not charged. The amount held on your card is given back; it may still show on your card statement for a few days.\n")
+		if c.reason == entity.ResaleEntryLostReasonListingCancelled {
+			fmt.Fprintf(&b, "[Payment]\nThe amount charged to your card is refunded to your card in full. How long the refund takes to show on your card statement depends on your card issuer.\n")
+		} else {
+			fmt.Fprintf(&b, "[Payment]\nYour card was not charged. The amount held on your card is given back; it may still show on your card statement for a few days.\n")
+		}
 		switch {
 		case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
 			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again with another card:\n%s\n", resaleEntriesLinkURL)
 		case applyAgain:
 			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again:\n%s\n", resaleEntriesLinkURL)
-		case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled:
+		case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
 			fmt.Fprintf(&b, "\nResale for this concert has closed.\n")
 		}
 		return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
@@ -160,13 +171,17 @@ func (c resaleEntryEndedContent) email(lang string) entity.ResaleEntryEndedEmail
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
 		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()], venue)
 	fmt.Fprintf(&b, "■ お申し込み内容\n席種: %s\n枚数: %d枚\n\n", c.seatType, c.count)
-	fmt.Fprintf(&b, "■ お支払い\nカードへの請求はありません。カードで確保していた金額は解放されます。カードのご利用明細には数日間表示される場合があります。\n")
+	if c.reason == entity.ResaleEntryLostReasonListingCancelled {
+		fmt.Fprintf(&b, "■ お支払い\nカードでお支払いいただいた金額は、全額をカードに返金します。返金がカードのご利用明細に反映されるまでの期間は、カード会社によって異なります。\n")
+	} else {
+		fmt.Fprintf(&b, "■ お支払い\nカードへの請求はありません。カードで確保していた金額は解放されます。カードのご利用明細には数日間表示される場合があります。\n")
+	}
 	switch {
 	case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
 		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。別のカードで再度お申し込みいただけます。\n%s\n", resaleEntriesLinkURL)
 	case applyAgain:
 		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。再度お申し込みいただけます。\n%s\n", resaleEntriesLinkURL)
-	case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled:
+	case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
 		fmt.Fprintf(&b, "\nこの公演の公式リセールの受付は終了しました。\n")
 	}
 	return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
@@ -183,6 +198,8 @@ func (c resaleEntryEndedContent) push(lang string) (title, body string) {
 			title, body = "Resale ended", "The concert was cancelled. You were not charged."
 		case c.reason == entity.ResaleEntryLostReasonCardNotCharged, c.reason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
 			title, body = "Resale win cancelled", "The payment could not be completed, so the win was cancelled. You were not charged."
+		case c.reason == entity.ResaleEntryLostReasonListingCancelled:
+			title, body = "Resale win cancelled", "The ticket could no longer be sold, so the win was cancelled. The amount charged is refunded to your card."
 		default:
 			title, body = "Resale result", "No ticket was allocated. You were not charged."
 		}
@@ -198,6 +215,8 @@ func (c resaleEntryEndedContent) push(lang string) (title, body string) {
 		title, body = "公式リセールの終了", "公演中止のため申し込みが終了しました。請求はありません。"
 	case c.reason == entity.ResaleEntryLostReasonCardNotCharged, c.reason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
 		title, body = "公式リセールの当選取り消し", "決済を完了できなかったため当選を取り消しました。請求はありません。"
+	case c.reason == entity.ResaleEntryLostReasonListingCancelled:
+		title, body = "公式リセールの当選取り消し", "チケットを販売できなくなったため当選を取り消しました。お支払いいただいた金額はカードに返金します。"
 	default:
 		title, body = "公式リセールの抽選結果", "チケットの割り当てはありませんでした。請求はありません。"
 	}
