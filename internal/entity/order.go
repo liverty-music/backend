@@ -599,9 +599,10 @@ type OrderMailer interface {
 	SendConfirmationEmail(ctx context.Context, orderID OrderID, to string, msg OrderConfirmationEmail) error
 
 	// SendCancellationEmail sends msg, telling the user that the Order's
-	// concert is cancelled and its tickets are refunded, to the address once.
-	// It records nothing on the Order; the caller keeps it to one email per
-	// Order.
+	// concert is cancelled and its tickets are refunded, to the address. It
+	// records nothing on the Order, so each call sends: a call that fails
+	// with Unavailable after the mail service accepted the email, and is
+	// retried, can lead to a second email.
 	//
 	// # Possible errors
 	//
@@ -611,8 +612,10 @@ type OrderMailer interface {
 	SendCancellationEmail(ctx context.Context, orderID OrderID, to string, msg OrderEmail) error
 
 	// SendRefundEmail sends msg, telling the user of a Refunded Order how
-	// much was refunded and to which card, to the address once. It records
-	// nothing on the Order; the caller keeps it to one email per Order.
+	// much was refunded and to which card, to the address. It records
+	// nothing on the Order, so each call sends: a call that fails with
+	// Unavailable after the mail service accepted the email, and is retried,
+	// can lead to a second email.
 	//
 	// # Possible errors
 	//

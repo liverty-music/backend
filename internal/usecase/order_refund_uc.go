@@ -189,14 +189,15 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		return nil, err
 	}
 
-	order.Status = entity.OrderStatusRefunded
-	order.Refund = &entity.OrderRefund{Reason: reason, Amount: refundAmount, ProviderRefundID: providerRefundID, RefundTime: now}
 	uc.logger.Info(ctx, "refund order: completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),
 		slog.String("provider_refund_id", providerRefundID), // empty for DISPUTE (no CreateRefund call)
 	)...)
-	return order, nil
+	// Return the Order as stored: CommitRefund changes nothing when a
+	// concurrent refund of the Order without a Settlement got there first,
+	// and the refund kept is then that one.
+	return uc.orderRepo.Get(ctx, orderID)
 }
 
 // unresoldAmount returns the price of the Order's Tickets that are still
