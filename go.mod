@@ -34,7 +34,7 @@ require (
 	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261106083121-699ae1b5872a.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go/v2 v2.0.1-20261013105838-b6e033b1b614.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20261013105838-b6e033b1b614.2
-	cloud.google.com/go/cloudsqlconn v1.25.4
+	cloud.google.com/go/cloudsqlconn v1.26.0
 	cloud.google.com/go/storage v1.70.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.21.1
@@ -112,11 +112,11 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.15.0 // indirect
-	cloud.google.com/go/monitoring v1.30.0 // indirect
+	cloud.google.com/go/monitoring v1.31.0 // indirect
 	cloud.google.com/go/sql v0.3.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
-	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.60.0 // indirect
+	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.62.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
@@ -218,7 +218,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
-	github.com/shopspring/decimal v1.5.0 // indirect
+	github.com/shopspring/decimal v1.6.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
