@@ -28,6 +28,12 @@ const (
 	// NotificationTypeResaleEntryLost tells a fan their official resale entry
 	// ended without a ticket and nothing was charged.
 	NotificationTypeResaleEntryLost NotificationType = "resale_entry_lost"
+	// NotificationTypeEventCancelled tells a fan with a Paid Order that its
+	// concert is cancelled (中止) and its tickets are refunded.
+	NotificationTypeEventCancelled NotificationType = "event_cancelled"
+	// NotificationTypeOrderRefunded tells a fan their Order was refunded for
+	// a cancellation, with the amount.
+	NotificationTypeOrderRefunded NotificationType = "order_refunded"
 )
 
 // NotificationDeliveryStatus is the per-channel delivery state of a notification.

@@ -156,6 +156,9 @@ func seedRemovableEvent(t *testing.T, status entity.OrganizerStatus) removableEv
 	at := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
 	firstCome := seedStockForEvent(t, e.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 	e.checkoutID, e.checkoutOrderID = insertStockCheckout(t, firstCome, buyerID, entity.OrderStatusRefunded, entity.CheckoutStatusCompleted, 1, at, true)
+	// A Refunded Order has its refund record, removed with the Order.
+	exec(`INSERT INTO order_refunds (order_id, reason, amount, provider_refund_id, refund_at) VALUES ($1, 1, 3000, 're_removable', $2)`,
+		e.checkoutOrderID, at)
 	e.checkoutTicket = entity.NewID()
 	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		e.checkoutTicket, e.checkoutOrderID, buyerID, e.eventID, int16(entity.TicketStatusVoided), at)

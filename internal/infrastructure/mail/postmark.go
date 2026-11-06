@@ -29,6 +29,13 @@ const postmarkHTTPTimeout = 15 * time.Second
 // orderConfirmationTag tags confirmation emails in Postmark's activity log.
 const orderConfirmationTag = "order-confirmation"
 
+// orderCancellationTag tags the cancellation notices in Postmark's activity
+// log.
+const orderCancellationTag = "order-cancellation"
+
+// orderRefundTag tags the refund notices in Postmark's activity log.
+const orderRefundTag = "order-refund"
+
 // OrderStore is what the mailer needs from the Order repository.
 type OrderStore interface {
 	Get(ctx context.Context, id entity.OrderID) (*entity.Order, error)
@@ -57,33 +64,33 @@ func newPostmarkClient(apiURL, serverToken, fromAddress, messageStream string, l
 	}
 }
 
-// PostmarkConfirmationSender implements [entity.OrderConfirmationSender] with
+// PostmarkOrderMailer implements [entity.OrderMailer] with
 // Postmark's transactional message stream.
-type PostmarkConfirmationSender struct {
+type PostmarkOrderMailer struct {
 	postmarkClient
 	orders OrderStore
 	clock  func() time.Time
 }
 
 // Compile-time interface compliance check.
-var _ entity.OrderConfirmationSender = (*PostmarkConfirmationSender)(nil)
+var _ entity.OrderMailer = (*PostmarkOrderMailer)(nil)
 
-// NewPostmarkConfirmationSender creates a sender for the given server token,
+// NewPostmarkOrderMailer creates a sender for the given server token,
 // From address and message stream.
-func NewPostmarkConfirmationSender(orders OrderStore, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkConfirmationSender {
-	return newPostmarkConfirmationSender(orders, postmarkAPIURL, serverToken, fromAddress, messageStream, clock, logger)
+func NewPostmarkOrderMailer(orders OrderStore, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkOrderMailer {
+	return newPostmarkOrderMailer(orders, postmarkAPIURL, serverToken, fromAddress, messageStream, clock, logger)
 }
 
-func newPostmarkConfirmationSender(orders OrderStore, apiURL, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkConfirmationSender {
-	return &PostmarkConfirmationSender{
+func newPostmarkOrderMailer(orders OrderStore, apiURL, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkOrderMailer {
+	return &PostmarkOrderMailer{
 		postmarkClient: newPostmarkClient(apiURL, serverToken, fromAddress, messageStream, logger),
 		orders:         orders,
 		clock:          clock,
 	}
 }
 
-// SendConfirmationEmail implements [entity.OrderConfirmationSender].
-func (s *PostmarkConfirmationSender) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
+// SendConfirmationEmail implements [entity.OrderMailer].
+func (s *PostmarkOrderMailer) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
 	if to == "" || msg.Subject == "" || msg.TextBody == "" {
 		return apperr.New(codes.InvalidArgument, "the address and the message must not be empty",
 			slog.String("order_id", string(orderID)))
@@ -100,6 +107,26 @@ func (s *PostmarkConfirmationSender) SendConfirmationEmail(ctx context.Context, 
 		return err
 	}
 	return s.orders.MarkConfirmationSent(ctx, orderID, s.clock())
+}
+
+// SendCancellationEmail implements [entity.OrderMailer].
+func (s *PostmarkOrderMailer) SendCancellationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderEmail) error {
+	return s.sendOrderEmail(ctx, orderID, to, msg, orderCancellationTag)
+}
+
+// SendRefundEmail implements [entity.OrderMailer].
+func (s *PostmarkOrderMailer) SendRefundEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderEmail) error {
+	return s.sendOrderEmail(ctx, orderID, to, msg, orderRefundTag)
+}
+
+// sendOrderEmail sends msg about the Order to the address, tagged tag, and
+// records nothing.
+func (s *PostmarkOrderMailer) sendOrderEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderEmail, tag string) error {
+	attrs := slog.String("order_id", string(orderID))
+	if to == "" || msg.Subject == "" || msg.TextBody == "" {
+		return apperr.New(codes.InvalidArgument, "the address and the message must not be empty", attrs)
+	}
+	return s.post(ctx, to, msg.Subject, msg.TextBody, tag, map[string]string{"order_id": string(orderID)}, attrs)
 }
 
 // postmarkEmail is the request body of Postmark's single-email endpoint.
@@ -175,23 +202,37 @@ func (s *postmarkClient) post(ctx context.Context, to, subject, textBody, tag st
 	return apperr.Wrap(cause, codes.Unavailable, "email cannot be sent", attrs...)
 }
 
-// NoopConfirmationSender is used when no Postmark token is configured (local
+// NoopOrderMailer is used when no Postmark token is configured (local
 // development): every call fails with Unavailable.
-type NoopConfirmationSender struct {
+type NoopOrderMailer struct {
 	logger *logging.Logger
 }
 
 // Compile-time interface compliance check.
-var _ entity.OrderConfirmationSender = (*NoopConfirmationSender)(nil)
+var _ entity.OrderMailer = (*NoopOrderMailer)(nil)
 
-// NewNoopConfirmationSender creates a NoopConfirmationSender.
-func NewNoopConfirmationSender(logger *logging.Logger) *NoopConfirmationSender {
-	return &NoopConfirmationSender{logger: logger}
+// NewNoopOrderMailer creates a NoopOrderMailer.
+func NewNoopOrderMailer(logger *logging.Logger) *NoopOrderMailer {
+	return &NoopOrderMailer{logger: logger}
 }
 
 // SendConfirmationEmail returns Unavailable because no Postmark token is set.
-func (s *NoopConfirmationSender) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
+func (s *NoopOrderMailer) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
 	s.logger.Warn(ctx, "order confirmation email skipped: POSTMARK_SERVER_TOKEN is not configured",
+		slog.String("order_id", string(orderID)))
+	return apperr.New(codes.Unavailable, "email is not configured")
+}
+
+// SendCancellationEmail returns Unavailable because no Postmark token is set.
+func (s *NoopOrderMailer) SendCancellationEmail(ctx context.Context, orderID entity.OrderID, _ string, _ entity.OrderEmail) error {
+	s.logger.Warn(ctx, "order cancellation email skipped: POSTMARK_SERVER_TOKEN is not configured",
+		slog.String("order_id", string(orderID)))
+	return apperr.New(codes.Unavailable, "email is not configured")
+}
+
+// SendRefundEmail returns Unavailable because no Postmark token is set.
+func (s *NoopOrderMailer) SendRefundEmail(ctx context.Context, orderID entity.OrderID, _ string, _ entity.OrderEmail) error {
+	s.logger.Warn(ctx, "order refund email skipped: POSTMARK_SERVER_TOKEN is not configured",
 		slog.String("order_id", string(orderID)))
 	return apperr.New(codes.Unavailable, "email is not configured")
 }

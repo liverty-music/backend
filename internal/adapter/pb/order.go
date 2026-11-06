@@ -41,8 +41,8 @@ func FromOrder(order *entity.Order) *entityv1.Order {
 	if order.Payment.ProviderPaymentMethodID != "" {
 		pb.Payment.ProviderPaymentMethodId = &entityv1.Payment_ProviderPaymentMethodId{Value: order.Payment.ProviderPaymentMethodID}
 	}
-	if order.ProviderRefundID != "" {
-		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: order.ProviderRefundID}
+	if order.Refund != nil && order.Refund.ProviderRefundID != "" {
+		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: order.Refund.ProviderRefundID}
 	}
 	if order.ConfirmationSendTime != nil {
 		pb.ConfirmationSendTime = timestamppb.New(*order.ConfirmationSendTime)

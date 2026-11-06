@@ -77,6 +77,16 @@ const (
 	// transaction of the issuance. The workflow starter starts
 	// ResaleListingUseCase.RefundSold (refund:<listing>) from it (design D10).
 	SubjectResaleListingSold = "ORDER.resale_listing_sold"
+	// SubjectOrderRefunded announces an Order that Order.CommitRefund made
+	// Refunded, with the Order and its refund, once, in the transaction of
+	// the refund. The refund notice (NotificationUseCase.SendOrderRefunded)
+	// runs from it.
+	SubjectOrderRefunded = "ORDER.refunded"
+	// SubjectConcertCancelled announces an Event that Series.CancelEvents
+	// made CANCELLED, with the Event, once per Event, in the transaction of
+	// the cancellation. The cancellation notice
+	// (NotificationUseCase.SendEventCancelled) runs from it.
+	SubjectConcertCancelled = "CONCERT.cancelled"
 	// SubjectResaleListingRefunded announces that the user of a resold
 	// ResaleListing was refunded from the listing's Order's charge.
 	// ResaleListing.RecordRefund announces it once, with the refund; the
@@ -167,6 +177,8 @@ var AllSubjects = []string{
 	SubjectCheckoutExpired,
 	SubjectCheckoutReleased,
 	SubjectTicketAdmitted,
+	SubjectOrderRefunded,
+	SubjectConcertCancelled,
 }
 
 // LotteryEntryEnteredData is what the receiver of an

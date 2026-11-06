@@ -385,7 +385,7 @@ func (s *resaleStory) adminOrders() usecase.OrderUseCase {
 		OrderRepo:      repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(s.key, s.logger)),
 		TicketRepo:     rdb.NewTicketRepository(testDB, testOutbox),
 		EventRepo:      rdb.NewEventRepository(testDB),
-		RefundRepo:     rdb.NewRefundRepository(testDB),
+		RefundRepo:     rdb.NewRefundRepository(testDB, testOutbox),
 		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(testDB), payment.NewNoopSettlementPayouts(s.logger)),
 		Clock:          func() time.Time { return s.now },
 		Logger:         s.logger,

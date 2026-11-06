@@ -147,3 +147,4 @@ configMapGenerator:
   - migrations/20261105120000_upgrade_dbos_schema_to_125.sql
   - migrations/20261105130000_add_resale_entries_and_card_authorizations.sql
   - migrations/20261106120000_add_resale_entry_lost_reason_listing_cancelled.sql
+  - migrations/20261106120001_add_order_refunds.sql

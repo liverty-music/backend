@@ -2,9 +2,11 @@ package rdb_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -711,6 +713,64 @@ func TestSeriesRepository_CancelEvents(t *testing.T) {
 		_, err := f.repo.CancelEvents(f.ctx, entity.NewID(), []string{entity.NewID()})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+// cancelledOf returns the CONCERT.cancelled announcements of the events
+// recorded after mark.
+func cancelledOf(t *testing.T, mark int64, eventIDs ...string) []*entityv1.Event {
+	t.Helper()
+	return announcedSince(t, mark, entity.SubjectConcertCancelled, func() *entityv1.Event { return &entityv1.Event{} },
+		func(e *entityv1.Event) bool { return slices.Contains(eventIDs, e.GetId().GetValue()) })
+}
+
+func TestSeriesRepository_CancelEvents_Announces(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	t.Run("each cancelled event announced once", func(t *testing.T) {
+		// @spec components/entity/series/cancel-events "Two dates cancelled"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStatePublished)
+		mark := outboxMark(t)
+
+		_, err := f.repo.CancelEvents(f.ctx, seriesID, ids)
+
+		require.NoError(t, err)
+		got := cancelledOf(t, mark, ids...)
+		require.Len(t, got, 2)
+		announced := []string{got[0].GetId().GetValue(), got[1].GetId().GetValue()}
+		assert.ElementsMatch(t, ids, announced)
+	})
+
+	t.Run("nothing announced for a removed draft", func(t *testing.T) {
+		// @spec components/entity/series/cancel-events "Draft removed"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStateDraft)
+		mark := outboxMark(t)
+
+		_, err := f.repo.CancelEvents(f.ctx, seriesID, ids)
+
+		require.NoError(t, err)
+		assert.Len(t, cancelledOf(t, mark, ids[0]), 1)
+		assert.Empty(t, cancelledOf(t, mark, ids[1]))
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/series/cancel-events "Announcement cannot be recorded"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStateDraft)
+
+		_, err := rdb.NewSeriesRepository(testDB, failingOutbox{}).CancelEvents(f.ctx, seriesID, ids)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		state, ok := f.state(ids[0])
+		require.True(t, ok)
+		assert.Equal(t, "PUBLISHED", state)
+		state, ok = f.state(ids[1])
+		require.True(t, ok)
+		assert.Equal(t, "DRAFT", state)
 	})
 }
 

@@ -39,10 +39,12 @@ const resaleEntrySelect = `
 		ca.expire_at,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
+		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
 		NULL::uuid, NULL::uuid, re.id
 	FROM resale_entries re
 	JOIN orders o ON o.id = re.order_id
+	LEFT JOIN order_refunds orf ON orf.order_id = o.id
 	LEFT JOIN card_authorizations ca ON ca.id = o.card_authorization_id
 `
 

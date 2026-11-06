@@ -77,7 +77,7 @@ func TestNewPendingOrder(t *testing.T) {
 	assert.Equal(t, stock.ID, order.TicketStockID)
 	assert.Empty(t, order.Payment.ProviderPaymentID)
 	assert.Nil(t, order.PayTime)
-	assert.Empty(t, order.ProviderRefundID)
+	assert.Nil(t, order.Refund)
 }
 
 func TestValidateTicketCount(t *testing.T) {

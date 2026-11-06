@@ -18,14 +18,16 @@ type OrderRepository struct {
 	db *Database
 }
 
-// orderSelect reads orders (aliased o) with the id of the LotteryEntry,
-// Checkout or ResaleEntry that names each.
+// orderSelect reads orders (aliased o) with their refund (aliased orf) and
+// the id of the LotteryEntry, Checkout or ResaleEntry that names each.
 const orderSelect = `
 	SELECT o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.provider_refund_id, o.confirmation_send_at,
+		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
 		le.id, c.id, re.id
 	FROM orders o
+	LEFT JOIN order_refunds orf ON orf.order_id = o.id
 	LEFT JOIN lottery_entries le ON le.order_id = o.id
 	LEFT JOIN checkouts c ON c.order_id = o.id
 	LEFT JOIN resale_entries re ON re.order_id = o.id
@@ -287,6 +289,10 @@ type orderColumns struct {
 	lotteryEntryID, checkoutID, resaleEntryID            sql.NullString
 	provider, status                                     int16
 	payAt, confirmationSentAt                            sql.NullTime
+	refundReason                                         sql.NullInt16
+	refundAmount                                         sql.NullInt64
+	providerRefundID                                     sql.NullString
+	refundAt                                             sql.NullTime
 }
 
 // dest returns the scan targets in column order.
@@ -294,7 +300,8 @@ func (c *orderColumns) dest() []any {
 	return []any{
 		&c.id, &c.userID, &c.stockID, &c.o.TicketCount, &c.referralCode, &c.cardAuthorizationID,
 		&c.provider, &c.providerPaymentID, &c.o.Payment.ProviderPaymentMethodID, &c.o.Payment.CardBrand, &c.o.Payment.CardLast4,
-		&c.status, &c.o.Amount, &c.o.Currency, &c.payAt, &c.o.ProviderRefundID, &c.confirmationSentAt,
+		&c.status, &c.o.Amount, &c.o.Currency, &c.payAt, &c.confirmationSentAt,
+		&c.refundReason, &c.refundAmount, &c.providerRefundID, &c.refundAt,
 		&c.lotteryEntryID, &c.checkoutID, &c.resaleEntryID,
 	}
 }
@@ -328,6 +335,16 @@ func (c *orderColumns) order() *entity.Order {
 	o.ConfirmationSendTime = optionalTime(c.confirmationSentAt)
 	o.Payment.Provider = entity.PaymentProvider(c.provider)
 	o.Status = entity.OrderStatus(c.status)
+	// A refund row exists exactly for a Refunded order; its reason is NOT
+	// NULL, so a valid reason means the row was joined.
+	if c.refundReason.Valid {
+		o.Refund = &entity.OrderRefund{
+			Reason:           entity.RefundReason(c.refundReason.Int16),
+			Amount:           c.refundAmount.Int64,
+			ProviderRefundID: c.providerRefundID.String,
+			RefundTime:       c.refundAt.Time,
+		}
+	}
 	return &o
 }
 

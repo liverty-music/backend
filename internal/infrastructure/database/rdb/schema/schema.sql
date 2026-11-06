@@ -389,7 +389,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
 COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
 COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss, resale_entry_lapsed, resale_entry_lost';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss, resale_entry_lapsed, resale_entry_lost, event_cancelled, order_refunded';
 COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
 COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
 COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
@@ -839,7 +839,6 @@ CREATE TABLE IF NOT EXISTS orders (
     amount             BIGINT  NOT NULL,
     currency           TEXT    NOT NULL,
     pay_at             TIMESTAMPTZ,
-    provider_refund_id TEXT    NOT NULL DEFAULT '',
     confirmation_send_at TIMESTAMPTZ,
     ticket_stock_id    UUID    NOT NULL REFERENCES ticket_stocks(id) ON DELETE RESTRICT,
     ticket_count       INTEGER NOT NULL,
@@ -871,7 +870,6 @@ COMMENT ON COLUMN orders.amount IS 'Total to pay in the currency smallest unit (
 COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
 COMMENT ON COLUMN orders.pay_at IS 'When the payment was captured and the order became Paid; set exactly on a Paid or Refunded order';
 COMMENT ON COLUMN orders.confirmation_send_at IS 'When the purchase confirmation email was sent; NULL until sent. Set right after a successful send so a redelivered event sends nothing.';
-COMMENT ON COLUMN orders.provider_refund_id IS 'The payment provider''s ID for the refund (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
 COMMENT ON COLUMN orders.ticket_stock_id IS 'The ticket stock the tickets are of, which gives their event and seat type';
 COMMENT ON COLUMN orders.ticket_count IS 'Tickets applied for, a companion group: 1 to the per-account limit of the stock''s event';
 COMMENT ON COLUMN orders.referral_code IS 'The referral code of the link the fan came from, from its ?ref=: 1 to 32 lowercase ASCII letters, digits or hyphens. NULL without a code; set at creation and never changed';
@@ -885,6 +883,27 @@ COMMENT ON INDEX idx_orders_ticket_stock_status IS 'Optimizes the sold and held 
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_card_authorization_id ON orders(card_authorization_id) WHERE card_authorization_id IS NOT NULL;
 COMMENT ON INDEX uq_orders_card_authorization_id IS 'At most one order per card authorization; the lookup of a lottery entry, checkout or resale entry by its card authorization';
+
+-- Order refunds: the refund record of a Refunded order. A row exists exactly
+-- for an order with status 2 (Refunded); Order.CommitRefund is its only writer
+-- and stores it with the order's status in one transaction.
+CREATE TABLE IF NOT EXISTS order_refunds (
+    order_id           UUID        PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+    reason             SMALLINT    NOT NULL,
+    amount             BIGINT      NOT NULL,
+    provider_refund_id TEXT,
+    refund_at          TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_order_refunds_reason CHECK (reason IN (1, 3)),
+    CONSTRAINT chk_order_refunds_amount CHECK (amount >= 0),
+    CONSTRAINT chk_order_refunds_provider_refund_id_not_empty CHECK (provider_refund_id IS NULL OR provider_refund_id <> '')
+);
+
+COMMENT ON TABLE order_refunds IS 'The refund of a Refunded order: why, how much and when. A row exists exactly for an order with status 2, written with that status by Order.CommitRefund and removed with the order';
+COMMENT ON COLUMN order_refunds.order_id IS 'The Refunded order';
+COMMENT ON COLUMN order_refunds.reason IS 'Refund reason: 1=Cancellation (the event was cancelled, 中止), 3=Dispute (the card issuer returned the money). 2 is retired';
+COMMENT ON COLUMN order_refunds.amount IS 'Amount refunded to the fan''s card by the platform, in the order currency smallest unit: the price of the tickets still issued for a cancellation; 0 for a dispute or when every ticket was resold';
+COMMENT ON COLUMN order_refunds.provider_refund_id IS 'The payment provider''s ID for the refund (e.g. Stripe "re_..."); NULL when the platform moved no money (a dispute, or every ticket resold)';
+COMMENT ON COLUMN order_refunds.refund_at IS 'When the order was refunded';
 
 -- Lottery entries: how one fan's order takes part in a lottery sale, made
 -- Entered when the fan confirms an authorized card authorization. One entry per

@@ -12,6 +12,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
@@ -112,6 +113,36 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	)
 	workflow.Register(rt, usecase.WorkflowDeliverNotification, notifications.RunDeliver)
 
+	// The cancellation and refund notices of an Order: read, email through
+	// Postmark (a no-op sender reporting Unavailable without a token), then
+	// Deliver. The worker refunds nothing, so the Order's payment provider
+	// part is the no-op.
+	japanTime, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		return fmt.Errorf("load Asia/Tokyo time zone: %w", err)
+	}
+	var orderMailer entity.OrderMailer = mail.NewNoopOrderMailer(logger)
+	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
+	if pm := cfg.Postmark; pm.ServerToken != "" {
+		orderMailer = mail.NewPostmarkOrderMailer(orderRepo, pm.ServerToken, pm.FromAddress, pm.MessageStream, time.Now, logger)
+	}
+	orderNotices := usecase.NewNotificationUseCase(
+		rdb.NewNotificationRepository(db, outbox),
+		rdb.NewPushSubscriptionRepository(db, outbox),
+		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
+		nil, infratelemetry.NewBusinessMetrics(), logger,
+		usecase.OrderConfirmationDeps{
+			Orders:   orderRepo,
+			Users:    rdb.NewUserRepository(db, outbox),
+			Concerts: rdb.NewConcertRepository(db, outbox),
+			Tickets:  rdb.NewTicketRepository(db, outbox),
+			Mailer:   orderMailer,
+			TimeZone: japanTime,
+		}, usecase.NewConcertsDeps{},
+	)
+	workflow.Register(rt, usecase.WorkflowNotifyEventCancelled, orderNotices.RunNotifyEventCancelled)
+	workflow.Register(rt, usecase.WorkflowNotifyOrderRefunded, orderNotices.RunNotifyOrderRefunded)
+
 	reminders := usecase.NewTicketSaleReminderDeliveryUseCase(
 		rdb.NewTicketSaleReminderRepository(db),
 		rdb.NewNotificationRepository(db, outbox),
@@ -127,10 +158,6 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
 	if err != nil {
 		return err
-	}
-	japanTime, err := time.LoadLocation("Asia/Tokyo")
-	if err != nil {
-		return fmt.Errorf("load Asia/Tokyo time zone: %w", err)
 	}
 	changeEmails, err := newPasskeyChangeEmailSender(&cfg.AccountEmailConfig, japanTime, logger)
 	if err != nil {
