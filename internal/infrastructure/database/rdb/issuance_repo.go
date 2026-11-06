@@ -91,6 +91,11 @@ const (
 	`
 	// issuanceSellListingsQuery sells the Listed listings allocated to the
 	// entry and returns each listing, its ticket and the ticket's order.
+	// issuanceCancelledListingQuery reports whether a listing allocated to
+	// the entry is Cancelled, as an Order's refund leaves it.
+	issuanceCancelledListingQuery = `
+		SELECT EXISTS (SELECT 1 FROM resale_listings WHERE resale_entry_id = $1 AND status = 4)
+	`
 	issuanceSellListingsQuery = `
 		UPDATE resale_listings rl SET status = 2, sold_at = $2
 		FROM tickets t
@@ -256,7 +261,11 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 // sellResaleListings, for a won resale entry, sells the listings allocated to
 // it with the order's pay time, voids their tickets and takes the share of the
 // resold tickets off the Held settlement of each original order, inside tx,
-// and returns the listings as Sold.
+// and returns the listings as Sold. When a listing allocated to it is
+// Cancelled it fails with [entity.ErrResaleListingCancelled]. It locks the
+// listed tickets first, as CommitRefund locks an Order's tickets, so of a
+// refund of the listing fan's Order and this sell the one that commits second
+// sees the other's result.
 func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *entity.Order) ([]*entity.ResaleListing, error) {
 	attrs := slog.String("resale_entry_id", entryID)
 	var state int16
@@ -290,6 +299,15 @@ func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *e
 		return nil, toAppErr(err, "failed to sell resale listings", attrs)
 	}
 	if len(ticketIDs) != order.TicketCount {
+		// A refund of the listing fan's Order that committed first has
+		// cancelled the listing; the sell leaves it and reports it.
+		var cancelled bool
+		if err := tx.QueryRow(ctx, issuanceCancelledListingQuery, entryID).Scan(&cancelled); err != nil {
+			return nil, toAppErr(err, "failed to read the resale entry's cancelled listings", attrs)
+		}
+		if cancelled {
+			return nil, apperr.Wrap(entity.ErrResaleListingCancelled, codes.FailedPrecondition, "a listing allocated to the resale entry was cancelled", attrs)
+		}
 		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is not allocated a listing for every ticket",
 			attrs, slog.Int("ticket_count", order.TicketCount), slog.Int("listings", len(ticketIDs)))
 	}

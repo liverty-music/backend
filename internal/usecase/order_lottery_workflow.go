@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -131,7 +132,9 @@ func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *enti
 // Withdrawn or Lost entry, on [PaymentQueue] with a 24-hour deadline, each
 // named after the Order so a repeated announcement starts nothing new. A
 // Lost entry whose payment was not completed before the show was released by
-// Issue already and starts nothing, as does an Entered entry.
+// Issue already, and one whose listing was cancelled after the charge was
+// charged and refunded; neither starts anything, as an Entered entry does
+// not.
 //
 // # Possible errors
 //
@@ -141,7 +144,8 @@ func (uc *orderUseCase) StartResaleEntryWorkflow(ctx context.Context, entry *ent
 	switch {
 	case entry.State == entity.ResaleEntryStateWon:
 		return uc.workflows.Start(ctx, WorkflowIssue, IssueWorkflowID(entry.OrderID), IssueRequest{ResaleEntryID: entry.ID}, opts...)
-	case entry.State == entity.ResaleEntryStateLost && entry.LostReason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
+	case entry.State == entity.ResaleEntryStateLost && entry.LostReason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow,
+		entry.State == entity.ResaleEntryStateLost && entry.LostReason == entity.ResaleEntryLostReasonListingCancelled:
 		return nil
 	case entry.State == entity.ResaleEntryStateLapsed, entry.State == entity.ResaleEntryStateLost, entry.State == entity.ResaleEntryStateWithdrawn:
 		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(entry.OrderID), entry.OrderID, opts...)
@@ -201,12 +205,22 @@ func (uc *orderUseCase) issueEntry(ctx context.Context, f Flow, entryID entity.L
 		return IssueResult{OrderID: plan.OrderID}, nil
 	}
 
-	return uc.issueCaptured(ctx, f, plan)
+	result, _, err := uc.issueCaptured(ctx, f, plan)
+	return result, err
+}
+
+// issued is the outcome of the issue step, as it records it.
+type issued struct {
+	// ListingCancelled is true when a listing allocated to the Won resale
+	// entry was Cancelled, so nothing was issued.
+	ListingCancelled bool `json:"listing_cancelled,omitempty"`
 }
 
 // issueCaptured reads the captured payment and makes the plan's Order Paid
-// with Order.Issue, as the steps after the charge of either source.
-func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePlan) (IssueResult, error) {
+// with Order.Issue, as the steps after the charge of any source. It reports
+// listingCancelled, issuing nothing, when a listing allocated to the Order's
+// Won resale entry was Cancelled ([entity.ErrResaleListingCancelled]).
+func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePlan) (result IssueResult, listingCancelled bool, err error) {
 	facets, err := Step(ctx, f, "read captured payment", func(ctx context.Context) (capturedFacets, error) {
 		captured, err := uc.capturedPayment(ctx, plan.CardAuthorizationID)
 		if err != nil {
@@ -216,32 +230,40 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 			ProviderPaymentID: captured.ProviderPaymentID}, nil
 	})
 	if err != nil {
-		return IssueResult{}, err
+		return IssueResult{}, false, err
 	}
 
-	if _, err := Step(ctx, f, "issue", func(ctx context.Context) (struct{}, error) {
+	outcome, err := Step(ctx, f, "issue", func(ctx context.Context) (issued, error) {
 		order, err := uc.orderRepo.Get(ctx, plan.OrderID)
 		if err != nil {
-			return struct{}{}, err
+			return issued{}, err
 		}
 		if isPaid(order) {
-			return struct{}{}, nil
+			return issued{}, nil
 		}
 		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4,
 			ProviderPaymentID: facets.ProviderPaymentID}
 		if captured.ProviderPaymentID == "" {
 			again, err := uc.capturedPayment(ctx, plan.CardAuthorizationID)
 			if err != nil {
-				return struct{}{}, err
+				return issued{}, err
 			}
 			captured.ProviderPaymentID = again.ProviderPaymentID
 		}
 		_, err = uc.issueWith(ctx, order, plan.EventID, plan.OrganizerID, plan.PlatformFeeRateBps, plan.IdentityVerificationID, captured)
-		return struct{}{}, err
-	}); err != nil {
-		return IssueResult{}, err
+		if errors.Is(err, entity.ErrResaleListingCancelled) {
+			// A result, not a failure: the caller gives the charge back.
+			return issued{ListingCancelled: true}, nil
+		}
+		return issued{}, err
+	})
+	if err != nil {
+		return IssueResult{}, false, err
 	}
-	return IssueResult{OrderID: plan.OrderID, Paid: true}, nil
+	if outcome.ListingCancelled {
+		return IssueResult{OrderID: plan.OrderID}, true, nil
+	}
+	return IssueResult{OrderID: plan.OrderID, Paid: true}, false, nil
 }
 
 // planIssue reads the Won entry, its Pending Order, the Order's stock, the

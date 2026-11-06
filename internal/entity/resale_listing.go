@@ -2,8 +2,15 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrResaleListingCancelled is returned, wrapped with FailedPrecondition, by
+// [IssuanceRepository.Issue] when a listing allocated to the Won ResaleEntry it
+// issues was cancelled, because the Order of the fan who listed it was
+// refunded after the draw.
+var ErrResaleListingCancelled = errors.New("a resale listing allocated to the entry was cancelled")
 
 // ResaleListingID is the opaque identifier for a single ResaleListing.
 // Server-generated (UUIDv7).

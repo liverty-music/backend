@@ -34,6 +34,32 @@ func TestFromLotteryEntry_LostReason(t *testing.T) {
 	}
 }
 
+// TestResaleEntry_LostReason checks that each lost reason maps to its proto
+// value and back, so an announced Lost entry keeps its reason.
+func TestResaleEntry_LostReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		reason entity.ResaleEntryLostReason
+		want   entityv1.ResaleEntryLostReason
+	}{
+		{name: "no ticket left", reason: entity.ResaleEntryLostReasonNoTicketLeft, want: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_NO_TICKET_LEFT},
+		{name: "concert cancelled", reason: entity.ResaleEntryLostReasonConcertCancelled, want: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_CONCERT_CANCELLED},
+		{name: "card not charged", reason: entity.ResaleEntryLostReasonCardNotCharged, want: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_CARD_NOT_CHARGED},
+		{name: "payment not completed before the show", reason: entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow, want: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_PAYMENT_NOT_COMPLETED_BEFORE_SHOW},
+		{name: "listing cancelled", reason: entity.ResaleEntryLostReasonListingCancelled, want: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_LISTING_CANCELLED},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := pb.FromResaleEntry(&entity.ResaleEntry{ID: "e", OrderID: "o", State: entity.ResaleEntryStateLost, LostReason: tt.reason}, nil)
+			assert.Equal(t, tt.want, got.GetLostReason())
+			assert.Equal(t, tt.reason, pb.ToResaleEntry(got).LostReason, "the reason survives the round trip")
+		})
+	}
+}
+
 func TestFromUser_LoginAndTimeZone(t *testing.T) {
 	t.Parallel()
 

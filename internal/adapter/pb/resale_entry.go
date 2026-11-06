@@ -72,6 +72,7 @@ var resaleEntryLostReasons = map[entity.ResaleEntryLostReason]entityv1.ResaleEnt
 	entity.ResaleEntryLostReasonConcertCancelled:              entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_CONCERT_CANCELLED,
 	entity.ResaleEntryLostReasonCardNotCharged:                entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_CARD_NOT_CHARGED,
 	entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow: entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_PAYMENT_NOT_COMPLETED_BEFORE_SHOW,
+	entity.ResaleEntryLostReasonListingCancelled:              entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_LISTING_CANCELLED,
 }
 
 func resaleEntryStateToProto(s entity.ResaleEntryState) entityv1.ResaleEntryState {

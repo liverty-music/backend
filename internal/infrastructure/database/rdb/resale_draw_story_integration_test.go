@@ -16,6 +16,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -154,7 +155,8 @@ func (s *resaleStory) followUp() {
 			switch {
 			case e.GetState() == entityv1.ResaleEntryState_RESALE_ENTRY_STATE_WON:
 				s.await(usecase.IssueWorkflowID(orderID))
-			case e.GetLostReason() == entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_PAYMENT_NOT_COMPLETED_BEFORE_SHOW:
+			case e.GetLostReason() == entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_PAYMENT_NOT_COMPLETED_BEFORE_SHOW,
+				e.GetLostReason() == entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_LISTING_CANCELLED:
 			default:
 				s.await(usecase.ReleaseWorkflowID(orderID))
 			}
@@ -372,5 +374,91 @@ func TestResaleDrawStory_CancelledBeforeTheDraw(t *testing.T) {
 	assert.Equal(t, entity.ResaleEntryLostReasonConcertCancelled, lost.LostReason)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.intentStatus(lost), "nothing is charged and the hold is released")
 	assert.Len(t, s.emailsTo(fan), 1, "the fan is told")
+	assert.True(t, s.pushed(entity.NotificationTypeResaleEntryLost, entry.ID))
+}
+
+// adminOrders is the OrderUseCase an admin refunds an Order with, refunding at
+// the Stripe test API.
+func (s *resaleStory) adminOrders() usecase.OrderUseCase {
+	s.t.Helper()
+	return usecase.NewOrderUseCase(usecase.OrderDeps{
+		OrderRepo:      repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(s.key, s.logger)),
+		TicketRepo:     rdb.NewTicketRepository(testDB, testOutbox),
+		EventRepo:      rdb.NewEventRepository(testDB),
+		RefundRepo:     rdb.NewRefundRepository(testDB),
+		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(testDB), payment.NewNoopSettlementPayouts(s.logger)),
+		Clock:          func() time.Time { return s.now },
+		Logger:         s.logger,
+	})
+}
+
+// latestCharge reads the charge of the PaymentIntent of the entry's card
+// authorization from the Stripe test API.
+func (s *resaleStory) latestCharge(e *entity.ResaleEntry) *stripe.Charge {
+	s.t.Helper()
+	params := &stripe.PaymentIntentRetrieveParams{}
+	params.AddExpand("latest_charge")
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, e.Order.CardAuthorizationID), params)
+	require.NoError(s.t, err)
+	require.NotNil(s.t, pi.LatestCharge)
+	return pi.LatestCharge
+}
+
+func TestResaleDrawStory_ListingCancelledAfterTheCharge(t *testing.T) {
+	// @spec components/usecase/order/issue "Listing cancelled after the charge"
+	s := newResaleStory(t)
+	stock, seller := s.soldOutTo(2)
+	listed := s.listOne(seller)
+	buyer := s.newFan()
+	entry := s.apply(stock.ID, buyer, 1, "pm_card_visa")
+	var sellerOrder entity.OrderID
+	for _, tk := range s.eventTickets(seller) {
+		if tk.ID == listed.Listing.TicketID {
+			sellerOrder = tk.OrderID
+		}
+	}
+	require.NotEmpty(t, sellerOrder)
+
+	// -- right after the buyer's card is charged, the concert is cancelled
+	//    and an admin refunds the listing fan's Order --
+	admin := s.adminOrders()
+	refunded := make(chan error, 1)
+	s.checkoutCards.onCapture(func(ctx context.Context) {
+		s.checkoutCards.onCapture(nil)
+		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
+		if err == nil {
+			_, err = admin.Refund(ctx, sellerOrder, usecase.RefundReasonCancellation, s.now)
+		}
+		refunded <- err
+	})
+
+	s.draw(noonAfter(s.now), stock.ID)
+
+	select {
+	case err := <-refunded:
+		require.NoError(t, err, "the admin's refund of the listing fan's Order")
+	default:
+		t.Fatal("the buyer's card was never charged")
+	}
+	lost := s.entry(entry.ID)
+	assert.Equal(t, entity.ResaleEntryStateLost, lost.State)
+	assert.Equal(t, entity.ResaleEntryLostReasonListingCancelled, lost.LostReason)
+	assert.Equal(t, entity.OrderStatusVoid, lost.Order.Status)
+	charge := s.latestCharge(lost)
+	assert.Equal(t, int64(5000), charge.Amount, "the buyer was charged 5000 yen")
+	assert.Equal(t, int64(5000), charge.AmountRefunded, "and 5000 yen is refunded to the buyer")
+	assert.Empty(t, s.eventTickets(buyer), "no Ticket is issued")
+
+	var ticketStatus int16
+	require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT status FROM tickets WHERE id = $1`, string(listed.Listing.TicketID)).Scan(&ticketStatus))
+	assert.Equal(t, entity.TicketStatusVoided, entity.TicketStatus(ticketStatus), "the listed Ticket stays Voided")
+	var listingStatus int16
+	require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(listed.Listing.ID)).Scan(&listingStatus))
+	assert.Equal(t, entity.ResaleListingStatusCancelled, entity.ResaleListingStatus(listingStatus))
+
+	emails := s.emailsTo(buyer)
+	require.Len(t, emails, 1, "the buyer is told once")
+	assert.Contains(t, emails[0].body, "販売できなくなった")
+	assert.Contains(t, emails[0].body, "返金します")
 	assert.True(t, s.pushed(entity.NotificationTypeResaleEntryLost, entry.ID))
 }

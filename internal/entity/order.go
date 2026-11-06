@@ -328,7 +328,9 @@ type IssuanceRepository interface {
 	//    re-reads it).
 	//  - FailedPrecondition: the Order is Void, its source Checkout is not
 	//    Committed with a capture time, or its source ResaleEntry is not Won
-	//    or not allocated a listing for every ticket; nothing is stored.
+	//    or not allocated a listing for every ticket; nothing is stored. When
+	//    a listing allocated to the entry is Cancelled, the error wraps
+	//    [ErrResaleListingCancelled].
 	//  - NotFound: no Order has the id.
 	//  - Internal: database transaction or query failure.
 	//

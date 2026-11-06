@@ -22,7 +22,9 @@ type endedFixture struct {
 	stocks    *entitymocks.MockTicketStockRepository
 	mailer    *entitymocks.MockResaleEntryEndedEmailSender
 	workflows *ucmocks.MockWorkflows
-	uc        usecase.NotificationUseCase
+	// language is the fan's preferred language; empty means none.
+	language string
+	uc       usecase.NotificationUseCase
 }
 
 // newEndedFixture builds the use case for a concert starting at start.
@@ -58,7 +60,7 @@ func (f *endedFixture) ended(state entity.ResaleEntryState, reason entity.Resale
 		ID: "entry-1", OrderID: "order-1", State: state, LostReason: reason,
 		Order: &entity.Order{ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid},
 	}, nil)
-	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Maybe()
+	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: f.language}, nil).Maybe()
 	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(&entity.TicketStock{
 		ID: "stock-1", EventID: "event-1", SeatType: &entity.SeatType{Name: "S席", Price: 5000},
 	}, nil).Maybe()
@@ -206,6 +208,45 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 		assert.Contains(t, mail.TextBody, "受付は終了しました")
 	})
 
+	t.Run("listing cancelled", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-resale-entry-ended "Listing cancelled"
+		f := newEndedFixture(t, open)
+		f.ended(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonListingCancelled)
+		var mail entity.ResaleEntryEndedEmail
+		f.sends(&mail)
+		push := f.expectPush(entity.NotificationTypeResaleEntryLost)
+
+		require.NoError(t, f.uc.SendResaleEntryEnded(ctx, "entry-1"))
+
+		assert.Contains(t, mail.TextBody, "チケットを販売できなくなったため、当選を取り消しました")
+		assert.Contains(t, mail.TextBody, "全額をカードに返金します")
+		assert.NotContains(t, mail.TextBody, "請求はありません", "the card was charged")
+		assert.NotContains(t, mail.TextBody, "受付は終了しました", "resale may still be open")
+		assert.Contains(t, push.Body, "当選を取り消しました")
+		assert.Contains(t, push.Body, "カードに返金します")
+		assert.NotContains(t, push.Body, "請求はありません")
+	})
+
+	t.Run("listing cancelled in English", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-resale-entry-ended "Listing cancelled"
+		f := newEndedFixture(t, open)
+		f.language = "en"
+		f.ended(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonListingCancelled)
+		var mail entity.ResaleEntryEndedEmail
+		f.sends(&mail)
+		push := f.expectPush(entity.NotificationTypeResaleEntryLost)
+
+		require.NoError(t, f.uc.SendResaleEntryEnded(ctx, "entry-1"))
+
+		assert.Contains(t, mail.TextBody, "could no longer be sold, so the win was cancelled")
+		assert.Contains(t, mail.TextBody, "refunded to your card in full")
+		assert.NotContains(t, mail.TextBody, "was not charged")
+		assert.Contains(t, push.Body, "refunded to your card")
+		assert.NotContains(t, push.Body, "not charged")
+	})
+
 	t.Run("an entry still waiting sends nothing", func(t *testing.T) {
 		t.Parallel()
 		f := newEndedFixture(t, open)
@@ -260,5 +301,26 @@ func TestOrderUseCase_StartResaleEntryWorkflow(t *testing.T) {
 		uc := usecase.NewOrderUseCase(usecase.OrderDeps{Workflows: workflows, Clock: time.Now, Logger: newTestLogger(t)})
 
 		require.NoError(t, uc.StartResaleEntryWorkflow(ctx, entry(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow)))
+	})
+
+	t.Run("win reverted for a cancelled concert is released", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/release-card-authorization "Win reverted for a cancelled concert"
+		workflows := ucmocks.NewMockWorkflows(t)
+		uc := usecase.NewOrderUseCase(usecase.OrderDeps{Workflows: workflows, Clock: time.Now, Logger: newTestLogger(t)})
+		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowReleaseCardAuthorization, "release:order-1", entity.OrderID("order-1"), mock.Anything, mock.Anything).
+			Return(nil).Once()
+
+		require.NoError(t, uc.StartResaleEntryWorkflow(ctx, entry(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonConcertCancelled)))
+	})
+
+	t.Run("win reverted after a refund is not released", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/release-card-authorization "Win reverted after a refund"
+		workflows := ucmocks.NewMockWorkflows(t)
+		uc := usecase.NewOrderUseCase(usecase.OrderDeps{Workflows: workflows, Clock: time.Now, Logger: newTestLogger(t)})
+
+		require.NoError(t, uc.StartResaleEntryWorkflow(ctx, entry(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonListingCancelled)))
+		workflows.AssertNotCalled(t, "Start", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 }

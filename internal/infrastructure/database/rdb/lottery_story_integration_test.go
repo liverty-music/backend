@@ -181,10 +181,16 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
 		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
 	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, clock, logger))
+	// The worker refunds through refundOrders: a sold listing's refund, and
+	// the charge of a resale win whose listing was cancelled.
+	refundOrders := s.orderRepo
+	if key := os.Getenv("STRIPE_SECRET_KEY"); strings.HasPrefix(key, "sk_test_") || strings.HasPrefix(key, "rk_test_") {
+		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(key, logger))
+	}
 	// The worker's OrderUseCase: issue, release, and the webhook's fulfilment.
 	s.orders = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
-		OrderRepo:                s.orderRepo,
+		OrderRepo:                refundOrders,
 		EntryRepo:                entryRepo,
 		ResaleEntryRepo:          resaleEntryRepo,
 		EventOrganizerRepo:       eventOrganizerRepo,
@@ -234,10 +240,6 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.resaleWorker = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
 		EntryRepo: resaleEntryRepo, StockRepo: stockRepo, EventRepo: eventRepo, EventState: eventState, Clock: clock, Logger: logger,
 	})
-	refundOrders := s.orderRepo
-	if key := os.Getenv("STRIPE_SECRET_KEY"); strings.HasPrefix(key, "sk_test_") || strings.HasPrefix(key, "rk_test_") {
-		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(key, logger))
-	}
 	s.resaleRefunds = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
 		Listings: resaleListingRepo, Orders: refundOrders, Clock: clock, Logger: logger,
 	})

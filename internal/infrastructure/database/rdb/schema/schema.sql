@@ -931,7 +931,7 @@ CREATE TABLE IF NOT EXISTS resale_entries (
     ended_email_send_at TIMESTAMPTZ,
     CONSTRAINT chk_resale_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_resale_entries_state CHECK (state BETWEEN 1 AND 5),
-    CONSTRAINT chk_resale_entries_lost_reason CHECK ((state = 3 AND lost_reason BETWEEN 1 AND 4) OR (state <> 3 AND lost_reason IS NULL)),
+    CONSTRAINT chk_resale_entries_lost_reason CHECK ((state = 3 AND lost_reason BETWEEN 1 AND 5) OR (state <> 3 AND lost_reason IS NULL)),
     CONSTRAINT chk_resale_entries_draw_time CHECK ((state IN (2, 3, 4)) = (draw_at IS NOT NULL)),
     CONSTRAINT chk_resale_entries_withdraw_time CHECK ((state = 5) = (withdraw_at IS NOT NULL)),
     CONSTRAINT chk_resale_entries_ended_email CHECK (ended_email_send_at IS NULL OR state IN (3, 4))
@@ -940,7 +940,7 @@ COMMENT ON TABLE resale_entries IS 'One fan''s application, through its order, f
 COMMENT ON COLUMN resale_entries.id IS 'Unique resale entry identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN resale_entries.order_id IS 'The order the entry applies for: user, ticket stock, ticket count, referral code and card authorization; unique';
 COMMENT ON COLUMN resale_entries.state IS 'Lifecycle: 1=Entered (waiting for a draw), 2=Won (allocated listings; the order is Pending until charged, then Paid), 3=Lost (no ticket left at the last draw, concert cancelled, or a win that could not be charged; the order is Void), 4=Lapsed (the card authorization would expire within 24 hours of a draw; the order is Void), 5=Withdrawn (by the fan while Entered; the order is Void)';
-COMMENT ON COLUMN resale_entries.lost_reason IS 'Why a Lost entry lost: 1=no ticket left at the last draw, 2=concert cancelled, 3=the card could not be charged after it won, 4=the payment was not completed before the show. NULL unless state is 3 (Lost)';
+COMMENT ON COLUMN resale_entries.lost_reason IS 'Why a Lost entry lost: 1=no ticket left at the last draw, 2=concert cancelled, 3=the card could not be charged after it won, 4=the payment was not completed before the show, 5=a listing allocated to it was cancelled after it was charged, so the charge was refunded. NULL unless state is 3 (Lost)';
 COMMENT ON COLUMN resale_entries.created_at IS 'When the fan applied';
 COMMENT ON COLUMN resale_entries.draw_at IS 'The draw that ended the entry: the draw it won, lost or lapsed at; set exactly when Won, Lost or Lapsed';
 COMMENT ON COLUMN resale_entries.withdraw_at IS 'When the fan withdrew it; set exactly when Withdrawn';

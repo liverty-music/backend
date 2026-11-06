@@ -314,6 +314,19 @@ func announcedMessages(t *testing.T, mark int64, subject string) []*message.Mess
 type routedCards struct {
 	fake  *fakeCards
 	other rdb.CardAuthorizationProvider
+
+	// mu guards afterCapture.
+	mu sync.Mutex
+	// afterCapture, when set, runs after a capture succeeds, as what happens
+	// between the charge and the issue of an Order.
+	afterCapture func(ctx context.Context)
+}
+
+// onCapture sets what runs after the next captures; nil runs nothing.
+func (r *routedCards) onCapture(fn func(ctx context.Context)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.afterCapture = fn
 }
 
 var _ rdb.CardAuthorizationProvider = (*routedCards)(nil)
@@ -339,7 +352,16 @@ func (r *routedCards) Get(ctx context.Context, id string) (*entity.CardAuthoriza
 
 // Capture charges the card authorization at the provider that holds it.
 func (r *routedCards) Capture(ctx context.Context, id string) error {
-	return r.pick(id).Capture(ctx, id)
+	if err := r.pick(id).Capture(ctx, id); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	after := r.afterCapture
+	r.mu.Unlock()
+	if after != nil {
+		after(ctx)
+	}
+	return nil
 }
 
 // Release gives the card authorization back at the provider that holds it.

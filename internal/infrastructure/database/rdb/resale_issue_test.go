@@ -88,6 +88,74 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_SOLD, sold[0].GetStatus())
 	})
 
+	refunds := rdb.NewRefundRepository(testDB)
+	listingStatus := func(t *testing.T, id entity.ResaleListingID) entity.ResaleListingStatus {
+		t.Helper()
+		var status int16
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(id)).Scan(&status))
+		return entity.ResaleListingStatus(status)
+	}
+
+	t.Run("listing fan's order refunded before the sell", func(t *testing.T) {
+		f := seedResaleStock(t, 4, 4)
+		seller := seedResoldSeller(t, f)
+		entry := enterResale(t, entries, f, 1)
+		require.NoError(t, entries.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
+			Winners: []entity.ResaleWin{{Entry: entry, Listings: []entity.ResaleListingID{seller.listing}}},
+		}))
+		require.NoError(t, refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, ProviderRefundID: "re_seller"}))
+		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+
+		err := issuance.Issue(ctx, order, issued, settlement)
+
+		require.ErrorIs(t, err, entity.ErrResaleListingCancelled)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		got, err := orders.Get(ctx, order.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusPending, got.Status, "nothing changes")
+		assert.Equal(t, entity.ResaleListingStatusCancelled, listingStatus(t, seller.listing))
+	})
+
+	t.Run("refund and sell run concurrently", func(t *testing.T) {
+		// Whichever commits second sees the other's result: either the
+		// listing is Sold and the Order Paid, or it is Cancelled and the sell
+		// fails with ErrResaleListingCancelled. Never both, never neither.
+		for range 5 {
+			f := seedResaleStock(t, 4, 4)
+			seller := seedResoldSeller(t, f)
+			entry := enterResale(t, entries, f, 1)
+			require.NoError(t, entries.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
+				Winners: []entity.ResaleWin{{Entry: entry, Listings: []entity.ResaleListingID{seller.listing}}},
+			}))
+			order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+
+			start := make(chan struct{})
+			issueErr, refundErr := make(chan error, 1), make(chan error, 1)
+			go func() {
+				<-start
+				issueErr <- issuance.Issue(ctx, order, issued, settlement)
+			}()
+			go func() {
+				<-start
+				refundErr <- refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, ProviderRefundID: "re_seller"})
+			}()
+			close(start)
+
+			require.NoError(t, <-refundErr, "the refund is never refused")
+			err := <-issueErr
+			got, gerr := orders.Get(ctx, order.ID)
+			require.NoError(t, gerr)
+			if err == nil {
+				assert.Equal(t, entity.ResaleListingStatusSold, listingStatus(t, seller.listing), "the sell won")
+				assert.Equal(t, entity.OrderStatusPaid, got.Status)
+				continue
+			}
+			require.ErrorIs(t, err, entity.ErrResaleListingCancelled, "the refund won")
+			assert.Equal(t, entity.ResaleListingStatusCancelled, listingStatus(t, seller.listing))
+			assert.Equal(t, entity.OrderStatusPending, got.Status)
+		}
+	})
+
 	t.Run("entry no longer won", func(t *testing.T) {
 		// @spec components/entity/order/issue "Entry no longer won"
 		f := seedResaleStock(t, 4, 4)
@@ -181,6 +249,28 @@ func TestResaleEntryRepository_RevertWin(t *testing.T) {
 	t.Run("unknown entry", func(t *testing.T) {
 		// @spec components/entity/resale-entry/revert-win "Unknown entry"
 		assert.ErrorIs(t, repo.RevertWin(ctx, entity.ResaleEntryID(entity.NewID()), entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrNotFound)
+	})
+
+	t.Run("listing cancelled", func(t *testing.T) {
+		// @spec components/entity/resale-entry/revert-win "Listing cancelled"
+		e, listings := wonWithTwo(t)
+		// The Order of the fan who listed the first ticket was refunded after
+		// the draw, which cancels its Listed listing.
+		_, err := testDB.Pool.Exec(ctx, `UPDATE resale_listings SET status = 4 WHERE id = $1`, string(listings[0]))
+		require.NoError(t, err)
+
+		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonListingCancelled))
+
+		got, err := repo.Get(ctx, e.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ResaleEntryStateLost, got.State)
+		assert.Equal(t, entity.ResaleEntryLostReasonListingCancelled, got.LostReason)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+		assert.True(t, free(t, listings[1]), "the Listed listing is free for the next draw")
+		assert.False(t, free(t, listings[0]), "the Cancelled listing is not")
+		var status int16
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(listings[0])).Scan(&status))
+		assert.Equal(t, entity.ResaleListingStatusCancelled, entity.ResaleListingStatus(status), "it stays Cancelled")
 	})
 
 	t.Run("win reverted and announced", func(t *testing.T) {
