@@ -63,7 +63,7 @@ require (
 	github.com/posthog/posthog-go v1.38.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
-	github.com/stripe/stripe-go/v87 v87.0.0
+	github.com/stripe/stripe-go/v87 v87.1.0
 	github.com/voi-oss/watermill-opentelemetry v0.1.3
 	github.com/zitadel/oidc/v3 v3.51.16
 	github.com/zitadel/zitadel-go/v3 v3.30.0
