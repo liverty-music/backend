@@ -29,7 +29,7 @@ type OrderConfirmationDeps struct {
 	Concerts       ConcertsByIDsReader
 	EventOrganizer EventOrganizerRepository
 	Organizers     entity.OrganizerRepository
-	Mailer         entity.OrderConfirmationSender
+	Mailer         entity.OrderMailer
 	// ResaleListings reads a refunded listing for its sold email.
 	ResaleListings ResaleListingReader
 	// ResaleMailer sends a listing's sold email at most once.
@@ -46,6 +46,9 @@ type OrderConfirmationDeps struct {
 	ResaleEntries entity.ResaleEntryRepository
 	// ResaleEntryMailer sends a resale entry's ended email at most once.
 	ResaleEntryMailer entity.ResaleEntryEndedEmailSender
+	// Tickets reads the Tickets of a cancelled event's Order for its
+	// cancellation notice.
+	Tickets entity.TicketRepository
 	// TimeZone renders the concert and payment times (Asia/Tokyo).
 	TimeZone *time.Location
 }

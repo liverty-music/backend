@@ -401,6 +401,13 @@ type SeriesRepository interface {
 	//  - NotFound: If the series does not exist.
 	//  - FailedPrecondition: If a given event is not an event of the series
 	//    or is already CANCELLED. Nothing changes.
+	//  - Unavailable: If an announcement cannot be recorded. Nothing changes.
+	//
+	// # Announces
+	//
+	// CONCERT.cancelled once per event made CANCELLED, with the Event as
+	// CANCELLED, together with the cancellation. Nothing for a removed DRAFT
+	// event, and nothing when CancelEvents fails.
 	CancelEvents(ctx context.Context, seriesID string, eventIDs []string) (cancelledEventIDs []string, err error)
 
 	// ListByOrganizer retrieves all first-party series owned by the given organizer,

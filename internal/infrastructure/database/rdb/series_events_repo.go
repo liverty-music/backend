@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -546,7 +548,8 @@ func (r *SeriesRepository) announcePublished(ctx context.Context, tx pgx.Tx, ser
 }
 
 // CancelEvents cancels the given events of a first-party series in a single
-// transaction.
+// transaction, and records CONCERT.cancelled for each event it makes
+// CANCELLED in it.
 func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, eventIDs []string) ([]string, error) {
 	if len(eventIDs) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "at least one event must be given to cancel")
@@ -586,6 +589,16 @@ func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, ev
 	if len(cancelled) > 0 {
 		if _, err := tx.Exec(ctx, cancelEventsQuery, cancelled); err != nil {
 			return nil, toAppErr(err, "failed to cancel events", slog.String("series_id", seriesID))
+		}
+		announcements := make([]messaging.Announcement, 0, len(cancelled))
+		for _, id := range cancelled {
+			e := *stored[id]
+			state := entity.PublishStateCancelled
+			e.PublishState = &state
+			announcements = append(announcements, messaging.Announcement{Payload: pb.FromEvent(&e)})
+		}
+		if err := announceAll(ctx, r.outbox, tx, entity.SubjectConcertCancelled, announcements); err != nil {
+			return nil, err
 		}
 	}
 	if len(removed) > 0 {

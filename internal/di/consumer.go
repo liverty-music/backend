@@ -126,12 +126,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// The consumer never refunds an Order or reads its charge, so the Order's
 	// payment provider part is the no-op.
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
-	var confirmationSender entity.OrderConfirmationSender
+	var confirmationSender entity.OrderMailer
 	if cfg.Postmark.ServerToken != "" {
-		confirmationSender = mail.NewPostmarkConfirmationSender(orderRepo, cfg.Postmark.ServerToken,
+		confirmationSender = mail.NewPostmarkOrderMailer(orderRepo, cfg.Postmark.ServerToken,
 			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
 	} else {
-		confirmationSender = mail.NewNoopConfirmationSender(logger)
+		confirmationSender = mail.NewNoopOrderMailer(logger)
 	}
 	// The sold email of a resold listing goes the same way.
 	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
@@ -173,6 +173,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			LossMailer:        lossSender,
 			ResaleEntries:     resaleEntryRepo,
 			ResaleEntryMailer: resaleEntryEndedSender,
+			Tickets:           rdb.NewTicketRepository(db, newOutbox(logger)),
 			TimeZone:          japanTime,
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
@@ -262,6 +263,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	lotteryEntryEnteredConsumer := event.NewLotteryEntryEnteredConsumer(ticketJourneyUC, ticketStockRepo, logger)
 	resaleListingRefundedConsumer := event.NewResaleListingRefundedConsumer(notificationUC, logger)
 	passkeyConsumer := event.NewPasskeyConsumer(userUC, logger)
+	// The cancellation and refund notices: the consumer only starts their
+	// workflows, which the workflow worker runs.
+	cancellationNoticeConsumer := event.NewCancellationNoticeConsumer(notificationUC, logger)
 	// The consumer's OrderUseCase only starts the workflow that follows each
 	// drawn entry; the workflow worker runs it.
 	lotteryEntryDrawnConsumer := event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
@@ -322,6 +326,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 		{"mark-ticket-journey-applied", entity.SubjectLotteryEntryEntered, lotteryEntryEnteredConsumer.HandleMarkApplied},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
+		{"send-event-cancelled", entity.SubjectConcertCancelled, cancellationNoticeConsumer.HandleEventCancelled},
+		{"send-order-refunded", entity.SubjectOrderRefunded, cancellationNoticeConsumer.HandleOrderRefunded},
 		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
 		{"start-lottery-entry-workflow", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleStartWorkflow},

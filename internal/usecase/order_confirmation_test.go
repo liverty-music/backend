@@ -31,7 +31,7 @@ type confirmationFixture struct {
 	orders     *entitymocks.MockOrderRepository
 	users      *entitymocks.MockUserRepository
 	organizers *entitymocks.MockOrganizerRepository
-	mailer     *entitymocks.MockOrderConfirmationSender
+	mailer     *entitymocks.MockOrderMailer
 	notifs     *entitymocks.MockNotificationRepository
 	pushSubs   *entitymocks.MockPushSubscriptionRepository
 	sender     *entitymocks.MockPushNotificationSender
@@ -45,7 +45,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 		orders:     entitymocks.NewMockOrderRepository(t),
 		users:      entitymocks.NewMockUserRepository(t),
 		organizers: entitymocks.NewMockOrganizerRepository(t),
-		mailer:     entitymocks.NewMockOrderConfirmationSender(t),
+		mailer:     entitymocks.NewMockOrderMailer(t),
 		notifs:     entitymocks.NewMockNotificationRepository(t),
 		pushSubs:   entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:     entitymocks.NewMockPushNotificationSender(t),

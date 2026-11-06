@@ -88,7 +88,7 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_SOLD, sold[0].GetStatus())
 	})
 
-	refunds := rdb.NewRefundRepository(testDB)
+	refunds := rdb.NewRefundRepository(testDB, testOutbox)
 	listingStatus := func(t *testing.T, id entity.ResaleListingID) entity.ResaleListingStatus {
 		t.Helper()
 		var status int16
@@ -103,7 +103,7 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 		require.NoError(t, entries.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: entry, Listings: []entity.ResaleListingID{seller.listing}}},
 		}))
-		require.NoError(t, refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, ProviderRefundID: "re_seller"}))
+		require.NoError(t, refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, Reason: entity.RefundReasonCancellation, Amount: 3000, ProviderRefundID: "re_seller", RefundTime: saleWindowStart}))
 		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
 
 		err := issuance.Issue(ctx, order, issued, settlement)
@@ -137,7 +137,7 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 			}()
 			go func() {
 				<-start
-				refundErr <- refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, ProviderRefundID: "re_seller"})
+				refundErr <- refunds.CommitRefund(ctx, entity.RefundCommit{OrderID: seller.orderID, Reason: entity.RefundReasonCancellation, Amount: 3000, ProviderRefundID: "re_seller", RefundTime: saleWindowStart})
 			}()
 			close(start)
 

@@ -33,7 +33,7 @@ packages:
       ResaleEntryEndedEmailSender: {}
       NotificationRepository: {}
       OfficialSiteResolver: {}
-      OrderConfirmationSender: {}
+      OrderMailer: {}
       OrderRepository: {}
       OrganizationRepository: {}
       OrganizerRepository: {}

@@ -110,6 +110,44 @@ type NotificationUseCase interface {
 	//    sending, unchanged; the caller runs it again.
 	SendResaleEntryEnded(ctx context.Context, entryID entity.ResaleEntryID) error
 
+	// SendEventCancelled tells each fan with a Paid Order of the cancelled
+	// event that the concert is cancelled and the tickets they still hold are
+	// refunded: it lists the event's Orders and starts, for each Paid Order,
+	// the notify-event-cancelled workflow named after the Order, so a
+	// repeated announcement starts nothing new. A failure to start one
+	// Order's notice does not stop the others.
+	//
+	// # Possible errors
+	//
+	//  - Errors of listing the Orders, unchanged.
+	//  - Unavailable: a notice could not be started; the caller runs it again.
+	SendEventCancelled(ctx context.Context, eventID string) error
+
+	// RunNotifyEventCancelled is the notify-event-cancelled workflow of one
+	// Order: it reads the Order, its user, concert and Tickets in one step,
+	// sends the cancellation email (Order.SendCancellationEmail) in a second,
+	// then starts Deliver named after the type event_cancelled and the Order.
+	// An Order that no longer exists, is no longer Paid or holds no Issued
+	// Ticket gets nothing.
+	RunNotifyEventCancelled(ctx context.Context, f Flow, in OrderNotice) (struct{}, error)
+
+	// SendOrderRefunded starts the notify-order-refunded workflow of the
+	// refunded Order, named after the Order, so a repeated announcement
+	// starts nothing new.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the notice could not be started; the caller runs it
+	//    again.
+	SendOrderRefunded(ctx context.Context, orderID entity.OrderID) error
+
+	// RunNotifyOrderRefunded is the notify-order-refunded workflow of one
+	// Order: it reads the Order, its user and concert in one step, sends the
+	// refund email (Order.SendRefundEmail) in a second, then starts Deliver
+	// named after the type order_refunded and the Order. An Order that no
+	// longer exists, was refunded for a dispute or refunded 0 gets nothing.
+	RunNotifyOrderRefunded(ctx context.Context, f Flow, in OrderNotice) (struct{}, error)
+
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist for the specified newly created concerts. The delivery pipeline
 	// hydrates the artist and concert entities internally, applies hype-level

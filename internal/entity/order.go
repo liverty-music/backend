@@ -175,15 +175,61 @@ type Order struct {
 	// PayTime is when the payment was captured and the Order became Paid; nil
 	// until Paid.
 	PayTime *time.Time
-	// ProviderRefundID is the payment provider's ID for the refund ("re_...") set when the
-	// Order is refunded via CANCELLATION. Empty for orders
-	// refunded via DISPUTE (the chargeback reversed the charge at the card
-	// network; no Stripe Refund object is created) and for orders not yet
-	// refunded.
-	ProviderRefundID string
+	// Refund is the Order's refund: its reason, amount, provider refund ID
+	// and time. Set exactly when the Order is Refunded; nil otherwise.
+	Refund *OrderRefund
 	// ConfirmationSendTime is when the purchase confirmation email was sent;
 	// nil until sent. It keeps the email to one per Order.
 	ConfirmationSendTime *time.Time
+}
+
+// RefundReason is why an Order was refunded. Values mirror the proto enum
+// liverty_music.rpc.admin.order.v1.RefundReason; 2 is retired.
+type RefundReason int16
+
+const (
+	// RefundReasonUnspecified is the zero value; never stored.
+	RefundReasonUnspecified RefundReason = 0
+	// RefundReasonCancellation is an event cancellation (中止): the price of
+	// the Tickets still Issued is refunded to the fan's card. Allowed while
+	// the Order is Paid and its Event is CANCELLED.
+	RefundReasonCancellation RefundReason = 1
+	// RefundReasonDispute is a chargeback: the card issuer returned the
+	// money, so the platform refunds nothing itself and claws back the
+	// Organizer's transfer.
+	RefundReasonDispute RefundReason = 3
+)
+
+// String returns the lowercase reason name.
+func (r RefundReason) String() string {
+	switch r {
+	case RefundReasonCancellation:
+		return "cancellation"
+	case RefundReasonDispute:
+		return "dispute"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
+// IsValid reports whether r is a recognized, storable reason.
+func (r RefundReason) IsValid() bool {
+	return r == RefundReasonCancellation || r == RefundReasonDispute
+}
+
+// OrderRefund is the refund of a Refunded Order: why, how much and when.
+type OrderRefund struct {
+	// Reason is why the Order was refunded.
+	Reason RefundReason
+	// Amount is what the platform refunded to the user's card, in the
+	// currency's smallest unit: the price of the Tickets still Issued for a
+	// Cancellation; 0 for a Dispute or when every Ticket was resold.
+	Amount int64
+	// ProviderRefundID is the payment provider's ID for the refund
+	// ("re_..."); empty when no money moved (a Dispute, or an Amount of 0).
+	ProviderRefundID string
+	// RefundTime is when the Order was refunded.
+	RefundTime time.Time
 }
 
 // OrderCurrency is the currency of every Order for the MVP.
@@ -259,10 +305,17 @@ func (o *Order) CanBecomeVoid() bool {
 type RefundCommit struct {
 	// OrderID is the order to flip to Refunded.
 	OrderID OrderID
+	// Reason is why the Order is refunded; required.
+	Reason RefundReason
+	// Amount is what was refunded to the user's card: 0 for a Dispute or when
+	// nothing was left to refund. Never below 0.
+	Amount int64
 	// ProviderRefundID is the payment provider's ID for the refund ("re_...") returned by
-	// CreateRefund. Empty for DISPUTE reason — the chargeback already moved
-	// funds back to the fan and we do not issue a separate Refund call.
+	// CreateRefund. Empty when no money moved: for a Dispute (the chargeback
+	// already moved funds back to the fan) or an Amount of 0.
 	ProviderRefundID string
+	// RefundTime is when the Order is refunded.
+	RefundTime time.Time
 	// SettlementID is the settlement to flip to Reversed. Empty means no
 	// settlement row exists yet (payout sweep hasn't run); in that case no
 	// settlement mutation is performed but the order and tickets still flip.
@@ -277,30 +330,37 @@ type RefundCommit struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type RefundRepository interface {
-	// CommitRefund atomically applies all DB mutations that constitute a
-	// completed refund:
+	// CommitRefund records a completed refund, all together or not at all:
 	//
-	//  1. UPDATE settlements SET status = Reversed (if SettlementID is set).
-	//  2. UPDATE settlement_splits SET provider_payout_reversal_id (for each split).
-	//  3. UPDATE resale_listings SET status = Cancelled for the Listed
-	//     listings of the Order's Tickets, and tickets SET status = Voided for
-	//     its Issued Tickets; a Ticket Voided by a resale and its Sold listing
-	//     stay as they are.
-	//  4. UPDATE orders SET status = Refunded, provider_refund_id = ProviderRefundID.
+	//  1. The Paid Order becomes Refunded with its refund (reason, amount,
+	//     provider refund ID and time).
+	//  2. Its Issued Tickets become Voided and their Listed ResaleListings
+	//     Cancelled; a Ticket Voided by a resale and its Sold listing stay as
+	//     they are.
+	//  3. When SettlementID is set, the Settlement becomes Reversed and each
+	//     given split's provider payout reversal ID is recorded.
 	//
-	// All mutations are committed in a single pgx transaction so a crash between
-	// Stripe and DB is recoverable: on retry, CreateRefund and ReversePayout
-	// replay idempotently, and CommitRefund re-attempts the DB commit.
+	// The money moves before the call, idempotently, so a crash between the
+	// payment provider and the database is recovered by calling again.
 	//
-	// The settlement guard (status IN (1, 2)) means a Reversed settlement
-	// absorbs a concurrent second call: the guarded UPDATE affects 0 rows, which
-	// CommitRefund surfaces as FailedPrecondition so the use case can treat it as
-	// an idempotent no-op.
+	// When the Order is no longer Paid, because an earlier call made it
+	// Refunded, CommitRefund changes nothing and keeps the first refund. A
+	// Settlement already Reversed fails the call with FailedPrecondition, so
+	// a concurrent second call with a Settlement fails that way.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: settlement is already Reversed (concurrent refund).
-	//  - Internal: database transaction or query failure.
+	//   - InvalidArgument: no reason is given, or the amount is below 0.
+	//   - FailedPrecondition: the Settlement is already Reversed (concurrent
+	//     refund); nothing changes.
+	//   - Unavailable: the announcement cannot be recorded; nothing changes.
+	//   - Internal: database transaction or query failure.
+	//
+	// # Announces
+	//
+	// ORDER.refunded with the Refunded Order, its refund included, together
+	// with the refund. Nothing when the Order was already Refunded or the
+	// call fails.
 	CommitRefund(ctx context.Context, commit RefundCommit) error
 }
 
@@ -509,11 +569,21 @@ type OrderConfirmationEmail struct {
 	TextBody string
 }
 
-// OrderConfirmationSender sends an Order's purchase confirmation email at most
-// once. The implementation lives in internal/infrastructure/mail/.
+// OrderEmail is a finished email about one Order, already rendered in the
+// language of the Order's user.
+type OrderEmail struct {
+	// Subject is the email subject line.
+	Subject string
+	// TextBody is the plain-text email body.
+	TextBody string
+}
+
+// OrderMailer sends the emails about an Order to its user: the purchase
+// confirmation (at most once), the cancellation notice and the refund
+// notice. The implementation lives in internal/infrastructure/mail/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
-type OrderConfirmationSender interface {
+type OrderMailer interface {
 	// SendConfirmationEmail sends msg to the address of the Order's user when
 	// the Order has no confirmation-sent time, then sets that time. When the
 	// time is already set it sends nothing and succeeds. A failure between sending and
@@ -527,4 +597,27 @@ type OrderConfirmationSender interface {
 	//    unset.
 	//  - NotFound: no Order has the id.
 	SendConfirmationEmail(ctx context.Context, orderID OrderID, to string, msg OrderConfirmationEmail) error
+
+	// SendCancellationEmail sends msg, telling the user that the Order's
+	// concert is cancelled and its tickets are refunded, to the address once.
+	// It records nothing on the Order; the caller keeps it to one email per
+	// Order.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the address or the message is empty; nothing is
+	//     sent.
+	//   - Unavailable: email cannot be sent.
+	SendCancellationEmail(ctx context.Context, orderID OrderID, to string, msg OrderEmail) error
+
+	// SendRefundEmail sends msg, telling the user of a Refunded Order how
+	// much was refunded and to which card, to the address once. It records
+	// nothing on the Order; the caller keeps it to one email per Order.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the address or the message is empty; nothing is
+	//     sent.
+	//   - Unavailable: email cannot be sent.
+	SendRefundEmail(ctx context.Context, orderID OrderID, to string, msg OrderEmail) error
 }

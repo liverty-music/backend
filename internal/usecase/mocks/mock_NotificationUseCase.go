@@ -383,6 +383,207 @@ func (_c *MockNotificationUseCase_RunDeliver_Call) RunAndReturn(run func(ctx con
 	return _c
 }
 
+// RunNotifyEventCancelled provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) RunNotifyEventCancelled(ctx context.Context, f usecase.Flow, in usecase.OrderNotice) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunNotifyEventCancelled")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.OrderNotice) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.OrderNotice) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.OrderNotice) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockNotificationUseCase_RunNotifyEventCancelled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunNotifyEventCancelled'
+type MockNotificationUseCase_RunNotifyEventCancelled_Call struct {
+	*mock.Call
+}
+
+// RunNotifyEventCancelled is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.OrderNotice
+func (_e *MockNotificationUseCase_Expecter) RunNotifyEventCancelled(ctx any, f any, in any) *MockNotificationUseCase_RunNotifyEventCancelled_Call {
+	return &MockNotificationUseCase_RunNotifyEventCancelled_Call{Call: _e.mock.On("RunNotifyEventCancelled", ctx, f, in)}
+}
+
+func (_c *MockNotificationUseCase_RunNotifyEventCancelled_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.OrderNotice)) *MockNotificationUseCase_RunNotifyEventCancelled_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.OrderNotice
+		if args[2] != nil {
+			arg2 = args[2].(usecase.OrderNotice)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunNotifyEventCancelled_Call) Return(val struct{}, err error) *MockNotificationUseCase_RunNotifyEventCancelled_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunNotifyEventCancelled_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.OrderNotice) (struct{}, error)) *MockNotificationUseCase_RunNotifyEventCancelled_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RunNotifyOrderRefunded provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) RunNotifyOrderRefunded(ctx context.Context, f usecase.Flow, in usecase.OrderNotice) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunNotifyOrderRefunded")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.OrderNotice) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.OrderNotice) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.OrderNotice) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockNotificationUseCase_RunNotifyOrderRefunded_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunNotifyOrderRefunded'
+type MockNotificationUseCase_RunNotifyOrderRefunded_Call struct {
+	*mock.Call
+}
+
+// RunNotifyOrderRefunded is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.OrderNotice
+func (_e *MockNotificationUseCase_Expecter) RunNotifyOrderRefunded(ctx any, f any, in any) *MockNotificationUseCase_RunNotifyOrderRefunded_Call {
+	return &MockNotificationUseCase_RunNotifyOrderRefunded_Call{Call: _e.mock.On("RunNotifyOrderRefunded", ctx, f, in)}
+}
+
+func (_c *MockNotificationUseCase_RunNotifyOrderRefunded_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.OrderNotice)) *MockNotificationUseCase_RunNotifyOrderRefunded_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.OrderNotice
+		if args[2] != nil {
+			arg2 = args[2].(usecase.OrderNotice)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunNotifyOrderRefunded_Call) Return(val struct{}, err error) *MockNotificationUseCase_RunNotifyOrderRefunded_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_RunNotifyOrderRefunded_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.OrderNotice) (struct{}, error)) *MockNotificationUseCase_RunNotifyOrderRefunded_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SendEventCancelled provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) SendEventCancelled(ctx context.Context, eventID string) error {
+	ret := _mock.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendEventCancelled")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, eventID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockNotificationUseCase_SendEventCancelled_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendEventCancelled'
+type MockNotificationUseCase_SendEventCancelled_Call struct {
+	*mock.Call
+}
+
+// SendEventCancelled is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockNotificationUseCase_Expecter) SendEventCancelled(ctx any, eventID any) *MockNotificationUseCase_SendEventCancelled_Call {
+	return &MockNotificationUseCase_SendEventCancelled_Call{Call: _e.mock.On("SendEventCancelled", ctx, eventID)}
+}
+
+func (_c *MockNotificationUseCase_SendEventCancelled_Call) Run(run func(ctx context.Context, eventID string)) *MockNotificationUseCase_SendEventCancelled_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendEventCancelled_Call) Return(err error) *MockNotificationUseCase_SendEventCancelled_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendEventCancelled_Call) RunAndReturn(run func(ctx context.Context, eventID string) error) *MockNotificationUseCase_SendEventCancelled_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SendLotteryLoss provides a mock function for the type MockNotificationUseCase
 func (_mock *MockNotificationUseCase) SendLotteryLoss(ctx context.Context, entryID entity.LotteryEntryID) error {
 	ret := _mock.Called(ctx, entryID)
@@ -493,6 +694,63 @@ func (_c *MockNotificationUseCase_SendOrderConfirmation_Call) Return(err error) 
 }
 
 func (_c *MockNotificationUseCase_SendOrderConfirmation_Call) RunAndReturn(run func(ctx context.Context, paid entity.OrderPaidData) error) *MockNotificationUseCase_SendOrderConfirmation_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SendOrderRefunded provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) SendOrderRefunded(ctx context.Context, orderID entity.OrderID) error {
+	ret := _mock.Called(ctx, orderID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendOrderRefunded")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID) error); ok {
+		r0 = returnFunc(ctx, orderID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockNotificationUseCase_SendOrderRefunded_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendOrderRefunded'
+type MockNotificationUseCase_SendOrderRefunded_Call struct {
+	*mock.Call
+}
+
+// SendOrderRefunded is a helper method to define mock.On call
+//   - ctx context.Context
+//   - orderID entity.OrderID
+func (_e *MockNotificationUseCase_Expecter) SendOrderRefunded(ctx any, orderID any) *MockNotificationUseCase_SendOrderRefunded_Call {
+	return &MockNotificationUseCase_SendOrderRefunded_Call{Call: _e.mock.On("SendOrderRefunded", ctx, orderID)}
+}
+
+func (_c *MockNotificationUseCase_SendOrderRefunded_Call) Run(run func(ctx context.Context, orderID entity.OrderID)) *MockNotificationUseCase_SendOrderRefunded_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.OrderID
+		if args[1] != nil {
+			arg1 = args[1].(entity.OrderID)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendOrderRefunded_Call) Return(err error) *MockNotificationUseCase_SendOrderRefunded_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_SendOrderRefunded_Call) RunAndReturn(run func(ctx context.Context, orderID entity.OrderID) error) *MockNotificationUseCase_SendOrderRefunded_Call {
 	_c.Call.Return(run)
 	return _c
 }

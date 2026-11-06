@@ -12,34 +12,17 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// RefundReason mirrors the proto enum liverty_music.rpc.admin.order.v1.RefundReason;
-// defined here as an entity-layer type so the use case layer is independent of
-// generated proto code.
-type RefundReason int32
+// RefundReason is why an Order is refunded; see [entity.RefundReason].
+type RefundReason = entity.RefundReason
 
 const (
 	// RefundReasonUnspecified is the zero value; rejected at the boundary.
-	RefundReasonUnspecified RefundReason = 0
-	// RefundReasonCancellation is an event cancellation (中止): full refund
-	// to the fan (face + system/発券 fee; processor fee retained). Allowed while
-	// the Order is Paid and its Event is CANCELLED.
-	RefundReasonCancellation RefundReason = 1
-	// RefundReasonDispute is a chargeback / dispute. Funds clawed back via
-	// transfer_reversal; platform absorbs negative-balance responsibility.
-	RefundReasonDispute RefundReason = 3
+	RefundReasonUnspecified = entity.RefundReasonUnspecified
+	// RefundReasonCancellation is an event cancellation (中止).
+	RefundReasonCancellation = entity.RefundReasonCancellation
+	// RefundReasonDispute is a chargeback / dispute.
+	RefundReasonDispute = entity.RefundReasonDispute
 )
-
-// String returns the human-readable reason name.
-func (r RefundReason) String() string {
-	switch r {
-	case RefundReasonCancellation:
-		return "cancellation"
-	case RefundReasonDispute:
-		return "dispute"
-	default:
-		return "UNSPECIFIED"
-	}
-}
 
 // Refund implements [OrderUseCase].
 func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error) {
@@ -120,6 +103,9 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
 	//   expanding the BalanceTransaction to obtain the exact fee.
 	var providerRefundID string
+	// refundAmount is what the platform refunds to the fan's card: 0 for a
+	// dispute, whose money the card issuer already returned.
+	var refundAmount int64
 	if reason != RefundReasonDispute {
 		// Guard: non-Stripe orders or missing pi_ cannot be refunded via Stripe.
 		if order.Payment.Provider != entity.PaymentProviderStripe {
@@ -130,7 +116,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 			return nil, apperr.New(codes.FailedPrecondition,
 				"order has no provider payment ID; cannot resolve charge for refund")
 		}
-		refundAmount, err := uc.unresoldAmount(ctx, order)
+		refundAmount, err = uc.unresoldAmount(ctx, order)
 		if err != nil {
 			return nil, err
 		}
@@ -175,7 +161,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// Commits all DB mutations in one transaction:
 	//   1. Settlement → Reversed (if settlement exists)
 	//   2. Tickets → Voided
-	//   3. Order → Refunded + provider_refund_id recorded
+	//   3. Order → Refunded with its reason, amount, provider refund ID and time
 	var settleID entity.SettlementID
 	if settlement != nil {
 		settleID = settlement.ID
@@ -183,7 +169,10 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 
 	commit := entity.RefundCommit{
 		OrderID:          orderID,
+		Reason:           reason,
+		Amount:           refundAmount,
 		ProviderRefundID: providerRefundID,
+		RefundTime:       now,
 		SettlementID:     settleID,
 		ReversedSplits:   reversedSplits,
 	}
@@ -201,6 +190,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	}
 
 	order.Status = entity.OrderStatusRefunded
+	order.Refund = &entity.OrderRefund{Reason: reason, Amount: refundAmount, ProviderRefundID: providerRefundID, RefundTime: now}
 	uc.logger.Info(ctx, "refund order: completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),

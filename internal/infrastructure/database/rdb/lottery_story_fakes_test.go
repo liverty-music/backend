@@ -186,7 +186,7 @@ type storyMailer struct {
 }
 
 var (
-	_ entity.OrderConfirmationSender      = (*storyMailer)(nil)
+	_ entity.OrderMailer                  = (*storyMailer)(nil)
 	_ entity.ResaleListingSoldEmailSender = (*storyMailer)(nil)
 	_ entity.ResaleEntryEndedEmailSender  = (*storyMailer)(nil)
 	_ entity.LotteryLossEmailSender       = (*storyMailer)(nil)
@@ -202,6 +202,16 @@ func (m *storyMailer) SendConfirmationEmail(ctx context.Context, orderID entity.
 	}
 	m.record(to, msg.Subject, msg.TextBody)
 	return m.orders.MarkConfirmationSent(ctx, orderID, time.Now())
+}
+
+func (m *storyMailer) SendCancellationEmail(_ context.Context, _ entity.OrderID, to string, msg entity.OrderEmail) error {
+	m.record(to, msg.Subject, msg.TextBody)
+	return nil
+}
+
+func (m *storyMailer) SendRefundEmail(_ context.Context, _ entity.OrderID, to string, msg entity.OrderEmail) error {
+	m.record(to, msg.Subject, msg.TextBody)
+	return nil
 }
 
 func (m *storyMailer) SendLossEmail(ctx context.Context, id entity.LotteryEntryID, to string, msg entity.LotteryLossEmail) error {

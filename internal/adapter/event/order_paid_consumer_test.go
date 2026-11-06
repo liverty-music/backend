@@ -124,7 +124,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 		return &copied, nil
 	})
 	emails := 0
-	mailer := entitymocks.NewMockOrderConfirmationSender(t)
+	mailer := entitymocks.NewMockOrderMailer(t)
 	mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).RunAndReturn(
 		func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
 			mu.Lock()

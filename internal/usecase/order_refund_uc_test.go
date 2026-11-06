@@ -9,6 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -841,5 +842,143 @@ func TestOrderUseCase_Refund_AfterResale(t *testing.T) {
 		require.True(t, committed)
 		assert.Empty(t, commit.SettlementID, "no Settlement is given to CommitRefund")
 		assert.Empty(t, commit.ProviderRefundID)
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Refund recorded — the reason, the amount refunded and the time
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	refunds := func() *stubRefundSettlementPayouts {
+		return &stubRefundSettlementPayouts{
+			resolveProviderChargeIDFn: func(context.Context, string) (string, error) { return "ch_rec", nil },
+			createRefundFn:            func(context.Context, entity.RefundParams) (string, error) { return "re_rec", nil },
+		}
+	}
+	paidOnce := func(order *entity.Order) *stubOrderRepo {
+		return &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) { return order, nil }}
+	}
+
+	t.Run("tickets voided", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Tickets voided"
+		order := paidOrder("order-rec-voided", 6000, "pi_rec", now.Add(-time.Hour))
+		var commit entity.RefundCommit
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error { commit = c; return nil }}
+		uc := newRefundUCWithLogger(paidOnce(order), refundRepo, heldSettlements(), refunds(), t, stubOrderTickets{issued: 2})
+
+		got, err := uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+		// CommitRefund voids the Order's Issued Tickets with it.
+		assert.Equal(t, order.ID, commit.OrderID)
+		assert.Equal(t, int64(6000), commit.Amount)
+	})
+
+	t.Run("cancellation refund recorded", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Cancellation refund recorded"
+		order := paidOrder("order-rec-half", 6000, "pi_rec", now.Add(-time.Hour))
+		var commit entity.RefundCommit
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error { commit = c; return nil }}
+		uc := newRefundUCWithLogger(paidOnce(order), refundRepo, heldSettlements(), refunds(), t, stubOrderTickets{issued: 1, voided: 1})
+
+		got, err := uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.RefundReasonCancellation, commit.Reason)
+		assert.Equal(t, int64(3000), commit.Amount)
+		assert.Equal(t, "re_rec", commit.ProviderRefundID)
+		assert.True(t, now.Equal(commit.RefundTime))
+		require.NotNil(t, got.Refund)
+		assert.Equal(t, int64(3000), got.Refund.Amount)
+	})
+
+	t.Run("dispute recorded", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Dispute recorded"
+		order := paidOrder("order-rec-dispute", 6000, "pi_rec", now.Add(-time.Hour))
+		var commit entity.RefundCommit
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error { commit = c; return nil }}
+		port := &stubRefundSettlementPayouts{createRefundFn: func(context.Context, entity.RefundParams) (string, error) {
+			assert.Fail(t, "a dispute issues no refund")
+			return "", nil
+		}}
+		uc := newRefundUCWithLogger(paidOnce(order), refundRepo, heldSettlements(), port, t)
+
+		_, err := uc.Refund(ctx, order.ID, usecase.RefundReasonDispute, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.RefundReasonDispute, commit.Reason)
+		assert.Equal(t, int64(0), commit.Amount)
+		assert.Empty(t, commit.ProviderRefundID)
+	})
+
+	t.Run("concurrent refund", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Concurrent refund"
+		order := paidOrder("order-rec-race", 6000, "pi_rec", now.Add(-time.Hour))
+		stored := *order
+		stored.Status = entity.OrderStatusRefunded
+		stored.Refund = &entity.OrderRefund{Reason: entity.RefundReasonCancellation, Amount: 6000, ProviderRefundID: "re_first", RefundTime: now.Add(-time.Minute)}
+		reads := 0
+		orderRepo := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) {
+			reads++
+			if reads == 1 {
+				return order, nil
+			}
+			return &stored, nil
+		}}
+		refundRepo := &stubRefundRepo{commitRefundFn: func(context.Context, entity.RefundCommit) error {
+			return apperr.New(codes.FailedPrecondition, "settlement is already reversed")
+		}}
+		uc := newRefundUCWithLogger(orderRepo, refundRepo, heldSettlements(), refunds(), t)
+
+		got, err := uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, &stored, got)
+	})
+
+	t.Run("retry after a failure", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/refund "Retry after a failure"
+		order := paidOrder("order-rec-retry", 6000, "pi_rec", now.Add(-time.Hour))
+		var refundRequests []entity.RefundParams
+		port := &stubRefundSettlementPayouts{
+			resolveProviderChargeIDFn: func(context.Context, string) (string, error) { return "ch_rec", nil },
+			createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
+				// The provider refunds once per Order and purpose and returns
+				// the same refund for a repeated request.
+				refundRequests = append(refundRequests, params)
+				return "re_retry", nil
+			},
+		}
+		commits := 0
+		var commit entity.RefundCommit
+		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error {
+			commits++
+			if commits == 1 {
+				return apperr.New(codes.Internal, "database unavailable")
+			}
+			commit = c
+			return nil
+		}}
+		uc := newRefundUCWithLogger(paidOnce(order), refundRepo, heldSettlements(), port, t)
+
+		_, err := uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		require.Error(t, err)
+		_, err = uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+
+		require.NoError(t, err)
+		require.Len(t, refundRequests, 2)
+		assert.Equal(t, refundRequests[0], refundRequests[1], "the retry repeats the same refund request, which the provider refunds once")
+		assert.Equal(t, "re_retry", commit.ProviderRefundID)
+		assert.Equal(t, int64(6000), commit.Amount)
 	})
 }

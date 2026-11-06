@@ -73,16 +73,16 @@ var (
 	msg    = entity.OrderConfirmationEmail{Subject: "ご購入ありがとうございます", TextBody: "本文"}
 )
 
-func newSender(t *testing.T, stub *stubPostmark, orders *fakeOrders) *mail.PostmarkConfirmationSender {
+func newSender(t *testing.T, stub *stubPostmark, orders *fakeOrders) *mail.PostmarkOrderMailer {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(stub.handler))
 	t.Cleanup(srv.Close)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return mail.NewPostmarkConfirmationSenderForTest(orders, srv.URL, "server-token", func() time.Time { return sentAt }, logger)
+	return mail.NewPostmarkOrderMailerForTest(orders, srv.URL, "server-token", func() time.Time { return sentAt }, logger)
 }
 
-func TestPostmarkConfirmationSender_SendConfirmationEmail(t *testing.T) {
+func TestPostmarkOrderMailer_SendConfirmationEmail(t *testing.T) {
 	t.Parallel()
 
 	t.Run("email sent", func(t *testing.T) {
@@ -149,19 +149,104 @@ func TestPostmarkConfirmationSender_SendConfirmationEmail(t *testing.T) {
 	})
 }
 
-// TestPostmarkConfirmationSender_TestServerToken sends through the real
+var notice = entity.OrderEmail{Subject: "公演中止のお知らせ", TextBody: "本文"}
+
+func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
+	t.Parallel()
+	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
+
+	t.Run("email sent", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-cancellation-email "Email sent"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		require.NoError(t, sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", notice))
+
+		require.Len(t, stub.sent, 1)
+		assert.Equal(t, "fan@example.com", stub.sent[0]["To"])
+		assert.Equal(t, notice.Subject, stub.sent[0]["Subject"])
+		assert.Equal(t, notice.TextBody, stub.sent[0]["TextBody"])
+		assert.Equal(t, "order-cancellation", stub.sent[0]["Tag"])
+	})
+
+	t.Run("address missing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-cancellation-email "Address missing"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		err := sender.SendCancellationEmail(context.Background(), "order-1", "", notice)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
+	})
+
+	t.Run("mail unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-cancellation-email "Mail unavailable"
+		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError}, orders)
+
+		err := sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", notice)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}
+
+func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
+	t.Parallel()
+	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1", Status: entity.OrderStatusRefunded}}}
+
+	t.Run("email sent", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-refund-email "Email sent"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		require.NoError(t, sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", notice))
+
+		require.Len(t, stub.sent, 1)
+		assert.Equal(t, "fan@example.com", stub.sent[0]["To"])
+		assert.Equal(t, notice.TextBody, stub.sent[0]["TextBody"])
+		assert.Equal(t, "order-refund", stub.sent[0]["Tag"])
+	})
+
+	t.Run("message missing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-refund-email "Message missing"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		err := sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", entity.OrderEmail{})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
+	})
+
+	t.Run("mail unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-refund-email "Mail unavailable"
+		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError}, orders)
+
+		err := sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", notice)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}
+
+// TestPostmarkOrderMailer_TestServerToken sends through the real
 // Postmark API with its documented test token, which validates the request
 // without delivering it. Opt-in, since it reaches the network:
 //
 //	POSTMARK_INTEGRATION_TEST=1 go test ./internal/infrastructure/mail/ -run TestServerToken -v
-func TestPostmarkConfirmationSender_TestServerToken(t *testing.T) {
+func TestPostmarkOrderMailer_TestServerToken(t *testing.T) {
 	if os.Getenv("POSTMARK_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set POSTMARK_INTEGRATION_TEST=1 to run against Postmark's test server token")
 	}
 	logger, err := logging.New()
 	require.NoError(t, err)
 	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
-	sender := mail.NewPostmarkConfirmationSender(orders, "POSTMARK_API_TEST",
+	sender := mail.NewPostmarkOrderMailer(orders, "POSTMARK_API_TEST",
 		"noreply@mail.dev.liverty-music.app", "outbound", func() time.Time { return sentAt }, logger)
 
 	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "test@blackhole.postmarkapp.com", msg))
