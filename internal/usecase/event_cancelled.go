@@ -90,7 +90,8 @@ func (uc *notificationUseCase) RunNotifyEventCancelled(ctx context.Context, f Fl
 	}); err != nil {
 		return struct{}{}, err
 	}
-	return struct{}{}, f.Start(ctx, WorkflowDeliverNotification,
+	// The push outlives this workflow, which ends right after starting it.
+	return struct{}{}, f.Start(context.WithoutCancel(ctx), WorkflowDeliverNotification,
 		deliverWorkflowID(entity.NotificationTypeEventCancelled, in.OrderID), DeliverRequest{
 			UserID:  msg.UserID,
 			Type:    entity.NotificationTypeEventCancelled,

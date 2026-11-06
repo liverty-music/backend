@@ -44,7 +44,8 @@ func (uc *notificationUseCase) RunNotifyOrderRefunded(ctx context.Context, f Flo
 	}); err != nil {
 		return struct{}{}, err
 	}
-	return struct{}{}, f.Start(ctx, WorkflowDeliverNotification,
+	// The push outlives this workflow, which ends right after starting it.
+	return struct{}{}, f.Start(context.WithoutCancel(ctx), WorkflowDeliverNotification,
 		deliverWorkflowID(entity.NotificationTypeOrderRefunded, in.OrderID), DeliverRequest{
 			UserID:  msg.UserID,
 			Type:    entity.NotificationTypeOrderRefunded,

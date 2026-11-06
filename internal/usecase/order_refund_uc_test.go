@@ -865,7 +865,8 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 
 	t.Run("tickets voided", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/order/refund "Tickets voided"
+		// The Tickets themselves are Voided by CommitRefund: the story test
+		// TestCancelledConcertStory_CancelledAndRefunded verifies "Tickets voided".
 		order := paidOrder("order-rec-voided", 6000, "pi_rec", now.Add(-time.Hour))
 		var commit entity.RefundCommit
 		refundRepo := &stubRefundRepo{commitRefundFn: func(_ context.Context, c entity.RefundCommit) error { commit = c; return nil }}

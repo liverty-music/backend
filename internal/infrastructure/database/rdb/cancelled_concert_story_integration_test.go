@@ -226,6 +226,7 @@ func (s *cancelledConcertStory) notifications(i int, typ entity.NotificationType
 
 func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 	// @spec stories/remove-a-cancelled-concert "Cancelled and refunded"
+	// @spec components/usecase/order/refund "Tickets voided"
 	s := newCancelledConcertStory(t)
 
 	s.cancel()
@@ -248,6 +249,13 @@ func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 	}
 	for _, o := range s.orders {
 		assert.Equal(t, int64(6000), s.refunder.refunds[o], "the fan's card was refunded the price of both tickets")
+		got, err := s.refunder.Get(s.ctx, o)
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+		var issued int
+		require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT count(*) FROM tickets WHERE order_id = $1 AND status = $2`,
+			string(o), int16(entity.TicketStatusIssued)).Scan(&issued))
+		assert.Zero(t, issued, "both Tickets of the Order are Voided")
 	}
 
 	// A repeated delivery of every announcement sends nothing new.
