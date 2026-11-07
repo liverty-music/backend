@@ -2,7 +2,11 @@ package entity
 
 import (
 	"context"
+	"log/slog"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // NotificationType identifies the kind of user-facing notification, mirroring
@@ -16,9 +20,12 @@ const (
 	NotificationTypeSalesReminder NotificationType = "sales_reminder"
 	// NotificationTypeTicketSaleAnnouncement announces a newly discovered ticket sale.
 	NotificationTypeTicketSaleAnnouncement NotificationType = "ticket_sale_announcement"
-	// NotificationTypeOrderConfirmation confirms a paid Order (a completed
-	// checkout or a won lottery) and opens the Tickets screen.
-	NotificationTypeOrderConfirmation NotificationType = "order_confirmation"
+	// NotificationTypeLotteryWin tells a fan they won a lottery and opens the
+	// Tickets screen.
+	NotificationTypeLotteryWin NotificationType = "lottery_win"
+	// NotificationTypeResaleWin tells a fan they won an official resale entry
+	// and opens the Tickets screen.
+	NotificationTypeResaleWin NotificationType = "resale_win"
 	// NotificationTypeLotteryLoss tells a fan their lottery entry lost and
 	// opens the event's page.
 	NotificationTypeLotteryLoss NotificationType = "lottery_loss"
@@ -28,34 +35,108 @@ const (
 	// NotificationTypeResaleEntryLost tells a fan their official resale entry
 	// ended without a ticket and nothing was charged.
 	NotificationTypeResaleEntryLost NotificationType = "resale_entry_lost"
-	// NotificationTypeEventCancelled tells a fan with a Paid Order that its
+	// NotificationTypeConcertCancelled tells a fan with a Paid Order that its
 	// concert is cancelled (中止) and its tickets are refunded.
-	NotificationTypeEventCancelled NotificationType = "event_cancelled"
+	NotificationTypeConcertCancelled NotificationType = "concert_cancelled"
 	// NotificationTypeOrderRefunded tells a fan their Order was refunded for
 	// a cancellation, with the amount.
 	NotificationTypeOrderRefunded NotificationType = "order_refunded"
 )
 
-// NotificationDeliveryStatus is the per-channel delivery state of a notification.
-// Web push provides no separate sent-vs-delivered receipt, so Delivered denotes
-// acceptance by the push service rather than confirmed device receipt.
-type NotificationDeliveryStatus string
+// NotificationSubject names the records a Notification is about. Which fields
+// are set depends on the type; see [NotificationSubject.Validate]. It is the
+// notifications.subject column and part of the deliver-notification workflow
+// input, so its JSON names must not change without a compatibility plan.
+type NotificationSubject struct {
+	// ArtistID is the notified artist of a new_concerts Notification.
+	ArtistID string `json:"artist_id,omitempty"`
+	// EventIDs are the concerts matched for the fan of a new_concerts
+	// Notification.
+	EventIDs []string `json:"event_ids,omitempty"`
+	// EventID is the fan's linked event of a ticket sale Notification.
+	EventID string `json:"event_id,omitempty"`
+	// TicketSaleID is the sale of a ticket sale Notification.
+	TicketSaleID string `json:"ticket_sale_id,omitempty"`
+	// Stage is the stage of a sales_reminder Notification.
+	Stage ReminderStage `json:"stage,omitempty"`
+	// OrderID is the Order of a win, cancellation or refund Notification.
+	OrderID string `json:"order_id,omitempty"`
+	// LotteryEntryID is the entry of a lottery_loss Notification.
+	LotteryEntryID string `json:"lottery_entry_id,omitempty"`
+	// ResaleEntryID is the entry of a resale entry Notification.
+	ResaleEntryID string `json:"resale_entry_id,omitempty"`
+}
 
+// Each subject field as one bit, to compare what a subject names with what its
+// type needs.
 const (
-	// NotificationDeliveryStatusQueued is the initial state: the record exists but
-	// the channel send has not yet been attempted (or its outcome is unknown).
-	NotificationDeliveryStatusQueued NotificationDeliveryStatus = "queued"
-	// NotificationDeliveryStatusDelivered means at least one channel send was accepted.
-	NotificationDeliveryStatusDelivered NotificationDeliveryStatus = "delivered"
-	// NotificationDeliveryStatusFailed means every channel send failed (or there was
-	// no channel to deliver to); the record remains for audit and re-dispatch.
-	NotificationDeliveryStatusFailed NotificationDeliveryStatus = "failed"
+	subjectArtist uint8 = 1 << iota
+	subjectEvents
+	subjectEvent
+	subjectTicketSale
+	subjectStage
+	subjectOrder
+	subjectLotteryEntry
+	subjectResaleEntry
 )
 
-// Notification is a durable record of a single user-facing notification: the
-// source of truth for delivery auditing and the in-app inbox. It is created in
-// the Queued state before the channel send and then transitioned to Delivered
-// or Failed with the outcome in hand.
+// subjectFieldsByType is what each type's subject names, and nothing else.
+var subjectFieldsByType = map[NotificationType]uint8{
+	NotificationTypeNewConcerts:            subjectArtist | subjectEvents,
+	NotificationTypeTicketSaleAnnouncement: subjectTicketSale | subjectEvent,
+	NotificationTypeSalesReminder:          subjectTicketSale | subjectStage | subjectEvent,
+	NotificationTypeLotteryWin:             subjectOrder,
+	NotificationTypeResaleWin:              subjectOrder,
+	NotificationTypeLotteryLoss:            subjectLotteryEntry,
+	NotificationTypeResaleEntryLapsed:      subjectResaleEntry,
+	NotificationTypeResaleEntryLost:        subjectResaleEntry,
+	NotificationTypeConcertCancelled:       subjectOrder,
+	NotificationTypeOrderRefunded:          subjectOrder,
+}
+
+// fields returns the bits of the fields s sets.
+func (s NotificationSubject) fields() uint8 {
+	var named uint8
+	for bit, set := range map[uint8]bool{
+		subjectArtist:       s.ArtistID != "",
+		subjectEvents:       len(s.EventIDs) > 0,
+		subjectEvent:        s.EventID != "",
+		subjectTicketSale:   s.TicketSaleID != "",
+		subjectStage:        s.Stage != 0,
+		subjectOrder:        s.OrderID != "",
+		subjectLotteryEntry: s.LotteryEntryID != "",
+		subjectResaleEntry:  s.ResaleEntryID != "",
+	} {
+		if set {
+			named |= bit
+		}
+	}
+	return named
+}
+
+// Validate reports whether s names exactly the records typ is about.
+//
+// # Possible errors
+//
+//   - InvalidArgument: the type is unknown, or the subject lacks a record the
+//     type needs, names one it does not, or has an undefined stage.
+func (s NotificationSubject) Validate(typ NotificationType) error {
+	want, known := subjectFieldsByType[typ]
+	if !known {
+		return apperr.New(codes.InvalidArgument, "unknown notification type", slog.String("type", string(typ)))
+	}
+	if s.fields() != want {
+		return apperr.New(codes.InvalidArgument, "notification subject does not match its type", slog.String("type", string(typ)))
+	}
+	if want&subjectStage != 0 && !s.Stage.IsValid() {
+		return apperr.New(codes.InvalidArgument, "notification subject has an undefined stage", slog.Int("stage", int(s.Stage)))
+	}
+	return nil
+}
+
+// Notification is the durable record of one message sent to one fan: what it
+// is about and whether the fan has read it. It exists whether or not the push
+// reached the fan. Its message is rendered from the subject each time.
 type Notification struct {
 	// ID is the unique notification identifier (UUIDv7, application-generated).
 	// It is propagated into the dispatched push payload's data.notification_id
@@ -65,50 +146,30 @@ type Notification struct {
 	UserID string
 	// Type is the notification kind.
 	Type NotificationType
-	// Payload is the rendered notification content delivered to the channel.
-	Payload *NotificationPayload
-	// DeliveryStatus is the current per-channel delivery state.
-	DeliveryStatus NotificationDeliveryStatus
-	// FailureReason is set when DeliveryStatus is Failed; empty otherwise.
-	FailureReason string
-	// QueueTime is when the record was created, in the queued state.
-	QueueTime time.Time
-	// DeliverTime is when the channel accepted the send; nil until delivered.
-	DeliverTime *time.Time
+	// Subject names the records the Notification is about.
+	Subject NotificationSubject
+	// CreateTime is when the record was created.
+	CreateTime time.Time
 	// ReadTime is when the user marked the notification read; nil until read.
 	ReadTime *time.Time
-	// DismissTime is when the user dismissed the notification; nil until dismissed.
-	DismissTime *time.Time
 }
 
 // NotificationRepository defines persistence operations for the notification log.
 //
-// Mutations that act on a single user's notification (MarkRead, MarkDismissed)
-// are user-scoped so one user cannot alter another user's record.
+// MarkRead is user-scoped so one user cannot alter another user's record.
 type NotificationRepository interface {
-	// Create persists a new notification record in the Queued state. The ID is
-	// minted (UUIDv7) when empty and written back onto n.
+	// Create stores n with its fan, type and subject, unread, assigning its id
+	// (UUIDv7) and create time onto n.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the subject is invalid for the type.
+	//   - FailedPrecondition: the fan does not exist.
 	Create(ctx context.Context, n *Notification) error
-
-	// UpdateDelivery records the terminal delivery outcome of a notification's
-	// channel send. On Delivered, deliveredAt is set; on Failed, failureReason
-	// is recorded. The record is never deleted, so a failure stays auditable and
-	// the send is re-dispatchable.
-	//
-	// # Announces
-	//
-	// NOTIFICATION.delivered with the Notification as Delivered, together with the
-	// change, when it makes a Queued notification Delivered. Nothing for Failed
-	// or no change.
-	UpdateDelivery(ctx context.Context, id string, status NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error
 
 	// MarkRead sets read_at for the (userID, id) notification. It is idempotent:
 	// marking an already-read notification is a no-op success.
 	MarkRead(ctx context.Context, userID, id string) error
-
-	// MarkDismissed sets dismissed_at for the (userID, id) notification. It is
-	// idempotent: dismissing an already-dismissed notification is a no-op success.
-	MarkDismissed(ctx context.Context, userID, id string) error
 
 	// Get retrieves the notification identified by id.
 	//
@@ -117,8 +178,11 @@ type NotificationRepository interface {
 	//   - NotFound: no notification with that id exists.
 	Get(ctx context.Context, id string) (*Notification, error)
 
-	// ListByUser returns a user's notifications most-recent-first, capped at limit
-	// (a non-positive limit applies a sensible default). Returns an empty slice
-	// when the user has no notifications.
+	// ListByUser returns a user's notifications newest first, at most limit.
+	// A user with none gets an empty slice.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: limit is below 1.
 	ListByUser(ctx context.Context, userID string, limit int) ([]*Notification, error)
 }

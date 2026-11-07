@@ -12,9 +12,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// resaleEntriesLinkURL is the deep link that opens the fan's resale entries.
-const resaleEntriesLinkURL = "/resale-entries"
-
 // resaleEntryEndedContent is everything the lapse and loss copy shows.
 type resaleEntryEndedContent struct {
 	concert  *entity.Concert
@@ -66,22 +63,16 @@ func (uc *notificationUseCase) SendResaleEntryEnded(ctx context.Context, entryID
 		return err
 	}
 
-	pushLang := copyLanguage(user.PreferredLanguage)
-	if user.PreferredLanguage == "" {
-		pushLang = "ja"
-	}
 	notificationType := entity.NotificationTypeResaleEntryLost
 	if entry.State == entity.ResaleEntryStateLapsed {
 		notificationType = entity.NotificationTypeResaleEntryLapsed
 	}
-	title, body := content.push(pushLang)
-	payload := entity.NewNotificationPayload(title, body, resaleEntriesLinkURL, string(notificationType)+"-"+string(entry.ID))
 	// Named after the type and the entry, so a repeated announcement pushes
 	// once.
 	return uc.startDeliver(ctx, deliverWorkflowID(notificationType, string(entry.ID)), DeliverRequest{
 		UserID:  user.ID,
 		Type:    notificationType,
-		Payload: payload,
+		Subject: entity.NotificationSubject{ResaleEntryID: string(entry.ID)},
 	})
 }
 
@@ -160,16 +151,16 @@ func (c resaleEntryEndedContent) email(lang string) entity.ResaleEntryEndedEmail
 		}
 		switch {
 		case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
-			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again with another card:\n%s\n", resaleEntriesLinkURL)
+			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again with another card:\n%s\n", entity.ResaleEntriesLink)
 		case applyAgain:
-			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again:\n%s\n", resaleEntriesLinkURL)
+			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again:\n%s\n", entity.ResaleEntriesLink)
 		case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
 			fmt.Fprintf(&b, "\nResale for this concert has closed.\n")
 		}
 		return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
 	}
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()], venue)
+		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], venue)
 	fmt.Fprintf(&b, "■ お申し込み内容\n席種: %s\n枚数: %d枚\n\n", c.seatType, c.count)
 	if c.reason == entity.ResaleEntryLostReasonListingCancelled {
 		fmt.Fprintf(&b, "■ お支払い\nカードでお支払いいただいた金額は、全額をカードに返金します。返金がカードのご利用明細に反映されるまでの期間は、カード会社によって異なります。\n")
@@ -178,50 +169,11 @@ func (c resaleEntryEndedContent) email(lang string) entity.ResaleEntryEndedEmail
 	}
 	switch {
 	case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
-		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。別のカードで再度お申し込みいただけます。\n%s\n", resaleEntriesLinkURL)
+		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。別のカードで再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
 	case applyAgain:
-		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。再度お申し込みいただけます。\n%s\n", resaleEntriesLinkURL)
+		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
 	case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
 		fmt.Fprintf(&b, "\nこの公演の公式リセールの受付は終了しました。\n")
 	}
 	return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
-}
-
-// push renders the push notification's title and body in lang.
-func (c resaleEntryEndedContent) push(lang string) (title, body string) {
-	_, _, applyAgain := c.lead(lang)
-	if lang == "en" {
-		switch {
-		case c.state == entity.ResaleEntryStateLapsed:
-			title, body = "Resale application expired", "Your card authorization expired. You were not charged."
-		case c.reason == entity.ResaleEntryLostReasonConcertCancelled:
-			title, body = "Resale ended", "The concert was cancelled. You were not charged."
-		case c.reason == entity.ResaleEntryLostReasonCardNotCharged, c.reason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
-			title, body = "Resale win cancelled", "The payment could not be completed, so the win was cancelled. You were not charged."
-		case c.reason == entity.ResaleEntryLostReasonListingCancelled:
-			title, body = "Resale win cancelled", "The ticket could no longer be sold, so the win was cancelled. The amount charged is refunded to your card."
-		default:
-			title, body = "Resale result", "No ticket was allocated. You were not charged."
-		}
-		if applyAgain {
-			body += " You can apply again."
-		}
-		return title, c.concertTitle() + ": " + body
-	}
-	switch {
-	case c.state == entity.ResaleEntryStateLapsed:
-		title, body = "公式リセールの期限切れ", "カードの与信の有効期限が来たため申し込みが終了しました。請求はありません。"
-	case c.reason == entity.ResaleEntryLostReasonConcertCancelled:
-		title, body = "公式リセールの終了", "公演中止のため申し込みが終了しました。請求はありません。"
-	case c.reason == entity.ResaleEntryLostReasonCardNotCharged, c.reason == entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
-		title, body = "公式リセールの当選取り消し", "決済を完了できなかったため当選を取り消しました。請求はありません。"
-	case c.reason == entity.ResaleEntryLostReasonListingCancelled:
-		title, body = "公式リセールの当選取り消し", "チケットを販売できなくなったため当選を取り消しました。お支払いいただいた金額はカードに返金します。"
-	default:
-		title, body = "公式リセールの抽選結果", "チケットの割り当てはありませんでした。請求はありません。"
-	}
-	if applyAgain {
-		body += "再度お申し込みいただけます。"
-	}
-	return title, c.concertTitle() + ": " + body
 }

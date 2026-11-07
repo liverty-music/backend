@@ -75,16 +75,12 @@ const (
 	`
 	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
 	// within the lookahead ($1 seconds) and whose end is no further back than
-	// the lookback ($2 seconds), or whose result date is no earlier than the
-	// day before the Japan-time day of now minus the lookback: a fan behind
-	// Japan time reaches 22:00 on the result date up to a calendar day later.
-	// An Organizer's sale is returned only while its Series is Published, that
+	// the lookback ($2 seconds). An Organizer's sale is returned only while its Series is Published, that
 	// is while one of its events is PUBLISHED.
 	ticketSaleListWithPendingMilestonesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.sale_start_at <= NOW() + make_interval(secs => $1)
-		  AND (ts.sale_end_at >= NOW() - make_interval(secs => $2)
-		       OR ts.result_date >= ((NOW() - make_interval(secs => $2)) AT TIME ZONE 'Asia/Tokyo')::date - 1)
+		  AND ts.sale_end_at >= NOW() - make_interval(secs => $2)
 		  AND (ts.discovered_at IS NOT NULL OR EXISTS (
 		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
 		ORDER BY ts.sale_start_at, ts.id

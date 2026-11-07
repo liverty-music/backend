@@ -26,7 +26,7 @@ type OrderNotice struct {
 }
 
 // orderNoticeMessage is what the read step of an order notice workflow
-// records: the finished email and push of one Order, or Send false when
+// records: the finished email of one Order, or Send false when
 // nothing is sent for it. It is recorded as JSON, so a resumed run sends what
 // the first run read even after the Order changed or was deleted.
 type orderNoticeMessage struct {
@@ -40,8 +40,6 @@ type orderNoticeMessage struct {
 	Subject string `json:"subject,omitempty"`
 	// TextBody is the plain-text email body.
 	TextBody string `json:"text_body,omitempty"`
-	// Push is the push notification.
-	Push *entity.NotificationPayload `json:"push,omitempty"`
 }
 
 // email returns the recorded email.
@@ -92,10 +90,10 @@ func (uc *notificationUseCase) RunNotifyEventCancelled(ctx context.Context, f Fl
 	}
 	// The push outlives this workflow, which ends right after starting it.
 	return struct{}{}, f.Start(context.WithoutCancel(ctx), WorkflowDeliverNotification,
-		deliverWorkflowID(entity.NotificationTypeEventCancelled, in.OrderID), DeliverRequest{
+		deliverWorkflowID(entity.NotificationTypeConcertCancelled, in.OrderID), DeliverRequest{
 			UserID:  msg.UserID,
-			Type:    entity.NotificationTypeEventCancelled,
-			Payload: msg.Push,
+			Type:    entity.NotificationTypeConcertCancelled,
+			Subject: entity.NotificationSubject{OrderID: in.OrderID},
 		})
 }
 
@@ -161,25 +159,13 @@ func (uc *notificationUseCase) readCancellationNotice(ctx context.Context, order
 	}
 
 	email := content.email(emailLanguage(user.PreferredLanguage))
-	title, body := content.push(pushLanguage(user.PreferredLanguage))
 	return orderNoticeMessage{
 		Send:     true,
 		UserID:   user.ID,
 		To:       user.Email,
 		Subject:  email.Subject,
 		TextBody: email.TextBody,
-		Push: entity.NewNotificationPayload(title, body, concertDeepLink(content.concert),
-			string(entity.NotificationTypeEventCancelled)+"-"+string(order.ID)),
 	}, nil
-}
-
-// pushLanguage is the push notification's language: the user's preference,
-// Japanese when none.
-func pushLanguage(preferred string) string {
-	if preferred == "" {
-		return "ja"
-	}
-	return copyLanguage(preferred)
 }
 
 // pricePerTicket is the Order's amount divided by its ticket count.
@@ -206,7 +192,7 @@ func (c cancellationContent) email(lang string) entity.OrderEmail {
 		fmt.Fprintf(&b, "We are sorry to tell you that the following concert has been cancelled.\n\n")
 		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s\nVenue: %s\n\n", c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), venue)
 		fmt.Fprintf(&b, "[Refund]\nTickets: %d\nAmount: JPY %s (tax included)\nThis amount is refunded to the card you paid with (%s ending in %s). We will email you again once the refund is made.\n",
-			c.issued, yen(refund), card, c.order.Payment.CardLast4)
+			c.issued, entity.FormatYen(refund), card, c.order.Payment.CardLast4)
 		if c.resold > 0 {
 			fmt.Fprintf(&b, "\nThe %d ticket(s) you resold through official resale were already refunded when they were sold.\n", c.resold)
 		}
@@ -215,20 +201,12 @@ func (c cancellationContent) email(lang string) entity.OrderEmail {
 	}
 	fmt.Fprintf(&b, "誠に残念ながら、下記の公演は中止となりました。\n\n")
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()], venue)
+		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], venue)
 	fmt.Fprintf(&b, "■ 返金\n枚数: %d枚\n金額: %s円（税込）\nこの金額を、お支払いいただいたカード（%s 末尾%s）に返金します。返金が完了しましたら、あらためてメールでお知らせします。\n",
-		c.issued, yen(refund), card, c.order.Payment.CardLast4)
+		c.issued, entity.FormatYen(refund), card, c.order.Payment.CardLast4)
 	if c.resold > 0 {
 		fmt.Fprintf(&b, "\n公式リセールで譲渡された%d枚は、リセール成立時に返金済みです。\n", c.resold)
 	}
 	fmt.Fprintf(&b, "\n注文番号: %s\n", c.order.ID)
 	return entity.OrderEmail{Subject: "【Liverty Music】公演中止と返金のお知らせ", TextBody: b.String()}
-}
-
-// push renders the push notification's title and body in lang.
-func (c cancellationContent) push(lang string) (title, body string) {
-	if lang == "en" {
-		return "Concert cancelled", fmt.Sprintf("%s has been cancelled. Your tickets will be refunded to your card.", c.concertTitle())
-	}
-	return "公演中止のお知らせ", fmt.Sprintf("%s は中止となりました。チケット代金はカードに返金します。", c.concertTitle())
 }

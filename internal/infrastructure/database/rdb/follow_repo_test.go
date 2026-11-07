@@ -555,24 +555,22 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 			},
 		},
 		{
-			name: "populates preferred_language, empty when unset",
+			name: "populates preferred_language",
 			setup: func() string {
 				cleanDatabase(t)
 				artistID := seedArtist(t, "Lang Artist", "a5000000-0000-0000-0000-000000000003")
 
-				// User with a preferred language set.
 				jaUserID := seedUser(t, "JA User", "ja@test.com", "ext-ja-01")
-				_, err := testDB.Pool.Exec(ctx,
-					`UPDATE users SET preferred_language = $1 WHERE id = $2`,
-					"ja", jaUserID,
-				)
-				require.NoError(t, err)
-				err = followRepo.Follow(ctx, jaUserID, artistID)
+				err := followRepo.Follow(ctx, jaUserID, artistID)
 				require.NoError(t, err)
 
-				// User without a preferred language (left NULL by seedUser).
-				unsetUserID := seedUser(t, "Unset User", "unset@test.com", "ext-unset-01")
-				err = followRepo.Follow(ctx, unsetUserID, artistID)
+				enUserID := seedUser(t, "EN User", "en@test.com", "ext-en-01")
+				_, err = testDB.Pool.Exec(ctx,
+					`UPDATE users SET preferred_language = $1 WHERE id = $2`,
+					"en", enUserID,
+				)
+				require.NoError(t, err)
+				err = followRepo.Follow(ctx, enUserID, artistID)
 				require.NoError(t, err)
 
 				return artistID
@@ -586,7 +584,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 					langs = append(langs, f.User.PreferredLanguage)
 				}
 				assert.Contains(t, langs, "ja", "expected the ja user's language to be populated")
-				assert.Contains(t, langs, "", "expected the unset user to yield an empty language")
+				assert.Contains(t, langs, "en", "expected the en user's language to be populated")
 			},
 		},
 	}

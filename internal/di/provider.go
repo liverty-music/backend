@@ -572,11 +572,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, userRepo, concertRepo, followRepo, lotteryEntryRepo, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
-	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
+	notificationRepo := rdb.NewNotificationRepository(db)
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, businessMetrics, logger, usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo},
+		usecase.SubjectDeps{
+			Users:         userRepo,
+			Follows:       followRepo,
+			Artists:       artistRepo,
+			Concerts:      concertRepo,
+			Orders:        orderRepo,
+			TicketSales:   ticketSaleRepo,
+			Entries:       lotteryEntryRepo,
+			ResaleEntries: resaleEntryRepo,
+		})
 	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, logger)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(

@@ -6,7 +6,6 @@ package mocks
 
 import (
 	"context"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -247,69 +246,6 @@ func (_c *MockNotificationRepository_ListByUser_Call) RunAndReturn(run func(ctx 
 	return _c
 }
 
-// MarkDismissed provides a mock function for the type MockNotificationRepository
-func (_mock *MockNotificationRepository) MarkDismissed(ctx context.Context, userID string, id string) error {
-	ret := _mock.Called(ctx, userID, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MarkDismissed")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = returnFunc(ctx, userID, id)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockNotificationRepository_MarkDismissed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkDismissed'
-type MockNotificationRepository_MarkDismissed_Call struct {
-	*mock.Call
-}
-
-// MarkDismissed is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - id string
-func (_e *MockNotificationRepository_Expecter) MarkDismissed(ctx any, userID any, id any) *MockNotificationRepository_MarkDismissed_Call {
-	return &MockNotificationRepository_MarkDismissed_Call{Call: _e.mock.On("MarkDismissed", ctx, userID, id)}
-}
-
-func (_c *MockNotificationRepository_MarkDismissed_Call) Run(run func(ctx context.Context, userID string, id string)) *MockNotificationRepository_MarkDismissed_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockNotificationRepository_MarkDismissed_Call) Return(err error) *MockNotificationRepository_MarkDismissed_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockNotificationRepository_MarkDismissed_Call) RunAndReturn(run func(ctx context.Context, userID string, id string) error) *MockNotificationRepository_MarkDismissed_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // MarkRead provides a mock function for the type MockNotificationRepository
 func (_mock *MockNotificationRepository) MarkRead(ctx context.Context, userID string, id string) error {
 	ret := _mock.Called(ctx, userID, id)
@@ -369,81 +305,6 @@ func (_c *MockNotificationRepository_MarkRead_Call) Return(err error) *MockNotif
 }
 
 func (_c *MockNotificationRepository_MarkRead_Call) RunAndReturn(run func(ctx context.Context, userID string, id string) error) *MockNotificationRepository_MarkRead_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateDelivery provides a mock function for the type MockNotificationRepository
-func (_mock *MockNotificationRepository) UpdateDelivery(ctx context.Context, id string, status entity.NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error {
-	ret := _mock.Called(ctx, id, status, deliveredAt, failureReason)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateDelivery")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.NotificationDeliveryStatus, *time.Time, string) error); ok {
-		r0 = returnFunc(ctx, id, status, deliveredAt, failureReason)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockNotificationRepository_UpdateDelivery_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDelivery'
-type MockNotificationRepository_UpdateDelivery_Call struct {
-	*mock.Call
-}
-
-// UpdateDelivery is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - status entity.NotificationDeliveryStatus
-//   - deliveredAt *time.Time
-//   - failureReason string
-func (_e *MockNotificationRepository_Expecter) UpdateDelivery(ctx any, id any, status any, deliveredAt any, failureReason any) *MockNotificationRepository_UpdateDelivery_Call {
-	return &MockNotificationRepository_UpdateDelivery_Call{Call: _e.mock.On("UpdateDelivery", ctx, id, status, deliveredAt, failureReason)}
-}
-
-func (_c *MockNotificationRepository_UpdateDelivery_Call) Run(run func(ctx context.Context, id string, status entity.NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string)) *MockNotificationRepository_UpdateDelivery_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 entity.NotificationDeliveryStatus
-		if args[2] != nil {
-			arg2 = args[2].(entity.NotificationDeliveryStatus)
-		}
-		var arg3 *time.Time
-		if args[3] != nil {
-			arg3 = args[3].(*time.Time)
-		}
-		var arg4 string
-		if args[4] != nil {
-			arg4 = args[4].(string)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *MockNotificationRepository_UpdateDelivery_Call) Return(err error) *MockNotificationRepository_UpdateDelivery_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockNotificationRepository_UpdateDelivery_Call) RunAndReturn(run func(ctx context.Context, id string, status entity.NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error) *MockNotificationRepository_UpdateDelivery_Call {
 	_c.Call.Return(run)
 	return _c
 }

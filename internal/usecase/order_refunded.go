@@ -17,11 +17,6 @@ import (
 // NotificationUseCase.RunNotifyOrderRefunded.
 const WorkflowNotifyOrderRefunded = "notify-order-refunded"
 
-// orderLinkURL is the deep link that opens one Order.
-func orderLinkURL(id entity.OrderID) string {
-	return "/orders/" + string(id)
-}
-
 // SendOrderRefunded implements [NotificationUseCase].
 func (uc *notificationUseCase) SendOrderRefunded(ctx context.Context, orderID entity.OrderID) error {
 	if err := uc.workflows.Start(ctx, WorkflowNotifyOrderRefunded,
@@ -49,7 +44,7 @@ func (uc *notificationUseCase) RunNotifyOrderRefunded(ctx context.Context, f Flo
 		deliverWorkflowID(entity.NotificationTypeOrderRefunded, in.OrderID), DeliverRequest{
 			UserID:  msg.UserID,
 			Type:    entity.NotificationTypeOrderRefunded,
-			Payload: msg.Push,
+			Subject: entity.NotificationSubject{OrderID: in.OrderID},
 		})
 }
 
@@ -105,15 +100,12 @@ func (uc *notificationUseCase) readRefundNotice(ctx context.Context, orderID ent
 	content.resold = int64(order.TicketCount) - content.refunded
 
 	email := content.email(emailLanguage(user.PreferredLanguage))
-	title, body := content.push(pushLanguage(user.PreferredLanguage))
 	return orderNoticeMessage{
 		Send:     true,
 		UserID:   user.ID,
 		To:       user.Email,
 		Subject:  email.Subject,
 		TextBody: email.TextBody,
-		Push: entity.NewNotificationPayload(title, body, orderLinkURL(order.ID),
-			string(entity.NotificationTypeOrderRefunded)+"-"+string(order.ID)),
 	}, nil
 }
 
@@ -128,7 +120,7 @@ func (c refundContent) email(lang string) entity.OrderEmail {
 		fmt.Fprintf(&b, "The price of your tickets for the cancelled concert below has been refunded.\n\n")
 		fmt.Fprintf(&b, "[Concert (cancelled)]\n%s\nDate: %s\nVenue: %s\n\n", confirmation.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), confirmation.venueName())
 		fmt.Fprintf(&b, "[Refund]\nTickets: %d\nAmount: JPY %s (tax included)\nRefunded to: credit card (%s ending in %s)\nWhen the refund shows on your card statement depends on your card issuer.\n",
-			c.refunded, yen(amount), card, c.order.Payment.CardLast4)
+			c.refunded, entity.FormatYen(amount), card, c.order.Payment.CardLast4)
 		if c.resold > 0 {
 			fmt.Fprintf(&b, "\nThe %d ticket(s) you resold through official resale were already refunded when they were sold.\n", c.resold)
 		}
@@ -137,21 +129,12 @@ func (c refundContent) email(lang string) entity.OrderEmail {
 	}
 	fmt.Fprintf(&b, "中止となった下記の公演のチケット代金を返金しました。\n\n")
 	fmt.Fprintf(&b, "■ 公演（中止）\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
-		confirmation.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()], confirmation.venueName())
+		confirmation.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], confirmation.venueName())
 	fmt.Fprintf(&b, "■ 返金\n枚数: %d枚\n金額: %s円（税込）\n返金先: クレジットカード（%s 末尾%s）\n返金がカードのご利用明細に反映される時期は、カード会社によって異なります。\n",
-		c.refunded, yen(amount), card, c.order.Payment.CardLast4)
+		c.refunded, entity.FormatYen(amount), card, c.order.Payment.CardLast4)
 	if c.resold > 0 {
 		fmt.Fprintf(&b, "\n公式リセールで譲渡された%d枚は、リセール成立時に返金済みです。\n", c.resold)
 	}
 	fmt.Fprintf(&b, "\n返金したチケットは、入場にご利用いただけなくなりました。\n\n注文番号: %s\n", c.order.ID)
 	return entity.OrderEmail{Subject: "【Liverty Music】公演中止に伴う返金完了のお知らせ", TextBody: b.String()}
-}
-
-// push renders the push notification's title and body in lang.
-func (c refundContent) push(lang string) (title, body string) {
-	title = orderConfirmationContent{concert: c.concert}.concertTitle()
-	if lang == "en" {
-		return "Refund complete", fmt.Sprintf("%s: JPY %s has been refunded to your card.", title, yen(c.order.Refund.Amount))
-	}
-	return "返金が完了しました", fmt.Sprintf("%s: %s円をカードに返金しました。", title, yen(c.order.Refund.Amount))
 }

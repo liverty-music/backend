@@ -120,7 +120,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, err
 	}
-	notificationRepo := rdb.NewNotificationRepository(db, newOutbox(logger))
+	notificationRepo := rdb.NewNotificationRepository(db)
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
 	// The consumer never refunds an Order or reads its charge, so the Order's
@@ -176,7 +176,17 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			Tickets:           rdb.NewTicketRepository(db, newOutbox(logger)),
 			TimeZone:          japanTime,
 		},
-		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo},
+		usecase.SubjectDeps{
+			Users:         userRepo,
+			Follows:       followRepo,
+			Artists:       artistRepo,
+			Concerts:      concertRepo,
+			Orders:        orderRepo,
+			TicketSales:   rdb.NewTicketSaleRepository(db, newOutbox(logger)),
+			Entries:       lotteryEntryRepo,
+			ResaleEntries: resaleEntryRepo,
+		})
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, userRepo, concertRepo, followRepo, lotteryEntryRepo, logger)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
@@ -238,7 +248,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	ticketSaleAnnouncementUC := usecase.NewTicketSaleAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
-		seriesRepo,
 		workflows,
 		logger,
 	)
@@ -310,7 +319,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},
 		{"track-notification-subscribed", entity.SubjectNotificationSubscribed, analyticsConsumer.HandleNotificationSubscribed},
 		{"track-notification-unsubscribed", entity.SubjectNotificationUnsubscribed, analyticsConsumer.HandleNotificationUnsubscribed},
-		{"track-notification-delivered", entity.SubjectNotificationDelivered, analyticsConsumer.HandleNotificationDelivered},
 		{"track-ticket-journey", entity.SubjectTicketJourneyStatusChanged, analyticsConsumer.HandleTicketJourneyStatusChanged},
 		{"analytics-organizer-created", entity.SubjectOrganizerCreated, analyticsConsumer.HandleOrganizerCreated},
 		{"analytics-organizer-artist-associated", entity.SubjectOrganizerArtistAssociated, analyticsConsumer.HandleOrganizerArtistAssociated},

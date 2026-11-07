@@ -148,3 +148,4 @@ configMapGenerator:
   - migrations/20261105130000_add_resale_entries_and_card_authorizations.sql
   - migrations/20261106120000_add_resale_entry_lost_reason_listing_cancelled.sql
   - migrations/20261106120001_add_order_refunds.sql
+  - migrations/20261107120000_notification_subject.sql

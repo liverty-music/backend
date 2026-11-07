@@ -61,17 +61,11 @@ func (uc *notificationUseCase) SendLotteryLoss(ctx context.Context, entryID enti
 		return err
 	}
 
-	pushLang := copyLanguage(user.PreferredLanguage)
-	if user.PreferredLanguage == "" {
-		pushLang = "ja"
-	}
-	title, body := content.push(pushLang)
-	payload := entity.NewNotificationPayload(title, body, concertDeepLink(content.concert), "lottery-loss-"+string(entry.ID))
 	// Named after the entry, so a repeated announcement pushes once.
 	return uc.startDeliver(ctx, deliverWorkflowID(entity.NotificationTypeLotteryLoss, string(entry.ID)), DeliverRequest{
 		UserID:  user.ID,
 		Type:    entity.NotificationTypeLotteryLoss,
-		Payload: payload,
+		Subject: entity.NotificationSubject{LotteryEntryID: string(entry.ID)},
 	})
 }
 
@@ -85,7 +79,7 @@ func (c lotteryLossContent) concertTitle() string {
 
 // venueName is the venue's canonical name, falling back to the listed one.
 func (c lotteryLossContent) venueName() string {
-	return orderConfirmationContent{concert: c.concert}.venueName()
+	return c.concert.VenueName()
 }
 
 // cardNotCharged reports whether the entry won but its card could not be
@@ -120,22 +114,8 @@ func (c lotteryLossContent) email(lang string) entity.LotteryLossEmail {
 		fmt.Fprintf(&b, "チケット抽選にお申し込みいただきありがとうございました。誠に残念ながら、落選となりました。\n\n")
 	}
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()], c.venueName())
+		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], c.venueName())
 	fmt.Fprintf(&b, "■ お申し込み内容\n席種: %s\n枚数: %d枚\n\n", c.seatType, c.count)
 	fmt.Fprintf(&b, "■ お支払い\nカードへの請求はありません。カードで確保していた金額は解放されます。カードのご利用明細には数日間表示される場合があります。\n")
 	return entity.LotteryLossEmail{Subject: subject, TextBody: b.String()}
-}
-
-// push renders the push notification's title and body in lang.
-func (c lotteryLossContent) push(lang string) (title, body string) {
-	if lang == "en" {
-		if c.cardNotCharged() {
-			return "Lottery win cancelled", fmt.Sprintf("%s: your card could not be charged, so the win was cancelled. You were not charged.", c.concertTitle())
-		}
-		return "Ticket lottery result", fmt.Sprintf("%s: your entry was not drawn. You were not charged.", c.concertTitle())
-	}
-	if c.cardNotCharged() {
-		return "当選を取り消しました", fmt.Sprintf("%s: カードで決済できなかったため当選を取り消しました。請求はありません。", c.concertTitle())
-	}
-	return "抽選結果のお知らせ", fmt.Sprintf("%s: 落選となりました。請求はありません。", c.concertTitle())
 }

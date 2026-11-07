@@ -67,7 +67,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 			Organizers:     f.organizers,
 			Mailer:         f.mailer,
 			TimeZone:       tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", BusinessDetails: &entity.BusinessDetails{
 		LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", BusinessAddress: "東京都渋谷区1-2-3",
 		BusinessPhoneNumber: "+81312345678", ContactEmail: "contact@example.com",
@@ -83,29 +83,40 @@ func confirmedOrder(source string) (*entity.Order, entity.OrderPaidData) {
 		Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"},
 	}
 	data := entity.OrderPaidData{OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY"}
-	if source == "lottery" {
+	switch source {
+	case "lottery":
 		order.LotteryEntryID, data.LotteryEntryID = "entry-1", "entry-1"
-	} else {
+	case "resale":
+		order.ResaleEntryID = "resale-entry-1"
+	default:
 		order.CheckoutID, data.CheckoutID = "checkout-1", "checkout-1"
 	}
 	return order, data
 }
 
 // expectPush expects SendOrderConfirmation to start the deliver-notification
-// workflow of one order_confirmation notification for fan-1, named after the
-// Order, and returns the requested payload.
-func (f *confirmationFixture) expectPush(t *testing.T) *entity.NotificationPayload {
-	t.Helper()
-	var got entity.NotificationPayload
-	f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1",
-		mock.MatchedBy(func(r usecase.DeliverRequest) bool {
-			return r.UserID == "fan-1" && r.Type == entity.NotificationTypeOrderConfirmation
-		})).
+// workflow of one notification of the type for fan-1, named after the type and
+// the Order, whose subject is the Order, and returns the started request.
+func (f *confirmationFixture) expectPush(typ entity.NotificationType) *usecase.DeliverRequest {
+	var got usecase.DeliverRequest
+	want := usecase.DeliverRequest{UserID: "fan-1", Type: typ, Subject: entity.NotificationSubject{OrderID: "order-1"}}
+	f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:"+string(typ)+":order-1", want).
 		RunAndReturn(func(_ context.Context, _, _ string, input any, _ ...usecase.StartOption) error {
-			got = *input.(usecase.DeliverRequest).Payload
+			got = input.(usecase.DeliverRequest)
 			return nil
-		})
+		}).Once()
 	return &got
+}
+
+// pushedFor runs the real Deliver of a started win notification for a fan with
+// the language and returns the message the browser receives.
+func pushedFor(t *testing.T, req usecase.DeliverRequest, order *entity.Order, language string) *entity.NotificationPayload {
+	t.Helper()
+	r := newSubjectFixture(t)
+	r.fanReadable(renderedFan(req.UserID, language))
+	r.orderReadable(order, "event-1")
+	r.concertsReadable(renderedConcert("event-1"))
+	return r.push(t, req)
 }
 
 func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
@@ -115,7 +126,6 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Checkout paid"
 		// @spec components/usecase/notification/send-order-confirmation "Fan allowed notifications"
-		// @spec components/usecase/notification/deliver "Purchase notification requested"
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("checkout")
 		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
@@ -126,10 +136,11 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				mail = m
 				return nil
 			})
-		push := f.expectPush(t)
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
+		// An Order of a Checkout is not pushed: a Start would fail the mock.
+		f.publisher.AssertNotCalled(t, "Start", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		for _, want := range []string{
 			"Liverty Live 2026", "2026/11/20(金)", "開場 18:00", "開演 19:00", "Zepp Shinjuku",
 			"枚数: 2枚", "6,000円（税込）", "VISA 末尾4242", "2026/11/05 18:20",
@@ -139,8 +150,6 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 			assert.Contains(t, mail.TextBody, want)
 		}
 		assert.Contains(t, mail.Subject, "ご購入が完了しました")
-		assert.Equal(t, "/tickets", push.Data[entity.NotificationDataKeyURL])
-		assert.Contains(t, push.Title, "ご購入が完了しました")
 	})
 
 	t.Run("lottery win", func(t *testing.T) {
@@ -156,7 +165,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				mail = m
 				return nil
 			})
-		push := f.expectPush(t)
+		f.expectPush(entity.NotificationTypeLotteryWin)
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -164,7 +173,6 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		assert.Contains(t, mail.Subject, "won the ticket lottery")
 		assert.Contains(t, mail.TextBody, "JPY 6,000 (tax included)")
 		assert.Contains(t, mail.TextBody, "Resale of these tickets without the organizer's consent is prohibited")
-		assert.Equal(t, "You won the ticket lottery", push.Title)
 	})
 
 	t.Run("lottery win in Japanese", func(t *testing.T) {
@@ -180,7 +188,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				mail = m
 				return nil
 			})
-		f.expectPush(t)
+		f.expectPush(entity.NotificationTypeLotteryWin)
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -192,31 +200,51 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 	t.Run("lottery winner allowed notifications", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Lottery winner allowed notifications"
+		// @spec components/usecase/notification/deliver "Purchase notification requested"
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("lottery")
 		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: "ja"}, nil)
 		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil)
-		push := f.expectPush(t)
+		started := f.expectPush(entity.NotificationTypeLotteryWin)
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
-		assert.Equal(t, "当選しました", push.Title)
-		assert.Equal(t, "/tickets", push.Data[entity.NotificationDataKeyURL], "it opens the Tickets screen")
+		msg := pushedFor(t, *started, order, "ja")
+		assert.Equal(t, "[Vaundy] 抽選に当選しました", msg.Title)
+		assert.Equal(t, "/tickets", msg.Data[entity.NotificationDataKeyURL], "it opens the Tickets screen")
+	})
+
+	t.Run("official resale winner allowed notifications", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-order-confirmation "Official resale winner allowed notifications"
+		f := newConfirmationFixture(t)
+		order, data := confirmedOrder("resale")
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: "ja"}, nil)
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil)
+		started := f.expectPush(entity.NotificationTypeResaleWin)
+
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+
+		msg := pushedFor(t, *started, order, "ja")
+		assert.Equal(t, "[Vaundy] 公式リセールに当選しました", msg.Title)
+		assert.Equal(t, "/tickets", msg.Data[entity.NotificationDataKeyURL], "it opens the Tickets screen")
+		assert.Equal(t, "resale_win", msg.Data[entity.NotificationDataKeyType])
 	})
 
 	t.Run("order announced twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Order announced twice"
 		// The sender keeps the email to one per Order (it sends nothing for an
-		// Order with a confirmation-sent time); the redelivery still pushes.
+		// Order with a confirmation-sent time), so both runs ask it.
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("checkout")
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Once()
-		f.expectPush(t)
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Twice()
 
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 	})
 
@@ -228,7 +256,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		// the fan gets one of each when both runs name the same Order and the
 		// same workflow id.
 		f := newConfirmationFixture(t)
-		order, data := confirmedOrder("checkout")
+		order, data := confirmedOrder("lottery")
 		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
 		emailed := map[entity.OrderID]bool{}
@@ -248,14 +276,14 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
 		assert.Equal(t, map[entity.OrderID]bool{"order-1": true}, emailed, "the fan receives one email")
-		assert.Len(t, pushed, 1, "the fan receives one order_confirmation push")
+		assert.Equal(t, map[string]bool{"deliver:lottery_win:order-1": true}, pushed, "the fan receives one lottery_win push")
 	})
 
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Mail unavailable"
 		f := newConfirmationFixture(t)
-		order, data := confirmedOrder("checkout")
+		order, data := confirmedOrder("lottery")
 		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
 		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -281,12 +309,10 @@ func TestEmailLanguageDefault(t *testing.T) {
 			mail = m
 			return nil
 		})
-	push := f.expectPush(t)
 
 	require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
 	assert.Contains(t, mail.Subject, "【Liverty Music】")
-	assert.Contains(t, push.Title, "ご購入が完了しました")
 }
 
 func TestTicketJourneyUseCase_MarkPaid(t *testing.T) {

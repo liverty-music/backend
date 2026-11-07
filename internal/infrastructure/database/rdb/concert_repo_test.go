@@ -1123,7 +1123,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		// Setup: user, 2 artists, venue, concerts, follow relationships
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5001"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Test User", "follower@test.com", "ext-user-001",
 		)
 		require.NoError(t, err)
@@ -1185,7 +1185,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5003"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Coord User", "coord@test.com", "ext-user-003",
 		)
 		require.NoError(t, err)
@@ -1233,7 +1233,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5002"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Lonely User", "lonely@test.com", "ext-user-002",
 		)
 		require.NoError(t, err)
@@ -1248,7 +1248,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5004"
 		_, err := testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Date User", "date@test.com", "ext-user-004",
 		)
 		require.NoError(t, err)
@@ -1495,7 +1495,7 @@ func TestConcertRepository_Delete(t *testing.T) {
 		// Seed a fan-owned dependent row to prove the cascade reaches it.
 		userID := newTestID(t)
 		_, err = testDB.Pool.Exec(ctx,
-			"INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)",
+			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Delete Test Fan", "delete-fan@test.com", "ext-"+userID,
 		)
 		require.NoError(t, err)

@@ -155,9 +155,9 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 	t.Run("user without optional values", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/user "User without optional values"
-		pb := pb.FromUser(&entity.User{ID: "u-1"})
+		pb := pb.FromUser(&entity.User{ID: "u-1", PreferredLanguage: "en"})
 
-		assert.Nil(t, pb.PreferredLanguage)
+		assert.Equal(t, "en", pb.GetPreferredLanguage())
 		assert.Nil(t, pb.GetHome())
 		assert.Nil(t, pb.GetFullName())
 		assert.Nil(t, pb.GetPhoneNumber())

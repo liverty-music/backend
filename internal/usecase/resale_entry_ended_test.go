@@ -49,7 +49,7 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 			ResaleEntries:     f.entries,
 			ResaleEntryMailer: f.mailer,
 			TimeZone:          tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	return f
 }
 
@@ -75,17 +75,31 @@ func (f *endedFixture) sends(mail *entity.ResaleEntryEndedEmail) {
 		}).Once()
 }
 
-// expectPush expects one push of the type for fan-1, named after the type
-// and the entry, and returns its payload.
-func (f *endedFixture) expectPush(typ entity.NotificationType) *entity.NotificationPayload {
-	var got entity.NotificationPayload
-	f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:"+string(typ)+":entry-1",
-		mock.MatchedBy(func(r usecase.DeliverRequest) bool { return r.UserID == "fan-1" && r.Type == typ })).
+// expectPush expects one push of the type for fan-1, named after the type and
+// the entry, whose subject is the entry, and returns the started request.
+func (f *endedFixture) expectPush(typ entity.NotificationType) *usecase.DeliverRequest {
+	var got usecase.DeliverRequest
+	want := usecase.DeliverRequest{UserID: "fan-1", Type: typ, Subject: entity.NotificationSubject{ResaleEntryID: "entry-1"}}
+	f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:"+string(typ)+":entry-1", want).
 		RunAndReturn(func(_ context.Context, _, _ string, input any, _ ...usecase.StartOption) error {
-			got = *input.(usecase.DeliverRequest).Payload
+			got = input.(usecase.DeliverRequest)
 			return nil
 		}).Once()
 	return &got
+}
+
+// pushedFor runs the real Deliver of the started request with the concert open
+// for resale or not, in the language, and returns the message the browser
+// receives.
+func (f *endedFixture) pushedFor(t *testing.T, req usecase.DeliverRequest, start time.Time, reason entity.ResaleEntryLostReason, language string) *entity.NotificationPayload {
+	t.Helper()
+	r := newSubjectFixture(t)
+	r.fanReadable(renderedFan("fan-1", language))
+	r.resaleEntryReadable(&entity.ResaleEntry{ID: "entry-1", OrderID: "order-1", LostReason: reason}, "event-1")
+	concert := renderedConcert("event-1")
+	concert.StartTime = &start
+	r.concertsReadable(concert)
+	return r.push(t, req)
 }
 
 func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
@@ -110,8 +124,9 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 		assert.Contains(t, mail.TextBody, "再度お申し込みいただけます")
 		assert.Contains(t, mail.TextBody, "/resale-entries")
 		assert.Contains(t, mail.TextBody, "S席")
-		assert.Contains(t, push.Body, "請求はありません")
-		assert.Equal(t, "/resale-entries", push.Data["url"])
+		msg := f.pushedFor(t, *push, open, entity.ResaleEntryLostReasonUnspecified, "ja")
+		assert.Contains(t, msg.Body, "再度、リセール申し込みをお願いします。", "the message invites them to apply again")
+		assert.Equal(t, "/resale-entries", msg.Data[entity.NotificationDataKeyURL])
 	})
 
 	t.Run("lost at the last draw", func(t *testing.T) {
@@ -127,7 +142,7 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 
 		assert.Contains(t, mail.TextBody, "割り当てられるリセールチケットがありませんでした")
 		assert.Contains(t, mail.TextBody, "カードへの請求はありません")
-		assert.Contains(t, push.Body, "請求はありません")
+		assert.Contains(t, f.pushedFor(t, *push, closed, entity.ResaleEntryLostReasonNoTicketLeft, "ja").Body, "チケットの割り当てはありませんでした。")
 	})
 
 	t.Run("run again after the email was sent", func(t *testing.T) {
@@ -157,7 +172,10 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 		assert.Contains(t, mail.TextBody, "カードで決済できなかったため、当選を取り消しました")
 		assert.Contains(t, mail.TextBody, "別のカードで再度お申し込みいただけます")
 		assert.Contains(t, mail.TextBody, "/resale-entries")
-		assert.Contains(t, push.Body, "再度お申し込みいただけます")
+		msg := f.pushedFor(t, *push, open, entity.ResaleEntryLostReasonCardNotCharged, "ja")
+		assert.Contains(t, msg.Body, "別のカードで再度お申し込みいただけます。")
+		assert.Contains(t, msg.Body, "請求はありません")
+		assert.Equal(t, "/resale-entries", msg.Data[entity.NotificationDataKeyURL])
 	})
 
 	t.Run("won but not charged after resale closed", func(t *testing.T) {
@@ -189,7 +207,7 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 
 		assert.Contains(t, mail.TextBody, "公演が中止")
 		assert.Contains(t, mail.TextBody, "カードへの請求はありません")
-		assert.Contains(t, push.Body, "公演中止")
+		assert.Contains(t, f.pushedFor(t, *push, open, entity.ResaleEntryLostReasonConcertCancelled, "ja").Body, "公演中止")
 	})
 
 	t.Run("payment not completed before the show", func(t *testing.T) {
@@ -223,9 +241,10 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 		assert.Contains(t, mail.TextBody, "全額をカードに返金します")
 		assert.NotContains(t, mail.TextBody, "請求はありません", "the card was charged")
 		assert.NotContains(t, mail.TextBody, "受付は終了しました", "resale may still be open")
-		assert.Contains(t, push.Body, "当選を取り消しました")
-		assert.Contains(t, push.Body, "カードに返金します")
-		assert.NotContains(t, push.Body, "請求はありません")
+		msg := f.pushedFor(t, *push, open, entity.ResaleEntryLostReasonListingCancelled, "ja")
+		assert.Contains(t, msg.Body, "当選を取り消しました")
+		assert.Contains(t, msg.Body, "カードに返金します")
+		assert.NotContains(t, msg.Body, "請求はありません")
 	})
 
 	t.Run("listing cancelled in English", func(t *testing.T) {
@@ -243,8 +262,9 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 		assert.Contains(t, mail.TextBody, "could no longer be sold, so the win was cancelled")
 		assert.Contains(t, mail.TextBody, "refunded to your card in full")
 		assert.NotContains(t, mail.TextBody, "was not charged")
-		assert.Contains(t, push.Body, "refunded to your card")
-		assert.NotContains(t, push.Body, "not charged")
+		msg := f.pushedFor(t, *push, open, entity.ResaleEntryLostReasonListingCancelled, "en")
+		assert.Contains(t, msg.Body, "refunded to your card")
+		assert.NotContains(t, msg.Body, "not charged")
 	})
 
 	t.Run("an entry still waiting sends nothing", func(t *testing.T) {

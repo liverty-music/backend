@@ -69,11 +69,6 @@ const (
 	// Auto-cleanup on 410 Gone (send-loop expiry) intentionally does NOT
 	// emit this event — that is subscription expiry, not user churn.
 	EventNotificationUnsubscribed AnalyticsEventName = "notification.unsubscribed"
-
-	// EventNotificationDelivered is recorded when the push provider
-	// accepts a notification for delivery. The frontend records the
-	// downstream open/dismiss separately.
-	EventNotificationDelivered AnalyticsEventName = "notification.delivered"
 )
 
 // Organizer lifecycle events emitted from the backend.
@@ -172,7 +167,6 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventTicketJourneyStatusChanged: {},
 	EventNotificationSubscribed:     {},
 	EventNotificationUnsubscribed:   {},
-	EventNotificationDelivered:      {},
 	EventOrganizerCreated:           {},
 	EventOrganizerArtistAssociated:  {},
 	EventOrganizerConcertPublished:  {},

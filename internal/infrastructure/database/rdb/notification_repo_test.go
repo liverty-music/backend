@@ -1,163 +1,142 @@
 package rdb_test
 
 import (
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"testing"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
-func newTestNotification(userID string, typ entity.NotificationType) *entity.Notification {
+// newTestNotification returns a new_concerts Notification about an artist and
+// one concert. The subject's ids are not foreign keys, so nothing else is
+// seeded.
+func newTestNotification(userID string) *entity.Notification {
 	return &entity.Notification{
 		UserID:  userID,
-		Type:    typ,
-		Payload: entity.NewNotificationPayload("Test Artist", "1 new concert found", "/concerts?artist=abc", "concert-abc"),
+		Type:    entity.NotificationTypeNewConcerts,
+		Subject: entity.NotificationSubject{ArtistID: entity.NewID(), EventIDs: []string{entity.NewID()}},
 	}
 }
 
-func TestNotificationRepository_CreateAndGet(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
-	ctx := context.Background()
-
-	cleanDatabase(t)
-	userID := seedUser(t, "notif-create-user", "notif-create@example.com", "ext-notif-create-01")
-
-	n := newTestNotification(userID, entity.NotificationTypeNewConcerts)
-	require.NoError(t, repo.Create(ctx, n))
-
-	// Create mints a UUIDv7 id, defaults to queued, and writes back created_at.
-	assert.NotEmpty(t, n.ID)
-	assert.Equal(t, entity.NotificationDeliveryStatusQueued, n.DeliveryStatus)
-	assert.False(t, n.QueueTime.IsZero())
-
-	got, err := repo.Get(ctx, n.ID)
-	require.NoError(t, err)
-	assert.Equal(t, n.ID, got.ID)
-	assert.Equal(t, userID, got.UserID)
-	assert.Equal(t, entity.NotificationTypeNewConcerts, got.Type)
-	assert.Equal(t, entity.NotificationDeliveryStatusQueued, got.DeliveryStatus)
-	require.NotNil(t, got.Payload)
-	assert.Equal(t, "Test Artist", got.Payload.Title)
-	assert.Equal(t, "concert-abc", got.Payload.Tag)
-	assert.Nil(t, got.DeliverTime)
-	assert.Nil(t, got.ReadTime)
-	assert.Nil(t, got.DismissTime)
-	assert.Empty(t, got.FailureReason)
+// notificationCount counts the stored Notifications of the fan.
+func notificationCount(t *testing.T, userID string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM notifications WHERE user_id = $1`, userID).Scan(&n))
+	return n
 }
 
-func TestNotificationRepository_Get_NotFound(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
+func TestNotificationRepository_Create(t *testing.T) {
+	repo := rdb.NewNotificationRepository(testDB)
 	ctx := context.Background()
 
-	cleanDatabase(t)
-	_, err := repo.Get(ctx, "01890000-0000-7000-8000-000000000000")
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
-}
+	// @spec components/entity/notification/create "Notification recorded"
+	t.Run("Notification recorded", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "notif-create-user", "notif-create@example.com", "ext-notif-create-01")
+		n := newTestNotification(userID)
 
-func TestNotificationRepository_UpdateDelivery(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
-	ctx := context.Background()
-	at := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC) // 18:00 JST
-
-	// queued records a Queued notification for a fan of its own.
-	queued := func(t *testing.T) *entity.Notification {
-		t.Helper()
-		tag := uuid.NewV7().String()
-		n := newTestNotification(seedUser(t, "notif "+tag, tag+"@example.com", "ext-"+tag), entity.NotificationTypeSalesReminder)
 		require.NoError(t, repo.Create(ctx, n))
-		return n
-	}
-	deliveredOf := func(t *testing.T, mark int64, id string) []*entityv1.Notification {
-		t.Helper()
-		return announcedSince(t, mark, entity.SubjectNotificationDelivered, func() *entityv1.Notification { return &entityv1.Notification{} },
-			func(n *entityv1.Notification) bool { return n.GetId().GetValue() == id })
-	}
-	get := func(t *testing.T, id string) *entity.Notification {
-		t.Helper()
-		got, err := repo.Get(ctx, id)
+
+		assert.NotEmpty(t, n.ID)
+		assert.False(t, n.CreateTime.IsZero())
+		got, err := repo.Get(ctx, n.ID)
 		require.NoError(t, err)
-		return got
-	}
-
-	t.Run("delivered", func(t *testing.T) {
-		// @spec components/entity/notification/update-delivery "Delivered"
-		// @spec components/entity/notification/update-delivery "Delivered announced"
-		n := queued(t)
-		mark := outboxMark(t)
-
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, ""))
-
-		got := get(t, n.ID)
-		assert.Equal(t, entity.NotificationDeliveryStatusDelivered, got.DeliveryStatus)
-		require.NotNil(t, got.DeliverTime)
-		assert.True(t, got.DeliverTime.Equal(at))
-		assert.Empty(t, got.FailureReason)
-		announced := deliveredOf(t, mark, n.ID)
-		require.Len(t, announced, 1)
-		assert.Equal(t, entityv1.NotificationDeliveryStatus_NOTIFICATION_DELIVERY_STATUS_DELIVERED, announced[0].GetDeliveryStatus())
-		assert.True(t, announced[0].GetDeliverTime().AsTime().Equal(at))
+		assert.Equal(t, userID, got.UserID)
+		assert.Nil(t, got.ReadTime, "a new Notification is unread")
 	})
 
-	t.Run("failed", func(t *testing.T) {
-		// @spec components/entity/notification/update-delivery "Failed"
-		n := queued(t)
-		mark := outboxMark(t)
+	// @spec components/entity/notification/create "Two notifications"
+	t.Run("Two notifications", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "notif-two-user", "notif-two@example.com", "ext-notif-two-01")
+		first := newTestNotification(userID)
+		second := &entity.Notification{UserID: userID, Type: first.Type, Subject: first.Subject}
 
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusFailed, nil, "no active push subscription"))
+		require.NoError(t, repo.Create(ctx, first))
+		require.NoError(t, repo.Create(ctx, second))
 
-		got := get(t, n.ID)
-		assert.Equal(t, entity.NotificationDeliveryStatusFailed, got.DeliveryStatus)
-		assert.Nil(t, got.DeliverTime)
-		assert.Equal(t, "no active push subscription", got.FailureReason)
-		assert.Empty(t, deliveredOf(t, mark, n.ID))
+		assert.NotEqual(t, first.ID, second.ID)
+		assert.Equal(t, 2, notificationCount(t, userID))
 	})
 
-	t.Run("outcome already recorded", func(t *testing.T) {
-		// @spec components/entity/notification/update-delivery "Outcome already recorded"
-		// @spec components/entity/notification/update-delivery "Already Delivered"
-		n := queued(t)
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, ""))
-		mark := outboxMark(t)
+	// @spec components/entity/notification/create "Unknown fan"
+	t.Run("Unknown fan", func(t *testing.T) {
+		cleanDatabase(t)
+		unknown := entity.NewID()
 
-		later := at.Add(time.Hour)
-		require.NoError(t, repo.UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &later, ""))
+		err := repo.Create(ctx, newTestNotification(unknown))
 
-		got := get(t, n.ID)
-		assert.True(t, got.DeliverTime.Equal(at), "the notification stays Delivered at 18:00")
-		assert.Empty(t, deliveredOf(t, mark, n.ID))
+		assertAppErrCode(t, err, codes.FailedPrecondition)
+		assert.Zero(t, notificationCount(t, unknown))
 	})
 
-	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/notification/update-delivery "Unknown id"
-		assert.NoError(t, repo.UpdateDelivery(ctx, uuid.NewV7().String(), entity.NotificationDeliveryStatusDelivered, &at, ""))
+	// @spec components/entity/notification/create "Subject missing a record"
+	t.Run("Subject missing a record", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "notif-invalid-user", "notif-invalid@example.com", "ext-notif-invalid-01")
+
+		err := repo.Create(ctx, &entity.Notification{UserID: userID, Type: entity.NotificationTypeLotteryLoss})
+
+		assertAppErrCode(t, err, codes.InvalidArgument)
+		assert.Zero(t, notificationCount(t, userID))
+	})
+}
+
+func TestNotificationRepository_Get(t *testing.T) {
+	repo := rdb.NewNotificationRepository(testDB)
+	ctx := context.Background()
+
+	// @spec components/entity/notification/get "Existing notification"
+	t.Run("Existing notification", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "notif-get-user", "notif-get@example.com", "ext-notif-get-01")
+		subject := entity.NotificationSubject{
+			TicketSaleID: entity.NewID(),
+			Stage:        entity.ReminderStageApplyClose24H,
+			EventID:      entity.NewID(),
+		}
+		n := &entity.Notification{UserID: userID, Type: entity.NotificationTypeSalesReminder, Subject: subject}
+		require.NoError(t, repo.Create(ctx, n))
+
+		unread, err := repo.Get(ctx, n.ID)
+		require.NoError(t, err)
+		assert.Equal(t, n.ID, unread.ID)
+		assert.Equal(t, userID, unread.UserID)
+		assert.Equal(t, entity.NotificationTypeSalesReminder, unread.Type)
+		assert.Equal(t, subject, unread.Subject)
+		assert.True(t, n.CreateTime.Equal(unread.CreateTime), "got create time %s, want %s", unread.CreateTime, n.CreateTime)
+		assert.Nil(t, unread.ReadTime)
+
+		require.NoError(t, repo.MarkRead(ctx, userID, n.ID))
+		read, err := repo.Get(ctx, n.ID)
+		require.NoError(t, err)
+		assert.NotNil(t, read.ReadTime)
 	})
 
-	t.Run("announcement cannot be recorded", func(t *testing.T) {
-		// @spec components/entity/notification/update-delivery "Announcement cannot be recorded"
-		n := queued(t)
+	// @spec components/entity/notification/get "Unknown id"
+	t.Run("Unknown id", func(t *testing.T) {
+		cleanDatabase(t)
 
-		err := rdb.NewNotificationRepository(testDB, failingOutbox{}).UpdateDelivery(ctx, n.ID, entity.NotificationDeliveryStatusDelivered, &at, "")
+		_, err := repo.Get(ctx, entity.NewID())
 
-		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Equal(t, entity.NotificationDeliveryStatusQueued, get(t, n.ID).DeliveryStatus)
+		assertAppErrCode(t, err, codes.NotFound)
 	})
 }
 
 func TestNotificationRepository_MarkRead(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
+	repo := rdb.NewNotificationRepository(testDB)
 	ctx := context.Background()
 
 	cleanDatabase(t)
 	userID := seedUser(t, "notif-read-user", "notif-read@example.com", "ext-notif-read-01")
 	otherID := seedUser(t, "notif-read-other", "notif-read-other@example.com", "ext-notif-read-other-01")
-	n := newTestNotification(userID, entity.NotificationTypeNewConcerts)
+	n := newTestNotification(userID)
 	require.NoError(t, repo.Create(ctx, n))
 
 	// First mark records read_at.
@@ -175,7 +154,7 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 	assert.Equal(t, firstReadAt, *got.ReadTime)
 
 	// A different user marking is scoped out: no row matches, state untouched.
-	otherNotif := newTestNotification(otherID, entity.NotificationTypeNewConcerts)
+	otherNotif := newTestNotification(otherID)
 	require.NoError(t, repo.Create(ctx, otherNotif))
 	require.NoError(t, repo.MarkRead(ctx, userID, otherNotif.ID)) // userID != owner otherID
 	got, err = repo.Get(ctx, otherNotif.ID)
@@ -183,72 +162,66 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 	assert.Nil(t, got.ReadTime)
 }
 
-func TestNotificationRepository_MarkDismissed(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
-	ctx := context.Background()
-
-	cleanDatabase(t)
-	userID := seedUser(t, "notif-dismiss-user", "notif-dismiss@example.com", "ext-notif-dismiss-01")
-	n := newTestNotification(userID, entity.NotificationTypeTicketSaleAnnouncement)
-	require.NoError(t, repo.Create(ctx, n))
-
-	require.NoError(t, repo.MarkDismissed(ctx, userID, n.ID))
-	got, err := repo.Get(ctx, n.ID)
-	require.NoError(t, err)
-	require.NotNil(t, got.DismissTime)
-	first := *got.DismissTime
-
-	// Idempotent: second call is a no-op.
-	require.NoError(t, repo.MarkDismissed(ctx, userID, n.ID))
-	got, err = repo.Get(ctx, n.ID)
-	require.NoError(t, err)
-	require.NotNil(t, got.DismissTime)
-	assert.Equal(t, first, *got.DismissTime)
-}
-
 func TestNotificationRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB, testOutbox)
+	repo := rdb.NewNotificationRepository(testDB)
 	ctx := context.Background()
 
-	t.Run("returns user's notifications most-recent-first", func(t *testing.T) {
+	// @spec components/entity/notification/list-by-user "More than the limit"
+	t.Run("More than the limit", func(t *testing.T) {
+		cleanDatabase(t)
+		userID := seedUser(t, "notif-limit-user", "notif-limit@example.com", "ext-notif-limit-01")
+		// Each Create runs in its own transaction, so each gets a later created_at.
+		newestFirst := make([]string, 60)
+		for i := range newestFirst {
+			n := newTestNotification(userID)
+			require.NoError(t, repo.Create(ctx, n))
+			newestFirst[len(newestFirst)-1-i] = n.ID
+		}
+
+		got, err := repo.ListByUser(ctx, userID, 50)
+
+		require.NoError(t, err)
+		ids := make([]string, len(got))
+		for i, n := range got {
+			ids[i] = n.ID
+		}
+		assert.Equal(t, newestFirst[:50], ids)
+	})
+
+	// @spec components/entity/notification/list-by-user "Another fan's notifications"
+	t.Run("Another fan's notifications", func(t *testing.T) {
 		cleanDatabase(t)
 		userID := seedUser(t, "notif-list-user", "notif-list@example.com", "ext-notif-list-01")
 		otherID := seedUser(t, "notif-list-other", "notif-list-other@example.com", "ext-notif-list-other-01")
+		own := newTestNotification(userID)
+		require.NoError(t, repo.Create(ctx, own))
+		require.NoError(t, repo.Create(ctx, newTestNotification(otherID)))
 
-		// Two separate Create round-trips run in distinct transactions, so each
-		// gets a distinct queued_at (now() at microsecond resolution; round-trip
-		// latency far exceeds 1µs), making the most-recent-first ordering
-		// deterministic without an artificial delay.
-		first := newTestNotification(userID, entity.NotificationTypeNewConcerts)
-		require.NoError(t, repo.Create(ctx, first))
-		second := newTestNotification(userID, entity.NotificationTypeSalesReminder)
-		require.NoError(t, repo.Create(ctx, second))
-		// A different user's notification must not appear.
-		require.NoError(t, repo.Create(ctx, newTestNotification(otherID, entity.NotificationTypeNewConcerts)))
+		got, err := repo.ListByUser(ctx, userID, 50)
 
-		got, err := repo.ListByUser(ctx, userID, 0)
 		require.NoError(t, err)
-		require.Len(t, got, 2)
-		assert.Equal(t, second.ID, got[0].ID, "newest first")
-		assert.Equal(t, first.ID, got[1].ID)
+		require.Len(t, got, 1)
+		assert.Equal(t, own.ID, got[0].ID)
+		assert.Equal(t, own.Subject, got[0].Subject, "listed with all its attributes")
+		assert.True(t, own.CreateTime.Equal(got[0].CreateTime))
 	})
 
-	t.Run("limit caps results", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-limit-user", "notif-limit@example.com", "ext-notif-limit-01")
-		for range 3 {
-			require.NoError(t, repo.Create(ctx, newTestNotification(userID, entity.NotificationTypeNewConcerts)))
-		}
-		got, err := repo.ListByUser(ctx, userID, 2)
-		require.NoError(t, err)
-		assert.Len(t, got, 2)
-	})
-
-	t.Run("empty for user with no notifications", func(t *testing.T) {
+	// @spec components/entity/notification/list-by-user "No notification"
+	t.Run("No notification", func(t *testing.T) {
 		cleanDatabase(t)
 		userID := seedUser(t, "notif-empty-user", "notif-empty@example.com", "ext-notif-empty-01")
-		got, err := repo.ListByUser(ctx, userID, 0)
+
+		got, err := repo.ListByUser(ctx, userID, 50)
+
 		require.NoError(t, err)
+		assert.NotNil(t, got)
 		assert.Empty(t, got)
+	})
+
+	// @spec components/entity/notification/list-by-user "Zero limit"
+	t.Run("Zero limit", func(t *testing.T) {
+		_, err := repo.ListByUser(ctx, entity.NewID(), 0)
+
+		assertAppErrCode(t, err, codes.InvalidArgument)
 	})
 }
