@@ -23,6 +23,7 @@ func TestFromLotteryEntry_LostReason(t *testing.T) {
 	}{
 		{name: "not drawn", state: entity.LotteryEntryStateLost, reason: entity.LotteryEntryLostReasonNotDrawn, want: entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN},
 		{name: "card not charged", state: entity.LotteryEntryStateLost, reason: entity.LotteryEntryLostReasonCardNotCharged, want: entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED},
+		{name: "concert cancelled", state: entity.LotteryEntryStateLost, reason: entity.LotteryEntryLostReasonConcertCancelled, want: entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CONCERT_CANCELLED},
 		{name: "won has no reason", state: entity.LotteryEntryStateWon, want: entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_UNSPECIFIED},
 	}
 	for _, tt := range tests {
@@ -30,6 +31,8 @@ func TestFromLotteryEntry_LostReason(t *testing.T) {
 			t.Parallel()
 			got := pb.FromLotteryEntry(&entity.LotteryEntry{ID: "e", OrderID: "o", TicketSaleID: "s", State: tt.state, LostReason: tt.reason})
 			assert.Equal(t, tt.want, got.GetLostReason())
+			// An announced entry decodes back to the same reason.
+			assert.Equal(t, tt.reason, pb.LotteryEntryFromAnnouncement(got).LostReason)
 		})
 	}
 }

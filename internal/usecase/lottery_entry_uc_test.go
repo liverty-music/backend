@@ -15,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 func fixedClock(t time.Time) usecase.Clock {
@@ -31,7 +32,11 @@ type lotteryFixture struct {
 	identityVerification *entitymocks.MockIdentityVerificationRepository
 	users                *entitymocks.MockUserRepository
 	cardAuthorizations   *entitymocks.MockCardAuthorizationRepository
-	uc                   usecase.LotteryEntryUseCase
+	eventState           *ucmocks.MockEventPublishStatePort
+	// cancelled holds the events IsEventPublished reports as not published;
+	// every other event is published.
+	cancelled map[string]bool
+	uc        usecase.LotteryEntryUseCase
 }
 
 // newLotteryFixture builds the use case at now, drawing in the order of a
@@ -47,13 +52,18 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		identityVerification: entitymocks.NewMockIdentityVerificationRepository(t),
 		users:                entitymocks.NewMockUserRepository(t),
 		cardAuthorizations:   entitymocks.NewMockCardAuthorizationRepository(t),
+		eventState:           ucmocks.NewMockEventPublishStatePort(t),
+		cancelled:            map[string]bool{},
 	}
+	f.eventState.EXPECT().IsEventPublished(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, eventID string) (bool, error) { return !f.cancelled[eventID], nil }).Maybe()
 	f.uc = usecase.NewLotteryEntryUseCaseWithRand(usecase.LotteryEntryDeps{
 		SaleRepo:                 f.sales,
 		StockRepo:                f.stocks,
 		EntryRepo:                f.entries,
 		OrderRepo:                f.orders,
 		EventRepo:                f.events,
+		EventState:               f.eventState,
 		IdentityVerificationRepo: f.identityVerification,
 		UserRepo:                 f.users,
 		CardAuthorizations:       f.cardAuthorizations,
@@ -215,6 +225,20 @@ func TestLotteryEntryUseCase_AuthorizeCard(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		f.cardAuthorizations.AssertNotCalled(t, "Create", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("concert cancelled", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize-card "Concert cancelled"
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.readsSaleAndStock(lotterySale(entity.VerificationRequirementNone), leStock(100, 0))
+		f.cancelled["event-1"] = true
+
+		_, err := f.uc.AuthorizeCard(ctx, "sale-l", "stock-1", "fan-1", 2, name, phone, nil)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		f.cardAuthorizations.AssertNotCalled(t, "Create", mock.Anything, mock.Anything, mock.Anything)
+		f.users.AssertNotCalled(t, "UpdatePersonalDetails", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("stock of another event", func(t *testing.T) {
@@ -546,6 +570,16 @@ func TestLotteryEntryUseCase_Confirm(t *testing.T) {
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
+			// @spec components/usecase/lottery-entry/confirm "Concert cancelled during card authentication"
+			name: "concert cancelled during card authentication",
+			setup: func(f *lotteryFixture) {
+				f.readsSaleAndStock(lotterySale(entity.VerificationRequirementNone), leStock(100, 0))
+				authorized(f, 16000, "visa")
+				f.cancelled["event-1"] = true
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
 			// @spec components/usecase/lottery-entry/confirm "TicketStock gone"
 			name: "ticket stock gone",
 			setup: func(f *lotteryFixture) {
@@ -724,5 +758,51 @@ func TestLotteryEntryUseCase_ListByTicketSale(t *testing.T) {
 		_, err := f.uc.ListByTicketSale(ctx, "missing", "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+func TestLotteryEntryUseCase_EndForCancelledEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("concert cancelled during the window", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/end-for-cancelled-event "Concert cancelled during the window"
+		// The entity operation ends every Entered entry of the event; the
+		// usecase calls it for the event and leaves the sale alone.
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.entries.EXPECT().EndEnteredByEvent(mock.Anything, "event-1").Return(nil).Once()
+
+		require.NoError(t, f.uc.EndForCancelledEvent(ctx, "event-1"))
+
+		f.sales.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	})
+
+	t.Run("announcement delivered twice", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/end-for-cancelled-event "Announcement delivered twice"
+		// Each delivery only calls the operation, which changes and announces
+		// nothing the second time (its contract test "Called again announces
+		// nothing"); the usecase starts no work of its own.
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.entries.EXPECT().EndEnteredByEvent(mock.Anything, "event-1").Return(nil).Twice()
+
+		require.NoError(t, f.uc.EndForCancelledEvent(ctx, "event-1"))
+		require.NoError(t, f.uc.EndForCancelledEvent(ctx, "event-1"))
+	})
+
+	t.Run("store unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/end-for-cancelled-event "Store unavailable"
+		// The failure is returned, so the announcement is delivered again and
+		// the entries end on the next run; the cancellation is not touched.
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.entries.EXPECT().EndEnteredByEvent(mock.Anything, "event-1").Return(apperr.New(codes.Unavailable, "outbox down")).Once()
+		f.entries.EXPECT().EndEnteredByEvent(mock.Anything, "event-1").Return(nil).Once()
+
+		err := f.uc.EndForCancelledEvent(ctx, "event-1")
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+
+		require.NoError(t, f.uc.EndForCancelledEvent(ctx, "event-1"), "the next run ends the entries")
 	})
 }

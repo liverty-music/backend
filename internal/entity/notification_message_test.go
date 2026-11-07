@@ -160,6 +160,13 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 			enTitle: "[ヨルシカ] Lottery Win Cancelled", enBody: "Your win for ぴあアリーナMM on Nov 20 was cancelled because your card could not be charged.",
 		},
 		{
+			name: "lottery loss concert cancelled", typ: entity.NotificationTypeLotteryLoss, subject: lotteryID,
+			loaded:   entity.LoadedSubject{LotteryEntry: lotteryEntry(entity.LotteryEntryLostReasonConcertCancelled)},
+			wantLink: "/concerts/event-1", wantTag: "lottery_loss-entry-1",
+			jaTitle: "[ヨルシカ] 公演が中止になりました", jaBody: "11/20のぴあアリーナMM公演が中止になったため、抽選のお申し込みは終了しました。請求はありません。",
+			enTitle: "[ヨルシカ] Concert Cancelled", enBody: "The concert at ぴあアリーナMM on Nov 20 was cancelled, so your lottery entry ended. You were not charged.",
+		},
+		{
 			name: "resale lapsed while resale is open", typ: entity.NotificationTypeResaleEntryLapsed, subject: resaleID,
 			loaded:   entity.LoadedSubject{ResaleEntry: resaleEntry(entity.ResaleEntryLostReasonUnspecified)},
 			wantLink: "/resale-entries", wantTag: "resale_entry_lapsed-entry-1",

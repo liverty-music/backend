@@ -16,7 +16,8 @@ type LotteryEntryID string
 // state.
 //
 //	[*] --> Entered --> Won | Lost
-//	Won --> Lost (the card could not be charged)
+//	Entered --> Lost (the concert was cancelled)
+//	Won --> Lost (the card could not be charged, or the concert was cancelled)
 type LotteryEntryState int8
 
 const (
@@ -33,8 +34,10 @@ const (
 	LotteryEntryStateWon LotteryEntryState = 2
 
 	// LotteryEntryStateLost means the draw did not allocate tickets to the
-	// entry, or its win was reverted because its card could not be charged.
-	// Its Order is Void and its card authorization is released.
+	// entry, its win was reverted because its card could not be charged, or
+	// its concert was cancelled before it was charged (see
+	// [LotteryEntryLostReason]). Its Order is Void and its card authorization
+	// is released.
 	LotteryEntryStateLost LotteryEntryState = 3
 )
 
@@ -53,6 +56,12 @@ const (
 	// LotteryEntryLostReasonCardNotCharged means the draw selected the entry
 	// but its Order's card authorization could not be captured.
 	LotteryEntryLostReasonCardNotCharged LotteryEntryLostReason = 2
+
+	// LotteryEntryLostReasonConcertCancelled means the entry's Event was
+	// cancelled (中止) while the entry was Entered, so it ended without being
+	// drawn, or after it won but before its card authorization was captured.
+	// Nothing was charged.
+	LotteryEntryLostReasonConcertCancelled LotteryEntryLostReason = 3
 )
 
 // String returns the lowercase state name.
@@ -315,9 +324,11 @@ type LotteryEntryRepository interface {
 	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder) error
 
 	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
-	// reason card not charged, keeping its draw position, and makes its Order
-	// Void, in one transaction under the row lock of the Order's TicketStock,
-	// so its tickets stay unallocated. An entry already Lost is left as it is.
+	// reason, [LotteryEntryLostReasonCardNotCharged] or
+	// [LotteryEntryLostReasonConcertCancelled], keeping its draw position, and
+	// makes its Order Void, in one transaction under the row lock of the
+	// Order's TicketStock, so its tickets stay unallocated. An entry already
+	// Lost is left as it is.
 	//
 	// # Possible errors
 	//
@@ -330,9 +341,32 @@ type LotteryEntryRepository interface {
 	// # Announces
 	//
 	// ORDER.lottery_entry_drawn with the entry as it is after the change,
-	// Lost with the lost reason card not charged, together with the change.
-	// Nothing when the entry was already Lost.
-	RevertWin(ctx context.Context, id LotteryEntryID) error
+	// Lost with the given lost reason, together with the change. Nothing when
+	// the entry was already Lost.
+	RevertWin(ctx context.Context, id LotteryEntryID, reason LotteryEntryLostReason) error
+
+	// EndEnteredByEvent makes every Entered entry whose Order's TicketStock
+	// belongs to the event Lost with the lost reason
+	// [LotteryEntryLostReasonConcertCancelled], with no draw position, and
+	// makes each of their Orders Void, in one transaction under the row locks
+	// of the event's TicketStocks taken in id order, the order
+	// PersistDrawOutcome takes them in, so an entry a draw records at the same
+	// moment is either recorded by the draw or ended here. Won and Lost
+	// entries, and the entries of other events, are left as they are. It
+	// succeeds and changes nothing when the event has no Entered entry,
+	// including when no event has the id.
+	//
+	// # Possible errors
+	//
+	//   - Unavailable: an announcement cannot be recorded; nothing changes.
+	//   - Internal: database failure.
+	//
+	// # Announces
+	//
+	// ORDER.lottery_entry_drawn once per entry it makes Lost, with the entry
+	// as it is after the change, together with the change. Nothing when no
+	// entry changed.
+	EndEnteredByEvent(ctx context.Context, eventID string) error
 
 	// MarkLossEmailSent sets the entry's loss email send time when it is
 	// unset; an already set time is kept.
