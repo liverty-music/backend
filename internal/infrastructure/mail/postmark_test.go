@@ -182,6 +182,18 @@ func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 		assert.Empty(t, stub.sent)
 	})
 
+	t.Run("message missing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-cancellation-email "Message missing"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		err := sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", entity.OrderEmail{})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
+	})
+
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-cancellation-email "Mail unavailable"
@@ -218,6 +230,18 @@ func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
 		sender := newSender(t, stub, orders)
 
 		err := sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", entity.OrderEmail{})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
+	})
+
+	t.Run("address missing", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/order/send-refund-email "Address missing"
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		err := sender.SendRefundEmail(context.Background(), "order-1", "", notice)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		assert.Empty(t, stub.sent)

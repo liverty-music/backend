@@ -219,6 +219,18 @@ func TestRefundRepository_CommitRefund(t *testing.T) {
 		assert.Zero(t, orderRefundRows(t, p.orderID))
 	})
 
+	t.Run("amount below zero", func(t *testing.T) {
+		// @spec components/entity/order/commit-refund "Amount below zero"
+		p := seedRefundablePurchase(t, 1)
+
+		err := refunds.CommitRefund(ctx, cancellation(p, -1, "re_9"))
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Equal(t, entity.OrderStatusPaid, order(t, p).Status)
+		assert.Equal(t, entity.TicketStatusIssued, ticketStatus(t, p.tickets[0]))
+		assert.Zero(t, orderRefundRows(t, p.orderID))
+	})
+
 	t.Run("order already refunded", func(t *testing.T) {
 		// @spec components/entity/order/commit-refund "Order already refunded"
 		p := seedRefundablePurchase(t, 1)
