@@ -31,6 +31,7 @@ func TestMigration_NotificationSubject(t *testing.T) {
 		saleID         = id(2)
 		fanID          = id(3)
 		notificationID = id(4)
+		noLanguageID   = id(6)
 	)
 	mustExec := func(sql string, args ...any) {
 		t.Helper()
@@ -38,6 +39,7 @@ func TestMigration_NotificationSubject(t *testing.T) {
 		require.NoError(t, err, sql)
 	}
 	mustExec(`INSERT INTO users (id, provider_user_id, name, email, preferred_language) VALUES ($1, 'ext-1', 'Fan', 'fan@example.com', 'ja')`, fanID)
+	mustExec(`INSERT INTO users (id, provider_user_id, name, email) VALUES ($1, 'ext-3', 'No Language', 'nolang@example.com')`, noLanguageID)
 	mustExec(`INSERT INTO notifications (id, user_id, type, payload) VALUES ($1, $2, 'new_concerts', '{}')`, notificationID, fanID)
 	mustExec(`INSERT INTO series (id, title, type) VALUES ($1, 'Tour 2026', 'TOUR')`, seriesID)
 	mustExec(`INSERT INTO ticket_sales (id, series_id, name, method, sale_start_at, sale_end_at, discovered_at)
@@ -71,6 +73,12 @@ func TestMigration_NotificationSubject(t *testing.T) {
 	t.Run("the fan keeps their language", func(t *testing.T) {
 		var lang string
 		require.NoError(t, conn.QueryRow(ctx, `SELECT preferred_language FROM users WHERE id = $1`, fanID).Scan(&lang))
+		assert.Equal(t, "ja", lang)
+	})
+
+	t.Run("a fan created without a language gets Japanese", func(t *testing.T) {
+		var lang string
+		require.NoError(t, conn.QueryRow(ctx, `SELECT preferred_language FROM users WHERE id = $1`, noLanguageID).Scan(&lang))
 		assert.Equal(t, "ja", lang)
 	})
 

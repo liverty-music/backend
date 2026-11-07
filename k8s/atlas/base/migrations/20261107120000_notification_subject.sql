@@ -4,9 +4,8 @@
 --
 -- Every notifications row is deleted: the rows hold rendered messages that
 -- cannot be turned into subjects, and production holds only test data. The
--- reminder sent-log loses the result-day stage, which is no longer sent. No user
--- in production lacks a preferred language (counted when the change was planned);
--- SET NOT NULL stops the migration if one does.
+-- reminder sent-log loses the result-day stage, which is no longer sent. A user
+-- without a preferred language gets Japanese before the column becomes NOT NULL.
 SET search_path TO app, public;
 
 DELETE FROM notifications;
@@ -29,6 +28,9 @@ COMMENT ON COLUMN notifications.subject IS 'The ids of the records the notificat
 COMMENT ON COLUMN notifications.created_at IS 'Timestamp when the notification record was created';
 COMMENT ON INDEX idx_notifications_user_created IS 'Optimizes the notification center query: a user''s notifications newest first';
 
+-- A user created without a language before the deploy (the old Create
+-- allowed it) gets Japanese, the language its emails already used.
+UPDATE users SET preferred_language = 'ja' WHERE preferred_language IS NULL;
 ALTER TABLE users ALTER COLUMN preferred_language SET NOT NULL;
 COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). Set when the user is created.';
 
