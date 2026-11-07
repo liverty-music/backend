@@ -13,6 +13,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,6 +84,8 @@ func (w *storyWorkflows) take(workflow string) []any {
 type storyPush struct {
 	mu    sync.Mutex
 	sends []storySend
+	// goneEndpoints are the browsers whose push service reports them gone.
+	goneEndpoints map[string]bool
 }
 
 type storySend struct {
@@ -96,6 +100,9 @@ func (s *storyPush) Send(_ context.Context, payload []byte, sub *entity.PushSubs
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.goneEndpoints[sub.Endpoint] {
+		return apperr.New(codes.NotFound, "push subscription is no longer valid")
+	}
 	s.sends = append(s.sends, storySend{userID: sub.UserID, payload: p})
 	return nil
 }
@@ -214,7 +221,11 @@ func newStoryDeps(t *testing.T) *storyDeps {
 		Entries:       rdb.NewLotteryEntryRepository(testDB, testOutbox),
 		ResaleEntries: rdb.NewResaleEntryRepository(testDB, testOutbox),
 	}
-	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{}, subjects)
+	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{
+		ArtistRepo:  subjects.Artists,
+		ConcertRepo: rdb.NewConcertRepository(testDB, testOutbox),
+		FollowRepo:  subjects.Follows,
+	}, subjects)
 	d.reminder = usecase.NewTicketSaleReminderDeliveryUseCase(
 		rdb.NewTicketSaleReminderRepository(testDB), d.notifs, pushSubs, d.push, subjects, storyMetrics{}, logger)
 	return d
