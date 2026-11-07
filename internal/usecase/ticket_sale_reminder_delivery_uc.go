@@ -155,8 +155,9 @@ func (uc *ticketSaleReminderDeliveryUseCase) DeliverReminder(ctx context.Context
 		}
 		uc.logDeliveryOutcome(ctx, data, stage, "no_subscription")
 	default:
-		// Transient send failure — leave the sent-log empty so the next scan
-		// retries, and log the terminal failed outcome.
+		// Any other failure — a send failure or a subject that no longer
+		// exists. Leave the sent-log empty so the next scan requests it again
+		// while the stage is due, and log the failed outcome.
 		uc.logDeliveryOutcome(ctx, data, stage, "failed")
 	}
 	return nil
