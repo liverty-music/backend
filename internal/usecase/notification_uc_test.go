@@ -3,10 +3,8 @@ package usecase_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,9 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // deliveryOutcomeCall captures one RecordDeliveryOutcome invocation.
@@ -52,492 +48,559 @@ func newCaptureLogger(t *testing.T) (*logging.Logger, *bytes.Buffer) {
 	return logger, buf
 }
 
-func buildNotificationUC(
-	t *testing.T,
-	notifRepo *entitymocks.MockNotificationRepository,
-	pushSubRepo *entitymocks.MockPushSubscriptionRepository,
-	sender *entitymocks.MockPushNotificationSender,
-	publisher *ucmocks.MockWorkflows,
-) usecase.NotificationUseCase {
-	t.Helper()
-	return usecase.NewNotificationUseCase(
-		notifRepo,
-		pushSubRepo,
-		sender,
-		publisher,
-		noopMetrics{},
-		newTestLogger(t),
-		usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{},
-	)
-}
-
-func notifPayload() *entity.NotificationPayload {
-	return entity.NewNotificationPayload("Artist", "1 new concert found", "/concerts", "concert-x")
-}
-
 func sub(userID, endpoint string) *entity.PushSubscription {
 	return &entity.PushSubscription{UserID: userID, Endpoint: endpoint, P256dh: "p", Auth: "a"}
 }
 
-// Success path: record created, sent, delivery recorded as delivered, and the
-// minted notification id is carried into the dispatched payload.
-//
-// @spec components/usecase/notification/deliver "Message identifies its notification"
-// @spec components/usecase/notification/deliver "Delivered"
-func TestDeliver_Success(t *testing.T) {
-	t.Parallel()
-
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "01890000-0000-7000-8000-000000000abc" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1"), sub("user-1", "https://push/2")}, nil)
-	var pushed [][]byte
-	sender.EXPECT().
-		Send(anyCtx, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("*entity.PushSubscription")).
-		RunAndReturn(func(_ context.Context, msg []byte, _ *entity.PushSubscription) error {
-			pushed = append(pushed, msg)
-			return nil
-		}).
-		Times(2)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "01890000-0000-7000-8000-000000000abc", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	publisher := ucmocks.NewMockWorkflows(t)
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	payload := notifPayload()
-	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, payload)
-
-	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusDelivered, n.DeliveryStatus)
-	// The notification id is propagated end-to-end into the payload data.
-	assert.Equal(t, "01890000-0000-7000-8000-000000000abc", payload.Data[entity.NotificationDataKeyNotificationID])
-	// The message pushed to every browser carries that id.
-	require.Len(t, pushed, 2)
-	for _, msg := range pushed {
-		assert.Contains(t, string(msg), "01890000-0000-7000-8000-000000000abc")
+// newConcertsFixture is a subjectFixture in which user-1 (Japanese) can be sent
+// a new_concerts notification of artist-1 and event-1.
+func newConcertsFixture(t *testing.T) (*subjectFixture, usecase.DeliverRequest) {
+	t.Helper()
+	f := newSubjectFixture(t)
+	f.fanReadable(renderedFan("user-1", "ja"))
+	f.artists.EXPECT().Get(mock.Anything, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Vaundy"}, nil).Maybe()
+	f.concertsReadable(renderedConcert("event-1"))
+	return f, usecase.DeliverRequest{
+		UserID:  "user-1",
+		Type:    entity.NotificationTypeNewConcerts,
+		Subject: entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"event-1"}},
 	}
 }
 
-// The pushed message names the recorded Notification's type next to its id.
-//
+// capturePushes accepts each send and appends the pushed message to the result.
+func (f *subjectFixture) capturePushes(times int) *[]*capturedPush {
+	pushed := &[]*capturedPush{}
+	f.sender.EXPECT().Send(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, msg []byte, s *entity.PushSubscription) error {
+			*pushed = append(*pushed, &capturedPush{raw: msg, endpoint: s.Endpoint})
+			return nil
+		}).Times(times)
+	return pushed
+}
+
+// capturedPush is one send to one browser.
+type capturedPush struct {
+	raw      []byte
+	endpoint string
+}
+
+// sendFails makes the send to the endpoint fail with err.
+func (f *subjectFixture) sendFails(endpoint string, err error) {
+	f.sender.EXPECT().
+		Send(mock.Anything, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == endpoint })).
+		Return(err).Once()
+}
+
+// sendAccepted makes the send to the endpoint succeed.
+func (f *subjectFixture) sendAccepted(endpoint string) {
+	f.sender.EXPECT().
+		Send(mock.Anything, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == endpoint })).
+		Return(nil).Once()
+}
+
+// @spec components/usecase/notification/deliver "Message identifies its notification"
+// @spec components/usecase/notification/deliver "Delivered"
+func TestDeliver_Delivered(t *testing.T) {
+	t.Parallel()
+
+	f, req := newConcertsFixture(t)
+	stored := f.recordsAs("01890000-0000-7000-8000-000000000abc")
+	f.browsers("user-1", "https://push/1", "https://push/2")
+	pushed := f.capturePushes(2)
+
+	outcome, err := f.uc.Deliver(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, usecase.DeliveryOutcome{NotificationID: "01890000-0000-7000-8000-000000000abc", Status: usecase.DeliveryStatusDelivered}, outcome)
+	assert.Equal(t, "user-1", stored.UserID)
+	assert.Equal(t, entity.NotificationTypeNewConcerts, stored.Type)
+	assert.Equal(t, req.Subject, stored.Subject)
+	// The same message, carrying the id, reaches every browser.
+	require.Len(t, *pushed, 2)
+	assert.ElementsMatch(t, []string{"https://push/1", "https://push/2"}, []string{(*pushed)[0].endpoint, (*pushed)[1].endpoint})
+	assert.Equal(t, (*pushed)[0].raw, (*pushed)[1].raw)
+	for _, p := range *pushed {
+		msg := decodeMessage(t, p.raw)
+		assert.Equal(t, "01890000-0000-7000-8000-000000000abc", msg.Data[entity.NotificationDataKeyNotificationID])
+		assert.Equal(t, "[Vaundy] 新着ライブ発表!!", msg.Title)
+	}
+	// Logged for usage analytics with the fan, the type and the id.
+	logs := f.logs.String()
+	assert.Contains(t, logs, "notification delivered")
+	assert.Contains(t, logs, `"topic":"notification_delivery"`)
+	assert.Contains(t, logs, `"user_id":"user-1"`)
+	assert.Contains(t, logs, `"notification_type":"new_concerts"`)
+	assert.Contains(t, logs, `"notification_id":"01890000-0000-7000-8000-000000000abc"`)
+}
+
 // @spec components/usecase/notification/deliver "Message names its type"
 func TestDeliver_MessageNamesType(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockWorkflows(t)
+	f := newSubjectFixture(t)
+	f.fanReadable(renderedFan("user-1", "ja"))
+	f.ticketSales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1")).Return(&entity.TicketSale{
+		ID: "sale-1", Method: entity.TicketSaleMethodLottery,
+		SaleStartTime: time.Date(2026, 10, 5, 18, 0, 0, 0, tsJST),
+		SaleEndTime:   time.Date(2026, 10, 22, 23, 59, 0, 0, tsJST),
+	}, nil).Once()
+	f.concertsReadable(renderedConcert("event-1"))
+	f.recordsAs("notif-type-1")
+	f.browsers("user-1", "https://push/1", "https://push/2")
+	pushed := f.capturePushes(2)
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "notif-type-1" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1"), sub("user-1", "https://push/2")}, nil)
-	var pushed [][]byte
-	sender.EXPECT().
-		Send(anyCtx, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("*entity.PushSubscription")).
-		RunAndReturn(func(_ context.Context, msg []byte, _ *entity.PushSubscription) error {
-			pushed = append(pushed, msg)
-			return nil
-		}).
-		Times(2)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "notif-type-1", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
+	_, err := f.uc.Deliver(context.Background(), usecase.DeliverRequest{
+		UserID: "user-1",
+		Type:   entity.NotificationTypeSalesReminder,
+		Subject: entity.NotificationSubject{
+			TicketSaleID: "sale-1", Stage: entity.ReminderStageApplyClose24H, EventID: "event-1",
+		},
+	})
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeSalesReminder, notifPayload())
 	require.NoError(t, err)
-
-	require.Len(t, pushed, 2)
-	for _, raw := range pushed {
-		var msg entity.NotificationPayload
-		require.NoError(t, json.Unmarshal(raw, &msg))
-		assert.Equal(t, "sales_reminder", msg.Data["type"])
-		assert.Equal(t, "notif-type-1", msg.Data["notification_id"])
-		assert.Equal(t, "/concerts", msg.Data["url"])
+	require.Len(t, *pushed, 2)
+	for _, p := range *pushed {
+		assert.Equal(t, map[string]string{
+			"url":             "/concerts/event-1",
+			"notification_id": "notif-type-1",
+			"type":            "sales_reminder",
+			"ticket_sale_id":  "sale-1",
+			"milestone":       "apply_close_24h",
+		}, decodeMessage(t, p.raw).Data)
 	}
 }
 
-// Send-failure path: the record is created, every send fails, and the outcome
-// is recorded as failed with the reason of the last failure (not returned as an
-// error). A failed delivery is not announced.
-//
+// A type other than sales_reminder carries no sale or stage.
+func TestDeliver_OnlyAReminderNamesASaleAndStage(t *testing.T) {
+	t.Parallel()
+
+	f, req := newConcertsFixture(t)
+	msg := f.push(t, req)
+
+	assert.Equal(t, "new_concerts", msg.Data[entity.NotificationDataKeyType])
+	assert.NotContains(t, msg.Data, entity.NotificationDataKeyTicketSaleID)
+	assert.NotContains(t, msg.Data, entity.NotificationDataKeyMilestone)
+}
+
 // @spec components/usecase/notification/deliver "Every send fails"
 // @spec components/usecase/notification/deliver "Delivery failed"
-// @spec components/usecase/notification/deliver "Failed"
-func TestDeliver_SendFailureRecordedAsFailed(t *testing.T) {
+func TestDeliver_EverySendFails(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockWorkflows(t)
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-fail")
+	f.browsers("user-1", "https://push/1", "https://push/2")
+	f.sendFails("https://push/1", errors.New("first rejected"))
+	f.sendFails("https://push/2", errors.New("last rejected"))
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.AnythingOfType("*entity.Notification")).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-fail" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1"), sub("user-1", "https://push/2")}, nil)
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/1" })).
-		Return(errors.New("first rejected"))
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/2" })).
-		Return(errors.New("last rejected"))
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-fail", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), "last rejected").
-		Return(nil)
+	outcome, err := f.uc.Deliver(context.Background(), req)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
-
-	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
-	assert.Equal(t, "last rejected", n.FailureReason)
+	require.NoError(t, err, "a Failed outcome does not fail Deliver")
+	assert.Equal(t, usecase.DeliveryOutcome{NotificationID: "id-fail", Status: usecase.DeliveryStatusFailed, FailureReason: "last rejected"}, outcome)
+	// The stored Notification is unchanged: Create is the only repository call.
+	assert.Len(t, f.notifs.Calls, 1)
+	f.notifs.AssertCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
-// Gone (410) path: only the dead subscription is cleaned up, the fan's other
-// browser keeps its subscription and, with no successful send, the outcome is
-// failed.
+// Only the dead subscription is removed; the fan's other browser keeps its
+// subscription and, with no accepted send, the outcome is Failed.
 //
 // @spec components/usecase/notification/deliver "Browser gone"
-func TestDeliver_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
+func TestDeliver_BrowserGone(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-gone")
+	f.browsers("user-1", "https://push/gone", "https://push/other")
+	f.sendFails("https://push/gone", apperr.New(codes.NotFound, "410 gone"))
+	f.sendFails("https://push/other", errors.New("push service rejected"))
+	// Only the dead (user, endpoint) pair is removed (any other call would fail
+	// the mock), and the removal is not the fan's own, so it goes through
+	// DeleteGone, which announces no unsubscription.
+	f.pushSubs.EXPECT().DeleteGone(mock.Anything, "user-1", "https://push/gone").Return(nil).Once()
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-gone" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/gone"), sub("user-1", "https://push/other")}, nil)
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/gone" })).
-		Return(apperr.New(codes.NotFound, "410 gone"))
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/other" })).
-		Return(errors.New("push service rejected"))
-	// Only the dead (user, endpoint) pair is deleted; the other browser keeps
-	// its subscription (any other call would fail the mock), and the removal
-	// is not the fan's own, so it goes through DeleteGone.
-	pushSubRepo.EXPECT().
-		DeleteGone(anyCtx, "user-1", "https://push/gone").
-		Return(nil).
-		Once()
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-gone", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), mock.Anything).
-		Return(nil)
+	outcome, err := f.uc.Deliver(context.Background(), req)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
+	assert.Equal(t, usecase.DeliveryStatusFailed, outcome.Status)
 }
 
-// No-subscription path: a record is created but there is no push endpoint, so the
-// outcome is failed with the "no active push subscription" reason; no send.
-//
 // @spec components/usecase/notification/deliver "No browser registered"
-func TestDeliver_NoSubscriptionRecordedAsFailed(t *testing.T) {
+func TestDeliver_NoBrowserRegistered(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-nosub")
+	f.browsers("user-1")
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-nosub" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{}, nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-nosub", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), "no active push subscription").
-		Return(nil)
+	outcome, err := f.uc.Deliver(context.Background(), req)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
-	sender.AssertNotCalled(t, "Send")
+	assert.Equal(t, usecase.DeliveryOutcome{NotificationID: "id-nosub", Status: usecase.DeliveryStatusFailed, FailureReason: "no active push subscription"}, outcome)
+	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Cancellation path: a context cancelled before dispatch short-circuits the send
-// loop — the record still exists (created first) and is recorded failed, but no
-// push is sent.
+// The subscriptions cannot be read: the outcome is Failed with the listing
+// error, not an error, because the Notification is already recorded.
+func TestDeliver_ListingFails(t *testing.T) {
+	t.Parallel()
+
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-list")
+	f.pushSubs.EXPECT().ListByUserIDs(mock.Anything, []string{"user-1"}).Return(nil, errors.New("db down")).Once()
+
+	outcome, err := f.uc.Deliver(context.Background(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, usecase.DeliveryStatusFailed, outcome.Status)
+	assert.Contains(t, outcome.FailureReason, "db down")
+}
+
+// A request cancelled before the first send sends nothing and is Failed; the
+// record still exists.
 func TestDeliver_ContextCancelledStopsDispatch(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-cancel" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1")}, nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-cancel", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), mock.MatchedBy(func(s string) bool { return s != "" })).
-		Return(nil)
-
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-cancel")
+	f.browsers("user-1", "https://push/1")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	outcome, err := f.uc.Deliver(ctx, req)
 
 	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
-	sender.AssertNotCalled(t, "Send")
+	assert.Equal(t, usecase.DeliveryStatusFailed, outcome.Status)
+	assert.NotEmpty(t, outcome.FailureReason)
+	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Record-failure path: when the record cannot be created, NO send is attempted
-// and the error surfaces ("no record => no send").
-//
 // @spec components/usecase/notification/deliver "Recording fails"
-func TestDeliver_RecordFailureDoesNotSend(t *testing.T) {
+func TestDeliver_RecordingFails(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f, req := newConcertsFixture(t)
+	f.notifs.EXPECT().Create(mock.Anything, mock.Anything).Return(apperr.New(codes.Unavailable, "db down")).Once()
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Return(apperr.New(codes.Internal, "db down"))
+	_, err := f.uc.Deliver(context.Background(), req)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
-
-	require.Error(t, err)
-	sender.AssertNotCalled(t, "Send")
-	pushSubRepo.AssertNotCalled(t, "ListByUserIDs")
-	notifRepo.AssertNotCalled(t, "UpdateDelivery")
+	require.ErrorIs(t, err, apperr.ErrUnavailable, "the request is processed again")
+	f.pushSubs.AssertNotCalled(t, "ListByUserIDs", mock.Anything, mock.Anything)
+	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Nil payload is rejected with InvalidArgument before any record is created.
-//
-// @spec components/usecase/notification/deliver "Missing message"
-func TestDeliver_NilPayloadRejected(t *testing.T) {
+// @spec components/usecase/notification/deliver "Subject missing a record"
+func TestDeliver_SubjectMissingARecord(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f := newSubjectFixture(t)
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, nil)
+	_, err := f.uc.Deliver(context.Background(), usecase.DeliverRequest{
+		UserID: "user-1", Type: entity.NotificationTypeLotteryLoss, Subject: entity.NotificationSubject{},
+	})
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	notifRepo.AssertNotCalled(t, "Create")
+	f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Partial-success path: with two browsers, one accepted send is enough for the
-// outcome to be Delivered even though the other send fails.
-//
+// @spec components/usecase/notification/deliver "Subject deleted before delivery"
+func TestDeliver_SubjectDeletedBeforeDelivery(t *testing.T) {
+	t.Parallel()
+
+	f := newSubjectFixture(t)
+	f.fanReadable(renderedFan("user-1", "ja"))
+	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(nil, apperr.New(codes.NotFound, "order not found")).Once()
+
+	outcome, err := f.uc.Deliver(context.Background(), usecase.DeliverRequest{
+		UserID: "user-1", Type: entity.NotificationTypeConcertCancelled, Subject: entity.NotificationSubject{OrderID: "order-1"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, usecase.DeliveryOutcome{Status: usecase.DeliveryStatusFailed, FailureReason: "subject no longer exists"}, outcome)
+	f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
+	assert.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "subject_gone"})
+}
+
+// A concert the subject names that no longer exists makes the subject gone too.
+func TestDeliver_ConcertDeletedBeforeDelivery(t *testing.T) {
+	t.Parallel()
+
+	f := newSubjectFixture(t)
+	f.fanReadable(renderedFan("user-1", "ja"))
+	f.artists.EXPECT().Get(mock.Anything, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Vaundy"}, nil).Once()
+	f.concertsReadable(renderedConcert("event-1"))
+
+	outcome, err := f.uc.Deliver(context.Background(), usecase.DeliverRequest{
+		UserID: "user-1", Type: entity.NotificationTypeNewConcerts,
+		Subject: entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"event-1", "event-deleted"}},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, usecase.NotificationFailureReasonSubjectGone, outcome.FailureReason)
+	f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// A read that fails for another reason fails Deliver, so the request is
+// processed again; nothing is recorded or sent.
+func TestDeliver_ReadFails(t *testing.T) {
+	t.Parallel()
+
+	req := usecase.DeliverRequest{
+		UserID: "user-1", Type: entity.NotificationTypeConcertCancelled, Subject: entity.NotificationSubject{OrderID: "order-1"},
+	}
+
+	t.Run("subject record", func(t *testing.T) {
+		t.Parallel()
+		f := newSubjectFixture(t)
+		f.fanReadable(renderedFan("user-1", "ja"))
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+
+		_, err := f.uc.Deliver(context.Background(), req)
+
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	})
+
+	t.Run("the fan", func(t *testing.T) {
+		t.Parallel()
+		f := newSubjectFixture(t)
+		f.users.EXPECT().Get(mock.Anything, "user-1").Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+
+		_, err := f.uc.Deliver(context.Background(), req)
+
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	})
+
+	t.Run("the fan's follows", func(t *testing.T) {
+		t.Parallel()
+		f := newSubjectFixture(t)
+		f.users.EXPECT().Get(mock.Anything, "user-1").Return(renderedFan("user-1", "ja"), nil).Once()
+		f.follows.EXPECT().ListByUser(mock.Anything, "user-1").Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+
+		_, err := f.uc.Deliver(context.Background(), req)
+
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	})
+}
+
 // @spec components/usecase/notification/deliver "One of two browsers accepts"
 func TestDeliver_OneOfTwoBrowsersAccepts(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockWorkflows(t)
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-partial")
+	f.browsers("user-1", "https://push/bad", "https://push/good")
+	f.sendFails("https://push/bad", errors.New("push service rejected"))
+	f.sendAccepted("https://push/good")
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-partial" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/bad"), sub("user-1", "https://push/good")}, nil)
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/bad" })).
-		Return(errors.New("push service rejected"))
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.MatchedBy(func(s *entity.PushSubscription) bool { return s.Endpoint == "https://push/good" })).
-		Return(nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-partial", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	outcome, err := f.uc.Deliver(context.Background(), req)
 
 	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusDelivered, n.DeliveryStatus)
+	assert.Equal(t, usecase.DeliveryOutcome{NotificationID: "id-partial", Status: usecase.DeliveryStatusDelivered}, outcome)
 }
 
-// Cancellation after an accepted send: the remaining sends are not made, and
-// the send already accepted keeps the outcome Delivered.
-//
 // @spec components/usecase/notification/deliver "Cancelled after one accepted send"
 func TestDeliver_CancelledAfterOneAcceptedSend(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockWorkflows(t)
-
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-cancel-after")
+	f.browsers("user-1", "https://push/1", "https://push/2", "https://push/3")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-cancel-after" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{
-			sub("user-1", "https://push/1"),
-			sub("user-1", "https://push/2"),
-			sub("user-1", "https://push/3"),
-		}, nil)
-	// The first send is accepted and cancels the request; exactly one Send may happen.
-	sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.Anything).
+	// The first send is accepted and cancels the request; a second send would
+	// fail the mock.
+	f.sender.EXPECT().Send(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(context.Context, []byte, *entity.PushSubscription) error {
 			cancel()
 			return nil
-		}).
-		Once()
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-cancel-after", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
+		}).Once()
 
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	outcome, err := f.uc.Deliver(ctx, req)
 
 	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusDelivered, n.DeliveryStatus)
-	sender.AssertNumberOfCalls(t, "Send", 1)
-}
-
-// Outcome-storage failure is non-fatal: the accepted send still yields a
-// Delivered Notification and no error.
-//
-// @spec components/usecase/notification/deliver "Outcome cannot be stored"
-func TestDeliver_UpdateDeliveryFailureIsNonFatal(t *testing.T) {
-	t.Parallel()
-
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-	publisher := ucmocks.NewMockWorkflows(t)
-
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-update-fail" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1")}, nil)
-	sender.EXPECT().Send(anyCtx, mock.Anything, mock.Anything).Return(nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-update-fail", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(apperr.New(codes.Internal, "db down"))
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
-	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
-
-	require.NoError(t, err)
-	assert.Equal(t, entity.NotificationDeliveryStatusDelivered, n.DeliveryStatus)
+	assert.Equal(t, usecase.DeliveryStatusDelivered, outcome.Status)
+	f.sender.AssertNumberOfCalls(t, "Send", 1)
 }
 
 // Observability: a failed delivery emits the WARNING log (with the bounded
-// failure_reason label) AND the delivery-outcome metric, so the failure is
-// detectable without querying the notifications table.
+// failure_reason label) and the delivery-outcome metric, so the failure is
+// detectable without storing the outcome.
 func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f, req := newConcertsFixture(t)
+	f.recordsAs("id-obs")
+	f.browsers("user-1")
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-obs" }).
-		Return(nil)
-	// No subscriptions ⇒ failed with the "no active push subscription" reason.
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{}, nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-obs", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), "no active push subscription").
-		Return(nil)
-
-	metrics := &captureMetrics{}
-	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t), metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
-
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := f.uc.Deliver(context.Background(), req)
 	require.NoError(t, err)
 
-	// Metric: failed outcome with the bounded no_subscription reason.
-	require.Contains(t, metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "no_subscription"})
-
-	// Log: a WARNING line naming the failure and carrying the bounded label.
-	logs := buf.String()
+	require.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "no_subscription"})
+	logs := f.logs.String()
 	assert.Contains(t, logs, `"level":"WARN"`)
 	assert.Contains(t, logs, "notification delivery failed")
 	assert.Contains(t, logs, `"failure_reason":"no_subscription"`)
 	assert.Contains(t, logs, `"notification_id":"id-obs"`)
 }
 
-// Observability: the success path stays quiet — it emits the delivered metric
-// but produces no WARNING delivery-failure log.
+// Observability: the success path emits the delivered metric and no WARNING.
 func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f, req := newConcertsFixture(t)
+	f.push(t, req)
 
-	notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-ok" }).
-		Return(nil)
-	pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-1"}).
-		Return([]*entity.PushSubscription{sub("user-1", "https://push/1")}, nil)
-	sender.EXPECT().Send(anyCtx, mock.Anything, mock.Anything).Return(nil)
-	notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-ok", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
-	publisher := ucmocks.NewMockWorkflows(t)
+	require.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "delivered", reason: "none"})
+	assert.NotContains(t, f.logs.String(), "notification delivery failed")
+	assert.NotContains(t, f.logs.String(), `"level":"WARN"`)
+}
 
-	metrics := &captureMetrics{}
-	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{})
+// lossNotification is a stored lottery_loss Notification of user-1 for entry-1.
+func lossNotification(id string) *entity.Notification {
+	return &entity.Notification{
+		ID: id, UserID: "user-1", Type: entity.NotificationTypeLotteryLoss,
+		Subject:    entity.NotificationSubject{LotteryEntryID: "entry-1"},
+		CreateTime: time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC),
+	}
+}
 
-	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
-	require.NoError(t, err)
+// lossFixtureForList makes entry-1 of event-1 readable with no follows.
+func lossFixtureForList(t *testing.T) *subjectFixture {
+	t.Helper()
+	f := newSubjectFixture(t)
+	f.lotteryEntryReadable(&entity.LotteryEntry{
+		ID: "entry-1", OrderID: "order-1", State: entity.LotteryEntryStateLost, LostReason: entity.LotteryEntryLostReasonNotDrawn,
+	}, "event-1")
+	f.concertsReadable(renderedConcert("event-1"))
+	return f
+}
 
-	require.Contains(t, metrics.outcomes, deliveryOutcomeCall{outcome: "delivered", reason: "none"})
-	assert.NotContains(t, buf.String(), "notification delivery failed")
-	assert.False(t, strings.Contains(buf.String(), `"level":"WARN"`), "success path must not warn")
+func TestNotificationUseCase_List(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("failed push still listed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/list "Failed push still listed"
+		f := lossFixtureForList(t)
+		fan := renderedFan("user-1", "ja")
+		f.fanReadable(fan)
+		stored := f.recordsAs("notif-1")
+		f.browsers("user-1") // No browser registered: the push fails.
+
+		outcome, err := f.uc.Deliver(ctx, usecase.DeliverRequest{
+			UserID: "user-1", Type: entity.NotificationTypeLotteryLoss, Subject: entity.NotificationSubject{LotteryEntryID: "entry-1"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, usecase.DeliveryStatusFailed, outcome.Status)
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return([]*entity.Notification{stored}, nil).Once()
+
+		listed, err := f.uc.List(ctx, fan)
+
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, "notif-1", listed[0].Notification.ID)
+		assert.Equal(t, "[Vaundy] 抽選結果のお知らせ", listed[0].Message.Title)
+		assert.Equal(t, "11/20のZepp Shinjuku公演のチケット抽選が落選となりました。\nLiverty Live 2026", listed[0].Message.Body)
+	})
+
+	t.Run("language changed since the push", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/list "Language changed since the push"
+		f := lossFixtureForList(t)
+		f.follows.EXPECT().ListByUser(mock.Anything, "user-1").Return(nil, nil).Once()
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return([]*entity.Notification{lossNotification("notif-1")}, nil).Once()
+
+		// List is given the fan as they are now; the language at the push is not
+		// stored on the Notification.
+		listed, err := f.uc.List(ctx, renderedFan("user-1", "en"))
+
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, "[Vaundy] Ticket Lottery Result", listed[0].Message.Title)
+		assert.Equal(t, "Your lottery entry for Zepp Shinjuku on Nov 20 was not drawn.\nLiverty Live 2026", listed[0].Message.Body)
+	})
+
+	t.Run("read and unread", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/list "Read and unread"
+		f := lossFixtureForList(t)
+		f.follows.EXPECT().ListByUser(mock.Anything, "user-1").Return(nil, nil).Once()
+		readAt := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
+		read := lossNotification("notif-read")
+		read.ReadTime = &readAt
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).
+			Return([]*entity.Notification{lossNotification("notif-unread"), read}, nil).Once()
+
+		listed, err := f.uc.List(ctx, renderedFan("user-1", "ja"))
+
+		require.NoError(t, err)
+		require.Len(t, listed, 2)
+		assert.Equal(t, "notif-unread", listed[0].Notification.ID, "newest first, as read")
+		assert.Nil(t, listed[0].Notification.ReadTime)
+		assert.Equal(t, "notif-read", listed[1].Notification.ID)
+		require.NotNil(t, listed[1].Notification.ReadTime)
+		assert.True(t, readAt.Equal(*listed[1].Notification.ReadTime))
+		assert.False(t, listed[0].Notification.CreateTime.IsZero(), "with its create time")
+	})
+
+	t.Run("subject deleted", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/list "Subject deleted"
+		f := lossFixtureForList(t)
+		f.follows.EXPECT().ListByUser(mock.Anything, "user-1").Return(nil, nil).Once()
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-gone")).Return(nil, apperr.New(codes.NotFound, "order not found")).Once()
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return([]*entity.Notification{
+			{ID: "notif-gone", UserID: "user-1", Type: entity.NotificationTypeConcertCancelled, Subject: entity.NotificationSubject{OrderID: "order-gone"}},
+			lossNotification("notif-kept"),
+		}, nil).Once()
+
+		listed, err := f.uc.List(ctx, renderedFan("user-1", "ja"))
+
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, "notif-kept", listed[0].Notification.ID)
+	})
+
+	t.Run("no notification", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/list "No notification"
+		f := newSubjectFixture(t)
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return(nil, nil).Once()
+
+		listed, err := f.uc.List(ctx, renderedFan("user-1", "ja"))
+
+		require.NoError(t, err)
+		assert.NotNil(t, listed)
+		assert.Empty(t, listed)
+	})
+
+	t.Run("listing fails", func(t *testing.T) {
+		t.Parallel()
+		f := newSubjectFixture(t)
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+
+		_, err := f.uc.List(ctx, renderedFan("user-1", "ja"))
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
+	t.Run("a subject read fails", func(t *testing.T) {
+		t.Parallel()
+		f := newSubjectFixture(t)
+		f.follows.EXPECT().ListByUser(mock.Anything, "user-1").Return(nil, nil).Once()
+		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+		f.notifs.EXPECT().ListByUser(mock.Anything, "user-1", 50).Return([]*entity.Notification{lossNotification("notif-1")}, nil).Once()
+
+		_, err := f.uc.List(ctx, renderedFan("user-1", "ja"))
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
 }
 
 // Read idempotency: MarkRead loads the record, confirms ownership, and delegates
@@ -545,19 +608,11 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 func TestMarkRead_OwnedDelegatesToRepo(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f := newSubjectFixture(t)
+	f.notifs.EXPECT().Get(anyCtx, "n-1").Return(&entity.Notification{ID: "n-1", UserID: "user-1"}, nil)
+	f.notifs.EXPECT().MarkRead(anyCtx, "user-1", "n-1").Return(nil)
 
-	notifRepo.EXPECT().
-		Get(anyCtx, "n-1").
-		Return(&entity.Notification{ID: "n-1", UserID: "user-1"}, nil)
-	notifRepo.EXPECT().
-		MarkRead(anyCtx, "user-1", "n-1").
-		Return(nil)
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	require.NoError(t, uc.MarkRead(context.Background(), "user-1", "n-1"))
+	require.NoError(t, f.uc.MarkRead(context.Background(), "user-1", "n-1"))
 }
 
 // Cross-user rejection: marking another user's notification is PermissionDenied
@@ -565,36 +620,11 @@ func TestMarkRead_OwnedDelegatesToRepo(t *testing.T) {
 func TestMarkRead_CrossUserRejected(t *testing.T) {
 	t.Parallel()
 
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
+	f := newSubjectFixture(t)
+	f.notifs.EXPECT().Get(anyCtx, "n-1").Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
 
-	notifRepo.EXPECT().
-		Get(anyCtx, "n-1").
-		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	err := uc.MarkRead(context.Background(), "attacker", "n-1")
+	err := f.uc.MarkRead(context.Background(), "attacker", "n-1")
 
 	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
-	notifRepo.AssertNotCalled(t, "MarkRead")
-}
-
-// MarkDismissed enforces the same ownership rule.
-func TestMarkDismissed_CrossUserRejected(t *testing.T) {
-	t.Parallel()
-
-	notifRepo := entitymocks.NewMockNotificationRepository(t)
-	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
-	sender := entitymocks.NewMockPushNotificationSender(t)
-
-	notifRepo.EXPECT().
-		Get(anyCtx, "n-1").
-		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
-
-	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockWorkflows(t))
-	err := uc.Dismiss(context.Background(), "attacker", "n-1")
-
-	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
-	notifRepo.AssertNotCalled(t, "MarkDismissed")
+	f.notifs.AssertNotCalled(t, "MarkRead", mock.Anything, mock.Anything, mock.Anything)
 }

@@ -30,14 +30,11 @@ func FromUser(user *entity.User) *proto.User {
 		ProviderUserId: &proto.User_ProviderUserId{
 			Value: user.ProviderUserID,
 		},
-		Name: user.Name,
+		Name:              user.Name,
+		PreferredLanguage: user.PreferredLanguage,
 	}
 	if user.Home != nil {
 		pb.Home = FromHome(user.Home)
-	}
-	if user.PreferredLanguage != "" {
-		lang := user.PreferredLanguage
-		pb.PreferredLanguage = &lang
 	}
 	if user.FullName != "" {
 		pb.FullName = &proto.FullName{Value: user.FullName}

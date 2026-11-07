@@ -106,7 +106,7 @@ func seedUser(t *testing.T, name, email, providerUserID string) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')`,
 		id, name, email, providerUserID,
 	)
 	require.NoError(t, err)

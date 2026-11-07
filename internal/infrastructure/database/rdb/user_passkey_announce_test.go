@@ -28,7 +28,7 @@ import (
 // own.
 func newUniqueUser() *entity.NewUser {
 	tag := uuid.NewV7().String()
-	return &entity.NewUser{ProviderUserID: "ext-" + tag, Email: tag + "@example.com", Name: "Display Name"}
+	return &entity.NewUser{ProviderUserID: "ext-" + tag, Email: tag + "@example.com", Name: "Display Name", PreferredLanguage: "ja"}
 }
 
 func usersAnnounced(t *testing.T, mark int64, subject, userID string) []*entityv1.User {

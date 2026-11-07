@@ -32,7 +32,7 @@ This repo is one of four under `liverty-music/`: `specification` (proto schema +
 
 ## Entity Tags
 
-Entity types in `internal/entity/` are pure structs without struct tags, with one exception. Wire contracts carry `json` tags in `internal/entity`: the inputs of workflows recorded as JSON (`ConcertDiscoveredData` and the types it embeds, `TicketSaleReminderDueData`, `UserPasskeyChangedData`) and the Web Push `NotificationPayload`. The tags pin the field names so renaming a Go field cannot silently break a recorded workflow input or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
+Entity types in `internal/entity/` are pure structs without struct tags, with one exception. Wire contracts carry `json` tags in `internal/entity`: the inputs of workflows recorded as JSON (`ConcertDiscoveredData` and the types it embeds, `TicketSaleReminderDueData`, `UserPasskeyChangedData`, `NotificationSubject`) and the Web Push `NotificationPayload`. The tags pin the field names so renaming a Go field cannot silently break a recorded workflow input or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
 
 ## Announcements
 

@@ -84,8 +84,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "John Doe",
-			Email: "john@example.com",
+			PreferredLanguage: "ja",
+			Name:              "John Doe",
+			Email:             "john@example.com",
 		}
 
 		expectedUser := &entity.User{
@@ -107,8 +108,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "John Doe",
-			Email: "john@example.com",
+			PreferredLanguage: "ja",
+			Name:              "John Doe",
+			Email:             "john@example.com",
 			Home: &entity.Home{
 				CountryCode: "JP",
 				Level1:      "JP-13",
@@ -139,8 +141,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "John Doe",
-			Email: "john@example.com",
+			PreferredLanguage: "ja",
+			Name:              "John Doe",
+			Email:             "john@example.com",
 			Home: &entity.Home{
 				CountryCode: "jp",
 				Level1:      "JP-13",
@@ -154,13 +157,15 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
+	// @spec components/usecase/user/create "Invalid home"
 	t.Run("error - home level_1 prefix mismatch", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "John Doe",
-			Email: "john@example.com",
+			PreferredLanguage: "ja",
+			Name:              "John Doe",
+			Email:             "john@example.com",
 			Home: &entity.Home{
 				CountryCode: "JP",
 				Level1:      "US-CA",
@@ -179,8 +184,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "Jane Doe",
-			Email: "jane@example.com",
+			PreferredLanguage: "ja",
+			Name:              "Jane Doe",
+			Email:             "jane@example.com",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).Return(nil, nil).Once()
@@ -196,7 +202,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	t.Run("error - the new User cannot be announced", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		params := &entity.NewUser{Name: "Jane Doe", Email: "jane@example.com"}
+		params := &entity.NewUser{Name: "Jane Doe", Email: "jane@example.com", PreferredLanguage: "ja"}
 		// User.Create fails with Unavailable and stores nothing when its
 		// announcement cannot be recorded (tested on the repository).
 		d.repo.EXPECT().Create(ctx, params).Return(nil, apperr.New(codes.Unavailable, "announcement not recorded")).Once()
@@ -212,8 +218,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			Name:  "Jane Doe",
-			Email: "jane@example.com",
+			PreferredLanguage: "ja",
+			Name:              "Jane Doe",
+			Email:             "jane@example.com",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).Return(nil, apperr.New(codes.Internal, "failed to create user")).Once()
@@ -228,20 +235,23 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	// User.Create stored nothing, so it announced nothing and no
 	// verification email is started.
 	// @spec components/usecase/user/create "User already existed"
+	// @spec components/usecase/user/create "Same identity again"
 	t.Run("idempotent — duplicate provider_user_id returns existing user", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			ProviderUserID: "ext-existing",
-			Email:          "existing@example.com",
-			Name:           "Existing User",
+			PreferredLanguage: "en",
+			ProviderUserID:    "ext-existing",
+			Email:             "existing@example.com",
+			Name:              "Existing User",
 		}
 		existingUser := &entity.User{
-			ID:             "user-existing-1",
-			ProviderUserID: "ext-existing",
-			Email:          "existing@example.com",
-			Name:           "Existing User",
+			PreferredLanguage: "ja",
+			ID:                "user-existing-1",
+			ProviderUserID:    "ext-existing",
+			Email:             "existing@example.com",
+			Name:              "Existing User",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).
@@ -253,16 +263,19 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, existingUser, result)
+		assert.Equal(t, "ja", result.PreferredLanguage, "the stored language stays")
 	})
 
+	// @spec components/usecase/user/create "Email used by another identity"
 	t.Run("duplicate email with different provider_user_id surfaces AlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			ProviderUserID: "ext-new-caller",
-			Email:          "taken@example.com",
-			Name:           "New Caller",
+			PreferredLanguage: "ja",
+			ProviderUserID:    "ext-new-caller",
+			Email:             "taken@example.com",
+			Name:              "New Caller",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).
@@ -285,6 +298,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	// into the original AlreadyExists. Previously the retry path discarded
 	// getErr entirely, masking a scanUser NULL→string crash as
 	// AlreadyExists at the wire with no log trail.
+	// @spec components/usecase/user/create "Lookup after the conflict fails"
 	t.Run("retry GetByProviderUserID non-NotFound error surfaces truthfully", func(t *testing.T) {
 		t.Parallel()
 		// Table covers the representative non-NotFound classes the retry
@@ -320,9 +334,10 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 				d := newUserTestDeps(t)
 
 				params := &entity.NewUser{
-					ProviderUserID: tc.providerUserID,
-					Email:          tc.email,
-					Name:           "retry probe",
+					PreferredLanguage: "ja",
+					ProviderUserID:    tc.providerUserID,
+					Email:             tc.email,
+					Name:              "retry probe",
 				}
 
 				d.repo.EXPECT().Create(ctx, params).
@@ -343,12 +358,11 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		}
 	})
 
-	// Create accepts an empty preferred_language (old clients omit the
-	// field; the row is created NULL and the client backfills on next
-	// hydration). A non-empty value MUST match ISO 639-1.
-	t.Run("InvalidArgument when preferred_language is present but malformed", func(t *testing.T) {
+	// @spec components/usecase/user/create "Malformed preferred language"
+	t.Run("InvalidArgument when preferred_language is malformed", func(t *testing.T) {
 		t.Parallel()
 		cases := []string{
+			"JA",      // the spec's example
 			"e",       // too short
 			"eng",     // too long
 			"EN",      // uppercase
@@ -360,7 +374,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 			t.Run(bad, func(t *testing.T) {
 				t.Parallel()
 				d := newUserTestDeps(t)
-				// repo MUST NOT be called.
+				// repo MUST NOT be called: nothing is stored.
 
 				result, err := d.uc.Create(ctx, &entity.NewUser{
 					ProviderUserID:    "ext-bad-lang",
@@ -373,6 +387,55 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			})
 		}
+	})
+
+	// @spec components/usecase/user/create "Missing preferred language"
+	t.Run("InvalidArgument when preferred_language is missing", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		// repo MUST NOT be called: nothing is stored.
+
+		result, err := d.uc.Create(ctx, &entity.NewUser{
+			ProviderUserID: "ext-no-lang",
+			Email:          "no-lang@example.com",
+			Name:           "No Lang",
+		})
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	// @spec components/usecase/user/create "New user with home and language"
+	t.Run("new user with home and language", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		home := &entity.Home{CountryCode: "JP", Level1: "JP-13"}
+		// The values reach User.Create as given, and the stored User comes back.
+		params := &entity.NewUser{ProviderUserID: "ext-1", Email: "new@example.com", Name: "New", PreferredLanguage: "ja", Home: home}
+		stored := &entity.User{ID: "user-1", ProviderUserID: "ext-1", Email: "new@example.com", Name: "New", PreferredLanguage: "ja", Home: home}
+		d.repo.EXPECT().Create(ctx, params).Return(stored, nil).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		require.NoError(t, err)
+		assert.Equal(t, "ja", result.PreferredLanguage)
+		assert.Equal(t, home, result.Home)
+		assert.Equal(t, "user-1", result.ID)
+	})
+
+	// @spec components/usecase/user/create "New user without a home"
+	t.Run("new user without a home", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		params := &entity.NewUser{ProviderUserID: "ext-2", Email: "nohome@example.com", Name: "No Home", PreferredLanguage: "en"}
+		stored := &entity.User{ID: "user-2", ProviderUserID: "ext-2", Email: "nohome@example.com", Name: "No Home", PreferredLanguage: "en"}
+		d.repo.EXPECT().Create(ctx, params).Return(stored, nil).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		require.NoError(t, err)
+		assert.Equal(t, "en", result.PreferredLanguage)
+		assert.Nil(t, result.Home)
 	})
 }
 

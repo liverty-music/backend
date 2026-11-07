@@ -22,9 +22,9 @@ import (
 //   - NEARBY: concerts within 200km of the follower's home centroid.
 //   - AWAY: all concerts.
 //
-// A recipient is notified only when their subset is non-empty. The body count is
-// the subset size, and the deep-link (data.url) targets the earliest concert of
-// the subset (local date asc, tie-broken by start time asc).
+// A recipient is notified only when their subset is non-empty. The subject names
+// the artist and the subset; the Notification entity renders the count and the
+// link to the earliest concert of the subset from it.
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error {
@@ -135,14 +135,12 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 	// 2. For each follower, narrow the new-concert set to that recipient's
 	//    hype-matched subset, then record and dispatch one notification per
 	//    eligible recipient through the notification service. Every recipient
-	//    gets a durable record and a delivery outcome; the service resolves each
-	//    recipient's push subscriptions, performs the send, cleans up gone (410)
-	//    endpoints, and records delivered/failed.
+	//    gets a durable record; the service resolves each recipient's push
+	//    subscriptions, performs the send and cleans up gone (410) endpoints.
 	//
-	//    Both the body count and the deep-link target are computed from the
-	//    per-recipient subset — never from the unfiltered new-concert set — so a
-	//    home-hype fan sees an area-accurate count and lands on a concert that
-	//    actually matched their hype tier.
+	//    The subject names the per-recipient subset — never the unfiltered
+	//    new-concert set — so a home-hype fan sees an area-accurate count and
+	//    lands on a concert that actually matched their hype tier.
 	dispatched := 0
 	for _, f := range followers {
 		// Honour context cancellation before each recipient.
@@ -165,25 +163,15 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 			continue
 		}
 
-		earliest := entity.EarliestConcert(subset)
-		if earliest == nil {
-			// Defensive: a non-empty subset should always yield an earliest
-			// concert. Skip rather than emit a notification with no deep-link.
-			continue
+		eventIDs := make([]string, len(subset))
+		for i, c := range subset {
+			eventIDs[i] = c.ID
 		}
-
-		payload := entity.NewNotificationPayload(
-			artist.Name,
-			concertNotificationBody(len(subset), f.User.PreferredLanguage),
-			// Deep-link to the earliest hype-matched concert.
-			concertDeepLink(earliest),
-			fmt.Sprintf("concert-%s", artist.ID),
-		)
 		id := deliverWorkflowID(entity.NotificationTypeNewConcerts, f.User.ID, requestID)
 		if err := uc.startDeliver(ctx, id, DeliverRequest{
 			UserID:  f.User.ID,
 			Type:    entity.NotificationTypeNewConcerts,
-			Payload: payload,
+			Subject: entity.NotificationSubject{ArtistID: artist.ID, EventIDs: eventIDs},
 		}); err != nil {
 			// Surface so the announcement is processed again; the followers
 			// already started are not started again (same workflow id).
@@ -205,29 +193,4 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 	}
 
 	return nil
-}
-
-// concertNotificationBody renders the new-concert count in the recipient's
-// language, falling back to English for empty or unsupported codes.
-func concertNotificationBody(concertCount int, lang string) string {
-	switch lang {
-	case "ja":
-		return fmt.Sprintf("新しいライブが%d件見つかりました", concertCount)
-	default:
-		if concertCount == 1 {
-			return "1 new concert found"
-		}
-		return fmt.Sprintf("%d new concerts found", concertCount)
-	}
-}
-
-// concertDeepLink returns the fan web path a new-concert notification opens for
-// c: the public event page /events/<id> when c's Series is first-party, and
-// otherwise /concerts/<id>, which routes to the dashboard and opens the
-// concert's detail sheet.
-func concertDeepLink(c *entity.Concert) string {
-	if c.Series != nil && c.Series.IsFirstParty() {
-		return "/events/" + c.ID
-	}
-	return "/concerts/" + c.ID
 }

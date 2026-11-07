@@ -61,6 +61,17 @@ func Performers(concerts []*Concert) []*Artist {
 	return artists
 }
 
+// VenueName is the venue's canonical name, falling back to the listed one.
+func (c *Concert) VenueName() string {
+	if c.Venue != nil && c.Venue.Name != "" {
+		return c.Venue.Name
+	}
+	if c.ListedVenueName != nil {
+		return *c.ListedVenueName
+	}
+	return ""
+}
+
 // ArtistIDs returns the IDs of all artists performing at this concert.
 // Convenient for callers that only need identifiers (e.g. mock comparisons,
 // repository writes, or hype checks against followed_artists).

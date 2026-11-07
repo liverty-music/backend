@@ -49,27 +49,25 @@ func (_m *MockNotificationUseCase) EXPECT() *MockNotificationUseCase_Expecter {
 }
 
 // Deliver provides a mock function for the type MockNotificationUseCase
-func (_mock *MockNotificationUseCase) Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
-	ret := _mock.Called(ctx, userID, typ, payload)
+func (_mock *MockNotificationUseCase) Deliver(ctx context.Context, req usecase.DeliverRequest) (usecase.DeliveryOutcome, error) {
+	ret := _mock.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Deliver")
 	}
 
-	var r0 *entity.Notification
+	var r0 usecase.DeliveryOutcome
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) (*entity.Notification, error)); ok {
-		return returnFunc(ctx, userID, typ, payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.DeliverRequest) (usecase.DeliveryOutcome, error)); ok {
+		return returnFunc(ctx, req)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) *entity.Notification); ok {
-		r0 = returnFunc(ctx, userID, typ, payload)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.DeliverRequest) usecase.DeliveryOutcome); ok {
+		r0 = returnFunc(ctx, req)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Notification)
-		}
+		r0 = ret.Get(0).(usecase.DeliveryOutcome)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) error); ok {
-		r1 = returnFunc(ctx, userID, typ, payload)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.DeliverRequest) error); ok {
+		r1 = returnFunc(ctx, req)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -83,110 +81,103 @@ type MockNotificationUseCase_Deliver_Call struct {
 
 // Deliver is a helper method to define mock.On call
 //   - ctx context.Context
-//   - userID string
-//   - typ entity.NotificationType
-//   - payload *entity.NotificationPayload
-func (_e *MockNotificationUseCase_Expecter) Deliver(ctx any, userID any, typ any, payload any) *MockNotificationUseCase_Deliver_Call {
-	return &MockNotificationUseCase_Deliver_Call{Call: _e.mock.On("Deliver", ctx, userID, typ, payload)}
+//   - req usecase.DeliverRequest
+func (_e *MockNotificationUseCase_Expecter) Deliver(ctx any, req any) *MockNotificationUseCase_Deliver_Call {
+	return &MockNotificationUseCase_Deliver_Call{Call: _e.mock.On("Deliver", ctx, req)}
 }
 
-func (_c *MockNotificationUseCase_Deliver_Call) Run(run func(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload)) *MockNotificationUseCase_Deliver_Call {
+func (_c *MockNotificationUseCase_Deliver_Call) Run(run func(ctx context.Context, req usecase.DeliverRequest)) *MockNotificationUseCase_Deliver_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 usecase.DeliverRequest
 		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 entity.NotificationType
-		if args[2] != nil {
-			arg2 = args[2].(entity.NotificationType)
-		}
-		var arg3 *entity.NotificationPayload
-		if args[3] != nil {
-			arg3 = args[3].(*entity.NotificationPayload)
+			arg1 = args[1].(usecase.DeliverRequest)
 		}
 		run(
 			arg0,
 			arg1,
-			arg2,
-			arg3,
 		)
 	})
 	return _c
 }
 
-func (_c *MockNotificationUseCase_Deliver_Call) Return(notification *entity.Notification, err error) *MockNotificationUseCase_Deliver_Call {
-	_c.Call.Return(notification, err)
+func (_c *MockNotificationUseCase_Deliver_Call) Return(deliveryOutcome usecase.DeliveryOutcome, err error) *MockNotificationUseCase_Deliver_Call {
+	_c.Call.Return(deliveryOutcome, err)
 	return _c
 }
 
-func (_c *MockNotificationUseCase_Deliver_Call) RunAndReturn(run func(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)) *MockNotificationUseCase_Deliver_Call {
+func (_c *MockNotificationUseCase_Deliver_Call) RunAndReturn(run func(ctx context.Context, req usecase.DeliverRequest) (usecase.DeliveryOutcome, error)) *MockNotificationUseCase_Deliver_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Dismiss provides a mock function for the type MockNotificationUseCase
-func (_mock *MockNotificationUseCase) Dismiss(ctx context.Context, userID string, notificationID string) error {
-	ret := _mock.Called(ctx, userID, notificationID)
+// List provides a mock function for the type MockNotificationUseCase
+func (_mock *MockNotificationUseCase) List(ctx context.Context, user *entity.User) ([]*usecase.ListedNotification, error) {
+	ret := _mock.Called(ctx, user)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Dismiss")
+		panic("no return value specified for List")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = returnFunc(ctx, userID, notificationID)
-	} else {
-		r0 = ret.Error(0)
+	var r0 []*usecase.ListedNotification
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.User) ([]*usecase.ListedNotification, error)); ok {
+		return returnFunc(ctx, user)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.User) []*usecase.ListedNotification); ok {
+		r0 = returnFunc(ctx, user)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*usecase.ListedNotification)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.User) error); ok {
+		r1 = returnFunc(ctx, user)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
-// MockNotificationUseCase_Dismiss_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Dismiss'
-type MockNotificationUseCase_Dismiss_Call struct {
+// MockNotificationUseCase_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockNotificationUseCase_List_Call struct {
 	*mock.Call
 }
 
-// Dismiss is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
-//   - userID string
-//   - notificationID string
-func (_e *MockNotificationUseCase_Expecter) Dismiss(ctx any, userID any, notificationID any) *MockNotificationUseCase_Dismiss_Call {
-	return &MockNotificationUseCase_Dismiss_Call{Call: _e.mock.On("Dismiss", ctx, userID, notificationID)}
+//   - user *entity.User
+func (_e *MockNotificationUseCase_Expecter) List(ctx any, user any) *MockNotificationUseCase_List_Call {
+	return &MockNotificationUseCase_List_Call{Call: _e.mock.On("List", ctx, user)}
 }
 
-func (_c *MockNotificationUseCase_Dismiss_Call) Run(run func(ctx context.Context, userID string, notificationID string)) *MockNotificationUseCase_Dismiss_Call {
+func (_c *MockNotificationUseCase_List_Call) Run(run func(ctx context.Context, user *entity.User)) *MockNotificationUseCase_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 *entity.User
 		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
+			arg1 = args[1].(*entity.User)
 		}
 		run(
 			arg0,
 			arg1,
-			arg2,
 		)
 	})
 	return _c
 }
 
-func (_c *MockNotificationUseCase_Dismiss_Call) Return(err error) *MockNotificationUseCase_Dismiss_Call {
-	_c.Call.Return(err)
+func (_c *MockNotificationUseCase_List_Call) Return(listedNotifications []*usecase.ListedNotification, err error) *MockNotificationUseCase_List_Call {
+	_c.Call.Return(listedNotifications, err)
 	return _c
 }
 
-func (_c *MockNotificationUseCase_Dismiss_Call) RunAndReturn(run func(ctx context.Context, userID string, notificationID string) error) *MockNotificationUseCase_Dismiss_Call {
+func (_c *MockNotificationUseCase_List_Call) RunAndReturn(run func(ctx context.Context, user *entity.User) ([]*usecase.ListedNotification, error)) *MockNotificationUseCase_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

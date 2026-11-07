@@ -92,7 +92,7 @@ func newNoticeFixture(t *testing.T) *noticeFixture {
 			Tickets:  f.tickets,
 			Mailer:   f.mailer,
 			TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	f.mailer.EXPECT().SendCancellationEmail(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, id entity.OrderID, _ string, m entity.OrderEmail) error {
 			f.record(id, m)
@@ -183,8 +183,8 @@ func TestNotificationUseCase_SendEventCancelled(t *testing.T) {
 		assert.Len(t, f.emails["order-a"], 1)
 		assert.Len(t, f.emails["order-b"], 1)
 		assert.Len(t, pushes, 2)
-		assert.Equal(t, entity.NotificationTypeEventCancelled, pushes["deliver:event_cancelled:order-a"].Type)
-		assert.Equal(t, entity.NotificationTypeEventCancelled, pushes["deliver:event_cancelled:order-b"].Type)
+		assert.Equal(t, entity.NotificationTypeConcertCancelled, pushes["deliver:concert_cancelled:order-a"].Type)
+		assert.Equal(t, entity.NotificationTypeConcertCancelled, pushes["deliver:concert_cancelled:order-b"].Type)
 	})
 
 	t.Run("already refunded", func(t *testing.T) {
@@ -301,12 +301,19 @@ func TestNotificationUseCase_RunNotifyEventCancelled(t *testing.T) {
 		_, err := f.uc.RunNotifyEventCancelled(ctx, flow, in)
 
 		require.NoError(t, err)
-		push, ok := flow.inputs["deliver:event_cancelled:order-a"].(usecase.DeliverRequest)
+		push, ok := flow.inputs["deliver:concert_cancelled:order-a"].(usecase.DeliverRequest)
 		require.True(t, ok, "Deliver is started named after the type and the Order")
 		assert.Equal(t, "fan-order-a", push.UserID)
-		assert.Equal(t, entity.NotificationTypeEventCancelled, push.Type)
-		assert.Equal(t, "/events/event-1", push.Payload.Data[entity.NotificationDataKeyURL])
-		assert.Contains(t, push.Payload.Body, "中止")
+		assert.Equal(t, entity.NotificationTypeConcertCancelled, push.Type)
+		assert.Equal(t, entity.NotificationSubject{OrderID: "order-a"}, push.Subject)
+
+		r := newSubjectFixture(t)
+		r.fanReadable(renderedFan("fan-order-a", "ja"))
+		r.orderReadable(noticeOrder("order-a", entity.OrderStatusPaid), "event-1")
+		r.concertsReadable(renderedConcert("event-1"))
+		msg := r.push(t, push)
+		assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+		assert.Equal(t, "11/20のZepp Shinjuku公演は中止となりました。チケット代金はカードに返金されます。\nLiverty Live 2026", msg.Body)
 	})
 
 	t.Run("every ticket resold", func(t *testing.T) {
@@ -378,7 +385,7 @@ func TestNotificationUseCase_RunNotifyEventCancelled(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, f.emails["order-a"], 1)
-		assert.Equal(t, []string{"deliver:event_cancelled:order-a"}, flow.started)
+		assert.Equal(t, []string{"deliver:concert_cancelled:order-a"}, flow.started)
 	})
 }
 
@@ -394,7 +401,7 @@ func rebuildWithMailer(t *testing.T, f *noticeFixture) usecase.NotificationUseCa
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert}, Tickets: f.tickets, Mailer: f.mailer, TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 }
 
 func TestNotificationUseCase_SendOrderRefunded(t *testing.T) {
@@ -479,8 +486,15 @@ func TestNotificationUseCase_SendOrderRefunded(t *testing.T) {
 		require.True(t, ok, "Deliver is started named after the type and the Order")
 		assert.Equal(t, "fan-order-a", push.UserID)
 		assert.Equal(t, entity.NotificationTypeOrderRefunded, push.Type)
-		assert.Equal(t, "/orders/order-a", push.Payload.Data[entity.NotificationDataKeyURL])
-		assert.Contains(t, push.Payload.Body, "6,000円")
+		assert.Equal(t, entity.NotificationSubject{OrderID: "order-a"}, push.Subject)
+
+		r := newSubjectFixture(t)
+		r.fanReadable(renderedFan("fan-order-a", "ja"))
+		r.orderReadable(noticeRefunded("order-a", entity.RefundReasonCancellation, 6000), "event-1")
+		r.concertsReadable(renderedConcert("event-1"))
+		msg := r.push(t, push)
+		assert.Equal(t, "/orders/order-a", msg.Data[entity.NotificationDataKeyURL], "it opens the Order")
+		assert.Contains(t, msg.Body, "6,000円")
 	})
 
 	t.Run("refund announced twice", func(t *testing.T) {

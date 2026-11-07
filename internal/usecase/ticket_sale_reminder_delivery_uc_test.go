@@ -2,11 +2,12 @@ package usecase_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -20,108 +21,69 @@ import (
 // TicketSaleReminderDeliveryUseCase tests. DeliverReminder stays synchronous and
 // composes the same entity ports NotificationUseCase.Deliver uses, directly
 // (see notification_delivery.go) rather than through that interface, so these
-// tests mock the entity ports rather than a NotificationUseCase.
+// tests mock the entity ports rather than a NotificationUseCase, and read the
+// message the real rendering produces.
 type reminderDeliveryTestDeps struct {
+	*subjectFixture
 	reminderRepo *entitymocks.MockTicketSaleReminderRepository
-	notifRepo    *entitymocks.MockNotificationRepository
-	pushSubRepo  *entitymocks.MockPushSubscriptionRepository
-	sender       *entitymocks.MockPushNotificationSender
-	uc           usecase.TicketSaleReminderDeliveryUseCase
+	reminder     usecase.TicketSaleReminderDeliveryUseCase
 }
+
+// deliverySaleID is the TicketSale every delivery test reminds of.
+const deliverySaleID entity.TicketSaleID = "sale-001"
+
+// deliveryEventID is the fan's linked event in every delivery test.
+const deliveryEventID = "event-001"
 
 func newReminderDeliveryTestDeps(t *testing.T) *reminderDeliveryTestDeps {
 	t.Helper()
-	d := &reminderDeliveryTestDeps{
-		reminderRepo: entitymocks.NewMockTicketSaleReminderRepository(t),
-		notifRepo:    entitymocks.NewMockNotificationRepository(t),
-		pushSubRepo:  entitymocks.NewMockPushSubscriptionRepository(t),
-		sender:       entitymocks.NewMockPushNotificationSender(t),
-	}
-	d.uc = usecase.NewTicketSaleReminderDeliveryUseCase(
+	f := newSubjectFixture(t)
+	d := &reminderDeliveryTestDeps{subjectFixture: f, reminderRepo: entitymocks.NewMockTicketSaleReminderRepository(t)}
+	d.reminder = usecase.NewTicketSaleReminderDeliveryUseCase(
 		d.reminderRepo,
-		d.notifRepo,
-		d.pushSubRepo,
-		d.sender,
+		f.notifs,
+		f.pushSubs,
+		f.sender,
+		f.subjects(),
 		noopMetrics{},
 		newTestLogger(t),
 	)
 	return d
 }
 
-// expectDelivered sets up the notifRepo/pushSubRepo/sender expectations for a
-// successful delivery to userID: Create mints notifID, ListByUserIDs returns
-// one subscription, and Send accepts it — the same "record then send" path
-// deliverNotification always takes.
-func expectDelivered(t *testing.T, d *reminderDeliveryTestDeps, userID, notifID string) {
-	t.Helper()
-	d.notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = notifID }).
-		Return(nil)
-	d.pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{userID}).
-		Return([]*entity.PushSubscription{{UserID: userID, Endpoint: "https://push/1", P256dh: "p", Auth: "a"}}, nil)
-	d.sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.Anything).
-		Return(nil)
-	d.notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, notifID, entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
+// reminderReadable makes user-001 (Japanese), the sale and the linked event
+// readable.
+func (d *reminderDeliveryTestDeps) reminderReadable() {
+	d.fanReadable(renderedFan("user-001", "ja"))
+	d.ticketSales.EXPECT().Get(mock.Anything, deliverySaleID).Return(&entity.TicketSale{
+		ID: deliverySaleID, Method: entity.TicketSaleMethodLottery,
+		SaleStartTime: time.Date(2026, 10, 5, 18, 0, 0, 0, tsJST),
+		SaleEndTime:   time.Date(2026, 10, 22, 23, 59, 0, 0, tsJST),
+	}, nil).Maybe()
+	d.concertsReadable(renderedConcert(deliveryEventID))
 }
 
-// expectNoSubscription sets up the notifRepo/pushSubRepo expectations for a
-// delivery with no push subscription to send to — deliverNotification records
-// it as failed with NotificationFailureReasonNoSubscription without calling Send.
-func expectNoSubscription(t *testing.T, d *reminderDeliveryTestDeps, userID, notifID string) {
-	t.Helper()
-	d.notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = notifID }).
-		Return(nil)
-	d.pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{userID}).
-		Return([]*entity.PushSubscription{}, nil)
-	d.notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, notifID, entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), usecase.NotificationFailureReasonNoSubscription).
-		Return(nil)
+// notYetSent makes the sent-log hold no record of the stage.
+func (d *reminderDeliveryTestDeps) notYetSent(stage entity.ReminderStage) {
+	d.reminderRepo.EXPECT().AlreadySent(anyCtx, "user-001", deliverySaleID, stage).Return(false, nil)
 }
 
-// expectTransientFailure sets up the notifRepo/pushSubRepo/sender expectations
-// for a delivery whose only subscription's send fails transiently (not a 410).
-func expectTransientFailure(t *testing.T, d *reminderDeliveryTestDeps, userID, notifID string) {
-	t.Helper()
-	d.notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = notifID }).
-		Return(nil)
-	d.pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{userID}).
-		Return([]*entity.PushSubscription{{UserID: userID, Endpoint: "https://push/1", P256dh: "p", Auth: "a"}}, nil)
-	d.sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.Anything).
-		Return(errors.New("push service unavailable"))
-	d.notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, notifID, entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), mock.MatchedBy(func(s string) bool { return s != "" })).
-		Return(nil)
-}
-
-// deliverySaleID is the TicketSale every delivery test reminds of.
-const deliverySaleID entity.TicketSaleID = "sale-001"
-
-// validPayload returns a non-nil NotificationPayload for happy-path tests.
-func validPayload() *entity.NotificationPayload {
-	return &entity.NotificationPayload{Title: "Ticket Sales Open", Body: "Apply now."}
-}
-
-// validDueData builds a TicketSaleReminderDueData for the given stage with a
-// non-nil payload.
+// validDueData builds the due reminder of the given stage for user-001.
 func validDueData(stage entity.ReminderStage) entity.TicketSaleReminderDueData {
 	return entity.TicketSaleReminderDueData{
 		UserID:       "user-001",
 		TicketSaleID: string(deliverySaleID),
 		Stage:        int16(stage),
-		Payload:      validPayload(),
+		LinkEventID:  deliveryEventID,
 	}
+}
+
+// expectDelivered expects one record and one browser that accepts the push.
+func (d *reminderDeliveryTestDeps) expectDelivered(notifID string) *entity.Notification {
+	stored := d.recordsAs(notifID)
+	d.browsers("user-001", "https://push/1")
+	d.sendAccepted("https://push/1")
+	return stored
 }
 
 // ---- AlreadySent guard (no send expected) ----
@@ -137,10 +99,10 @@ func TestDeliverReminder_AlreadySentSkipsWithoutSend(t *testing.T) {
 		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
 		Return(true, nil)
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.NoError(t, err)
-	d.notifRepo.AssertNotCalled(t, "Create")
+	d.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 // ---- Infra-error returns ----
@@ -156,55 +118,44 @@ func TestDeliverReminder_AlreadySentErrorReturnsErr(t *testing.T) {
 		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
 		Return(false, errors.New("db error"))
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.Error(t, err)
-	d.notifRepo.AssertNotCalled(t, "Create")
+	d.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
-// TestDeliverReminder_DeliveryErrorReturnsErr verifies that a Notification
-// record-creation failure (deliverNotification's "no record => no send"
-// invariant) propagates.
+// TestDeliverReminder_DeliveryErrorReturnsErr verifies that a failure to record
+// the Notification fails DeliverReminder so the request runs again, with nothing
+// recorded as sent.
 func TestDeliverReminder_DeliveryErrorReturnsErr(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
-		Return(false, nil)
-	d.notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Return(errors.New("record creation failed"))
+	d.notYetSent(entity.ReminderStageApplyOpen)
+	d.reminderReadable()
+	d.notifs.EXPECT().Create(anyCtx, mock.Anything).Return(errors.New("record creation failed"))
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.Error(t, err)
+	d.reminderRepo.AssertNotCalled(t, "RecordSent", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// ---- nil-payload defensive skip ----
+// ---- No linked event defensive skip ----
 
-// TestDeliverReminder_NilPayloadSkips verifies the nil-payload defensive guard
-// returns nil without attempting a send — no send was attempted.
-//
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Empty request"
-func TestDeliverReminder_NilPayloadSkips(t *testing.T) {
+func TestDeliverReminder_WithoutALinkedEventSkips(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
-		Return(false, nil)
+	d.notYetSent(entity.ReminderStageApplyOpen)
 
-	data := entity.TicketSaleReminderDueData{
-		UserID:       "user-001",
-		TicketSaleID: string(deliverySaleID),
-		Stage:        int16(entity.ReminderStageApplyOpen),
-		Payload:      nil, // defensive skip
-	}
-	err := d.uc.DeliverReminder(context.Background(), data)
+	data := validDueData(entity.ReminderStageApplyOpen)
+	data.LinkEventID = ""
+	err := d.reminder.DeliverReminder(context.Background(), data)
 
 	require.NoError(t, err)
-	d.notifRepo.AssertNotCalled(t, "Create")
+	d.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 // ---- Terminal delivery outcome: no_subscription ----
@@ -216,16 +167,16 @@ func TestDeliverReminder_NoSubscriptionRecordsSent(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
-		Return(false, nil)
-	expectNoSubscription(t, d, "user-001", "id-nosub")
+	d.notYetSent(entity.ReminderStageApplyClose24H)
+	d.reminderReadable()
+	d.recordsAs("id-nosub")
+	d.browsers("user-001")
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
 		Return(nil).
 		Once()
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
 }
@@ -233,24 +184,30 @@ func TestDeliverReminder_NoSubscriptionRecordsSent(t *testing.T) {
 // ---- Terminal delivery outcome: delivered ----
 
 // TestDeliverReminder_SuccessfulSendRecordsSent verifies that a successful
-// notification records sent and returns nil.
+// notification names the sale, the stage and the linked event, records sent and
+// returns nil.
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Delivered to a device"
 // @spec components/usecase/ticket-sale-reminder/deliver-reminder "Accepted by a device"
 func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
-		Return(false, nil)
-	expectDelivered(t, d, "user-001", "id-ok")
+	d.notYetSent(entity.ReminderStageApplyOpen)
+	d.reminderReadable()
+	stored := d.expectDelivered("id-ok")
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyOpen).
-		Return(nil)
+		Return(nil).
+		Once()
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.NoError(t, err)
+	assert.Equal(t, "user-001", stored.UserID)
+	assert.Equal(t, entity.NotificationTypeSalesReminder, stored.Type)
+	assert.Equal(t, entity.NotificationSubject{
+		TicketSaleID: string(deliverySaleID), Stage: entity.ReminderStageApplyOpen, EventID: deliveryEventID,
+	}, stored.Subject)
 }
 
 // TestRunDeliverReminder_DeliversTheRequestedReminder verifies that the
@@ -262,18 +219,19 @@ func TestRunDeliverReminder_DeliversTheRequestedReminder(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
-		Return(false, nil)
-	expectDelivered(t, d, "user-001", "id-ok")
+	d.notYetSent(entity.ReminderStageApplyClose24H)
+	d.reminderReadable()
+	stored := d.expectDelivered("id-ok")
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
 		Return(nil).
 		Once()
 
-	_, err := d.uc.RunDeliverReminder(context.Background(), &inlineFlow{}, validDueData(entity.ReminderStageApplyClose24H))
+	_, err := d.reminder.RunDeliverReminder(context.Background(), &inlineFlow{}, validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
+	assert.Equal(t, entity.ReminderStageApplyClose24H, stored.Subject.Stage)
+	assert.Equal(t, string(deliverySaleID), stored.Subject.TicketSaleID)
 }
 
 // ---- Terminal delivery outcome: failed ----
@@ -286,17 +244,35 @@ func TestDeliverReminder_TransientFailureDoesNotRecordSent(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
-		Return(false, nil)
-	expectTransientFailure(t, d, "user-001", "id-transient")
+	d.notYetSent(entity.ReminderStageApplyClose24H)
+	d.reminderReadable()
+	d.recordsAs("id-transient")
+	d.browsers("user-001", "https://push/1")
+	d.sendFails("https://push/1", errors.New("push service unavailable"))
 	// RecordSent must NOT be called — leave the sent-log empty so the next scan retries.
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	// Total failure is not returned as an error — the next scan will retry.
 	require.NoError(t, err)
-	d.reminderRepo.AssertNotCalled(t, "RecordSent")
+	d.reminderRepo.AssertNotCalled(t, "RecordSent", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// A sale deleted before delivery records and sends nothing and stays out of the
+// sent-log, without failing the request.
+func TestDeliverReminder_SubjectDeleted(t *testing.T) {
+	t.Parallel()
+
+	d := newReminderDeliveryTestDeps(t)
+	d.notYetSent(entity.ReminderStageApplyOpen)
+	d.fanReadable(renderedFan("user-001", "ja"))
+	d.ticketSales.EXPECT().Get(mock.Anything, deliverySaleID).Return(nil, apperr.New(codes.NotFound, "sale not found")).Once()
+
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
+
+	require.NoError(t, err)
+	d.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	d.reminderRepo.AssertNotCalled(t, "RecordSent", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ---- phase_stage log field coverage across stages ----
@@ -319,15 +295,14 @@ func TestDeliverReminder_AllStagesDeliver(t *testing.T) {
 			t.Parallel()
 
 			d := newReminderDeliveryTestDeps(t)
-			d.reminderRepo.EXPECT().
-				AlreadySent(anyCtx, "user-001", deliverySaleID, tt.stage).
-				Return(false, nil)
-			expectDelivered(t, d, "user-001", "id-"+tt.wantStage)
+			d.notYetSent(tt.stage)
+			d.reminderReadable()
+			d.expectDelivered("id-" + tt.wantStage)
 			d.reminderRepo.EXPECT().
 				RecordSent(anyCtx, "user-001", deliverySaleID, tt.stage).
 				Return(nil)
 
-			err := d.uc.DeliverReminder(context.Background(), validDueData(tt.stage))
+			err := d.reminder.DeliverReminder(context.Background(), validDueData(tt.stage))
 			require.NoError(t, err)
 		})
 	}
@@ -341,15 +316,14 @@ func TestDeliverReminder_RecordingFailsAfterDelivery(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
-		Return(false, nil)
-	expectDelivered(t, d, "user-001", "id-rec-fail")
+	d.notYetSent(entity.ReminderStageApplyClose24H)
+	d.reminderReadable()
+	d.expectDelivered("id-rec-fail")
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
 		Return(errors.New("db down"))
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
 }
@@ -363,39 +337,24 @@ func TestDeliverReminder_MessageNamesSaleAndMilestone(t *testing.T) {
 	t.Parallel()
 
 	d := newReminderDeliveryTestDeps(t)
-	d.reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
-		Return(false, nil)
-	d.notifRepo.EXPECT().
-		Create(anyCtx, mock.Anything).
-		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-milestone" }).
-		Return(nil)
-	d.pushSubRepo.EXPECT().
-		ListByUserIDs(anyCtx, []string{"user-001"}).
-		Return([]*entity.PushSubscription{{UserID: "user-001", Endpoint: "https://push/1", P256dh: "p", Auth: "a"}}, nil)
-	var pushed []byte
-	d.sender.EXPECT().
-		Send(anyCtx, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, msg []byte, _ *entity.PushSubscription) error {
-			pushed = msg
-			return nil
-		})
-	d.notifRepo.EXPECT().
-		UpdateDelivery(anyCtx, "id-milestone", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
-		Return(nil)
+	d.notYetSent(entity.ReminderStageApplyClose24H)
+	d.reminderReadable()
+	d.recordsAs("id-milestone")
+	d.browsers("user-001", "https://push/1")
+	pushed := d.capturePushes(1)
 	d.reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", deliverySaleID, entity.ReminderStageApplyClose24H).
 		Return(nil)
 
-	err := d.uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
+	err := d.reminder.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 	require.NoError(t, err)
 
-	var msg entity.NotificationPayload
-	require.NoError(t, json.Unmarshal(pushed, &msg))
+	require.Len(t, *pushed, 1)
 	assert.Equal(t, map[string]string{
+		"url":             "/concerts/" + deliveryEventID,
 		"notification_id": "id-milestone",
 		"type":            "sales_reminder",
 		"ticket_sale_id":  string(deliverySaleID),
 		"milestone":       "apply_close_24h",
-	}, msg.Data)
+	}, decodeMessage(t, (*pushed)[0].raw).Data)
 }

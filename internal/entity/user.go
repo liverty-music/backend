@@ -127,8 +127,7 @@ type User struct {
 	// Name is the user's display name.
 	Name string
 	// PreferredLanguage is the user's preferred ISO 639-1 two-letter language code
-	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
-	// rows pending backfill via UpdatePreferredLanguage.
+	// (e.g., "en", "ja"). A User always has one; Create requires it.
 	PreferredLanguage string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
@@ -169,8 +168,7 @@ type NewUser struct {
 	// Name is the user's display name.
 	Name string
 	// PreferredLanguage is the user's preferred ISO 639-1 two-letter language code
-	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
-	// rows pending backfill via UpdatePreferredLanguage.
+	// (e.g., "en", "ja"). A User always has one; Create requires it.
 	PreferredLanguage string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string

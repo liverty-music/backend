@@ -218,7 +218,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, cardAuthorizations, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
-	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
+	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB),
 		rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, s.pushes, nil, logger,
 		usecase.OrderConfirmationDeps{
 			Orders:            s.orderRepo,
@@ -235,7 +235,9 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 			ResaleEntries:     resaleEntryRepo,
 			ResaleEntryMailer: s.mailer,
 			TimeZone:          japanTime,
-		}, usecase.NewConcertsDeps{})
+			// The stories' pushes are only started (pushStarts), so nothing renders
+			// a Notification.
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 
 	s.resaleWorker = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
 		EntryRepo: resaleEntryRepo, StockRepo: stockRepo, EventRepo: eventRepo, EventState: eventState, Clock: clock, Logger: logger,

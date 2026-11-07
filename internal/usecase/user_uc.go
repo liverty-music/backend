@@ -415,13 +415,11 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 		}
 	}
-	// preferred_language is optional at Create (old clients omit it, which
-	// is allowed — the row is created NULL and the client backfills on
-	// next hydration). When present, it MUST match the ISO 639-1 pattern;
+	// preferred_language is required and MUST match the ISO 639-1 pattern;
 	// otherwise a value like "EN" or "english" would round-trip into the
 	// DB unchanged and the frontend's i18n.setLocale would silently
 	// fall back to the fallbackLng.
-	if params.PreferredLanguage != "" && !entity.IsValidLanguageCode(params.PreferredLanguage) {
+	if !entity.IsValidLanguageCode(params.PreferredLanguage) {
 		return nil, apperr.New(codes.InvalidArgument,
 			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
 			slog.String("preferred_language", params.PreferredLanguage),

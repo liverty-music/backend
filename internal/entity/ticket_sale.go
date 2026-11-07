@@ -210,13 +210,6 @@ func IsResultDateOnOrAfterEnd(resultDate, end time.Time) bool {
 	return !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(JapanDate(end))
 }
 
-// ResultDayAt returns hour:00 on the sale's result date in tz. The sale must
-// have a result date.
-func (s *TicketSale) ResultDayAt(hour int, tz *time.Location) time.Time {
-	y, m, d := s.ResultDate.Date()
-	return time.Date(y, m, d, hour, 0, 0, 0, tz)
-}
-
 // CheckEventsOfSeries reports whether every event the sale names is among
 // events and belongs to the sale's Series. The entity layer returns stdlib
 // errors; callers wrap them with an apperr code.
@@ -369,10 +362,8 @@ type TicketSaleRepository interface {
 
 	// ListWithPendingMilestones returns every sale, discovered or an
 	// Organizer's, whose start time is no later than now plus lookahead and
-	// whose end time is no earlier than now minus lookback, or whose result
-	// date is no earlier than the day before the Japan-time day of now minus
-	// lookback (a fan behind Japan time reaches 22:00 on the result date up to
-	// a calendar day later), ordered by start time, each with its events. An Organizer's sale is returned only while
+	// whose end time is no earlier than now minus lookback, ordered by start
+	// time, each with its events. An Organizer's sale is returned only while
 	// its Series is Published (at least one of its events is PUBLISHED).
 	//
 	// # Possible errors

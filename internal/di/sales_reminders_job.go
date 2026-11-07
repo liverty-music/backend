@@ -53,7 +53,6 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	reminderRepo := rdb.NewTicketSaleReminderRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
 	userRepo := rdb.NewUserRepository(db, newOutbox(logger))
-	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
 
 	// Each due reminder is started as a deliver-reminder workflow, which the
 	// workflow worker runs.
@@ -68,7 +67,6 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 		reminderRepo,
 		ticketJourneyRepo,
 		userRepo,
-		seriesRepo,
 		workflows,
 		cfg.GCP.SalesReminderScanWindow(),
 		logger,
