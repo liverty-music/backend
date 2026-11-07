@@ -25,12 +25,12 @@ import (
 
 // The story tests of stories/remove-a-cancelled-concert run the cancellation
 // and the refund notices against a real local Postgres and the real workflow
-// runtime: a member cancels an Event with two Paid Orders
-// (Series.CancelEvents, which SeriesUseCase.Cancel calls), the CONCERT.cancelled
-// announcements are handed to their consumer, which starts a notice workflow
-// per Order that the worker runs; the admin's `Refund all` refunds each Order
-// with OrderUseCase.Refund, and the ORDER.refunded announcements start the
-// refund notices the same way. The payment provider is an in-memory refunder
+// runtime: a member of the Event's Organizer cancels it with
+// SeriesUseCase.Cancel, the CONCERT.cancelled announcements are handed to
+// their consumer, which starts a notice workflow per Order that the worker
+// runs; the admin's `Refund all`, which calls OrderService.Refund once per
+// Paid Order, refunds each Order with OrderUseCase.Refund, and the
+// ORDER.refunded announcements start the refund notices the same way. The payment provider is an in-memory refunder
 // and the mail service an in-memory mailer (storyMailer); the fans register
 // no browser, so each push is recorded as a Notification without a send.
 
@@ -65,13 +65,15 @@ func (noStoryMetrics) RecordDeliveryOutcome(context.Context, string, string) {}
 // fans, the worker running the notice workflows, and the consumer of the
 // cancellation and refund announcements.
 type cancelledConcertStory struct {
-	t        *testing.T
-	ctx      context.Context
-	eventID  string
-	seriesID string
-	orders   []entity.OrderID
-	fans     []string
-	emails   []string
+	t           *testing.T
+	ctx         context.Context
+	eventID     string
+	seriesID    string
+	organizerID string
+	series      usecase.SeriesUseCase
+	orders      []entity.OrderID
+	fans        []string
+	emails      []string
 
 	mailer   *storyMailer
 	refunder *storyRefunder
@@ -96,7 +98,9 @@ func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
 	s := &cancelledConcertStory{t: t, ctx: context.Background()}
 	f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
 	s.eventID = f.EventID
-	require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT series_id FROM events WHERE id = $1`, s.eventID).Scan(&s.seriesID))
+	require.NoError(t, testDB.Pool.QueryRow(s.ctx,
+		`SELECT s.id, s.organizer_id FROM events e JOIN series s ON s.id = e.series_id WHERE e.id = $1`, s.eventID).
+		Scan(&s.seriesID, &s.organizerID))
 	organizerID := seedOrganizer(t)
 	for range 2 {
 		fan := seedFanUser(t)
@@ -161,6 +165,11 @@ func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
 		Clock:          time.Now,
 		Logger:         logger,
 	})
+	// The organizer console's SeriesUseCase: Cancel reads the authored series
+	// and cancels through the series repository.
+	s.series = usecase.NewSeriesUseCase(rdb.NewSeriesRepository(testDB, testOutbox), rdb.NewSeriesImageRepository(testDB, testOutbox),
+		rdb.NewVenueRepository(testDB), nil, rdb.NewOrganizerRepository(testDB, testOutbox), rdb.NewTicketSaleRepository(testDB, testOutbox),
+		nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.mark = outboxMark(t)
 	return s
 }
@@ -190,12 +199,11 @@ func (s *cancelledConcertStory) deliver(subject string, handle func(*message.Mes
 	}
 }
 
-// cancel has the member cancel the Event and the consumer start its notices.
+// cancel has a member of the Organizer cancel the Event and the consumer
+// start its notices.
 func (s *cancelledConcertStory) cancel() {
 	s.t.Helper()
-	cancelled, err := rdb.NewSeriesRepository(testDB, testOutbox).CancelEvents(s.ctx, s.seriesID, []string{s.eventID})
-	require.NoError(s.t, err)
-	require.Equal(s.t, []string{s.eventID}, cancelled)
+	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{s.eventID}))
 	s.deliver(entity.SubjectConcertCancelled, s.consumer.HandleEventCancelled, usecase.WorkflowNotifyEventCancelled+":", entity.NotificationTypeEventCancelled)
 }
 
