@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -11,10 +12,9 @@ import (
 )
 
 // NotificationUseCase is the single entry point through which every user-facing
-// notification is produced. It persists a durable record (the source of truth)
-// before dispatching to the web-push channel, then records the delivery outcome,
-// so that "did this notification reach the user?" is answerable from stored state
-// and the in-app inbox has durable, per-user read/dismiss state to build on.
+// notification is produced and listed. A Notification records what it is about
+// before the push is sent, so the fan's notification center shows it whether or
+// not the push arrived; the message is rendered from its subject each time.
 //
 // Producers never call Deliver directly: they start the deliver-notification
 // workflow, which the workflow worker runs through RunDeliver, so no usecase
@@ -23,25 +23,30 @@ import (
 // composes the same delivery ports directly (see notification_delivery.go)
 // rather than going through NotificationUseCase.
 type NotificationUseCase interface {
-	// Deliver records a notification for userID and dispatches it to the user's
-	// web-push subscriptions.
+	// Deliver renders the requested notification from the records its subject
+	// names, records it, sends it to the fan's web-push subscriptions, and
+	// returns and logs the outcome without storing it.
 	//
-	// The record is created first and is the source of truth. If record creation
-	// fails the send is NOT attempted and the error is returned, so the caller's
-	// existing at-least-once retry path re-drives it (the "no record => no send"
-	// invariant: an unrecorded send is exactly the unobservable silent-delivery
-	// failure this service exists to eliminate). A subsequent channel send failure
-	// is recorded as failed (not returned) so the record stays auditable and the
-	// send is re-dispatchable.
-	//
-	// payload is mutated to carry the minted notification id under
-	// data.notification_id, establishing the end-to-end correlation key.
+	// Nothing is sent before the record exists. When a record the subject names
+	// no longer exists, nothing is recorded or sent and the outcome is Failed
+	// with [NotificationFailureReasonSubjectGone]. A send failure is a Failed
+	// outcome, not an error.
 	//
 	// # Possible errors
 	//
-	//   - InvalidArgument: payload is nil.
-	//   - Internal: notification record creation failed (no send was attempted).
-	Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)
+	//   - InvalidArgument: the subject is invalid for the type.
+	//   - Any other read failure or failure to record, unchanged; nothing was
+	//     sent and the caller runs it again.
+	Deliver(ctx context.Context, req DeliverRequest) (DeliveryOutcome, error)
+
+	// List returns the fan's newest Notifications (at most [notificationListLimit]),
+	// newest first, each rendered in the fan's current language. One whose
+	// subject's record no longer exists is left out.
+	//
+	// # Possible errors
+	//
+	//   - Any read failure, unchanged.
+	List(ctx context.Context, user *entity.User) ([]*ListedNotification, error)
 
 	// RunDeliver is the deliver-notification workflow: it runs Deliver for the
 	// request and returns the Notification's id. Producers start it by name
@@ -57,20 +62,12 @@ type NotificationUseCase interface {
 	//   - PermissionDenied: the notification belongs to a different user.
 	MarkRead(ctx context.Context, userID, notificationID string) error
 
-	// Dismiss marks the (userID, notificationID) notification as dismissed.
-	// It is idempotent and user-scoped.
-	//
-	// # Possible errors
-	//
-	//   - NotFound: no notification with that id exists.
-	//   - PermissionDenied: the notification belongs to a different user.
-	Dismiss(ctx context.Context, userID, notificationID string) error
-
 	// SendOrderConfirmation tells the fan of a paid Order that the purchase
 	// went through: the confirmation email (at most once per Order) in the
-	// fan's language, then an order_confirmation push that opens the Tickets
-	// screen. It runs for each ORDER.paid announcement, from a checkout or a
-	// won lottery.
+	// fan's language, then, for an Order of a won lottery or resale entry, a
+	// lottery_win or resale_win push that opens the Tickets screen. An Order of
+	// a Checkout is not pushed: the fan has just paid on screen. It runs for
+	// each ORDER.paid announcement.
 	//
 	// # Possible errors
 	//
@@ -126,7 +123,7 @@ type NotificationUseCase interface {
 	// RunNotifyEventCancelled is the notify-event-cancelled workflow of one
 	// Order: it reads the Order, its user, concert and Tickets in one step,
 	// sends the cancellation email (Order.SendCancellationEmail) in a second,
-	// then starts Deliver named after the type event_cancelled and the Order.
+	// then starts Deliver named after the type concert_cancelled and the Order.
 	// An Order that no longer exists, is no longer Paid or holds no Issued
 	// Ticket gets nothing.
 	RunNotifyEventCancelled(ctx context.Context, f Flow, in OrderNotice) (struct{}, error)
@@ -181,6 +178,7 @@ type notificationUseCase struct {
 	artistRepo        entity.ArtistRepository
 	concertRepo       entity.ConcertRepository
 	followRepo        entity.FollowRepository
+	subjects          SubjectDeps
 }
 
 // Compile-time interface compliance check.
@@ -198,6 +196,7 @@ func NewNotificationUseCase(
 	logger *logging.Logger,
 	orderConfirmation OrderConfirmationDeps,
 	newConcerts NewConcertsDeps,
+	subjects SubjectDeps,
 ) NotificationUseCase {
 	return &notificationUseCase{
 		notificationRepo:  notificationRepo,
@@ -210,6 +209,7 @@ func NewNotificationUseCase(
 		artistRepo:        newConcerts.ArtistRepo,
 		concertRepo:       newConcerts.ConcertRepo,
 		followRepo:        newConcerts.FollowRepo,
+		subjects:          subjects,
 	}
 }
 
@@ -227,17 +227,53 @@ func (uc *notificationUseCase) deps() notificationDeliveryDeps {
 		notificationRepo: uc.notificationRepo,
 		pushSubRepo:      uc.pushSubRepo,
 		sender:           uc.sender,
+		subjects:         uc.subjects,
 		metrics:          uc.metrics,
 		logger:           uc.logger,
 	}
 }
 
 // Deliver implements [NotificationUseCase].
-func (uc *notificationUseCase) Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
-	if payload == nil {
-		return nil, apperr.New(codes.InvalidArgument, "notification payload must not be nil")
+func (uc *notificationUseCase) Deliver(ctx context.Context, req DeliverRequest) (DeliveryOutcome, error) {
+	return deliverNotification(ctx, uc.deps(), req)
+}
+
+// notificationListLimit is how many Notifications the notification center shows.
+const notificationListLimit = 50
+
+// ListedNotification is a stored Notification with its message as rendered now.
+type ListedNotification struct {
+	// Notification is the stored record.
+	Notification *entity.Notification
+	// Message is rendered in the fan's current language.
+	Message *entity.NotificationPayload
+}
+
+// List implements [NotificationUseCase].
+func (uc *notificationUseCase) List(ctx context.Context, user *entity.User) ([]*ListedNotification, error) {
+	notifications, err := uc.notificationRepo.ListByUser(ctx, user.ID, notificationListLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list notifications: %w", err)
 	}
-	return deliverNotification(ctx, uc.deps(), userID, typ, payload)
+	if len(notifications) == 0 {
+		return []*ListedNotification{}, nil
+	}
+	follows, err := uc.subjects.Follows.ListByUser(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the follows of the notifications' user: %w", err)
+	}
+	listed := make([]*ListedNotification, 0, len(notifications))
+	for _, n := range notifications {
+		subject, err := uc.subjects.load(ctx, n, user, follows)
+		if errors.Is(err, errSubjectGone) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read the subject of notification %s: %w", n.ID, err)
+		}
+		listed = append(listed, &ListedNotification{Notification: n, Message: n.Message(user.PreferredLanguage, subject)})
+	}
+	return listed, nil
 }
 
 // MarkRead implements [NotificationUseCase].
@@ -247,17 +283,6 @@ func (uc *notificationUseCase) MarkRead(ctx context.Context, userID, notificatio
 	}
 	if err := uc.notificationRepo.MarkRead(ctx, userID, notificationID); err != nil {
 		return fmt.Errorf("failed to mark notification read: %w", err)
-	}
-	return nil
-}
-
-// Dismiss implements [NotificationUseCase].
-func (uc *notificationUseCase) Dismiss(ctx context.Context, userID, notificationID string) error {
-	if err := uc.assertOwnership(ctx, userID, notificationID); err != nil {
-		return err
-	}
-	if err := uc.notificationRepo.MarkDismissed(ctx, userID, notificationID); err != nil {
-		return fmt.Errorf("failed to mark notification dismissed: %w", err)
 	}
 	return nil
 }

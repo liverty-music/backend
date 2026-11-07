@@ -3,6 +3,7 @@ package rpc_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	notificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
@@ -13,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -34,7 +36,7 @@ func newTestNotificationHandler(t *testing.T) (*handler.NotificationHandler, *uc
 	return handler.NewNotificationHandler(uc, ur, logger), uc, ur
 }
 
-func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
+func TestNotificationHandler_ListAndMarkRead(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -60,18 +62,28 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("fan dismisses their notification", func(t *testing.T) {
+	t.Run("fan lists their notifications", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/notification "Fan dismisses their notification"
+		// @spec components/adapter/fan/api/rpc/notification "Fan lists their notifications"
 		h, uc, ur := newTestNotificationHandler(t)
 		expectCaller(ur)
-		uc.EXPECT().Dismiss(mock.Anything, userID, notifID).Return(nil).Once()
+		created := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+		uc.EXPECT().List(mock.Anything, mock.MatchedBy(func(u *entity.User) bool { return u.ID == userID })).Return([]*usecase.ListedNotification{{
+			Notification: &entity.Notification{ID: notifID, UserID: userID, Type: entity.NotificationTypeLotteryLoss, CreateTime: created},
+			Message:      entity.NewNotificationPayload("[A] 抽選結果のお知らせ", "body", "/events/e-1", "tag"),
+		}}, nil).Once()
 
-		_, err := h.Dismiss(notificationAuthedCtx(extID), &notificationv1.DismissRequest{
-			NotificationId: &entityv1.NotificationId{Value: notifID},
-		})
+		resp, err := h.List(notificationAuthedCtx(extID), &notificationv1.ListRequest{})
 
 		require.NoError(t, err)
+		require.Len(t, resp.GetNotifications(), 1)
+		got := resp.GetNotifications()[0]
+		assert.Equal(t, notifID, got.GetId().GetValue())
+		assert.Equal(t, entityv1.NotificationType_NOTIFICATION_TYPE_LOTTERY_LOSS, got.GetType())
+		assert.Equal(t, "[A] 抽選結果のお知らせ", got.GetMessage().GetTitle())
+		assert.Equal(t, "/events/e-1", got.GetMessage().GetData()[entity.NotificationDataKeyURL])
+		assert.True(t, created.Equal(got.GetCreateTime().AsTime()))
+		assert.Nil(t, got.GetReadTime())
 	})
 
 	t.Run("not signed in", func(t *testing.T) {
@@ -82,12 +94,10 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		_, readErr := h.MarkRead(context.Background(), &notificationv1.MarkReadRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
 		})
-		_, dismissErr := h.Dismiss(context.Background(), &notificationv1.DismissRequest{
-			NotificationId: &entityv1.NotificationId{Value: notifID},
-		})
+		_, listErr := h.List(context.Background(), &notificationv1.ListRequest{})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(readErr))
-		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(dismissErr))
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(listErr))
 	})
 
 	t.Run("missing notification", func(t *testing.T) {
@@ -101,10 +111,8 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		client := notificationv1connect.NewNotificationServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
 		_, readErr := client.MarkRead(withFanToken(&notificationv1.MarkReadRequest{}))
-		_, dismissErr := client.Dismiss(withFanToken(&notificationv1.DismissRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(readErr))
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(dismissErr))
 	})
 
 	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
@@ -112,9 +120,7 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		h, _, ur := newTestNotificationHandler(t)
 		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
 
-		_, err := h.Dismiss(notificationAuthedCtx(extID), &notificationv1.DismissRequest{
-			NotificationId: &entityv1.NotificationId{Value: notifID},
-		})
+		_, err := h.List(notificationAuthedCtx(extID), &notificationv1.ListRequest{})
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

@@ -17,12 +17,6 @@ const (
 	SubjectUserCreated              = "USER.created"
 	SubjectNotificationSubscribed   = "NOTIFICATION.subscribed"
 	SubjectNotificationUnsubscribed = "NOTIFICATION.unsubscribed"
-	// SubjectNotificationDelivered is announced by Notification.UpdateDelivery
-	// once per notification whose channel send reached the delivered state. It drives the
-	// notification.delivered analytics event so push-delivery reach can be
-	// tracked in PostHog, keyed by notification_id. Matches the existing
-	// NOTIFICATION.* JetStream stream — no new stream required.
-	SubjectNotificationDelivered = "NOTIFICATION.delivered"
 	// SubjectTicketSaleDiscovered is announced by TicketSale.UpsertDiscovered
 	// when a new discovered TicketSale is created. Re-discovery of a known one
 	// (UpsertOutcomeUpdated) announces nothing. The subject keeps
@@ -159,7 +153,6 @@ var AllSubjects = []string{
 	SubjectUserCreated,
 	SubjectNotificationSubscribed,
 	SubjectNotificationUnsubscribed,
-	SubjectNotificationDelivered,
 	SubjectTicketSaleDiscovered,
 	SubjectTicketJourneyStatusChanged,
 	SubjectUserLoggedIn,
@@ -275,8 +268,7 @@ type TicketSaleReminderDueData struct {
 	TicketSaleID string `json:"phase_id"`
 	// Stage is the reminder stage (ReminderStage int16 value).
 	Stage int16 `json:"stage"`
-	// Payload is the pre-built notification payload for this recipient.
-	// Built per-recipient so times render in the user's timezone and copy
-	// is selected by preferred_language.
-	Payload *NotificationPayload `json:"payload"`
+	// LinkEventID is the event of the sale the fan tracks; the reminder links
+	// to it.
+	LinkEventID string `json:"link_event_id"`
 }

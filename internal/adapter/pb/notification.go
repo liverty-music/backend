@@ -11,54 +11,37 @@ var notificationTypeToProto = map[entity.NotificationType]entityv1.NotificationT
 	entity.NotificationTypeNewConcerts:            entityv1.NotificationType_NOTIFICATION_TYPE_NEW_CONCERTS,
 	entity.NotificationTypeSalesReminder:          entityv1.NotificationType_NOTIFICATION_TYPE_SALES_REMINDER,
 	entity.NotificationTypeTicketSaleAnnouncement: entityv1.NotificationType_NOTIFICATION_TYPE_TICKET_SALE_ANNOUNCEMENT,
-	entity.NotificationTypeOrderConfirmation:      entityv1.NotificationType_NOTIFICATION_TYPE_ORDER_CONFIRMATION,
+	entity.NotificationTypeLotteryWin:             entityv1.NotificationType_NOTIFICATION_TYPE_LOTTERY_WIN,
+	entity.NotificationTypeResaleWin:              entityv1.NotificationType_NOTIFICATION_TYPE_RESALE_WIN,
 	entity.NotificationTypeLotteryLoss:            entityv1.NotificationType_NOTIFICATION_TYPE_LOTTERY_LOSS,
 	entity.NotificationTypeResaleEntryLapsed:      entityv1.NotificationType_NOTIFICATION_TYPE_RESALE_ENTRY_LAPSED,
 	entity.NotificationTypeResaleEntryLost:        entityv1.NotificationType_NOTIFICATION_TYPE_RESALE_ENTRY_LOST,
-	entity.NotificationTypeEventCancelled:         entityv1.NotificationType_NOTIFICATION_TYPE_EVENT_CANCELLED,
+	entity.NotificationTypeConcertCancelled:       entityv1.NotificationType_NOTIFICATION_TYPE_CONCERT_CANCELLED,
 	entity.NotificationTypeOrderRefunded:          entityv1.NotificationType_NOTIFICATION_TYPE_ORDER_REFUNDED,
 }
 
-var notificationDeliveryStatusToProto = map[entity.NotificationDeliveryStatus]entityv1.NotificationDeliveryStatus{
-	entity.NotificationDeliveryStatusQueued:    entityv1.NotificationDeliveryStatus_NOTIFICATION_DELIVERY_STATUS_QUEUED,
-	entity.NotificationDeliveryStatusDelivered: entityv1.NotificationDeliveryStatus_NOTIFICATION_DELIVERY_STATUS_DELIVERED,
-	entity.NotificationDeliveryStatusFailed:    entityv1.NotificationDeliveryStatus_NOTIFICATION_DELIVERY_STATUS_FAILED,
-}
-
-// FromNotification maps a Notification to Protobuf: its id, fan, type,
-// pushed message, delivery status and failure reason, and its queue,
-// deliver, read and dismiss times when set.
-func FromNotification(n *entity.Notification) *entityv1.Notification {
+// FromNotification maps a Notification with its rendered message to Protobuf:
+// its id, fan, type, message and create time, and its read time when read.
+func FromNotification(n *entity.Notification, message *entity.NotificationPayload) *entityv1.Notification {
 	if n == nil {
 		return nil
 	}
 	out := &entityv1.Notification{
-		Id:             &entityv1.NotificationId{Value: n.ID},
-		UserId:         &entityv1.UserId{Value: n.UserID},
-		Type:           notificationTypeToProto[n.Type],
-		DeliveryStatus: notificationDeliveryStatusToProto[n.DeliveryStatus],
-		QueueTime:      timestamppb.New(n.QueueTime),
+		Id:         &entityv1.NotificationId{Value: n.ID},
+		UserId:     &entityv1.UserId{Value: n.UserID},
+		Type:       notificationTypeToProto[n.Type],
+		CreateTime: timestamppb.New(n.CreateTime),
 	}
-	if n.Payload != nil {
+	if message != nil {
 		out.Message = &entityv1.NotificationMessage{
-			Title: n.Payload.Title,
-			Body:  n.Payload.Body,
-			Tag:   n.Payload.Tag,
-			Data:  n.Payload.Data,
+			Title: message.Title,
+			Body:  message.Body,
+			Tag:   message.Tag,
+			Data:  message.Data,
 		}
-	}
-	if n.FailureReason != "" {
-		reason := n.FailureReason
-		out.FailureReason = &reason
-	}
-	if n.DeliverTime != nil {
-		out.DeliverTime = timestamppb.New(*n.DeliverTime)
 	}
 	if n.ReadTime != nil {
 		out.ReadTime = timestamppb.New(*n.ReadTime)
-	}
-	if n.DismissTime != nil {
-		out.DismissTime = timestamppb.New(*n.DismissTime)
 	}
 	return out
 }

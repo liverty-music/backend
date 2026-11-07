@@ -6,7 +6,7 @@ import (
 
 // NotificationPayload is the JSON structure delivered as the Web Push message body.
 type NotificationPayload struct {
-	// Title is the notification title, typically the artist name.
+	// Title is the notification title: "[<artist>] <headline>".
 	Title string `json:"title"`
 	// Body is the human-readable notification text.
 	Body string `json:"body"`
@@ -37,7 +37,7 @@ const NotificationDataKeyTicketSaleID = "ticket_sale_id"
 
 // NotificationDataKeyMilestone is the [NotificationPayload.Data] key under which
 // a sales_reminder names the [ReminderStage] it is for, as the lowercase stage
-// name ("apply_open", "apply_close_24h" or "result_day"), so a fan's reaction
+// name ("apply_open" or "apply_close_24h"), so a fan's reaction
 // can be told apart by milestone.
 const NotificationDataKeyMilestone = "milestone"
 

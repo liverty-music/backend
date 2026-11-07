@@ -3,12 +3,6 @@ package usecase
 // ExportedScheduledFireTime exposes scheduledFireTime for black-box tests.
 var ExportedScheduledFireTime = scheduledFireTime
 
-// ExportedBuildReminderPayload exposes buildReminderPayload for black-box tests.
-var ExportedBuildReminderPayload = buildReminderPayload
-
-// ExportedBuildAnnouncementPayload exposes buildAnnouncementPayload for black-box tests.
-var ExportedBuildAnnouncementPayload = buildAnnouncementPayload
-
 // ExportedRecordPasskeyChangeID exposes recordPasskeyChangeID for black-box tests.
 var ExportedRecordPasskeyChangeID = recordPasskeyChangeID
 

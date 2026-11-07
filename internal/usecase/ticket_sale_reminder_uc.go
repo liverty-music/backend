@@ -20,8 +20,6 @@ const (
 	// here, the evening before the window, so it still arrives before the sale
 	// opens.
 	preQuietAlertHour = quietStartHour - 1
-	// fallbackTimeZone is used when a user has no time_zone set.
-	fallbackTimeZone = "Asia/Tokyo"
 )
 
 // TicketSaleReminderUseCase scans the ticket sales, discovered and the
@@ -30,8 +28,7 @@ const (
 // recorded in the sent-log.
 type TicketSaleReminderUseCase interface {
 	// ScanDueReminders runs one scan pass. It lists the sales with a pending
-	// milestone, resolves each sale's audiences (tracking fans, and applied
-	// fans for a discovered lottery's result day), applies quiet hours, checks
+	// milestone, resolves each sale's tracking fans, applies quiet hours, checks
 	// the sent-log, and publishes due reminders. Returns the number of events
 	// published.
 	ScanDueReminders(ctx context.Context) (int, error)
@@ -42,7 +39,6 @@ type ticketSaleReminderUseCase struct {
 	reminderRepo   entity.TicketSaleReminderRepository
 	journeyRepo    entity.TicketJourneyRepository
 	userRepo       entity.UserRepository
-	seriesRepo     entity.SeriesRepository
 	workflows      Workflows
 	// lookahead is the forward horizon passed to ListWithPendingMilestones.
 	lookahead time.Duration
@@ -65,7 +61,6 @@ func NewTicketSaleReminderUseCase(
 	reminderRepo entity.TicketSaleReminderRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	userRepo entity.UserRepository,
-	seriesRepo entity.SeriesRepository,
 	workflows Workflows,
 	lookahead time.Duration,
 	logger *logging.Logger,
@@ -75,7 +70,6 @@ func NewTicketSaleReminderUseCase(
 		reminderRepo:   reminderRepo,
 		journeyRepo:    journeyRepo,
 		userRepo:       userRepo,
-		seriesRepo:     seriesRepo,
 		workflows:      workflows,
 		lookahead:      lookahead,
 		lookbackMargin: reminderScanLookbackMargin,
@@ -116,84 +110,31 @@ func (uc *ticketSaleReminderUseCase) ScanDueReminders(ctx context.Context) (int,
 	return totalPublished, nil
 }
 
-// trackingStages are the stages whose audience is the fans tracking the
-// sale's events.
-var trackingStages = []entity.ReminderStage{
+// reminderStages are the stages of every sale.
+var reminderStages = []entity.ReminderStage{
 	entity.ReminderStageApplyOpen,
 	entity.ReminderStageApplyClose24H,
 }
 
-// reminderAudience is one set of stages of a sale with the operation that
-// lists the fans to remind of them.
-type reminderAudience struct {
-	stages []entity.ReminderStage
-	list   func(ctx context.Context) ([]*entity.SeriesTracker, error)
-}
-
-// saleAudiences returns the stages of a sale grouped by audience, each fan
-// with the event the reminder links them to. APPLY_OPEN and APPLY_CLOSE_24H
-// of a discovered sale reach every fan tracking an event of its series, and
-// those of an Organizer's sale only the fans tracking an event it names,
-// because it may cover only some events of the tour. RESULT_DAY of a
-// discovered lottery with a result date reaches every fan who applied for an
-// event of its series.
-func (uc *ticketSaleReminderUseCase) saleAudiences(sale *entity.TicketSale) []reminderAudience {
-	if !sale.IsDiscovered() {
-		return []reminderAudience{{
-			stages: trackingStages,
-			list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
-				return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
-			},
-		}}
+// listTrackers lists the fans to remind of a sale, each with the event the
+// reminder links them to: every fan tracking an event of a discovered sale's
+// series, and for an Organizer's sale only the fans tracking an event it names,
+// because it may cover only some events of the tour.
+func (uc *ticketSaleReminderUseCase) listTrackers(ctx context.Context, sale *entity.TicketSale) ([]*entity.SeriesTracker, error) {
+	if sale.IsDiscovered() {
+		return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
 	}
-	audiences := []reminderAudience{{
-		stages: trackingStages,
-		list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
-			return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
-		},
-	}}
-	if sale.Method == entity.TicketSaleMethodLottery && sale.ResultDate != nil {
-		audiences = append(audiences, reminderAudience{
-			stages: []entity.ReminderStage{entity.ReminderStageResultDay},
-			list: func(ctx context.Context) ([]*entity.SeriesTracker, error) {
-				return uc.journeyRepo.ListUserIDsAppliedSeries(ctx, sale.SeriesID)
-			},
-		})
-	}
-	return audiences
+	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
 }
 
 // processSale evaluates all reminder stages for one sale and returns the
 // number of reminder events published.
 func (uc *ticketSaleReminderUseCase) processSale(ctx context.Context, sale *entity.TicketSale, now time.Time) (int, error) {
-	// The series title is read once per sale; it is the last line of every
-	// reminder text. It is read lazily, so a sale with nothing due costs no
-	// lookup.
-	var seriesTitle *string
-	title := func() (string, error) {
-		if seriesTitle == nil {
-			series, err := uc.seriesRepo.Get(ctx, sale.SeriesID)
-			if err != nil {
-				return "", err
-			}
-			seriesTitle = &series.Title
-		}
-		return *seriesTitle, nil
+	trackers, err := uc.listTrackers(ctx, sale)
+	if err != nil {
+		return 0, fmt.Errorf("ticket_sale_reminder: list audience: %w", err)
 	}
-
-	var published int
-	for _, audience := range uc.saleAudiences(sale) {
-		trackers, err := audience.list(ctx)
-		if err != nil {
-			return published, fmt.Errorf("ticket_sale_reminder: list audience: %w", err)
-		}
-		n, err := uc.remindAudience(ctx, sale, audience.stages, trackers, now, title)
-		published += n
-		if err != nil {
-			return published, err
-		}
-	}
-	return published, nil
+	return uc.remindAudience(ctx, sale, reminderStages, trackers, now), nil
 }
 
 // remindAudience requests the due reminders of the stages for each fan of
@@ -205,14 +146,13 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 	stages []entity.ReminderStage,
 	trackers []*entity.SeriesTracker,
 	now time.Time,
-	title func() (string, error),
-) (int, error) {
+) int {
 	attrs := []slog.Attr{
 		slog.String("ticket_sale_id", string(sale.ID)),
 		slog.String("series_id", sale.SeriesID),
 	}
 	if len(trackers) == 0 {
-		return 0, nil
+		return 0
 	}
 
 	// Hydrate users for timezone and language.
@@ -232,7 +172,7 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 		recipients = append(recipients, recipient{user: u, linkEventID: tr.EventID})
 	}
 	if len(recipients) == 0 {
-		return 0, nil
+		return 0
 	}
 
 	// Batch already-sent check: one query per audience instead of per
@@ -252,7 +192,7 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 	for _, stage := range stages {
 		for _, r := range recipients {
 			if ctx.Err() != nil {
-				return published, nil
+				return published
 			}
 			user := r.user
 
@@ -273,22 +213,16 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 				continue
 			}
 			if !now.Before(expiry) {
-				// The reminder's moment has passed (sale opened, application
-				// window closed, or the result day already ended) — do not
-				// send a stale reminder.
+				// The reminder's moment has passed (sale opened or application
+				// window closed) — do not send a stale reminder.
 				continue
 			}
 
-			seriesTitle, err := title()
-			if err != nil {
-				return published, err
-			}
-			payload := buildReminderPayload(sale, stage, user, seriesTitle, r.linkEventID)
 			data := entity.TicketSaleReminderDueData{
 				UserID:       user.ID,
 				TicketSaleID: string(sale.ID),
 				Stage:        int16(stage),
-				Payload:      payload,
+				LinkEventID:  r.linkEventID,
 			}
 			if err := uc.workflows.Start(ctx, WorkflowDeliverReminder, reminderWorkflowID(data, now), data); err != nil {
 				uc.logger.Error(ctx, "ticket_sale_reminder: start failed", err,
@@ -302,7 +236,7 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 			published++
 		}
 	}
-	return published, nil
+	return published
 }
 
 // scheduledFireTime returns the absolute instant at which stage should fire
@@ -325,14 +259,11 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 //   - APPLY_CLOSE_24H, Lottery: anchor = end - 24h; expiry = end. The next
 //     08:00 after an anchor in quiet hours is always before the end, because
 //     the anchor is 24 hours before it.
-//   - RESULT_DAY, discovered Lottery with a result date: anchor = 09:00 on
-//     the result date in tz; expiry = 22:00 that day. It never falls in quiet
-//     hours.
 //
 // Every stage other than the first-come APPLY_OPEN that falls in the quiet
 // window (22:00–08:00 in tz) fires at the next 08:00.
 func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *time.Location) (fire time.Time, expiry time.Time, ok bool) {
-	base, ok := stage.Anchor(sale, tz)
+	base, ok := stage.Anchor(sale)
 	if !ok {
 		return time.Time{}, time.Time{}, false
 	}
@@ -348,8 +279,6 @@ func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *
 		}
 	case entity.ReminderStageApplyClose24H:
 		expiry = sale.SaleEndTime
-	case entity.ReminderStageResultDay:
-		expiry = sale.ResultDayAt(entity.ResultDayExpiryHour, tz)
 	}
 
 	// First-sight guard: a discovered sale whose anchor was already in the
@@ -385,42 +314,5 @@ func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *
 // userTimezone returns the user's time zone, falling back to Asia/Tokyo when
 // it is unset or not recognised.
 func userTimezone(u *entity.User) *time.Location {
-	return timeZoneOf(u.TimeZone)
-}
-
-// buildReminderPayload builds the per-recipient NotificationPayload for a
-// reminder stage, with times in the user's time zone, copy in the user's
-// language, the series title on its last line, and a link to the user's
-// tracked event. The text states absolute times only, so it stays correct
-// when quiet hours move the reminder. The same copy serves a discovered sale
-// and an Organizer's sale.
-func buildReminderPayload(
-	sale *entity.TicketSale,
-	stage entity.ReminderStage,
-	user *entity.User,
-	seriesTitle string,
-	linkEventID string,
-) *entity.NotificationPayload {
-	tz := userTimezone(user)
-	lang := copyLanguage(user.PreferredLanguage)
-	url := concertLinkURL(linkEventID)
-	tag := fmt.Sprintf("ticket-sale-%s-stage-%d", sale.ID, stage)
-
-	var key string
-	var at time.Time
-	switch {
-	case stage == entity.ReminderStageApplyOpen && sale.Method == entity.TicketSaleMethodFirstCome:
-		key, at = copyApplyOpenFirstCome, sale.SaleStartTime
-	case stage == entity.ReminderStageApplyOpen:
-		key, at = copyApplyOpenLottery, sale.SaleEndTime
-	case stage == entity.ReminderStageApplyClose24H:
-		key, at = copyApplyClose24HLottery, sale.SaleEndTime
-	case stage == entity.ReminderStageResultDay:
-		title, text := ticketSaleText(lang, copyResultDayLottery, "", seriesTitle)
-		return entity.NewNotificationPayload(title, text, url, tag)
-	default:
-		return entity.NewNotificationPayload("", "", url, tag)
-	}
-	title, text := ticketSaleText(lang, key, formatSalesTime(at, tz, lang), seriesTitle)
-	return entity.NewNotificationPayload(title, text, url, tag)
+	return entity.TimeZoneOf(u.TimeZone)
 }

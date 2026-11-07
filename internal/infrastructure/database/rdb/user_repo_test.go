@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -507,31 +508,17 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		assert.Equal(t, "ja", got.PreferredLanguage)
 	})
 
-	t.Run("Create with empty preferred_language persists SQL NULL (not empty string)", func(t *testing.T) {
+	t.Run("Create with empty preferred_language returns InvalidArgument and stores nothing", func(t *testing.T) {
 		cleanDatabase(t)
 
 		params := newTestUser("ext-lang-2", "lang2@example.com", "Lang2")
-		params.PreferredLanguage = "" // simulates an old client that omitted the wire field
+		params.PreferredLanguage = ""
 
-		user, err := repo.Create(ctx, params)
-		require.NoError(t, err)
-		assert.Equal(t, "", user.PreferredLanguage, "NULL column should map to empty string in domain")
+		_, err := repo.Create(ctx, params)
+		assertAppErrCode(t, err, codes.InvalidArgument)
 
-		// Verify the column is SQL NULL, not the literal empty string —
-		// the NULL='not-yet-set' invariant lets the hydration backfill
-		// path differentiate old-client rows from "client explicitly chose ''".
-		var lang sql.NullString
-		err = testDB.Pool.QueryRow(ctx,
-			`SELECT preferred_language FROM users WHERE id = $1`,
-			user.ID,
-		).Scan(&lang)
-		require.NoError(t, err)
-		assert.False(t, lang.Valid, "preferred_language must be SQL NULL, got %q (Valid=%t)", lang.String, lang.Valid)
-
-		// Round-trip via Get also yields empty.
-		got, err := repo.Get(ctx, user.ID)
-		require.NoError(t, err)
-		assert.Equal(t, "", got.PreferredLanguage)
+		_, err = repo.GetByProviderUserID(ctx, "ext-lang-2")
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("idempotent Create does NOT overwrite existing preferred_language", func(t *testing.T) {
@@ -613,29 +600,22 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 }
 
 // TestUserRepository_ScanNULLColumns is the regression gate for the
-// 2026-05-23 incident: scanUser scanned the nullable preferred_language,
-// country, and time_zone columns directly into Go *string fields. With
-// every row populated (the historical state under DEFAULT 'en' and
-// before country / time_zone backfill stopped) the bug was invisible.
-// The persist-user-language migration set every existing
-// preferred_language to NULL on prod, and pgx then failed every Scan,
-// which the use-case layer's idempotent-retry path mistranslated into
-// AlreadyExists at the wire — masking the root cause for hours.
+// 2026-05-23 incident: scanUser scanned nullable columns directly into Go
+// *string fields, so pgx failed every Scan of a row holding NULL, which the
+// use-case layer's idempotent-retry path mistranslated into AlreadyExists at
+// the wire.
 //
-// This test inserts a row whose three nullable columns are NULL and
-// asserts every code path that shares scanUser succeeds, returning the
-// entity fields at zero value (empty string). It SHALL fail loudly if a
-// future refactor reverts any column to a raw *string scan.
+// This test inserts a row whose nullable time_zone is NULL and asserts every
+// code path that shares scanUser succeeds, returning the entity field at zero
+// value (empty string). It SHALL fail loudly if a future refactor reverts the
+// column to a raw *string scan.
 func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
 	cleanDatabase(t)
 
-	// Insert a NewUser with empty-string PreferredLanguage / Country /
-	// TimeZone. The repo's nullStringFromEmpty write boundary maps "" to
-	// SQL NULL, so the row lands with NULL in all three columns —
-	// equivalent to the legacy-row state after the persist-user-language
-	// migration.
+	// The repo's nullStringFromEmpty write boundary maps an empty TimeZone to
+	// SQL NULL.
 	const (
 		providerUserID = "ext-null-scan"
 		email          = "null-scan@example.com"
@@ -645,22 +625,24 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		ProviderUserID:    providerUserID,
 		Email:             email,
 		Name:              name,
-		PreferredLanguage: "",
+		PreferredLanguage: "ja",
 		TimeZone:          "",
 	})
 	require.NoError(t, err)
 
 	// Sanity: the in-memory entity returned by Create is built from
-	// params, so it reflects empty strings rather than DB-side NULLs.
+	// params, so it reflects an empty string rather than the DB-side NULL.
 	// The subsequent SELECT-and-scan paths are what actually exercise the
 	// regression — see asserts below.
 	require.NotEmpty(t, created.ID)
-	assert.Empty(t, created.PreferredLanguage)
 	assert.Empty(t, created.TimeZone)
+
+	var stored sql.NullString
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT time_zone FROM users WHERE id = $1`, created.ID).Scan(&stored))
+	require.False(t, stored.Valid, "time_zone must be SQL NULL, got %q", stored.String)
 
 	assertEmptyNullableFields := func(t *testing.T, u *entity.User) {
 		t.Helper()
-		assert.Empty(t, u.PreferredLanguage, "preferred_language NULL must scan to empty string")
 		assert.Empty(t, u.TimeZone, "time_zone NULL must scan to empty string")
 	}
 
@@ -676,17 +658,14 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		assertEmptyNullableFields(t, got)
 	})
 
-	t.Run("UpdatePreferredLanguage backfills NULL → 'ja' and round-trips", func(t *testing.T) {
-		// Mirrors the hydration-backfill path the frontend takes when it
-		// observes user.preferredLanguage absent.
-		updated, err := repo.UpdatePreferredLanguage(ctx, created.ID, "ja")
+	t.Run("UpdatePreferredLanguage re-fetch handles row with time_zone NULL", func(t *testing.T) {
+		updated, err := repo.UpdatePreferredLanguage(ctx, created.ID, "en")
 		require.NoError(t, err)
-		assert.Equal(t, "ja", updated.PreferredLanguage)
-		// country / time_zone remain NULL — scan must still succeed.
-		assert.Empty(t, updated.TimeZone)
+		assert.Equal(t, "en", updated.PreferredLanguage)
+		assertEmptyNullableFields(t, updated)
 	})
 
-	t.Run("UpdateHome re-fetch handles row with country/time_zone NULL", func(t *testing.T) {
+	t.Run("UpdateHome re-fetch handles row with time_zone NULL", func(t *testing.T) {
 		// UpdateHome runs an UPDATE then re-fetches via scanUser. The
 		// re-fetch is the load-bearing scan — same code path as Get.
 		updated, err := repo.UpdateHome(ctx, created.ID, &entity.Home{
@@ -696,8 +675,9 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, updated.Home)
 		assert.Equal(t, "JP-13", updated.Home.Level1)
-		// users.country / users.time_zone are still NULL (not affected by
-		// UpdateHome). The re-fetch scan must not crash.
+		// users.time_zone is still NULL (not affected by UpdateHome). The
+		// re-fetch scan must not crash.
+		assertEmptyNullableFields(t, updated)
 		assert.Empty(t, updated.TimeZone)
 	})
 }

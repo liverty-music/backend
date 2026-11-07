@@ -64,13 +64,11 @@ func TestAnnounceDiscoveredSale_SameSaleTwice(t *testing.T) {
 
 	userRepo := entitymocks.NewMockUserRepository(t)
 	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
-	seriesRepo := entitymocks.NewMockSeriesRepository(t)
 	w := &recordingWorkflows{}
-	uc := usecase.NewTicketSaleAnnouncementUseCase(userRepo, journeyRepo, seriesRepo, w, newTestLogger(t))
+	uc := usecase.NewTicketSaleAnnouncementUseCase(userRepo, journeyRepo, w, newTestLogger(t))
 
 	journeyRepo.EXPECT().ListUserIDsTrackingSeries(ctx, "series-1").
 		Return([]*entity.SeriesTracker{{UserID: "user-1", EventID: "event-1"}}, nil).Twice()
-	seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "Tour"}, nil).Twice()
 	userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1"}, nil).Twice()
 
 	sale := entity.TicketSaleDiscoveredData{SeriesID: "series-1", TicketSaleID: "sale-1"}
@@ -97,7 +95,7 @@ func newConcertsUC(t *testing.T, ctx context.Context, w usecase.Workflows, calls
 		{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 	}, nil).Times(calls)
 	return usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo}, usecase.SubjectDeps{})
 }
 
 // @spec components/usecase/notification/notify-new-concerts "Same concerts notified twice"
@@ -127,9 +125,18 @@ func TestNotifyNewConcerts_AdminSendsAgain(t *testing.T) {
 	require.NoError(t, uc.NotifyNewConcerts(ctx, data))
 
 	assert.Equal(t, 2, w.runs(), "each direct call notifies again")
+
+	// The two messages carry one tag, so the new one replaces the earlier one
+	// on the follower's devices.
+	f := newSubjectFixture(t)
+	f.fanReadable(renderedFan("user-1", "ja"))
+	f.artists.EXPECT().Get(context.Background(), "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Twice()
+	concert := renderedConcert("c1")
+	f.concertsReadable(concert)
 	for _, input := range w.started {
-		assert.Equal(t, "concert-artist-1", input.(usecase.DeliverRequest).Payload.Tag,
-			"the new message replaces the earlier one on the follower's devices")
+		req := input.(usecase.DeliverRequest)
+		assert.Equal(t, entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"c1"}}, req.Subject)
+		assert.Equal(t, "concert-artist-1", f.push(t, req).Tag)
 	}
 }
 
@@ -142,7 +149,7 @@ func TestNotifyNewConcerts_CountsOnlyTheGivenConcerts(t *testing.T) {
 	followRepo := entitymocks.NewMockFollowRepository(t)
 	w := &recordingWorkflows{}
 	uc := usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo}, usecase.SubjectDeps{})
 	area := "JP-13"
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
@@ -159,9 +166,11 @@ func TestNotifyNewConcerts_CountsOnlyTheGivenConcerts(t *testing.T) {
 	require.NoError(t, uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}, RequestID: "a-1"}))
 
 	require.Len(t, w.started, 1)
-	for _, input := range w.started {
-		assert.Equal(t, "2 new concerts found", input.(usecase.DeliverRequest).Payload.Body)
-	}
+	assert.Equal(t, usecase.DeliverRequest{
+		UserID:  "user-1",
+		Type:    entity.NotificationTypeNewConcerts,
+		Subject: entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"c1", "c2"}},
+	}, w.started["deliver:new_concerts:user-1:a-1"])
 }
 
 // @spec components/usecase/notification/notify-new-concerts "Unknown artist"
@@ -171,7 +180,7 @@ func TestNotifyNewConcerts_UnknownArtist(t *testing.T) {
 	artistRepo := entitymocks.NewMockArtistRepository(t)
 	w := &recordingWorkflows{}
 	uc := usecase.NewNotificationUseCase(nil, nil, nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: entitymocks.NewMockConcertRepository(t), FollowRepo: entitymocks.NewMockFollowRepository(t)})
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: entitymocks.NewMockConcertRepository(t), FollowRepo: entitymocks.NewMockFollowRepository(t)}, usecase.SubjectDeps{})
 	artistRepo.EXPECT().Get(ctx, "missing").Return(nil, apperr.ErrNotFound).Once()
 
 	err := uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "missing", ConcertIDs: []string{"c1"}})

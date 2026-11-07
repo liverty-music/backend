@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
+	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -15,9 +15,8 @@ import (
 )
 
 // notificationDeliveryDeps bundles the entity ports and infrastructure needed
-// to record and dispatch a single notification. It exists so the
-// record-then-send-then-record-outcome logic is composed, not called through
-// another usecase interface, by both:
+// to render, record and dispatch a single notification. It exists so the
+// logic is composed, not called through another usecase interface, by both:
 //   - NotificationUseCase.Deliver, run by the deliver-notification workflow;
 //     and
 //   - TicketSaleReminderDeliveryUseCase.DeliverReminder, run by the
@@ -26,8 +25,31 @@ type notificationDeliveryDeps struct {
 	notificationRepo entity.NotificationRepository
 	pushSubRepo      entity.PushSubscriptionRepository
 	sender           entity.PushNotificationSender
+	subjects         SubjectDeps
 	metrics          PushMetrics
 	logger           *logging.Logger
+}
+
+// DeliveryStatus is whether the push channel accepted a notification's message.
+type DeliveryStatus string
+
+const (
+	// DeliveryStatusDelivered means at least one browser's send was accepted by
+	// the push service, not that a device displayed it.
+	DeliveryStatusDelivered DeliveryStatus = "delivered"
+	// DeliveryStatusFailed means no send was accepted.
+	DeliveryStatusFailed DeliveryStatus = "failed"
+)
+
+// DeliveryOutcome is what Deliver returns to its caller. It is not stored.
+type DeliveryOutcome struct {
+	// NotificationID is the recorded Notification; empty when nothing was
+	// recorded because the subject no longer exists.
+	NotificationID string
+	// Status is whether the push was accepted.
+	Status DeliveryStatus
+	// FailureReason says why, when Status is Failed.
+	FailureReason string
 }
 
 // NotificationFailureReasonNoSubscription is the delivery failure reason recorded
@@ -35,6 +57,10 @@ type notificationDeliveryDeps struct {
 // on it to distinguish "the user simply has no push device" (a terminal outcome
 // not worth retrying) from a transient send error.
 const NotificationFailureReasonNoSubscription = "no active push subscription"
+
+// NotificationFailureReasonSubjectGone is the failure reason when a record the
+// subject names no longer exists, so nothing was recorded or sent.
+const NotificationFailureReasonSubjectGone = "subject no longer exists"
 
 // Bounded delivery-failure categories. They are the *label* attached to the
 // delivery-outcome metric and the WARNING failure log, kept deliberately small so
@@ -48,124 +74,112 @@ const (
 	deliveryFailureReasonListFailed     = "list_failed"
 	deliveryFailureReasonMarshalFailed  = "marshal_failed"
 	deliveryFailureReasonCancelled      = "cancelled"
+	deliveryFailureReasonSubjectGone    = "subject_gone"
 )
 
-// deliverNotification records a Notification for userID, dispatches it to the
-// recipient's web-push subscriptions, and records the delivery outcome. This
-// is the "Notify"/"Deliver" body shared by every caller composing the same
-// entity ports (see [notificationDeliveryDeps]).
+// deliverNotification renders the requested notification from its subject,
+// records it, dispatches it to the recipient's web-push subscriptions, and
+// returns and logs the outcome. This is the body shared by every caller
+// composing the same entity ports (see [notificationDeliveryDeps]).
 //
-// The record is created first and is the source of truth. If record creation
-// fails the send is NOT attempted and the error is returned, so the caller's
-// own at-least-once retry path re-drives it (the "no record => no send"
-// invariant: an unrecorded send is exactly the unobservable silent-delivery
-// failure this service exists to eliminate). A subsequent channel send failure
-// is recorded as failed (not returned) so the record stays auditable and the
-// send is re-dispatchable.
-//
-// payload is mutated to carry the minted notification id under
-// data.notification_id and the notification type under data.type, establishing the end-to-end correlation key. Callers
-// are responsible for rejecting a nil payload themselves — the two current
-// callers disagree on what a nil payload means (an InvalidArgument error for
-// NotificationUseCase.Deliver; a defensive no-op skip for
-// TicketSaleReminderDeliveryUseCase.DeliverReminder) — so this function assumes a
-// non-nil payload.
-func deliverNotification(
-	ctx context.Context,
-	d notificationDeliveryDeps,
-	userID string,
-	typ entity.NotificationType,
-	payload *entity.NotificationPayload,
-) (*entity.Notification, error) {
-	// 1. Create the record first — it is the source of truth. On failure, do NOT
-	//    send blind: surface the error so the caller's retry path re-drives it.
-	n := &entity.Notification{
-		UserID:         userID,
-		Type:           typ,
-		Payload:        payload,
-		DeliveryStatus: entity.NotificationDeliveryStatusQueued,
+// Nothing is sent before the record exists: a failure to read or record returns
+// the error, so the caller's own retry path runs it again. A subject whose
+// record no longer exists records and sends nothing and succeeds with a Failed
+// outcome. A channel send failure is a Failed outcome, not an error.
+func deliverNotification(ctx context.Context, d notificationDeliveryDeps, req DeliverRequest) (DeliveryOutcome, error) {
+	if err := req.Subject.Validate(req.Type); err != nil {
+		return DeliveryOutcome{}, err
 	}
+	user, err := d.subjects.Users.Get(ctx, req.UserID)
+	if err != nil {
+		return DeliveryOutcome{}, fmt.Errorf("failed to read the notification's user: %w", err)
+	}
+	follows, err := d.subjects.Follows.ListByUser(ctx, req.UserID)
+	if err != nil {
+		return DeliveryOutcome{}, fmt.Errorf("failed to read the follows of the notification's user: %w", err)
+	}
+
+	n := &entity.Notification{UserID: req.UserID, Type: req.Type, Subject: req.Subject}
+	subject, err := d.subjects.load(ctx, n, user, follows)
+	if errors.Is(err, errSubjectGone) {
+		d.logOutcome(ctx, n, DeliveryOutcome{Status: DeliveryStatusFailed, FailureReason: NotificationFailureReasonSubjectGone}, deliveryFailureReasonSubjectGone)
+		return DeliveryOutcome{Status: DeliveryStatusFailed, FailureReason: NotificationFailureReasonSubjectGone}, nil
+	}
+	if err != nil {
+		return DeliveryOutcome{}, fmt.Errorf("failed to read the notification's subject: %w", err)
+	}
+	payload := n.Message(user.PreferredLanguage, subject)
+
 	if err := d.notificationRepo.Create(ctx, n); err != nil {
-		return nil, fmt.Errorf("failed to create notification record: %w", err)
+		return DeliveryOutcome{}, fmt.Errorf("failed to create notification record: %w", err)
 	}
 
-	// 2. Carry the stable notification id and its type into the dispatched
-	//    payload so the client/service worker can correlate interactions back to
-	//    this record and report them by type.
-	if payload.Data == nil {
-		payload.Data = make(map[string]string, 2)
-	}
+	// Carry the stable notification id and its type into the dispatched payload
+	// so the client/service worker can correlate interactions back to this
+	// record and report them by type, and name a reminder's sale and milestone
+	// so a fan's reaction can be told apart by milestone.
 	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
-	payload.Data[entity.NotificationDataKeyType] = string(typ)
-
-	// 3. Dispatch to the web-push channel and 4. record the outcome.
-	status, deliveredAt, reason, reasonCategory := d.dispatch(ctx, n, payload)
-
-	// Surface the outcome as an operational signal so a systemic delivery failure
-	// is detectable without querying the notifications table. The metric is emitted
-	// for every outcome (the alert needs a failed-vs-total ratio). Every outcome
-	// is also logged, marked for analytics so delivery rates can be read over
-	// months: a delivery at INFO, a failure at WARNING with the bounded
-	// failure_reason as a label and the unbounded detail kept separate for
-	// debugging.
-	d.metrics.RecordDeliveryOutcome(ctx, string(status), reasonCategory)
-	switch status {
-	case entity.NotificationDeliveryStatusFailed:
-		d.logger.Warn(ctx, "notification delivery failed", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", userID),
-			slog.String("notification_type", string(typ)),
-			slog.String("failure_reason", reasonCategory),
-			slog.String("failure_detail", reason),
-		)...)
-	case entity.NotificationDeliveryStatusDelivered:
-		d.logger.Info(ctx, "notification delivered", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", userID),
-			slog.String("notification_type", string(typ)),
-		)...)
+	payload.Data[entity.NotificationDataKeyType] = string(req.Type)
+	if req.Type == entity.NotificationTypeSalesReminder {
+		payload.Data[entity.NotificationDataKeyTicketSaleID] = req.Subject.TicketSaleID
+		payload.Data[entity.NotificationDataKeyMilestone] = strings.ToLower(req.Subject.Stage.String())
 	}
 
-	if err := d.notificationRepo.UpdateDelivery(ctx, n.ID, status, deliveredAt, reason); err != nil {
-		// Non-fatal: the send has already happened (or failed) and the record
-		// exists. The delivery-state column may lag but the notification is not
-		// lost; a reconcile/re-dispatch can correct it.
-		d.logger.Error(ctx, "failed to update notification delivery state", err,
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", userID),
-		)
-	}
-	n.DeliveryStatus = status
-	n.DeliverTime = deliveredAt
-	n.FailureReason = reason
+	status, reason, reasonCategory := d.dispatch(ctx, n, payload)
+	outcome := DeliveryOutcome{NotificationID: n.ID, Status: status, FailureReason: reason}
+	d.logOutcome(ctx, n, outcome, reasonCategory)
+	return outcome, nil
+}
 
-	return n, nil
+// logOutcome surfaces the outcome as an operational signal: a metric for every
+// outcome (the alert needs a failed-vs-total ratio) and a log line marked for
+// analytics, so delivery rates can be read over months. A delivery logs at
+// INFO, a failure at WARNING with the bounded failure_reason as a label and the
+// unbounded detail kept separate for debugging.
+func (d notificationDeliveryDeps) logOutcome(ctx context.Context, n *entity.Notification, outcome DeliveryOutcome, reasonCategory string) {
+	d.metrics.RecordDeliveryOutcome(ctx, string(outcome.Status), reasonCategory)
+	attrs := []slog.Attr{
+		slog.String("user_id", n.UserID),
+		slog.String("notification_type", string(n.Type)),
+	}
+	if n.ID != "" {
+		attrs = append(attrs, slog.String("notification_id", n.ID))
+	}
+	if outcome.Status == DeliveryStatusDelivered {
+		d.logger.Info(ctx, "notification delivered", analyticslog.Attrs(analyticslog.TopicNotificationDelivery, attrs...)...)
+		return
+	}
+	attrs = append(attrs,
+		slog.String("failure_reason", reasonCategory),
+		slog.String("failure_detail", outcome.FailureReason),
+	)
+	d.logger.Warn(ctx, "notification delivery failed", analyticslog.Attrs(analyticslog.TopicNotificationDelivery, attrs...)...)
 }
 
 // dispatch sends the rendered payload to every web-push subscription the user
 // has, cleaning up gone (410) subscriptions, and returns the terminal delivery
 // outcome: delivered when at least one send was accepted, otherwise failed (with
 // a human-readable reason and a bounded reason category for metric/log labels).
-// It never returns an error — a failed dispatch is a recorded outcome, not a lost
+// It never returns an error — a failed dispatch is an outcome, not a lost
 // notification.
-func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notification, payload *entity.NotificationPayload) (status entity.NotificationDeliveryStatus, deliveredAt *time.Time, reason, reasonCategory string) {
+func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notification, payload *entity.NotificationPayload) (status DeliveryStatus, reason, reasonCategory string) {
 	subs, err := d.pushSubRepo.ListByUserIDs(ctx, []string{n.UserID})
 	if err != nil {
 		d.logger.Error(ctx, "failed to list push subscriptions for notification", err,
 			slog.String("notification_id", n.ID),
 			slog.String("user_id", n.UserID),
 		)
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to list push subscriptions: " + err.Error(), deliveryFailureReasonListFailed
+		return DeliveryStatusFailed, "failed to list push subscriptions: " + err.Error(), deliveryFailureReasonListFailed
 	}
 	if len(subs) == 0 {
-		// The record still exists for the in-app inbox; the push channel simply
-		// had no endpoint to deliver to. Recorded as failed for delivery audit.
-		return entity.NotificationDeliveryStatusFailed, nil, NotificationFailureReasonNoSubscription, deliveryFailureReasonNoSubscription
+		// The record still exists for the notification center; the push channel
+		// simply had no endpoint to deliver to.
+		return DeliveryStatusFailed, NotificationFailureReasonNoSubscription, deliveryFailureReasonNoSubscription
 	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to marshal payload: " + err.Error(), deliveryFailureReasonMarshalFailed
+		return DeliveryStatusFailed, "failed to marshal payload: " + err.Error(), deliveryFailureReasonMarshalFailed
 	}
 
 	var (
@@ -211,8 +225,7 @@ func (d notificationDeliveryDeps) dispatch(ctx context.Context, n *entity.Notifi
 	}
 
 	if atLeastOneSuccess {
-		now := time.Now().UTC()
-		return entity.NotificationDeliveryStatusDelivered, &now, "", deliveryFailureReasonNone
+		return DeliveryStatusDelivered, "", deliveryFailureReasonNone
 	}
-	return entity.NotificationDeliveryStatusFailed, nil, lastErr, lastCategory
+	return DeliveryStatusFailed, lastErr, lastCategory
 }

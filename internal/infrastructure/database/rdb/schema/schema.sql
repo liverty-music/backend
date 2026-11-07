@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     provider_user_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    preferred_language TEXT,
+    preferred_language TEXT NOT NULL,
     time_zone TEXT,
     home_id UUID,
     full_name TEXT,
@@ -29,7 +29,7 @@ COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-gener
 COMMENT ON COLUMN users.provider_user_id IS 'The identity provider''s ID for the user (Zitadel sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier (at most 165 characters)';
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
-COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). NULL means "not yet set by client"; client backfills via UpdatePreferredLanguage on first observation.';
+COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). Set when the user is created.';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
 COMMENT ON COLUMN users.full_name IS '本人確認 full name (1-200 characters) shown on the face of the user''s tickets; NULL until the user first gives it';
@@ -365,38 +365,26 @@ COMMENT ON COLUMN push_subscriptions.auth IS 'Authentication secret for payload 
 
 -- Notifications log
 -- One row per logical user-facing notification (new-concert alert, sales reminder,
--- sales-phase announcement, ...). The record is the source of truth for delivery
--- auditing and the in-app inbox: it is created (queued) before the channel send and
--- then updated to delivered/failed with the outcome in hand. Per-channel delivery
--- state is kept inline because web push is the only channel today; a normalised
--- notification_deliveries child table can be added additively when a second channel
--- (email / in-app) arrives.
+-- sales-phase announcement, ...). It holds what the fan sees: what the notification is
+-- about and whether the fan has read it. The message is rendered from the subject each
+-- time, and the delivery outcome is only logged.
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    delivery_status TEXT NOT NULL DEFAULT 'queued',
-    failure_reason TEXT,
-    queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    delivered_at TIMESTAMPTZ,
+    subject JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_at TIMESTAMPTZ,
-    dismissed_at TIMESTAMPTZ,
-    CONSTRAINT chk_notifications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_notifications_delivery_status CHECK (delivery_status IN ('queued', 'delivered', 'failed'))
+    CONSTRAINT chk_notifications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
+COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with what it is about and whether the fan has read it. Its message is rendered from the subject each time.';
 COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
 COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, order_confirmation, lottery_loss, resale_entry_lapsed, resale_entry_lost, event_cancelled, order_refunded';
-COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
-COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
-COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
-COMMENT ON COLUMN notifications.queued_at IS 'Timestamp when the notification record was created in the queued state';
-COMMENT ON COLUMN notifications.delivered_at IS 'Timestamp when the channel accepted the send; NULL until delivered';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, ticket_sale_announcement, lottery_win, resale_win, lottery_loss, resale_entry_lapsed, resale_entry_lost, concert_cancelled, order_refunded';
+COMMENT ON COLUMN notifications.subject IS 'The ids of the records the notification is about (artist_id, event_ids, event_id, ticket_sale_id, stage, order_id, lottery_entry_id, resale_entry_id), as its type defines';
+COMMENT ON COLUMN notifications.created_at IS 'Timestamp when the notification record was created';
 COMMENT ON COLUMN notifications.read_at IS 'Timestamp when the user marked the notification read; NULL until read';
-COMMENT ON COLUMN notifications.dismissed_at IS 'Timestamp when the user dismissed the notification; NULL until dismissed';
 
 -- Concert candidates (approval queue)
 -- Concerts discovered by the Gemini search pipeline are held here in a pending
@@ -576,8 +564,8 @@ CREATE INDEX IF NOT EXISTS idx_ticket_journeys_event_id ON ticket_journeys(event
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
 
 -- Notifications indexes
-CREATE INDEX IF NOT EXISTS idx_notifications_user_queued ON notifications(user_id, queued_at DESC);
-COMMENT ON INDEX idx_notifications_user_queued IS 'Optimizes the inbox query: a user''s notifications most-recent-first';
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+COMMENT ON INDEX idx_notifications_user_created IS 'Optimizes the notification center query: a user''s notifications newest first';
 
 -- Concert candidates indexes
 -- Two partial unique indexes form the NULL-safe natural key: when the venue
@@ -734,14 +722,14 @@ CREATE TABLE IF NOT EXISTS ticket_sale_reminders (
     sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_ticket_sale_reminders UNIQUE (user_id, ticket_sale_id, stage),
     CONSTRAINT chk_ticket_sale_reminders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage IN (1, 2, 4))
+    CONSTRAINT chk_ticket_sale_reminders_stage CHECK (stage IN (1, 2))
 );
 
 COMMENT ON TABLE ticket_sale_reminders IS 'Sent-log for ticket sale reminder notifications, for discovered and Organizer''s sales alike. UNIQUE (user_id, ticket_sale_id, stage) prevents duplicate dispatches.';
 COMMENT ON COLUMN ticket_sale_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN ticket_sale_reminders.user_id IS 'Reference to the user who received the reminder';
 COMMENT ON COLUMN ticket_sale_reminders.ticket_sale_id IS 'Reference to the ticket sale this reminder relates to';
-COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only), 4=RESULT_DAY (09:00 on the result date in the fan''s time zone, discovered lottery with a result date only). 3 was APPLY_CLOSE_1H and is not used.';
+COMMENT ON COLUMN ticket_sale_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at the start for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before the end, lottery only). 3 (APPLY_CLOSE_1H) and 4 (RESULT_DAY) are not used.';
 COMMENT ON COLUMN ticket_sale_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sale_reminders_user_id ON ticket_sale_reminders(user_id);

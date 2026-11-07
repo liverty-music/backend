@@ -47,7 +47,7 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 		usecase.OrderConfirmationDeps{
 			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert},
 			ResaleListings: f.listings, ResaleMailer: f.mailer, TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	soldAt := time.Date(2026, 11, 13, 18, 20, 0, 0, tsJST)
 	f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(&entity.ResaleListing{
 		ID: "l-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Price: 5000,

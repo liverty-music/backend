@@ -134,8 +134,8 @@ func NewUserRepository(db *Database, outbox Announcer) *UserRepository {
 // nullStringFromEmpty maps Go's zero value (empty string) to a NULL
 // SQL value, and any non-empty string to a present value. Used at the
 // write boundary so columns whose semantics distinguish "absent" from
-// "explicitly empty" (e.g. users.preferred_language) preserve that
-// distinction in the database.
+// "explicitly empty" (e.g. users.time_zone) preserve that distinction in the
+// database.
 func nullStringFromEmpty(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{Valid: false}
@@ -145,18 +145,16 @@ func nullStringFromEmpty(s string) sql.NullString {
 
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 //
-// Every nullable users column (preferred_language, time_zone)
-// is scanned into a sql.NullString intermediate, then assigned
-// to the entity field via .String when .Valid. pgx errors out when scanning
-// SQL NULL into a non-nullable Go destination (a bare string); the three
-// columns above are nullable per schema and at least one
-// (preferred_language) is regularly NULL on legacy rows after the
-// persist-user-language migration, so the intermediate-local pattern
-// protects every read path that shares this scanner (Get, GetByProviderUserID,
-// GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch, List).
+// Every nullable users column (time_zone, full_name, phone_number) is scanned
+// into a sql.NullString intermediate, then assigned to the entity field via
+// .String when .Valid. pgx errors out when scanning SQL NULL into a
+// non-nullable Go destination (a bare string), so the intermediate-local
+// pattern protects every read path that shares this scanner (Get,
+// GetByProviderUserID, GetByEmail, Update, UpdatePreferredLanguage,
+// UpdateHome's re-fetch, List).
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
-	var preferredLanguage, timeZone sql.NullString
+	var timeZone sql.NullString
 	var fullName, phoneNumber sql.NullString
 	var lastLoginAt sql.NullTime
 	var homeID, countryCode, level1, level2 sql.NullString
@@ -164,15 +162,12 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 
 	err := scanner.Scan(
 		&user.ID, &user.ProviderUserID, &user.Email, &user.Name,
-		&preferredLanguage, &timeZone,
+		&user.PreferredLanguage, &timeZone,
 		&fullName, &phoneNumber, &lastLoginAt,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
 		return nil, err
-	}
-	if preferredLanguage.Valid {
-		user.PreferredLanguage = preferredLanguage.String
 	}
 	if timeZone.Valid {
 		user.TimeZone = timeZone.String
@@ -219,6 +214,9 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	if params == nil {
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
+	if params.PreferredLanguage == "" {
+		return nil, apperr.New(codes.InvalidArgument, "preferred language is required")
+	}
 
 	// Create returns the in-memory entity built from params (not a row
 	// re-fetched after INSERT). This is intentional and currently safe:
@@ -237,19 +235,11 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Preserve the NULL = "client has not yet asserted a value" invariant
-	// for every nullable users column. Callers (handlers, mappers, the
-	// guest-bootstrap path) carry these fields as Go strings, so an
-	// unfilled field arrives here as the empty string. Mapping "" to
-	// sql.NullString{Valid:false} keeps the distinction between "absent"
-	// and "explicitly empty" in the database, which the scanUser pattern
-	// preserves on read. preferred_language uses this distinction to feed
-	// the hydration backfill path; time_zone uses it for
-	// downstream observability (a NULL row is a "never asserted" signal
-	// while an empty string would be a contract violation).
+	// Keep NULL = "never asserted" for time_zone: callers carry it as a Go
+	// string, so an unfilled field arrives here as the empty string.
 	_, err = tx.Exec(ctx, insertUserQuery,
 		user.ID, params.ProviderUserID, params.Email, params.Name,
-		nullStringFromEmpty(params.PreferredLanguage),
+		params.PreferredLanguage,
 		nullStringFromEmpty(params.TimeZone),
 	)
 	if err != nil {

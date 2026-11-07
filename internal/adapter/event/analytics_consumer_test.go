@@ -102,10 +102,6 @@ func forwardCases() []forwardCase {
 	noFan := func(f *entityv1.Follow) { f.UserId = nil }
 	push := &entityv1.PushSubscription{UserId: fan, DeviceFamily: entityv1.PushDeviceFamily_PUSH_DEVICE_FAMILY_APPLE}
 	login := &entityv1.User{Id: fan, LastLoginTime: timestamppb.New(factTime)}
-	delivered := &entityv1.Notification{
-		Id: &entityv1.NotificationId{Value: "notification-1"}, UserId: fan,
-		Type: entityv1.NotificationType_NOTIFICATION_TYPE_NEW_CONCERTS, DeliverTime: timestamppb.New(factTime),
-	}
 	journey := &entityv1.TicketJourney{
 		UserId: fan, EventId: &entityv1.EventId{Value: "event-1"}, Status: entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_PAID,
 		StatusSetBy: entityv1.TicketJourneyStatusSetBy_TICKET_JOURNEY_STATUS_SET_BY_PLATFORM,
@@ -166,16 +162,6 @@ func forwardCases() []forwardCase {
 			payload: push, recorded: factTime,
 			wantName: usecase.EventNotificationUnsubscribed, wantID: fanID, wantProps: usecase.AnalyticsProperties{"device_type": "apple"},
 			noKey: edited(push, func(p *entityv1.PushSubscription) { p.UserId = nil }), noTime: push,
-		},
-		{
-			name: "NOTIFICATION.delivered", handle: (*event.AnalyticsConsumer).HandleNotificationDelivered,
-			payload: delivered, recorded: later,
-			wantName: usecase.EventNotificationDelivered, wantID: fanID,
-			wantProps: usecase.AnalyticsProperties{"notification_id": "notification-1", "type": "new_concerts"},
-			// A Notification without its id is skipped like one without its
-			// recipient.
-			noKey:  edited(delivered, func(n *entityv1.Notification) { n.Id = nil }),
-			noTime: edited(delivered, func(n *entityv1.Notification) { n.DeliverTime = nil }),
 		},
 		{
 			// No from_status: it is the to_status of the fan's previous signal.

@@ -104,15 +104,6 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 // registers each workflow by its stable name.
 func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) error {
 	outbox := newOutbox(logger)
-	notifications := usecase.NewNotificationUseCase(
-		rdb.NewNotificationRepository(db, outbox),
-		rdb.NewPushSubscriptionRepository(db, outbox),
-		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
-		nil, infratelemetry.NewBusinessMetrics(), logger,
-		usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{},
-	)
-	workflow.Register(rt, usecase.WorkflowDeliverNotification, notifications.RunDeliver)
-
 	// The cancellation and refund notices of an Order: read, email through
 	// Postmark (a no-op sender reporting Unavailable without a token), then
 	// Deliver. The worker refunds nothing, so the Order's payment provider
@@ -126,28 +117,40 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	if pm := cfg.Postmark; pm.ServerToken != "" {
 		orderMailer = mail.NewPostmarkOrderMailer(orderRepo, pm.ServerToken, pm.FromAddress, pm.MessageStream, time.Now, logger)
 	}
-	orderNotices := usecase.NewNotificationUseCase(
-		rdb.NewNotificationRepository(db, outbox),
+	subjects := usecase.SubjectDeps{
+		Users:         rdb.NewUserRepository(db, outbox),
+		Follows:       rdb.NewFollowRepository(db, outbox),
+		Artists:       rdb.NewArtistRepository(db, outbox),
+		Concerts:      rdb.NewConcertRepository(db, outbox),
+		Orders:        orderRepo,
+		TicketSales:   rdb.NewTicketSaleRepository(db, outbox),
+		Entries:       rdb.NewLotteryEntryRepository(db, outbox),
+		ResaleEntries: rdb.NewResaleEntryRepository(db, outbox),
+	}
+	notifications := usecase.NewNotificationUseCase(
+		rdb.NewNotificationRepository(db),
 		rdb.NewPushSubscriptionRepository(db, outbox),
 		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
 		nil, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
 			Orders:   orderRepo,
-			Users:    rdb.NewUserRepository(db, outbox),
-			Concerts: rdb.NewConcertRepository(db, outbox),
+			Users:    subjects.Users,
+			Concerts: subjects.Concerts,
 			Tickets:  rdb.NewTicketRepository(db, outbox),
 			Mailer:   orderMailer,
 			TimeZone: japanTime,
-		}, usecase.NewConcertsDeps{},
+		}, usecase.NewConcertsDeps{}, subjects,
 	)
-	workflow.Register(rt, usecase.WorkflowNotifyEventCancelled, orderNotices.RunNotifyEventCancelled)
-	workflow.Register(rt, usecase.WorkflowNotifyOrderRefunded, orderNotices.RunNotifyOrderRefunded)
+	workflow.Register(rt, usecase.WorkflowDeliverNotification, notifications.RunDeliver)
+	workflow.Register(rt, usecase.WorkflowNotifyEventCancelled, notifications.RunNotifyEventCancelled)
+	workflow.Register(rt, usecase.WorkflowNotifyOrderRefunded, notifications.RunNotifyOrderRefunded)
 
 	reminders := usecase.NewTicketSaleReminderDeliveryUseCase(
 		rdb.NewTicketSaleReminderRepository(db),
-		rdb.NewNotificationRepository(db, outbox),
+		rdb.NewNotificationRepository(db),
 		rdb.NewPushSubscriptionRepository(db, outbox),
 		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
+		subjects,
 		infratelemetry.NewBusinessMetrics(), logger,
 	)
 	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)

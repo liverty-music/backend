@@ -115,7 +115,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	logger := newTestLogger(t)
 
 	var mu sync.Mutex
-	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PayTime: new(time.Now())}
+	order := &entity.Order{ID: "order-1", UserID: "fan-1", LotteryEntryID: "entry-1", Amount: 6000, Currency: "JPY", PayTime: new(time.Now())}
 	orders := entitymocks.NewMockOrderRepository(t)
 	orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
 		mu.Lock()
@@ -143,13 +143,13 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	// The push is started under the Order's name both times, so the
 	// runtime pushes once.
 	workflows := ucmocks.NewMockWorkflows(t)
-	workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:order_confirmation:order-1", mock.Anything).Return(nil).Twice()
+	workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:lottery_win:order-1", mock.Anything).Return(nil).Twice()
 
 	notificationUC := usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), workflows, noopPushMetrics{}, logger, usecase.OrderConfirmationDeps{
 			Orders: orders, Users: users, Concerts: stubConcertReader{}, EventOrganizer: stubEventOrganizer{},
 			Organizers: organizers, Mailer: mailer, TimeZone: time.UTC,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	journeys := entitymocks.NewMockTicketJourneyRepository(t)
 	paid := &entity.TicketJourney{UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid, StatusSetBy: entity.TicketJourneySetByPlatform}
 	journeys.EXPECT().Upsert(mock.Anything, paid).Return(nil).Twice()

@@ -18,8 +18,8 @@ type DeliverRequest struct {
 	UserID string `json:"user_id"`
 	// Type is what produced the notification.
 	Type entity.NotificationType `json:"type"`
-	// Payload is the finished message.
-	Payload *entity.NotificationPayload `json:"payload"`
+	// Subject names the records the notification is about.
+	Subject entity.NotificationSubject `json:"subject"`
 }
 
 // deliverWorkflowID names a deliver-notification workflow after its business
@@ -28,16 +28,17 @@ func deliverWorkflowID(typ entity.NotificationType, parts ...string) string {
 	return "deliver:" + string(typ) + ":" + strings.Join(parts, ":")
 }
 
-// RunDeliver is the deliver-notification workflow: it records and delivers
-// the notification through Deliver in one step. A step that fails with
-// Unavailable (the Notification cannot be recorded) is tried again.
+// RunDeliver is the deliver-notification workflow: it renders, records and
+// delivers the notification through Deliver in one step, and returns the
+// Notification's id, empty when its subject no longer exists. A step that
+// fails with Unavailable (the Notification cannot be recorded) is tried again.
 func (uc *notificationUseCase) RunDeliver(ctx context.Context, f Flow, in DeliverRequest) (string, error) {
 	return Step(ctx, f, "deliver", func(ctx context.Context) (string, error) {
-		n, err := uc.Deliver(ctx, in.UserID, in.Type, in.Payload)
+		outcome, err := uc.Deliver(ctx, in)
 		if err != nil {
 			return "", err
 		}
-		return n.ID, nil
+		return outcome.NotificationID, nil
 	})
 }
 

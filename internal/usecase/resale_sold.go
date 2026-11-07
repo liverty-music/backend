@@ -66,7 +66,7 @@ func (c resaleSoldContent) email(lang string) entity.ResaleListingSoldEmail {
 			c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"),
 			c.clock(c.concert.OpenTime, "TBA"), c.clock(c.concert.StartTime, "TBA"), c.venueName())
 		fmt.Fprintf(&b, "[Resale]\nTickets resold: 1\nPrice: JPY %s (tax included)\nResale fee: JPY %s (tax included)\nRefund: JPY %s (tax included)\n\n",
-			yen(c.listing.Price), yen(c.listing.Fee()), yen(c.listing.RefundAmount()))
+			entity.FormatYen(c.listing.Price), entity.FormatYen(c.listing.Fee()), entity.FormatYen(c.listing.RefundAmount()))
 		fmt.Fprintf(&b, "[Refund]\nThe refund goes to the card you paid with (%s ending in %s). When it appears on your statement depends on your card issuer.\n\n",
 			card, c.order.Payment.CardLast4)
 		fmt.Fprintf(&b, "[Please note]\nThe resold ticket is no longer valid for entry.\n")
@@ -78,10 +78,10 @@ func (c resaleSoldContent) email(lang string) entity.ResaleListingSoldEmail {
 
 	fmt.Fprintf(&b, "公式リセールに出品したチケットが売れました。\n\n")
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s) 開場 %s / 開演 %s\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), weekdaysJA[date.Weekday()],
+		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()],
 		c.clock(c.concert.OpenTime, "未定"), c.clock(c.concert.StartTime, "未定"), c.venueName())
 	fmt.Fprintf(&b, "■ リセール内容\n枚数: 1枚\n価格: %s円（税込）\nリセール手数料: %s円（税込）\n返金額: %s円（税込）\n\n",
-		yen(c.listing.Price), yen(c.listing.Fee()), yen(c.listing.RefundAmount()))
+		entity.FormatYen(c.listing.Price), entity.FormatYen(c.listing.Fee()), entity.FormatYen(c.listing.RefundAmount()))
 	fmt.Fprintf(&b, "■ 返金について\nご購入時のカード（%s 末尾%s）に返金します。明細に反映される時期はカード会社によって異なります。\n\n",
 		card, c.order.Payment.CardLast4)
 	fmt.Fprintf(&b, "■ ご注意\nリセールされたチケットは入場に使えなくなりました。\n")

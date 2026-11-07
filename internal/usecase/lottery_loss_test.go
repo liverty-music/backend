@@ -50,7 +50,7 @@ func newLossFixture(t *testing.T) *lossFixture {
 			Stocks:     f.stocks,
 			LossMailer: f.mailer,
 			TimeZone:   tsJST,
-		}, usecase.NewConcertsDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
 	return f
 }
 
@@ -79,17 +79,18 @@ func (f *lossFixture) sends(mail *entity.LotteryLossEmail) {
 }
 
 // expectPush expects the deliver-notification workflow of one lottery_loss
-// notification for fan-1, named after the entry, and returns its payload.
-func (f *lossFixture) expectPush() *entity.NotificationPayload {
-	var got entity.NotificationPayload
-	f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:lottery_loss:entry-1",
-		mock.MatchedBy(func(r usecase.DeliverRequest) bool {
-			return r.UserID == "fan-1" && r.Type == entity.NotificationTypeLotteryLoss
-		})).
+// notification for fan-1, named after the entry, whose subject is the entry, and
+// returns the started request.
+func (f *lossFixture) expectPush() *usecase.DeliverRequest {
+	var got usecase.DeliverRequest
+	want := usecase.DeliverRequest{
+		UserID: "fan-1", Type: entity.NotificationTypeLotteryLoss, Subject: entity.NotificationSubject{LotteryEntryID: "entry-1"},
+	}
+	f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:lottery_loss:entry-1", want).
 		RunAndReturn(func(_ context.Context, _, _ string, input any, _ ...usecase.StartOption) error {
-			got = *input.(usecase.DeliverRequest).Payload
+			got = input.(usecase.DeliverRequest)
 			return nil
-		})
+		}).Once()
 	return &got
 }
 
@@ -178,12 +179,19 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 		f.lost(entity.LotteryEntryLostReasonNotDrawn, "ja")
 		var mail entity.LotteryLossEmail
 		f.sends(&mail)
-		push := f.expectPush()
+		started := f.expectPush()
 
 		require.NoError(t, f.uc.SendLotteryLoss(ctx, "entry-1"))
 
-		assert.Equal(t, "抽選結果のお知らせ", push.Title)
-		assert.Equal(t, "/events/event-1", push.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+		r := newSubjectFixture(t)
+		r.fanReadable(renderedFan("fan-1", "ja"))
+		r.lotteryEntryReadable(&entity.LotteryEntry{
+			ID: "entry-1", OrderID: "order-1", State: entity.LotteryEntryStateLost, LostReason: entity.LotteryEntryLostReasonNotDrawn,
+		}, "event-1")
+		r.concertsReadable(renderedConcert("event-1"))
+		msg := r.push(t, *started)
+		assert.Equal(t, "[Vaundy] 抽選結果のお知らせ", msg.Title)
+		assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
 	})
 
 	t.Run("entry not lost", func(t *testing.T) {

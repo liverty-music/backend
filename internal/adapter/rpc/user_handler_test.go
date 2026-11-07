@@ -231,10 +231,9 @@ func TestUserHandler_Create(t *testing.T) {
 			return nu.ProviderUserID == testCallerExtID && nu.Email == "id@example.com" && nu.Name == "Identity Name" && nu.PreferredLanguage == "ja"
 		})).Return(&entity.User{ID: testCallerUserID, ProviderUserID: testCallerExtID, Email: "id@example.com", Name: "Identity Name", PreferredLanguage: "ja"}, nil).Once()
 
-		lang := "ja"
 		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
 			Email:             &entitypb.Email{Value: "id@example.com"},
-			PreferredLanguage: &lang,
+			PreferredLanguage: "ja",
 		})
 
 		require.NoError(t, err)
@@ -251,7 +250,8 @@ func TestUserHandler_Create(t *testing.T) {
 		})).Return(&entity.User{ID: testCallerUserID, Email: "id@example.com"}, nil).Once()
 
 		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
-			Email: &entitypb.Email{Value: "other@example.com"},
+			Email:             &entitypb.Email{Value: "other@example.com"},
+			PreferredLanguage: "ja",
 		})
 
 		require.NoError(t, err)
@@ -266,7 +266,8 @@ func TestUserHandler_Create(t *testing.T) {
 		userUC.EXPECT().Create(mock.Anything, mock.Anything).Return(existing, nil).Once()
 
 		resp, err := h.Create(identityCtx(), &userv1.CreateRequest{
-			Email: &entitypb.Email{Value: "id@example.com"},
+			Email:             &entitypb.Email{Value: "id@example.com"},
+			PreferredLanguage: "ja",
 		})
 
 		require.NoError(t, err)
@@ -279,7 +280,28 @@ func TestUserHandler_Create(t *testing.T) {
 		h, _ := newUserHandler(t)
 		client := newUserBoundaryClient(t, h)
 
-		_, err := client.Create(withFanToken(&userv1.CreateRequest{}))
+		_, err := client.Create(withFanToken(&userv1.CreateRequest{PreferredLanguage: "ja"}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	// @spec components/adapter/fan/api/rpc/user "Missing preferred language"
+	t.Run("return INVALID_ARGUMENT without a preferred language", func(t *testing.T) {
+		t.Parallel()
+		// The mock fails the test if a User is created.
+		h, _ := newUserHandler(t)
+		client := newUserBoundaryClient(t, h)
+
+		_, err := client.Create(withFanToken(&userv1.CreateRequest{Email: &entitypb.Email{Value: "id@example.com"}}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("reject a request without a preferred language at the handler too", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newUserHandler(t)
+
+		_, err := h.Create(identityCtx(), &userv1.CreateRequest{Email: &entitypb.Email{Value: "id@example.com"}})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

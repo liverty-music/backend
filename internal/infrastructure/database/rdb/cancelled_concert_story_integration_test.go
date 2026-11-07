@@ -126,7 +126,7 @@ func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
 	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)
 	s.mailer = &storyMailer{orders: orderRepo}
 	notifications := func(workflows usecase.Workflows) usecase.NotificationUseCase {
-		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB, testOutbox),
+		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB),
 			rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, workflows, noStoryMetrics{}, logger,
 			usecase.OrderConfirmationDeps{
 				Orders:   orderRepo,
@@ -135,7 +135,16 @@ func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
 				Tickets:  ticketRepo,
 				Mailer:   s.mailer,
 				TimeZone: time.UTC,
-			}, usecase.NewConcertsDeps{})
+			}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{
+				Users:         rdb.NewUserRepository(testDB, testOutbox),
+				Follows:       rdb.NewFollowRepository(testDB, testOutbox),
+				Artists:       rdb.NewArtistRepository(testDB, testOutbox),
+				Concerts:      rdb.NewConcertRepository(testDB, testOutbox),
+				Orders:        orderRepo,
+				TicketSales:   rdb.NewTicketSaleRepository(testDB, testOutbox),
+				Entries:       rdb.NewLotteryEntryRepository(testDB, testOutbox),
+				ResaleEntries: rdb.NewResaleEntryRepository(testDB, testOutbox),
+			})
 	}
 
 	// The worker runs the notices and their pushes, as cmd/worker registers
@@ -204,7 +213,7 @@ func (s *cancelledConcertStory) deliver(subject string, handle func(*message.Mes
 func (s *cancelledConcertStory) cancel() {
 	s.t.Helper()
 	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{s.eventID}))
-	s.deliver(entity.SubjectConcertCancelled, s.consumer.HandleEventCancelled, usecase.WorkflowNotifyEventCancelled+":", entity.NotificationTypeEventCancelled)
+	s.deliver(entity.SubjectConcertCancelled, s.consumer.HandleEventCancelled, usecase.WorkflowNotifyEventCancelled+":", entity.NotificationTypeConcertCancelled)
 }
 
 // refundAll refunds every Paid Order of the Event for the cancellation, as
@@ -243,7 +252,7 @@ func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 		require.Len(t, got, 1, "fan %d gets one cancellation email", i)
 		assert.Contains(t, got[0].subject, "公演中止")
 		assert.Contains(t, got[0].body, "6,000円（税込）")
-		assert.Equal(t, 1, s.notifications(i, entity.NotificationTypeEventCancelled))
+		assert.Equal(t, 1, s.notifications(i, entity.NotificationTypeConcertCancelled))
 	}
 
 	s.refundAll()

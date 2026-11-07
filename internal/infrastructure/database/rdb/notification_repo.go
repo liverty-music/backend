@@ -3,143 +3,74 @@ package rdb
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // NotificationRepository implements entity.NotificationRepository for PostgreSQL.
 type NotificationRepository struct {
-	db     *Database
-	outbox Announcer
+	db *Database
 }
 
 // Compile-time interface compliance check.
 var _ entity.NotificationRepository = (*NotificationRepository)(nil)
 
-// defaultListByUserLimit bounds an inbox query when the caller passes a
-// non-positive limit.
-const defaultListByUserLimit = 50
-
 const (
 	createNotificationQuery = `
-		INSERT INTO notifications (id, user_id, type, payload, delivery_status)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING queued_at
-	`
-	// updateNotificationDeliveryQuery records the outcome of a Queued
-	// notification only, and returns it as changed; no row when it is not
-	// Queued or does not exist.
-	updateNotificationDeliveryQuery = `
-		UPDATE notifications
-		SET delivery_status = $2,
-		    delivered_at = $3,
-		    failure_reason = $4
-		WHERE id = $1 AND delivery_status = 'queued'
-		RETURNING id, user_id, type, payload, delivery_status, failure_reason, queued_at, delivered_at, read_at, dismissed_at
+		INSERT INTO notifications (id, user_id, type, subject)
+		VALUES ($1, $2, $3, $4)
+		RETURNING created_at
 	`
 	markNotificationReadQuery = `
 		UPDATE notifications
 		SET read_at = NOW()
 		WHERE id = $1 AND user_id = $2 AND read_at IS NULL
 	`
-	markNotificationDismissedQuery = `
-		UPDATE notifications
-		SET dismissed_at = NOW()
-		WHERE id = $1 AND user_id = $2 AND dismissed_at IS NULL
-	`
 	getNotificationQuery = `
-		SELECT id, user_id, type, payload, delivery_status, failure_reason, queued_at, delivered_at, read_at, dismissed_at
+		SELECT id, user_id, type, subject, created_at, read_at
 		FROM notifications
 		WHERE id = $1
 	`
 	listNotificationsByUserQuery = `
-		SELECT id, user_id, type, payload, delivery_status, failure_reason, queued_at, delivered_at, read_at, dismissed_at
+		SELECT id, user_id, type, subject, created_at, read_at
 		FROM notifications
 		WHERE user_id = $1
-		ORDER BY queued_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $2
 	`
 )
 
 // NewNotificationRepository creates a new notification repository instance.
-func NewNotificationRepository(db *Database, outbox Announcer) *NotificationRepository {
-	return &NotificationRepository{db: db, outbox: outbox}
+func NewNotificationRepository(db *Database) *NotificationRepository {
+	return &NotificationRepository{db: db}
 }
 
-// Create persists a new notification in the queued state, minting a UUIDv7 id
-// when n.ID is empty and writing back the server-assigned created_at.
+// Create stores n unread, minting a UUIDv7 id and writing back the
+// server-assigned create time.
 func (r *NotificationRepository) Create(ctx context.Context, n *entity.Notification) error {
-	if n.ID == "" {
-		n.ID = entity.NewID()
+	if err := n.Subject.Validate(n.Type); err != nil {
+		return err
 	}
-	if n.DeliveryStatus == "" {
-		n.DeliveryStatus = entity.NotificationDeliveryStatusQueued
-	}
-
-	payloadBytes, err := json.Marshal(n.Payload)
+	subject, err := json.Marshal(n.Subject)
 	if err != nil {
-		return toAppErr(err, "failed to marshal notification payload",
+		return toAppErr(err, "failed to marshal notification subject",
 			slog.String("user_id", n.UserID),
 		)
 	}
-
+	n.ID = entity.NewID()
 	err = r.db.Pool.QueryRow(ctx, createNotificationQuery,
-		n.ID, n.UserID, string(n.Type), payloadBytes, string(n.DeliveryStatus),
-	).Scan(&n.QueueTime)
+		n.ID, n.UserID, string(n.Type), subject,
+	).Scan(&n.CreateTime)
 	if err != nil {
 		return toAppErr(err, "failed to create notification",
 			slog.String("user_id", n.UserID),
 			slog.String("type", string(n.Type)),
 		)
-	}
-	return nil
-}
-
-// UpdateDelivery records the terminal delivery outcome of a Queued
-// notification. failureReason is stored as NULL when empty so a delivered
-// record carries no spurious reason. A notification that already has an
-// outcome, or an unknown id, is left unchanged and succeeds.
-//
-// # Announces
-//
-// NOTIFICATION.delivered with the Notification as Delivered, in the
-// transaction of the change, when it makes a Queued notification Delivered.
-// Nothing for Failed or when nothing changed.
-func (r *NotificationRepository) UpdateDelivery(ctx context.Context, id string, status entity.NotificationDeliveryStatus, deliveredAt *time.Time, failureReason string) error {
-	attrs := []slog.Attr{slog.String("id", id), slog.String("delivery_status", string(status))}
-	var reason *string
-	if failureReason != "" {
-		reason = &failureReason
-	}
-
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin notification delivery update", attrs...)
-	}
-	// Rollback is a no-op after a successful Commit.
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	n, err := scanNotification(tx.QueryRow(ctx, updateNotificationDeliveryQuery, id, string(status), deliveredAt, reason))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return toAppErr(err, "failed to update notification delivery", attrs...)
-	}
-	if n.DeliveryStatus == entity.NotificationDeliveryStatusDelivered {
-		if err := announce(ctx, r.outbox, tx, entity.SubjectNotificationDelivered, messaging.Announcement{Payload: pb.FromNotification(n)}); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit notification delivery update", attrs...)
 	}
 	return nil
 }
@@ -150,19 +81,6 @@ func (r *NotificationRepository) MarkRead(ctx context.Context, userID, id string
 	_, err := r.db.Pool.Exec(ctx, markNotificationReadQuery, id, userID)
 	if err != nil {
 		return toAppErr(err, "failed to mark notification read",
-			slog.String("id", id),
-			slog.String("user_id", userID),
-		)
-	}
-	return nil
-}
-
-// MarkDismissed sets dismissed_at for the (userID, id) notification. The
-// dismissed_at IS NULL guard makes a repeat call a no-op (idempotent).
-func (r *NotificationRepository) MarkDismissed(ctx context.Context, userID, id string) error {
-	_, err := r.db.Pool.Exec(ctx, markNotificationDismissedQuery, id, userID)
-	if err != nil {
-		return toAppErr(err, "failed to mark notification dismissed",
 			slog.String("id", id),
 			slog.String("user_id", userID),
 		)
@@ -181,10 +99,10 @@ func (r *NotificationRepository) Get(ctx context.Context, id string) (*entity.No
 	return n, nil
 }
 
-// ListByUser returns a user's notifications most-recent-first, capped at limit.
+// ListByUser returns a user's notifications newest first, at most limit.
 func (r *NotificationRepository) ListByUser(ctx context.Context, userID string, limit int) ([]*entity.Notification, error) {
-	if limit <= 0 {
-		limit = defaultListByUserLimit
+	if limit < 1 {
+		return nil, apperr.New(codes.InvalidArgument, "limit must be at least 1", slog.Int("limit", limit))
 	}
 
 	rows, err := r.db.Pool.Query(ctx, listNotificationsByUserQuery, userID, limit)
@@ -217,49 +135,23 @@ type scannable interface {
 }
 
 // scanNotification scans a single row into a Notification entity, decoding the
-// jsonb payload and the nullable delivery/read/dismiss columns.
+// jsonb subject and the nullable read time.
 func scanNotification(row scannable) (*entity.Notification, error) {
 	var (
-		id             string
-		userID         string
-		notifType      string
-		payloadBytes   json.RawMessage
-		deliveryStatus string
-		failureReason  *string
-		queuedAt       time.Time
-		deliveredAt    *time.Time
-		readAt         *time.Time
-		dismissedAt    *time.Time
+		n         entity.Notification
+		notifType string
+		subject   json.RawMessage
+		createdAt time.Time
+		readAt    *time.Time
 	)
-
-	if err := row.Scan(
-		&id, &userID, &notifType, &payloadBytes, &deliveryStatus,
-		&failureReason, &queuedAt, &deliveredAt, &readAt, &dismissedAt,
-	); err != nil {
+	if err := row.Scan(&n.ID, &n.UserID, &notifType, &subject, &createdAt, &readAt); err != nil {
 		return nil, err
 	}
-
-	var payload *entity.NotificationPayload
-	if len(payloadBytes) > 0 {
-		payload = &entity.NotificationPayload{}
-		if err := json.Unmarshal(payloadBytes, payload); err != nil {
-			return nil, err
-		}
+	if err := json.Unmarshal(subject, &n.Subject); err != nil {
+		return nil, err
 	}
-
-	n := &entity.Notification{
-		ID:             id,
-		UserID:         userID,
-		Type:           entity.NotificationType(notifType),
-		Payload:        payload,
-		DeliveryStatus: entity.NotificationDeliveryStatus(deliveryStatus),
-		QueueTime:      queuedAt,
-		DeliverTime:    deliveredAt,
-		ReadTime:       readAt,
-		DismissTime:    dismissedAt,
-	}
-	if failureReason != nil {
-		n.FailureReason = *failureReason
-	}
-	return n, nil
+	n.Type = entity.NotificationType(notifType)
+	n.CreateTime = createdAt
+	n.ReadTime = readAt
+	return &n, nil
 }

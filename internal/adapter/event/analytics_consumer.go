@@ -164,27 +164,6 @@ func deviceFact(userID, deviceType string, at time.Time) fact {
 	return fact{distinctID: userID, at: at, props: usecase.AnalyticsProperties{"device_type": deviceType}}
 }
 
-// HandleNotificationDelivered forwards the NOTIFICATION.delivered NATS
-// subject as the catalogue event usecase.EventNotificationDelivered at the
-// Notification's deliver time. Properties: notification_id, type. The
-// distinct_id is the recipient's platform UserID. A message without
-// notification_id is skipped like one without user_id: "missing correlation
-// key" keeps the metric label set fixed.
-func (c *AnalyticsConsumer) HandleNotificationDelivered(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectNotificationDelivered, usecase.EventNotificationDelivered, func() (fact, error) {
-		delivered := func(userID, notificationID, typ string, at time.Time) fact {
-			f := fact{distinctID: userID, at: at, props: usecase.AnalyticsProperties{"notification_id": notificationID, "type": typ}}
-			if notificationID == "" {
-				f.distinctID = ""
-			}
-			return f
-		}
-		return decodeFact(msg, func(n *entityv1.Notification) (fact, error) {
-			return delivered(n.GetUserId().GetValue(), n.GetId().GetValue(), string(pb.NotificationTypeFromProto(n.GetType())), n.GetDeliverTime().AsTime()), nil
-		})
-	})
-}
-
 // HandleTicketJourneyStatusChanged forwards the TICKET_JOURNEY.status_changed
 // NATS subject as the catalogue event usecase.EventTicketJourneyStatusChanged.
 // Properties: event_id, to_status, set_by (fan, platform or inference). The
