@@ -244,6 +244,7 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 		EntryRepo:                entryRepo,
 		OrderRepo:                orderRepo,
 		EventRepo:                rdb.NewEventRepository(db),
+		EventState:               rdb.NewEventPublishStateRepository(db),
 		IdentityVerificationRepo: identityVerificationRepo,
 		UserRepo:                 rdb.NewUserRepository(db, outbox),
 		CardAuthorizations:       cardAuthorizations,

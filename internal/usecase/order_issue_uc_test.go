@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -160,6 +161,9 @@ type lotteryIssuanceDeps struct {
 	eventOrganizerRepo       usecase.EventOrganizerRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    usecase.Clock
+	// published reports, at each check, whether event-1 is PUBLISHED; nil
+	// means always.
+	published func() bool
 }
 
 // newLotteryIssuanceUC builds an OrderUseCase for the lottery path, whose
@@ -198,6 +202,12 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 	if d.cardAuthorizations == nil {
 		d.cardAuthorizations = &stubCardAuthorizations{}
 	}
+	if d.published == nil {
+		d.published = func() bool { return true }
+	}
+	eventState := ucmocks.NewMockEventPublishStatePort(t)
+	eventState.EXPECT().IsEventPublished(mock.Anything, "event-1").
+		RunAndReturn(func(context.Context, string) (bool, error) { return d.published(), nil }).Maybe()
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             d.issuanceRepo,
 		OrderRepo:                d.orderRepo,
@@ -206,6 +216,7 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 		OrganizerRepo:            organizers,
 		IdentityVerificationRepo: d.identityVerificationRepo,
 		CardAuthorizations:       d.cardAuthorizations,
+		EventState:               eventState,
 		TicketSaleRepo:           d.saleRepo,
 		StockRepo:                d.stockRepo,
 		Clock:                    d.clock,

@@ -184,6 +184,7 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
 		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(testDB)),
 		EventRepo:                rdb.NewEventRepository(testDB),
+		EventState:               rdb.NewEventPublishStateRepository(testDB),
 		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
 		UserRepo:                 rdb.NewUserRepository(testDB, testOutbox),
 		CardAuthorizations:       cardAuthorizations,

@@ -69,7 +69,8 @@ type LotteryEntryUseCase interface {
 	//    or the name or phone number is missing or breaks the personal details
 	//    rule.
 	//  - FailedPrecondition: the sale is not a Lottery or does not name the
-	//    stock's event, its window is not open, the fan has no Active
+	//    stock's event, its window is not open, the stock's event is not
+	//    PUBLISHED (a 中止 (cancelled) concert), the fan has no Active
 	//    IdentityVerification when the sale requires one, the application
 	//    does not fit the event, or the fan already has an entry in the sale
 	//    for the stock's event.
@@ -92,7 +93,8 @@ type LotteryEntryUseCase interface {
 	//    lottery entry, or is not the caller's.
 	//  - FailedPrecondition: the card authorization is Pending, Captured or
 	//    Released (nothing is released), or it was rejected and released: the
-	//    TicketStock no longer exists, the card brand is not accepted, the
+	//    TicketStock no longer exists, the stock's event is not PUBLISHED (a
+	//    中止 (cancelled) concert), the card brand is not accepted, the
 	//    application no longer fits the event, the fan already has another
 	//    entry in the sale for the event, or the sale's end time has passed.
 	//  - InvalidArgument: the amount differs from the stock's SeatType amount
@@ -139,6 +141,19 @@ type LotteryEntryUseCase interface {
 	//  - Errors of reading the stocks or the entries or of recording the
 	//    outcome, unchanged.
 	Draw(ctx context.Context, f Flow, saleID entity.TicketSaleID) (int, error)
+
+	// EndForCancelledEvent runs for each Event announced as cancelled (中止)
+	// and ends its lottery entries that are still waiting for a draw with
+	// [entity.LotteryEntryRepository.EndEnteredByEvent], which announces each
+	// entry it ends; the card authorization release and the fan's notice
+	// follow from that announcement. It starts no other work, so a repeated
+	// delivery changes nothing.
+	//
+	// # Possible errors
+	//
+	//  - Errors of ending the entries, unchanged, so the announcement is
+	//    delivered again.
+	EndForCancelledEvent(ctx context.Context, eventID string) error
 }
 
 // lotteryUseCase implements [LotteryEntryUseCase].
@@ -148,6 +163,7 @@ type lotteryEntryUseCase struct {
 	entryRepo                entity.LotteryEntryRepository
 	orderRepo                entity.OrderRepository
 	eventRepo                entity.EventRepository
+	eventState               EventPublishStatePort
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
 	cardAuthorizations       entity.CardAuthorizationRepository
@@ -167,6 +183,7 @@ type LotteryEntryDeps struct {
 	EntryRepo                entity.LotteryEntryRepository
 	OrderRepo                entity.OrderRepository
 	EventRepo                entity.EventRepository
+	EventState               EventPublishStatePort
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	UserRepo                 entity.UserRepository
 	CardAuthorizations       entity.CardAuthorizationRepository
@@ -188,6 +205,7 @@ func newLotteryUseCase(d LotteryEntryDeps, newRand func() *mrand.Rand) *lotteryE
 		entryRepo:                d.EntryRepo,
 		orderRepo:                d.OrderRepo,
 		eventRepo:                d.EventRepo,
+		eventState:               d.EventState,
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		userRepo:                 d.UserRepo,
 		cardAuthorizations:       d.CardAuthorizations,
@@ -226,6 +244,14 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 	}
 	if !sale.IsOpenAt(now) {
 		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")
+	}
+	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
+	if err != nil {
+		return nil, err
+	}
+	if !published {
+		return nil, apperr.New(codes.FailedPrecondition, "the concert is not published; it may have been cancelled",
+			slog.String("event_id", stock.EventID))
 	}
 	if err := uc.checkVerification(ctx, sale, userID); err != nil {
 		return nil, err
@@ -350,6 +376,15 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 		}
 		return nil, err
 	}
+	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
+	if err != nil {
+		return nil, err
+	}
+	if !published {
+		return nil, uc.reject(ctx, cardAuthorizationID,
+			apperr.New(codes.FailedPrecondition, "the concert is not published; it may have been cancelled",
+				slog.String("event_id", stock.EventID)))
+	}
 	if err := authorization.Confirm(purchase, stock.SeatType.AmountFor(purchase.TicketCount)); err != nil {
 		return nil, uc.reject(ctx, cardAuthorizationID, err)
 	}
@@ -399,6 +434,11 @@ func (uc *lotteryEntryUseCase) reject(ctx context.Context, cardAuthorizationID s
 		slog.Any("refusal", refusal),
 	)
 	return refusal
+}
+
+// EndForCancelledEvent implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) EndForCancelledEvent(ctx context.Context, eventID string) error {
+	return uc.entryRepo.EndEnteredByEvent(ctx, eventID)
 }
 
 // ListByTicketSale implements [LotteryEntryUseCase].

@@ -432,6 +432,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EntryRepo:                lotteryEntryRepo,
 		OrderRepo:                orderRepo,
 		EventRepo:                eventRepo,
+		EventState:               eventPublishState,
 		IdentityVerificationRepo: identityVerificationRepo,
 		UserRepo:                 userRepo,
 		CardAuthorizations:       lotteryCardAuthorizations,
