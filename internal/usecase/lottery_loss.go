@@ -82,22 +82,21 @@ func (c lotteryLossContent) venueName() string {
 	return c.concert.VenueName()
 }
 
-// cardNotCharged reports whether the entry won but its card could not be
-// charged, so the win was cancelled.
-func (c lotteryLossContent) cardNotCharged() bool {
-	return c.reason == entity.LotteryEntryLostReasonCardNotCharged
-}
-
 // email renders the loss email in lang ("ja" or "en").
 func (c lotteryLossContent) email(lang string) entity.LotteryLossEmail {
 	date := c.concert.LocalDate
 	var b strings.Builder
 	if lang == "en" {
-		subject := "[Liverty Music] Your ticket lottery result"
-		if c.cardNotCharged() {
+		var subject string
+		switch c.reason {
+		case entity.LotteryEntryLostReasonCardNotCharged:
 			subject = "[Liverty Music] Your lottery win was cancelled"
 			fmt.Fprintf(&b, "Your lottery entry won, but your card could not be charged, so the win was cancelled.\n\n")
-		} else {
+		case entity.LotteryEntryLostReasonConcertCancelled:
+			subject = "[Liverty Music] Your ticket lottery ended: the concert was cancelled"
+			fmt.Fprintf(&b, "The concert was cancelled, so your ticket lottery entry ended.\n\n")
+		default:
+			subject = "[Liverty Music] Your ticket lottery result"
 			fmt.Fprintf(&b, "Thank you for entering the ticket lottery. We are sorry, but your entry was not drawn.\n\n")
 		}
 		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s\nVenue: %s\n\n", c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), c.venueName())
@@ -106,11 +105,16 @@ func (c lotteryLossContent) email(lang string) entity.LotteryLossEmail {
 		return entity.LotteryLossEmail{Subject: subject, TextBody: b.String()}
 	}
 
-	subject := "【Liverty Music】チケット抽選の結果のお知らせ"
-	if c.cardNotCharged() {
+	var subject string
+	switch c.reason {
+	case entity.LotteryEntryLostReasonCardNotCharged:
 		subject = "【Liverty Music】当選の取り消しのお知らせ"
 		fmt.Fprintf(&b, "抽選に当選しましたが、カードで決済できなかったため、当選を取り消しました。\n\n")
-	} else {
+	case entity.LotteryEntryLostReasonConcertCancelled:
+		subject = "【Liverty Music】公演中止のお知らせ"
+		fmt.Fprintf(&b, "公演が中止になったため、チケット抽選のお申し込みは終了しました。\n\n")
+	default:
+		subject = "【Liverty Music】チケット抽選の結果のお知らせ"
 		fmt.Fprintf(&b, "チケット抽選にお申し込みいただきありがとうございました。誠に残念ながら、落選となりました。\n\n")
 	}
 	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",

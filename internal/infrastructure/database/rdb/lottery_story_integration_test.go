@@ -99,6 +99,11 @@ type lotteryStory struct {
 	// workflows that follow an announced Checkout, as the event consumer does.
 	expiry          usecase.CheckoutUseCase
 	checkoutStarter *event.CheckoutConsumer
+	// series is the organizer console's SeriesUseCase, which cancels an
+	// Event; lotteryCancellation is the consumer that ends the lottery
+	// entries of each Event announced cancelled.
+	series              usecase.SeriesUseCase
+	lotteryCancellation *event.LotteryCancellationConsumer
 
 	// worker runs the workflows; client starts and awaits them, as the
 	// event consumer does.
@@ -106,7 +111,7 @@ type lotteryStory struct {
 	client *workflow.Client
 	// drawnMark, paidMark and enteredMark are the outbox offsets up to which
 	// the story handed announcements to their consumers.
-	drawnMark, paidMark, enteredMark, checkoutMark int64
+	drawnMark, paidMark, enteredMark, checkoutMark, cancelledMark int64
 	// followUps are the issue and release workflows started for drawn
 	// entries and not awaited yet.
 	followUps []string
@@ -145,17 +150,18 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		t:   t,
 		ctx: context.Background(),
 		// The Organizer sets the sale up a day before it opens.
-		now:          storyWindowStart.Add(-24 * time.Hour),
-		logger:       logger,
-		cards:        newFakeCards(),
-		pushes:       &pushStarts{},
-		drawnMark:    outboxMark(t),
-		paidMark:     outboxMark(t),
-		enteredMark:  outboxMark(t),
-		checkoutMark: outboxMark(t),
-		orderRepo:    orderRepository(t, rdb.NewOrderRepository(testDB)),
-		userRepo:     rdb.NewUserRepository(testDB, testOutbox),
-		journeyRepo:  rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		now:           storyWindowStart.Add(-24 * time.Hour),
+		logger:        logger,
+		cards:         newFakeCards(),
+		pushes:        &pushStarts{},
+		drawnMark:     outboxMark(t),
+		paidMark:      outboxMark(t),
+		enteredMark:   outboxMark(t),
+		checkoutMark:  outboxMark(t),
+		cancelledMark: outboxMark(t),
+		orderRepo:     orderRepository(t, rdb.NewOrderRepository(testDB)),
+		userRepo:      rdb.NewUserRepository(testDB, testOutbox),
+		journeyRepo:   rdb.NewTicketJourneyRepository(testDB, testOutbox),
 	}
 	s.seedOrganizerEvent()
 	s.checkoutCards = &routedCards{fake: s.cards}
@@ -256,7 +262,59 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.checkoutStarter = event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
 	}), logger)
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox),
+		rdb.NewVenueRepository(testDB), nil, organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, logger, clock)
+	// The event consumer's LotteryEntryUseCase only ends the entries of a
+	// cancelled Event.
+	s.lotteryCancellation = event.NewLotteryCancellationConsumer(usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
+		EntryRepo: entryRepo, Clock: clock, Logger: logger,
+	}), logger)
 	return s
+}
+
+// cancel has a member of the Organizer cancel (中止) the Event, hands each
+// CONCERT.cancelled announcement to the consumer that ends its lottery
+// entries, as NATS delivers it, and runs the work that follows each entry
+// announced since: the release of its card authorization and its loss email
+// and push.
+func (s *lotteryStory) cancel(eventID string) {
+	s.t.Helper()
+	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{eventID}))
+	next := outboxMark(s.t)
+	msgs := announcedMessages(s.t, s.cancelledMark, entity.SubjectConcertCancelled)
+	s.cancelledMark = next
+	require.NotEmpty(s.t, msgs, "the cancellation is announced")
+	for _, msg := range msgs {
+		require.NoError(s.t, s.lotteryCancellation.HandleEventCancelled(msg))
+	}
+	s.startFollowUps()
+	s.awaitFollowUps()
+}
+
+// pushedLoss reports whether a lottery_loss push was started for the entry.
+func (s *lotteryStory) pushedLoss(id entity.LotteryEntryID) bool {
+	s.pushes.mu.Lock()
+	defer s.pushes.mu.Unlock()
+	return s.pushes.ids["deliver:"+string(entity.NotificationTypeLotteryLoss)+":"+string(id)]
+}
+
+// secondEvent inserts another published event of the story's Series a day
+// after the first, stocks it with quantity tickets of a new SeatType of the
+// price, and returns the event and the stock.
+func (s *lotteryStory) secondEvent(price int64, quantity int) (string, *entity.TicketStock) {
+	s.t.Helper()
+	eventID := uuid.NewV7().String()
+	start := storyEventStart.Add(24 * time.Hour)
+	_, err := testDB.Pool.Exec(s.ctx, `
+		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit)
+		SELECT $1, series_id, venue_id, $3, $4, 'PUBLISHED', 4 FROM events WHERE id = $2
+	`, eventID, s.eventID, start.Format(time.DateOnly), start)
+	require.NoError(s.t, err)
+	seatType, err := s.seatTypes.Create(s.ctx, s.organizerID, s.seriesID, "S席 2日目", price)
+	require.NoError(s.t, err)
+	stock, err := s.stocks.Create(s.ctx, s.organizerID, eventID, seatType.ID, quantity)
+	require.NoError(s.t, err)
+	return eventID, stock
 }
 
 // newPool returns the database pool of one simulated process: DBOS closes
@@ -1099,4 +1157,139 @@ func TestLotteryStory_SecondEntryIntoTheSameSale(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "the fan keeps one entry")
 	assert.Equal(t, first.ID, entries[0].ID)
+}
+
+func TestLotteryStory_CancelledDuringTheWindow(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Cancelled during the window"
+	// @spec components/usecase/lottery-entry/end-for-cancelled-event "Concert cancelled during the window"
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	fans := []entity.UserID{s.newFan(), s.newFan()}
+	entries := []*entity.LotteryEntry{s.enter(sale, stock.ID, fans[0], 2), s.enter(sale, stock.ID, fans[1], 1)}
+
+	s.now = storyWindowStart.Add(2 * time.Hour)
+	s.cancel(s.eventID)
+
+	for i, e := range entries {
+		ref := e.Order.CardAuthorizationID
+		got := s.ownEntry(sale, fans[i], e.ID)
+		assert.Equal(t, entity.LotteryEntryStateLost, got.State, "fan %d's entry is Lost", i)
+		assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, got.LostReason)
+		s.assertOrderVoid(e.ID)
+		assert.Equal(t, entity.CardAuthorizationStatusReleased, s.cards.status(ref), "fan %d's card authorization is released", i)
+		emails := s.emailsTo(fans[i])
+		require.Len(t, emails, 1, "fan %d gets one email", i)
+		assert.Contains(t, emails[0].subject, "公演中止")
+		assert.Contains(t, emails[0].body, "公演が中止になったため")
+		assert.Contains(t, emails[0].body, "カードへの請求はありません")
+		assert.True(t, s.pushedLoss(e.ID), "fan %d is pushed once", i)
+	}
+	saleAfter, err := rdb.NewTicketSaleRepository(testDB, testOutbox).Get(s.ctx, sale)
+	require.NoError(t, err)
+	assert.Equal(t, end, saleAfter.SaleEndTime.UTC(), "the window of the sale is unchanged")
+
+	// -- the window closes --
+	s.closeAndDraw(end)
+	s.issueWins()
+	for i, e := range entries {
+		assert.Zero(t, s.cards.charged(e.Order.CardAuthorizationID), "fan %d is never charged", i)
+		assert.Empty(t, s.eventTickets(fans[i]), "fan %d holds no Ticket", i)
+		assert.Len(t, s.emailsTo(fans[i]), 1, "fan %d gets no second email", i)
+	}
+}
+
+func TestLotteryStory_CancelledBetweenTheDrawAndTheCharge(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Cancelled between the draw and the charge"
+	// @spec components/usecase/order/release-card-authorization "Win reverted for a cancelled concert"
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	fan := s.newFan()
+	entry := s.enter(sale, stock.ID, fan, 2)
+
+	// The draw records the entry Won; the member cancels before the issue
+	// runs, which happens when the announcement of the draw is delivered.
+	s.draw(end)
+	require.Equal(t, entity.LotteryEntryStateWon, s.ownEntry(sale, fan, entry.ID).State)
+	s.cancel(s.eventID)
+	s.issueWins()
+
+	ref := entry.Order.CardAuthorizationID
+	got := s.ownEntry(sale, fan, entry.ID)
+	assert.Equal(t, entity.LotteryEntryStateLost, got.State, "the entry is Lost")
+	assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, got.LostReason)
+	assert.Zero(t, s.cards.charged(ref), "nothing is charged")
+	assert.Equal(t, entity.CardAuthorizationStatusReleased, s.cards.status(ref), "the card authorization is released")
+	assert.Empty(t, s.eventTickets(fan))
+	s.assertOrderVoid(entry.ID)
+	emails := s.emailsTo(fan)
+	require.Len(t, emails, 1, "one email")
+	assert.Contains(t, emails[0].body, "公演が中止になったため", "the fan is told the concert is cancelled")
+}
+
+func TestLotteryStory_EnteringAfterTheCancellation(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Entering after the cancellation"
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	fan := s.newFan()
+	// The fan authenticates the card with the entry screen open, and the
+	// Event is cancelled before the confirmation arrives.
+	authorization := s.authorize(sale, stock.ID, fan, 2, nil)
+	s.cancel(s.eventID)
+
+	_, err := s.lottery.Confirm(s.ctx, authorization.ID, &fan)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the entry is refused")
+	s.assertNoEntry(sale, fan)
+	assert.Equal(t, entity.CardAuthorizationStatusReleased, s.cards.status(authorization.ID), "nothing stays held on the card")
+	assert.Zero(t, s.cards.charged(authorization.ID))
+
+	// Starting again from the screen is refused before any card authentication.
+	_, err = s.lottery.AuthorizeCard(s.ctx, sale, stock.ID, fan, 2, storyFanName, storyFanPhone, nil)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	s.assertNoEntry(sale, fan)
+}
+
+func TestLotteryStory_AnotherDateOfTheSale(t *testing.T) {
+	// @spec stories/win-tickets-in-a-lottery "Another date of the sale"
+	s := newLotteryStory(t)
+	first := s.stock("S席", 8000, 100)
+	secondEventID, second := s.secondEvent(8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	created, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
+		SeriesID: s.seriesID, Name: "抽選", Method: entity.TicketSaleMethodLottery,
+		SaleStart: storyWindowStart, SaleEnd: end, EventIDs: []string{s.eventID, secondEventID},
+	})
+	require.NoError(t, err)
+	sale := created.ID
+	s.saleIDs = append(s.saleIDs, sale)
+
+	s.now = storyWindowStart.Add(time.Hour)
+	cancelledFan, otherFan := s.newFan(), s.newFan()
+	cancelled := s.enter(sale, first.ID, cancelledFan, 2)
+	other := s.enter(sale, second.ID, otherFan, 2)
+
+	s.cancel(s.eventID)
+
+	assert.Equal(t, entity.LotteryEntryStateLost, s.ownEntry(sale, cancelledFan, cancelled.ID).State, "the cancelled Event's entry is Lost")
+	assert.Equal(t, entity.LotteryEntryStateEntered, s.ownEntry(sale, otherFan, other.ID).State, "the other Event's entry stays Entered")
+	assert.Empty(t, s.emailsTo(otherFan))
+
+	// -- the window closes: the other date is drawn --
+	s.closeAndDraw(end)
+	got := s.ownEntry(sale, otherFan, other.ID)
+	assert.Equal(t, entity.LotteryEntryStateWon, got.State, "the other Event's entry is drawn")
+	assert.NotNil(t, got.DrawPosition)
+	assert.Equal(t, 1, s.cards.charged(other.Order.CardAuthorizationID))
+	assert.Zero(t, s.cards.charged(cancelled.Order.CardAuthorizationID))
 }

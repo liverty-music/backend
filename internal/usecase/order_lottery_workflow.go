@@ -188,18 +188,22 @@ func (uc *orderUseCase) issueEntry(ctx context.Context, f Flow, entryID entity.L
 		return IssueResult{OrderID: plan.OrderID, Paid: true}, nil
 	}
 
-	charged, err := uc.capture(ctx, f, plan)
+	outcome, err := uc.captureEntry(ctx, f, plan)
 	if err != nil {
 		return IssueResult{}, err
 	}
-	if !charged {
+	if !outcome.Charged {
 		// No promotion of a loser (繰上げ): the tickets stay unallocated.
+		reason, why := entity.LotteryEntryLostReasonCardNotCharged, "the card could not be charged"
+		if outcome.ConcertCancelled {
+			reason, why = entity.LotteryEntryLostReasonConcertCancelled, "the concert was cancelled before the charge"
+		}
 		if _, err := Step(ctx, f, "revert win", func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, uc.entryRepo.RevertWin(ctx, entryID)
+			return struct{}{}, uc.entryRepo.RevertWin(ctx, entryID, reason)
 		}); err != nil {
 			return IssueResult{}, err
 		}
-		uc.logger.Info(ctx, "lottery win reverted: the card could not be charged",
+		uc.logger.Info(ctx, "lottery win reverted: "+why,
 			slog.String("lottery_entry_id", string(entryID)),
 			slog.String("order_id", string(plan.OrderID)))
 		return IssueResult{OrderID: plan.OrderID}, nil
@@ -207,6 +211,53 @@ func (uc *orderUseCase) issueEntry(ctx context.Context, f Flow, entryID entity.L
 
 	result, _, err := uc.issueCaptured(ctx, f, plan)
 	return result, err
+}
+
+// entryCapture is the outcome of the charge of a Won lottery entry, as its
+// step records it.
+type entryCapture struct {
+	// Charged is true when the card authorization was captured.
+	Charged bool `json:"charged"`
+	// ConcertCancelled is true when the event was no longer PUBLISHED before
+	// the charge, so nothing was charged.
+	ConcertCancelled bool `json:"concert_cancelled,omitempty"`
+}
+
+// captureEntry charges the Order of a Won lottery entry in one step, which is
+// retried while the payment provider cannot be reached. Each try first checks
+// that the event is still PUBLISHED, so a concert cancelled during an outage
+// is not charged; the check is inside the step, so a resumed run does not
+// check again after a capture that happened. For a cancelled concert it reads
+// the card authorization first, since an earlier try that ended Unavailable
+// may have captured it: a captured one goes on as charged, and the
+// cancellation refund reaches its Paid Order. A card authorization that can
+// no longer be charged is a result, neither charged nor cancelled.
+//
+// It does not share [orderUseCase.capture] with the issue of a placed
+// Checkout, whose recorded step stays as it was.
+func (uc *orderUseCase) captureEntry(ctx context.Context, f Flow, plan issuePlan) (entryCapture, error) {
+	return Step(ctx, f, "capture", func(ctx context.Context) (entryCapture, error) {
+		published, err := uc.eventState.IsEventPublished(ctx, plan.EventID)
+		if err != nil {
+			return entryCapture{}, err
+		}
+		if !published {
+			authorization, err := uc.cardAuthorizations.Get(ctx, plan.CardAuthorizationID)
+			if err != nil {
+				return entryCapture{}, err
+			}
+			if authorization.Status == entity.CardAuthorizationStatusCaptured {
+				return entryCapture{Charged: true}, nil
+			}
+			return entryCapture{ConcertCancelled: true}, nil
+		}
+		err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
+		if errors.Is(err, apperr.ErrFailedPrecondition) {
+			// The card authorization can no longer be charged: a result.
+			return entryCapture{}, nil
+		}
+		return entryCapture{Charged: err == nil}, err
+	})
 }
 
 // issued is the outcome of the issue step, as it records it.

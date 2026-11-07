@@ -194,6 +194,69 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 		assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
 	})
 
+	t.Run("concert cancelled email", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-lottery-loss "Concert cancelled email"
+		tests := []struct {
+			lang, subject, lead, notCharged, notDrawn string
+		}{
+			{lang: "ja", subject: "【Liverty Music】公演中止のお知らせ", lead: "公演が中止になったため、チケット抽選のお申し込みは終了しました。",
+				notCharged: "カードへの請求はありません", notDrawn: "落選"},
+			{lang: "en", subject: "[Liverty Music] Your ticket lottery ended: the concert was cancelled", lead: "The concert was cancelled, so your ticket lottery entry ended.",
+				notCharged: "Your card was not charged", notDrawn: "not drawn"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.lang, func(t *testing.T) {
+				t.Parallel()
+				f := newLossFixture(t)
+				f.lost(entity.LotteryEntryLostReasonConcertCancelled, tt.lang)
+				var mail entity.LotteryLossEmail
+				f.sends(&mail)
+				f.expectPush()
+
+				require.NoError(t, f.uc.SendLotteryLoss(ctx, "entry-1"))
+
+				assert.Equal(t, tt.subject, mail.Subject)
+				assert.Contains(t, mail.TextBody, tt.lead)
+				assert.Contains(t, mail.TextBody, tt.notCharged)
+				assert.Contains(t, mail.TextBody, "Liverty Live 2026", "the rest of the email is unchanged")
+				assert.NotContains(t, mail.TextBody, tt.notDrawn, "it does not say the entry was not drawn")
+			})
+		}
+	})
+
+	t.Run("concert cancelled push", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-lottery-loss "Concert cancelled push"
+		tests := []struct{ lang, title, body string }{
+			{lang: "ja", title: "[Vaundy] 公演が中止になりました", body: "公演が中止になったため、抽選のお申し込みは終了しました。請求はありません。"},
+			{lang: "en", title: "[Vaundy] Concert Cancelled", body: "was cancelled, so your lottery entry ended. You were not charged."},
+		}
+		for _, tt := range tests {
+			t.Run(tt.lang, func(t *testing.T) {
+				t.Parallel()
+				f := newLossFixture(t)
+				f.lost(entity.LotteryEntryLostReasonConcertCancelled, tt.lang)
+				var mail entity.LotteryLossEmail
+				f.sends(&mail)
+				started := f.expectPush()
+
+				require.NoError(t, f.uc.SendLotteryLoss(ctx, "entry-1"))
+
+				r := newSubjectFixture(t)
+				r.fanReadable(renderedFan("fan-1", tt.lang))
+				r.lotteryEntryReadable(&entity.LotteryEntry{
+					ID: "entry-1", OrderID: "order-1", State: entity.LotteryEntryStateLost, LostReason: entity.LotteryEntryLostReasonConcertCancelled,
+				}, "event-1")
+				r.concertsReadable(renderedConcert("event-1"))
+				msg := r.push(t, *started)
+				assert.Equal(t, tt.title, msg.Title)
+				assert.Contains(t, msg.Body, tt.body)
+				assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+			})
+		}
+	})
+
 	t.Run("entry not lost", func(t *testing.T) {
 		t.Parallel()
 		f := newLossFixture(t)

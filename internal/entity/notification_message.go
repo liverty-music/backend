@@ -47,6 +47,7 @@ const (
 	copyResaleWin             = "resale_win"
 	copyLotteryNotDrawn       = "lottery_not_drawn"
 	copyLotteryNotCharged     = "lottery_not_charged"
+	copyLotteryCancelled      = "lottery_concert_cancelled"
 	copyResaleLapsed          = "resale_lapsed"
 	copyResaleNoTicketLeft    = "resale_no_ticket_left"
 	copyResaleConcertCanceled = "resale_concert_cancelled"
@@ -77,6 +78,7 @@ var notificationCopies = map[string]map[string]notificationCopy{
 		copyResaleWin:             {"公式リセールに当選しました", "{date}の{venue}公演の公式リセールに当選しました!!タップしてチケットを表示"},
 		copyLotteryNotDrawn:       {"抽選結果のお知らせ", "{date}の{venue}公演のチケット抽選が落選となりました。"},
 		copyLotteryNotCharged:     {"当選を取り消しました", "カードで決済できなかったため、{date}の{venue}公演の当選を取り消しました。"},
+		copyLotteryCancelled:      {"公演が中止になりました", "{date}の{venue}公演が中止になったため、抽選のお申し込みは終了しました。請求はありません。"},
 		copyResaleLapsed:          {"公式リセールの期限切れ", "カードの与信の有効期限が来たため申し込みが終了しました。"},
 		copyResaleNoTicketLeft:    {"公式リセールの抽選結果", "チケットの割り当てはありませんでした。"},
 		copyResaleConcertCanceled: {"公式リセールの終了", "公演中止のため申し込みが終了しました。"},
@@ -97,6 +99,7 @@ var notificationCopies = map[string]map[string]notificationCopy{
 		copyResaleWin:             {"You Won the Official Resale", "You won the official resale for {venue} on {date}! Tap to see your tickets."},
 		copyLotteryNotDrawn:       {"Ticket Lottery Result", "Your lottery entry for {venue} on {date} was not drawn."},
 		copyLotteryNotCharged:     {"Lottery Win Cancelled", "Your win for {venue} on {date} was cancelled because your card could not be charged."},
+		copyLotteryCancelled:      {"Concert Cancelled", "The concert at {venue} on {date} was cancelled, so your lottery entry ended. You were not charged."},
 		copyResaleLapsed:          {"Official Resale Entry Expired", "Your entry ended because the card authorization expired."},
 		copyResaleNoTicketLeft:    {"Official Resale Result", "No ticket was allocated to your entry."},
 		copyResaleConcertCanceled: {"Official Resale Ended", "Your entry ended because the concert was cancelled."},
@@ -183,10 +186,14 @@ func (n *Notification) copyKey(s *LoadedSubject) string {
 	case NotificationTypeResaleWin:
 		return copyResaleWin
 	case NotificationTypeLotteryLoss:
-		if s.LotteryEntry.LostReason == LotteryEntryLostReasonCardNotCharged {
+		switch s.LotteryEntry.LostReason {
+		case LotteryEntryLostReasonCardNotCharged:
 			return copyLotteryNotCharged
+		case LotteryEntryLostReasonConcertCancelled:
+			return copyLotteryCancelled
+		default:
+			return copyLotteryNotDrawn
 		}
-		return copyLotteryNotDrawn
 	case NotificationTypeResaleEntryLapsed:
 		return copyResaleLapsed
 	case NotificationTypeResaleEntryLost:

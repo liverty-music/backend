@@ -215,7 +215,7 @@ func TestOrderUseCase_Issue(t *testing.T) {
 		// @spec components/usecase/order/issue "Card authorization no longer chargeable"
 		entries := entitymocks.NewMockLotteryEntryRepository(t)
 		entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(wonEntry(), nil)
-		entries.EXPECT().RevertWin(mock.Anything, entity.LotteryEntryID("entry-1")).Return(nil).Once()
+		entries.EXPECT().RevertWin(mock.Anything, entity.LotteryEntryID("entry-1"), entity.LotteryEntryLostReasonCardNotCharged).Return(nil).Once()
 		cardAuthorizations := &stubCardAuthorizations{captureFn: func(context.Context, string) error {
 			return apperr.New(codes.FailedPrecondition, "card closed")
 		}}
@@ -227,6 +227,93 @@ func TestOrderUseCase_Issue(t *testing.T) {
 		require.NoError(t, err, "a card that can no longer be charged is a result, not an error")
 		assert.Equal(t, usecase.IssueResult{OrderID: "order-entry-1", Paid: false}, got)
 		assert.False(t, *issueCalled, "nothing is issued")
+	})
+
+	t.Run("lottery concert cancelled before the charge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/issue "Lottery concert cancelled before the charge"
+		// The card authorization is released from the announcement RevertWin
+		// records (ReleaseCardAuthorization's "Win reverted for a cancelled
+		// concert").
+		entries := entitymocks.NewMockLotteryEntryRepository(t)
+		entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(wonEntry(), nil)
+		entries.EXPECT().RevertWin(mock.Anything, entity.LotteryEntryID("entry-1"), entity.LotteryEntryLostReasonConcertCancelled).Return(nil).Once()
+		cardAuthorizations := &stubCardAuthorizations{getFn: func(_ context.Context, id string) (*entity.CardAuthorization, error) {
+			return &entity.CardAuthorization{ID: id, Status: entity.CardAuthorizationStatusAuthorized}, nil
+		}}
+		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, entryRepo: entries, cardAuthorizations: cardAuthorizations,
+			clock: fixedClock(now), published: func() bool { return false }})
+
+		got, err := issueEntry(uc)
+
+		require.NoError(t, err, "a cancelled concert is a result, not an error")
+		assert.Equal(t, usecase.IssueResult{OrderID: "order-entry-1", Paid: false}, got)
+		assert.Zero(t, cardAuthorizations.captures, "nothing is charged")
+		assert.False(t, *issueCalled, "nothing is issued")
+	})
+
+	t.Run("concert cancelled while the payment provider is unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/issue "Concert cancelled while the payment provider is unavailable"
+		// The first attempt fails with Unavailable and charges nothing; the
+		// concert is cancelled before the runtime tries the step again.
+		published := true
+		entries := entitymocks.NewMockLotteryEntryRepository(t)
+		entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(wonEntry(), nil)
+		entries.EXPECT().RevertWin(mock.Anything, entity.LotteryEntryID("entry-1"), entity.LotteryEntryLostReasonConcertCancelled).Return(nil).Once()
+		cardAuthorizations := &stubCardAuthorizations{
+			captureFn: func(context.Context, string) error { return unavailable },
+			getFn: func(_ context.Context, id string) (*entity.CardAuthorization, error) {
+				return &entity.CardAuthorization{ID: id, Status: entity.CardAuthorizationStatusAuthorized}, nil
+			},
+		}
+		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, entryRepo: entries, cardAuthorizations: cardAuthorizations,
+			clock: fixedClock(now), published: func() bool { return published }})
+		flow := newReplayFlow()
+		in := usecase.IssueRequest{LotteryEntryID: "entry-1"}
+
+		_, err := uc.Issue(context.Background(), flow, in)
+		require.ErrorIs(t, err, apperr.ErrUnavailable, "a step the runtime tries again")
+		published = false
+		got, err := uc.Issue(context.Background(), flow, in)
+
+		require.NoError(t, err)
+		assert.False(t, got.Paid)
+		assert.Equal(t, 1, cardAuthorizations.captures, "no attempt after the cancellation")
+		assert.False(t, *issueCalled, "nothing is issued")
+	})
+
+	t.Run("earlier attempt charged, then concert cancelled", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/issue "Earlier attempt charged, then concert cancelled"
+		// The first capture charged the card but its answer was lost
+		// (Unavailable); the concert is cancelled before the next attempt,
+		// which finds the card authorization Captured and issues the Order.
+		published := true
+		var stored *entity.Order
+		cardAuthorizations := capturing16000()
+		cardAuthorizations.captureFn = func(context.Context, string) error { return unavailable }
+		entries := entitymocks.NewMockLotteryEntryRepository(t)
+		entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(wonEntry(), nil)
+		issuanceRepo, _ := recordingIssuanceRepo(&stored, nil, nil)
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, entryRepo: entries, cardAuthorizations: cardAuthorizations,
+			orderRepo: storedOrPending(&stored), clock: fixedClock(now), published: func() bool { return published }})
+		flow := newReplayFlow()
+		in := usecase.IssueRequest{LotteryEntryID: "entry-1"}
+
+		_, err := uc.Issue(context.Background(), flow, in)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		published = false
+		got, err := uc.Issue(context.Background(), flow, in)
+
+		require.NoError(t, err)
+		assert.True(t, got.Paid, "the Order becomes Paid with its Tickets")
+		assert.Equal(t, 1, cardAuthorizations.captures, "the card is not charged again")
+		require.NotNil(t, stored)
+		assert.Equal(t, entity.OrderStatusPaid, stored.Status)
+		entries.AssertNotCalled(t, "RevertWin", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("organizer unresolved", func(t *testing.T) {
@@ -506,6 +593,27 @@ func TestOrderUseCase_StartDrawnEntryWorkflow(t *testing.T) {
 		opts := options(workflows.Calls[0])
 		assert.Equal(t, usecase.PaymentQueue, opts.Queue)
 		assert.Equal(t, now.Add(24*time.Hour), opts.Deadline)
+	})
+
+	t.Run("entry of a cancelled concert", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/release-card-authorization "Entry of a cancelled concert released"
+		// LotteryEntry.EndEnteredByEvent announces the entry Lost with the lost
+		// reason concert cancelled and its Order Void: the release starts for
+		// it as for any Lost entry, and releases the card authorization.
+		uc, workflows := newUC(t)
+		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowReleaseCardAuthorization, "release:order-1", entity.OrderID("order-1"), mock.Anything, mock.Anything).Return(nil).Once()
+		ended := entry(entity.LotteryEntryStateLost)
+		ended.LostReason = entity.LotteryEntryLostReasonConcertCancelled
+
+		require.NoError(t, uc.StartDrawnEntryWorkflow(ctx, ended))
+
+		f := newReleaseFixture(t)
+		f.order(entity.OrderStatusVoid, "pi_cancelled")
+		f.cardAuthorizations.EXPECT().Release(mock.Anything, "pi_cancelled").Return(nil).Once()
+		_, err := f.uc.ReleaseCardAuthorization(ctx, &inlineFlow{}, "order-1")
+		require.NoError(t, err)
+		f.cardAuthorizations.AssertNotCalled(t, "Capture", mock.Anything, mock.Anything)
 	})
 
 	t.Run("entered entry", func(t *testing.T) {

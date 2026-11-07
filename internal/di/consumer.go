@@ -275,6 +275,14 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// The cancellation and refund notices: the consumer only starts their
 	// workflows, which the workflow worker runs.
 	cancellationNoticeConsumer := event.NewCancellationNoticeConsumer(notificationUC, logger)
+	// The consumer's LotteryEntryUseCase only ends the Entered entries of a
+	// cancelled Event (EndForCancelledEvent), which needs the entries alone;
+	// the release and the notice follow from the announcement of each.
+	lotteryCancellationConsumer := event.NewLotteryCancellationConsumer(usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
+		EntryRepo: lotteryEntryRepo,
+		Clock:     time.Now,
+		Logger:    logger,
+	}), logger)
 	// The consumer's OrderUseCase only starts the workflow that follows each
 	// drawn entry; the workflow worker runs it.
 	lotteryEntryDrawnConsumer := event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
@@ -335,6 +343,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"mark-ticket-journey-applied", entity.SubjectLotteryEntryEntered, lotteryEntryEnteredConsumer.HandleMarkApplied},
 		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
 		{"send-event-cancelled", entity.SubjectConcertCancelled, cancellationNoticeConsumer.HandleEventCancelled},
+		{"end-lottery-entries-of-cancelled-event", entity.SubjectConcertCancelled, lotteryCancellationConsumer.HandleEventCancelled},
 		{"send-order-refunded", entity.SubjectOrderRefunded, cancellationNoticeConsumer.HandleOrderRefunded},
 		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
 		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},

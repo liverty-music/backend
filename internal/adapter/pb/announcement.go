@@ -53,7 +53,7 @@ func LotteryEntryFromAnnouncement(e *entityv1.LotteryEntry) *entity.LotteryEntry
 		position := int(e.GetDrawPosition())
 		entry.DrawPosition = &position
 	}
-	for _, reason := range []entity.LotteryEntryLostReason{entity.LotteryEntryLostReasonNotDrawn, entity.LotteryEntryLostReasonCardNotCharged} {
+	for _, reason := range []entity.LotteryEntryLostReason{entity.LotteryEntryLostReasonNotDrawn, entity.LotteryEntryLostReasonCardNotCharged, entity.LotteryEntryLostReasonConcertCancelled} {
 		if lotteryEntryLostReasonToProto(reason) == e.GetLostReason() {
 			entry.LostReason = reason
 		}

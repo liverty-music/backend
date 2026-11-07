@@ -116,6 +116,63 @@ func (_c *MockLotteryEntryRepository_Create_Call) RunAndReturn(run func(ctx cont
 	return _c
 }
 
+// EndEnteredByEvent provides a mock function for the type MockLotteryEntryRepository
+func (_mock *MockLotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID string) error {
+	ret := _mock.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EndEnteredByEvent")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, eventID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockLotteryEntryRepository_EndEnteredByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EndEnteredByEvent'
+type MockLotteryEntryRepository_EndEnteredByEvent_Call struct {
+	*mock.Call
+}
+
+// EndEnteredByEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockLotteryEntryRepository_Expecter) EndEnteredByEvent(ctx any, eventID any) *MockLotteryEntryRepository_EndEnteredByEvent_Call {
+	return &MockLotteryEntryRepository_EndEnteredByEvent_Call{Call: _e.mock.On("EndEnteredByEvent", ctx, eventID)}
+}
+
+func (_c *MockLotteryEntryRepository_EndEnteredByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockLotteryEntryRepository_EndEnteredByEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_EndEnteredByEvent_Call) Return(err error) *MockLotteryEntryRepository_EndEnteredByEvent_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockLotteryEntryRepository_EndEnteredByEvent_Call) RunAndReturn(run func(ctx context.Context, eventID string) error) *MockLotteryEntryRepository_EndEnteredByEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function for the type MockLotteryEntryRepository
 func (_mock *MockLotteryEntryRepository) Get(ctx context.Context, id entity.LotteryEntryID) (*entity.LotteryEntry, error) {
 	ret := _mock.Called(ctx, id)
@@ -667,16 +724,16 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run f
 }
 
 // RevertWin provides a mock function for the type MockLotteryEntryRepository
-func (_mock *MockLotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID) error {
-	ret := _mock.Called(ctx, id)
+func (_mock *MockLotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID, reason entity.LotteryEntryLostReason) error {
+	ret := _mock.Called(ctx, id, reason)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RevertWin")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) error); ok {
-		r0 = returnFunc(ctx, id)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID, entity.LotteryEntryLostReason) error); ok {
+		r0 = returnFunc(ctx, id, reason)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -691,11 +748,12 @@ type MockLotteryEntryRepository_RevertWin_Call struct {
 // RevertWin is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.LotteryEntryID
-func (_e *MockLotteryEntryRepository_Expecter) RevertWin(ctx any, id any) *MockLotteryEntryRepository_RevertWin_Call {
-	return &MockLotteryEntryRepository_RevertWin_Call{Call: _e.mock.On("RevertWin", ctx, id)}
+//   - reason entity.LotteryEntryLostReason
+func (_e *MockLotteryEntryRepository_Expecter) RevertWin(ctx any, id any, reason any) *MockLotteryEntryRepository_RevertWin_Call {
+	return &MockLotteryEntryRepository_RevertWin_Call{Call: _e.mock.On("RevertWin", ctx, id, reason)}
 }
 
-func (_c *MockLotteryEntryRepository_RevertWin_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID)) *MockLotteryEntryRepository_RevertWin_Call {
+func (_c *MockLotteryEntryRepository_RevertWin_Call) Run(run func(ctx context.Context, id entity.LotteryEntryID, reason entity.LotteryEntryLostReason)) *MockLotteryEntryRepository_RevertWin_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -705,9 +763,14 @@ func (_c *MockLotteryEntryRepository_RevertWin_Call) Run(run func(ctx context.Co
 		if args[1] != nil {
 			arg1 = args[1].(entity.LotteryEntryID)
 		}
+		var arg2 entity.LotteryEntryLostReason
+		if args[2] != nil {
+			arg2 = args[2].(entity.LotteryEntryLostReason)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -718,7 +781,7 @@ func (_c *MockLotteryEntryRepository_RevertWin_Call) Return(err error) *MockLott
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_RevertWin_Call) RunAndReturn(run func(ctx context.Context, id entity.LotteryEntryID) error) *MockLotteryEntryRepository_RevertWin_Call {
+func (_c *MockLotteryEntryRepository_RevertWin_Call) RunAndReturn(run func(ctx context.Context, id entity.LotteryEntryID, reason entity.LotteryEntryLostReason) error) *MockLotteryEntryRepository_RevertWin_Call {
 	_c.Call.Return(run)
 	return _c
 }
