@@ -306,3 +306,26 @@ func TestCancelledConcertStory_DeletedRightAfterTheRefunds(t *testing.T) {
 		assert.Contains(t, got[1].subject, "返金完了")
 	}
 }
+
+func TestCancelledConcertStory_DeletedDuringTheWindow(t *testing.T) {
+	// @spec stories/remove-a-cancelled-concert "Deleted during the window"
+	// The lottery story's harness: the Event is the only one of its Series,
+	// its lottery is open and one fan is Entered.
+	s := newLotteryStory(t)
+	stock := s.stock("S席", 8000, 100)
+	end := storyWindowStart.Add(3 * 24 * time.Hour)
+	sale := s.createLottery("抽選", storyWindowStart, end)
+	s.now = storyWindowStart.Add(time.Hour)
+	fan := s.newFan()
+	entry := s.enter(sale, stock.ID, fan, 2)
+
+	s.cancel(s.eventID)
+	require.Equal(t, entity.LotteryEntryStateLost, s.ownEntry(sale, fan, entry.ID).State, "the entry has ended")
+
+	require.NoError(t, rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
+
+	assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
+	assert.False(t, rowExists(t, `SELECT 1 FROM series WHERE id = $1`, s.seriesID), "the Series no longer exists")
+	assert.False(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE id = $1`, string(entry.ID)), "the entry no longer exists")
+	assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, string(entry.OrderID)), "its Void Order no longer exists")
+}

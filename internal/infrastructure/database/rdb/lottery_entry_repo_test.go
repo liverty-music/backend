@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5/pgconn"
 	"slices"
 	"sync"
 	"testing"
@@ -739,7 +740,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		order := []entity.StockDrawOrder{drawOrder(f, won, lost)}
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
 		// The winner is made Lost since, which frees its 2 tickets.
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 		wonBefore, lostBefore := get(t, won.ID), get(t, lost.ID)
 
 		// The same order again, and one that would put the loser first.
@@ -825,7 +826,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		// @spec components/entity/lottery-entry/revert-win "Win reverted"
 		won, f := drawnWin(t)
 
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 
 		got := get(t, won.ID)
 		assert.Equal(t, entity.LotteryEntryStateLost, got.State)
@@ -837,13 +838,29 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		assert.Zero(t, sold, "its tickets stay unallocated")
 	})
 
+	t.Run("win reverted for a cancelled concert", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/revert-win "Win reverted for a cancelled concert"
+		won, _ := drawnWin(t)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonConcertCancelled))
+
+		got := get(t, won.ID)
+		assert.Equal(t, entity.LotteryEntryStateLost, got.State)
+		assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, got.LostReason)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+		announced := drawnOf(t, mark, won.ID)
+		require.Len(t, announced, 1)
+		assert.Equal(t, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CONCERT_CANCELLED, announced[0].GetLostReason(), "the announcement carries the reason RevertWin was given")
+	})
+
 	t.Run("already reverted", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/revert-win "Already reverted"
 		won, _ := drawnWin(t)
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 		before := get(t, won.ID)
 
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 
 		assert.Equal(t, before, get(t, won.ID))
 	})
@@ -855,7 +872,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 		before := get(t, won.ID)
 
-		err := repo.RevertWin(ctx, won.ID)
+		err := repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, before, get(t, won.ID))
@@ -866,7 +883,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
 		entered := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
 
-		err := repo.RevertWin(ctx, entered.ID)
+		err := repo.RevertWin(ctx, entered.ID, entity.LotteryEntryLostReasonCardNotCharged)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, entered, get(t, entered.ID))
@@ -874,7 +891,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 
 	t.Run("unknown entry", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/revert-win "Unknown entry"
-		err := repo.RevertWin(ctx, entity.LotteryEntryID(entity.NewID()))
+		err := repo.RevertWin(ctx, entity.LotteryEntryID(entity.NewID()), entity.LotteryEntryLostReasonCardNotCharged)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -884,7 +901,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		won, _ := drawnWin(t)
 		mark := outboxMark(t)
 
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 
 		got := drawnOf(t, mark, won.ID)
 		require.Len(t, got, 1)
@@ -896,10 +913,10 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 	t.Run("already reverted announces nothing", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/revert-win "Already reverted announces nothing"
 		won, _ := drawnWin(t)
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 		mark := outboxMark(t)
 
-		require.NoError(t, repo.RevertWin(ctx, won.ID))
+		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 
 		assert.Empty(t, drawnOf(t, mark, won.ID))
 	})
@@ -908,13 +925,182 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 		// @spec components/entity/lottery-entry/revert-win "Announcement cannot be recorded"
 		won, _ := drawnWin(t)
 
-		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).RevertWin(ctx, won.ID)
+		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		got := get(t, won.ID)
 		assert.Equal(t, entity.LotteryEntryStateWon, got.State)
 		assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
 	})
+}
+
+func TestLotteryEntryRepository_EndEnteredByEvent(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
+	ctx := context.Background()
+
+	get := func(t *testing.T, id entity.LotteryEntryID) *entity.LotteryEntry {
+		t.Helper()
+		e, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		return e
+	}
+	// endedOf returns the ORDER.lottery_entry_drawn announcements since mark
+	// of the given entries.
+	endedOf := func(t *testing.T, mark int64, entries ...*entity.LotteryEntry) []*entityv1.LotteryEntry {
+		t.Helper()
+		ids := make(map[string]bool, len(entries))
+		for _, e := range entries {
+			ids[string(e.ID)] = true
+		}
+		return announcedSince(t, mark, entity.SubjectLotteryEntryDrawn, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
+			func(e *entityv1.LotteryEntry) bool { return ids[e.GetId().GetValue()] })
+	}
+	// assertEnded checks that the entry is Lost with the lost reason concert
+	// cancelled, no draw position and a Void Order.
+	assertEnded := func(t *testing.T, e *entity.LotteryEntry) {
+		t.Helper()
+		got := get(t, e.ID)
+		assert.Equal(t, entity.LotteryEntryStateLost, got.State)
+		assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, got.LostReason)
+		assert.Nil(t, got.DrawPosition)
+		assert.Equal(t, entity.OrderStatusVoid, got.Order.Status)
+	}
+
+	t.Run("entries of a cancelled event", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Entries of a cancelled event"
+		a := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		b := seedStockForEvent(t, a.EventID, entity.TicketSaleMethodLottery, 100, 4)
+		entries := []*entity.LotteryEntry{
+			insertLotteryEntry(t, a, a.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered),
+			insertLotteryEntry(t, a, a.SaleID, newUserID(t), 1, entity.LotteryEntryStateEntered),
+			insertLotteryEntry(t, b, b.SaleID, newUserID(t), 3, entity.LotteryEntryStateEntered),
+		}
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, a.EventID))
+
+		for _, e := range entries {
+			assertEnded(t, e)
+		}
+	})
+
+	t.Run("won entry", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Won entry"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		won := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateWon)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+
+		assert.Equal(t, won, get(t, won.ID))
+	})
+
+	t.Run("another date of the series", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Another date of the series"
+		saleID, a, b := seedLotteryOfTwoEvents(t)
+		cancelled := insertLotteryEntry(t, a, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		other := insertLotteryEntry(t, b, saleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, a.EventID))
+
+		assertEnded(t, cancelled)
+		got := get(t, other.ID)
+		assert.Equal(t, entity.LotteryEntryStateEntered, got.State)
+		assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
+	})
+
+	t.Run("called again", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Called again"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		e := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+		before := get(t, e.ID)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+
+		assert.Equal(t, before, get(t, e.ID))
+	})
+
+	t.Run("no entries", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "No entries"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateLost)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID), "an event without Entered entries")
+		require.NoError(t, repo.EndEnteredByEvent(ctx, entity.NewID()), "no event has the id")
+
+		assert.Equal(t, lost, get(t, lost.ID))
+		assert.Empty(t, endedOf(t, mark, lost))
+	})
+
+	t.Run("two entries ended", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Two entries ended"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		first := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		second := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 1, entity.LotteryEntryStateEntered)
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+
+		got := endedOf(t, mark, first, second)
+		require.Len(t, got, 2)
+		for _, e := range got {
+			assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST, e.GetState())
+			assert.Equal(t, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CONCERT_CANCELLED, e.GetLostReason())
+			assert.Equal(t, string(f.SaleID), e.GetTicketSaleId().GetValue())
+			assert.Nil(t, e.DrawPosition)
+		}
+		assert.ElementsMatch(t, []string{string(first.OrderID), string(second.OrderID)},
+			[]string{got[0].GetOrderId().GetValue(), got[1].GetOrderId().GetValue()})
+	})
+
+	t.Run("called again announces nothing", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Called again announces nothing"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		e := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+		mark := outboxMark(t)
+
+		require.NoError(t, repo.EndEnteredByEvent(ctx, f.EventID))
+
+		assert.Empty(t, endedOf(t, mark, e))
+	})
+
+	t.Run("announcement cannot be recorded", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/end-entered-by-event "Announcement cannot be recorded"
+		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+		first := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+		second := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 1, entity.LotteryEntryStateEntered)
+
+		err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).EndEnteredByEvent(ctx, f.EventID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Equal(t, first, get(t, first.ID))
+		assert.Equal(t, second, get(t, second.ID))
+	})
+}
+
+// TestLotteryEntriesLostReasonCheck checks that the stored lost reasons are
+// exactly those of entity.LotteryEntryLostReason: 3 (concert cancelled) is
+// accepted and 4 is refused.
+func TestLotteryEntriesLostReasonCheck(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
+	e := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateEntered)
+	const setLost = `UPDATE lottery_entries SET state = 3, lost_reason = $2 WHERE id = $1`
+
+	_, err := testDB.Pool.Exec(ctx, setLost, string(e.ID), 4)
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "chk_lottery_entries_lost_reason", pgErr.ConstraintName)
+
+	_, err = testDB.Pool.Exec(ctx, setLost, string(e.ID), int16(entity.LotteryEntryLostReasonConcertCancelled))
+	require.NoError(t, err)
 }
 
 func TestLotteryEntryRepository_MarkLossEmailSent(t *testing.T) {

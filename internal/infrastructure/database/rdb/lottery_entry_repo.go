@@ -130,8 +130,21 @@ const (
 	// lotteryEntryLockForRevertQuery locks the entry and its Order.
 	lotteryEntryLockForRevertQuery = lotteryEntrySelect + ` WHERE le.id = $1 FOR UPDATE OF le, o`
 	// lotteryEntryRevertWinQuery makes the Won entry Lost with the lost reason
-	// card not charged, keeping its draw position.
-	lotteryEntryRevertWinQuery = `UPDATE lottery_entries SET state = 3, lost_reason = 2 WHERE id = $1 AND state = 2`
+	// $2, keeping its draw position.
+	lotteryEntryRevertWinQuery = `UPDATE lottery_entries SET state = 3, lost_reason = $2 WHERE id = $1 AND state = 2`
+	// lotteryEntryLockStocksOfEventQuery locks every stock of the event $1 in
+	// id order, the order PersistDrawOutcome and RevertWin lock stocks in.
+	lotteryEntryLockStocksOfEventQuery = `SELECT id FROM ticket_stocks WHERE event_id = $1 ORDER BY id FOR UPDATE`
+	// lotteryEntryEndEnteredQuery makes every Entered entry whose Order is of
+	// one of the stocks $1 Lost with the lost reason $2, and returns the ids,
+	// orders and sales of the entries it changed.
+	lotteryEntryEndEnteredQuery = `
+		UPDATE lottery_entries AS le
+		SET state = 3, lost_reason = $2
+		FROM orders o
+		WHERE o.id = le.order_id AND o.ticket_stock_id = ANY($1::uuid[]) AND le.state = 1
+		RETURNING le.id, le.order_id, le.ticket_sale_id
+	`
 	// lotteryEntryVoidOrderQuery makes the Pending Order Void.
 	lotteryEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
 	// lotteryEntryMarkLossEmailSentQuery sets the loss email send time once
@@ -497,17 +510,16 @@ func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, s
 	return nil
 }
 
-// RevertWin makes the Won entry Lost and its Pending Order Void in one
-// transaction under the row lock of the Order's stock, then of the entry and
-// the Order.
+// RevertWin makes the Won entry Lost with the lost reason and its Pending
+// Order Void in one transaction under the row lock of the Order's stock, then
+// of the entry and the Order.
 //
 // # Announces
 //
-// ORDER.lottery_entry_drawn with the entry Lost, lost reason card not
-// charged, in the transaction of the change. Nothing when the entry was
-// already Lost.
-func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID) error {
-	attrs := []slog.Attr{slog.String("lottery_entry_id", string(id))}
+// ORDER.lottery_entry_drawn with the entry Lost with the lost reason, in the
+// transaction of the change. Nothing when the entry was already Lost.
+func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID, reason entity.LotteryEntryLostReason) error {
+	attrs := []slog.Attr{slog.String("lottery_entry_id", string(id)), slog.Int("lost_reason", int(reason))}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin reverting the win", attrs...)
@@ -537,14 +549,14 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 		return apperr.New(codes.FailedPrecondition, "the win is already issued",
 			append(attrs, slog.String("order_status", entry.Order.Status.String()))...)
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryRevertWinQuery, string(id)); err != nil {
+	if _, err := tx.Exec(ctx, lotteryEntryRevertWinQuery, string(id), int16(reason)); err != nil {
 		return toAppErr(err, "failed to revert the win", attrs...)
 	}
 	if _, err := tx.Exec(ctx, lotteryEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
 		return toAppErr(err, "failed to void the entry's order", attrs...)
 	}
 	entry.State = entity.LotteryEntryStateLost
-	entry.LostReason = entity.LotteryEntryLostReasonCardNotCharged
+	entry.LostReason = reason
 	entry.Order.Status = entity.OrderStatusVoid
 	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, messaging.Announcement{Payload: pb.FromLotteryEntry(entry)}); err != nil {
 		return err
@@ -552,10 +564,93 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit reverting the win", attrs...)
 	}
-	r.db.logger.Info(ctx, "lottery win reverted: the card could not be charged",
+	r.db.logger.Info(ctx, "lottery win reverted",
 		slog.String("entityType", "lottery_entry"),
 		slog.String("lottery_entry_id", string(id)),
 		slog.String("order_id", string(entry.OrderID)),
+		slog.Int("lost_reason", int(reason)),
+	)
+	return nil
+}
+
+// endedEntry is one entry EndEnteredByEvent made Lost.
+type endedEntry struct {
+	ID           string
+	OrderID      string
+	TicketSaleID string
+}
+
+// EndEnteredByEvent locks the event's stocks in id order, makes their
+// Entered entries Lost with the lost reason concert cancelled and voids those
+// entries' Orders, in one transaction.
+//
+// # Announces
+//
+// ORDER.lottery_entry_drawn once per entry it makes Lost, with the entry as
+// it is after the change, in the transaction of the change, inserted in
+// chunks. Nothing when no entry changed.
+func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID string) error {
+	attrs := []slog.Attr{slog.String("event_id", eventID)}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin ending the event's lottery entries", attrs...)
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, lotteryEntryLockStocksOfEventQuery, eventID)
+	if err != nil {
+		return toAppErr(err, "failed to lock the event's stocks", attrs...)
+	}
+	stocks, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return toAppErr(err, "failed to lock the event's stocks", attrs...)
+	}
+	if len(stocks) == 0 {
+		return nil
+	}
+	reason := entity.LotteryEntryLostReasonConcertCancelled
+	rows, err = tx.Query(ctx, lotteryEntryEndEnteredQuery, stocks, int16(reason))
+	if err != nil {
+		return toAppErr(err, "failed to end the event's lottery entries", attrs...)
+	}
+	ended, err := pgx.CollectRows(rows, pgx.RowToStructByPos[endedEntry])
+	if err != nil {
+		return toAppErr(err, "failed to end the event's lottery entries", attrs...)
+	}
+	if len(ended) == 0 {
+		return nil
+	}
+	orders := make([]string, len(ended))
+	for i, e := range ended {
+		orders[i] = e.OrderID
+	}
+	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, orders); err != nil {
+		return toAppErr(err, "failed to void the ended entries' orders", attrs...)
+	}
+	for start := 0; start < len(ended); start += drawAnnouncementChunk {
+		end := min(start+drawAnnouncementChunk, len(ended))
+		chunk := make([]messaging.Announcement, 0, end-start)
+		for _, e := range ended[start:end] {
+			chunk = append(chunk, messaging.Announcement{Payload: pb.FromLotteryEntry(&entity.LotteryEntry{
+				ID:           entity.LotteryEntryID(e.ID),
+				OrderID:      entity.OrderID(e.OrderID),
+				TicketSaleID: entity.TicketSaleID(e.TicketSaleID),
+				State:        entity.LotteryEntryStateLost,
+				LostReason:   reason,
+			})})
+		}
+		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, chunk); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit ending the event's lottery entries", attrs...)
+	}
+	r.db.logger.Info(ctx, "lottery entries of a cancelled event ended",
+		slog.String("entityType", "lottery_entry"),
+		slog.String("event_id", eventID),
+		slog.Int("entry_count", len(ended)),
 	)
 	return nil
 }

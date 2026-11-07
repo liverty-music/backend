@@ -34,6 +34,8 @@ func lotteryEntryLostReasonToProto(r entity.LotteryEntryLostReason) entityv1.Lot
 		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN
 	case entity.LotteryEntryLostReasonCardNotCharged:
 		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED
+	case entity.LotteryEntryLostReasonConcertCancelled:
+		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CONCERT_CANCELLED
 	default:
 		return entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_UNSPECIFIED
 	}
