@@ -84,7 +84,7 @@ require (
 	golang.org/x/time v0.16.0
 	google.golang.org/api v0.311.0
 	google.golang.org/genai v1.77.0
-	google.golang.org/genproto v0.0.0-20261026165753-2ffab32bce7e
+	google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.37.0-rc.1
