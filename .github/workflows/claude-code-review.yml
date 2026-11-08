@@ -17,6 +17,8 @@ permissions:
   pull-requests: write
   issues: read
   id-token: write
+  # The shared review finds the last reviewed commit among this workflow's runs.
+  actions: read
 
 jobs:
   review:
