@@ -26,8 +26,15 @@ func testLogger(t *testing.T) *logging.Logger {
 
 // Local types mirroring the unexported response types in the package under test.
 type artistResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	LifeSpan *lifeSpanJSON `json:"life-span,omitempty"`
+}
+
+type lifeSpanJSON struct {
+	Begin string  `json:"begin,omitempty"`
+	End   *string `json:"end"`
+	Ended *bool   `json:"ended"`
 }
 
 type placeCoordinates struct {
@@ -52,9 +59,12 @@ func TestClient_GetArtist(t *testing.T) {
 		mbid string
 	}
 	type want struct {
-		name string
-		mbid string
+		name          string
+		mbid          string
+		activityEnded bool
 	}
+	ended := true
+	endDate := "2016-12-31"
 	tests := []struct {
 		name         string
 		args         args
@@ -65,7 +75,8 @@ func TestClient_GetArtist(t *testing.T) {
 		invalidJSON  bool
 	}{
 		{
-			name:       "success - returns artist",
+			// @spec components/entity/artist/get-artist "Known MBID"
+			name:       "Known MBID",
 			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
 			statusCode: http.StatusOK,
 			responseBody: artistResponse{
@@ -79,7 +90,56 @@ func TestClient_GetArtist(t *testing.T) {
 			},
 		},
 		{
-			name:       "error - not found",
+			// @spec components/entity/artist/get-artist "Ended activity"
+			name:       "Ended activity",
+			args:       args{mbid: "1b1ffb3e-b7a1-4b2f-8a4e-3c2b6ac29b0e"},
+			statusCode: http.StatusOK,
+			responseBody: artistResponse{
+				ID:       "1b1ffb3e-b7a1-4b2f-8a4e-3c2b6ac29b0e",
+				Name:     "SMAP",
+				LifeSpan: &lifeSpanJSON{Begin: "1988", End: &endDate, Ended: &ended},
+			},
+			want: want{
+				name:          "SMAP",
+				mbid:          "1b1ffb3e-b7a1-4b2f-8a4e-3c2b6ac29b0e",
+				activityEnded: true,
+			},
+		},
+		{
+			// @spec components/entity/artist/get-artist "Ended activity without an end date"
+			name:       "Ended activity without an end date",
+			args:       args{mbid: "0383dadf-2a4e-4d10-a46a-e9e041da8eb3"},
+			statusCode: http.StatusOK,
+			responseBody: artistResponse{
+				ID:       "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+				Name:     "Queen",
+				LifeSpan: &lifeSpanJSON{Begin: "1970", Ended: &ended},
+			},
+			want: want{
+				name:          "Queen",
+				mbid:          "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+				activityEnded: true,
+			},
+		},
+		{
+			// @spec components/entity/artist/get-artist "Activity not ended"
+			name:       "Activity not ended",
+			args:       args{mbid: "c8e0a8b7-3a41-4a47-9b1d-6f9e0b3f3b4c"},
+			statusCode: http.StatusOK,
+			responseBody: artistResponse{
+				ID:       "c8e0a8b7-3a41-4a47-9b1d-6f9e0b3f3b4c",
+				Name:     "ELLEGARDEN",
+				LifeSpan: &lifeSpanJSON{Begin: "1998"},
+			},
+			want: want{
+				name:          "ELLEGARDEN",
+				mbid:          "c8e0a8b7-3a41-4a47-9b1d-6f9e0b3f3b4c",
+				activityEnded: false,
+			},
+		},
+		{
+			// @spec components/entity/artist/get-artist "Unknown MBID"
+			name:       "Unknown MBID",
 			args:       args{mbid: "non-existent"},
 			statusCode: http.StatusNotFound,
 			wantErr:    apperr.New(codes.NotFound, "musicbrainz api returned non-ok status: 404"),
@@ -141,9 +201,27 @@ func TestClient_GetArtist(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.want.name, artist.Name)
 				assert.Equal(t, tt.want.mbid, artist.MBID)
+				assert.Equal(t, tt.want.activityEnded, artist.ActivityEnded)
 			}
 		})
 	}
+}
+
+// @spec components/entity/artist/get-artist "Catalog unreachable"
+func TestClient_GetArtist_CatalogUnreachable(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	baseURL := server.URL + "/"
+	server.Close()
+
+	client := musicbrainz.NewClient(server.Client(), testLogger(t))
+	client.SetBaseURL(baseURL)
+
+	artist, err := client.GetArtist(context.Background(), "a74b1b7f-71a5-4011-9441-d0b5e4122711")
+
+	assert.ErrorIs(t, err, apperr.New(codes.Unavailable, "musicbrainz api request failed"))
+	assert.Nil(t, artist)
 }
 
 func TestClient_SearchPlace(t *testing.T) {

@@ -253,6 +253,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					SearchTime: time.Now().Add(-1 * time.Hour),
 					Status:     entity.ConcertSearchStatusCompleted,
 				}
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(recentLog, nil).Once()
 			},
 			wantErr: nil,
@@ -267,6 +268,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					SearchTime: time.Now().Add(-1 * time.Minute),
 					Status:     entity.ConcertSearchStatusPending,
 				}
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.concertSearchRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(pendingLog, nil).Once()
 			},
 			wantErr: nil,
@@ -577,6 +579,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			// SearchTime is "now" at bubble start; 1 hour later is still fresh (TTL = 24h).
 			searchedAt := time.Now()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
 				ArtistID:   artistID,
 				SearchTime: searchedAt,
@@ -634,6 +637,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			// SearchTime is "now"; advance 1 minute — still within 3-minute pendingTimeout.
 			searchedAt := time.Now()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
 				ArtistID:   artistID,
 				SearchTime: searchedAt,
@@ -708,6 +712,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 			// Search is well past the TTL, but a concert was discovered "now".
 			now := time.Now()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
 				ArtistID:      artistID,
 				SearchTime:    now,
@@ -1377,6 +1382,7 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 	t.Run("a run that returns before the search sends nothing", func(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
+		d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
 		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(&entity.ConcertSearch{
 			ArtistID: artist.ID, SearchTime: time.Now().Add(-time.Hour), Status: entity.ConcertSearchStatusCompleted,
 		}, nil).Once()
@@ -1513,4 +1519,53 @@ func TestDiscoveryWorkflowID(t *testing.T) {
 		"one search names one workflow")
 	assert.NotEqual(t, usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime), usecase.ExportedDiscoveryWorkflowID("artist-1", testSearchTime.Add(time.Hour)),
 		"a later search names a new one")
+}
+
+// TestSearchNewConcerts_EndedArtist shows that an artist whose activity has
+// ended is never searched: the mocks carry no expectation for the search
+// history, the official site or the external search, so any of those calls
+// fails the test.
+func TestSearchNewConcerts_EndedArtist(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ended := &entity.Artist{ID: "artist-ended", Name: "SMAP", MBID: "11111111-1111-1111-1111-111111111111", ActivityEnded: true}
+
+	// @spec components/usecase/concert/search-new-concerts "Ended artist"
+	t.Run("Ended artist", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		d.artistRepo.EXPECT().Get(mock.Anything, ended.ID).Return(ended, nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, ended.ID, usecase.SearchTriggerManual)
+
+		require.NoError(t, err)
+		assert.Nil(t, got)
+		assert.Empty(t, d.analytics.sent(usecase.EventConcertSearchCompleted))
+	})
+
+	// @spec components/usecase/concert/search-new-concerts "Ended artist in the daily run"
+	t.Run("Ended artist in the daily run", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		d.artistRepo.EXPECT().Get(mock.Anything, ended.ID).Return(ended, nil).Once()
+
+		got, err := d.uc.SearchNewConcerts(ctx, ended.ID, usecase.SearchTriggerDaily)
+
+		// No error: the daily run (cmd/job/concert-discovery) counts a failure
+		// only for an error, so it moves on to the next artist.
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	// @spec components/usecase/concert/search-new-concerts "Ended artist followed for the first time"
+	t.Run("Ended artist followed for the first time", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, ended.ID).Return(nil, apperr.ErrNotFound).Once()
+		d.artistRepo.EXPECT().Get(mock.Anything, ended.ID).Return(ended, nil).Once()
+
+		err := d.uc.SearchNewConcertsOnFirstFollow(ctx, ended.ID)
+
+		require.NoError(t, err)
+	})
 }

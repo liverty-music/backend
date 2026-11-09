@@ -26,6 +26,7 @@ variable "images" {
     { name = "concert-discovery", target = "concert-discovery" },
     { name = "artist-image-sync", target = "artist-image-sync" },
     { name = "official-site-refresh", target = "official-site-refresh" },
+    { name = "artist-refresh", target = "artist-refresh" },
     { name = "sales-phase-discovery", target = "sales-phase-discovery" },
     { name = "sales-reminders", target = "sales-reminders" },
     { name = "series-image-consumer", target = "series-image-consumer" },

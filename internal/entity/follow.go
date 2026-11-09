@@ -275,7 +275,8 @@ type FollowRepository interface {
 	//   - Internal: database query failure.
 	ListByUser(ctx context.Context, userID string) ([]*FollowedArtist, error)
 
-	// ListAll retrieves all distinct artists followed by any user.
+	// ListAll retrieves all distinct artists followed by any user, each with
+	// its id, name, MBID and ActivityEnded.
 	//
 	// # Possible errors:
 	//

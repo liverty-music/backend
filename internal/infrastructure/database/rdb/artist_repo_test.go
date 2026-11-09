@@ -689,3 +689,153 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 		})
 	}
 }
+
+func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	ctx := context.Background()
+
+	// @spec components/entity/artist/update-activity-ended "Activity ended"
+	t.Run("Activity ended", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "SMAP", "60000000-0000-0000-0000-00000000aa01")
+
+		err := repo.UpdateActivityEnded(ctx, artistID, true)
+
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.True(t, got.ActivityEnded)
+	})
+
+	// @spec components/entity/artist/update-activity-ended "Activity resumed in the catalog"
+	t.Run("Activity resumed in the catalog", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "ELLEGARDEN", "60000000-0000-0000-0000-00000000aa02")
+		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
+
+		err := repo.UpdateActivityEnded(ctx, artistID, false)
+
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.False(t, got.ActivityEnded)
+	})
+
+	// @spec components/entity/artist/update-activity-ended "Same value"
+	t.Run("Same value", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "BiSH", "60000000-0000-0000-0000-00000000aa03")
+		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
+		before, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+
+		err = repo.UpdateActivityEnded(ctx, artistID, true)
+
+		require.NoError(t, err)
+		after, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+	})
+
+	// @spec components/entity/artist/update-activity-ended "Unknown artist"
+	t.Run("Unknown artist", func(t *testing.T) {
+		cleanDatabase(t)
+
+		err := repo.UpdateActivityEnded(ctx, entity.NewID(), true)
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+func TestArtistRepository_ListRefreshDue(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	ctx := context.Background()
+	const slots = 30
+
+	seedArtists := func(t *testing.T, n int) []string {
+		t.Helper()
+		artists := make([]*entity.Artist, n)
+		for i := range artists {
+			artists[i] = entity.NewArtist(fmt.Sprintf("Refresh %04d", i), fmt.Sprintf("61000000-0000-0000-0000-00000000%04d", i))
+		}
+		created, err := repo.Create(ctx, artists...)
+		require.NoError(t, err)
+		ids := make([]string, len(created))
+		for i, a := range created {
+			ids[i] = a.ID
+		}
+		return ids
+	}
+	idsOf := func(artists []*entity.Artist) []string {
+		ids := make([]string, len(artists))
+		for i, a := range artists {
+			ids[i] = a.ID
+		}
+		return ids
+	}
+
+	// @spec components/entity/artist/list-refresh-due "Same slot on every call"
+	t.Run("Same slot on every call", func(t *testing.T) {
+		cleanDatabase(t)
+		seedArtists(t, 300)
+
+		first, err := repo.ListRefreshDue(ctx, slots, 7)
+		require.NoError(t, err)
+		second, err := repo.ListRefreshDue(ctx, slots, 7)
+		require.NoError(t, err)
+
+		assert.NotEmpty(t, first)
+		assert.Equal(t, idsOf(first), idsOf(second))
+	})
+
+	// @spec components/entity/artist/list-refresh-due "Every artist in one slot"
+	t.Run("Every artist in one slot", func(t *testing.T) {
+		cleanDatabase(t)
+		seeded := seedArtists(t, 300)
+		userID := seedUser(t, "Fan", "fan-refresh-due@example.com", "ext-fan-refresh-due")
+		followArtist(t, userID, seeded[0])
+
+		var listed []string
+		for slot := range slots {
+			got, err := repo.ListRefreshDue(ctx, slots, slot)
+			require.NoError(t, err)
+			listed = append(listed, idsOf(got)...)
+		}
+
+		assert.ElementsMatch(t, seeded, listed)
+	})
+
+	// @spec components/entity/artist/list-refresh-due "Spread over the slots"
+	t.Run("Spread over the slots", func(t *testing.T) {
+		cleanDatabase(t)
+		seedArtists(t, 3000)
+
+		for slot := range slots {
+			got, err := repo.ListRefreshDue(ctx, slots, slot)
+			require.NoError(t, err)
+			assert.GreaterOrEqual(t, len(got), 50, "slot %d", slot)
+			assert.LessOrEqual(t, len(got), 150, "slot %d", slot)
+		}
+	})
+
+	// @spec components/entity/artist/list-refresh-due "Empty slot"
+	t.Run("Empty slot", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "Only", "61000000-0000-0000-0000-00000000ff01")
+		occupied := -1
+		for slot := range slots {
+			got, err := repo.ListRefreshDue(ctx, slots, slot)
+			require.NoError(t, err)
+			if len(got) > 0 {
+				require.Equal(t, []string{artistID}, idsOf(got))
+				occupied = slot
+			}
+		}
+		require.NotEqual(t, -1, occupied)
+
+		got, err := repo.ListRefreshDue(ctx, slots, (occupied+1)%slots)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}

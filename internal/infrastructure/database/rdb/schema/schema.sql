@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS artists (
     fanart JSONB,
     fanart_synced_at TIMESTAMPTZ,
     official_site_checked_at TIMESTAMPTZ,
+    activity_ended BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT chk_artists_mbid_format CHECK (char_length(mbid) = 36),
     CONSTRAINT chk_artists_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
@@ -80,6 +81,7 @@ COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format
 COMMENT ON COLUMN artists.fanart IS 'Cached fanart.tv API response containing community-curated artist images (thumb, background, logo, banner)';
 COMMENT ON COLUMN artists.fanart_synced_at IS 'Timestamp of the last successful fanart.tv API sync for this artist';
 COMMENT ON COLUMN artists.official_site_checked_at IS 'Timestamp of the last official-site check in MusicBrainz for this artist, whatever the check found. NULL when never checked.';
+COMMENT ON COLUMN artists.activity_ended IS 'True when MusicBrainz marks the artist''s activity as ended (a group dissolved, a solo artist died); false when it does not or before the artist was first read from MusicBrainz. Charts and similar-artist lists leave out ended artists, and concert and ticket-sale searches skip them.';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (

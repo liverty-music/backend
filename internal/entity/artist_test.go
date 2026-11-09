@@ -97,6 +97,7 @@ func TestNewArtist(t *testing.T) {
 		assert.Nil(t, got.Fanart)
 		assert.Nil(t, got.FanartSyncTime)
 		assert.Nil(t, got.OfficialSiteCheckTime)
+		assert.False(t, got.ActivityEnded)
 	})
 
 	// @spec components/entity/artist "Two new artists"

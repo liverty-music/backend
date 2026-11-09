@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -531,6 +532,135 @@ func (_c *MockArtistUseCase_ListTop_Call) Return(artists []*entity.Artist, err e
 }
 
 func (_c *MockArtistUseCase_ListTop_Call) RunAndReturn(run func(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error)) *MockArtistUseCase_ListTop_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Refresh provides a mock function for the type MockArtistUseCase
+func (_mock *MockArtistUseCase) Refresh(ctx context.Context, artistID string, mbid string, currentName string) error {
+	ret := _mock.Called(ctx, artistID, mbid, currentName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Refresh")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = returnFunc(ctx, artistID, mbid, currentName)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockArtistUseCase_Refresh_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Refresh'
+type MockArtistUseCase_Refresh_Call struct {
+	*mock.Call
+}
+
+// Refresh is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+//   - mbid string
+//   - currentName string
+func (_e *MockArtistUseCase_Expecter) Refresh(ctx any, artistID any, mbid any, currentName any) *MockArtistUseCase_Refresh_Call {
+	return &MockArtistUseCase_Refresh_Call{Call: _e.mock.On("Refresh", ctx, artistID, mbid, currentName)}
+}
+
+func (_c *MockArtistUseCase_Refresh_Call) Run(run func(ctx context.Context, artistID string, mbid string, currentName string)) *MockArtistUseCase_Refresh_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_Refresh_Call) Return(err error) *MockArtistUseCase_Refresh_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockArtistUseCase_Refresh_Call) RunAndReturn(run func(ctx context.Context, artistID string, mbid string, currentName string) error) *MockArtistUseCase_Refresh_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RefreshDue provides a mock function for the type MockArtistUseCase
+func (_mock *MockArtistUseCase) RefreshDue(ctx context.Context) (usecase.ArtistRefreshSummary, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RefreshDue")
+	}
+
+	var r0 usecase.ArtistRefreshSummary
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) (usecase.ArtistRefreshSummary, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) usecase.ArtistRefreshSummary); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		r0 = ret.Get(0).(usecase.ArtistRefreshSummary)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockArtistUseCase_RefreshDue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RefreshDue'
+type MockArtistUseCase_RefreshDue_Call struct {
+	*mock.Call
+}
+
+// RefreshDue is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockArtistUseCase_Expecter) RefreshDue(ctx any) *MockArtistUseCase_RefreshDue_Call {
+	return &MockArtistUseCase_RefreshDue_Call{Call: _e.mock.On("RefreshDue", ctx)}
+}
+
+func (_c *MockArtistUseCase_RefreshDue_Call) Run(run func(ctx context.Context)) *MockArtistUseCase_RefreshDue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_RefreshDue_Call) Return(artistRefreshSummary usecase.ArtistRefreshSummary, err error) *MockArtistUseCase_RefreshDue_Call {
+	_c.Call.Return(artistRefreshSummary, err)
+	return _c
+}
+
+func (_c *MockArtistUseCase_RefreshDue_Call) RunAndReturn(run func(ctx context.Context) (usecase.ArtistRefreshSummary, error)) *MockArtistUseCase_RefreshDue_Call {
 	_c.Call.Return(run)
 	return _c
 }

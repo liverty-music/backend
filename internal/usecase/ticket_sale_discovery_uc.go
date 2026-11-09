@@ -38,7 +38,9 @@ func ticketSaleSearchDue(searched, now time.Time) bool {
 // new sale.
 type TicketSaleDiscoveryUseCase interface {
 	// DiscoverForArtist runs the discovery pipeline for one artist and
-	// returns the number of new discovered sales.
+	// returns the number of new discovered sales. It returns 0 without
+	// searching, storing or recording anything for an artist whose activity
+	// has ended.
 	DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error)
 }
 
@@ -97,6 +99,10 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	attrs := []slog.Attr{
 		slog.String("artist_id", artist.ID),
 		slog.String("artist_name", artist.Name),
+	}
+	if artist.ActivityEnded {
+		uc.logger.Info(ctx, "ticket_sale_discovery: skipping artist whose activity has ended", attrs...)
+		return 0, nil
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: starting for artist", attrs...)
 

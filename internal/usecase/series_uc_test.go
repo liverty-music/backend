@@ -120,6 +120,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 	d := newConcertTestDeps(t)
 	logger := newTestLogger(t)
 
+	d.artistRepo.EXPECT().Get(mock.Anything, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 	orgRepo := entitymocks.NewMockOrganizerRepository(t)
 	orgRepo.EXPECT().IsArtistRepresentedByActiveOrganizer(mock.Anything, "artist-1").
 		Return(true, nil)

@@ -20,16 +20,16 @@ func newArtistAnnouncement(id, name, mbid string) *entityv1.Artist {
 	}
 }
 
-func TestArtistNameConsumer_Handle(t *testing.T) {
+func TestArtistRefreshConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
 		t.Parallel()
 
-		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
-		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
+		artistUC := ucmocks.NewMockArtistUseCase(t)
+		handler := event.NewArtistRefreshConsumer(artistUC, newTestLogger(t))
 
-		nameResolutionUC.EXPECT().ResolveCanonicalName(anyCtx, "artist-2", "mbid-fail", "Some Artist").Return(fmt.Errorf("rate limited")).Once()
+		artistUC.EXPECT().Refresh(anyCtx, "artist-2", "mbid-fail", "Some Artist").Return(fmt.Errorf("rate limited")).Once()
 
 		msg := makeAnnouncementMsg(t, "announcement-1", "", newArtistAnnouncement("artist-2", "Some Artist", "mbid-fail"))
 
@@ -41,8 +41,8 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 	t.Run("returns error on invalid payload", func(t *testing.T) {
 		t.Parallel()
 
-		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
-		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
+		artistUC := ucmocks.NewMockArtistUseCase(t)
+		handler := event.NewArtistRefreshConsumer(artistUC, newTestLogger(t))
 
 		err := handler.Handle(malformedMsg())
 		assert.Error(t, err)

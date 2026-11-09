@@ -9,27 +9,27 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ArtistNameConsumer handles artist.created events by delegating canonical
-// name resolution to the ArtistNameResolutionUseCase.
-type ArtistNameConsumer struct {
-	nameResolutionUC usecase.ArtistNameResolutionUseCase
-	logger           *logging.Logger
+// ArtistRefreshConsumer handles artist.created events by reading the new
+// artist again from the music catalog through ArtistUseCase.Refresh.
+type ArtistRefreshConsumer struct {
+	artistUC usecase.ArtistUseCase
+	logger   *logging.Logger
 }
 
-// NewArtistNameConsumer creates a new ArtistNameConsumer.
-func NewArtistNameConsumer(
-	nameResolutionUC usecase.ArtistNameResolutionUseCase,
+// NewArtistRefreshConsumer creates a new ArtistRefreshConsumer.
+func NewArtistRefreshConsumer(
+	artistUC usecase.ArtistUseCase,
 	logger *logging.Logger,
-) *ArtistNameConsumer {
-	return &ArtistNameConsumer{
-		nameResolutionUC: nameResolutionUC,
-		logger:           logger,
+) *ArtistRefreshConsumer {
+	return &ArtistRefreshConsumer{
+		artistUC: artistUC,
+		logger:   logger,
 	}
 }
 
 // Handle processes an artist.created event by parsing the payload and
-// delegating canonical name resolution to the use case layer.
-func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
+// refreshing the announced artist from the catalog.
+func (h *ArtistRefreshConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
 	data, err := parseArtistCreated(msg)
@@ -43,7 +43,7 @@ func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
 		slog.String("mbid", data.MBID),
 	)
 
-	if err := h.nameResolutionUC.ResolveCanonicalName(ctx, data.ArtistID, data.MBID, data.ArtistName); err != nil {
+	if err := h.artistUC.Refresh(ctx, data.ArtistID, data.MBID, data.ArtistName); err != nil {
 		return fmt.Errorf("handle ARTIST.created event: %w", err)
 	}
 

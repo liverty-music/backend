@@ -70,7 +70,7 @@ const (
 		WHERE fa.user_id = $1
 	`
 	followListAllQuery = `
-		SELECT DISTINCT a.id, a.name, COALESCE(a.mbid, '')
+		SELECT DISTINCT a.id, a.name, COALESCE(a.mbid, ''), a.activity_ended
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 	`
@@ -277,7 +277,7 @@ func (r *FollowRepository) ListAll(ctx context.Context) ([]*entity.Artist, error
 	var artists []*entity.Artist
 	for rows.Next() {
 		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &a.ActivityEnded); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
 		artists = append(artists, &a)

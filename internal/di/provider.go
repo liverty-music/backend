@@ -329,7 +329,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, workflows, time.Now, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, artistCache, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, artistCache, time.Now, logger)
 	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside

@@ -6,9 +6,9 @@ name: Deploy Backend
 #                         One job (`build-dev-images`) decides "build vs
 #                         inherit" over the pushed range (event.before..sha):
 #                           * build:   one Bake run (docker-bake.hcl) builds
-#                                      all 10 images (api, consumer, identity,
+#                                      all 11 images (api, consumer, identity,
 #                                      worker, concert-discovery, artist-image-sync,
-#                                      official-site-refresh,
+#                                      official-site-refresh, artist-refresh,
 #                                      sales-phase-discovery, sales-reminders,
 #                                      series-image-consumer), pushing
 #                                      :latest, :main, :<sha>.
@@ -76,7 +76,7 @@ jobs:
       SERVICE_ACCOUNT: ${{ vars.SERVICE_ACCOUNT }}
       # The images of docker-bake.hcl, and of the release matrix below. The
       # inherit path copies exactly these.
-      IMAGES: api consumer identity worker concert-discovery artist-image-sync official-site-refresh sales-phase-discovery sales-reminders series-image-consumer
+      IMAGES: api consumer identity worker concert-discovery artist-image-sync official-site-refresh artist-refresh sales-phase-discovery sales-reminders series-image-consumer
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -308,6 +308,8 @@ jobs:
             target: artist-image-sync
           - name: official-site-refresh
             target: official-site-refresh
+          - name: artist-refresh
+            target: artist-refresh
           - name: sales-phase-discovery
             target: sales-phase-discovery
           - name: sales-reminders

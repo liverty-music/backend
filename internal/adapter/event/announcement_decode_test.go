@@ -52,12 +52,13 @@ func TestReceivers_Protobuf(t *testing.T) {
 		assert.Error(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", list)))
 	})
 
-	t.Run("ARTIST.created resolves the canonical name of the new Artist", func(t *testing.T) {
+	// @spec components/usecase/artist/refresh "Artist announced"
+	t.Run("ARTIST.created refreshes the new Artist", func(t *testing.T) {
 		t.Parallel()
-		names := ucmocks.NewMockArtistNameResolutionUseCase(t)
-		// Resolving the same Artist again gives the same name.
-		names.EXPECT().ResolveCanonicalName(anyCtx, "artist-1", "11111111-1111-1111-1111-111111111111", "tuki.").Return(nil).Twice()
-		consumer := event.NewArtistNameConsumer(names, newTestLogger(t))
+		artists := ucmocks.NewMockArtistUseCase(t)
+		// Refreshing the same Artist again stores the same name and status.
+		artists.EXPECT().Refresh(anyCtx, "artist-1", "11111111-1111-1111-1111-111111111111", "tuki.").Return(nil).Twice()
+		consumer := event.NewArtistRefreshConsumer(artists, newTestLogger(t))
 
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", newArtist)))
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", newArtist)))
