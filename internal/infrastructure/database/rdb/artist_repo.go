@@ -33,22 +33,22 @@ const (
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.mbid = $1
 	`
@@ -56,7 +56,7 @@ const (
 		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.fanart_synced_at IS NULL
 		   OR (a.fanart_synced_at < $1
@@ -76,8 +76,19 @@ const (
 	updateArtistNameQuery = `
 		UPDATE artists SET name = $2 WHERE id = $1
 	`
+	updateArtistActivityEndedQuery = `
+		UPDATE artists SET activity_ended = $2 WHERE id = $1
+	`
+	// The slot comes from the UUID's last two bytes, which UUIDv7 fills with
+	// random bits, so artists spread evenly and an artist never changes slot.
+	listArtistsRefreshDueQuery = `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE ((get_byte(uuid_send(a.id), 14) << 8) | get_byte(uuid_send(a.id), 15)) % $1 = $2
+		ORDER BY a.id
+	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
 		  AND (a.official_site_checked_at IS NULL OR a.official_site_checked_at < $1)
@@ -102,14 +113,16 @@ func NewArtistRepository(db *Database, outbox Announcer) *ArtistRepository {
 const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa WHERE oa.artist_id = a.id)`
 
 // scanArtist scans a row into an Artist entity including nullable fanart and
-// official site check columns.
+// official site check columns. The row selects id, name, mbid, fanart,
+// fanart_synced_at, official_site_checked_at, activity_ended and
+// artistOrganizerColumn, in that order.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var a entity.Artist
 	var fanartJSON []byte
 	var syncedAt *time.Time
 	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.OrganizerID); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.ActivityEnded, &a.OrganizerID); err != nil {
 		return nil, err
 	}
 	if officialSiteCheckedAt.Valid {
@@ -326,6 +339,45 @@ func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name strin
 		slog.String("name", name),
 	)
 	return nil
+}
+
+// UpdateActivityEnded sets whether the artist's activity has ended.
+func (r *ArtistRepository) UpdateActivityEnded(ctx context.Context, id string, ended bool) error {
+	tag, err := r.db.Pool.Exec(ctx, updateArtistActivityEndedQuery, id, ended)
+	if err != nil {
+		return toAppErr(err, "failed to update artist activity ended", slog.String("id", id))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "artist not found")
+	}
+	return nil
+}
+
+// ListRefreshDue returns the artists in the given slot out of slots, ordered by id.
+func (r *ArtistRepository) ListRefreshDue(ctx context.Context, slots, slot int) ([]*entity.Artist, error) {
+	if slots <= 0 || slot < 0 || slot >= slots {
+		return nil, apperr.New(codes.InvalidArgument, "slot must be in [0, slots)",
+			slog.Int("slots", slots), slog.Int("slot", slot))
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listArtistsRefreshDueQuery, slots, slot)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list refresh-due artists", slog.Int("slot", slot))
+	}
+	defer rows.Close()
+
+	artists := []*entity.Artist{}
+	for rows.Next() {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan artist")
+		}
+		artists = append(artists, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating refresh-due artist rows")
+	}
+	return artists, nil
 }
 
 // CreateOfficialSite saves the official site for an artist.

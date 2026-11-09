@@ -83,7 +83,6 @@ packages:
       AnalyticsClient: {}
       AnalyticsConsumerMetrics: {}
       ArtistImageSyncUseCase: {}
-      ArtistNameResolutionUseCase: {}
       ArtistUseCase: {}
       CentroidResolver: {}
       CheckoutUseCase: {}

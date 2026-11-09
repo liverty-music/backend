@@ -88,7 +88,8 @@ type ConcertUseCase interface {
 
 	// SearchNewConcerts discovers new concerts for the given artist synchronously.
 	// It returns the newly discovered concerts after deduplication against
-	// already-known upcoming events.
+	// already-known upcoming events. It returns no concerts, without an
+	// external search, for an artist whose activity has ended.
 	//
 	// trigger names what started the run; it is reported with the run's
 	// outcome when the external search is performed.
@@ -400,6 +401,21 @@ const (
 // It returns the newly discovered concerts after deduplication against
 // already-known upcoming events.
 func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) ([]*entity.Concert, error) {
+	artist, err := uc.artistRepo.Get(ctx, artistID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// An artist whose activity has ended (a dissolved group, a solo artist
+	// who died) will not announce concerts: skip the external search. When
+	// the catalog clears the end, the artist is searched again.
+	if artist.ActivityEnded {
+		uc.logger.Debug(ctx, "skipping discovery for artist whose activity has ended",
+			slog.String("artist_id", artistID),
+		)
+		return nil, nil
+	}
+
 	// Discovery exclusion: skip Gemini search entirely for artists whose
 	// concerts are managed directly by an active organizer. The organizer
 	// publishes their concerts via the authoring surface; a background
@@ -462,7 +478,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
-	return uc.executeSearch(ctx, artistID, trigger, searchTime)
+	return uc.executeSearch(ctx, artist, trigger, searchTime)
 }
 
 // SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
@@ -506,7 +522,8 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 //
 // searchTime is the search time of the Artist's ConcertSearch; the
 // create-from-discovered workflow the search starts is named after it.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, trigger SearchTrigger, searchTime time.Time) (result []*entity.Concert, err error) {
+func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Artist, trigger SearchTrigger, searchTime time.Time) (result []*entity.Concert, err error) {
+	artistID := artist.ID
 	// searched is set once the external search is called; only such a run
 	// reports its outcome. announcedSeries/Events count what was handed on.
 	var (
@@ -552,12 +569,6 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string, tr
 			uc.metrics.RecordConcertSearch(ctx, "success")
 		}
 	}()
-
-	// Get Artist
-	artist, err := uc.artistRepo.Get(ctx, artistID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get artist: %w", err)
-	}
 
 	// Guard before the Gemini call: an artist row with empty Name or MBID
 	// is a data-integrity problem the discovery pipeline can't recover

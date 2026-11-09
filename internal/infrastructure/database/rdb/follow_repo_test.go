@@ -383,59 +383,71 @@ func TestFollowRepository_SetHype(t *testing.T) {
 
 func TestFollowRepository_ListAll(t *testing.T) {
 	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
 	ctx := context.Background()
 
-	tests := []struct {
-		name      string
-		setup     func()
-		wantCount int
-		wantErr   error
-	}{
-		{
-			name: "empty when no follows",
-			setup: func() {
-				cleanDatabase(t)
-			},
-			wantCount: 0,
-		},
-		{
-			name: "returns distinct artists",
-			setup: func() {
-				cleanDatabase(t)
-				artistID1 := seedArtist(t, "ListAll Artist 1", "a4000000-0000-0000-0000-000000000001")
-				artistID2 := seedArtist(t, "ListAll Artist 2", "a4000000-0000-0000-0000-000000000002")
-				user1ID := seedUser(t, "ListAll User 1", "listall-user1@test.com", "ext-listall-01")
-				user2ID := seedUser(t, "ListAll User 2", "listall-user2@test.com", "ext-listall-02")
+	// @spec components/entity/follow/list-all "Artist followed by two fans"
+	t.Run("Artist followed by two fans", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "ListAll Artist 1", "a4000000-0000-0000-0000-000000000001")
+		user1ID := seedUser(t, "ListAll User 1", "listall-user1@test.com", "ext-listall-01")
+		user2ID := seedUser(t, "ListAll User 2", "listall-user2@test.com", "ext-listall-02")
+		require.NoError(t, followRepo.Follow(ctx, user1ID, artistID))
+		require.NoError(t, followRepo.Follow(ctx, user2ID, artistID))
 
-				// User1 follows both artists.
-				err := followRepo.Follow(ctx, user1ID, artistID1)
-				require.NoError(t, err)
-				err = followRepo.Follow(ctx, user1ID, artistID2)
-				require.NoError(t, err)
+		got, err := followRepo.ListAll(ctx)
 
-				// User2 follows artist1 only — should not duplicate artist1 in results.
-				err = followRepo.Follow(ctx, user2ID, artistID1)
-				require.NoError(t, err)
-			},
-			wantCount: 2,
-		},
-	}
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, artistID, got[0].ID)
+		assert.Equal(t, "ListAll Artist 1", got[0].Name)
+		assert.Equal(t, "a4000000-0000-0000-0000-000000000001", got[0].MBID)
+		assert.False(t, got[0].ActivityEnded)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.setup()
+	// @spec components/entity/follow/list-all "Unfollowed artist"
+	t.Run("Unfollowed artist", func(t *testing.T) {
+		cleanDatabase(t)
+		keptID := seedArtist(t, "ListAll Kept", "a4000000-0000-0000-0000-000000000002")
+		droppedID := seedArtist(t, "ListAll Dropped", "a4000000-0000-0000-0000-000000000003")
+		userID := seedUser(t, "ListAll User 3", "listall-user3@test.com", "ext-listall-03")
+		require.NoError(t, followRepo.Follow(ctx, userID, keptID))
+		require.NoError(t, followRepo.Follow(ctx, userID, droppedID))
+		require.NoError(t, followRepo.Unfollow(ctx, userID, droppedID))
 
-			got, err := followRepo.ListAll(ctx)
+		got, err := followRepo.ListAll(ctx)
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, keptID, got[0].ID)
+	})
 
-			require.NoError(t, err)
-			assert.Len(t, got, tt.wantCount)
-		})
-	}
+	// @spec components/entity/follow/list-all "No follows"
+	t.Run("No follows", func(t *testing.T) {
+		cleanDatabase(t)
+		seedArtist(t, "ListAll Unfollowed", "a4000000-0000-0000-0000-000000000004")
+
+		got, err := followRepo.ListAll(ctx)
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	// @spec components/entity/follow/list-all "Followed artist whose activity has ended"
+	t.Run("Followed artist whose activity has ended", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "ListAll Ended", "a4000000-0000-0000-0000-000000000005")
+		require.NoError(t, artistRepo.UpdateActivityEnded(ctx, artistID, true))
+		userID := seedUser(t, "ListAll User 4", "listall-user4@test.com", "ext-listall-04")
+		require.NoError(t, followRepo.Follow(ctx, userID, artistID))
+
+		got, err := followRepo.ListAll(ctx)
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, artistID, got[0].ID)
+		assert.True(t, got[0].ActivityEnded)
+	})
 }
 
 func TestFollowRepository_ListFollowers(t *testing.T) {

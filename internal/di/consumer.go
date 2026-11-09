@@ -197,7 +197,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, err
 	}
 
-	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
+	// The consumer calls only ArtistUseCase.Refresh, which needs the
+	// repository, the catalog and the clock; the chart lookups and their cache
+	// belong to the API server.
+	artistUC := usecase.NewArtistUseCase(artistRepo, nil, nil, musicbrainzClient, nil, time.Now, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
 
 	// ConcertUseCase: needed here (not just by the RPC server) so the
@@ -259,7 +262,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Event Consumers
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
-	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
+	artistRefreshConsumer := event.NewArtistRefreshConsumer(artistUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(userUC, logger)
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
@@ -318,7 +321,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// fan-out fix the old single shared-group subscriber broke.
 	behaviorTable := []behaviorEntry{
 		{"notify-concert", entity.SubjectConcertCreated, notificationConsumer.Handle},
-		{"resolve-artist-name", entity.SubjectArtistCreated, artistNameConsumer.Handle},
+		{"refresh-artist", entity.SubjectArtistCreated, artistRefreshConsumer.Handle},
 		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
 		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
 		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},

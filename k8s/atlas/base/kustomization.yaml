@@ -150,3 +150,4 @@ configMapGenerator:
   - migrations/20261106120001_add_order_refunds.sql
   - migrations/20261107120000_notification_subject.sql
   - migrations/20261107130000_add_lottery_entry_lost_reason_concert_cancelled.sql
+  - migrations/20261109025437_add_artist_activity_ended.sql

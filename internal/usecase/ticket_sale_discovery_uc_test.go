@@ -528,3 +528,26 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		assert.Zero(t, n)
 	})
 }
+
+// @spec components/usecase/ticket-sale/discover-for-artist "Ended artist"
+func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_EndedArtist(t *testing.T) {
+	t.Parallel()
+
+	logger, err := logging.New()
+	require.NoError(t, err)
+	// The artist has a tracked series with an upcoming event, but the mocks
+	// carry no expectation: listing its concerts, searching, storing or
+	// recording anything fails the test.
+	m := newDiscoveryMocks(t)
+	uc := usecase.NewTicketSaleDiscoveryUseCase(
+		m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
+		m.searcher, nil, logger,
+	)
+	ended := *discoveryArtist
+	ended.ActivityEnded = true
+
+	got, err := uc.DiscoverForArtist(context.Background(), &ended)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, got)
+}

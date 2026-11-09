@@ -51,6 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     ./cmd/job/concert-discovery \
     ./cmd/job/artist-image-sync \
     ./cmd/job/official-site-refresh \
+    ./cmd/job/artist-refresh \
     ./cmd/job/sales-phase-discovery \
     ./cmd/job/sales-reminders
 
@@ -78,6 +79,12 @@ FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-static /out/official-site-refresh /official-site-refresh
 ENTRYPOINT ["/official-site-refresh"]
+
+# --- Artist Refresh Job target ---
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS artist-refresh
+ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
+COPY --from=build-static /out/artist-refresh /artist-refresh
+ENTRYPOINT ["/artist-refresh"]
 
 # --- Sales Phase Discovery Job target ---
 FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329 AS sales-phase-discovery

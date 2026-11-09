@@ -33,6 +33,11 @@ type Artist struct {
 	// checked in MusicBrainz, whatever the check found.
 	// nil when the official site has never been checked.
 	OfficialSiteCheckTime *time.Time
+	// ActivityEnded is true when the music catalog marks the artist's activity
+	// as ended (a group dissolved, a solo artist died). It is false when the
+	// catalog records no end, and before the artist is first read from the
+	// catalog. A hiatus is not an ended activity.
+	ActivityEnded bool
 	// OrganizerID is the Organizer that represents the artist; nil when no
 	// Organizer does. An artist has at most one.
 	OrganizerID *string
@@ -169,6 +174,27 @@ type ArtistRepository interface {
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
 	UpdateName(ctx context.Context, id string, name string) error
+
+	// UpdateActivityEnded sets whether the artist's activity has ended, as last
+	// read from the music catalog. Setting the value the artist already has
+	// succeeds and changes nothing.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	UpdateActivityEnded(ctx context.Context, id string, ended bool) error
+
+	// ListRefreshDue returns every artist in one of slots equal shares of all
+	// registered artists, followed or not, ordered by id. An artist's share is
+	// derived from its id alone, so it stays in the same slot on every call
+	// with the same slots. slot runs from 0 to slots-1.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: slots is not positive, or slot is outside 0 to slots-1.
+	//   - Internal: database query failure.
+	ListRefreshDue(ctx context.Context, slots, slot int) ([]*Artist, error)
 
 	// Official Site operations
 

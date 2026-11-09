@@ -40,7 +40,7 @@ func newArtistTestDeps(t *testing.T) *artistTestDeps {
 	// real value; tests that cross it run inside a synctest bubble.
 	c := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 	t.Cleanup(func() { assert.NoError(t, c.Close()) })
-	d.uc = usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, newTestLogger(t))
+	d.uc = usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -94,7 +94,7 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		d := newArtistTestDeps(t)
 		c := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 		t.Cleanup(func() { assert.NoError(t, c.Close()) })
-		uc := usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, newTestLogger(t))
+		uc := usecase.NewArtistUseCase(d.repo, mocks.NewMockOrganizerRepository(t), d.searcher, d.idManager, c, time.Now, newTestLogger(t))
 		artist := &entity.Artist{ID: "artist-1", Name: "New Band", MBID: "11111111-1111-1111-1111-111111111111"}
 		d.idManager.EXPECT().GetArtist(ctx, artist.MBID).Return(&entity.Artist{MBID: artist.MBID, Name: artist.Name}, nil).Once()
 		d.repo.EXPECT().Create(ctx, artist).Return([]*entity.Artist{artist}, nil).Once()
@@ -216,6 +216,7 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 
 	ctx := context.Background()
 
+	// @spec components/usecase/artist/list-top "First call for a country"
 	t.Run("returns persisted artists with valid IDs", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
@@ -241,6 +242,7 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		assert.Equal(t, "id-b", result[1].ID)
 	})
 
+	// @spec components/usecase/artist/list-top "Chart artist without MBID"
 	t.Run("filters out empty MBID entries", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
@@ -296,7 +298,9 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 
 			time.Sleep(10 * time.Minute)
 
-			// Cache hit: the Once() expectations above fail on a second lookup.
+			// Cache hit: the Once() expectations above fail on a second lookup;
+			// the hit reads the artists' current status with one ListByMBIDs.
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a"}).Return(persisted, nil).Once()
 			second, err := d.uc.ListTop(ctx, "US", "", int32(0))
 			assert.NoError(t, err)
 			assert.Equal(t, first, second)
@@ -323,6 +327,123 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, registered, result)
 		})
+	})
+
+	// @spec components/usecase/artist/list-top "Repeated call keeps identities"
+	t.Run("returns the same artist for each MBID on a later call", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newArtistTestDeps(t)
+
+			fetched := []*entity.Artist{{Name: "Artist A", MBID: "mbid-a"}}
+			registered := []*entity.Artist{{ID: "id-a", Name: "Artist A", MBID: "mbid-a"}}
+			d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Twice()
+			// First call registers the artist; the second, after the cache
+			// expired, finds it registered and creates nothing.
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a"}).Return([]*entity.Artist{}, nil).Once()
+			d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return(registered, nil).Once()
+
+			first, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+			require.NoError(t, err)
+
+			time.Sleep(usecase.ArtistCacheTTL + time.Minute)
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a"}).Return(registered, nil).Once()
+
+			second, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+			require.NoError(t, err)
+			require.Len(t, first, 1)
+			require.Len(t, second, 1)
+			assert.Equal(t, first[0].ID, second[0].ID)
+		})
+	})
+
+	// @spec components/usecase/artist/list-top "Chart artist already registered"
+	t.Run("returns the registered artist without registering it again", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		fetched, registered, mbids := registeredArtists(t, 2)
+		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+		// No Create expectation: registering again fails the mock.
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+
+		require.NoError(t, err)
+		assert.Equal(t, registered, result)
+	})
+
+	// @spec components/usecase/artist/list-top "Empty chart"
+	t.Run("returns an empty list for an empty chart", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return([]*entity.Artist{}, nil).Once()
+
+		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	// @spec components/usecase/artist/list-top "Chart lists an ended artist"
+	t.Run("leaves out an ended artist and keeps the chart order", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		fetched, registered, mbids := registeredArtists(t, 3)
+		registered[1].ActivityEnded = true
+		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.Artist{registered[0], registered[2]}, result)
+	})
+
+	// @spec components/usecase/artist/list-top "Artist marked ended after the result was reused"
+	t.Run("leaves out an artist marked ended since the cached result", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newArtistTestDeps(t)
+
+			fetched, registered, mbids := registeredArtists(t, 3)
+			// Once(): the catalog is consulted for the first call only.
+			d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+			first, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+			require.NoError(t, err)
+			require.Len(t, first, 3)
+
+			time.Sleep(time.Hour)
+			now := []*entity.Artist{registered[0], {ID: "id-01", Name: "Artist 01", MBID: "mbid-01", ActivityEnded: true}, registered[2]}
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(now, nil).Once()
+
+			second, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+
+			require.NoError(t, err)
+			assert.Equal(t, []*entity.Artist{registered[0], registered[2]}, second)
+		})
+	})
+
+	// @spec components/usecase/artist/list-top "Chart artist registered by this call"
+	t.Run("returns an artist it registered", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		fetched := []*entity.Artist{{Name: "Known", MBID: "mbid-known"}, {Name: "New", MBID: "mbid-new"}}
+		known := &entity.Artist{ID: "id-known", Name: "Known", MBID: "mbid-known"}
+		created := entity.NewArtist("New", "mbid-new")
+		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-known", "mbid-new"}).Return([]*entity.Artist{known}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return([]*entity.Artist{created}, nil).Once()
+
+		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.Artist{known, created}, result)
 	})
 }
 
@@ -463,10 +584,11 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 					d := newArtistTestDeps(t)
 
 					fetched, registered, mbids := registeredArtists(t, 42)
-					// Once(): the seed and the catalog are consulted for the first call only.
+					// Once(): the seed and the catalog are consulted for the first call
+					// only; the second call reads the artists' current status.
 					d.repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
 					d.searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(50)).Return(fetched, nil).Once()
-					d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+					d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Twice()
 
 					first, err := d.uc.ListSimilar(ctx, "seed-id", tc.first.limit)
 					require.NoError(t, err)
@@ -503,6 +625,68 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, registered, result)
 		})
+	})
+
+	// @spec components/usecase/artist/list-similar "Ended artist within the limit"
+	t.Run("leaves out an ended artist before the limit cut", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		fetched, registered, mbids := registeredArtists(t, 12)
+		registered[2].ActivityEnded = true
+		d.repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
+		d.searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(50)).Return(fetched, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+		result, err := d.uc.ListSimilar(ctx, "seed-id", int32(10))
+
+		require.NoError(t, err)
+		want := append([]*entity.Artist{registered[0], registered[1]}, registered[3:11]...)
+		assert.Equal(t, want, result)
+	})
+
+	// @spec components/usecase/artist/list-similar "Artist marked ended after the result was reused"
+	t.Run("leaves out an artist marked ended since the cached result", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newArtistTestDeps(t)
+
+			fetched, registered, mbids := registeredArtists(t, 3)
+			// Once(): the seed and the catalog are consulted for the first call only.
+			d.repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
+			d.searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(50)).Return(fetched, nil).Once()
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+			first, err := d.uc.ListSimilar(ctx, "seed-id", int32(0))
+			require.NoError(t, err)
+			require.Len(t, first, 3)
+
+			time.Sleep(time.Hour)
+			now := []*entity.Artist{registered[0], {ID: "id-01", Name: "Artist 01", MBID: "mbid-01", ActivityEnded: true}, registered[2]}
+			d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(now, nil).Once()
+
+			second, err := d.uc.ListSimilar(ctx, "seed-id", int32(0))
+
+			require.NoError(t, err)
+			assert.Equal(t, []*entity.Artist{registered[0], registered[2]}, second)
+		})
+	})
+
+	// @spec components/usecase/artist/list-similar "Seed artist whose activity has ended"
+	t.Run("returns the similar artists of an ended seed", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		endedSeed := &entity.Artist{ID: "ended-seed-id", Name: "SMAP", MBID: "ended-seed-mbid", ActivityEnded: true}
+		fetched, registered, mbids := registeredArtists(t, 3)
+		d.repo.EXPECT().Get(ctx, "ended-seed-id").Return(endedSeed, nil).Once()
+		d.searcher.EXPECT().ListSimilar(ctx, endedSeed, int32(50)).Return(fetched, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, mbids).Return(registered, nil).Once()
+
+		result, err := d.uc.ListSimilar(ctx, "ended-seed-id", int32(0))
+
+		require.NoError(t, err)
+		assert.Equal(t, registered, result)
 	})
 }
 

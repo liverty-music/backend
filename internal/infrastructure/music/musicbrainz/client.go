@@ -74,7 +74,15 @@ const (
 type artistResponse struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
+	LifeSpan  lifeSpan      `json:"life-span"`
 	Relations []urlRelation `json:"relations"`
+}
+
+// lifeSpan is the artist's active period. MusicBrainz sets ended to true when a
+// group dissolved or a solo artist died, also without an end date, and to null
+// or false otherwise.
+type lifeSpan struct {
+	Ended *bool `json:"ended"`
 }
 
 type urlRelation struct {
@@ -172,7 +180,8 @@ func (c *client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 	)
 }
 
-// GetArtist retrieves canonical artist data using an MBID.
+// GetArtist retrieves canonical artist data using an MBID: the name, the MBID
+// and whether the artist's activity has ended (life-span.ended).
 func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, error) {
 	c.logger.Info(ctx, "getting artist", slog.String("mbid", mbid))
 
@@ -201,7 +210,9 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz response")
 	}
 
-	return entity.NewArtist(data.Name, data.ID), nil
+	artist := entity.NewArtist(data.Name, data.ID)
+	artist.ActivityEnded = data.LifeSpan.Ended != nil && *data.LifeSpan.Ended
+	return artist, nil
 }
 
 // ResolveOfficialSiteURL returns the primary official homepage URL for the artist

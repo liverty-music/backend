@@ -520,6 +520,80 @@ func (_c *MockArtistRepository_ListByMBIDs_Call) RunAndReturn(run func(ctx conte
 	return _c
 }
 
+// ListRefreshDue provides a mock function for the type MockArtistRepository
+func (_mock *MockArtistRepository) ListRefreshDue(ctx context.Context, slots int, slot int) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, slots, slot)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListRefreshDue")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, slots, slot)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, slots, slot)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) error); ok {
+		r1 = returnFunc(ctx, slots, slot)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockArtistRepository_ListRefreshDue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListRefreshDue'
+type MockArtistRepository_ListRefreshDue_Call struct {
+	*mock.Call
+}
+
+// ListRefreshDue is a helper method to define mock.On call
+//   - ctx context.Context
+//   - slots int
+//   - slot int
+func (_e *MockArtistRepository_Expecter) ListRefreshDue(ctx any, slots any, slot any) *MockArtistRepository_ListRefreshDue_Call {
+	return &MockArtistRepository_ListRefreshDue_Call{Call: _e.mock.On("ListRefreshDue", ctx, slots, slot)}
+}
+
+func (_c *MockArtistRepository_ListRefreshDue_Call) Run(run func(ctx context.Context, slots int, slot int)) *MockArtistRepository_ListRefreshDue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int
+		if args[1] != nil {
+			arg1 = args[1].(int)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListRefreshDue_Call) Return(artists []*entity.Artist, err error) *MockArtistRepository_ListRefreshDue_Call {
+	_c.Call.Return(artists, err)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListRefreshDue_Call) RunAndReturn(run func(ctx context.Context, slots int, slot int) ([]*entity.Artist, error)) *MockArtistRepository_ListRefreshDue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListStaleOfficialSite provides a mock function for the type MockArtistRepository
 func (_mock *MockArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error) {
 	ret := _mock.Called(ctx, age, limit)
@@ -727,6 +801,69 @@ func (_c *MockArtistRepository_MarkOfficialSiteChecked_Call) Return(err error) *
 }
 
 func (_c *MockArtistRepository_MarkOfficialSiteChecked_Call) RunAndReturn(run func(ctx context.Context, artistID string, checkTime time.Time) error) *MockArtistRepository_MarkOfficialSiteChecked_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateActivityEnded provides a mock function for the type MockArtistRepository
+func (_mock *MockArtistRepository) UpdateActivityEnded(ctx context.Context, id string, ended bool) error {
+	ret := _mock.Called(ctx, id, ended)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateActivityEnded")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, bool) error); ok {
+		r0 = returnFunc(ctx, id, ended)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockArtistRepository_UpdateActivityEnded_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateActivityEnded'
+type MockArtistRepository_UpdateActivityEnded_Call struct {
+	*mock.Call
+}
+
+// UpdateActivityEnded is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - ended bool
+func (_e *MockArtistRepository_Expecter) UpdateActivityEnded(ctx any, id any, ended any) *MockArtistRepository_UpdateActivityEnded_Call {
+	return &MockArtistRepository_UpdateActivityEnded_Call{Call: _e.mock.On("UpdateActivityEnded", ctx, id, ended)}
+}
+
+func (_c *MockArtistRepository_UpdateActivityEnded_Call) Run(run func(ctx context.Context, id string, ended bool)) *MockArtistRepository_UpdateActivityEnded_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 bool
+		if args[2] != nil {
+			arg2 = args[2].(bool)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateActivityEnded_Call) Return(err error) *MockArtistRepository_UpdateActivityEnded_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateActivityEnded_Call) RunAndReturn(run func(ctx context.Context, id string, ended bool) error) *MockArtistRepository_UpdateActivityEnded_Call {
 	_c.Call.Return(run)
 	return _c
 }

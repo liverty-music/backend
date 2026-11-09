@@ -20,7 +20,7 @@ import (
 )
 
 // Story tests for stories/discover-artists. They run the real ArtistUseCase,
-// FollowUseCase, ArtistNameResolutionUseCase and ArtistImageSyncUseCase over
+// FollowUseCase (with ArtistUseCase.Refresh) and ArtistImageSyncUseCase over
 // the real repositories and local Postgres, hand each recorded ARTIST.created
 // announcement to the consumers the event consumer runs, and run the daily
 // image run as cmd/job/artist-image-sync does. The artist catalog, the image
@@ -62,13 +62,15 @@ func (c *storyArtistCatalog) ListTop(context.Context, string, string, int32) ([]
 	return c.results, nil
 }
 
-// storyMusicBrainz knows every artist under the name it was registered with.
+// storyMusicBrainz knows every artist under the name it was registered with,
+// and marks the activity of the MBIDs in ended as ended.
 type storyMusicBrainz struct {
 	names map[string]string
+	ended map[string]bool
 }
 
 func (m *storyMusicBrainz) GetArtist(_ context.Context, mbid string) (*entity.Artist, error) {
-	return &entity.Artist{Name: m.names[mbid], MBID: mbid}, nil
+	return &entity.Artist{Name: m.names[mbid], MBID: mbid, ActivityEnded: m.ended[mbid]}, nil
 }
 
 // storyNoOfficialSite finds no official site for any artist.
@@ -89,7 +91,6 @@ type discoverStory struct {
 	artists    usecase.ArtistUseCase
 	follows    usecase.FollowUseCase
 	imageSync  usecase.ArtistImageSyncUseCase
-	names      usecase.ArtistNameResolutionUseCase
 	logger     *logging.Logger
 	found      *storyArtistCatalog
 	catalog    *storyImageCatalog
@@ -109,15 +110,14 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 		logger:     logger,
 		found:      &storyArtistCatalog{},
 		catalog:    &storyImageCatalog{lookups: map[string]int{}},
-		mb:         &storyMusicBrainz{names: map[string]string{}},
+		mb:         &storyMusicBrainz{names: map[string]string{}, ended: map[string]bool{}},
 	}
 	discoveries := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 	t.Cleanup(func() { _ = discoveries.Close() })
-	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, s.found, s.mb, discoveries, logger)
+	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, s.found, s.mb, discoveries, time.Now, logger)
 	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB, testOutbox), s.artistRepo, storyNoOfficialSite{},
 		storyFollowMetrics{}, logger)
 	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, logger)
-	s.names = usecase.NewArtistNameResolutionUseCase(s.artistRepo, s.mb, logger)
 	return s
 }
 
@@ -129,13 +129,13 @@ func (s *discoverStory) createdSince(mark int64, mbid string) []*entityv1.Artist
 		func(a *entityv1.Artist) bool { return a.GetMbid().GetValue() == mbid })
 }
 
-// handleCreated hands an ARTIST.created announcement to the name and image
+// handleCreated hands an ARTIST.created announcement to the refresh and image
 // consumers, as the event consumer does.
 func (s *discoverStory) handleCreated(announced *entityv1.Artist) {
 	s.t.Helper()
 	payload, err := proto.Marshal(announced)
 	require.NoError(s.t, err)
-	require.NoError(s.t, event.NewArtistNameConsumer(s.names, s.logger).Handle(message.NewMessage(uuid.NewV7().String(), payload)))
+	require.NoError(s.t, event.NewArtistRefreshConsumer(s.artists, s.logger).Handle(message.NewMessage(uuid.NewV7().String(), payload)))
 	require.NoError(s.t, event.NewArtistImageConsumer(s.imageSync, s.logger).Handle(message.NewMessage(uuid.NewV7().String(), payload)))
 }
 
@@ -155,6 +155,37 @@ func (s *discoverStory) follow(artistID string) {
 	ext := uuid.NewV4().String()
 	userID := seedUser(s.t, "Fan", ext+"@example.com", ext)
 	require.NoError(s.t, s.follows.Follow(s.ctx, userID, artistID))
+}
+
+// runRefreshDays runs the daily artist refresh on the given number of
+// consecutive days from start, as cmd/job/artist-refresh does.
+func (s *discoverStory) runRefreshDays(start time.Time, days int) {
+	s.t.Helper()
+	day := start
+	refresher := usecase.NewArtistUseCase(s.artistRepo, nil, nil, s.mb, nil, func() time.Time { return day }, s.logger)
+	for range days {
+		summary, err := refresher.RefreshDue(s.ctx)
+		require.NoError(s.t, err)
+		require.False(s.t, summary.CircuitBroken)
+		day = day.AddDate(0, 0, 1)
+	}
+}
+
+// requireActivityEnded asserts the stored activity status of the artist.
+func (s *discoverStory) requireActivityEnded(artistID string, want bool) {
+	s.t.Helper()
+	got, err := s.artistRepo.Get(s.ctx, artistID)
+	require.NoError(s.t, err)
+	require.Equal(s.t, want, got.ActivityEnded)
+}
+
+// artistIDs returns the ids of the artists, in order.
+func artistIDs(artists []*entity.Artist) []string {
+	ids := make([]string, len(artists))
+	for i, a := range artists {
+		ids[i] = a.ID
+	}
+	return ids
 }
 
 // checkedAt sets the time of the artist's last image check, keeping its images.
@@ -220,6 +251,7 @@ func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
 		enriched, err := s.artistRepo.Get(s.ctx, got[0].ID)
 		require.NoError(t, err)
 		assert.Equal(t, "ヨルシカ", enriched.Name)
+		assert.False(t, enriched.ActivityEnded, "the catalog records no end for the artist")
 		require.NotNil(t, enriched.FanartSyncTime)
 		require.NotNil(t, enriched.Fanart)
 		assert.Len(t, enriched.Fanart.ArtistThumb, 1)
@@ -312,5 +344,99 @@ func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
 
 		assert.Equal(t, 1, s.catalog.lookups[artist.MBID])
 		s.requireCheckedSince(artist.ID, start)
+	})
+}
+
+func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	// dissolve marks the artist as dissolved in the catalog and refreshes it,
+	// as the announcement or the daily run does.
+	dissolve := func(s *discoverStory, artist *entity.Artist) {
+		s.t.Helper()
+		s.mb.ended[artist.MBID] = true
+		require.NoError(s.t, s.artists.Refresh(s.ctx, artist.ID, artist.MBID, artist.Name))
+		s.requireActivityEnded(artist.ID, true)
+	}
+
+	t.Run("the chart leaves out a dissolved group", func(t *testing.T) {
+		// @spec stories/discover-artists "Dissolved group in the chart"
+		s := newDiscoverStory(t)
+		active := s.register("Active Band")
+		dissolved := s.register("SMAP")
+		dissolve(s, dissolved)
+		s.found.results = []*entity.Artist{
+			{Name: "SMAP", MBID: dissolved.MBID},
+			{Name: "Active Band", MBID: active.MBID},
+		}
+
+		got, err := s.artists.ListTop(s.ctx, "JP", "", 50)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{active.ID}, artistIDs(got))
+	})
+
+	t.Run("a name search still finds a dissolved group", func(t *testing.T) {
+		// @spec stories/discover-artists "Name search for a dissolved group"
+		s := newDiscoverStory(t)
+		dissolved := s.register("SMAP")
+		dissolve(s, dissolved)
+		s.found.results = []*entity.Artist{{Name: "SMAP", MBID: dissolved.MBID}}
+
+		got, err := s.artists.Search(s.ctx, "SMAP")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{dissolved.ID}, artistIDs(got))
+	})
+
+	t.Run("a group nobody follows is left out within 30 days of dissolving", func(t *testing.T) {
+		// @spec stories/discover-artists "Group dissolves after it was registered"
+		s := newDiscoverStory(t)
+		seed := s.register("Seed Band")
+		active := s.register("Active Band")
+		group := s.register("BiSH")
+		s.mb.ended[group.MBID] = true
+		s.requireActivityEnded(group.ID, false)
+
+		s.runRefreshDays(time.Now(), 30)
+
+		s.requireActivityEnded(group.ID, true)
+		s.found.results = []*entity.Artist{
+			{Name: "BiSH", MBID: group.MBID},
+			{Name: "Active Band", MBID: active.MBID},
+		}
+		top, err := s.artists.ListTop(s.ctx, "JP", "", 50)
+		require.NoError(t, err)
+		assert.Equal(t, []string{active.ID}, artistIDs(top))
+		similar, err := s.artists.ListSimilar(s.ctx, seed.ID, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []string{active.ID}, artistIDs(similar))
+	})
+
+	t.Run("an ended artist found for the first time is left out once refreshed", func(t *testing.T) {
+		// @spec stories/discover-artists "Ended artist found for the first time"
+		s := newDiscoverStory(t)
+		seed := s.register("Seed Band")
+		mbid := uuid.NewV4().String()
+		s.mb.names[mbid] = "The Beatles"
+		s.mb.ended[mbid] = true
+		s.found.results = []*entity.Artist{{Name: "The Beatles", MBID: mbid}}
+		mark := outboxMark(t)
+
+		first, err := s.artists.ListSimilar(s.ctx, seed.ID, 0)
+
+		require.NoError(t, err)
+		require.Len(t, first, 1, "the call that registers the artist returns it")
+		announced := s.createdSince(mark, mbid)
+		require.Len(t, announced, 1)
+
+		s.handleCreated(announced[0])
+
+		s.requireActivityEnded(first[0].ID, true)
+		second, err := s.artists.ListSimilar(s.ctx, seed.ID, 0)
+		require.NoError(t, err)
+		assert.Empty(t, second)
 	})
 }

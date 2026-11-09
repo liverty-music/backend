@@ -82,6 +82,12 @@ func (r *fakeArtistRepo) UpdateOfficialSiteURL(_ context.Context, _, _ string) e
 func (r *fakeArtistRepo) MarkOfficialSiteChecked(_ context.Context, _ string, _ time.Time) error {
 	return nil
 }
+func (r *fakeArtistRepo) UpdateActivityEnded(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (r *fakeArtistRepo) ListRefreshDue(_ context.Context, _, _ int) ([]*entity.Artist, error) {
+	return nil, nil
+}
 
 // approvalTestDeps bundles dependencies for ConcertCandidateUseCase tests.
 type approvalTestDeps struct {

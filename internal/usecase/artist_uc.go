@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -87,6 +89,48 @@ type ArtistUseCase interface {
 	//
 	//   - NotFound: no Organizer has the id.
 	ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error)
+
+	// Refresh reads the artist again from the music catalog by its MBID. It
+	// adopts the catalog's name when it is not empty and differs from
+	// currentName, and then stores whether the catalog marks the artist's
+	// activity as ended. An MBID the catalog does not know changes nothing and
+	// succeeds, since reading it again cannot succeed.
+	//
+	// # Possible errors:
+	//
+	//   - Unavailable: the catalog is down or rate-limited.
+	//   - NotFound: the artist does not exist.
+	//   - Internal: unexpected failure.
+	Refresh(ctx context.Context, artistID, mbid, currentName string) error
+
+	// RefreshDue runs one daily refresh: it refreshes, one at a time, every
+	// artist in today's slot of a 30-day rotation (the days from 1970-01-01 to
+	// today in Japan time, modulo 30), so every artist is read again once every
+	// 30 days. A failed artist does not stop the run, except that the run stops
+	// after 3 consecutive failures; it also stops when ctx is done.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: listing the slot's artists failed.
+	RefreshDue(ctx context.Context) (ArtistRefreshSummary, error)
+}
+
+// ArtistRefreshSummary reports what one daily RefreshDue run did.
+type ArtistRefreshSummary struct {
+	// Slot is the rotation slot the run refreshed.
+	Slot int
+	// Listed is the number of artists in the slot.
+	Listed int
+	// Attempted is the number of artists the run tried to refresh.
+	Attempted int
+	// Ended is the number of refreshed artists the catalog marks as ended.
+	Ended int
+	// Renamed is the number of refreshed artists whose name changed.
+	Renamed int
+	// Failed is the number of attempted artists whose refresh failed.
+	Failed int
+	// CircuitBroken reports whether the run stopped after consecutive failures.
+	CircuitBroken bool
 }
 
 // ArtistCacheTTL is how long ArtistUseCase reuses a catalog result (Search,
@@ -99,6 +143,15 @@ const ArtistCacheTTL = 6 * time.Hour
 // cached lookup per artist then serves every limit up to it.
 const similarLookupLimit = 50
 
+const (
+	// artistRefreshSlots is the number of days in the refresh rotation: each
+	// daily run reads one slot, so every artist is read once per cycle.
+	artistRefreshSlots = 30
+	// artistRefreshMaxConsecutiveFailures stops a run after this many artists
+	// fail in a row, treating it as a systemic catalog failure.
+	artistRefreshMaxConsecutiveFailures = 3
+)
+
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
@@ -106,6 +159,7 @@ type artistUseCase struct {
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
 	cache          entity.Cache
+	clock          Clock
 	logger         *logging.Logger
 }
 
@@ -113,12 +167,14 @@ type artistUseCase struct {
 var _ ArtistUseCase = (*artistUseCase)(nil)
 
 // NewArtistUseCase creates a new instance of the artist business logic handler.
+// clock gives the day RefreshDue refreshes.
 func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
 	organizerRepo entity.OrganizerRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
 	cache entity.Cache,
+	clock Clock,
 	logger *logging.Logger,
 ) ArtistUseCase {
 	return &artistUseCase{
@@ -127,6 +183,7 @@ func NewArtistUseCase(
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
 		cache:          cache,
+		clock:          clock,
 		logger:         logger,
 	}
 }
@@ -222,13 +279,18 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 // ListSimilar retrieves artists similar to a specified artist.
 // The catalog is asked for similarLookupLimit artists once per artist and the
 // result is cached under the artist id alone, so calls with any limit share it.
-// Each call returns the first limit artists, or all of them when limit is 0.
+// Each call leaves out the artists whose activity has ended and returns the
+// first limit of the rest, or all of them when limit is 0.
 // Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
 	cacheKey := fmt.Sprintf("similar:%s", artistID)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			return firstN(artists, limit), nil
+			active, err := uc.withoutEndedNow(ctx, artists)
+			if err != nil {
+				return nil, err
+			}
+			return firstN(active, limit), nil
 		}
 	}
 
@@ -253,9 +315,10 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 	}
 
 	// Cache the full lookup so a later call with a larger limit is served too.
+	// The cache keeps the ended artists: a later call reads their status again.
 	uc.cache.Set(cacheKey, persisted)
 
-	return firstN(persisted, limit), nil
+	return firstN(withoutEnded(persisted), limit), nil
 }
 
 // firstN returns the first n artists, or all of them when n is 0 or exceeds
@@ -268,7 +331,7 @@ func firstN(artists []*entity.Artist, n int32) []*entity.Artist {
 	return artists[:n:n]
 }
 
-// ListTop retrieves popular artists.
+// ListTop retrieves popular artists, leaving out those whose activity has ended.
 // Results are cached to reduce external API calls.
 // Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
@@ -276,7 +339,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	cacheKey := fmt.Sprintf("top:%s:%s:%d", country, tag, limit)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			return artists, nil
+			return uc.withoutEndedNow(ctx, artists)
 		}
 	}
 
@@ -295,10 +358,52 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 		return nil, err
 	}
 
-	// Store in cache
+	// Store in cache. The cache keeps the ended artists: a later call reads
+	// their status again.
 	uc.cache.Set(cacheKey, persisted)
 
-	return persisted, nil
+	return withoutEnded(persisted), nil
+}
+
+// withoutEnded returns the artists whose activity has not ended, in order.
+func withoutEnded(artists []*entity.Artist) []*entity.Artist {
+	result := make([]*entity.Artist, 0, len(artists))
+	for _, a := range artists {
+		if !a.ActivityEnded {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+// withoutEndedNow returns the artists of an earlier result whose activity has
+// not ended by now, in order, reading their current status with one
+// ListByMBIDs call. The earlier result's artists are returned as they were.
+func (uc *artistUseCase) withoutEndedNow(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
+	if len(artists) == 0 {
+		return []*entity.Artist{}, nil
+	}
+	mbids := make([]string, len(artists))
+	for i, a := range artists {
+		mbids[i] = a.MBID
+	}
+	current, err := uc.artistRepo.ListByMBIDs(ctx, mbids)
+	if err != nil {
+		return nil, err
+	}
+	ended := make(map[string]bool, len(current))
+	for _, a := range current {
+		if a.ActivityEnded {
+			ended[a.MBID] = true
+		}
+	}
+	result := make([]*entity.Artist, 0, len(artists))
+	for _, a := range artists {
+		if !ended[a.MBID] {
+			result = append(result, a)
+		}
+	}
+	return result, nil
 }
 
 // persistArtists looks up existing artists by MBID, creates only missing ones,
@@ -381,4 +486,111 @@ func (uc *artistUseCase) ListByOrganizer(ctx context.Context, organizerID string
 		return nil, err
 	}
 	return uc.organizerRepo.ListArtists(ctx, organizerID)
+}
+
+// artistRefreshOutcome is what one Refresh changed.
+type artistRefreshOutcome struct {
+	renamed bool
+	ended   bool
+}
+
+// Refresh implements [ArtistUseCase].
+func (uc *artistUseCase) Refresh(ctx context.Context, artistID, mbid, currentName string) error {
+	_, err := uc.refresh(ctx, artistID, mbid, currentName)
+	return err
+}
+
+// refresh reads the artist from the catalog and stores its name and activity
+// status, reporting what it found.
+func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentName string) (artistRefreshOutcome, error) {
+	var outcome artistRefreshOutcome
+
+	catalog, err := uc.idManager.GetArtist(ctx, mbid)
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		uc.logger.Warn(ctx, "catalog has no artist for the MBID; leaving the artist unchanged", analyticslog.Attrs(analyticslog.TopicCatalogSync,
+			slog.String("artist_id", artistID),
+			slog.String("mbid", mbid),
+		)...)
+		return outcome, nil
+	case err != nil:
+		return outcome, fmt.Errorf("get artist %s from the catalog: %w", artistID, err)
+	}
+
+	switch {
+	case catalog.Name == "":
+		uc.logger.Warn(ctx, "catalog returned an empty name; keeping the current name",
+			slog.String("artist_id", artistID),
+			slog.String("mbid", mbid),
+		)
+	case catalog.Name != currentName:
+		if err := uc.artistRepo.UpdateName(ctx, artistID, catalog.Name); err != nil {
+			return outcome, fmt.Errorf("update name of artist %s: %w", artistID, err)
+		}
+		outcome.renamed = true
+		uc.logger.Info(ctx, "artist name updated to canonical", analyticslog.Attrs(analyticslog.TopicCatalogSync,
+			slog.String("artist_id", artistID),
+			slog.String("old_name", currentName),
+			slog.String("new_name", catalog.Name),
+		)...)
+	}
+
+	if err := uc.artistRepo.UpdateActivityEnded(ctx, artistID, catalog.ActivityEnded); err != nil {
+		return outcome, fmt.Errorf("update activity status of artist %s: %w", artistID, err)
+	}
+	outcome.ended = catalog.ActivityEnded
+	return outcome, nil
+}
+
+// artistRefreshSlot returns the rotation slot of the day of now in Japan time:
+// the whole days from 1970-01-01 to that day, modulo artistRefreshSlots.
+func artistRefreshSlot(now time.Time) int {
+	days := entity.JapanDate(now).Unix() / (24 * 60 * 60)
+	return int(days % artistRefreshSlots)
+}
+
+// RefreshDue implements [ArtistUseCase].
+func (uc *artistUseCase) RefreshDue(ctx context.Context) (ArtistRefreshSummary, error) {
+	summary := ArtistRefreshSummary{Slot: artistRefreshSlot(uc.clock())}
+
+	artists, err := uc.artistRepo.ListRefreshDue(ctx, artistRefreshSlots, summary.Slot)
+	if err != nil {
+		return summary, fmt.Errorf("list artists of refresh slot %d: %w", summary.Slot, err)
+	}
+	summary.Listed = len(artists)
+
+	var consecutiveFailures int
+	for _, artist := range artists {
+		if ctx.Err() != nil {
+			break
+		}
+
+		summary.Attempted++
+		outcome, err := uc.refresh(ctx, artist.ID, artist.MBID, artist.Name)
+		if err != nil {
+			summary.Failed++
+			consecutiveFailures++
+			uc.logger.Error(ctx, "failed to refresh artist", err,
+				slog.String("artist_id", artist.ID),
+				slog.String("artist_name", artist.Name),
+			)
+			if consecutiveFailures >= artistRefreshMaxConsecutiveFailures {
+				summary.CircuitBroken = true
+				uc.logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
+					slog.Int("consecutive_failures", consecutiveFailures),
+				)
+				break
+			}
+			continue
+		}
+		consecutiveFailures = 0
+		if outcome.renamed {
+			summary.Renamed++
+		}
+		if outcome.ended {
+			summary.Ended++
+		}
+	}
+
+	return summary, nil
 }
