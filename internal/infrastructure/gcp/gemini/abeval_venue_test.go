@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNormalizeVenue(t *testing.T) {
+func TestNormalizeFixtureVenue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

@@ -783,7 +783,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	s4 := seedSeries(t, ctx, seriesRepo, "Concert 3")
 
 	// Create concerts using bulk insert.
-	// testArtist1 has: 2 future concerts + 1 past concert (for upcomingOnly testing).
+	// testArtist1 has: 2 future concerts + 1 past concert (for ListUpcomingByArtist testing).
 	// testArtist2 has: 1 future concert.
 	concerts := []*entity.Concert{
 		{
@@ -832,8 +832,8 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	require.NoError(t, err)
 
 	type args struct {
-		artistID     string
-		upcomingOnly bool
+		artistID string
+		upcoming bool
 	}
 
 	tests := []struct {
@@ -846,10 +846,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		validate func(t *testing.T, concerts []*entity.Concert)
 	}{
 		{
-			name: "list all concerts for artist (upcomingOnly=false returns past and future)",
+			name: "list all concerts for artist (ListByArtist returns past and future)",
 			args: args{
-				artistID:     "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
-				upcomingOnly: false,
+				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+				upcoming: false,
 			},
 			want: struct {
 				count int
@@ -865,10 +865,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			},
 		},
 		{
-			name: "list upcoming concerts only (upcomingOnly=true filters past concerts)",
+			name: "list upcoming concerts only (ListUpcomingByArtist filters past concerts)",
 			args: args{
-				artistID:     "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
-				upcomingOnly: true,
+				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+				upcoming: true,
 			},
 			want: struct {
 				count int
@@ -879,7 +879,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			validate: func(t *testing.T, concerts []*entity.Concert) {
 				for _, c := range concerts {
 					require.NotNil(t, c.Series)
-					assert.NotEqual(t, "Concert Past (should be hidden)", c.Series.Title, "past concert must not appear when upcomingOnly=true")
+					assert.NotEqual(t, "Concert Past (should be hidden)", c.Series.Title, "past concert must not appear from ListUpcomingByArtist")
 				}
 			},
 		},
@@ -919,7 +919,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				got []*entity.Concert
 				err error
 			)
-			if tt.args.upcomingOnly {
+			if tt.args.upcoming {
 				got, err = concertRepo.ListUpcomingByArtist(ctx, tt.args.artistID, time.Now())
 			} else {
 				got, err = concertRepo.ListByArtist(ctx, tt.args.artistID)
