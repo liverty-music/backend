@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/adapter/pb"
@@ -69,14 +70,16 @@ const (
 	// Tracking journey (status = 1) on any event of the given series, once,
 	// with the user's linked event: the earliest upcoming tracked event
 	// (past events sort after upcoming ones), otherwise the earliest tracked
-	// event. e.id breaks ties between events on the same date.
+	// event. e.id breaks ties between events on the same date. $2 is the
+	// current date at the Venue (entity.CurrentDateAtVenue), never the
+	// database's own date, whose day is the server's.
 	ticketJourneyListUserIDsTrackingSeriesQuery = `
 		SELECT DISTINCT ON (tj.user_id) tj.user_id, tj.event_id
 		FROM ticket_journeys tj
 		JOIN events e ON e.id = tj.event_id
 		WHERE e.series_id = $1
 		  AND tj.status = 1
-		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
+		ORDER BY tj.user_id, (e.local_event_date < $2), e.local_event_date, e.id
 	`
 
 	// ticketJourneyListUserIDsTrackingEventsQuery is
@@ -88,7 +91,7 @@ const (
 		JOIN events e ON e.id = tj.event_id
 		WHERE tj.event_id = ANY($1::uuid[])
 		  AND tj.status = 1
-		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
+		ORDER BY tj.user_id, (e.local_event_date < $2), e.local_event_date, e.id
 	`
 )
 
@@ -283,7 +286,7 @@ func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context,
 		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
 	}
 
-	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingSeriesQuery, seriesID)
+	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingSeriesQuery, seriesID, entity.CurrentDateAtVenue(time.Now()))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list users tracking series", slog.String("series_id", seriesID))
 	}
@@ -296,7 +299,7 @@ func (r *TicketJourneyRepository) ListUserIDsTrackingEvents(ctx context.Context,
 	if len(eventIDs) == 0 {
 		return nil, nil
 	}
-	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingEventsQuery, eventIDs)
+	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingEventsQuery, eventIDs, entity.CurrentDateAtVenue(time.Now()))
 	if err != nil {
 		return nil, toAppErr(err, "failed to list users tracking events", slog.Int("event_count", len(eventIDs)))
 	}

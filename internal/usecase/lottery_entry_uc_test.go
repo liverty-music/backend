@@ -157,7 +157,7 @@ func TestLotteryEntryUseCase_AuthorizeCard(t *testing.T) {
 	// opens expects the card authorization of fan-1's lottery entry for count
 	// tickets of stock-1 with the code, after the personal details are stored.
 	opens := func(f *lotteryFixture, count int, code *entity.ReferralCode, amount int64) *mock.Call {
-		details := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).Return(&entity.User{ID: "fan-1"}, nil).Call
+		details := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", new(name), new(phone)).Return(&entity.User{ID: "fan-1"}, nil).Call
 		return f.cardAuthorizations.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
 			Purpose: entity.CardAuthorizationPurposeLotteryEntry, UserID: "fan-1", TicketSaleID: "sale-l",
 			TicketStockID: "stock-1", EventID: "event-1", TicketCount: count, ReferralCode: code,

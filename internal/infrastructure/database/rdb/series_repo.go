@@ -68,10 +68,13 @@ const (
 			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
 	`
 
+	// insertFirstPartySeriesQuery stores a new first-party series. It has no
+	// ON CONFLICT clause on purpose: an id that is taken fails with a unique
+	// violation (AlreadyExists), so CreateDraft never goes on to add events
+	// to a series that already exists.
 	insertFirstPartySeriesQuery = `
 		INSERT INTO series (id, title, type, source_url, description, organizer_id, visibility)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (id) DO NOTHING
 	`
 
 	// getAuthoredSeriesEventsQuery reads every event of an authored series,

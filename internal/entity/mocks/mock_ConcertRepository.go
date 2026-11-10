@@ -523,8 +523,8 @@ func (_c *MockConcertRepository_List_Call) RunAndReturn(run func(ctx context.Con
 }
 
 // ListByArtist provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*entity.Concert, error) {
-	ret := _mock.Called(ctx, artistID, upcomingOnly)
+func (_mock *MockConcertRepository) ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	ret := _mock.Called(ctx, artistID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByArtist")
@@ -532,18 +532,18 @@ func (_mock *MockConcertRepository) ListByArtist(ctx context.Context, artistID s
 
 	var r0 []*entity.Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, bool) ([]*entity.Concert, error)); ok {
-		return returnFunc(ctx, artistID, upcomingOnly)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
+		return returnFunc(ctx, artistID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, bool) []*entity.Concert); ok {
-		r0 = returnFunc(ctx, artistID, upcomingOnly)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+		r0 = returnFunc(ctx, artistID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, bool) error); ok {
-		r1 = returnFunc(ctx, artistID, upcomingOnly)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, artistID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -558,12 +558,11 @@ type MockConcertRepository_ListByArtist_Call struct {
 // ListByArtist is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artistID string
-//   - upcomingOnly bool
-func (_e *MockConcertRepository_Expecter) ListByArtist(ctx any, artistID any, upcomingOnly any) *MockConcertRepository_ListByArtist_Call {
-	return &MockConcertRepository_ListByArtist_Call{Call: _e.mock.On("ListByArtist", ctx, artistID, upcomingOnly)}
+func (_e *MockConcertRepository_Expecter) ListByArtist(ctx any, artistID any) *MockConcertRepository_ListByArtist_Call {
+	return &MockConcertRepository_ListByArtist_Call{Call: _e.mock.On("ListByArtist", ctx, artistID)}
 }
 
-func (_c *MockConcertRepository_ListByArtist_Call) Run(run func(ctx context.Context, artistID string, upcomingOnly bool)) *MockConcertRepository_ListByArtist_Call {
+func (_c *MockConcertRepository_ListByArtist_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertRepository_ListByArtist_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -573,14 +572,9 @@ func (_c *MockConcertRepository_ListByArtist_Call) Run(run func(ctx context.Cont
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 bool
-		if args[2] != nil {
-			arg2 = args[2].(bool)
-		}
 		run(
 			arg0,
 			arg1,
-			arg2,
 		)
 	})
 	return _c
@@ -591,7 +585,7 @@ func (_c *MockConcertRepository_ListByArtist_Call) Return(concerts []*entity.Con
 	return _c
 }
 
-func (_c *MockConcertRepository_ListByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string, upcomingOnly bool) ([]*entity.Concert, error)) *MockConcertRepository_ListByArtist_Call {
+func (_c *MockConcertRepository_ListByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string) ([]*entity.Concert, error)) *MockConcertRepository_ListByArtist_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1018,6 +1012,80 @@ func (_c *MockConcertRepository_ListEventsBySeries_Call) Return(events []*entity
 }
 
 func (_c *MockConcertRepository_ListEventsBySeries_Call) RunAndReturn(run func(ctx context.Context, seriesID string) ([]*entity.Event, error)) *MockConcertRepository_ListEventsBySeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListUpcomingByArtist provides a mock function for the type MockConcertRepository
+func (_mock *MockConcertRepository) ListUpcomingByArtist(ctx context.Context, artistID string, now time.Time) ([]*entity.Concert, error) {
+	ret := _mock.Called(ctx, artistID, now)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListUpcomingByArtist")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]*entity.Concert, error)); ok {
+		return returnFunc(ctx, artistID, now)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) []*entity.Concert); ok {
+		r0 = returnFunc(ctx, artistID, now)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time) error); ok {
+		r1 = returnFunc(ctx, artistID, now)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockConcertRepository_ListUpcomingByArtist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListUpcomingByArtist'
+type MockConcertRepository_ListUpcomingByArtist_Call struct {
+	*mock.Call
+}
+
+// ListUpcomingByArtist is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+//   - now time.Time
+func (_e *MockConcertRepository_Expecter) ListUpcomingByArtist(ctx any, artistID any, now any) *MockConcertRepository_ListUpcomingByArtist_Call {
+	return &MockConcertRepository_ListUpcomingByArtist_Call{Call: _e.mock.On("ListUpcomingByArtist", ctx, artistID, now)}
+}
+
+func (_c *MockConcertRepository_ListUpcomingByArtist_Call) Run(run func(ctx context.Context, artistID string, now time.Time)) *MockConcertRepository_ListUpcomingByArtist_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_ListUpcomingByArtist_Call) Return(concerts []*entity.Concert, err error) *MockConcertRepository_ListUpcomingByArtist_Call {
+	_c.Call.Return(concerts, err)
+	return _c
+}
+
+func (_c *MockConcertRepository_ListUpcomingByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string, now time.Time) ([]*entity.Concert, error)) *MockConcertRepository_ListUpcomingByArtist_Call {
 	_c.Call.Return(run)
 	return _c
 }

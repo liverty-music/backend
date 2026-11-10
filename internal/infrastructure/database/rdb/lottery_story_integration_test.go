@@ -752,8 +752,8 @@ func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 	for _, tk := range tickets {
 		assert.Equal(t, entity.TicketStatusIssued, tk.Status)
 		face := tk.Face(user)
-		assert.Equal(t, storyFanName, face.FullName)
-		assert.Equal(t, storyFanPhone, face.PhoneNumber)
+		assert.Equal(t, new(storyFanName), face.FullName)
+		assert.Equal(t, new(storyFanPhone), face.PhoneNumber)
 		assert.Equal(t, s.eventID, face.EventID)
 		assert.True(t, face.ResaleWithoutConsentProhibited)
 	}

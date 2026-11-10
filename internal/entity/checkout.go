@@ -269,6 +269,8 @@ type CheckoutRepository interface {
 	// # Possible errors
 	//
 	//  - NotFound: no Checkout has the id.
+	//  - Unavailable: the announcement could not be recorded; nothing
+	//    changes.
 	//  - Internal: database failure.
 	//
 	// # Announces

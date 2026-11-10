@@ -112,11 +112,11 @@ type TicketFace struct {
 	EventID string
 	// UserID is the eligible person's account.
 	UserID UserID
-	// FullName is the user's full name; empty when not given yet.
-	FullName string
-	// PhoneNumber is the user's phone number in E.164 form; empty when not
+	// FullName is the user's full name; nil when not given yet.
+	FullName *string
+	// PhoneNumber is the user's phone number in E.164 form; nil when not
 	// given yet.
-	PhoneNumber string
+	PhoneNumber *string
 }
 
 // Face returns the ticket's face for user, the Ticket's user, with the full
@@ -198,6 +198,8 @@ type TicketRepository interface {
 	//  - NotFound: no ticket has the id.
 	//  - PermissionDenied (cause [ErrScannerNotUsable]): the Scanner is
 	//    Revoked or does not exist; nothing changed.
+	//  - Unavailable: the announcement could not be recorded; nothing
+	//    changes.
 	//  - Internal: database failure.
 	//
 	// # Announces

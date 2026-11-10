@@ -26,6 +26,13 @@ const (
 		SELECT organizer_id FROM series WHERE id = $1 FOR UPDATE
 	`
 
+	// seriesShareStateQuery reads what decides whether a series may be given
+	// a share token. Run after lockFirstPartySeriesQuery, so neither value
+	// can change before the transaction ends.
+	seriesShareStateQuery = `
+		SELECT visibility::text, unlisted_token FROM series WHERE id = $1
+	`
+
 	// lockSeriesEventsQuery reads and locks every event of the series with
 	// the fields a lifecycle write decides on.
 	lockSeriesEventsQuery = `
@@ -430,7 +437,7 @@ func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*e
 }
 
 // PublishEvents publishes the given DRAFT events of a first-party series in a
-// single transaction.
+// single transaction, and stores the share token in it when one is given.
 //
 // # Announces
 //
@@ -438,7 +445,7 @@ func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*e
 // PUBLISHED in place at which it performs, with the Artist id as ce_subject,
 // in the transaction of the publish, when the series is PUBLIC. Nothing for
 // claimed events, events published before, an UNLISTED series or a failure.
-func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, eventIDs []string) ([]string, error) {
+func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, eventIDs []string, token *string) ([]string, error) {
 	if len(eventIDs) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "at least one event must be given to publish")
 	}
@@ -451,6 +458,11 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 
 	if _, err := lockSeriesForWrite(ctx, tx, seriesID); err != nil {
 		return nil, err
+	}
+	if token != nil {
+		if err := setFirstShareToken(ctx, tx, seriesID, *token); err != nil {
+			return nil, err
+		}
 	}
 	stored, err := lockSeriesEvents(ctx, tx, seriesID)
 	if err != nil {
@@ -512,6 +524,30 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 		return nil, toAppErr(err, "failed to commit publish transaction")
 	}
 	return published, nil
+}
+
+// setFirstShareToken gives a series its first share token inside the publish
+// transaction. The caller holds the series row lock, which Update (a
+// visibility change) and SetUnlistedToken (a rotation) also take, so the
+// state checked here is the state the token is stored against.
+// FailedPrecondition when the series is not UNLISTED or already has a token;
+// AlreadyExists when another series holds the token.
+func setFirstShareToken(ctx context.Context, tx pgx.Tx, seriesID, token string) error {
+	attr := slog.String("series_id", seriesID)
+	var visibility, current *string
+	if err := tx.QueryRow(ctx, seriesShareStateQuery, seriesID).Scan(&visibility, &current); err != nil {
+		return toAppErr(err, "failed to read the series share state", attr)
+	}
+	if visibility == nil || entity.SeriesVisibility(*visibility) != entity.SeriesVisibilityUnlisted {
+		return apperr.New(codes.FailedPrecondition, "a share token is given only to an UNLISTED series", attr)
+	}
+	if current != nil {
+		return apperr.New(codes.FailedPrecondition, "the series already has a share token", attr)
+	}
+	if _, err := tx.Exec(ctx, setUnlistedTokenQuery, seriesID, token); err != nil {
+		return toAppErr(err, "failed to store the share token", attr)
+	}
+	return nil
 }
 
 // announcePublished records CONCERT.created, once per performing Artist, for

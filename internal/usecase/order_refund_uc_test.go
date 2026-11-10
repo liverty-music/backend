@@ -806,6 +806,41 @@ func TestOrderUseCase_Refund_ConcurrentRefund_IdempotentViaCommitFailedPrecondit
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 }
 
+// A FailedPrecondition from CommitRefund is a finished concurrent refund only
+// when the Order read again is Refunded. An Order that is not (it was never
+// paid, which Order.CommitRefund refuses) fails the Refund instead of being
+// returned as if the refund were done.
+func TestOrderUseCase_Refund_CommitRefusedForOrderNotRefunded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Now()
+	const orderID = entity.OrderID("order-not-refunded")
+
+	refundRepo := &stubRefundRepo{
+		commitRefundFn: func(_ context.Context, _ entity.RefundCommit) error {
+			return apperr.New(codes.FailedPrecondition, "the order was never paid; no refund is recorded")
+		},
+	}
+	// The Order is Paid when Refund checks it and is still not Refunded when
+	// it is read again after the refused commit.
+	orderRepo := &stubOrderRepo{
+		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
+			return paidOrder(orderID, 9000, "pi_not_refunded", now.Add(-24*time.Hour)), nil
+		},
+	}
+	port := &stubRefundSettlementPayouts{
+		resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_not_refunded", nil },
+		createRefundFn:            func(_ context.Context, _ entity.RefundParams) (string, error) { return "re_not_refunded", nil },
+	}
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, heldSettlements(), port, t)
+
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	assert.Nil(t, result)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CANCELLATION after official resale — only the tickets still Issued
 // ─────────────────────────────────────────────────────────────────────────────

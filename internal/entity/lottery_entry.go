@@ -227,6 +227,8 @@ type LotteryEntryRepository interface {
 	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: the entry's Order has no card authorization; nothing
+	//    is stored.
 	//  - AlreadyExists: the user already has an entry in the sale for the
 	//    stock's event, of any stock of that event; nothing is stored.
 	//  - FailedPrecondition: the application does not fit the stock's event
@@ -315,6 +317,8 @@ type LotteryEntryRepository interface {
 	//
 	//   - InvalidArgument: saleID is empty.
 	//   - NotFound: the sale or a given stock does not exist.
+	//   - Unavailable: an announcement could not be recorded; nothing
+	//     changes.
 	//   - Internal: database failure.
 	//
 	// # Announces

@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -485,6 +486,43 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 	})
 }
 
+// Two first UpdateHome calls for one User at the same time store one Home:
+// the second waits for the first and updates the Home it stored. Without the
+// row lock both insert a Home and one is left that no User refers to.
+func TestUserRepository_UpdateHome_ConcurrentFirstCalls(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB, testOutbox)
+	ctx := context.Background()
+	cleanDatabase(t)
+
+	// The window between the read and the insert is short, so the race is
+	// run for several Users.
+	const users = 20
+	for i := range users {
+		user, err := repo.Create(ctx, newTestUser(fmt.Sprintf("ext-race-%d", i), fmt.Sprintf("race-%d@example.com", i), "Racer"))
+		require.NoError(t, err)
+
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		for _, level1 := range []string{"JP-13", "JP-27"} {
+			go func() {
+				<-start
+				_, err := repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "JP", Level1: level1})
+				errs <- err
+			}()
+		}
+		close(start)
+		require.NoError(t, <-errs)
+		require.NoError(t, <-errs)
+	}
+
+	var homes, unreferenced int
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM homes`).Scan(&homes))
+	require.NoError(t, testDB.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM homes h WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.home_id = h.id)`).Scan(&unreferenced))
+	assert.Equal(t, users, homes, "one Home per User")
+	assert.Zero(t, unreferenced, "no Home is left that no User refers to")
+}
+
 func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
@@ -749,20 +787,20 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 		id := seedUser(t, "details", entity.NewID()+"@example.com", entity.NewID())
 		before, err := repo.Get(ctx, id)
 		require.NoError(t, err)
-		require.Empty(t, before.FullName)
+		require.Nil(t, before.FullName)
 
-		updated, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		updated, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 
 		require.NoError(t, err)
-		assert.Equal(t, "山田 花子", updated.FullName)
-		assert.Equal(t, "+819012345678", updated.PhoneNumber)
+		assert.Equal(t, new("山田 花子"), updated.FullName)
+		assert.Equal(t, new("+819012345678"), updated.PhoneNumber)
 		assert.Equal(t, before.Email, updated.Email, "other attributes are unchanged")
 		assert.Equal(t, before.Name, updated.Name)
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
 		assert.Equal(t, updated, got)
 
-		again, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		again, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err, "repeating the same values succeeds")
 		assert.Equal(t, updated, again)
 	})
@@ -770,17 +808,17 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 	t.Run("correction", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "Correction"
 		id := seedUser(t, "details-fix", entity.NewID()+"@example.com", entity.NewID())
-		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
 		eventID := seedAdmissionEvent(t)
 		seedIssuedTickets(t, eventID, id, 2)
 
-		_, err = repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+818098765432")
+		_, err = repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+818098765432"))
 
 		require.NoError(t, err)
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
-		assert.Equal(t, "+818098765432", got.PhoneNumber)
+		assert.Equal(t, new("+818098765432"), got.PhoneNumber)
 		// The ticket face reads the User's current values: the tickets are the
 		// User's, and no copy of the old phone number is kept on them.
 		tickets, err := rdb.NewTicketRepository(testDB, testOutbox).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
@@ -795,33 +833,33 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 	t.Run("invalid phone number", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "Invalid phone number"
 		id := seedUser(t, "details-bad", entity.NewID()+"@example.com", entity.NewID())
-		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
 
-		_, err = repo.UpdatePersonalDetails(ctx, id, "山田 花子", "090-1234-5678")
+		_, err = repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("090-1234-5678"))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
-		assert.Equal(t, "+819012345678", got.PhoneNumber, "nothing changes")
+		assert.Equal(t, new("+819012345678"), got.PhoneNumber, "nothing changes")
 	})
 
 	t.Run("unknown user", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "Unknown user"
-		_, err := repo.UpdatePersonalDetails(ctx, entity.NewID(), "山田 花子", "+819012345678")
+		_, err := repo.UpdatePersonalDetails(ctx, entity.NewID(), new("山田 花子"), new("+819012345678"))
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
-	t.Run("an empty value is stored as absent", func(t *testing.T) {
+	t.Run("a value not given is stored as absent", func(t *testing.T) {
 		id := seedUser(t, "details-clear", entity.NewID()+"@example.com", entity.NewID())
-		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
 
-		updated, err := repo.UpdatePersonalDetails(ctx, id, "", "+819012345678")
+		updated, err := repo.UpdatePersonalDetails(ctx, id, nil, new("+819012345678"))
 
 		require.NoError(t, err)
-		assert.Empty(t, updated.FullName)
+		assert.Nil(t, updated.FullName)
 		var fullNameIsNull bool
 		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT full_name IS NULL FROM users WHERE id = $1`, id).Scan(&fullNameIsNull))
 		assert.True(t, fullNameIsNull)

@@ -364,8 +364,8 @@ func TestOrderUseCase_Issue(t *testing.T) {
 		require.Len(t, issuedTickets, 2)
 		for _, tk := range issuedTickets {
 			assert.Equal(t, "identity-verification-1", tk.IdentityVerificationID)
-			face := tk.Face(&entity.User{ID: "user-1", FullName: "山田 太郎", PhoneNumber: "+819012345678"})
-			assert.Equal(t, "山田 太郎", face.FullName, "the face shows the user's own full name")
+			face := tk.Face(&entity.User{ID: "user-1", FullName: new("山田 太郎"), PhoneNumber: new("+819012345678")})
+			assert.Equal(t, new("山田 太郎"), face.FullName, "the face shows the user's own full name")
 		}
 	})
 

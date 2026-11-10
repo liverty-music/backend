@@ -343,16 +343,19 @@ type RefundRepository interface {
 	// The money moves before the call, idempotently, so a crash between the
 	// payment provider and the database is recovered by calling again.
 	//
-	// When the Order is no longer Paid, because an earlier call made it
-	// Refunded, CommitRefund changes nothing and keeps the first refund. A
-	// Settlement already Reversed fails the call with FailedPrecondition, so
-	// a concurrent second call with a Settlement fails that way.
+	// When the Order is already Refunded, because an earlier call made it
+	// so, CommitRefund changes nothing and keeps the first refund's reason,
+	// amount, provider refund ID and time. A Settlement already Reversed
+	// fails the call with FailedPrecondition, so a concurrent second call
+	// with a Settlement fails that way. An Order that is Pending or Void was
+	// never paid, so a refund recorded against it is an error, not a repeat.
 	//
 	// # Possible errors
 	//
 	//   - InvalidArgument: no reason is given, or the amount is below 0.
 	//   - FailedPrecondition: the Settlement is already Reversed (concurrent
-	//     refund); nothing changes.
+	//     refund), or the Order is Pending or Void; nothing changes.
+	//   - NotFound: no Order has the id; nothing changes.
 	//   - Unavailable: the announcement cannot be recorded; nothing changes.
 	//   - Internal: database transaction or query failure.
 	//
@@ -360,7 +363,7 @@ type RefundRepository interface {
 	//
 	// ORDER.refunded with the Refunded Order, its refund included, together
 	// with the refund. Nothing when the Order was already Refunded or the
-	// call fails.
+	// call fails, as for an Order never paid or an id no Order has.
 	CommitRefund(ctx context.Context, commit RefundCommit) error
 }
 
@@ -384,6 +387,8 @@ type IssuanceRepository interface {
 	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: no card authorization, provider payment ID or pay
+	//    time is given; nothing is stored.
 	//  - AlreadyExists: the Order is already Paid or Refunded (the caller
 	//    re-reads it).
 	//  - FailedPrecondition: the Order is Void, its source Checkout is not
@@ -392,6 +397,8 @@ type IssuanceRepository interface {
 	//    a listing allocated to the entry is Cancelled, the error wraps
 	//    [ErrResaleListingCancelled].
 	//  - NotFound: no Order has the id.
+	//  - Unavailable: an announcement could not be recorded; nothing is
+	//    stored.
 	//  - Internal: database transaction or query failure.
 	//
 	// # Announces

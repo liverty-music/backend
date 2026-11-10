@@ -49,22 +49,27 @@ type ConcertUseCase interface {
 	//  - Internal: If the delete fails.
 	Delete(ctx context.Context, eventID string) error
 
-	// ListByArtist returns all concerts for a specific artist.
+	// ListByArtist returns the artist's Concerts of every date that are
+	// visible to fans, the earliest first (Concert.ListByArtist). An artist
+	// with no Concerts, and an artist that does not exist, give an empty
+	// list, not an error.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If the artist does not exist.
+	//  - InvalidArgument: no artist id is given.
 	//  - Internal: database query failure.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
-	// ListFollowed returns concerts for followed artists, grouped by date
-	// and classified into home/nearby/away lanes based on proximity to the user's home.
-	// Only concerts whose local event date is on or after from are included; a nil
-	// from defaults to today onward.
+	// ListFollowed returns the fan-visible Concerts of the artists the user
+	// follows whose local date is on or after from (Concert.ListByFollower),
+	// grouped by date and sorted into home, nearby and away lists by
+	// proximity to home. A nil from means the current date onward. A user
+	// who follows no artist, and a user that does not exist, give no groups,
+	// not an error.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If the user does not exist.
+	//  - Internal: database query failure.
 	ListFollowed(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error)
 
 	// ListByArtists returns concerts for the specified artists, grouped by date
@@ -232,9 +237,9 @@ func NewConcertUseCase(
 	}
 }
 
-// ListByArtist returns all concerts for a specific artist.
+// ListByArtist returns the artist's fan-visible concerts of every date.
 func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	concerts, err := uc.concertRepo.ListByArtist(ctx, artistID, false)
+	concerts, err := uc.concertRepo.ListByArtist(ctx, artistID)
 	if err != nil {
 		return nil, err
 	}
@@ -599,8 +604,13 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 		err = nil
 	}
 
+	// One instant for the whole run: the search leaves out events dated
+	// before the current date at their Venue at now, and the concerts it is
+	// compared against are the upcoming ones at the same instant.
+	now := time.Now()
+
 	// Get existing upcoming concerts for deduplication.
-	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
+	existing, err := uc.concertRepo.ListUpcomingByArtist(ctx, artistID, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
@@ -616,7 +626,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 	// Search new concerts via external API (deadline inherited from HandlerTimeout).
 	// The searcher returns discovered concerts already grouped by series.
 	searched = true
-	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
+	scraped, err := uc.concertSearcher.Search(ctx, artist, site, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}

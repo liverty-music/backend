@@ -342,6 +342,8 @@ type ResaleEntryRepository interface {
 	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: the entry's Order has no card authorization; nothing
+	//    is stored.
 	//  - AlreadyExists: the user already has an Entered resale entry for the
 	//    stock's event; nothing is stored.
 	//  - FailedPrecondition: the stock's resale is not open at the create

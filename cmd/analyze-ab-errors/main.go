@@ -337,17 +337,17 @@ func main() {
 // the previous ordering (stale_date first) buried those cases.
 func classifyFalsePositive(rc rawConcert, fixture []gemini.GroundTruthEvent) string {
 	scDate := parseDate(rc.LocalDate)
-	normReturned := gemini.NormalizeVenue(rc.ListedVenueName)
+	normReturned := gemini.NormalizeFixtureVenue(rc.ListedVenueName)
 
 	for _, f := range fixture {
 		fDate := parseDate(f.LocalDate)
 		if !fDate.IsZero() && !scDate.IsZero() && fDate.Equal(scDate) && normReturned != "" &&
-			normReturned != gemini.NormalizeVenue(f.Venue) {
+			normReturned != gemini.NormalizeFixtureVenue(f.Venue) {
 			return "right_date_wrong_venue"
 		}
 	}
 	for _, f := range fixture {
-		if normReturned != "" && normReturned == gemini.NormalizeVenue(f.Venue) {
+		if normReturned != "" && normReturned == gemini.NormalizeFixtureVenue(f.Venue) {
 			fDate := parseDate(f.LocalDate)
 			if !fDate.IsZero() && !scDate.IsZero() && !fDate.Equal(scDate) {
 				return "right_venue_wrong_date"

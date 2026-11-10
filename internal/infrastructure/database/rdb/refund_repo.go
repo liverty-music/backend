@@ -2,8 +2,10 @@ package rdb
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -71,6 +73,13 @@ const cancelListingsByOrderTxQuery = `
 // stores the refund and announces it.
 const refundOrderTxQuery = `
 	UPDATE orders SET status = 2 WHERE id = $1 AND status = 1
+`
+
+// orderStatusTxQuery reads the status of the order refundOrderTxQuery did not
+// change, in the same transaction, to tell an order already Refunded from one
+// that was never paid and from an id no order has.
+const orderStatusTxQuery = `
+	SELECT status FROM orders WHERE id = $1
 `
 
 // insertOrderRefundTxQuery stores the refund of the order refundOrderTxQuery
@@ -161,9 +170,24 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 		return toAppErr(err, "failed to update order status in refund tx", attrs)
 	}
 	if tag.RowsAffected() == 0 {
-		// Already Refunded (or not Paid): the rollback keeps the first refund
-		// and its tickets as they are, and nothing is announced.
-		r.db.logger.Info(ctx, "refund not committed: the order is not paid", attrs)
+		// The order is not Paid. In every case below the deferred rollback
+		// undoes the ticket and listing changes above, and nothing is
+		// announced.
+		var status int16
+		err := tx.QueryRow(ctx, orderStatusTxQuery, string(commit.OrderID)).Scan(&status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperr.New(codes.NotFound, "no order has the id", attrs)
+		}
+		if err != nil {
+			return toAppErr(err, "failed to read the order status in refund tx", attrs)
+		}
+		if entity.OrderStatus(status) != entity.OrderStatusRefunded {
+			// Pending or Void: the order was never paid, so a refund
+			// recorded against it is an error, not a repeat.
+			return apperr.New(codes.FailedPrecondition, "the order was never paid; no refund is recorded", attrs)
+		}
+		// An earlier call made it Refunded: the first refund is kept.
+		r.db.logger.Info(ctx, "refund not committed: the order is already refunded", attrs)
 		return nil
 	}
 	var providerRefundID *string

@@ -146,8 +146,36 @@ func TestConcertSearcher_Search(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
+		// at is the search time; zero means from.
+		at   time.Time
 		want want
 	}{
+		{
+			// @spec components/entity/concert/search "Yesterday's show early in the morning"
+			name: "Yesterday's show early in the morning",
+			// 2026-11-10 23:30 UTC is 2026-11-11 08:30 at the Venue.
+			at: time.Date(2026, 11, 10, 23, 30, 0, 0, time.UTC),
+			body: `{"series": [
+				{"title": "Yesterday", "source_url": "https://www.example.com/y", "events": [{"venue": "Hall A", "country": "JP", "admin_area": "", "local_date": "2026-11-10", "open_time": "", "start_time": ""}]},
+				{"title": "Today", "source_url": "https://www.example.com/t", "events": [{"venue": "Hall B", "country": "JP", "admin_area": "", "local_date": "2026-11-11", "open_time": "", "start_time": ""}]}
+			]}`,
+			want: want{
+				events:     []flatEvent{{Title: "Today", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/t", Venue: "Hall B", LocalDate: "2026-11-11"}},
+				seriesSize: []int{1},
+			},
+		},
+		{
+			// @spec components/entity/concert/search "Same venue in another letter case"
+			name: "Same venue in another letter case",
+			body: `{"series": [{"title": "TOUR", "source_url": "https://www.example.com/tour", "events": [
+				{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"},
+				{"venue": "ZEPP HANEDA", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"}
+			]}]}`,
+			want: want{
+				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "Zepp Haneda", AdminArea: "JP-13", LocalDate: "2026-05-20", StartTime: "2026-05-20T19:00:00+09:00"}},
+				seriesSize: []int{1},
+			},
+		},
 		{
 			// @spec components/entity/concert/search "Tour across venues"
 			name: "Tour across venues",
@@ -303,7 +331,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 				return http.StatusOK, geminiResponse(tt.body, "STOP")
 			})
 
-			got, err := s.Search(context.Background(), artist, site, from)
+			at := from
+			if !tt.at.IsZero() {
+				at = tt.at
+			}
+			got, err := s.Search(context.Background(), artist, site, at)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want.events, flatten(t, got))

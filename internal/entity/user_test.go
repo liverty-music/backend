@@ -195,8 +195,8 @@ func TestValidatePersonalDetails(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		fullName    string
-		phoneNumber string
+		fullName    *string
+		phoneNumber *string
 	}
 	tests := []struct {
 		name  string
@@ -206,26 +206,26 @@ func TestValidatePersonalDetails(t *testing.T) {
 		{
 			// @spec components/entity/user "Details complete"
 			name:  "details complete",
-			args:  args{fullName: "山田 花子", phoneNumber: "+819012345678"},
+			args:  args{fullName: new("山田 花子"), phoneNumber: new("+819012345678")},
 			valid: true,
 		},
 		{
 			// @spec components/entity/user "Domestic-format phone number"
 			name: "domestic format with hyphens",
-			args: args{fullName: "山田 花子", phoneNumber: "090-1234-5678"},
+			args: args{fullName: new("山田 花子"), phoneNumber: new("090-1234-5678")},
 		},
 		{
 			name: "domestic format without hyphens",
-			args: args{fullName: "山田 花子", phoneNumber: "09012345678"},
+			args: args{fullName: new("山田 花子"), phoneNumber: new("09012345678")},
 		},
 		{
 			// @spec components/entity/user "Phone number too long"
 			name: "phone number too long",
-			args: args{fullName: "山田 花子", phoneNumber: "+" + strings.Repeat("1", 16)},
+			args: args{fullName: new("山田 花子"), phoneNumber: new("+" + strings.Repeat("1", 16))},
 		},
 		{
 			name:  "phone number of 15 digits",
-			args:  args{fullName: "山田 花子", phoneNumber: "+" + strings.Repeat("1", 15)},
+			args:  args{fullName: new("山田 花子"), phoneNumber: new("+" + strings.Repeat("1", 15))},
 			valid: true,
 		},
 		{
@@ -236,12 +236,16 @@ func TestValidatePersonalDetails(t *testing.T) {
 		},
 		{
 			name:  "name of 200 characters",
-			args:  args{fullName: strings.Repeat("名", 200), phoneNumber: "+819012345678"},
+			args:  args{fullName: new(strings.Repeat("名", 200)), phoneNumber: new("+819012345678")},
 			valid: true,
 		},
 		{
+			name: "a given name of no characters",
+			args: args{fullName: new(""), phoneNumber: new("+819012345678")},
+		},
+		{
 			name: "name of 201 characters",
-			args: args{fullName: strings.Repeat("名", 201), phoneNumber: "+819012345678"},
+			args: args{fullName: new(strings.Repeat("名", 201)), phoneNumber: new("+819012345678")},
 		},
 	}
 	for _, tt := range tests {
@@ -263,8 +267,8 @@ func TestValidatePersonalDetails(t *testing.T) {
 func TestUser_HasPersonalDetails(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, (&entity.User{FullName: "山田 花子", PhoneNumber: "+819012345678"}).HasPersonalDetails())
-	assert.False(t, (&entity.User{FullName: "山田 花子"}).HasPersonalDetails())
+	assert.True(t, (&entity.User{FullName: new("山田 花子"), PhoneNumber: new("+819012345678")}).HasPersonalDetails())
+	assert.False(t, (&entity.User{FullName: new("山田 花子")}).HasPersonalDetails())
 	assert.False(t, (&entity.User{}).HasPersonalDetails())
 }
 

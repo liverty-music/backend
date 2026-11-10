@@ -116,7 +116,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		_, err := concertRepo.Create(ctx, concerts...)
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		assert.Len(t, got, 3)
 	})
@@ -173,7 +173,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		)
 		assert.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		assert.Len(t, got, 2)
 	})
@@ -265,7 +265,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		assert.Len(t, got, 1, "should have exactly 1 concert — duplicate must be skipped")
 		require.NotNil(t, got[0].Series)
@@ -299,7 +299,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime, "open_at should be updated from NULL to non-NULL")
@@ -331,7 +331,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
@@ -365,7 +365,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime)
@@ -433,10 +433,10 @@ func TestConcertRepository_Create(t *testing.T) {
 			"linkedEventIDs must resolve to the pre-existing event row id, not B's phantom input UUID")
 
 		// Verify both artists are now linked to the same event.
-		gotA, err := concertRepo.ListByArtist(ctx, artistID, false)
+		gotA, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, gotA, 1)
-		gotB, err := concertRepo.ListByArtist(ctx, artistB, false)
+		gotB, err := concertRepo.ListByArtist(ctx, artistB)
 		require.NoError(t, err)
 		require.Len(t, gotB, 1)
 		assert.Equal(t, gotA[0].ID, gotB[0].ID,
@@ -469,7 +469,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		assert.Len(t, got, 1, "two NULL start_at events with same series+venue+date must conflict")
 	})
@@ -494,7 +494,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		_, err := concertRepo.Create(ctx, concert)
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		assert.Len(t, got, 1, "should still have exactly 1 concert — no duplicate")
 	})
@@ -555,7 +555,7 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	// And via ListByArtist for each performer — every artist should see this
 	// concert regardless of billing position.
 	for _, aid := range []string{headliner, support, opener} {
-		listed, err := concertRepo.ListByArtist(ctx, aid, false)
+		listed, err := concertRepo.ListByArtist(ctx, aid)
 		require.NoError(t, err)
 		require.Len(t, listed, 1, "artist %s should see the shared concert", aid)
 		assert.Equal(t, eventID, listed[0].ID)
@@ -612,7 +612,7 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	got, err := concertRepo.ListByArtist(ctx, artistID, false)
+	got, err := concertRepo.ListByArtist(ctx, artistID)
 	require.NoError(t, err)
 	require.Len(t, got, 1, "same venue+date+start collapses to one event regardless of series")
 
@@ -625,7 +625,7 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got, err = concertRepo.ListByArtist(ctx, artistID, false)
+	got, err = concertRepo.ListByArtist(ctx, artistID)
 	require.NoError(t, err)
 	require.Len(t, got, 2, "matinee and evening at the same venue+date are distinct events (昼夜2公演)")
 }
@@ -724,7 +724,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 
 			tt.setup(t, artist.ID, venue.ID)
 
-			got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+			got, err := concertRepo.ListByArtist(ctx, artist.ID)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
@@ -915,7 +915,15 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := concertRepo.ListByArtist(ctx, tt.args.artistID, tt.args.upcomingOnly)
+			var (
+				got []*entity.Concert
+				err error
+			)
+			if tt.args.upcomingOnly {
+				got, err = concertRepo.ListUpcomingByArtist(ctx, tt.args.artistID, time.Now())
+			} else {
+				got, err = concertRepo.ListByArtist(ctx, tt.args.artistID)
+			}
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, got)
@@ -960,7 +968,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		got, err := concertRepo.ListByArtist(ctx, artist.ID)
 		assert.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Nil(t, got[0].ListedVenueName, "expected nil for pre-migration NULL row")
@@ -993,7 +1001,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		got, err := concertRepo.ListByArtist(ctx, artist.ID)
 		assert.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].ListedVenueName, "expected non-nil for row with listed_venue_name set")
@@ -1578,7 +1586,7 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 
 		require.NoError(t, concertRepo.UpdateEventListedVenueName(ctx, eventID, "New Display Name"))
 
-		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		got, err := concertRepo.ListByArtist(ctx, artist.ID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].ListedVenueName)

@@ -317,14 +317,20 @@ type SeriesRepository interface {
 	// candidate slice is a no-op. Returns the number of rows deleted. Idempotent.
 	DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error)
 
-	// CreateDraft persists a new first-party series and its events in a single
-	// transaction: each event is stored DRAFT, as a concert performed by the
-	// given artists. The events' ids are kept.
+	// CreateDraft stores a new first-party series with its organizer, title,
+	// type, source page, description and visibility, and its events, all
+	// together or none of them: each event is stored DRAFT with its
+	// per-account limit (4 when none is given), as a concert performed by the
+	// given artists. The events' ids are kept. In every failure nothing is
+	// stored; in particular no event is added to a series that already
+	// exists.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the series is missing required fields.
+	//  - InvalidArgument: If the series is missing required fields or a
+	//    per-account limit breaks the event rules.
 	//  - FailedPrecondition: If a referenced organizer, venue or artist does not exist.
+	//  - AlreadyExists: If a series with the given id already exists.
 	CreateDraft(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
 	// Update applies an organizer's edit to a first-party series in a single
@@ -373,22 +379,33 @@ type SeriesRepository interface {
 	// Claimed events are not returned. The series' concert candidates are
 	// dropped.
 	//
+	// When a share token is given, it becomes the series' share token
+	// together with the publish: both are stored or neither is. A token is
+	// given only for an UNLISTED series that has none yet; nil publishes
+	// without touching the share token. Whenever PublishEvents fails, the
+	// series keeps the share token it had.
+	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If no event is given.
 	//  - NotFound: If the series does not exist.
 	//  - FailedPrecondition: If a given event is not a DRAFT event of the
 	//    series, or a slot is held by an event of another first-party series
-	//    (of another organizer or of the same one) or by a CANCELLED event.
-	//    Nothing changes. A slot suppressed by an admin delete does not block
-	//    it.
+	//    (of another organizer or of the same one) or by a CANCELLED event,
+	//    or a share token is given for a series that is not UNLISTED or
+	//    already has one. Nothing changes. A slot suppressed by an admin
+	//    delete does not block it.
+	//  - AlreadyExists: If another series holds the given share token.
+	//    Nothing changes.
+	//  - Unavailable: If the announcement cannot be recorded. Nothing
+	//    changes.
 	//
 	// # Announces
 	//
 	// CONCERT.created once per performing Artist with the Concerts made PUBLISHED
 	// in place (ce_subject the Artist id), together with the publish, when the
 	// series is PUBLIC. Nothing for claimed events or an UNLISTED series.
-	PublishEvents(ctx context.Context, seriesID string, eventIDs []string) (publishedEventIDs []string, err error)
+	PublishEvents(ctx context.Context, seriesID string, eventIDs []string, token *string) (publishedEventIDs []string, err error)
 
 	// CancelEvents cancels the given events of a first-party series in a
 	// single transaction: a PUBLISHED event becomes CANCELLED and is kept, a

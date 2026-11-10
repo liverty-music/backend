@@ -121,6 +121,45 @@ func TestOrganizerRepository_AssociateArtistAnnounces(t *testing.T) {
 		assert.Empty(t, associatedOf(t, mark, artistID))
 	})
 
+	t.Run("unrepresented artist becomes represented by the organizer", func(t *testing.T) {
+		// @spec components/entity/organizer/associate-artist "Unrepresented Artist"
+		org, artistID := seedOrganizer(t), newArtist(t)
+
+		require.NoError(t, repo.AssociateArtist(ctx, org, artistID))
+
+		assert.Equal(t, org, representedBy(t, artistID))
+	})
+
+	t.Run("artist already represented keeps its organizer", func(t *testing.T) {
+		// @spec components/entity/organizer/associate-artist "Artist already represented"
+		first, artistID := seedOrganizer(t), newArtist(t)
+		require.NoError(t, repo.AssociateArtist(ctx, first, artistID))
+
+		err := repo.AssociateArtist(ctx, seedOrganizer(t), artistID)
+
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+		assert.Equal(t, first, representedBy(t, artistID), "the existing link is kept")
+	})
+
+	t.Run("organizer deactivated between the caller's read and the link", func(t *testing.T) {
+		// @spec components/entity/organizer/associate-artist "Organizer deactivated just before the link"
+		org, artistID := seedOrganizer(t), newArtist(t)
+		// The caller reads the Organizer first and finds it active, as
+		// OrganizerUseCase.AssociateArtist does.
+		read, err := repo.Get(ctx, org)
+		require.NoError(t, err)
+		require.Equal(t, entity.OrganizerStatusActive, read.Status)
+		// A Deactivate commits before the link.
+		require.NoError(t, repo.SetStatus(ctx, org, entity.OrganizerStatusDeactivated))
+		mark := outboxMark(t)
+
+		err = repo.AssociateArtist(ctx, org, artistID)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Empty(t, representedBy(t, artistID), "the Artist stays unrepresented")
+		assert.Empty(t, associatedOf(t, mark, artistID))
+	})
+
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/organizer/associate-artist "Announcement cannot be recorded"
 		org, artistID := seedOrganizer(t), newArtist(t)

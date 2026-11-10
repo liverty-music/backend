@@ -3,8 +3,10 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -64,6 +66,13 @@ const (
 	`
 	compareAndSetOrganizerStatusQuery = `
 		UPDATE organizers SET status = $3 WHERE id = $1 AND status = $2
+	`
+	// shareOrganizerStatusQuery reads the organizer's status and holds its row
+	// shared until the transaction ends: SetStatus and CompareAndSetStatus
+	// update that row, so a deactivation either commits before this read or
+	// waits for the transaction that read it.
+	shareOrganizerStatusQuery = `
+		SELECT status FROM organizers WHERE id = $1 FOR SHARE
 	`
 	insertOrganizerArtistQuery = `
 		INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)
@@ -336,6 +345,19 @@ func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, 
 	}
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// A deactivated organizer gains no artist. The status is read under a
+	// row lock in the link's transaction, so a Deactivate that commits after
+	// the caller's own read is not missed. An organizer that does not exist
+	// is the caller's concern: the insert's foreign key rejects it.
+	var status int16
+	err = tx.QueryRow(ctx, shareOrganizerStatusQuery, organizerID).Scan(&status)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return toAppErr(err, "failed to read the organizer's status", attrs...)
+	}
+	if err == nil && entity.OrganizerStatus(status) == entity.OrganizerStatusDeactivated {
+		return apperr.New(codes.FailedPrecondition, "the organizer is deactivated", attrs...)
+	}
 
 	// The unique index on artist_id rejects an already-represented artist with a
 	// unique violation, which toAppErr maps to AlreadyExists.

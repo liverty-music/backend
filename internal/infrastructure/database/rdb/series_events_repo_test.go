@@ -481,6 +481,31 @@ func TestSeriesRepository_Update(t *testing.T) {
 	})
 }
 
+func TestSeriesRepository_CreateDraft_IDAlreadyTaken(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	// @spec components/entity/series/create-draft "Id already taken"
+	f := newAuthoredFixture(t)
+	vis := entity.SeriesVisibilityPublic
+	first := &entity.Series{ID: entity.NewID(), Title: "First Tour", Type: entity.SeriesTypeTour, OrganizerID: &f.orgID, Visibility: &vis}
+	firstEvent := entity.NewAuthoredEvent(first.ID, f.venueID, nil, authoredFirstDate, nil, nil, nil)
+	require.NoError(t, f.repo.CreateDraft(f.ctx, first, []*entity.Event{firstEvent}, []string{f.artistID}))
+
+	// The same id again, with another title and other Events.
+	again := &entity.Series{ID: first.ID, Title: "Second Tour", Type: entity.SeriesTypeTour, OrganizerID: &f.orgID, Visibility: &vis}
+	other := entity.NewAuthoredEvent(first.ID, f.venueID, nil, authoredFirstDate.AddDate(0, 0, 7), nil, nil, nil)
+	err := f.repo.CreateDraft(f.ctx, again, []*entity.Event{other}, []string{f.artistID})
+
+	assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+	stored, concerts, err := f.repo.GetAuthored(f.ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "First Tour", stored.Title)
+	assert.Equal(t, []string{firstEvent.ID}, eventIDs(entity.EventsOf(concerts)), "the existing Series keeps exactly the Events it had")
+	_, ok := f.state(other.ID)
+	assert.False(t, ok, "the given Event is not stored")
+}
+
 func TestSeriesRepository_PublishEvents(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -491,7 +516,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStateDraft)
 
-		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, ids, got)
@@ -505,7 +530,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		seriesID, ids := f.series(entity.PublishStateDraft)
 		discoveredID, _ := f.discovered(authoredFirstDate, nil)
 
-		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, got, "a claimed event is not returned")
@@ -527,7 +552,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		events[0].StartTime = jstAt(authoredFirstDate, 18)
 		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
-		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, ids, got)
@@ -538,7 +563,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids[:1])
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids[:1], nil)
 
 		require.NoError(t, err)
 		first, _ := f.state(ids[0])
@@ -572,7 +597,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 			seriesID, ids := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
 			tt.block(f)
 
-			_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+			_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			for _, id := range ids {
@@ -591,7 +616,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		f.exec(`UPDATE series SET visibility = 'UNLISTED' WHERE id = $1`, heldSeriesID)
 		stock := seedStockForEvent(t, heldID, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		state, _ := f.state(ids[0])
@@ -616,7 +641,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		seriesID, ids := f.series(entity.PublishStateDraft)
 		f.suppress(authoredFirstDate, nil)
 
-		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, ids, got)
@@ -629,7 +654,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStatePublished)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -639,9 +664,109 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, _ := f.series(entity.PublishStateDraft)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, nil)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, nil, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+// TestSeriesRepository_PublishEvents_ShareToken covers the share token that
+// PublishEvents stores together with the publish.
+func TestSeriesRepository_PublishEvents_ShareToken(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	// unlisted makes the fixture's series UNLISTED, with the given share
+	// token when one is given.
+	unlisted := func(f *authoredFixture, seriesID string, token *string) {
+		f.exec(`UPDATE series SET visibility = 'UNLISTED', unlisted_token = $2 WHERE id = $1`, seriesID, token)
+	}
+	tokenOf := func(f *authoredFixture, seriesID string) *string {
+		f.t.Helper()
+		var token *string
+		require.NoError(f.t, testDB.Pool.QueryRow(f.ctx, `SELECT unlisted_token FROM series WHERE id = $1`, seriesID).Scan(&token))
+		return token
+	}
+	assertAllDraft := func(f *authoredFixture, ids []string) {
+		f.t.Helper()
+		for _, id := range ids {
+			state, _ := f.state(id)
+			assert.Equal(f.t, "DRAFT", state)
+		}
+	}
+
+	t.Run("store the token with the first publish of an UNLISTED series", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Token stored with the first publish"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		unlisted(f, seriesID, nil)
+
+		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, new("token-t"))
+
+		require.NoError(t, err)
+		assert.Equal(t, ids, got)
+		state, _ := f.state(ids[0])
+		assert.Equal(t, "PUBLISHED", state)
+		opened, err := f.repo.GetByUnlistedToken(f.ctx, "token-t")
+		require.NoError(t, err)
+		assert.Equal(t, seriesID, opened.ID)
+	})
+
+	t.Run("fail with FAILED_PRECONDITION and store no token when a slot is held by a CANCELLED event", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Blocked publish stores no token"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft, entity.PublishStateDraft)
+		unlisted(f, seriesID, nil)
+		f.otherSeries(authoredFirstDate.AddDate(0, 0, 1), nil, entity.PublishStateCancelled, f.orgID)
+
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, new("token-t"))
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assertAllDraft(f, ids)
+		assert.Nil(t, tokenOf(f, seriesID))
+	})
+
+	t.Run("fail with FAILED_PRECONDITION and publish nothing when a token is given for a PUBLIC series", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Token for a public series"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, new("token-t"))
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assertAllDraft(f, ids)
+		assert.Nil(t, tokenOf(f, seriesID))
+	})
+
+	t.Run("fail with FAILED_PRECONDITION and keep the first token when the series already has one", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Series already has a token"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		unlisted(f, seriesID, new("token-t1"))
+
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, new("token-t2"))
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assertAllDraft(f, ids)
+		opened, err := f.repo.GetByUnlistedToken(f.ctx, "token-t1")
+		require.NoError(t, err)
+		assert.Equal(t, seriesID, opened.ID)
+	})
+
+	t.Run("fail with ALREADY_EXISTS and store no token when another series holds the token", func(t *testing.T) {
+		// @spec components/entity/series/publish-events "Token held by another series"
+		f := newAuthoredFixture(t)
+		seriesID, ids := f.series(entity.PublishStateDraft)
+		unlisted(f, seriesID, nil)
+		holderEventID := f.otherSeries(authoredFirstDate.AddDate(0, 0, 7), nil, entity.PublishStatePublished, f.orgID)
+		unlisted(f, f.seriesOf(holderEventID), new("token-held"))
+
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, new("token-held"))
+
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+		assertAllDraft(f, ids)
+		assert.Nil(t, tokenOf(f, seriesID))
 	})
 }
 

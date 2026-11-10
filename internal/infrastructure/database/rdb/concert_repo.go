@@ -160,6 +160,10 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
+	// listUpcomingConcertsByArtistQuery is listConcertsByArtistQuery from the
+	// date $2 onward: the current date at the Venue, computed by the caller
+	// (entity.CurrentDateAtVenue), never the database's own date, whose day
+	// is the server's.
 	listUpcomingConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
 		       s.title, s.type, s.source_url,
@@ -174,7 +178,7 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
-		AND e.local_event_date >= CURRENT_DATE` + fanVisibilityGuard + `
+		AND e.local_event_date >= $2` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -301,10 +305,10 @@ const (
 	// Distinct is required because an event could have multiple performers that
 	// are all followed by the same user; we want one row per event.
 	//
-	// The $2 lower bound defaults to CURRENT_DATE via COALESCE, so callers that
-	// pass a nil from get today-onward concerts; a non-nil from (including a past
-	// date) widens the range to that date. The from boundary is client-supplied
-	// to anchor "today" to the caller's timezone (server runs in UTC).
+	// $2 is the lower bound of the local date: the caller's from, which may be
+	// a past date, or the current date at the Venue when none is given
+	// (entity.CurrentDateAtVenue), never the database's own date, whose day
+	// is the server's.
 	//
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party
 	// events from this fan-facing surface.
@@ -322,7 +326,7 @@ const (
 		JOIN concert_artists ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
-		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)` + fanVisibilityGuard + `
+		  AND e.local_event_date >= $2` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -536,14 +540,27 @@ func (r *ConcertRepository) hydratePerformers(ctx context.Context, concerts []*e
 	return nil
 }
 
-// ListByArtist retrieves concerts where the given artist is one of the performers.
-func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*entity.Concert, error) {
-	query := listConcertsByArtistQuery
-	if upcomingOnly {
-		query = listUpcomingConcertsByArtistQuery
+// ListByArtist retrieves the fan-visible concerts of every date at which the
+// given artist is one of the performers.
+func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	return r.listByArtist(ctx, artistID, listConcertsByArtistQuery, artistID)
+}
+
+// ListUpcomingByArtist retrieves the fan-visible concerts at which the given
+// artist is one of the performers, from the current date at their Venue at
+// now onward.
+func (r *ConcertRepository) ListUpcomingByArtist(ctx context.Context, artistID string, now time.Time) ([]*entity.Concert, error) {
+	return r.listByArtist(ctx, artistID, listUpcomingConcertsByArtistQuery, artistID, entity.CurrentDateAtVenue(now))
+}
+
+// listByArtist runs one of the by-artist concert queries and hydrates its
+// rows.
+func (r *ConcertRepository) listByArtist(ctx context.Context, artistID, query string, args ...any) ([]*entity.Concert, error) {
+	if artistID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "artist id must not be empty")
 	}
 
-	rows, err := r.db.Pool.Query(ctx, query, artistID)
+	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by artist", slog.String("artist_id", artistID))
 	}
@@ -608,10 +625,15 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 }
 
 // ListByFollower retrieves all concerts featuring artists the user follows whose
-// local event date is on or after from. A nil from defaults to CURRENT_DATE
-// (today onward). Venue lat/lng are included for proximity classification.
+// local event date is on or after from. A nil from defaults to the current
+// date at the Venue (today onward). Venue lat/lng are included for proximity
+// classification.
 func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
-	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID, from)
+	since := entity.CurrentDateAtVenue(time.Now())
+	if from != nil {
+		since = *from
+	}
+	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID, since)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by follower", slog.String("user_id", userID))
 	}

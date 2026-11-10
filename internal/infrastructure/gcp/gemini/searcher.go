@@ -787,9 +787,10 @@ func (s *ConcertSearcher) executePass(
 }
 
 // mergeDrafts turns the drafts into discovered series: it drops events dated
-// before from, removes repeats by (local_date, normalized venue, start_time)
-// keeping the first, groups events under their originating series entry, and
-// classifies each series by its venues (seriesTypeOf).
+// before the current date at their Venue at from, removes repeats by
+// (local_date, venue as venueRepeatKey gives it, start_time) keeping the
+// first, groups events under their originating series entry, and classifies
+// each series by its venues (seriesTypeOf).
 //
 // start_time is part of the repeat key so that two shows on the same date at
 // the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive as
@@ -820,7 +821,7 @@ func (s *ConcertSearcher) mergeDrafts(
 		}
 		// The normalized venue only forms the key; the returned event keeps
 		// the venue as written.
-		key := dedupKey{date: draft.LocalDate, venue: NormalizeVenue(draft.Venue), startTime: draft.StartTime}
+		key := dedupKey{date: draft.LocalDate, venue: venueRepeatKey(draft.Venue), startTime: draft.StartTime}
 		if _, dup := seen[key]; dup {
 			s.logger.Warn(ctx, "duplicate event dropped by (local_date, normalized_venue, start_time) dedup",
 				append(attrs,
@@ -873,14 +874,30 @@ func (s *ConcertSearcher) mergeDrafts(
 	return discovered
 }
 
+// venueMiddleDots are the middle-dot variants two notations of one venue
+// name differ in; NFKC has already folded the half-width ･ to ・.
+var venueMiddleDots = strings.NewReplacer("・", "", "·", "", "•", "", "‧", "", "∙", "", "⋅", "")
+
+// venueRepeatKey returns the form in which two listed venue names are the
+// same venue for Search: the Venue's normalization
+// ([entity.NormalizeVenueName]) with whitespace, middle-dot variants and
+// Latin letter case ignored, so "渋谷CLUB QUATTRO" and "渋谷 CLUB QUATTRO",
+// or "Zepp Haneda" and "ZEPP HANEDA", give one key. No other rule makes two
+// names the same. It is "" for a venue not yet announced.
+func venueRepeatKey(listedVenueName string) string {
+	s := strings.ToLower(entity.NormalizeVenueName(listedVenueName))
+	s = venueMiddleDots.Replace(s)
+	return strings.Join(strings.Fields(s), "")
+}
+
 // seriesTypeOf classifies a series by its venues, following the SeriesType
 // definitions: TOUR when its events are at two or more venues (compared by
-// NormalizeVenue, ignoring venues not yet announced), SINGLE otherwise — a
+// venueRepeatKey, ignoring venues not yet announced), SINGLE otherwise — a
 // one-off show or several days at one venue.
 func seriesTypeOf(events []*entity.DiscoveredEvent) entity.SeriesType {
 	venues := make(map[string]struct{}, len(events))
 	for _, ev := range events {
-		if v := NormalizeVenue(ev.ListedVenueName); v != "" {
+		if v := venueRepeatKey(ev.ListedVenueName); v != "" {
 			venues[v] = struct{}{}
 		}
 	}
@@ -908,7 +925,10 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 		return nil
 	}
 
-	if date.Before(from.Truncate(24 * time.Hour)) {
+	// The event's local date is the date at its Venue, so it is past when it
+	// is before the current date there at the search time, not before the
+	// UTC day: at 23:30 UTC the Venue is already on the next day.
+	if date.Before(entity.CurrentDateAtVenue(from)) {
 		s.logger.Debug(ctx, "filtered past event",
 			append(attrs, slog.String("title", draft.Title), slog.String("date", draft.LocalDate))...,
 		)

@@ -223,11 +223,11 @@ func sameOptionalTime(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-// HasPassedAt reports whether the event's local date is before t's date in
-// Japan time: the whole event day still counts as upcoming.
+// HasPassedAt reports whether the event's local date is before the current
+// date at its Venue at t ([CurrentDateAtVenue]): the whole event day still
+// counts as upcoming.
 func (e *Event) HasPassedAt(t time.Time) bool {
-	y, m, d := t.In(japanTime).Date()
-	return e.LocalDate.Before(time.Date(y, m, d, 0, 0, 0, 0, time.UTC))
+	return e.LocalDate.Before(CurrentDateAtVenue(t))
 }
 
 // EventRepository reads one [Event]'s current date, times and publish state.

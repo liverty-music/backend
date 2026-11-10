@@ -54,22 +54,30 @@ type OrderUseCase interface {
 	//  - Internal: database query failure.
 	ListByEvent(ctx context.Context, eventID string) ([]*entity.Order, error)
 
-	// Refund applies the refund policy for the given reason and executes
-	// the money-movement: issues a platform-balance Refund, voids the Order's
-	// tickets, sets Order status=refunded, and reverses any paid-out
-	// Transfer(s) of the Order's Settlement and marks it reversed.
+	// Refund refunds one Paid Order for the given reason: it moves the money,
+	// then records the Order as Refunded with the reason, the amount refunded
+	// to the fan's card and the time, voids its Tickets and marks its
+	// Settlement Reversed.
 	//
 	// It is IDEMPOTENT: a replayed call on an already-refunded Order is a
 	// no-op that returns the existing Order.
 	//
 	// # Policy by reason
 	//
-	//   - CANCELLATION: allowed while the Order is Paid and its Event is
-	//     CANCELLED. Refunds the fan (face + system/発券 fee; processor fee
-	//     retained).
-	//   - DISPUTE: always allowed (platform absorbs via negative-balance
-	//     responsibility); funds already paid out are clawed back via
-	//     transfer_reversal.
+	// Only a Paid Order is refunded, for either reason.
+	//
+	//   - CANCELLATION: allowed only when the Order's Event is CANCELLED.
+	//     The fan is refunded the price of the Order's Tickets that are still
+	//     Issued: the Order's amount divided by its number of Tickets, times
+	//     the number still Issued. Tickets resold through official resale
+	//     were refunded then and are not refunded again; with no Ticket
+	//     still Issued, no refund is issued.
+	//   - DISPUTE: accepted whatever the Event's state. No refund is issued,
+	//     because the dispute has already returned the money to the fan.
+	//
+	// For either reason, every split of the Settlement that was paid out and
+	// is not yet reversed is clawed back; a Held Settlement is marked
+	// Reversed so it is never paid out.
 	//
 	// # Atomicity
 	//
@@ -81,8 +89,10 @@ type OrderUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the Order does not exist.
-	//  - FailedPrecondition: the Order is not refundable (not Paid), or the
-	//    reason is CANCELLATION and the Order's Event is not CANCELLED.
+	//  - FailedPrecondition: the Order is not refundable (not Paid), the
+	//    reason is CANCELLATION and the Order's Event is not CANCELLED, or a
+	//    refund is due and the Order's payment provider cannot issue refunds
+	//    or the Order has no provider payment ID.
 	//  - InvalidArgument: the reason is UNSPECIFIED.
 	//  - Internal: database or payment provider failure, or the Paid Order
 	//    has no Settlement (nothing is refunded).

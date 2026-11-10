@@ -82,7 +82,9 @@ const (
 	// message is stored once, but a charge reported again announces a new
 	// message and records a second event.
 	// Properties: order_id, event_id, ticket_count, amount, currency, source
-	// ("lottery_entry" or "checkout"), lottery_entry_id or checkout_id.
+	// ("lottery_entry", "checkout" or "resale_entry", how the Order was
+	// bought) and exactly the id that matches the source: lottery_entry_id,
+	// checkout_id or resale_entry_id.
 	EventOrderPaid AnalyticsEventName = "order.paid"
 
 	// EventLotteryEntryWon is recorded for each LOTTERY_ENTRY.won

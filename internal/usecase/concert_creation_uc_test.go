@@ -166,7 +166,7 @@ func (r *fakeSeriesRepo) ReplaceCoverImage(_ context.Context, _ string, _ *entit
 	return "", nil
 }
 
-func (r *fakeSeriesRepo) PublishEvents(_ context.Context, _ string, _ []string) ([]string, error) {
+func (r *fakeSeriesRepo) PublishEvents(_ context.Context, _ string, _ []string, _ *string) ([]string, error) {
 	return nil, nil
 }
 
@@ -200,7 +200,11 @@ type fakeConcertRepo struct {
 // the mockery mock (concert_uc_admin_test.go).
 var errNotFaked = errors.New("fakeConcertRepo: admin catalog methods are not faked")
 
-func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
+func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string) ([]*entity.Concert, error) {
+	return nil, nil
+}
+
+func (r *fakeConcertRepo) ListUpcomingByArtist(_ context.Context, _ string, _ time.Time) ([]*entity.Concert, error) {
 	return nil, nil
 }
 
@@ -840,6 +844,39 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// The empty-venue row is skipped; the valid one is auto-published.
 		assert.Len(t, h.concert.created, 1)
 		assert.Empty(t, h.candidate.upserted)
+	})
+
+	t.Run("skips an event whose venue is TBA and stores no Venue named TBA", func(t *testing.T) {
+		t.Parallel()
+		// Follows from entity/venue "Venue not yet announced is missing" and
+		// the skip of a blank name ("Venue to be announced").
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
+		h.place.places["TBA"] = &entity.VenuePlace{ProviderUserID: "place-tba", Name: "TBA"}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-6",
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Tour With A TBA Date",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/tba",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{ListedVenueName: "TBA", LocalDate: localDate.AddDate(0, 0, 7)},
+					},
+				},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, h.concert.created, 1, "only the event at a named venue is stored")
+		assert.True(t, localDate.Equal(h.concert.created[0].LocalDate))
+		assert.Empty(t, h.candidate.upserted)
+		for _, v := range h.venue.created {
+			assert.NotEqual(t, "TBA", v.Name, "no Venue named TBA is stored")
+		}
+		assert.NotContains(t, h.venue.venues, "TBA")
 	})
 }
 

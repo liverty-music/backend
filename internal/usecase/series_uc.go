@@ -85,8 +85,12 @@ type SeriesUseCase interface {
 
 	// Publish publishes the named DRAFT events of a series, or every DRAFT
 	// event when none is named. For a PUBLIC series it announces the newly
-	// added events once per performer; an UNLISTED series gets a share token
-	// on its first publish. Returns the authored concert.
+	// added events once per performer. An UNLISTED series that has no share
+	// token yet gets a new random one together with the publish
+	// (Series.PublishEvents with that token); a series that already has one
+	// keeps it. When the publish fails nothing is stored, the token included,
+	// so publishing again gives the series its token together with its
+	// events. Returns the authored concert.
 	//
 	// # Possible errors
 	//
@@ -97,6 +101,7 @@ type SeriesUseCase interface {
 	//    no event is named and none is DRAFT, or a slot is held by another
 	//    organizer or by a CANCELLED event. A slot suppressed by an admin
 	//    delete does not block it.
+	//  - Any error of Series.PublishEvents, with its own code.
 	Publish(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) (*entity.Series, []*entity.Concert, error)
 
 	// Cancel cancels the named events of a series, or every PUBLISHED and
@@ -557,21 +562,21 @@ func (uc *seriesUseCase) Publish(
 	for i, e := range targets {
 		targetIDs[i] = e.ID
 	}
-	// Series.PublishEvents announces the new concerts of a PUBLIC series.
-	if _, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs); err != nil {
-		return nil, nil, fmt.Errorf("publish events: %w", err)
-	}
-
-	// An UNLISTED series gets its share token on the first publish and keeps
-	// it afterwards, so links already shared keep working.
+	// An UNLISTED series gets its share token with its first publish and
+	// keeps it afterwards, so links already shared keep working. The token
+	// travels with Series.PublishEvents: a failed publish stores neither, and
+	// publishing again gives the series its token together with its events.
+	var token *string
 	if series.Visibility != nil && *series.Visibility == entity.SeriesVisibilityUnlisted && series.UnlistedToken == nil {
-		token, err := generateUnlistedToken()
+		t, err := generateUnlistedToken()
 		if err != nil {
 			return nil, nil, fmt.Errorf("generate unlisted token: %w", err)
 		}
-		if err := uc.seriesRepo.SetUnlistedToken(ctx, seriesID, token); err != nil {
-			return nil, nil, fmt.Errorf("set unlisted token: %w", err)
-		}
+		token = &t
+	}
+	// Series.PublishEvents announces the new concerts of a PUBLIC series.
+	if _, err := uc.seriesRepo.PublishEvents(ctx, seriesID, targetIDs, token); err != nil {
+		return nil, nil, fmt.Errorf("publish events: %w", err)
 	}
 
 	published, publishedConcerts, err := uc.seriesRepo.GetAuthored(ctx, seriesID)

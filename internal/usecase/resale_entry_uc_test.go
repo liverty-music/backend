@@ -99,7 +99,7 @@ func TestResaleEntryUseCase_AuthorizeCard(t *testing.T) {
 		f.eventState.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.orders.EXPECT().GetHeldForEvent(mock.Anything, entity.UserID("fan-1"), "event-1", (*entity.OrderID)(nil), reNow).Return(entity.HeldTickets{}, nil)
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1").Return([]*entity.TicketSale{{ID: "sale-1"}}, nil)
-		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 太郎", "+819012345678").Return(&entity.User{}, nil)
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", new("山田 太郎"), new("+819012345678")).Return(&entity.User{}, nil)
 		f.cardAuthorizations.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
 			Purpose: entity.CardAuthorizationPurposeResaleEntry, UserID: "fan-1", TicketStockID: "stock-s", EventID: "event-1", TicketCount: 2,
 		}, int64(10000)).Return(&entity.CardAuthorization{ID: "ca-1", Amount: 10000}, nil)

@@ -29,15 +29,17 @@ func IsE164(s string) bool {
 const FullNameMaxLen = 200
 
 // ValidatePersonalDetails reports whether a full name and a phone number
-// follow the User's personal details rule: a full name, when present, is 1 to
-// 200 characters, and a phone number, when present, is in E.164 form. An
-// empty value is absent, which is valid. The entity layer returns stdlib
-// errors; callers wrap them with an apperr code.
-func ValidatePersonalDetails(fullName, phoneNumber string) error {
-	if utf8.RuneCountInString(fullName) > FullNameMaxLen {
-		return errors.New("full name must be 1 to 200 characters")
+// follow the User's personal details rule: a full name, when given, is 1 to
+// 200 characters, and a phone number, when given, is in E.164 form. A nil
+// value is absent, which is valid. The entity layer returns stdlib errors;
+// callers wrap them with an apperr code.
+func ValidatePersonalDetails(fullName, phoneNumber *string) error {
+	if fullName != nil {
+		if n := utf8.RuneCountInString(*fullName); n < 1 || n > FullNameMaxLen {
+			return errors.New("full name must be 1 to 200 characters")
+		}
 	}
-	if phoneNumber != "" && !IsE164(phoneNumber) {
+	if phoneNumber != nil && !IsE164(*phoneNumber) {
 		return errors.New("phone number must be in E.164 form")
 	}
 	return nil
@@ -129,7 +131,9 @@ type User struct {
 	// PreferredLanguage is the user's preferred ISO 639-1 two-letter language code
 	// (e.g., "en", "ja"). A User always has one; Create requires it.
 	PreferredLanguage string
-	// TimeZone is the user's preferred time zone.
+	// TimeZone is the time zone in which the user's notifications show
+	// times: an IANA time zone name (e.g. "Asia/Tokyo"). Empty when the user
+	// has none; an empty or unknown name means Asia/Tokyo ([TimeZoneOf]).
 	TimeZone string
 	// LastLoginTime is when the user last signed in, as reported by the
 	// identity provider. Nil until the first sign-in is recorded.
@@ -139,12 +143,12 @@ type User struct {
 	Home *Home
 	// FullName is the user's legal name as on their ID, the 本人確認 (identity
 	// check) name shown on the face of their tickets; 1 to 200 characters, or
-	// empty until first given.
-	FullName string
+	// nil until first given.
+	FullName *string
 	// PhoneNumber is the user's contact phone number in E.164 form (e.g.
-	// "+819012345678"), shown on the face of their tickets; empty until first
+	// "+819012345678"), shown on the face of their tickets; nil until first
 	// given.
-	PhoneNumber string
+	PhoneNumber *string
 }
 
 // ValidatePersonalDetails reports whether the user's full name and phone
@@ -156,7 +160,7 @@ func (u *User) ValidatePersonalDetails() error {
 // HasPersonalDetails reports whether the user has given both a full name and
 // a phone number.
 func (u *User) HasPersonalDetails() bool {
-	return u.FullName != "" && u.PhoneNumber != ""
+	return u.FullName != nil && u.PhoneNumber != nil
 }
 
 // NewUser represents data for creating a new user.
@@ -308,7 +312,7 @@ type UserRepository interface {
 	UpdateHome(ctx context.Context, id string, home *Home) (*User, error)
 
 	// UpdatePersonalDetails sets the user's full name and phone number to the
-	// given values (an empty value stores it as absent), leaves the user's
+	// given values (nil stores the value as absent), leaves the user's
 	// other attributes unchanged and returns the updated user. Repeating it
 	// with the same values succeeds without a further change.
 	//
@@ -316,7 +320,7 @@ type UserRepository interface {
 	//
 	//  - InvalidArgument: the values break the personal details rule.
 	//  - NotFound: If the user does not exist.
-	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*User, error)
+	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber *string) (*User, error)
 }
 
 // EmailVerifier sends a User's verification email (User.SendVerification and

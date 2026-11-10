@@ -77,6 +77,28 @@ func TestNormalizeVenueName(t *testing.T) {
 // TestNormalizeVenueName_DriftCollapsesButDistinctStays asserts the two
 // observed prod-drift spellings collapse to one identity while genuinely
 // different venues stay distinct.
+func TestNormalizeVenueName_UnannouncedVenue(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/entity/venue "Venue not yet announced is missing"
+	for _, in := range []string{"TBA", "-STAY TUNED-", "未定", "横浜某所", "tbd", "To Be Announced", "Coming Soon!", "後日発表", "ＴＢＡ"} {
+		t.Run("missing: "+in, func(t *testing.T) {
+			t.Parallel()
+			assert.Empty(t, entity.NormalizeVenueName(in))
+		})
+	}
+
+	// @spec components/entity/venue "A real name containing a marker word is kept"
+	for _, in := range []string{"TBA Hall Osaka", "未定会館", "Zepp Haneda"} {
+		t.Run("kept: "+in, func(t *testing.T) {
+			t.Parallel()
+			got := entity.NormalizeVenueName(in)
+			assert.Equal(t, in, got)
+			assert.Equal(t, got, entity.NormalizeVenueName(got), "normalizing again changes nothing")
+		})
+	}
+}
+
 func TestNormalizeVenueName_DriftCollapsesButDistinctStays(t *testing.T) {
 	t.Parallel()
 
