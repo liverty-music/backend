@@ -4,12 +4,12 @@ import "time"
 
 // Event subject constants for the domain events announced through the outbox.
 //
-// An event is named <Entity>.<What> in the specs (LotteryEntry.Won), its
-// subject <ENTITY>.<what> (LOTTERY_ENTRY.won) and its constant
-// Subject<Entity><What>. Each subject has two tokens, so the stream named
-// after the entity captures it with <ENTITY>.* (messaging streams). The
-// analytics consumer forwards some of them to PostHog under the subject in
-// lower case (usecase.AnalyticsEventName).
+// Name a new event by the rule in the "Announcements" section of AGENTS.md:
+// the event <Entity>.<What> of the specs (LotteryEntry.Won) has the subject
+// <ENTITY>.<what> (LOTTERY_ENTRY.won) in the stream <ENTITY>, the constant
+// Subject<Entity><What>, and the PostHog name of its subject in lower case.
+// That section also lists what a new entity's first event needs besides this
+// constant (its stream here and in cloud-provisioning).
 const (
 	// SubjectConcertCreated announces new concerts as created
 	// (Concert.Created): Concert.Create once per Series and newly listed
