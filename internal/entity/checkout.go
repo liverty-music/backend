@@ -206,8 +206,8 @@ type CheckoutRepository interface {
 	//
 	// # Announces
 	//
-	// On creation, ORDER.checkout_held with the new Checkout as Held, and
-	// ORDER.checkout_released or ORDER.checkout_expired with each Checkout it
+	// On creation, CHECKOUT.held with the new Checkout as Held, and
+	// CHECKOUT.released or CHECKOUT.expired with each Checkout it
 	// ends as it is after the change, all together with the creation. Nothing
 	// when it returns an existing holding Checkout.
 	GetOrCreateHeld(ctx context.Context, stockID TicketStockID, saleID TicketSaleID, userID UserID, count int, referralCode *ReferralCode, now time.Time) (*Checkout, error)
@@ -273,7 +273,7 @@ type CheckoutRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.checkout_expired with the Checkout as Expired, together with the
+	// CHECKOUT.expired with the Checkout as Expired, together with the
 	// release. Nothing when it changed nothing.
 	Release(ctx context.Context, id CheckoutID, now time.Time) (bool, error)
 
@@ -290,7 +290,7 @@ type CheckoutRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.checkout_released with the Checkout as Released, together with the
+	// CHECKOUT.released with the Checkout as Released, together with the
 	// revert. Nothing when it changed nothing.
 	RevertCommit(ctx context.Context, id CheckoutID) error
 

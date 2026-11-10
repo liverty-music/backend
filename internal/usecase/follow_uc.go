@@ -75,7 +75,7 @@ func NewFollowUseCase(
 }
 
 // Follow establishes a follow relationship between a user and an artist
-// through Follow.Follow, which announces the new Follow (ARTIST.followed)
+// through Follow.Follow, which announces the new Follow (FOLLOW.created)
 // together with storing it. After the follow is stored, it asynchronously
 // resolves and stores the artist's official site URL if one is not already
 // recorded. A repeat follow succeeds without starting that work.
@@ -152,7 +152,7 @@ func (uc *followUseCase) resolveAndPersistOfficialSite(ctx context.Context, arti
 }
 
 // Unfollow removes a follow relationship through Follow.Unfollow, which
-// announces the removal (ARTIST.unfollowed) together with it. Unfollowing an
+// announces the removal (FOLLOW.removed) together with it. Unfollowing an
 // artist the user does not follow succeeds.
 func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) error {
 	if err := uc.followRepo.Unfollow(ctx, userID, artistID); err != nil {
@@ -165,7 +165,7 @@ func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 }
 
 // SetHype updates the enthusiasm tier for a followed artist through
-// Follow.SetHype, which announces a changed level (ARTIST.hype_changed)
+// Follow.SetHype, which announces a changed level (FOLLOW.hype_changed)
 // together with the change.
 func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
 	if err := uc.followRepo.SetHype(ctx, userID, artistID, hype); err != nil {

@@ -548,7 +548,7 @@ func (r *SeriesRepository) announcePublished(ctx context.Context, tx pgx.Tx, ser
 }
 
 // CancelEvents cancels the given events of a first-party series in a single
-// transaction, and records CONCERT.cancelled for each event it makes
+// transaction, and records EVENT.cancelled for each event it makes
 // CANCELLED in it.
 func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, eventIDs []string) ([]string, error) {
 	if len(eventIDs) == 0 {
@@ -597,7 +597,7 @@ func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, ev
 			e.PublishState = &state
 			announcements = append(announcements, messaging.Announcement{Payload: pb.FromEvent(&e)})
 		}
-		if err := announceAll(ctx, r.outbox, tx, entity.SubjectConcertCancelled, announcements); err != nil {
+		if err := announceAll(ctx, r.outbox, tx, entity.SubjectEventCancelled, announcements); err != nil {
 			return nil, err
 		}
 	}

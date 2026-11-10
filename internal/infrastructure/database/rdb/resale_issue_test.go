@@ -230,7 +230,7 @@ func TestResaleEntryRepository_RevertWin(t *testing.T) {
 
 		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged))
 
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectResaleEntryLost, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) }), "nothing changes or is announced")
 	})
 
@@ -280,7 +280,7 @@ func TestResaleEntryRepository_RevertWin(t *testing.T) {
 
 		require.NoError(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow))
 
-		got := announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		got := announcedSince(t, mark, entity.SubjectResaleEntryLost, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) })
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LOST, got[0].GetState())

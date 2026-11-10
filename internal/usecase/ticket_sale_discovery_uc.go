@@ -34,7 +34,7 @@ func ticketSaleSearchDue(searched, now time.Time) bool {
 // TicketSaleDiscoveryUseCase selects the series of an artist that need a
 // search for published ticket sales, calls the searcher once for the artist
 // over those series, stores the results as discovered TicketSales, records the
-// search; TicketSale.UpsertDiscovered announces SALES_PHASE.discovered for each
+// search; TicketSale.UpsertDiscovered announces TICKET_SALE.discovered for each
 // new sale.
 type TicketSaleDiscoveryUseCase interface {
 	// DiscoverForArtist runs the discovery pipeline for one artist and

@@ -23,7 +23,7 @@ import (
 // TicketSaleDiscoveryJobApp is the dependency bundle for the sales-phase
 // discovery CronJob. The job enumerates upcoming series for all followed
 // artists, calls the published-sale searcher once per artist, upserts results,
-// and publishes SALES_PHASE.discovered events for new phases.
+// and publishes TICKET_SALE.discovered events for new phases.
 type TicketSaleDiscoveryJobApp struct {
 	FollowRepo       entity.FollowRepository
 	TicketSaleDiscUC usecase.TicketSaleDiscoveryUseCase

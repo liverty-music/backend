@@ -19,7 +19,7 @@ var listingRefunded = entity.ResaleListingRefundedData{
 	ResaleListingID: "listing-1", UserID: "fan-1", OrderID: "order-1", EventID: "event-1",
 }
 
-// makeListingRefundedMsg builds the ORDER.resale_listing_refunded
+// makeListingRefundedMsg builds the RESALE_LISTING.refunded
 // announcement of listingRefunded.
 func makeListingRefundedMsg(t *testing.T) *message.Message {
 	t.Helper()

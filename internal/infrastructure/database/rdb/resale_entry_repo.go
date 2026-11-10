@@ -281,8 +281,8 @@ func (r *ResaleEntryRepository) MarkEndedEmailSent(ctx context.Context, id entit
 //
 // # Announces
 //
-// ORDER.resale_entry_changed with each entry it makes Won, Lapsed or Lost, in
-// the transaction that records the draw.
+// RESALE_ENTRY.won, RESALE_ENTRY.lapsed or RESALE_ENTRY.lost with each entry
+// it makes Won, Lapsed or Lost, in the transaction that records the draw.
 func (r *ResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, outcome entity.ResaleDrawOutcome) error {
 	_, err := r.draw(ctx, stockID, drawTime, func(pgx.Tx) (entity.ResaleDrawOutcome, error) { return outcome, nil })
 	return err
@@ -297,7 +297,8 @@ func (r *ResaleEntryRepository) PersistDrawOutcome(ctx context.Context, stockID 
 //
 // # Announces
 //
-// ORDER.resale_entry_changed with each entry it makes Won, Lapsed or Lost.
+// RESALE_ENTRY.won, RESALE_ENTRY.lapsed or RESALE_ENTRY.lost with each entry
+// it makes Won, Lapsed or Lost.
 func (r *ResaleEntryRepository) DrawUnderLock(ctx context.Context, stockID entity.TicketStockID, drawTime time.Time, decide func(entries []*entity.ResaleEntry, freeListings []entity.ResaleListingID) entity.ResaleDrawOutcome) (entity.ResaleDrawOutcome, error) {
 	return r.draw(ctx, stockID, drawTime, func(tx pgx.Tx) (entity.ResaleDrawOutcome, error) {
 		entries, err := scanResaleEntries(tx.Query(ctx, resaleEntryListEnteredQuery, string(stockID)))
@@ -397,7 +398,7 @@ func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketS
 			return err
 		}
 		for _, e := range changed {
-			if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
+			if err := announce(ctx, r.outbox, tx, resaleEntryDrawnSubject(e.State), messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
 				return err
 			}
 		}
@@ -411,6 +412,19 @@ func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketS
 	r.db.logger.Info(ctx, "resale draw recorded", append(attrs,
 		slog.Int("won", len(outcome.Winners)), slog.Int("lapsed", len(outcome.Lapsed)), slog.Int("lost", len(outcome.Lost)))...)
 	return outcome, nil
+}
+
+// resaleEntryDrawnSubject is the subject a draw announces an entry it made
+// state with: RESALE_ENTRY.won, .lapsed or .lost.
+func resaleEntryDrawnSubject(state entity.ResaleEntryState) string {
+	switch state {
+	case entity.ResaleEntryStateWon:
+		return entity.SubjectResaleEntryWon
+	case entity.ResaleEntryStateLapsed:
+		return entity.SubjectResaleEntryLapsed
+	default:
+		return entity.SubjectResaleEntryLost
+	}
 }
 
 // ListDueStocks returns, for every TicketStock with Entered resale entries,
@@ -442,7 +456,7 @@ func (r *ResaleEntryRepository) ListDueStocks(ctx context.Context) ([]entity.Res
 //
 // # Announces
 //
-// ORDER.resale_entry_changed with the Withdrawn entry, in the transaction
+// RESALE_ENTRY.withdrawn with the Withdrawn entry, in the transaction
 // that withdraws it.
 func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEntryID, at time.Time) (*entity.ResaleEntry, error) {
 	attrs := slog.String("resale_entry_id", string(id))
@@ -475,7 +489,7 @@ func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEn
 		return nil, toAppErr(err, "failed to void the resale entry's order", attrs)
 	}
 	entry.Order.Status = entity.OrderStatusVoid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryWithdrawn, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -489,7 +503,7 @@ func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEn
 //
 // # Announces
 //
-// ORDER.resale_entry_changed with the entry as Lost, in the transaction that
+// RESALE_ENTRY.lost with the entry as Lost, in the transaction that
 // changes it. Nothing when it was already Lost.
 func (r *ResaleEntryRepository) RevertWin(ctx context.Context, id entity.ResaleEntryID, reason entity.ResaleEntryLostReason) error {
 	attrs := slog.String("resale_entry_id", string(id))
@@ -524,7 +538,7 @@ func (r *ResaleEntryRepository) RevertWin(ctx context.Context, id entity.ResaleE
 	if _, err := tx.Exec(ctx, resaleEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
 		return toAppErr(err, "failed to void the resale entry's order", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryChanged, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryLost, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

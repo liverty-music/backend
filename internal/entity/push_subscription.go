@@ -48,7 +48,7 @@ type PushSubscriptionRepository interface {
 	//
 	// # Announces
 	//
-	// NOTIFICATION.subscribed with the PushSubscription after the change, without
+	// PUSH_SUBSCRIPTION.subscribed with the PushSubscription after the change, without
 	// its push address and keys, together with the change, when it stored a new
 	// subscription or changed one. Nothing when nothing changed.
 	Create(ctx context.Context, sub *PushSubscription) error
@@ -72,7 +72,7 @@ type PushSubscriptionRepository interface {
 	//
 	// # Announces
 	//
-	// NOTIFICATION.unsubscribed with the PushSubscription as it was, without its
+	// PUSH_SUBSCRIPTION.unsubscribed with the PushSubscription as it was, without its
 	// push address and keys, together with the removal. Nothing when it removed
 	// nothing.
 	Delete(ctx context.Context, userID, endpoint string) error

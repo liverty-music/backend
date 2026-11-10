@@ -20,7 +20,7 @@ const (
 
 // String returns the lowercase name of the status for use in analytics event
 // properties. The zero value (no prior journey) returns "UNSPECIFIED" as the
-// sentinel used by the ticket.journey.status.changed event's from_status field.
+// sentinel used by the ticket_journey.status_changed event's from_status field.
 func (s TicketJourneyStatus) String() string {
 	switch s {
 	case TicketJourneyStatusTracking:

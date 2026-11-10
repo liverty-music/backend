@@ -62,14 +62,16 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 	}
 	ctx := context.Background()
 	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
-	announced := func(t *testing.T, mark int64, ids ...entity.ResaleEntryID) map[entity.ResaleEntryID]*entityv1.ResaleEntry {
+	// announced returns the given entries announced under subject since mark,
+	// by id.
+	announced := func(t *testing.T, mark int64, subject string, ids ...entity.ResaleEntryID) map[entity.ResaleEntryID]*entityv1.ResaleEntry {
 		t.Helper()
 		want := map[string]bool{}
 		for _, id := range ids {
 			want[string(id)] = true
 		}
 		out := map[entity.ResaleEntryID]*entityv1.ResaleEntry{}
-		for _, e := range announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		for _, e := range announcedSince(t, mark, subject, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(e *entityv1.ResaleEntry) bool { return want[e.GetId().GetValue()] }) {
 			out[entity.ResaleEntryID(e.GetId().GetValue())] = e
 		}
@@ -173,13 +175,21 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 			Lost:    []*entity.ResaleEntry{lost}, LostReason: entity.ResaleEntryLostReasonNoTicketLeft,
 		}))
 
-		got := announced(t, mark, won.ID, lapsed.ID, lost.ID)
-		require.Len(t, got, 3)
-		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_WON, got[won.ID].GetState())
-		assert.Equal(t, string(won.OrderID), got[won.ID].GetOrderId().GetValue())
-		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LAPSED, got[lapsed.ID].GetState())
-		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LOST, got[lost.ID].GetState())
-		assert.Equal(t, entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_NO_TICKET_LEFT, got[lost.ID].GetLostReason())
+		all := []entity.ResaleEntryID{won.ID, lapsed.ID, lost.ID}
+		gotWon := announced(t, mark, entity.SubjectResaleEntryWon, all...)
+		require.Len(t, gotWon, 1, "one announcement as won")
+		require.Contains(t, gotWon, won.ID)
+		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_WON, gotWon[won.ID].GetState())
+		assert.Equal(t, string(won.OrderID), gotWon[won.ID].GetOrderId().GetValue())
+		gotLapsed := announced(t, mark, entity.SubjectResaleEntryLapsed, all...)
+		require.Len(t, gotLapsed, 1, "one announcement as lapsed")
+		require.Contains(t, gotLapsed, lapsed.ID)
+		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LAPSED, gotLapsed[lapsed.ID].GetState())
+		gotLost := announced(t, mark, entity.SubjectResaleEntryLost, all...)
+		require.Len(t, gotLost, 1, "one announcement as lost")
+		require.Contains(t, gotLost, lost.ID)
+		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_LOST, gotLost[lost.ID].GetState())
+		assert.Equal(t, entityv1.ResaleEntryLostReason_RESALE_ENTRY_LOST_REASON_NO_TICKET_LEFT, gotLost[lost.ID].GetLostReason())
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
@@ -381,9 +391,9 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 		_, err := repo.Withdraw(ctx, e.ID, at)
 		require.NoError(t, err)
 
-		got := announcedSince(t, mark, entity.SubjectResaleEntryChanged, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		got := announcedSince(t, mark, entity.SubjectResaleEntryWithdrawn, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) })
-		require.Len(t, got, 1)
+		require.Len(t, got, 1, "announced as withdrawn once")
 		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_WITHDRAWN, got[0].GetState())
 	})
 

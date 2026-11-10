@@ -396,7 +396,7 @@ type IssuanceRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.paid with the Order as Paid, and ORDER.resale_listing_sold with
+	// ORDER.paid with the Order as Paid, and RESALE_LISTING.sold with
 	// each listing it makes Sold, together with the issuance. Nothing when
 	// Issue fails, including with AlreadyExists.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error

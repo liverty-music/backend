@@ -13,7 +13,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// LotteryCancellationConsumer handles CONCERT.cancelled, which
+// LotteryCancellationConsumer handles EVENT.cancelled, which
 // Series.CancelEvents records once per cancelled Event, with a durable of its
 // own, apart from the cancellation notice, so a failure in one is retried
 // without running the other. It only decodes the Event and ends its lottery
@@ -33,13 +33,13 @@ func NewLotteryCancellationConsumer(lotteryUC usecase.LotteryEntryUseCase, logge
 func (h *LotteryCancellationConsumer) HandleEventCancelled(msg *message.Message) error {
 	var e entityv1.Event
 	if err := messaging.ParseProtobufData(msg, &e); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse CONCERT.cancelled event", err)
-		return fmt.Errorf("parse %s event: %w", entity.SubjectConcertCancelled, err)
+		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
+		return fmt.Errorf("parse %s event: %w", entity.SubjectEventCancelled, err)
 	}
 	eventID := e.GetId().GetValue()
 	if eventID == "" {
 		err := errors.New("the Event has no id")
-		h.logger.Error(msg.Context(), "failed to parse CONCERT.cancelled event", err)
+		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
 		return err
 	}
 	h.logger.Info(msg.Context(), "ending the lottery entries of a cancelled event", slog.String("event_id", eventID))

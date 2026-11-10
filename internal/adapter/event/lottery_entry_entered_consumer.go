@@ -14,7 +14,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// LotteryEntryEnteredConsumer handles ORDER.lottery_entry_entered: it records
+// LotteryEntryEnteredConsumer handles LOTTERY_ENTRY.entered: it records
 // the entering fan's ticket journey for the event as Applied, set by the
 // platform. MarkApplied stores nothing the second time, so a redelivery
 // changes nothing. A returned error makes the router redeliver, and after the
@@ -61,10 +61,10 @@ func (h *LotteryEntryEnteredConsumer) decode(msg *message.Message) (entity.Lotte
 func (h *LotteryEntryEnteredConsumer) HandleMarkApplied(msg *message.Message) error {
 	data, err := h.decode(msg)
 	if err != nil {
-		h.logger.Error(msg.Context(), "failed to parse ORDER.lottery_entry_entered event", err)
-		return fmt.Errorf("parse ORDER.lottery_entry_entered event: %w", err)
+		h.logger.Error(msg.Context(), "failed to parse LOTTERY_ENTRY.entered event", err)
+		return fmt.Errorf("parse LOTTERY_ENTRY.entered event: %w", err)
 	}
-	h.logger.Info(msg.Context(), "processing ORDER.lottery_entry_entered for the ticket journey",
+	h.logger.Info(msg.Context(), "processing LOTTERY_ENTRY.entered for the ticket journey",
 		slog.String("lottery_entry_id", string(data.LotteryEntryID)))
 	if err := h.ticketJourneyUC.MarkApplied(msg.Context(), data); err != nil {
 		return fmt.Errorf("mark ticket journey applied for lottery entry %s: %w", data.LotteryEntryID, err)

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// enteredOrder is the ORDER.lottery_entry_entered announcement of a new
+// enteredOrder is the LOTTERY_ENTRY.entered announcement of a new
 // entry: its Pending Order.
 func enteredOrder() *entityv1.Order {
 	return &entityv1.Order{

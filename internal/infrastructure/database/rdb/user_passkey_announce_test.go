@@ -124,7 +124,7 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at12))
 
 		assert.True(t, lastLogin(t, u.ID).Equal(at12))
-		got := usersAnnounced(t, mark, entity.SubjectUserLoggedIn, u.ID)
+		got := usersAnnounced(t, mark, entity.SubjectUserSignedIn, u.ID)
 		require.Len(t, got, 1)
 		assert.True(t, got[0].GetLastLoginTime().AsTime().Equal(at12))
 		assert.Empty(t, got[0].GetName())
@@ -140,7 +140,7 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at10))
 
 		assert.True(t, lastLogin(t, u.ID).Equal(at12))
-		assert.Empty(t, usersAnnounced(t, mark, entity.SubjectUserLoggedIn, u.ID))
+		assert.Empty(t, usersAnnounced(t, mark, entity.SubjectUserSignedIn, u.ID))
 	})
 
 	t.Run("unknown user", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created, Name: &name}))
 
-		got := passkeysAnnounced(t, mark, entity.SubjectUserPasskeyAdded, id)
+		got := passkeysAnnounced(t, mark, entity.SubjectPasskeyAdded, id)
 		require.Len(t, got, 1)
 		assert.Equal(t, fan.ID, got[0].GetUserId().GetValue())
 		assert.Equal(t, "iPhone", got[0].GetName().GetValue())
@@ -206,7 +206,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: entity.ZeroAAGUID, CreateTime: created}))
 
-		assert.Empty(t, passkeysAnnounced(t, mark, entity.SubjectUserPasskeyAdded, id))
+		assert.Empty(t, passkeysAnnounced(t, mark, entity.SubjectPasskeyAdded, id))
 	})
 
 	t.Run("add announcement cannot be recorded", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 
 		require.NoError(t, repo.Delete(ctx, id))
 
-		got := passkeysAnnounced(t, mark, entity.SubjectUserPasskeyRemoved, id)
+		got := passkeysAnnounced(t, mark, entity.SubjectPasskeyRemoved, id)
 		require.Len(t, got, 1)
 		assert.Equal(t, fan.ID, got[0].GetUserId().GetValue())
 		assert.True(t, got[0].GetCreateTime().AsTime().Equal(created))
@@ -240,7 +240,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		mark := outboxMark(t)
 
 		require.NoError(t, repo.Delete(ctx, id))
-		assert.Empty(t, passkeysAnnounced(t, mark, entity.SubjectUserPasskeyRemoved, id))
+		assert.Empty(t, passkeysAnnounced(t, mark, entity.SubjectPasskeyRemoved, id))
 	})
 
 	t.Run("remove announcement cannot be recorded", func(t *testing.T) {

@@ -818,7 +818,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 	}
 	drawnOf := func(t *testing.T, mark int64, id entity.LotteryEntryID) []*entityv1.LotteryEntry {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectLotteryEntryDrawn, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
+		return announcedSince(t, mark, entity.SubjectLotteryEntryLost, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
 			func(e *entityv1.LotteryEntry) bool { return e.GetId().GetValue() == string(id) })
 	}
 
@@ -947,15 +947,15 @@ func TestLotteryEntryRepository_EndEnteredByEvent(t *testing.T) {
 		require.NoError(t, err)
 		return e
 	}
-	// endedOf returns the ORDER.lottery_entry_drawn announcements since mark
-	// of the given entries.
+	// endedOf returns the LOTTERY_ENTRY.lost announcements since mark of the
+	// given entries.
 	endedOf := func(t *testing.T, mark int64, entries ...*entity.LotteryEntry) []*entityv1.LotteryEntry {
 		t.Helper()
 		ids := make(map[string]bool, len(entries))
 		for _, e := range entries {
 			ids[string(e.ID)] = true
 		}
-		return announcedSince(t, mark, entity.SubjectLotteryEntryDrawn, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
+		return announcedSince(t, mark, entity.SubjectLotteryEntryLost, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
 			func(e *entityv1.LotteryEntry) bool { return ids[e.GetId().GetValue()] })
 	}
 	// assertEnded checks that the entry is Lost with the lost reason concert

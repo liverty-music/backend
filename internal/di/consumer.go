@@ -10,6 +10,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"github.com/nats-io/nats.go"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
@@ -44,14 +45,21 @@ type ConsumerApp struct {
 	Health *messaging.ConsumerHealth
 }
 
-// behaviorEntry pairs a behavior name with the subject it subscribes to and
+// behaviorEntry pairs a behavior name with the subjects it subscribes to and
 // the handler function that processes messages. One entry = one JetStream
-// durable consumer with durable == deliver_group == behavior name.
+// durable consumer with durable == deliver_group == behavior name. A behavior
+// that acts on several states of one entity lists their subjects, all of one
+// stream; the durable's filter (NACK, filterSubjects) delivers exactly those,
+// and the handler tells them apart by the subject (design decision 2 of
+// align-event-names-with-entities).
 type behaviorEntry struct {
 	behavior string
-	subject  string
+	subjects []string
 	handler  message.NoPublishHandlerFunc
 }
+
+// on lists the subjects of a behaviorEntry.
+func on(subjects ...string) []string { return subjects }
 
 // InitializeConsumerApp creates a ConsumerApp with all event handler dependencies wired.
 func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
@@ -205,7 +213,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// ConcertUseCase: needed here (not just by the RPC server) so the
 	// search-first-followed-artist consumer can call
-	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
+	// SearchNewConcertsOnFirstFollow when FOLLOW.created fires.
 	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
 	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
@@ -245,7 +253,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 
-	// The SALES_PHASE.discovered consumer's use case. AnnounceDiscoveredSale
+	// The TICKET_SALE.discovered consumer's use case. AnnounceDiscoveredSale
 	// starts a deliver-notification workflow per recipient, so it depends on
 	// Workflows, not NotificationUseCase.
 	ticketSaleAnnouncementUC := usecase.NewTicketSaleAnnouncementUseCase(
@@ -287,15 +295,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		Logger:    logger,
 	}), logger)
 	// The consumer's OrderUseCase only starts the workflow that follows each
-	// drawn entry; the workflow worker runs it.
-	lotteryEntryDrawnConsumer := event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+	// Won or Lost entry; the workflow worker runs it.
+	lotteryEntryResultConsumer := event.NewLotteryEntryResultConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: workflows,
 		Clock:     time.Now,
 		Logger:    logger,
 	}), notificationUC, logger)
 	// The resale entry's workflow starter and ended notice, and the start of a
 	// sold listing's refund; the workflow worker runs the workflows.
-	resaleEntryChangedConsumer := event.NewResaleEntryChangedConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+	resaleEntryConsumer := event.NewResaleEntryConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: workflows,
 		Clock:     time.Now,
 		Logger:    logger,
@@ -313,51 +321,51 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		Logger:    logger,
 	}), logger)
 
-	// behaviorTable is the canonical behavior → subject → handler mapping.
+	// behaviorTable is the canonical behavior → subjects → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
-	// durable == deliver_group == behavior name. Two rows on the same subject
-	// (e.g. SubjectArtistCreated, SubjectUserCreated) produce independent
-	// durables — each receives every message on that subject — which is the
-	// fan-out fix the old single shared-group subscriber broke.
+	// durable == deliver_group == behavior name, declared by a Consumer CR in
+	// cloud-provisioning k8s/namespaces/nats/base/jetstream/. Two rows on the
+	// same subject (e.g. SubjectArtistCreated, SubjectUserCreated) produce
+	// independent durables — each receives every message on that subject.
 	behaviorTable := []behaviorEntry{
-		{"notify-concert", entity.SubjectConcertCreated, notificationConsumer.Handle},
-		{"refresh-artist", entity.SubjectArtistCreated, artistRefreshConsumer.Handle},
-		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
-		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
-		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},
-		{"track-user-logged-in", entity.SubjectUserLoggedIn, analyticsConsumer.HandleUserLoggedIn},
-		{"track-artist-followed", entity.SubjectArtistFollowed, analyticsConsumer.HandleArtistFollowed},
-		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},
-		{"track-notification-subscribed", entity.SubjectNotificationSubscribed, analyticsConsumer.HandleNotificationSubscribed},
-		{"track-notification-unsubscribed", entity.SubjectNotificationUnsubscribed, analyticsConsumer.HandleNotificationUnsubscribed},
-		{"track-ticket-journey", entity.SubjectTicketJourneyStatusChanged, analyticsConsumer.HandleTicketJourneyStatusChanged},
-		{"analytics-organizer-created", entity.SubjectOrganizerCreated, analyticsConsumer.HandleOrganizerCreated},
-		{"analytics-organizer-artist-associated", entity.SubjectOrganizerArtistAssociated, analyticsConsumer.HandleOrganizerArtistAssociated},
-		{"track-artist-hype-changed", entity.SubjectArtistHypeChanged, analyticsConsumer.HandleArtistHypeChanged},
-		{"track-order-paid", entity.SubjectOrderPaid, analyticsConsumer.HandleOrderPaid},
-		{"track-lottery-entry-drawn", entity.SubjectLotteryEntryDrawn, analyticsConsumer.HandleLotteryEntryDrawn},
-		{"track-checkout-expired", entity.SubjectCheckoutExpired, analyticsConsumer.HandleCheckoutExpired},
-		{"track-ticket-admitted", entity.SubjectTicketAdmitted, analyticsConsumer.HandleTicketAdmitted},
-		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
-		{"notify-sales-phase", entity.SubjectTicketSaleDiscovered, ticketSaleAnnouncementConsumer.Handle},
-		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
-		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
-		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
-		{"mark-ticket-journey-applied", entity.SubjectLotteryEntryEntered, lotteryEntryEnteredConsumer.HandleMarkApplied},
-		{"send-resale-sold", entity.SubjectResaleListingRefunded, resaleListingRefundedConsumer.Handle},
-		{"send-event-cancelled", entity.SubjectConcertCancelled, cancellationNoticeConsumer.HandleEventCancelled},
-		{"end-lottery-entries-of-cancelled-event", entity.SubjectConcertCancelled, lotteryCancellationConsumer.HandleEventCancelled},
-		{"send-order-refunded", entity.SubjectOrderRefunded, cancellationNoticeConsumer.HandleOrderRefunded},
-		{"notify-passkey-added", entity.SubjectUserPasskeyAdded, passkeyConsumer.HandlePasskeyAdded},
-		{"notify-passkey-removed", entity.SubjectUserPasskeyRemoved, passkeyConsumer.HandlePasskeyRemoved},
-		{"start-lottery-entry-workflow", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleStartWorkflow},
-		{"send-lottery-loss", entity.SubjectLotteryEntryDrawn, lotteryEntryDrawnConsumer.HandleSendLotteryLoss},
-		{"start-resale-entry-workflow", entity.SubjectResaleEntryChanged, resaleEntryChangedConsumer.HandleStartWorkflow},
-		{"send-resale-entry-ended", entity.SubjectResaleEntryChanged, resaleEntryChangedConsumer.HandleSendResaleEntryEnded},
-		{"start-resale-refund", entity.SubjectResaleListingSold, resaleListingSoldConsumer.HandleStartRefund},
-		{"start-checkout-expiry", entity.SubjectCheckoutHeld, checkoutConsumer.HandleStartWorkflow},
-		{"release-expired-checkout", entity.SubjectCheckoutExpired, checkoutConsumer.HandleStartWorkflow},
-		{"release-released-checkout", entity.SubjectCheckoutReleased, checkoutConsumer.HandleStartWorkflow},
+		{"notify-concert", on(entity.SubjectConcertCreated), notificationConsumer.Handle},
+		{"send-event-cancelled", on(entity.SubjectEventCancelled), cancellationNoticeConsumer.HandleEventCancelled},
+		{"end-lottery-entries-of-cancelled-event", on(entity.SubjectEventCancelled), lotteryCancellationConsumer.HandleEventCancelled},
+		{"refresh-artist", on(entity.SubjectArtistCreated), artistRefreshConsumer.Handle},
+		{"resolve-artist-image", on(entity.SubjectArtistCreated), artistImageConsumer.Handle},
+		{"track-artist-represented", on(entity.SubjectArtistRepresented), analyticsConsumer.HandleArtistRepresented},
+		{"search-first-followed-artist", on(entity.SubjectFollowCreated), followSearchConsumer.Handle},
+		{"track-follow-created", on(entity.SubjectFollowCreated), analyticsConsumer.HandleFollowCreated},
+		{"track-follow-removed", on(entity.SubjectFollowRemoved), analyticsConsumer.HandleFollowRemoved},
+		{"track-follow-hype-changed", on(entity.SubjectFollowHypeChanged), analyticsConsumer.HandleFollowHypeChanged},
+		{"verify-user-email", on(entity.SubjectUserCreated), userConsumer.Handle},
+		{"track-user-created", on(entity.SubjectUserCreated), analyticsConsumer.HandleUserCreated},
+		{"track-user-signed-in", on(entity.SubjectUserSignedIn), analyticsConsumer.HandleUserSignedIn},
+		{"notify-passkey-added", on(entity.SubjectPasskeyAdded), passkeyConsumer.HandlePasskeyAdded},
+		{"notify-passkey-removed", on(entity.SubjectPasskeyRemoved), passkeyConsumer.HandlePasskeyRemoved},
+		{"track-push-subscription-subscribed", on(entity.SubjectPushSubscriptionSubscribed), analyticsConsumer.HandlePushSubscriptionSubscribed},
+		{"track-push-subscription-unsubscribed", on(entity.SubjectPushSubscriptionUnsubscribed), analyticsConsumer.HandlePushSubscriptionUnsubscribed},
+		{"notify-ticket-sale-discovered", on(entity.SubjectTicketSaleDiscovered), ticketSaleAnnouncementConsumer.Handle},
+		{"track-ticket-journey", on(entity.SubjectTicketJourneyStatusChanged), analyticsConsumer.HandleTicketJourneyStatusChanged},
+		{"track-organizer-activated", on(entity.SubjectOrganizerActivated), analyticsConsumer.HandleOrganizerActivated},
+		{"send-order-confirmation", on(entity.SubjectOrderPaid), orderPaidConsumer.HandleSendOrderConfirmation},
+		{"mark-ticket-journey-paid", on(entity.SubjectOrderPaid), orderPaidConsumer.HandleMarkPaid},
+		{"track-order-paid", on(entity.SubjectOrderPaid), analyticsConsumer.HandleOrderPaid},
+		{"send-order-refunded", on(entity.SubjectOrderRefunded), cancellationNoticeConsumer.HandleOrderRefunded},
+		{"start-resale-refund", on(entity.SubjectResaleListingSold), resaleListingSoldConsumer.HandleStartRefund},
+		{"send-resale-sold", on(entity.SubjectResaleListingRefunded), resaleListingRefundedConsumer.Handle},
+		{"mark-ticket-journey-applied", on(entity.SubjectLotteryEntryEntered), lotteryEntryEnteredConsumer.HandleMarkApplied},
+		{"start-lottery-entry-workflow", on(entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost), lotteryEntryResultConsumer.HandleStartWorkflow},
+		{"track-lottery-entry-result", on(entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost), analyticsConsumer.HandleLotteryEntryResult},
+		{"send-lottery-loss", on(entity.SubjectLotteryEntryLost), lotteryEntryResultConsumer.HandleSendLotteryLoss},
+		{"start-resale-entry-workflow", on(entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed, entity.SubjectResaleEntryLost, entity.SubjectResaleEntryWithdrawn), resaleEntryConsumer.HandleStartWorkflow},
+		{"send-resale-entry-ended", on(entity.SubjectResaleEntryLapsed, entity.SubjectResaleEntryLost), resaleEntryConsumer.HandleSendResaleEntryEnded},
+		{"start-checkout-expiry", on(entity.SubjectCheckoutHeld), checkoutConsumer.HandleStartWorkflow},
+		{"release-expired-checkout", on(entity.SubjectCheckoutExpired), checkoutConsumer.HandleStartWorkflow},
+		{"track-checkout-expired", on(entity.SubjectCheckoutExpired), analyticsConsumer.HandleCheckoutExpired},
+		{"release-released-checkout", on(entity.SubjectCheckoutReleased), checkoutConsumer.HandleStartWorkflow},
+		{"track-ticket-admitted", on(entity.SubjectTicketAdmitted), analyticsConsumer.HandleTicketAdmitted},
+		{"log-poison", on(messaging.PoisonQueueSubject), poisonConsumer.Handle},
 	}
 
 	// Router
@@ -380,9 +388,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		// Local development: use the single GoChannel subscriber for all
 		// handlers. Fan-out and durable isolation are not relevant locally —
 		// all handlers run in-process against the same in-memory channel.
-		for _, e := range behaviorTable {
-			router.AddConsumerHandler(e.behavior, e.subject, goChannel, e.handler)
-		}
+		addLocalHandlers(router, behaviorTable, goChannel)
 	} else {
 		// Production NATS path.
 		//
@@ -398,15 +404,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		// stopped consuming) so in-flight acks flush before the process exits.
 		shutdown.AddExternalPhase(messaging.NATSConnCloser(sharedConn))
 
-		// Create one per-behavior pull subscriber for each entry and register
-		// it with the router. Each subscriber binds (bind-only, no create) to
-		// the behavior-named durable, so the router sees independent cursors.
-		for _, e := range behaviorTable {
-			sub, err := messaging.NewBehaviorSubscriber(sharedConn, e.behavior, wmLogger, consumerHealth)
-			if err != nil {
-				return nil, fmt.Errorf("create subscriber for behavior %q: %w", e.behavior, err)
-			}
-			router.AddConsumerHandler(e.behavior, e.subject, sub, e.handler)
+		if err := addNATSHandlers(router, behaviorTable, sharedConn, wmLogger, consumerHealth); err != nil {
+			return nil, err
 		}
 	}
 
@@ -427,4 +426,35 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		ShutdownTimeout: cfg.ShutdownTimeout,
 		Health:          consumerHealth,
 	}, nil
+}
+
+// addLocalHandlers registers every behavior of table on the in-memory
+// channel. A GoChannel topic is one subject, so a behavior of several
+// subjects gets one handler per subject, named behavior/subject.
+func addLocalHandlers(router *message.Router, table []behaviorEntry, ch *gochannel.GoChannel) {
+	for _, e := range table {
+		for _, subject := range e.subjects {
+			name := e.behavior
+			if len(e.subjects) > 1 {
+				name += "/" + subject
+			}
+			router.AddConsumerHandler(name, subject, ch, e.handler)
+		}
+	}
+}
+
+// addNATSHandlers registers one pull subscriber per behavior of table. Each
+// binds (bind-only, no create) to the behavior-named durable, so the router
+// sees independent cursors. The durable's own filter selects the subjects it
+// receives; the subscriber only needs one of them to find the stream, which
+// every subject of an entry shares.
+func addNATSHandlers(router *message.Router, table []behaviorEntry, conn *nats.Conn, wmLogger watermill.LoggerAdapter, health *messaging.ConsumerHealth) error {
+	for _, e := range table {
+		sub, err := messaging.NewBehaviorSubscriber(conn, e.behavior, wmLogger, health)
+		if err != nil {
+			return fmt.Errorf("create subscriber for behavior %q: %w", e.behavior, err)
+		}
+		router.AddConsumerHandler(e.behavior, e.subjects[0], sub, e.handler)
+	}
+	return nil
 }

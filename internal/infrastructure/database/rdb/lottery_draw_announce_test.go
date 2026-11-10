@@ -21,10 +21,12 @@ import (
 func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 	ctx := context.Background()
 	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
-	drawnOf := func(t *testing.T, mark int64, saleID entity.TicketSaleID) map[string]*entityv1.LotteryEntry {
+	// drawnOf returns the entries of the sale announced under subject since
+	// mark, by id.
+	drawnOf := func(t *testing.T, mark int64, subject string, saleID entity.TicketSaleID) map[string]*entityv1.LotteryEntry {
 		t.Helper()
 		out := map[string]*entityv1.LotteryEntry{}
-		for _, e := range announcedSince(t, mark, entity.SubjectLotteryEntryDrawn, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
+		for _, e := range announcedSince(t, mark, subject, func() *entityv1.LotteryEntry { return &entityv1.LotteryEntry{} },
 			func(e *entityv1.LotteryEntry) bool { return e.GetTicketSaleId().GetValue() == string(saleID) }) {
 			out[e.GetId().GetValue()] = e
 		}
@@ -40,13 +42,17 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)}))
 
-		got := drawnOf(t, mark, f.SaleID)
-		require.Len(t, got, 2)
-		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WON, got[string(won.ID)].GetState())
-		assert.Equal(t, string(won.OrderID), got[string(won.ID)].GetOrderId().GetValue())
-		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST, got[string(lost.ID)].GetState())
-		assert.Equal(t, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN, got[string(lost.ID)].GetLostReason())
-		assert.Equal(t, int64(1), got[string(lost.ID)].GetDrawPosition())
+		gotWon := drawnOf(t, mark, entity.SubjectLotteryEntryWon, f.SaleID)
+		require.Len(t, gotWon, 1, "the Won entry is announced as won")
+		require.Contains(t, gotWon, string(won.ID))
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WON, gotWon[string(won.ID)].GetState())
+		assert.Equal(t, string(won.OrderID), gotWon[string(won.ID)].GetOrderId().GetValue())
+		gotLost := drawnOf(t, mark, entity.SubjectLotteryEntryLost, f.SaleID)
+		require.Len(t, gotLost, 1, "the Lost entry is announced as lost")
+		require.Contains(t, gotLost, string(lost.ID))
+		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST, gotLost[string(lost.ID)].GetState())
+		assert.Equal(t, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN, gotLost[string(lost.ID)].GetLostReason())
+		assert.Equal(t, int64(1), gotLost[string(lost.ID)].GetDrawPosition())
 	})
 
 	t.Run("recorded again announces nothing", func(t *testing.T) {
@@ -60,7 +66,8 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
 
-		assert.Empty(t, drawnOf(t, mark, f.SaleID))
+		assert.Empty(t, drawnOf(t, mark, entity.SubjectLotteryEntryWon, f.SaleID))
+		assert.Empty(t, drawnOf(t, mark, entity.SubjectLotteryEntryLost, f.SaleID))
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
@@ -158,7 +165,7 @@ func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
 	assert.Less(t, peak.Load(), uint64(200<<20), "heap peaked at %d MB", peak.Load()>>20)
 	var announced int
 	require.NoError(t, testDB.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = $2`,
-		mark, entity.SubjectLotteryEntryDrawn).Scan(&announced))
+		`SELECT count(*) FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = ANY($2)`,
+		mark, []string{entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost}).Scan(&announced))
 	assert.Equal(t, entries, announced)
 }

@@ -303,7 +303,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 //
 // # Announces
 //
-// USER.logged_in with the User and its new last login time, without its full
+// USER.signed_in with the User and its new last login time, without its full
 // name, phone number and display name, in the transaction of the change.
 // Nothing when the stored time is the same or later.
 func (r *UserRepository) RecordLogin(ctx context.Context, id string, at time.Time) error {
@@ -333,7 +333,7 @@ func (r *UserRepository) RecordLogin(ctx context.Context, id string, at time.Tim
 	if err != nil {
 		return toAppErr(err, "failed to read the signed-in user", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectUserLoggedIn, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectUserSignedIn, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -406,8 +406,9 @@ type ResaleEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.resale_entry_changed once per entry it makes Won, Lapsed or Lost,
-	// with the entry as it is after the draw, together with the outcome.
+	// RESALE_ENTRY.won, RESALE_ENTRY.lapsed or RESALE_ENTRY.lost once per entry
+	// it makes Won, Lapsed or Lost, with the entry as it is after the draw,
+	// together with the outcome.
 	PersistDrawOutcome(ctx context.Context, stockID TicketStockID, drawTime time.Time, outcome ResaleDrawOutcome) error
 
 	// Withdraw makes the Entered entry Withdrawn at the time and its Order
@@ -425,7 +426,7 @@ type ResaleEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.resale_entry_changed with the Withdrawn entry, together with the
+	// RESALE_ENTRY.withdrawn with the Withdrawn entry, together with the
 	// change. Nothing when it fails.
 	Withdraw(ctx context.Context, id ResaleEntryID, at time.Time) (*ResaleEntry, error)
 
@@ -443,7 +444,8 @@ type ResaleEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.resale_entry_changed once per entry it makes Won, Lapsed or Lost.
+	// RESALE_ENTRY.won, RESALE_ENTRY.lapsed or RESALE_ENTRY.lost once per entry
+	// it makes Won, Lapsed or Lost.
 	DrawUnderLock(ctx context.Context, stockID TicketStockID, drawTime time.Time, decide func(entries []*ResaleEntry, freeListings []ResaleListingID) ResaleDrawOutcome) (ResaleDrawOutcome, error)
 
 	// ListDueStocks returns every TicketStock with Entered entries, with its
@@ -471,7 +473,7 @@ type ResaleEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.resale_entry_changed with the entry as Lost, together with the
+	// RESALE_ENTRY.lost with the entry as Lost, together with the
 	// change. Nothing when the entry was already Lost.
 	RevertWin(ctx context.Context, id ResaleEntryID, reason ResaleEntryLostReason) error
 

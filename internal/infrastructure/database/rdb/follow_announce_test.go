@@ -55,7 +55,7 @@ func TestFollowRepository_FollowAnnounces(t *testing.T) {
 
 		require.NoError(t, repo.Follow(ctx, userID, artistID))
 
-		got := followsOf(t, mark, entity.SubjectArtistFollowed, userID)
+		got := followsOf(t, mark, entity.SubjectFollowCreated, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, artistID, got[0].GetArtistId().GetValue())
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_NEARBY, got[0].GetHype())
@@ -70,7 +70,7 @@ func TestFollowRepository_FollowAnnounces(t *testing.T) {
 		mark := outboxMark(t)
 
 		assert.ErrorIs(t, repo.Follow(ctx, userID, artistID), apperr.ErrAlreadyExists)
-		assert.Empty(t, followsOf(t, mark, entity.SubjectArtistFollowed, userID))
+		assert.Empty(t, followsOf(t, mark, entity.SubjectFollowCreated, userID))
 		assert.Equal(t, before, storedHype(t, userID, artistID), "the stored Follow is unchanged")
 	})
 
@@ -99,7 +99,7 @@ func TestFollowRepository_UnfollowAnnounces(t *testing.T) {
 
 		require.NoError(t, repo.Unfollow(ctx, userID, artistID))
 
-		got := followsOf(t, mark, entity.SubjectArtistUnfollowed, userID)
+		got := followsOf(t, mark, entity.SubjectFollowRemoved, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_AWAY, got[0].GetHype())
 		assert.Empty(t, storedHype(t, userID, artistID))
@@ -111,7 +111,7 @@ func TestFollowRepository_UnfollowAnnounces(t *testing.T) {
 		mark := outboxMark(t)
 
 		require.NoError(t, repo.Unfollow(ctx, userID, artistID))
-		assert.Empty(t, followsOf(t, mark, entity.SubjectArtistUnfollowed, userID))
+		assert.Empty(t, followsOf(t, mark, entity.SubjectFollowRemoved, userID))
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
@@ -148,7 +148,7 @@ func TestFollowRepository_SetHypeAnnounces(t *testing.T) {
 
 		require.NoError(t, repo.SetHype(ctx, userID, artistID, entity.HypeAway))
 
-		got := followsOf(t, mark, entity.SubjectArtistHypeChanged, userID)
+		got := followsOf(t, mark, entity.SubjectFollowHypeChanged, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_AWAY, got[0].GetHype())
 	})
@@ -163,7 +163,7 @@ func TestFollowRepository_SetHypeAnnounces(t *testing.T) {
 		require.NoError(t, repo.SetHype(ctx, userID, artistID, entity.HypeHome))
 
 		assert.Equal(t, string(entity.HypeHome), storedHype(t, userID, artistID))
-		assert.Empty(t, followsOf(t, mark, entity.SubjectArtistHypeChanged, userID))
+		assert.Empty(t, followsOf(t, mark, entity.SubjectFollowHypeChanged, userID))
 	})
 
 	t.Run("artist not followed", func(t *testing.T) {
@@ -213,7 +213,7 @@ func TestFollowRepository_HypeSetBy(t *testing.T) {
 
 		assert.Equal(t, string(entity.HypeNearby), storedHype(t, userID, artistID))
 		assert.Equal(t, entity.HypeSetByDefault, storedSetBy(t, userID, artistID))
-		got := followsOf(t, mark, entity.SubjectArtistFollowed, userID)
+		got := followsOf(t, mark, entity.SubjectFollowCreated, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.HypeSetBy_HYPE_SET_BY_DEFAULT, got[0].GetHypeSetBy())
 	})
@@ -239,7 +239,7 @@ func TestFollowRepository_HypeSetBy(t *testing.T) {
 		require.NoError(t, repo.SetHype(ctx, userID, artistID, entity.HypeAway))
 
 		assert.Equal(t, entity.HypeSetByFan, storedSetBy(t, userID, artistID))
-		got := followsOf(t, mark, entity.SubjectArtistHypeChanged, userID)
+		got := followsOf(t, mark, entity.SubjectFollowHypeChanged, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_AWAY, got[0].GetHype())
 		assert.Equal(t, entityv1.HypeSetBy_HYPE_SET_BY_FAN, got[0].GetHypeSetBy())
@@ -255,7 +255,7 @@ func TestFollowRepository_HypeSetBy(t *testing.T) {
 
 		assert.Equal(t, string(entity.HypeNearby), storedHype(t, userID, artistID))
 		assert.Equal(t, entity.HypeSetByFan, storedSetBy(t, userID, artistID))
-		got := followsOf(t, mark, entity.SubjectArtistHypeChanged, userID)
+		got := followsOf(t, mark, entity.SubjectFollowHypeChanged, userID)
 		require.Len(t, got, 1, "one outbox row")
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_NEARBY, got[0].GetHype())
 		assert.Equal(t, entityv1.HypeSetBy_HYPE_SET_BY_FAN, got[0].GetHypeSetBy())
@@ -307,7 +307,7 @@ func TestFollowRepository_RaiseHype(t *testing.T) {
 		assert.True(t, raised)
 		assert.Equal(t, string(entity.HypeAway), storedHype(t, userID, artistID))
 		assert.Equal(t, entity.HypeSetByInference, storedSetBy(t, userID, artistID))
-		got := followsOf(t, mark, entity.SubjectArtistHypeChanged, userID)
+		got := followsOf(t, mark, entity.SubjectFollowHypeChanged, userID)
 		require.Len(t, got, 1)
 		assert.Equal(t, entityv1.HypeType_HYPE_TYPE_AWAY, got[0].GetHype())
 		assert.Equal(t, entityv1.HypeSetBy_HYPE_SET_BY_INFERENCE, got[0].GetHypeSetBy())
@@ -326,7 +326,7 @@ func TestFollowRepository_RaiseHype(t *testing.T) {
 		assert.False(t, raised)
 		assert.Equal(t, string(entity.HypeHome), storedHype(t, userID, artistID))
 		assert.Equal(t, entity.HypeSetByFan, storedSetBy(t, userID, artistID))
-		assert.Empty(t, followsOf(t, mark, entity.SubjectArtistHypeChanged, userID))
+		assert.Empty(t, followsOf(t, mark, entity.SubjectFollowHypeChanged, userID))
 	})
 
 	t.Run("fan sets the level at the same time", func(t *testing.T) {

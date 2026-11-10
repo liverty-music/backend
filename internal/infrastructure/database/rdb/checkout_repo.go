@@ -156,8 +156,8 @@ func insertPendingOrder(ctx context.Context, tx pgx.Tx, o *entity.Order) error {
 //
 // # Announces
 //
-// On creation, ORDER.checkout_held with the new Checkout, and
-// ORDER.checkout_released or ORDER.checkout_expired with each Checkout it
+// On creation, CHECKOUT.held with the new Checkout, and
+// CHECKOUT.released or CHECKOUT.expired with each Checkout it
 // ends, in the transaction of the creation. Nothing when it returns an
 // existing holding Checkout.
 func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity.TicketStockID, saleID entity.TicketSaleID, userID entity.UserID, count int, referralCode *entity.ReferralCode, now time.Time) (*entity.Checkout, error) {
@@ -352,7 +352,7 @@ func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, n
 //
 // # Announces
 //
-// ORDER.checkout_expired with the Checkout as Expired, in the transaction of
+// CHECKOUT.expired with the Checkout as Expired, in the transaction of
 // the release. Nothing when it changed nothing.
 func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, now time.Time) (bool, error) {
 	attrs := slog.String("checkout_id", string(id))
@@ -395,7 +395,7 @@ func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, 
 //
 // # Announces
 //
-// ORDER.checkout_released with the Checkout as Released, in the transaction
+// CHECKOUT.released with the Checkout as Released, in the transaction
 // of the revert. Nothing when it changed nothing.
 func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.CheckoutID) error {
 	attrs := slog.String("checkout_id", string(id))

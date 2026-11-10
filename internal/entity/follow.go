@@ -214,7 +214,7 @@ type FollowRepository interface {
 	//
 	// # Announces
 	//
-	// ARTIST.followed with the new Follow, together with the insert. Nothing on
+	// FOLLOW.created with the new Follow, together with the insert. Nothing on
 	// AlreadyExists or any other failure.
 	Follow(ctx context.Context, userID, artistID string) error
 
@@ -229,7 +229,7 @@ type FollowRepository interface {
 	//
 	// # Announces
 	//
-	// ARTIST.unfollowed with the Follow as it was, together with the removal.
+	// FOLLOW.removed with the Follow as it was, together with the removal.
 	// Nothing when the user did not follow the artist.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
@@ -245,7 +245,7 @@ type FollowRepository interface {
 	//
 	// # Announces
 	//
-	// ARTIST.hype_changed with the Follow at its new level, set by the fan,
+	// FOLLOW.hype_changed with the Follow at its new level, set by the fan,
 	// together with the change. Nothing when the level was already the given
 	// one, set by the fan.
 	SetHype(ctx context.Context, userID, artistID string, hype Hype) error
@@ -263,7 +263,7 @@ type FollowRepository interface {
 	//
 	// # Announces
 	//
-	// ARTIST.hype_changed with the Follow at its new level, set by inference,
+	// FOLLOW.hype_changed with the Follow at its new level, set by inference,
 	// together with the change. Nothing when it changed nothing.
 	RaiseHype(ctx context.Context, userID, artistID string, hype Hype) (bool, error)
 

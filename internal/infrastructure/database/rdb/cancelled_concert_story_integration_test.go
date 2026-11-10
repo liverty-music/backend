@@ -26,7 +26,7 @@ import (
 // The story tests of stories/remove-a-cancelled-concert run the cancellation
 // and the refund notices against a real local Postgres and the real workflow
 // runtime: a member of the Event's Organizer cancels it with
-// SeriesUseCase.Cancel, the CONCERT.cancelled announcements are handed to
+// SeriesUseCase.Cancel, the EVENT.cancelled announcements are handed to
 // their consumer, which starts a notice workflow per Order that the worker
 // runs; the admin's `Refund all`, which calls OrderService.Refund once per
 // Paid Order, refunds each Order with OrderUseCase.Refund, and the
@@ -213,7 +213,7 @@ func (s *cancelledConcertStory) deliver(subject string, handle func(*message.Mes
 func (s *cancelledConcertStory) cancel() {
 	s.t.Helper()
 	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{s.eventID}))
-	s.deliver(entity.SubjectConcertCancelled, s.consumer.HandleEventCancelled, usecase.WorkflowNotifyEventCancelled+":", entity.NotificationTypeConcertCancelled)
+	s.deliver(entity.SubjectEventCancelled, s.consumer.HandleEventCancelled, usecase.WorkflowNotifyEventCancelled+":", entity.NotificationTypeConcertCancelled)
 }
 
 // refundAll refunds every Paid Order of the Event for the cancellation, as
@@ -277,7 +277,7 @@ func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 
 	// A repeated delivery of every announcement sends nothing new.
 	s.mark = 0
-	for _, msg := range announcedMessages(t, s.mark, entity.SubjectConcertCancelled) {
+	for _, msg := range announcedMessages(t, s.mark, entity.SubjectEventCancelled) {
 		require.NoError(t, s.consumer.HandleEventCancelled(msg))
 	}
 	for _, msg := range announcedMessages(t, s.mark, entity.SubjectOrderRefunded) {

@@ -66,7 +66,7 @@ func NewPushSubscriptionRepository(db *Database, outbox Announcer) *PushSubscrip
 //
 // # Announces
 //
-// NOTIFICATION.subscribed with the PushSubscription after the change,
+// PUSH_SUBSCRIPTION.subscribed with the PushSubscription after the change,
 // without its push address and keys, in the transaction of the change, when
 // it stored a new subscription or changed one. Nothing when nothing changed.
 func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.PushSubscription) error {
@@ -91,7 +91,7 @@ func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.Pus
 	if err != nil {
 		return toAppErr(err, "failed to upsert push subscription", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectNotificationSubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(sub)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionSubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(sub)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -119,7 +119,7 @@ func (r *PushSubscriptionRepository) Get(ctx context.Context, userID, endpoint s
 //
 // # Announces
 //
-// NOTIFICATION.unsubscribed with the PushSubscription as it was, without its
+// PUSH_SUBSCRIPTION.unsubscribed with the PushSubscription as it was, without its
 // push address and keys, in the transaction of the removal. Nothing when it
 // removed nothing.
 func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, endpoint string) error {
@@ -139,7 +139,7 @@ func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, endpoin
 	if err != nil {
 		return toAppErr(err, "failed to delete push subscription", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectNotificationUnsubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(&s)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionUnsubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(&s)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

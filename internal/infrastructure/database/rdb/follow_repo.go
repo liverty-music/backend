@@ -99,7 +99,7 @@ func NewFollowRepository(db *Database, outbox Announcer) *FollowRepository {
 //
 // # Announces
 //
-// ARTIST.followed with the new Follow, in the transaction of the insert.
+// FOLLOW.created with the new Follow, in the transaction of the insert.
 // Nothing on AlreadyExists or any other failure.
 func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) error {
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID)}
@@ -112,7 +112,7 @@ func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) 
 			return apperr.New(codes.AlreadyExists, "already following")
 		}
 		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.DefaultHype, HypeSetBy: entity.HypeSetByDefault}
-		return announce(ctx, r.outbox, tx, entity.SubjectArtistFollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
+		return announce(ctx, r.outbox, tx, entity.SubjectFollowCreated, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
 }
 
@@ -121,7 +121,7 @@ func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) 
 //
 // # Announces
 //
-// ARTIST.unfollowed with the Follow as it was, in the transaction of the
+// FOLLOW.removed with the Follow as it was, in the transaction of the
 // removal. Nothing when the user did not follow the artist.
 func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string) error {
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID)}
@@ -135,7 +135,7 @@ func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string
 			return toAppErr(err, "failed to unfollow artist", attrs...)
 		}
 		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: entity.Hype(hype), HypeSetBy: entity.HypeSetBy(setBy)}
-		return announce(ctx, r.outbox, tx, entity.SubjectArtistUnfollowed, messaging.Announcement{Payload: pb.FromFollow(follow)})
+		return announce(ctx, r.outbox, tx, entity.SubjectFollowRemoved, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
 }
 
@@ -146,7 +146,7 @@ func (r *FollowRepository) Unfollow(ctx context.Context, userID, artistID string
 //
 // # Announces
 //
-// ARTIST.hype_changed with the Follow at its new level, set by the fan, in the
+// FOLLOW.hype_changed with the Follow at its new level, set by the fan, in the
 // transaction of the change. Nothing when nothing changed or on failure.
 func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("artist_id", artistID), slog.String("hype", string(hype))}
@@ -166,7 +166,7 @@ func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string,
 			return nil
 		}
 		follow := &entity.Follow{UserID: userID, ArtistID: artistID, Hype: hype, HypeSetBy: entity.HypeSetByFan}
-		return announce(ctx, r.outbox, tx, entity.SubjectArtistHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)})
+		return announce(ctx, r.outbox, tx, entity.SubjectFollowHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)})
 	})
 }
 
@@ -177,7 +177,7 @@ func (r *FollowRepository) SetHype(ctx context.Context, userID, artistID string,
 //
 // # Announces
 //
-// ARTIST.hype_changed with the Follow at its new level, set by inference, in
+// FOLLOW.hype_changed with the Follow at its new level, set by inference, in
 // the transaction of the change. Nothing when it changed nothing or on
 // failure.
 func (r *FollowRepository) RaiseHype(ctx context.Context, userID, artistID string, hype entity.Hype) (bool, error) {
@@ -200,7 +200,7 @@ func (r *FollowRepository) RaiseHype(ctx context.Context, userID, artistID strin
 			return toAppErr(err, "failed to raise hype", attrs...)
 		}
 		follow.Hype, follow.HypeSetBy = hype, entity.HypeSetByInference
-		if err := announce(ctx, r.outbox, tx, entity.SubjectArtistHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)}); err != nil {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectFollowHypeChanged, messaging.Announcement{Payload: pb.FromFollow(follow)}); err != nil {
 			return err
 		}
 		raised = true

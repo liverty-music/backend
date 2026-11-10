@@ -221,7 +221,7 @@ func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time
 //
 // # Announces
 //
-// SALES_PHASE.discovered with the TicketSale, in the transaction of the
+// TICKET_SALE.discovered with the TicketSale, in the transaction of the
 // insert, when it creates the sale (Inserted). Nothing when it updates or
 // skips one.
 func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *entity.DiscoveredTicketSale) (entity.TicketSaleID, entity.UpsertOutcome, error) {

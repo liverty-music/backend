@@ -58,7 +58,7 @@ func NewPasskeyRepository(db *Database, outbox Announcer) *PasskeyRepository {
 //
 // # Announces
 //
-// USER.passkey_added with the stored Passkey, in the transaction of the
+// PASSKEY.added with the stored Passkey, in the transaction of the
 // insert. Nothing when the provider passkey id was already stored.
 func (r *PasskeyRepository) Create(ctx context.Context, passkey *entity.Passkey) error {
 	if passkey == nil || passkey.ProviderPasskeyID == "" || passkey.UserID == "" || passkey.CreateTime.IsZero() {
@@ -87,7 +87,7 @@ func (r *PasskeyRepository) Create(ctx context.Context, passkey *entity.Passkey)
 		}
 		return toAppErr(err, "failed to create passkey", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectUserPasskeyAdded, messaging.Announcement{Payload: pb.FromPasskey(passkey)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyAdded, messaging.Announcement{Payload: pb.FromPasskey(passkey)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -101,7 +101,7 @@ func (r *PasskeyRepository) Create(ctx context.Context, passkey *entity.Passkey)
 //
 // # Announces
 //
-// USER.passkey_removed with the Passkey as it was stored, in the transaction
+// PASSKEY.removed with the Passkey as it was stored, in the transaction
 // of the removal. Nothing when no Passkey had the id.
 func (r *PasskeyRepository) Delete(ctx context.Context, providerPasskeyID string) error {
 	if providerPasskeyID == "" {
@@ -129,7 +129,7 @@ func (r *PasskeyRepository) Delete(ctx context.Context, providerPasskeyID string
 	if name.Valid {
 		p.Name = &name.String
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectUserPasskeyRemoved, messaging.Announcement{Payload: pb.FromPasskey(&p)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyRemoved, messaging.Announcement{Payload: pb.FromPasskey(&p)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

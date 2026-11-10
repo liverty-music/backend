@@ -9,7 +9,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// FollowSearchConsumer handles ARTIST.followed events by triggering concert
+// FollowSearchConsumer handles FOLLOW.created events by triggering concert
 // discovery the first time an artist is followed. The never-searched check
 // and the search itself live in ConcertUseCase.SearchNewConcertsOnFirstFollow;
 // this consumer only decodes the message and calls it.
@@ -29,7 +29,7 @@ func NewFollowSearchConsumer(
 	}
 }
 
-// Handle processes an ARTIST.followed event by triggering
+// Handle processes a FOLLOW.created event by triggering
 // SearchNewConcertsOnFirstFollow for the followed artist. A search failure is
 // returned so the router retries (and, if retries are exhausted, poison-queues
 // and logs it) rather than being swallowed here — the Follow use case has
@@ -38,13 +38,13 @@ func NewFollowSearchConsumer(
 func (h *FollowSearchConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
-	data, err := parseArtistFollowed(msg)
+	data, err := parseFollowCreated(msg)
 	if err != nil {
-		h.logger.Error(ctx, "failed to parse ARTIST.followed event", err)
-		return fmt.Errorf("parse ARTIST.followed event: %w", err)
+		h.logger.Error(ctx, "failed to parse FOLLOW.created event", err)
+		return fmt.Errorf("parse FOLLOW.created event: %w", err)
 	}
 
-	h.logger.Info(ctx, "processing ARTIST.followed event for first-follow search",
+	h.logger.Info(ctx, "processing FOLLOW.created event for first-follow search",
 		slog.String("user_id", data.UserID),
 		slog.String("artist_id", data.ArtistID),
 	)

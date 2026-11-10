@@ -3,14 +3,20 @@
 # Update this list in the same change as those manifests;
 # TestAllSubjectsCapturedByDeclaredStreams reads it.
 ARTIST.*
+CHECKOUT.*
 CONCERT.*
-NOTIFICATION.*
+EVENT.*
+FOLLOW.*
+LOTTERY_ENTRY.*
 ORDER.*
 ORGANIZER.*
+PASSKEY.*
 POISON.*
-SALES_PHASE.*
+PUSH_SUBSCRIPTION.*
+RESALE_ENTRY.*
+RESALE_LISTING.*
 SERIES_IMAGE.*
-TICKET_EMAIL.*
+TICKET.*
 TICKET_JOURNEY.*
+TICKET_SALE.*
 USER.*
-VENUE.*

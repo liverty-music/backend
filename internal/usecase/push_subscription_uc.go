@@ -18,7 +18,7 @@ type PushSubscriptionUseCase interface {
 	// identifies a browser/device rather than a user, registering an
 	// endpoint that belongs to a different userID reassigns it to the given
 	// userID; the previous owner no longer has it. PushSubscription.Create
-	// announces a new or changed subscription (NOTIFICATION.subscribed).
+	// announces a new or changed subscription (PUSH_SUBSCRIPTION.subscribed).
 	//
 	// # Possible errors
 	//
@@ -38,7 +38,7 @@ type PushSubscriptionUseCase interface {
 	// Delete removes the push subscription uniquely identified by
 	// (userID, endpoint). Other browsers registered by the same user remain
 	// active. The operation is idempotent. PushSubscription.Delete announces a
-	// removed subscription (NOTIFICATION.unsubscribed).
+	// removed subscription (PUSH_SUBSCRIPTION.unsubscribed).
 	//
 	// # Possible errors
 	//

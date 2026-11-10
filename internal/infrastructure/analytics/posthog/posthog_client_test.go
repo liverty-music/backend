@@ -238,7 +238,7 @@ func TestAnalyticsClient_Capture_FanEvent(t *testing.T) {
 			name: "wraps SDK errors with the event name and apperr.ErrInternal",
 			args: args{
 				distinctID: validUUID,
-				eventName:  usecase.EventArtistFollowCompleted,
+				eventName:  usecase.EventFollowCreated,
 				properties: nil,
 			},
 			setupErr: errors.New("queue full"),

@@ -10,124 +10,32 @@ import (
 // PoisonQueueSubject is the NATS subject for messages that exceeded max retries.
 const PoisonQueueSubject = "POISON.queue"
 
-// streams is the registry of JetStream streams and their subject filters.
-// NACK (the external operator) owns stream lifecycle — the application only
-// reads this registry to validate subject coverage and to look up which stream
-// a given subject belongs to (used by the pull subscriber to bind a durable).
+// streams is the registry of JetStream streams and their subject filters:
+// one stream per entity that has events, named after the entity, capturing
+// its two-token subjects (<ENTITY>.<what>) with <ENTITY>.*, plus POISON.
+// NACK (the external operator) owns stream lifecycle; the declarations are in
+// cloud-provisioning k8s/namespaces/nats/base/jetstream/. The application only
+// reads this registry to validate subject coverage and to look up which
+// stream a given subject belongs to (used by the pull subscriber to bind a
+// durable).
 var streams = []nats.StreamConfig{
-	{
-		Name:       "ORDER",
-		Subjects:   []string{"ORDER.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name:       "CONCERT",
-		Subjects:   []string{"CONCERT.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1, // overridden per environment
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name:       "VENUE",
-		Subjects:   []string{"VENUE.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name:       "ARTIST",
-		Subjects:   []string{"ARTIST.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name:       "USER",
-		Subjects:   []string{"USER.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name:       "NOTIFICATION",
-		Subjects:   []string{"NOTIFICATION.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		Name: "SALES_PHASE",
-		// Its subject is two-token (SALES_PHASE.discovered), so a
-		// single-token `SALES_PHASE.*` matches it.
-		Subjects:   []string{"SALES_PHASE.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		// Carries TICKET_JOURNEY.status_changed (fan interest-tier
-		// transitions), consumed by the analytics consumer.
-		Name:       "TICKET_JOURNEY",
-		Subjects:   []string{"TICKET_JOURNEY.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		// Carries ORGANIZER.created and ORGANIZER.artist_associated (both two-token
-		// subjects), consumed by the analytics consumer. A plain ORGANIZER.*
-		// filter matches both subjects because each uses a single underscore token
-		// for the event name (artist_associated, not artist.associated) — same
-		// convention as SALES_PHASE.discovered.
-		Name:       "ORGANIZER",
-		Subjects:   []string{"ORGANIZER.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		// Carries SERIES_IMAGE.uploaded (organizer image upload events), consumed by
-		// the series-image-consumer to generate WebP variants and cut over
-		// series_cover_images. A plain SERIES_IMAGE.* filter matches all two-token subjects
-		// — same convention as the ORGANIZER and SALES_PHASE streams.
-		Name:       "SERIES_IMAGE",
-		Subjects:   []string{"SERIES_IMAGE.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
+	entityStream("ARTIST"),
+	entityStream("CHECKOUT"),
+	entityStream("CONCERT"),
+	entityStream("EVENT"),
+	entityStream("FOLLOW"),
+	entityStream("LOTTERY_ENTRY"),
+	entityStream("ORDER"),
+	entityStream("ORGANIZER"),
+	entityStream("PASSKEY"),
+	entityStream("PUSH_SUBSCRIPTION"),
+	entityStream("RESALE_ENTRY"),
+	entityStream("RESALE_LISTING"),
+	entityStream("SERIES_IMAGE"),
+	entityStream("TICKET"),
+	entityStream("TICKET_JOURNEY"),
+	entityStream("TICKET_SALE"),
+	entityStream("USER"),
 	{
 		Name:       "POISON",
 		Subjects:   []string{"POISON.*"},
@@ -138,6 +46,21 @@ var streams = []nats.StreamConfig{
 		Replicas:   1,
 		Duplicates: 2 * time.Minute,
 	},
+}
+
+// entityStream returns the configuration every entity stream shares, as
+// declared in cloud-provisioning: name.* kept for 7 days.
+func entityStream(name string) nats.StreamConfig {
+	return nats.StreamConfig{
+		Name:       name,
+		Subjects:   []string{name + ".*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	}
 }
 
 // SubjectCoveredByStream reports whether the given concrete NATS subject is

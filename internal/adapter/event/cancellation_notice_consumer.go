@@ -13,7 +13,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// CancellationNoticeConsumer handles CONCERT.cancelled, which
+// CancellationNoticeConsumer handles EVENT.cancelled, which
 // Series.CancelEvents records once per cancelled Event, and ORDER.refunded,
 // which Order.CommitRefund records once per refunded Order, each with its own
 // durable. Each only decodes the announcement and starts the notices; the
@@ -34,16 +34,16 @@ func NewCancellationNoticeConsumer(notificationUC usecase.NotificationUseCase, l
 func (h *CancellationNoticeConsumer) HandleEventCancelled(msg *message.Message) error {
 	var e entityv1.Event
 	if err := messaging.ParseProtobufData(msg, &e); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse CONCERT.cancelled event", err)
-		return fmt.Errorf("parse %s event: %w", entity.SubjectConcertCancelled, err)
+		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
+		return fmt.Errorf("parse %s event: %w", entity.SubjectEventCancelled, err)
 	}
 	eventID := e.GetId().GetValue()
 	if eventID == "" {
 		err := errors.New("the Event has no id")
-		h.logger.Error(msg.Context(), "failed to parse CONCERT.cancelled event", err)
+		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
 		return err
 	}
-	h.logger.Info(msg.Context(), "processing CONCERT.cancelled", slog.String("event_id", eventID))
+	h.logger.Info(msg.Context(), "processing EVENT.cancelled", slog.String("event_id", eventID))
 	if err := h.notificationUC.SendEventCancelled(msg.Context(), eventID); err != nil {
 		return fmt.Errorf("start the cancellation notices of event %s: %w", eventID, err)
 	}

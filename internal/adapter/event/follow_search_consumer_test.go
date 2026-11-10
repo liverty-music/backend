@@ -38,6 +38,6 @@ func TestFollowSearchConsumer_Handle(t *testing.T) {
 
 		err := handler.Handle(malformedMsg())
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "parse ARTIST.followed event")
+		assert.Contains(t, err.Error(), "parse FOLLOW.created event")
 	})
 }

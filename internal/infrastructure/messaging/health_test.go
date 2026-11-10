@@ -102,7 +102,7 @@ func TestConsumerHealth_Live(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			clock := &fakeClock{t: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}
-			h := newBoundHealth(clock, "CONCERT.created", "ARTIST.followed")
+			h := newBoundHealth(clock, "CONCERT.created", "FOLLOW.created")
 
 			tt.degrade(h)
 

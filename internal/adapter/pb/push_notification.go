@@ -9,8 +9,8 @@ import (
 )
 
 // DeviceTypeFromEndpoint classifies a Web Push endpoint URL into a coarse
-// device-family label suitable for the notification.subscribed /
-// notification.unsubscribed analytics events. The endpoint host identifies
+// device-family label suitable for the push_subscription.subscribed /
+// push_subscription.unsubscribed analytics events. The endpoint host identifies
 // the push service vendor, which in turn identifies the browser/OS family.
 // The endpoint itself is sensitive (it uniquely identifies the user's browser
 // session) and MUST NOT leak into analytics — only the classifier output is

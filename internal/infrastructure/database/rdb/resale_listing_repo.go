@@ -166,7 +166,7 @@ func (r *ResaleListingRepository) ListByUser(ctx context.Context, userID entity.
 //
 // # Announces
 //
-// ORDER.resale_listing_refunded with the ResaleListing as refunded, in the
+// RESALE_LISTING.refunded with the ResaleListing as refunded, in the
 // transaction of the refund, when it sets the refund. Nothing when the
 // listing already has a refund time.
 func (r *ResaleListingRepository) RecordRefund(ctx context.Context, id entity.ResaleListingID, providerRefundID string, at time.Time) error {

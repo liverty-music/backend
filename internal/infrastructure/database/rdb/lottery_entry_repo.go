@@ -162,7 +162,7 @@ const (
 //
 // # Announces
 //
-// ORDER.lottery_entry_entered with the Pending Order (which names the entry,
+// LOTTERY_ENTRY.entered with the Pending Order (which names the entry,
 // the user and the TicketStock), in the transaction that stores the entry.
 // Nothing when it returns an existing entry or fails.
 func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
@@ -339,10 +339,10 @@ type drawnEntry struct {
 // and inserts at once, so a large draw never holds them all in memory.
 const drawAnnouncementChunk = 2000
 
-// announceDrawn records ORDER.lottery_entry_drawn for each changed entry on
-// tx, in chunks of drawAnnouncementChunk; set fills in the outcome of an
-// entry.
-func (r *LotteryEntryRepository) announceDrawn(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, changed []drawnEntry, set func(*entity.LotteryEntry)) error {
+// announceDrawn records subject (LOTTERY_ENTRY.won or LOTTERY_ENTRY.lost)
+// for each changed entry on tx, in chunks of drawAnnouncementChunk; set
+// fills in the outcome of an entry.
+func (r *LotteryEntryRepository) announceDrawn(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, subject string, changed []drawnEntry, set func(*entity.LotteryEntry)) error {
 	for start := 0; start < len(changed); start += drawAnnouncementChunk {
 		end := min(start+drawAnnouncementChunk, len(changed))
 		chunk := make([]messaging.Announcement, 0, end-start)
@@ -351,7 +351,7 @@ func (r *LotteryEntryRepository) announceDrawn(ctx context.Context, tx pgx.Tx, s
 			set(e)
 			chunk = append(chunk, messaging.Announcement{Payload: pb.FromLotteryEntry(e)})
 		}
-		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, chunk); err != nil {
+		if err := announceAll(ctx, r.outbox, tx, subject, chunk); err != nil {
 			return err
 		}
 	}
@@ -371,9 +371,10 @@ type drawnRow struct {
 //
 // # Announces
 //
-// ORDER.lottery_entry_drawn once per entry it sets Won or Lost, with the
-// entry as it is after the draw, in the transaction of the outcome, inserted
-// in chunks. Nothing for an entry it leaves unchanged.
+// LOTTERY_ENTRY.won once per entry it sets Won and LOTTERY_ENTRY.lost once
+// per entry it sets Lost, with the entry as it is after the draw, in the
+// transaction of the outcome, inserted in chunks. Nothing for an entry it
+// leaves unchanged.
 func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error {
 	if saleID == "" {
 		return apperr.New(codes.InvalidArgument, "ticket sale ID must not be empty")
@@ -489,7 +490,11 @@ func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, s
 	if err != nil {
 		return toAppErr(err, "failed to record the draw outcome", attrs...)
 	}
-	if err := r.announceDrawn(ctx, tx, saleID, changed, func(e *entity.LotteryEntry) {
+	subject := entity.SubjectLotteryEntryWon
+	if state == entity.LotteryEntryStateLost {
+		subject = entity.SubjectLotteryEntryLost
+	}
+	if err := r.announceDrawn(ctx, tx, saleID, subject, changed, func(e *entity.LotteryEntry) {
 		e.State = state
 		position := byID[string(e.ID)]
 		e.DrawPosition = &position
@@ -516,7 +521,7 @@ func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, s
 //
 // # Announces
 //
-// ORDER.lottery_entry_drawn with the entry Lost with the lost reason, in the
+// LOTTERY_ENTRY.lost with the entry Lost with the lost reason, in the
 // transaction of the change. Nothing when the entry was already Lost.
 func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.LotteryEntryID, reason entity.LotteryEntryLostReason) error {
 	attrs := []slog.Attr{slog.String("lottery_entry_id", string(id)), slog.Int("lost_reason", int(reason))}
@@ -558,7 +563,7 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 	entry.State = entity.LotteryEntryStateLost
 	entry.LostReason = reason
 	entry.Order.Status = entity.OrderStatusVoid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, messaging.Announcement{Payload: pb.FromLotteryEntry(entry)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, messaging.Announcement{Payload: pb.FromLotteryEntry(entry)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -586,7 +591,7 @@ type endedEntry struct {
 //
 // # Announces
 //
-// ORDER.lottery_entry_drawn once per entry it makes Lost, with the entry as
+// LOTTERY_ENTRY.lost once per entry it makes Lost, with the entry as
 // it is after the change, in the transaction of the change, inserted in
 // chunks. Nothing when no entry changed.
 func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID string) error {
@@ -640,7 +645,7 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 				LostReason:   reason,
 			})})
 		}
-		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryDrawn, chunk); err != nil {
+		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, chunk); err != nil {
 			return err
 		}
 	}

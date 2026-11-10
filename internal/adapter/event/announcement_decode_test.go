@@ -75,7 +75,7 @@ func TestReceivers_Protobuf(t *testing.T) {
 	})
 
 	// @spec components/usecase/concert/search-new-concerts-on-first-follow "Follow announced"
-	t.Run("ARTIST.followed searches the followed Artist's concerts on a first follow", func(t *testing.T) {
+	t.Run("FOLLOW.created searches the followed Artist's concerts on a first follow", func(t *testing.T) {
 		t.Parallel()
 		concerts := ucmocks.NewMockConcertUseCase(t)
 		// The Artist's ConcertSearch record makes the second run search
@@ -88,7 +88,7 @@ func TestReceivers_Protobuf(t *testing.T) {
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", follow)))
 	})
 
-	t.Run("SALES_PHASE.discovered announces the discovered TicketSale", func(t *testing.T) {
+	t.Run("TICKET_SALE.discovered announces the discovered TicketSale", func(t *testing.T) {
 		t.Parallel()
 		announcements := ucmocks.NewMockTicketSaleAnnouncementUseCase(t)
 		start := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
@@ -109,7 +109,7 @@ func TestReceivers_Protobuf(t *testing.T) {
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", sale)))
 	})
 
-	t.Run("ORDER.resale_listing_refunded sends the sold email of the refunded listing", func(t *testing.T) {
+	t.Run("RESALE_LISTING.refunded sends the sold email of the refunded listing", func(t *testing.T) {
 		t.Parallel()
 		notifications := ucmocks.NewMockNotificationUseCase(t)
 		// The sold email's send time makes the second run send nothing

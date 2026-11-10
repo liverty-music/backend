@@ -65,12 +65,12 @@ func TestAdmin_ReportsTheOldestUndeliveredAnnouncement(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, age, "an empty outbox reports 0")
 
-	_, err = pool.Exec(ctx, `INSERT INTO watermill_events_outbox (uuid, payload, created_at) VALUES ('a', '{"destination_topic":"ARTIST.followed"}', $1)`, now.Add(-11*time.Minute))
+	_, err = pool.Exec(ctx, `INSERT INTO watermill_events_outbox (uuid, payload, created_at) VALUES ('a', '{"destination_topic":"FOLLOW.created"}', $1)`, now.Add(-11*time.Minute))
 	require.NoError(t, err)
 
 	age, err = workflow.ReportUndelivered(ctx, logger, pool, now)
 	require.NoError(t, err)
 	assert.Greater(t, age, 600.0)
 	assert.Contains(t, logs.String(), workflow.LogKeyAnnouncementUndelivered)
-	assert.Contains(t, logs.String(), "ARTIST.followed")
+	assert.Contains(t, logs.String(), "FOLLOW.created")
 }

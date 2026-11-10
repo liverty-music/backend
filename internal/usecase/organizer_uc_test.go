@@ -279,7 +279,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 				d.organizationRepo.EXPECT().Provision(mock.Anything, "zitadel-org-1", shortName, email).Return(nil).Once()
 				// A concurrent Deactivate already moved the row out of provisioning,
 				// so the CAS does not apply. The saga must NOT record success, emit
-				// organizer.created, or force the row back to active.
+				// organizer.activated, or force the row back to active.
 				d.orgRepo.EXPECT().
 					CompareAndSetStatus(mock.Anything, "org-1", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
 					Return(false, nil).

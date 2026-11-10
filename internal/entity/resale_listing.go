@@ -261,7 +261,7 @@ type ResaleListingRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.resale_listing_refunded with the refunded ResaleListing, together with
+	// RESALE_LISTING.refunded with the refunded ResaleListing, together with
 	// the refund, when it sets it. Nothing when it already had a refund time.
 	RecordRefund(ctx context.Context, id ResaleListingID, providerRefundID string, at time.Time) error
 }

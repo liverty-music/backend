@@ -102,7 +102,7 @@ type ConcertUseCase interface {
 
 	// SearchNewConcertsOnFirstFollow triggers concert discovery for an artist
 	// the very first time it is followed by anyone, and is a no-op on every
-	// later follow. It is the discovery trigger for the ARTIST.followed event:
+	// later follow. It is the discovery trigger for the FOLLOW.created event:
 	// the event consumer decodes the message and calls this method so the
 	// Follow use case never depends on concert discovery.
 	//
@@ -110,7 +110,7 @@ type ConcertUseCase interface {
 	// (ConcertSearch.GetByArtistID NotFound); once SearchNewConcerts marks the
 	// artist as searched, subsequent calls for the same artist are a no-op
 	// here. When several fans follow the same artist concurrently, each
-	// publishes its own ARTIST.followed event and this method may run more
+	// publishes its own FOLLOW.created event and this method may run more
 	// than once for the artist, but SearchNewConcerts's own dedup (against
 	// already-known concerts and pending concert candidates) and the DB natural key
 	// on events guarantee any discovered concerts are stored only once.

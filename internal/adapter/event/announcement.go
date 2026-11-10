@@ -37,20 +37,20 @@ func parseArtistCreated(msg *message.Message) (artistCreated, error) {
 	return data, nil
 }
 
-// parseArtistFollowed reads an ARTIST.followed announcement: the new Follow.
-func parseArtistFollowed(msg *message.Message) (artistFollowed, error) {
+// parseFollowCreated reads a FOLLOW.created announcement: the new Follow.
+func parseFollowCreated(msg *message.Message) (followCreated, error) {
 	var follow entityv1.Follow
 	if err := messaging.ParseProtobufData(msg, &follow); err != nil {
-		return artistFollowed{}, err
+		return followCreated{}, err
 	}
-	data := artistFollowed{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
+	data := followCreated{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
 	if data.ArtistID == "" {
-		return artistFollowed{}, errors.New("the Follow names no Artist")
+		return followCreated{}, errors.New("the Follow names no Artist")
 	}
 	return data, nil
 }
 
-// parseTicketSaleDiscovered reads a SALES_PHASE.discovered announcement: the
+// parseTicketSaleDiscovered reads a TICKET_SALE.discovered announcement: the
 // new TicketSale.
 func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscoveredData, error) {
 	var sale entityv1.TicketSale
@@ -69,7 +69,7 @@ func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscovere
 	return data, nil
 }
 
-// parseResaleListingRefunded reads an ORDER.resale_listing_refunded
+// parseResaleListingRefunded reads an RESALE_LISTING.refunded
 // announcement: the refunded ResaleListing.
 func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefundedData, error) {
 	var listing entityv1.ResaleListing
@@ -99,9 +99,9 @@ type artistCreated struct {
 	MBID string
 }
 
-// artistFollowed is what the receivers of an ARTIST.followed announcement
+// followCreated is what the receivers of a FOLLOW.created announcement
 // read from the new Follow.
-type artistFollowed struct {
+type followCreated struct {
 	// UserID is the platform-internal user identifier of the follower.
 	UserID string
 	// ArtistID is the internal UUID of the followed artist.

@@ -36,7 +36,7 @@ func TestOrganizerRepository_CompareAndSetStatusAnnounces(t *testing.T) {
 	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	createdOf := func(t *testing.T, mark int64, id string) []*entityv1.Organizer {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectOrganizerCreated, func() *entityv1.Organizer { return &entityv1.Organizer{} },
+		return announcedSince(t, mark, entity.SubjectOrganizerActivated, func() *entityv1.Organizer { return &entityv1.Organizer{} },
 			func(o *entityv1.Organizer) bool { return o.GetId().GetValue() == id })
 	}
 
@@ -82,7 +82,7 @@ func TestOrganizerRepository_AssociateArtistAnnounces(t *testing.T) {
 	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
 	associatedOf := func(t *testing.T, mark int64, artistID string) []*entityv1.Artist {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectOrganizerArtistAssociated, func() *entityv1.Artist { return &entityv1.Artist{} },
+		return announcedSince(t, mark, entity.SubjectArtistRepresented, func() *entityv1.Artist { return &entityv1.Artist{} },
 			func(a *entityv1.Artist) bool { return a.GetId().GetValue() == artistID })
 	}
 	representedBy := func(t *testing.T, artistID string) string {

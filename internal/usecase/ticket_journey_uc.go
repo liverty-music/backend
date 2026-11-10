@@ -59,7 +59,8 @@ type TicketJourneyUseCase interface {
 	MarkPaid(ctx context.Context, paid entity.OrderPaidData) error
 
 	// MarkApplied sets the fan's ticket journey for the event to Applied, set
-	// by the platform, for a new lottery entry, unless the entry is no longer
+	// by the platform, for each lottery entry announced as entered
+	// (LotteryEntry.Entered, LOTTERY_ENTRY.entered), unless the entry is no longer
 	// Entered or the journey is not replaceable by it (Unpaid or Paid). When it
 	// recorded Applied, it raises the fan's hype level to match the concert. A
 	// failed raise does not fail MarkApplied.

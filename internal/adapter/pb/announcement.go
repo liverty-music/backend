@@ -39,9 +39,9 @@ func LotteryEntryStateFromProto(s entityv1.LotteryEntryState) entity.LotteryEntr
 	return entity.LotteryEntryStateUnspecified
 }
 
-// LotteryEntryFromAnnouncement maps the LotteryEntry an
-// ORDER.lottery_entry_drawn announcement carries back to the domain entry,
-// without its Order.
+// LotteryEntryFromAnnouncement maps the LotteryEntry a LOTTERY_ENTRY.won or
+// LOTTERY_ENTRY.lost announcement carries back to the domain entry, without
+// its Order.
 func LotteryEntryFromAnnouncement(e *entityv1.LotteryEntry) *entity.LotteryEntry {
 	entry := &entity.LotteryEntry{
 		ID:           entity.LotteryEntryID(e.GetId().GetValue()),
@@ -61,8 +61,8 @@ func LotteryEntryFromAnnouncement(e *entityv1.LotteryEntry) *entity.LotteryEntry
 	return entry
 }
 
-// CheckoutFromAnnouncement maps the Checkout an ORDER.checkout_held,
-// ORDER.checkout_expired or ORDER.checkout_released announcement carries back
+// CheckoutFromAnnouncement maps the Checkout a CHECKOUT.held,
+// CHECKOUT.expired or CHECKOUT.released announcement carries back
 // to the domain Checkout, without its Order.
 func CheckoutFromAnnouncement(c *entityv1.Checkout) *entity.Checkout {
 	checkout := &entity.Checkout{

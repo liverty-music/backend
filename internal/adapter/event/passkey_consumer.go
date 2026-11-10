@@ -15,7 +15,7 @@ import (
 )
 
 // PasskeyConsumer handles the Passkeys Passkey.Create announces as added
-// (USER.passkey_added) and Passkey.Delete as removed (USER.passkey_removed):
+// (PASSKEY.added) and Passkey.Delete as removed (PASSKEY.removed):
 // it starts the change email of each, in a workflow named after the
 // announcement id. A returned error makes the router retry, and after the
 // retry limit the message goes to the poison queue.
@@ -29,18 +29,18 @@ func NewPasskeyConsumer(userUC usecase.UserUseCase, logger *logging.Logger) *Pas
 	return &PasskeyConsumer{userUC: userUC, logger: logger}
 }
 
-// HandlePasskeyAdded starts the added email of a USER.passkey_added
+// HandlePasskeyAdded starts the added email of a PASSKEY.added
 // announcement, with the Passkey's name and its create time as the time of
 // the change.
 func (h *PasskeyConsumer) HandlePasskeyAdded(msg *message.Message) error {
-	return h.handle(msg, entity.PasskeyChangeAdded, entity.SubjectUserPasskeyAdded)
+	return h.handle(msg, entity.PasskeyChangeAdded, entity.SubjectPasskeyAdded)
 }
 
-// HandlePasskeyRemoved starts the removed email of a USER.passkey_removed
+// HandlePasskeyRemoved starts the removed email of a PASSKEY.removed
 // announcement, with the time the removal was announced as the time of the
 // change.
 func (h *PasskeyConsumer) HandlePasskeyRemoved(msg *message.Message) error {
-	return h.handle(msg, entity.PasskeyChangeRemoved, entity.SubjectUserPasskeyRemoved)
+	return h.handle(msg, entity.PasskeyChangeRemoved, entity.SubjectPasskeyRemoved)
 }
 
 func (h *PasskeyConsumer) handle(msg *message.Message, kind entity.PasskeyChangeKind, subject string) error {

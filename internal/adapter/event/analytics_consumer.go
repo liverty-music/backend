@@ -95,37 +95,36 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 	})
 }
 
-// HandleUserLoggedIn forwards the USER.logged_in NATS subject as the
-// catalogue event usecase.EventAccountSignin at the User's last login time.
+// HandleUserSignedIn forwards the USER.signed_in NATS subject as the
+// catalogue event usecase.EventUserSignedIn at the User's last login time.
 // The subject is announced once per user-initiated sign-in (Zitadel
 // session.user.checked), never on a token refresh, so this event is a
 // returning/active-user signal. No properties are attached: the distinct_id
 // (platform UserID) is the whole payload, and no PII (email, sub) is ever
 // forwarded.
-func (c *AnalyticsConsumer) HandleUserLoggedIn(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectUserLoggedIn, usecase.EventAccountSignin, func() (fact, error) {
+func (c *AnalyticsConsumer) HandleUserSignedIn(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectUserSignedIn, usecase.EventUserSignedIn, func() (fact, error) {
 		return decodeFact(msg, func(u *entityv1.User) (fact, error) {
 			return fact{distinctID: u.GetId().GetValue(), at: u.GetLastLoginTime().AsTime(), props: usecase.AnalyticsProperties{}}, nil
 		})
 	})
 }
 
-// HandleArtistFollowed forwards the ARTIST.followed NATS subject as the
-// catalogue event usecase.EventArtistFollowCompleted. Properties:
+// HandleFollowCreated forwards the FOLLOW.created NATS subject as the
+// catalogue event usecase.EventFollowCreated. Properties:
 // artist_id (the optional `source` property is FE-only).
-func (c *AnalyticsConsumer) HandleArtistFollowed(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectArtistFollowed, usecase.EventArtistFollowCompleted, func() (fact, error) {
+func (c *AnalyticsConsumer) HandleFollowCreated(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectFollowCreated, usecase.EventFollowCreated, func() (fact, error) {
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			return followFact(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), announcedAt(msg)), nil
 		})
 	})
 }
 
-// HandleArtistUnfollowed forwards the ARTIST.unfollowed NATS subject as
-// the catalogue event usecase.EventArtistUnfollowCompleted. Properties:
-// artist_id.
-func (c *AnalyticsConsumer) HandleArtistUnfollowed(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectArtistUnfollowed, usecase.EventArtistUnfollowCompleted, func() (fact, error) {
+// HandleFollowRemoved forwards the FOLLOW.removed NATS subject as the
+// catalogue event usecase.EventFollowRemoved. Properties: artist_id.
+func (c *AnalyticsConsumer) HandleFollowRemoved(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectFollowRemoved, usecase.EventFollowRemoved, func() (fact, error) {
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			return followFact(f.GetUserId().GetValue(), f.GetArtistId().GetValue(), announcedAt(msg)), nil
 		})
@@ -136,24 +135,25 @@ func followFact(userID, artistID string, at time.Time) fact {
 	return fact{distinctID: userID, at: at, props: usecase.AnalyticsProperties{"artist_id": artistID}}
 }
 
-// HandleNotificationSubscribed forwards the NOTIFICATION.subscribed NATS
-// subject as the catalogue event usecase.EventNotificationSubscribed.
+// HandlePushSubscriptionSubscribed forwards the PUSH_SUBSCRIPTION.subscribed
+// NATS subject as the catalogue event usecase.EventPushSubscriptionSubscribed.
 // Properties: device_type (the device family of the push endpoint; the
 // endpoint itself is never forwarded).
-func (c *AnalyticsConsumer) HandleNotificationSubscribed(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectNotificationSubscribed, usecase.EventNotificationSubscribed, func() (fact, error) {
+func (c *AnalyticsConsumer) HandlePushSubscriptionSubscribed(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectPushSubscriptionSubscribed, usecase.EventPushSubscriptionSubscribed, func() (fact, error) {
 		return decodeFact(msg, func(p *entityv1.PushSubscription) (fact, error) {
 			return deviceFact(p.GetUserId().GetValue(), pb.DeviceFamilyFromProto(p.GetDeviceFamily()), announcedAt(msg)), nil
 		})
 	})
 }
 
-// HandleNotificationUnsubscribed forwards the NOTIFICATION.unsubscribed NATS
-// subject as the catalogue event usecase.EventNotificationUnsubscribed.
+// HandlePushSubscriptionUnsubscribed forwards the
+// PUSH_SUBSCRIPTION.unsubscribed NATS subject as the catalogue event
+// usecase.EventPushSubscriptionUnsubscribed.
 // Properties: device_type. Only user-initiated unsubscriptions emit this
 // event; the auto-cleanup path on 410 Gone does not.
-func (c *AnalyticsConsumer) HandleNotificationUnsubscribed(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectNotificationUnsubscribed, usecase.EventNotificationUnsubscribed, func() (fact, error) {
+func (c *AnalyticsConsumer) HandlePushSubscriptionUnsubscribed(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectPushSubscriptionUnsubscribed, usecase.EventPushSubscriptionUnsubscribed, func() (fact, error) {
 		return decodeFact(msg, func(p *entityv1.PushSubscription) (fact, error) {
 			return deviceFact(p.GetUserId().GetValue(), pb.DeviceFamilyFromProto(p.GetDeviceFamily()), announcedAt(msg)), nil
 		})
@@ -190,12 +190,12 @@ func withSetBy(props usecase.AnalyticsProperties, setBy string) {
 	}
 }
 
-// HandleOrganizerCreated forwards the ORGANIZER.created NATS subject as the
-// catalogue event usecase.EventOrganizerCreated. It is an admin-actor / group
+// HandleOrganizerActivated forwards the ORGANIZER.activated NATS subject as
+// the catalogue event usecase.EventOrganizerActivated. It is an admin-actor / group
 // event keyed on organizer_id in PostHog; the organizer_id UUID is used as
 // the PostHog distinct id. Properties: organizer_id.
-func (c *AnalyticsConsumer) HandleOrganizerCreated(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectOrganizerCreated, usecase.EventOrganizerCreated, func() (fact, error) {
+func (c *AnalyticsConsumer) HandleOrganizerActivated(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectOrganizerActivated, usecase.EventOrganizerActivated, func() (fact, error) {
 		created := func(organizerID string, at time.Time) fact {
 			return fact{distinctID: organizerID, at: at, props: usecase.AnalyticsProperties{"organizer_id": organizerID}}
 		}
@@ -205,12 +205,12 @@ func (c *AnalyticsConsumer) HandleOrganizerCreated(msg *message.Message) error {
 	})
 }
 
-// HandleOrganizerArtistAssociated forwards the ORGANIZER.artist_associated
-// NATS subject as the catalogue event usecase.EventOrganizerArtistAssociated,
+// HandleArtistRepresented forwards the ARTIST.represented NATS subject as
+// the catalogue event usecase.EventArtistRepresented,
 // keyed on organizer_id as the distinct id. Properties: organizer_id,
 // artist_id.
-func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectOrganizerArtistAssociated, usecase.EventOrganizerArtistAssociated, func() (fact, error) {
+func (c *AnalyticsConsumer) HandleArtistRepresented(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectArtistRepresented, usecase.EventArtistRepresented, func() (fact, error) {
 		associated := func(organizerID, artistID string, at time.Time) fact {
 			return fact{distinctID: organizerID, at: at, props: usecase.AnalyticsProperties{"organizer_id": organizerID, "artist_id": artistID}}
 		}
@@ -220,11 +220,11 @@ func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message
 	})
 }
 
-// HandleArtistHypeChanged forwards the ARTIST.hype_changed NATS subject as the
-// catalogue event usecase.EventArtistHypeChanged. Properties: artist_id,
+// HandleFollowHypeChanged forwards the FOLLOW.hype_changed NATS subject as
+// the catalogue event usecase.EventFollowHypeChanged. Properties: artist_id,
 // hype (the level set), set_by (fan or inference).
-func (c *AnalyticsConsumer) HandleArtistHypeChanged(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectArtistHypeChanged, usecase.EventArtistHypeChanged, func() (fact, error) {
+func (c *AnalyticsConsumer) HandleFollowHypeChanged(msg *message.Message) error {
+	return c.forward(msg, entity.SubjectFollowHypeChanged, usecase.EventFollowHypeChanged, func() (fact, error) {
 		return decodeFact(msg, func(f *entityv1.Follow) (fact, error) {
 			props := usecase.AnalyticsProperties{"artist_id": f.GetArtistId().GetValue(), "hype": string(pb.HypeFromProto[f.GetHype()])}
 			withSetBy(props, string(pb.HypeSetByFromProto[f.GetHypeSetBy()]))
@@ -274,12 +274,26 @@ func orderPaidFact(data entity.OrderPaidData) fact {
 	return fact{distinctID: data.UserID, at: data.PayTime, props: props}
 }
 
-// HandleLotteryEntryDrawn forwards the ORDER.lottery_entry_drawn NATS subject
-// as the catalogue event usecase.EventTicketLotteryResult at the draw time.
-// Properties: lottery_entry_id, ticket_sale_id, ticket_stock_id, result,
-// capture_failed. The fan and the TicketStock are the entry's Order's.
-func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error {
-	return c.forward(msg, entity.SubjectLotteryEntryDrawn, usecase.EventTicketLotteryResult, func() (fact, error) {
+// HandleLotteryEntryResult forwards the LOTTERY_ENTRY.won and
+// LOTTERY_ENTRY.lost NATS subjects as the catalogue events
+// usecase.EventLotteryEntryWon and usecase.EventLotteryEntryLost, told apart
+// by the subject, at the time the result was announced. Properties:
+// lottery_entry_id, ticket_sale_id, ticket_stock_id, result, capture_failed.
+// The fan and the TicketStock are the entry's Order's. A message under
+// another subject is not a result and fails as unparsable.
+func (c *AnalyticsConsumer) HandleLotteryEntryResult(msg *message.Message) error {
+	subject := messaging.CloudEventType(msg)
+	event, result := usecase.EventLotteryEntryWon, "won"
+	switch subject {
+	case entity.SubjectLotteryEntryWon:
+	case entity.SubjectLotteryEntryLost:
+		event, result = usecase.EventLotteryEntryLost, "lost"
+	default:
+		return c.forward(msg, subject, event, func() (fact, error) {
+			return fact{}, fmt.Errorf("not a lottery entry result: %q", subject)
+		})
+	}
+	return c.forward(msg, subject, event, func() (fact, error) {
 		return decodeFact(msg, func(e *entityv1.LotteryEntry) (fact, error) {
 			order, err := c.orders.Get(msg.Context(), entity.OrderID(e.GetOrderId().GetValue()))
 			if err != nil {
@@ -287,7 +301,7 @@ func (c *AnalyticsConsumer) HandleLotteryEntryDrawn(msg *message.Message) error 
 			}
 			return drawnFact(lotteryEntryDrawn{
 				LotteryEntryID: e.GetId().GetValue(), UserID: string(order.UserID), TicketSaleID: e.GetTicketSaleId().GetValue(),
-				TicketStockID: string(order.TicketStockID), Result: pb.LotteryEntryStateFromProto(e.GetState()).String(),
+				TicketStockID: string(order.TicketStockID), Result: result,
 				CaptureFailed: e.GetLostReason() == entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_CARD_NOT_CHARGED,
 				DrawTime:      announcedAt(msg),
 			}), nil
@@ -305,7 +319,7 @@ func drawnFact(d lotteryEntryDrawn) fact {
 	}}
 }
 
-// HandleCheckoutExpired forwards the ORDER.checkout_expired NATS subject as
+// HandleCheckoutExpired forwards the CHECKOUT.expired NATS subject as
 // the catalogue event usecase.EventCheckoutExpired at the hold's expiry.
 // Properties: checkout_id, ticket_stock_id, ticket_count. The fan, the
 // TicketStock and the count are the Checkout's Order's.
@@ -332,7 +346,7 @@ func expiredFact(d checkoutExpired) fact {
 	}}
 }
 
-// HandleTicketAdmitted forwards the ORDER.ticket_admitted NATS subject as the
+// HandleTicketAdmitted forwards the TICKET.admitted NATS subject as the
 // catalogue event usecase.EventTicketAdmitted at the admit time. Properties:
 // ticket_id, event_id.
 func (c *AnalyticsConsumer) HandleTicketAdmitted(msg *message.Message) error {
@@ -456,10 +470,10 @@ func (c *AnalyticsConsumer) recordLag(ctx context.Context, msg *message.Message)
 	c.metrics.RecordLag(ctx, time.Since(publishedAt).Seconds())
 }
 
-// lotteryEntryDrawn is what the analytics consumer reads from an
-// ORDER.lottery_entry_drawn announcement and the entry's Order: ids only,
-// never personal data. It is forwarded as the catalogue event
-// ticket.lottery.result.
+// lotteryEntryDrawn is what the analytics consumer reads from a
+// LOTTERY_ENTRY.won or LOTTERY_ENTRY.lost announcement and the entry's
+// Order: ids only, never personal data. It is forwarded as the catalogue
+// event lottery_entry.won or lottery_entry.lost.
 type lotteryEntryDrawn struct {
 	// LotteryEntryID is the drawn entry.
 	LotteryEntryID string
@@ -480,7 +494,7 @@ type lotteryEntryDrawn struct {
 }
 
 // checkoutExpired is what the analytics consumer reads from an
-// ORDER.checkout_expired announcement and the Checkout's Order: ids and
+// CHECKOUT.expired announcement and the Checkout's Order: ids and
 // counts only. It is forwarded as the catalogue event checkout.expired.
 type checkoutExpired struct {
 	// CheckoutID is the expired Checkout.

@@ -13,7 +13,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ResaleListingRefundedConsumer handles ORDER.resale_listing_refunded events:
+// ResaleListingRefundedConsumer handles RESALE_LISTING.refunded events:
 // the sold email to the listing's user. It is idempotent by the listing id,
 // so a redelivery sends no second email. While the mail service is
 // unavailable the message is delivered again after soldEmailRetryDelay, as
@@ -39,10 +39,10 @@ func NewResaleListingRefundedConsumer(notificationUC usecase.NotificationUseCase
 func (h *ResaleListingRefundedConsumer) Handle(msg *message.Message) error {
 	data, err := parseResaleListingRefunded(msg)
 	if err != nil {
-		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_listing_refunded event", err)
-		return fmt.Errorf("parse ORDER.resale_listing_refunded event: %w", err)
+		h.logger.Error(msg.Context(), "failed to parse RESALE_LISTING.refunded event", err)
+		return fmt.Errorf("parse RESALE_LISTING.refunded event: %w", err)
 	}
-	h.logger.Info(msg.Context(), "processing ORDER.resale_listing_refunded for the sold email",
+	h.logger.Info(msg.Context(), "processing RESALE_LISTING.refunded for the sold email",
 		slog.String("resale_listing_id", data.ResaleListingID))
 	if err := h.notificationUC.SendResaleSold(msg.Context(), data); err != nil {
 		if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {

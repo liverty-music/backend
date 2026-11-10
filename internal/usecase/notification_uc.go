@@ -76,7 +76,7 @@ type NotificationUseCase interface {
 
 	// SendResaleSold tells the user of a resold listing that their ticket
 	// sold and how much is refunded: the sold email, at most once per listing,
-	// in the user's language. It runs for each ORDER.resale_listing_refunded
+	// in the user's language. It runs for each RESALE_LISTING.refunded
 	// announcement.
 	//
 	// # Possible errors
@@ -88,8 +88,8 @@ type NotificationUseCase interface {
 	// that nothing is charged: the loss email, at most once per entry, in the
 	// user's language, then a lottery_loss push that opens the event's page,
 	// named after the entry so a repeated announcement pushes once. It runs
-	// for each entry announced Lost (ORDER.lottery_entry_drawn); an entry that
-	// is not Lost sends nothing.
+	// for each entry announced Lost (LOTTERY_ENTRY.lost); an entry that is
+	// not Lost sends nothing.
 	//
 	// # Possible errors
 	//

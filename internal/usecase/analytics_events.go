@@ -15,90 +15,67 @@ package usecase
 // only from the backend through these constants.
 type AnalyticsEventName string
 
-// Account lifecycle events emitted from the backend.
+// Events forwarded by the analytics consumer from domain events. Each is
+// named by its subject in lower case (USER.signed_in is user.signed_in), so a
+// PostHog event, its subject and its event in the specs share one name.
 const (
-	// EventAccountSignin is recorded once per user-initiated sign-in, sourced
-	// from the Zitadel session.user.checked Actions v2 event webhook (NATS
-	// transport subject ACCOUNT.login). It is never recorded on a silent token
-	// refresh (which touches only the oidc_session aggregate), so it is a
-	// returning/active-user retention signal. Signup is represented by
-	// EventUserCreated, not a separate account.signup.completed event.
-	//
-	// Named account.signin (renamed from account.login while it had zero
-	// production history) for vocabulary consistency with the account.* namespace.
-	EventAccountSignin AnalyticsEventName = "account.signin"
-
-	// EventUserCreated is recorded when the backend creates a User record
-	// for the first time, either through self-signup or admin provisioning.
+	// EventUserCreated is recorded for each USER.created announcement: a User
+	// the backend created, through self-signup or admin provisioning.
+	// Properties: signup_month.
 	EventUserCreated AnalyticsEventName = "user.created"
-)
 
-// Artist engagement events emitted from the backend after persistence.
-const (
-	// EventArtistFollowCompleted is recorded after a follow relationship
-	// has been persisted. The frontend emits a paired artist.follow.requested
-	// event at the moment the user submits the action.
-	EventArtistFollowCompleted AnalyticsEventName = "artist.follow.completed"
+	// EventUserSignedIn is recorded for each USER.signed_in announcement, at
+	// the User's last login time: one user-initiated sign-in (Zitadel
+	// session.user.checked), never a silent token refresh, so it is a
+	// returning/active-user retention signal. No properties.
+	EventUserSignedIn AnalyticsEventName = "user.signed_in"
 
-	// EventArtistUnfollowCompleted is recorded after the corresponding
-	// follow relationship has been removed.
-	EventArtistUnfollowCompleted AnalyticsEventName = "artist.unfollow.completed"
-)
+	// EventFollowCreated is recorded for each FOLLOW.created announcement: a
+	// Follow the backend stored. The frontend emits a paired
+	// artist.follow.requested event at the moment the user submits the
+	// action. Properties: artist_id.
+	EventFollowCreated AnalyticsEventName = "follow.created"
 
-// Ticket journey events emitted from the backend.
-const (
+	// EventFollowRemoved is recorded for each FOLLOW.removed announcement: a
+	// Follow the backend removed. Properties: artist_id.
+	EventFollowRemoved AnalyticsEventName = "follow.removed"
+
+	// EventFollowHypeChanged is recorded for each FOLLOW.hype_changed
+	// announcement: a hype level the fan set (also the level the Follow
+	// already had when the fan had not set it) or the app raised.
+	// Properties: artist_id, hype, set_by.
+	EventFollowHypeChanged AnalyticsEventName = "follow.hype_changed"
+
 	// EventTicketJourneyStatusChanged is recorded for each
 	// TICKET_JOURNEY.status_changed announcement: a journey whose status or
 	// who set it changed, by the fan, the platform or inference. A write that
 	// changes neither announces nothing. Properties: event_id, to_status,
 	// set_by.
-	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
-)
+	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket_journey.status_changed"
 
-// Notification lifecycle events emitted from the backend. The underlying
-// transport is the W3C Push API, but the analytics surface is scoped under
-// the notification domain to align with the user-facing concept — see
-// specification/docs/analytics/event-catalog.md.
-const (
-	// EventNotificationSubscribed is recorded after a Web Push
-	// subscription has been persisted against the user record.
-	EventNotificationSubscribed AnalyticsEventName = "notification.subscribed"
+	// EventPushSubscriptionSubscribed is recorded for each
+	// PUSH_SUBSCRIPTION.subscribed announcement: a Web Push subscription
+	// stored against the user. Properties: device_type.
+	EventPushSubscriptionSubscribed AnalyticsEventName = "push_subscription.subscribed"
 
-	// EventNotificationUnsubscribed is recorded after a user-initiated
-	// Web Push subscription has been removed via PushSubscriptionUseCase.Delete.
-	// Auto-cleanup on 410 Gone (send-loop expiry) intentionally does NOT
-	// emit this event — that is subscription expiry, not user churn.
-	EventNotificationUnsubscribed AnalyticsEventName = "notification.unsubscribed"
-)
+	// EventPushSubscriptionUnsubscribed is recorded for each
+	// PUSH_SUBSCRIPTION.unsubscribed announcement: a Web Push subscription
+	// the user removed. Auto-cleanup on 410 Gone (send-loop expiry) announces
+	// nothing: that is subscription expiry, not user churn.
+	// Properties: device_type.
+	EventPushSubscriptionUnsubscribed AnalyticsEventName = "push_subscription.unsubscribed"
 
-// Organizer lifecycle events emitted from the backend.
-const (
-	// EventOrganizerCreated is recorded after an Organizer's Organization is fully
-	// provisioned and the row flips to active. It is an admin-actor / group
-	// event keyed on organizer_id in PostHog; no fan distinct_id is present.
-	// Properties: organizer_id.
-	EventOrganizerCreated AnalyticsEventName = "organizer.created"
+	// EventOrganizerActivated is recorded for each ORGANIZER.activated
+	// announcement: an Organizer whose Organization is fully provisioned. It
+	// is an admin-actor / group event keyed on organizer_id in PostHog; no
+	// fan distinct_id is present. Properties: organizer_id.
+	EventOrganizerActivated AnalyticsEventName = "organizer.activated"
 
-	// EventOrganizerArtistAssociated is recorded after an artist is linked to
-	// an organizer. It is an admin-actor / group event keyed on organizer_id in
-	// PostHog; no fan distinct_id is present. Properties: organizer_id, artist_id.
-	EventOrganizerArtistAssociated AnalyticsEventName = "organizer.artist.associated"
-
-	// EventOrganizerConcertPublished is recorded after an organizer successfully
-	// publishes a first-party series. It is an admin-actor / group event keyed
-	// on organizer_id in PostHog; no fan distinct_id is present.
-	// Properties: organizer_id, series_id, new_event_count.
-	EventOrganizerConcertPublished AnalyticsEventName = "organizer.concert.published"
-)
-
-// Fan-level commerce and engagement events forwarded by the analytics
-// consumer from domain events.
-const (
-	// EventArtistHypeChanged is recorded for each ARTIST.hype_changed
-	// announcement: a hype level the fan set (also the level the Follow
-	// already had when the fan had not set it) or the app raised.
-	// Properties: artist_id, hype, set_by.
-	EventArtistHypeChanged AnalyticsEventName = "artist.hype.changed"
+	// EventArtistRepresented is recorded for each ARTIST.represented
+	// announcement: an Artist linked to an Organizer. It is an admin-actor /
+	// group event keyed on organizer_id in PostHog; no fan distinct_id is
+	// present. Properties: organizer_id, artist_id.
+	EventArtistRepresented AnalyticsEventName = "artist.represented"
 
 	// EventOrderPaid is recorded for each ORDER.paid announcement, with the
 	// CloudEvent id (a UUIDv7) as the event id: a redelivery of the same
@@ -108,20 +85,34 @@ const (
 	// ("lottery_entry" or "checkout"), lottery_entry_id or checkout_id.
 	EventOrderPaid AnalyticsEventName = "order.paid"
 
-	// EventTicketLotteryResult is recorded for each drawn lottery entry
-	// (ORDER.lottery_entry_drawn). Properties: lottery_entry_id,
-	// ticket_sale_id, ticket_stock_id, result ("won" or "lost"),
-	// capture_failed.
-	EventTicketLotteryResult AnalyticsEventName = "ticket.lottery.result"
+	// EventLotteryEntryWon is recorded for each LOTTERY_ENTRY.won
+	// announcement. Properties: lottery_entry_id, ticket_sale_id,
+	// ticket_stock_id, result ("won"), capture_failed.
+	EventLotteryEntryWon AnalyticsEventName = "lottery_entry.won"
 
-	// EventCheckoutExpired is recorded when a Checkout's hold lapses
-	// (ORDER.checkout_expired). Properties: checkout_id, ticket_stock_id,
-	// ticket_count.
+	// EventLotteryEntryLost is recorded for each LOTTERY_ENTRY.lost
+	// announcement: an entry not drawn, whose win was reverted, or ended by a
+	// cancelled concert. Properties: lottery_entry_id, ticket_sale_id,
+	// ticket_stock_id, result ("lost"), capture_failed.
+	EventLotteryEntryLost AnalyticsEventName = "lottery_entry.lost"
+
+	// EventCheckoutExpired is recorded for each CHECKOUT.expired
+	// announcement: a Checkout whose hold lapsed. Properties: checkout_id,
+	// ticket_stock_id, ticket_count.
 	EventCheckoutExpired AnalyticsEventName = "checkout.expired"
 
-	// EventTicketAdmitted is recorded for each Ticket a scan admits
-	// (ORDER.ticket_admitted). Properties: ticket_id, event_id.
+	// EventTicketAdmitted is recorded for each TICKET.admitted announcement:
+	// a Ticket a scan admitted. Properties: ticket_id, event_id.
 	EventTicketAdmitted AnalyticsEventName = "ticket.admitted"
+)
+
+// Organizer events the backend records directly, not from a domain event.
+const (
+	// EventOrganizerConcertPublished is recorded after an organizer successfully
+	// publishes a first-party series. It is an admin-actor / group event keyed
+	// on organizer_id in PostHog; no fan distinct_id is present.
+	// Properties: organizer_id, series_id, new_event_count.
+	EventOrganizerConcertPublished AnalyticsEventName = "organizer.concert.published"
 )
 
 // Pipeline events without a fan, sent as personless AnalyticsClient.Capture events.
@@ -160,25 +151,26 @@ const (
 // The map is populated lazily-once at package init via the const groups
 // above; every new constant MUST be added here in the same commit.
 var knownBackendEvents = map[AnalyticsEventName]struct{}{
-	EventAccountSignin:              {},
-	EventUserCreated:                {},
-	EventArtistFollowCompleted:      {},
-	EventArtistUnfollowCompleted:    {},
-	EventTicketJourneyStatusChanged: {},
-	EventNotificationSubscribed:     {},
-	EventNotificationUnsubscribed:   {},
-	EventOrganizerCreated:           {},
-	EventOrganizerArtistAssociated:  {},
-	EventOrganizerConcertPublished:  {},
-	EventArtistHypeChanged:          {},
-	EventOrderPaid:                  {},
-	EventTicketLotteryResult:        {},
-	EventCheckoutExpired:            {},
-	EventTicketAdmitted:             {},
-	EventConcertSearchCompleted:     {},
-	EventConcertIngestCompleted:     {},
-	EventTicketSaleSearchCompleted:  {},
-	EventAIGeneration:               {},
+	EventUserCreated:                  {},
+	EventUserSignedIn:                 {},
+	EventFollowCreated:                {},
+	EventFollowRemoved:                {},
+	EventFollowHypeChanged:            {},
+	EventTicketJourneyStatusChanged:   {},
+	EventPushSubscriptionSubscribed:   {},
+	EventPushSubscriptionUnsubscribed: {},
+	EventOrganizerActivated:           {},
+	EventArtistRepresented:            {},
+	EventOrderPaid:                    {},
+	EventLotteryEntryWon:              {},
+	EventLotteryEntryLost:             {},
+	EventCheckoutExpired:              {},
+	EventTicketAdmitted:               {},
+	EventOrganizerConcertPublished:    {},
+	EventConcertSearchCompleted:       {},
+	EventConcertIngestCompleted:       {},
+	EventTicketSaleSearchCompleted:    {},
+	EventAIGeneration:                 {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event
