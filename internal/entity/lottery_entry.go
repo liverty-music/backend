@@ -241,7 +241,7 @@ type LotteryEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.lottery_entry_entered with the new entry's Pending Order, which
+	// LOTTERY_ENTRY.entered with the new entry's Pending Order, which
 	// names the entry, the user and the TicketStock, together with the entry.
 	// Nothing when it returns an existing entry or fails.
 	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
@@ -319,8 +319,9 @@ type LotteryEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.lottery_entry_drawn once per entry it sets Won or Lost, as it is after
-	// the draw, together with the outcome. Nothing for an entry left unchanged.
+	// LOTTERY_ENTRY.won once per entry it sets Won and LOTTERY_ENTRY.lost once
+	// per entry it sets Lost, as it is after the draw, together with the
+	// outcome. Nothing for an entry left unchanged.
 	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder) error
 
 	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
@@ -340,8 +341,8 @@ type LotteryEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.lottery_entry_drawn with the entry as it is after the change,
-	// Lost with the given lost reason, together with the change. Nothing when
+	// LOTTERY_ENTRY.lost with the entry as it is after the change, Lost with
+	// the given lost reason, together with the change. Nothing when
 	// the entry was already Lost.
 	RevertWin(ctx context.Context, id LotteryEntryID, reason LotteryEntryLostReason) error
 
@@ -363,7 +364,7 @@ type LotteryEntryRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.lottery_entry_drawn once per entry it makes Lost, with the entry
+	// LOTTERY_ENTRY.lost once per entry it makes Lost, with the entry
 	// as it is after the change, together with the change. Nothing when no
 	// entry changed.
 	EndEnteredByEvent(ctx context.Context, eventID string) error

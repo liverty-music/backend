@@ -9,7 +9,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// TicketSaleAnnouncementConsumer handles SALES_PHASE.discovered events by
+// TicketSaleAnnouncementConsumer handles TICKET_SALE.discovered events by
 // delegating to the announcement use case. It is a thin adapter: parse the
 // CloudEvent and hand off to the use case — no repository lookups or business
 // logic here.
@@ -29,14 +29,14 @@ func NewTicketSaleAnnouncementConsumer(
 	}
 }
 
-// Handle processes a SALES_PHASE.discovered event.
+// Handle processes a TICKET_SALE.discovered event.
 func (h *TicketSaleAnnouncementConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
 	data, err := parseTicketSaleDiscovered(msg)
 	if err != nil {
 		h.logger.Error(ctx, "ticket_sale_announcement: failed to parse event", err)
-		return fmt.Errorf("parse SALES_PHASE.discovered: %w", err)
+		return fmt.Errorf("parse TICKET_SALE.discovered: %w", err)
 	}
 
 	h.logger.Info(ctx, "ticket_sale_announcement: processing",

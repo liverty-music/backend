@@ -251,7 +251,7 @@ type OrganizerRepository interface {
 	//
 	// # Announces
 	//
-	// ORGANIZER.created with the active Organizer, together with the change, when
+	// ORGANIZER.activated with the active Organizer, together with the change, when
 	// it moves the Organizer from provisioning to active. Nothing otherwise.
 	CompareAndSetStatus(ctx context.Context, id string, from, to OrganizerStatus) (bool, error)
 
@@ -264,7 +264,7 @@ type OrganizerRepository interface {
 	//
 	// # Announces
 	//
-	// ORGANIZER.artist_associated with the Artist and its new organizer, together
+	// ARTIST.represented with the Artist and its new organizer, together
 	// with the link. Nothing on AlreadyExists or any other failure.
 	AssociateArtist(ctx context.Context, organizerID, artistID string) error
 

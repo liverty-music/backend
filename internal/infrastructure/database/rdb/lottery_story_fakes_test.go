@@ -294,14 +294,15 @@ func (p *pushStarts) Await(context.Context, string, time.Duration, any) error { 
 
 func (p *pushStarts) Cancel(context.Context, string) (bool, error) { return false, nil }
 
-// announcedMessages returns the announcements of subject recorded after
-// mark as the messages a durable consumer receives: the protobuf payload
-// with the CloudEvents metadata.
-func announcedMessages(t *testing.T, mark int64, subject string) []*message.Message {
+// announcedMessages returns the announcements of the subjects recorded after
+// mark, in the order they were recorded, as the messages a durable consumer
+// of those subjects receives: the protobuf payload with the CloudEvents
+// metadata.
+func announcedMessages(t *testing.T, mark int64, subjects ...string) []*message.Message {
 	t.Helper()
 	rows, err := testDB.Pool.Query(context.Background(),
-		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = $2 ORDER BY "offset"`,
-		mark, subject)
+		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = ANY($2) ORDER BY "offset"`,
+		mark, subjects)
 	require.NoError(t, err)
 	raws, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	require.NoError(t, err)

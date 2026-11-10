@@ -15,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -34,7 +35,7 @@ type resaleStory struct {
 	*firstComeStory
 
 	entries  usecase.ResaleEntryUseCase
-	changed  *event.ResaleEntryChangedConsumer
+	changed  *event.ResaleEntryConsumer
 	sold     *event.ResaleListingSoldConsumer
 	refunded *event.ResaleListingRefundedConsumer
 	// mark is the outbox offset up to which the story handed resale
@@ -62,7 +63,7 @@ func newResaleStory(t *testing.T) *resaleStory {
 		Logger:                   fc.logger,
 	})
 	// The consumers' use cases only start workflows, which the worker runs.
-	s.changed = event.NewResaleEntryChangedConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+	s.changed = event.NewResaleEntryConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: fc.client, Clock: clock, Logger: fc.logger,
 	}), fc.notifications, fc.logger)
 	s.sold = event.NewResaleListingSoldConsumer(usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
@@ -146,9 +147,12 @@ func (s *resaleStory) followUp() {
 		}
 		mark := s.mark
 		s.mark = next
-		for _, msg := range announcedMessages(s.t, mark, entity.SubjectResaleEntryChanged) {
+		for _, msg := range announcedMessages(s.t, mark, entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed,
+			entity.SubjectResaleEntryLost, entity.SubjectResaleEntryWithdrawn) {
 			require.NoError(s.t, s.changed.HandleStartWorkflow(msg))
-			require.NoError(s.t, s.changed.HandleSendResaleEntryEnded(msg))
+			if subject := messaging.CloudEventType(msg); subject == entity.SubjectResaleEntryLapsed || subject == entity.SubjectResaleEntryLost {
+				require.NoError(s.t, s.changed.HandleSendResaleEntryEnded(msg))
+			}
 			var e entityv1.ResaleEntry
 			require.NoError(s.t, proto.Unmarshal(msg.Payload, &e))
 			orderID := entity.OrderID(e.GetOrderId().GetValue())

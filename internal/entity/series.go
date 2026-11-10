@@ -405,7 +405,7 @@ type SeriesRepository interface {
 	//
 	// # Announces
 	//
-	// CONCERT.cancelled once per event made CANCELLED, with the Event as
+	// EVENT.cancelled once per event made CANCELLED, with the Event as
 	// CANCELLED, together with the cancellation. Nothing for a removed DRAFT
 	// event, and nothing when CancelEvents fails.
 	CancelEvents(ctx context.Context, seriesID string, eventIDs []string) (cancelledEventIDs []string, err error)

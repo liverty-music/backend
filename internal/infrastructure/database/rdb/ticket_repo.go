@@ -95,7 +95,7 @@ func (r *TicketRepository) ListByUserAndEvent(ctx context.Context, userID entity
 //
 // # Announces
 //
-// ORDER.ticket_admitted with the Ticket and its admit time, in the
+// TICKET.admitted with the Ticket and its admit time, in the
 // transaction of the admission, when the outcome is Admitted. Nothing on
 // AlreadyAdmitted or Voided.
 func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time) (entity.AdmitResult, error) {
@@ -132,7 +132,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 }
 
 // admitAndAnnounce runs ticketAdmitQuery and, when it admitted the ticket,
-// records ORDER.ticket_admitted with the admitted Ticket, in one
+// records TICKET.admitted with the admitted Ticket, in one
 // transaction. It reports whether the ticket was admitted.
 func (r *TicketRepository) admitAndAnnounce(ctx context.Context, ticketID entity.TicketID, scannerID entity.ScannerID, admittedTime time.Time, attrs []slog.Attr) (bool, error) {
 	tx, err := r.db.Pool.Begin(ctx)

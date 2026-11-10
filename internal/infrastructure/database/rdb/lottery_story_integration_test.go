@@ -23,6 +23,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -36,8 +37,8 @@ import (
 // and Confirm (card authentication stands in as fakeCards.authenticate), and
 // once the injected clock passes the window's end the workflow worker runs
 // draw-due-sales and the draw. The announcements the draw records are handed
-// to the ORDER.lottery_entry_drawn consumer, which starts the issue and
-// release workflows the worker runs and sends the loss emails; the
+// to the LOTTERY_ENTRY.won and LOTTERY_ENTRY.lost consumer, which starts the
+// issue and release workflows the worker runs and sends the loss emails; the
 // payment_intent.succeeded webhook and the ORDER.paid consumer finish the
 // win. The Stripe API itself is covered by TestLotteryPipeline_Integration
 // and the card authorization repository's integration test.
@@ -94,7 +95,7 @@ type lotteryStory struct {
 	journeys      usecase.TicketJourneyUseCase
 	webhooks      usecase.StripeWebhookService
 	notifications usecase.NotificationUseCase
-	drawn         *event.LotteryEntryDrawnConsumer
+	drawn         *event.LotteryEntryResultConsumer
 	// expiry is the worker's CheckoutUseCase; checkoutStarter starts the
 	// workflows that follow an announced Checkout, as the event consumer does.
 	expiry          usecase.CheckoutUseCase
@@ -256,7 +257,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.client.Close() })
 	// The event consumer's OrderUseCase only starts workflows.
-	s.drawn = event.NewLotteryEntryDrawnConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
+	s.drawn = event.NewLotteryEntryResultConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
 	}), s.notifications, logger)
 	s.checkoutStarter = event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
@@ -273,7 +274,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 }
 
 // cancel has a member of the Organizer cancel (中止) the Event, hands each
-// CONCERT.cancelled announcement to the consumer that ends its lottery
+// EVENT.cancelled announcement to the consumer that ends its lottery
 // entries, as NATS delivers it, and runs the work that follows each entry
 // announced since: the release of its card authorization and its loss email
 // and push.
@@ -281,7 +282,7 @@ func (s *lotteryStory) cancel(eventID string) {
 	s.t.Helper()
 	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{eventID}))
 	next := outboxMark(s.t)
-	msgs := announcedMessages(s.t, s.cancelledMark, entity.SubjectConcertCancelled)
+	msgs := announcedMessages(s.t, s.cancelledMark, entity.SubjectEventCancelled)
 	s.cancelledMark = next
 	require.NotEmpty(s.t, msgs, "the cancellation is announced")
 	for _, msg := range msgs {
@@ -487,25 +488,25 @@ func errorsIsNotFound(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "not_found")
 }
 
-// startFollowUps hands the ORDER.lottery_entry_drawn announcements recorded
-// since the last call to both of its consumers, as NATS delivers them: the
-// workflow starter and the loss notifier. It remembers the workflows the
-// starter starts.
+// startFollowUps hands the LOTTERY_ENTRY.won and LOTTERY_ENTRY.lost
+// announcements recorded since the last call to their consumers, as NATS
+// delivers them: both to the workflow starter, LOTTERY_ENTRY.lost also to the
+// loss notifier. It remembers the workflows the starter starts.
 func (s *lotteryStory) startFollowUps() int {
 	s.t.Helper()
 	next := outboxMark(s.t)
-	msgs := announcedMessages(s.t, s.drawnMark, entity.SubjectLotteryEntryDrawn)
+	msgs := announcedMessages(s.t, s.drawnMark, entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost)
 	s.drawnMark = next
 	for _, msg := range msgs {
 		require.NoError(s.t, s.drawn.HandleStartWorkflow(msg))
-		require.NoError(s.t, s.drawn.HandleSendLotteryLoss(msg))
 		var e entityv1.LotteryEntry
 		require.NoError(s.t, proto.Unmarshal(msg.Payload, &e))
 		orderID := entity.OrderID(e.GetOrderId().GetValue())
-		switch e.GetState() {
-		case entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_WON:
+		switch messaging.CloudEventType(msg) {
+		case entity.SubjectLotteryEntryWon:
 			s.followUps = append(s.followUps, usecase.IssueWorkflowID(orderID))
-		case entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_LOST:
+		case entity.SubjectLotteryEntryLost:
+			require.NoError(s.t, s.drawn.HandleSendLotteryLoss(msg))
 			s.followUps = append(s.followUps, usecase.ReleaseWorkflowID(orderID))
 		}
 	}
@@ -527,7 +528,7 @@ func (s *lotteryStory) awaitFollowUps() {
 }
 
 // startCheckoutFollowUps hands the announcements of subjects (by default
-// ORDER.checkout_held, ORDER.checkout_expired and ORDER.checkout_released)
+// CHECKOUT.held, CHECKOUT.expired and CHECKOUT.released)
 // recorded since the last call to the workflow starter, as NATS delivers
 // them, at the story's clock, and returns the ids of the workflows it starts:
 // a hold's expiry, delayed until the hold expiry, and the release of an ended
@@ -607,7 +608,7 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 	}
 }
 
-// markEnteredApplied hands the ORDER.lottery_entry_entered announcements of
+// markEnteredApplied hands the LOTTERY_ENTRY.entered announcements of
 // the story's event recorded since the previous call to the ticket journey,
 // as the mark-ticket-journey-applied consumer does.
 func (s *lotteryStory) markEnteredApplied() {

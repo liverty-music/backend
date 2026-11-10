@@ -716,11 +716,11 @@ func TestSeriesRepository_CancelEvents(t *testing.T) {
 	})
 }
 
-// cancelledOf returns the CONCERT.cancelled announcements of the events
+// cancelledOf returns the EVENT.cancelled announcements of the events
 // recorded after mark.
 func cancelledOf(t *testing.T, mark int64, eventIDs ...string) []*entityv1.Event {
 	t.Helper()
-	return announcedSince(t, mark, entity.SubjectConcertCancelled, func() *entityv1.Event { return &entityv1.Event{} },
+	return announcedSince(t, mark, entity.SubjectEventCancelled, func() *entityv1.Event { return &entityv1.Event{} },
 		func(e *entityv1.Event) bool { return slices.Contains(eventIDs, e.GetId().GetValue()) })
 }
 

@@ -16,8 +16,7 @@ import (
 // every domain-event subject in the entity catalogue MUST be captured by a
 // configured stream, otherwise a JetStream consumer that subscribes to it
 // fails at startup with "no stream matches subject" and crashloops in
-// production. This ran red for TICKET/TICKET_JOURNEY/TICKET_EMAIL/SALES_REMINDER
-// (and earlier SALES_PHASE) before their streams were added.
+// production.
 func TestAllSubjectsCoveredByStream(t *testing.T) {
 	t.Parallel()
 
@@ -59,9 +58,9 @@ func TestStreamForSubject(t *testing.T) {
 			wantOK:     true,
 		},
 		{
-			name:       "SALES_PHASE.discovered resolves to SALES_PHASE stream",
-			subject:    "SALES_PHASE.discovered",
-			wantStream: "SALES_PHASE",
+			name:       "TICKET_SALE.discovered resolves to TICKET_SALE stream",
+			subject:    "TICKET_SALE.discovered",
+			wantStream: "TICKET_SALE",
 			wantOK:     true,
 		},
 		{
@@ -118,8 +117,8 @@ func TestStreamForSubject_AllSubjects(t *testing.T) {
 
 // TestSubjectCoveredByStream exercises the NATS token-matching semantics
 // directly, including the '*' (single token) vs '>' (trailing tokens) nuance.
-// The SALES_PHASE subject is two-token (discovered), so the stream filter is
-// a plain SALES_PHASE.*.
+// Every subject has two tokens (<ENTITY>.<what>), so each stream's filter is a
+// plain <ENTITY>.*.
 func TestSubjectCoveredByStream(t *testing.T) {
 	t.Parallel()
 
@@ -134,8 +133,8 @@ func TestSubjectCoveredByStream(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "two-token SALES_PHASE.discovered matched by <domain>.* stream",
-			subject: "SALES_PHASE.discovered",
+			name:    "two-token TICKET_SALE.discovered matched by <domain>.* stream",
+			subject: "TICKET_SALE.discovered",
 			want:    true,
 		},
 		{

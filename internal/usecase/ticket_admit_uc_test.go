@@ -44,7 +44,7 @@ type admitFixture struct {
 	event    *entity.Event
 	fanID    entity.UserID
 	appended []*entity.RejectedScan
-	// admitted collects the ORDER.ticket_admitted announcements.
+	// admitted collects the TICKET.admitted announcements.
 }
 
 func newAdmitFixture(t *testing.T) *admitFixture {

@@ -71,7 +71,7 @@ type ResaleListingUseCase interface {
 	// RefundSold is the refund workflow of one Sold listing: it refunds the
 	// listing's user its refund amount of its Order's charge, for the purpose
 	// of this listing, and records the refund, which announces it
-	// (ORDER.resale_listing_refunded). A listing already refunded is left as
+	// (RESALE_LISTING.refunded). A listing already refunded is left as
 	// it is. A step that fails with Unavailable is tried again until the
 	// workflow's deadline; a failure ends it and an admin is told.
 	//

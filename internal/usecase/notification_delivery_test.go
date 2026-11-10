@@ -1,7 +1,7 @@
 package usecase_test
 
 // A trigger delivered twice (an at-least-once redelivery of
-// SALES_PHASE.discovered or CONCERT.created) starts the deliver-notification
+// TICKET_SALE.discovered or CONCERT.created) starts the deliver-notification
 // workflow twice under the same id, so the recipient is notified once. These
 // tests run the producers twice over a recording Workflows and read the ids.
 

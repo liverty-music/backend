@@ -13,8 +13,8 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// CheckoutConsumer handles ORDER.checkout_held, ORDER.checkout_expired and
-// ORDER.checkout_released events, which Checkout.GetOrCreateHeld,
+// CheckoutConsumer handles CHECKOUT.held, CHECKOUT.expired and
+// CHECKOUT.released events, which Checkout.GetOrCreateHeld,
 // Checkout.Release and Checkout.RevertCommit record, by starting the workflow
 // that follows the Checkout: the expiry of a held one and the release of an
 // ended one's card authorization. Each workflow is named after the Checkout or

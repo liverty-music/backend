@@ -53,7 +53,7 @@ type PasskeyRepository interface {
 	//
 	// # Announces
 	//
-	// USER.passkey_added with the stored Passkey, together with the insert.
+	// PASSKEY.added with the stored Passkey, together with the insert.
 	// Nothing when the provider passkey id was already stored.
 	Create(ctx context.Context, passkey *Passkey) error
 
@@ -66,7 +66,7 @@ type PasskeyRepository interface {
 	//
 	// # Announces
 	//
-	// USER.passkey_removed with the Passkey as it was stored, together with the
+	// PASSKEY.removed with the Passkey as it was stored, together with the
 	// removal. Nothing when no Passkey had the id.
 	Delete(ctx context.Context, providerPasskeyID string) error
 

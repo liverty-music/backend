@@ -100,7 +100,7 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 	seriesImageConsumer := event.NewSeriesImageConsumer(seriesImageUC, logger)
 
 	behaviorTable := []behaviorEntry{
-		{"process-series-image", entity.SubjectSeriesImageUploaded, seriesImageConsumer.Handle},
+		{"process-series-image", on(entity.SubjectSeriesImageUploaded), seriesImageConsumer.Handle},
 	}
 
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -113,9 +113,7 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 	})
 
 	if cfg.NATS.URL == "" {
-		for _, e := range behaviorTable {
-			router.AddConsumerHandler(e.behavior, e.subject, goChannel, e.handler)
-		}
+		addLocalHandlers(router, behaviorTable, goChannel)
 	} else {
 		// Open the long-lived shared *nats.Conn. NACK (the external operator)
 		// owns durable lifecycle — the app only binds to pre-existing durables.
@@ -124,13 +122,8 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 			return nil, fmt.Errorf("connect NATS: %w", err)
 		}
 		shutdown.AddExternalPhase(messaging.NATSConnCloser(sharedConn))
-
-		for _, e := range behaviorTable {
-			sub, err := messaging.NewBehaviorSubscriber(sharedConn, e.behavior, wmLogger, consumerHealth)
-			if err != nil {
-				return nil, fmt.Errorf("create subscriber for %q: %w", e.behavior, err)
-			}
-			router.AddConsumerHandler(e.behavior, e.subject, sub, e.handler)
+		if err := addNATSHandlers(router, behaviorTable, sharedConn, wmLogger, consumerHealth); err != nil {
+			return nil, err
 		}
 	}
 

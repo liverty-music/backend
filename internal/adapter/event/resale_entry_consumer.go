@@ -17,17 +17,19 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
-// ResaleEntryChangedConsumer handles ORDER.resale_entry_changed events, which
+// ResaleEntryConsumer handles RESALE_ENTRY.won, RESALE_ENTRY.lapsed,
+// RESALE_ENTRY.lost and RESALE_ENTRY.withdrawn events, which
 // ResaleEntry.PersistDrawOutcome, ResaleEntry.Withdraw and
 // ResaleEntry.RevertWin record, with two independent durables: the start of
-// the workflow that charges a Won entry or releases an ended one (the
-// workflow starter, design D4), and the ended email and push of a Lapsed or
-// Lost entry (design D6). The workflow starter is guarded by the workflow
+// the workflow that charges a Won entry or releases an ended one (all four
+// subjects; the workflow starter, design D4), and the ended email and push
+// of a Lapsed or Lost entry (those two subjects; design D6). The subject
+// tells the entry's state. The workflow starter is guarded by the workflow
 // named after the entry's Order, the ended message by the entry's ended
 // email send time and a Deliver named after the type and the entry, so a
 // redelivery starts and sends nothing twice. Each durable has its own cursor,
 // so a mail outage never delays a release.
-type ResaleEntryChangedConsumer struct {
+type ResaleEntryConsumer struct {
 	orderUC        usecase.OrderUseCase
 	notificationUC usecase.NotificationUseCase
 	logger         *logging.Logger
@@ -37,36 +39,52 @@ type ResaleEntryChangedConsumer struct {
 // service after it was unavailable.
 const endedEmailRetryDelay = time.Minute
 
-// NewResaleEntryChangedConsumer creates a new ResaleEntryChangedConsumer.
-func NewResaleEntryChangedConsumer(orderUC usecase.OrderUseCase, notificationUC usecase.NotificationUseCase, logger *logging.Logger) *ResaleEntryChangedConsumer {
-	return &ResaleEntryChangedConsumer{orderUC: orderUC, notificationUC: notificationUC, logger: logger}
+// NewResaleEntryConsumer creates a new ResaleEntryConsumer.
+func NewResaleEntryConsumer(orderUC usecase.OrderUseCase, notificationUC usecase.NotificationUseCase, logger *logging.Logger) *ResaleEntryConsumer {
+	return &ResaleEntryConsumer{orderUC: orderUC, notificationUC: notificationUC, logger: logger}
 }
 
-// parse reads the ORDER.resale_entry_changed announcement: the entry as it is
-// after the change.
-func (h *ResaleEntryChangedConsumer) parse(msg *message.Message) (*entity.ResaleEntry, error) {
+// resaleEntryStates is the state each RESALE_ENTRY subject announces.
+var resaleEntryStates = map[string]entity.ResaleEntryState{
+	entity.SubjectResaleEntryWon:       entity.ResaleEntryStateWon,
+	entity.SubjectResaleEntryLapsed:    entity.ResaleEntryStateLapsed,
+	entity.SubjectResaleEntryLost:      entity.ResaleEntryStateLost,
+	entity.SubjectResaleEntryWithdrawn: entity.ResaleEntryStateWithdrawn,
+}
+
+// parse reads a RESALE_ENTRY announcement: the entry as it is after the
+// change, in the state its subject names.
+func (h *ResaleEntryConsumer) parse(msg *message.Message) (*entity.ResaleEntry, error) {
+	subject := messaging.CloudEventType(msg)
+	state, ok := resaleEntryStates[subject]
+	if !ok {
+		err := fmt.Errorf("not a resale entry event: %q", subject)
+		h.logger.Error(msg.Context(), "failed to parse resale entry event", err)
+		return nil, err
+	}
 	var e entityv1.ResaleEntry
 	if err := messaging.ParseProtobufData(msg, &e); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_entry_changed event", err)
-		return nil, fmt.Errorf("parse ORDER.resale_entry_changed event: %w", err)
+		h.logger.Error(msg.Context(), "failed to parse "+subject+" event", err)
+		return nil, fmt.Errorf("parse %s event: %w", subject, err)
 	}
 	entry := pb.ToResaleEntry(&e)
 	if entry.ID == "" || entry.OrderID == "" {
 		err := errors.New("the ResaleEntry has no id or no Order")
-		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_entry_changed event", err)
+		h.logger.Error(msg.Context(), "failed to parse "+subject+" event", err)
 		return nil, err
 	}
+	entry.State = state
 	return entry, nil
 }
 
 // HandleStartWorkflow starts the issue workflow of a Won entry's Order and
 // the release workflow of an ended entry's Order.
-func (h *ResaleEntryChangedConsumer) HandleStartWorkflow(msg *message.Message) error {
+func (h *ResaleEntryConsumer) HandleStartWorkflow(msg *message.Message) error {
 	entry, err := h.parse(msg)
 	if err != nil {
 		return err
 	}
-	h.logger.Info(msg.Context(), "processing ORDER.resale_entry_changed for its workflow",
+	h.logger.Info(msg.Context(), "processing resale entry event for its workflow",
 		slog.String("resale_entry_id", string(entry.ID)),
 		slog.String("state", entry.State.String()))
 	if err := h.orderUC.StartResaleEntryWorkflow(msg.Context(), entry); err != nil {
@@ -76,16 +94,14 @@ func (h *ResaleEntryChangedConsumer) HandleStartWorkflow(msg *message.Message) e
 }
 
 // HandleSendResaleEntryEnded sends a Lapsed or Lost entry's ended email and
-// push. While the mail service is unavailable the message is delivered again
-// after endedEmailRetryDelay, as often as it takes: the entry is announced
-// once, so this delivery is the only way the fan is told.
-func (h *ResaleEntryChangedConsumer) HandleSendResaleEntryEnded(msg *message.Message) error {
+// push; its durable receives RESALE_ENTRY.lapsed and RESALE_ENTRY.lost only.
+// While the mail service is unavailable the message is delivered again after
+// endedEmailRetryDelay, as often as it takes: the entry is announced once, so
+// this delivery is the only way the fan is told.
+func (h *ResaleEntryConsumer) HandleSendResaleEntryEnded(msg *message.Message) error {
 	entry, err := h.parse(msg)
 	if err != nil {
 		return err
-	}
-	if entry.State != entity.ResaleEntryStateLapsed && entry.State != entity.ResaleEntryStateLost {
-		return nil
 	}
 	if err := h.notificationUC.SendResaleEntryEnded(msg.Context(), entry.ID); err != nil {
 		if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {
@@ -96,7 +112,7 @@ func (h *ResaleEntryChangedConsumer) HandleSendResaleEntryEnded(msg *message.Mes
 	return nil
 }
 
-// ResaleListingSoldConsumer handles ORDER.resale_listing_sold events, which
+// ResaleListingSoldConsumer handles RESALE_LISTING.sold events, which
 // Order.Issue records for each listing it sells: it starts the listing's
 // refund workflow, named after the listing, so a redelivery starts nothing
 // new (design D10).
@@ -114,13 +130,13 @@ func NewResaleListingSoldConsumer(resaleListingUC usecase.ResaleListingUseCase, 
 func (h *ResaleListingSoldConsumer) HandleStartRefund(msg *message.Message) error {
 	var l entityv1.ResaleListing
 	if err := messaging.ParseProtobufData(msg, &l); err != nil {
-		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_listing_sold event", err)
-		return fmt.Errorf("parse ORDER.resale_listing_sold event: %w", err)
+		h.logger.Error(msg.Context(), "failed to parse RESALE_LISTING.sold event", err)
+		return fmt.Errorf("parse RESALE_LISTING.sold event: %w", err)
 	}
 	id := entity.ResaleListingID(l.GetId().GetValue())
 	if id == "" {
 		err := errors.New("the ResaleListing has no id")
-		h.logger.Error(msg.Context(), "failed to parse ORDER.resale_listing_sold event", err)
+		h.logger.Error(msg.Context(), "failed to parse RESALE_LISTING.sold event", err)
 		return err
 	}
 	if err := h.resaleListingUC.StartRefundSold(msg.Context(), id); err != nil {

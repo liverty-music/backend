@@ -47,7 +47,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, sub))
 
 		require.NotEmpty(t, sub.ID)
-		got := subscribed(t, entity.SubjectNotificationSubscribed, mark, sub.ID)
+		got := subscribed(t, entity.SubjectPushSubscriptionSubscribed, mark, sub.ID)
 		require.Len(t, got, 1)
 		assert.Equal(t, fan, got[0].GetUserId().GetValue())
 		assert.Equal(t, entityv1.PushDeviceFamily_PUSH_DEVICE_FAMILY_APPLE, got[0].GetDeviceFamily())
@@ -81,7 +81,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, again))
 
 		assert.Equal(t, first.ID, again.ID)
-		assert.Empty(t, subscribed(t, entity.SubjectNotificationSubscribed, mark, first.ID))
+		assert.Empty(t, subscribed(t, entity.SubjectPushSubscriptionSubscribed, mark, first.ID))
 	})
 
 	t.Run("browser moves to another fan", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		owner, n := stored(t, endpoint)
 		assert.Equal(t, fanB, owner)
 		assert.Equal(t, 1, n)
-		got := subscribed(t, entity.SubjectNotificationSubscribed, mark, moved.ID)
+		got := subscribed(t, entity.SubjectPushSubscriptionSubscribed, mark, moved.ID)
 		require.Len(t, got, 1)
 		assert.Equal(t, fanB, got[0].GetUserId().GetValue())
 	})
@@ -121,7 +121,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 
 		require.NoError(t, repo.Delete(ctx, fan, endpoint))
 
-		got := subscribed(t, entity.SubjectNotificationUnsubscribed, mark, sub.ID)
+		got := subscribed(t, entity.SubjectPushSubscriptionUnsubscribed, mark, sub.ID)
 		require.Len(t, got, 1)
 		assert.Nil(t, got[0].GetEndpoint())
 		assert.Nil(t, got[0].GetKeys())
@@ -135,7 +135,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		mark := outboxMark(t)
 
 		require.NoError(t, repo.Delete(ctx, fan, newEndpoint()))
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectNotificationUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 
@@ -164,7 +164,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		assert.Zero(t, n)
 		_, n = stored(t, other)
 		assert.Equal(t, 1, n, "the fan's other browser keeps its subscription")
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectNotificationUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 
@@ -178,7 +178,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 
 		_, n := stored(t, kept)
 		assert.Equal(t, 1, n, "the fan's registered browser is unchanged")
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectNotificationUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 }

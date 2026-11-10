@@ -214,14 +214,14 @@ func TestRouter_TracePropagation(t *testing.T) {
 		ch, pub := newTestPubSub(t)
 		got := newSpanCollector()
 		runRouter(t, func(r *message.Router) {
-			r.AddConsumerHandler("deliver-reminder", "SALES_PHASE.discovered", ch, func(msg *message.Message) error {
+			r.AddConsumerHandler("deliver-reminder", "TICKET_SALE.discovered", ch, func(msg *message.Message) error {
 				got.record(msg.Context())
 				return nil
 			})
 		})
 
 		runCtx, run := telemetry.StartJobRun(context.Background(), "sales-reminders")
-		require.NoError(t, publishEvent(pub, runCtx, "SALES_PHASE.discovered"))
+		require.NoError(t, publishEvent(pub, runCtx, "TICKET_SALE.discovered"))
 		run.End()
 
 		span := got.wait(t, 1)[0]

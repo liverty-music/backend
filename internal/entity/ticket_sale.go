@@ -346,7 +346,7 @@ type TicketSaleRepository interface {
 	//
 	// # Announces
 	//
-	// SALES_PHASE.discovered with the TicketSale, together with the insert, when it
+	// TICKET_SALE.discovered with the TicketSale, together with the insert, when it
 	// creates the sale. Nothing when it updates or skips one.
 	UpsertDiscovered(ctx context.Context, sale *DiscoveredTicketSale) (TicketSaleID, UpsertOutcome, error)
 

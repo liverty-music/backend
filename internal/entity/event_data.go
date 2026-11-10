@@ -2,140 +2,137 @@ package entity
 
 import "time"
 
-// Event subject constants for domain events published via messaging.
+// Event subject constants for the domain events announced through the outbox.
 //
-// Subjects follow the UPPERCASE two-segment convention enforced by the
-// pre-existing JetStream stream config (CONCERT.*, ARTIST.*, USER.*,
-// VENUE.*, POISON.*). The analytics-consumer maps each subject to a
-// lowercase catalogue event name (see specification/docs/analytics/
-// event-catalog.md) at the Handle method that subscribes to it.
+// An event is named <Entity>.<What> in the specs (LotteryEntry.Won), its
+// subject <ENTITY>.<what> (LOTTERY_ENTRY.won) and its constant
+// Subject<Entity><What>. Each subject has two tokens, so the stream named
+// after the entity captures it with <ENTITY>.* (messaging streams). The
+// analytics consumer forwards some of them to PostHog under the subject in
+// lower case (usecase.AnalyticsEventName).
 const (
-	SubjectConcertCreated           = "CONCERT.created"
-	SubjectArtistCreated            = "ARTIST.created"
-	SubjectArtistFollowed           = "ARTIST.followed"
-	SubjectArtistUnfollowed         = "ARTIST.unfollowed"
-	SubjectUserCreated              = "USER.created"
-	SubjectNotificationSubscribed   = "NOTIFICATION.subscribed"
-	SubjectNotificationUnsubscribed = "NOTIFICATION.unsubscribed"
-	// SubjectTicketSaleDiscovered is announced by TicketSale.UpsertDiscovered
-	// when a new discovered TicketSale is created. Re-discovery of a known one
-	// (UpsertOutcomeUpdated) announces nothing. The subject keeps
-	// the stream's former name (design "Non-Goals").
-	SubjectTicketSaleDiscovered = "SALES_PHASE.discovered"
-	// SubjectTicketJourneyStatusChanged is announced by TicketJourney.Upsert
-	// when the stored status changes (or no journey existed). It drives the
-	// ticket.journey.status.changed analytics event.
+	// SubjectConcertCreated announces new concerts as created
+	// (Concert.Created): Concert.Create once per Series and newly listed
+	// Artist, and Series.PublishEvents once per performing Artist of the
+	// Events it published, each carrying those Concerts.
+	SubjectConcertCreated = "CONCERT.created"
+	// SubjectEventCancelled announces an Event as cancelled (Event.Cancelled):
+	// Series.CancelEvents, once per Event it made CANCELLED, with the change.
+	SubjectEventCancelled = "EVENT.cancelled"
+	// SubjectArtistCreated announces an Artist as created (Artist.Created):
+	// Artist.Create, once per artist it registers.
+	SubjectArtistCreated = "ARTIST.created"
+	// SubjectArtistRepresented announces an Artist as represented
+	// (Artist.Represented): Organizer.AssociateArtist, when it links the
+	// Artist to the Organizer, with the Organizer as its organizer.
+	SubjectArtistRepresented = "ARTIST.represented"
+	// SubjectFollowCreated announces a Follow as created (Follow.Created):
+	// Follow.Follow, when it stores a new Follow, at hype level Nearby.
+	SubjectFollowCreated = "FOLLOW.created"
+	// SubjectFollowRemoved announces a Follow as removed (Follow.Removed):
+	// Follow.Unfollow, carrying the Follow as it was.
+	SubjectFollowRemoved = "FOLLOW.removed"
+	// SubjectFollowHypeChanged announces a Follow's hype as changed
+	// (Follow.HypeChanged), with its new level and who set it: Follow.SetHype
+	// (the fan) and Follow.RaiseHype (inference).
+	SubjectFollowHypeChanged = "FOLLOW.hype_changed"
+	// SubjectUserCreated announces a User as created (User.Created):
+	// User.Create, when it stores a new User.
+	SubjectUserCreated = "USER.created"
+	// SubjectUserSignedIn announces a User as signed in (User.SignedIn):
+	// User.RecordLogin, when it changes the last login time, with the new one.
+	// The login-event webhook records only user-initiated logins (Zitadel
+	// session.user.checked); a silent token refresh never reaches it.
+	SubjectUserSignedIn = "USER.signed_in"
+	// SubjectPasskeyAdded announces a Passkey as added (Passkey.Added):
+	// Passkey.Create, carrying the stored Passkey.
+	SubjectPasskeyAdded = "PASSKEY.added"
+	// SubjectPasskeyRemoved announces a Passkey as removed (Passkey.Removed):
+	// Passkey.Delete, carrying the Passkey as it was stored.
+	SubjectPasskeyRemoved = "PASSKEY.removed"
+	// SubjectPushSubscriptionSubscribed announces a PushSubscription as
+	// subscribed (PushSubscription.Subscribed): PushSubscription.Create, when
+	// it stores a new one or changes the keys or the owner of one, carrying
+	// it after the change.
+	SubjectPushSubscriptionSubscribed = "PUSH_SUBSCRIPTION.subscribed"
+	// SubjectPushSubscriptionUnsubscribed announces a PushSubscription as
+	// unsubscribed (PushSubscription.Unsubscribed): PushSubscription.Delete,
+	// carrying it as it was.
+	SubjectPushSubscriptionUnsubscribed = "PUSH_SUBSCRIPTION.unsubscribed"
+	// SubjectTicketSaleDiscovered announces a TicketSale as discovered
+	// (TicketSale.Discovered): TicketSale.UpsertDiscovered, when it creates a
+	// discovered sale (UpsertOutcomeInserted). An update of a known one
+	// announces nothing.
+	SubjectTicketSaleDiscovered = "TICKET_SALE.discovered"
+	// SubjectTicketJourneyStatusChanged announces a journey's status as
+	// changed (TicketJourney.StatusChanged): TicketJourney.Upsert and
+	// TicketJourney.UpsertIfReplaceable, carrying the journey with its status
+	// and who set it. One event covers every status: its one consumer treats
+	// them the same.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
-	// SubjectUserLoggedIn is announced by User.RecordLogin for each
-	// user-initiated login the login-event webhook records, bound to the
-	// Zitadel session.user.checked event. It drives the account.signin
-	// analytics event (returning / active-user retention cohorts). The OIDC refresh_token grant touches only
-	// the oidc_session aggregate and never emits session.user.checked, so this
-	// subject is never published on a silent token refresh — login-specific by
-	// construction. Modelled as a USER-domain event (USER.* stream), not a
-	// separate ACCOUNT stream.
-	SubjectUserLoggedIn = "USER.logged_in"
-	// SubjectOrganizerCreated is announced by Organizer.CompareAndSetStatus when
-	// the organizer row is flipped from provisioning to active.
-	// It drives the organizer.created analytics event (admin-actor / group event
-	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
-	// org.created) so the ORGANIZER.* stream filter matches with a plain
-	// single-token wildcard — same rationale as SubjectTicketSaleDiscovered.
-	SubjectOrganizerCreated = "ORGANIZER.created"
-	// SubjectOrganizerArtistAssociated is announced by Organizer.AssociateArtist
-	// when it stores a new artist link. It drives the
-	// organizer.artist.associated analytics event (admin-actor / group event
-	// keyed on organizer_id; no fan distinct_id). The event token uses an
-	// underscore (artist_associated, not artist.associated) so the subject stays
-	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
-	// captures it without a deeper wildcard.
-	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
-	// SubjectSeriesImageUploaded is the processing request SeriesImage.Create
-	// records with the series image row: the SeriesImage in the payload and the
-	// Series in ce_subject. The series-image-consumer subscribes to this subject to
-	// read the original from the originals bucket, generate WebP variants, and
-	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
-	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain
-	// single-token wildcard — same convention as SubjectTicketSaleDiscovered.
+	// SubjectOrganizerActivated announces an Organizer as activated
+	// (Organizer.Activated): Organizer.CompareAndSetStatus, when it moves the
+	// Organizer from provisioning to active.
+	SubjectOrganizerActivated = "ORGANIZER.activated"
+	// SubjectSeriesImageUploaded announces a SeriesImage as uploaded
+	// (SeriesImage.Uploaded), the request to process it: SeriesImage.Create,
+	// with the SeriesImage in the payload and the Series in ce_subject.
 	SubjectSeriesImageUploaded = "SERIES_IMAGE.uploaded"
-	// SubjectOrderPaid announces that an Order is paid, for a won lottery
-	// entry or a completed checkout. OrderUseCase.FulfillPayment
-	// publishes it on the payment provider's completed-charge webhook; a
-	// repeated webhook announces the Order again as a new event, and the
-	// consumers are idempotent by the Order id. Two consumers run from
-	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
-	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
+	// SubjectOrderPaid announces an Order as paid (Order.Paid): Order.Issue,
+	// carrying it in status Paid, for a won lottery or resale entry or a
+	// completed checkout.
 	SubjectOrderPaid = "ORDER.paid"
-	// SubjectResaleListingSold announces a ResaleListing that Order.Issue made
-	// Sold for a won resale entry, with the listing as Sold, in the
-	// transaction of the issuance. The workflow starter starts
-	// ResaleListingUseCase.RefundSold (refund:<listing>) from it (design D10).
-	SubjectResaleListingSold = "ORDER.resale_listing_sold"
-	// SubjectOrderRefunded announces an Order that Order.CommitRefund made
-	// Refunded, with the Order and its refund, once, in the transaction of
-	// the refund. The refund notice (NotificationUseCase.SendOrderRefunded)
-	// runs from it.
+	// SubjectOrderRefunded announces an Order as refunded (Order.Refunded):
+	// Order.CommitRefund, with the refund.
 	SubjectOrderRefunded = "ORDER.refunded"
-	// SubjectConcertCancelled announces an Event that Series.CancelEvents
-	// made CANCELLED, with the Event, once per Event, in the transaction of
-	// the cancellation. The cancellation notice
-	// (NotificationUseCase.SendEventCancelled) runs from it.
-	SubjectConcertCancelled = "CONCERT.cancelled"
-	// SubjectResaleListingRefunded announces that the user of a resold
-	// ResaleListing was refunded from the listing's Order's charge.
-	// ResaleListing.RecordRefund announces it once, with the refund; the
-	// consumer is idempotent by the listing id and waits out an unavailable
-	// mail service. The sold email consumer (NotificationUseCase.SendResaleSold) runs from it.
-	SubjectResaleListingRefunded = "ORDER.resale_listing_refunded"
-	// SubjectUserPasskeyAdded announces a Passkey that Passkey.Create stored.
-	// UserUseCase.NotifyPasskeyChange runs from it.
-	SubjectUserPasskeyAdded = "USER.passkey_added"
-	// SubjectUserPasskeyRemoved announces a Passkey that Passkey.Delete
-	// removed, as it was. UserUseCase.NotifyPasskeyChange runs from it.
-	SubjectUserPasskeyRemoved = "USER.passkey_removed"
-	// SubjectArtistHypeChanged announces a changed hype level of a Follow,
-	// with who set it: Follow.SetHype (the fan) and Follow.RaiseHype
-	// (inference) record it with the change; the analytics consumer forwards
-	// it as artist.hype.changed. The name is kept for the existing durable
-	// track-artist-hype-changed.
-	SubjectArtistHypeChanged = "ARTIST.hype_changed"
-	// SubjectLotteryEntryDrawn announces one entry's draw result (Won or
-	// Lost). LotteryEntry.PersistDrawOutcome and LotteryEntry.RevertWin
-	// announce it with the change; the issue and release workflows start from
-	// it, the loss notice is sent from it, and the analytics consumer forwards
-	// it as ticket.lottery.result.
-	SubjectLotteryEntryDrawn = "ORDER.lottery_entry_drawn"
-	// SubjectResaleEntryChanged announces a resale entry that a draw made
-	// Won, Lapsed or Lost, that RevertWin made Lost or that the fan withdrew,
-	// with the entry as the payload; its state tells them apart. The workflow
-	// starter starts the issue of a Won entry and the release of the others
-	// from it, and the ended message of a Lapsed or Lost entry is sent from it
-	// (design D4, D6, D8).
-	SubjectResaleEntryChanged = "ORDER.resale_entry_changed"
-	// SubjectLotteryEntryEntered announces a new lottery entry, with its
-	// Pending Order as the payload. LotteryEntry.Create records it in the
-	// transaction that stores the entry; TicketJourneyUseCase.MarkApplied
-	// receives it and records the fan's journey as Applied.
-	SubjectLotteryEntryEntered = "ORDER.lottery_entry_entered"
-	// SubjectCheckoutHeld announces a new Held Checkout, with the Checkout as
-	// the payload. Checkout.GetOrCreateHeld records it with the creation;
-	// CheckoutUseCase.Expire is started from it.
-	SubjectCheckoutHeld = "ORDER.checkout_held"
-	// SubjectCheckoutExpired announces that a Held Checkout's hold lapsed,
-	// with the Checkout as Expired. Checkout.Release and
-	// Checkout.GetOrCreateHeld record it with the change; the release of its
-	// Order's card authorization is started from it, and the analytics
-	// consumer forwards it as checkout.expired.
-	SubjectCheckoutExpired = "ORDER.checkout_expired"
-	// SubjectCheckoutReleased announces a Checkout ended without a charge, with
-	// the Checkout as Released. Checkout.GetOrCreateHeld (a replaced hold) and
-	// Checkout.RevertCommit record it with the change; the release of its
-	// Order's card authorization is started from it.
-	SubjectCheckoutReleased = "ORDER.checkout_released"
-	// SubjectTicketAdmitted announces that a scan admitted a Ticket.
-	// TicketUseCase.Admit publishes it once per admitted Ticket; the analytics
-	// consumer forwards it as ticket.admitted.
-	SubjectTicketAdmitted = "ORDER.ticket_admitted"
+	// SubjectResaleListingSold announces a ResaleListing as sold
+	// (ResaleListing.Sold): Order.Issue, for each listing a won resale entry's
+	// Order buys.
+	SubjectResaleListingSold = "RESALE_LISTING.sold"
+	// SubjectResaleListingRefunded announces a ResaleListing as refunded
+	// (ResaleListing.Refunded): ResaleListing.RecordRefund, with the refund
+	// its user was paid from the listing's Order's charge.
+	SubjectResaleListingRefunded = "RESALE_LISTING.refunded"
+	// SubjectLotteryEntryEntered announces a lottery entry as entered
+	// (LotteryEntry.Entered): LotteryEntry.Create, carrying the entry's
+	// Pending Order.
+	SubjectLotteryEntryEntered = "LOTTERY_ENTRY.entered"
+	// SubjectLotteryEntryWon announces a lottery entry as won
+	// (LotteryEntry.Won): LotteryEntry.PersistDrawOutcome, with the entry as
+	// it is after the draw.
+	SubjectLotteryEntryWon = "LOTTERY_ENTRY.won"
+	// SubjectLotteryEntryLost announces a lottery entry as lost
+	// (LotteryEntry.Lost), with the entry as it is after the change:
+	// LotteryEntry.PersistDrawOutcome (not drawn), LotteryEntry.RevertWin and
+	// LotteryEntry.EndEnteredByEvent (concert cancelled).
+	SubjectLotteryEntryLost = "LOTTERY_ENTRY.lost"
+	// SubjectResaleEntryWon announces a resale entry as won (ResaleEntry.Won):
+	// ResaleEntry.PersistDrawOutcome.
+	SubjectResaleEntryWon = "RESALE_ENTRY.won"
+	// SubjectResaleEntryLapsed announces a resale entry as lapsed
+	// (ResaleEntry.Lapsed): ResaleEntry.PersistDrawOutcome.
+	SubjectResaleEntryLapsed = "RESALE_ENTRY.lapsed"
+	// SubjectResaleEntryLost announces a resale entry as lost
+	// (ResaleEntry.Lost): ResaleEntry.PersistDrawOutcome and
+	// ResaleEntry.RevertWin.
+	SubjectResaleEntryLost = "RESALE_ENTRY.lost"
+	// SubjectResaleEntryWithdrawn announces a resale entry as withdrawn
+	// (ResaleEntry.Withdrawn): ResaleEntry.Withdraw.
+	SubjectResaleEntryWithdrawn = "RESALE_ENTRY.withdrawn"
+	// SubjectCheckoutHeld announces a Checkout as held (Checkout.Held):
+	// Checkout.GetOrCreateHeld, when it creates a Held Checkout.
+	SubjectCheckoutHeld = "CHECKOUT.held"
+	// SubjectCheckoutExpired announces a Checkout as expired
+	// (Checkout.Expired), carrying it as Expired: Checkout.Release and
+	// Checkout.GetOrCreateHeld.
+	SubjectCheckoutExpired = "CHECKOUT.expired"
+	// SubjectCheckoutReleased announces a Checkout as released
+	// (Checkout.Released), carrying it as Released: Checkout.GetOrCreateHeld
+	// (a replaced hold) and Checkout.RevertCommit.
+	SubjectCheckoutReleased = "CHECKOUT.released"
+	// SubjectTicketAdmitted announces a Ticket as admitted (Ticket.Admitted):
+	// Ticket.Admit, carrying it with its admit time.
+	SubjectTicketAdmitted = "TICKET.admitted"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -147,35 +144,41 @@ const (
 // that fails a consumer at startup with "no stream matches subject".
 var AllSubjects = []string{
 	SubjectConcertCreated,
+	SubjectEventCancelled,
 	SubjectArtistCreated,
-	SubjectArtistFollowed,
-	SubjectArtistUnfollowed,
+	SubjectArtistRepresented,
+	SubjectFollowCreated,
+	SubjectFollowRemoved,
+	SubjectFollowHypeChanged,
 	SubjectUserCreated,
-	SubjectNotificationSubscribed,
-	SubjectNotificationUnsubscribed,
+	SubjectUserSignedIn,
+	SubjectPasskeyAdded,
+	SubjectPasskeyRemoved,
+	SubjectPushSubscriptionSubscribed,
+	SubjectPushSubscriptionUnsubscribed,
 	SubjectTicketSaleDiscovered,
 	SubjectTicketJourneyStatusChanged,
-	SubjectUserLoggedIn,
-	SubjectOrganizerCreated,
-	SubjectOrganizerArtistAssociated,
+	SubjectOrganizerActivated,
 	SubjectSeriesImageUploaded,
 	SubjectOrderPaid,
+	SubjectOrderRefunded,
+	SubjectResaleListingSold,
 	SubjectResaleListingRefunded,
-	SubjectUserPasskeyAdded,
-	SubjectUserPasskeyRemoved,
-	SubjectArtistHypeChanged,
-	SubjectLotteryEntryDrawn,
 	SubjectLotteryEntryEntered,
+	SubjectLotteryEntryWon,
+	SubjectLotteryEntryLost,
+	SubjectResaleEntryWon,
+	SubjectResaleEntryLapsed,
+	SubjectResaleEntryLost,
+	SubjectResaleEntryWithdrawn,
 	SubjectCheckoutHeld,
 	SubjectCheckoutExpired,
 	SubjectCheckoutReleased,
 	SubjectTicketAdmitted,
-	SubjectOrderRefunded,
-	SubjectConcertCancelled,
 }
 
 // LotteryEntryEnteredData is what the receiver of an
-// ORDER.lottery_entry_entered announcement reads from the new entry's Pending
+// LOTTERY_ENTRY.entered announcement reads from the new entry's Pending
 // Order and the event of its TicketStock.
 type LotteryEntryEnteredData struct {
 	// LotteryEntryID is the new entry, which names the Order.
@@ -212,7 +215,7 @@ type OrderPaidData struct {
 }
 
 // ResaleListingRefundedData is what the receiver of an
-// ORDER.resale_listing_refunded announcement reads from the refunded
+// RESALE_LISTING.refunded announcement reads from the refunded
 // ResaleListing: ids only; the rest is read by id.
 type ResaleListingRefundedData struct {
 	// ResaleListingID is the refunded listing; consumers are idempotent by it.
@@ -240,7 +243,7 @@ func SumSeriesEvents(series []*DiscoveredSeries) int {
 	return n
 }
 
-// TicketSaleDiscoveredData is what the receiver of a SALES_PHASE.discovered
+// TicketSaleDiscoveredData is what the receiver of a TICKET_SALE.discovered
 // announcement reads from the new discovered TicketSale. It is announced only
 // when a new discovered TicketSale is created (UpsertOutcomeInserted); an
 // update of a known one announces nothing.

@@ -237,7 +237,7 @@ type UserRepository interface {
 	//
 	// # Announces
 	//
-	// USER.logged_in with the User and its new last login time, without its full
+	// USER.signed_in with the User and its new last login time, without its full
 	// name, phone number and display name, together with the change. Nothing
 	// when the stored time is the same or later.
 	RecordLogin(ctx context.Context, id string, at time.Time) error

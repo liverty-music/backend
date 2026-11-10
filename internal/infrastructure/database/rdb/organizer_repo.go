@@ -285,7 +285,7 @@ func (r *OrganizerRepository) SetStatus(ctx context.Context, id string, status e
 //
 // # Announces
 //
-// ORGANIZER.created with the Organizer as active, in the transaction of the
+// ORGANIZER.activated with the Organizer as active, in the transaction of the
 // change, when it moves the Organizer from provisioning to active. Nothing
 // for any other change or when it changed nothing.
 func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string, from, to entity.OrganizerStatus) (bool, error) {
@@ -309,7 +309,7 @@ func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string
 		if err != nil {
 			return false, toAppErr(err, "failed to read the activated organizer", attrs...)
 		}
-		if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerCreated, messaging.Announcement{Payload: pb.FromOrganizer(o)}); err != nil {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerActivated, messaging.Announcement{Payload: pb.FromOrganizer(o)}); err != nil {
 			return false, err
 		}
 	}
@@ -326,7 +326,7 @@ func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string
 //
 // # Announces
 //
-// ORGANIZER.artist_associated with the Artist and its new organizer, in the
+// ARTIST.represented with the Artist and its new organizer, in the
 // transaction of the link. Nothing on AlreadyExists or any other failure.
 func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
 	attrs := []slog.Attr{slog.String("organizer_id", organizerID), slog.String("artist_id", artistID)}
@@ -346,7 +346,7 @@ func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, 
 	if err != nil {
 		return toAppErr(err, "failed to read the associated artist", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerArtistAssociated, messaging.Announcement{Payload: pb.FromArtist(artist)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectArtistRepresented, messaging.Announcement{Payload: pb.FromArtist(artist)}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

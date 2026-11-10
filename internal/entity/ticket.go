@@ -202,7 +202,7 @@ type TicketRepository interface {
 	//
 	// # Announces
 	//
-	// ORDER.ticket_admitted with the Ticket and its admit time, together with the
+	// TICKET.admitted with the Ticket and its admit time, together with the
 	// admission, when the outcome is Admitted.
 	Admit(ctx context.Context, ticketID TicketID, scannerID ScannerID, admittedTime time.Time) (AdmitResult, error)
 }
