@@ -118,6 +118,73 @@ func TestUserRepository_Create(t *testing.T) {
 	}
 }
 
+// TestUserRepository_Create_TakenIdentityOrEmail covers the rule that one
+// provider user ID and one email address, letter case ignored, belong to at
+// most one User.
+func TestUserRepository_Create_TakenIdentityOrEmail(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB, testOutbox)
+	ctx := context.Background()
+
+	countUsers := func(t *testing.T) int {
+		t.Helper()
+		var n int
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n))
+		return n
+	}
+
+	tests := []struct {
+		name   string
+		stored *entity.NewUser
+		params *entity.NewUser
+	}{
+		{
+			// @spec components/entity/user/create "Same provider user ID"
+			name:   "same provider user ID",
+			stored: newTestUser("ext-taken-1", "first@example.com", "First"),
+			params: newTestUser("ext-taken-1", "second@example.com", "Second"),
+		},
+		{
+			// @spec components/entity/user/create "Same email"
+			name:   "same email",
+			stored: newTestUser("ext-taken-2", "fan@example.com", "First"),
+			params: newTestUser("ext-taken-3", "fan@example.com", "Second"),
+		},
+		{
+			// @spec components/entity/user/create "Same email in another letter case"
+			name:   "same email in another letter case",
+			stored: newTestUser("ext-taken-4", "fan@example.com", "First"),
+			params: newTestUser("ext-taken-5", "Fan@Example.com", "Second"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanDatabase(t)
+			first, err := repo.Create(ctx, tt.stored)
+			require.NoError(t, err)
+
+			_, err = repo.Create(ctx, tt.params)
+
+			assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+			assert.Equal(t, 1, countUsers(t), "the rejected user is not stored")
+			kept, err := repo.Get(ctx, first.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.stored.Email, kept.Email)
+		})
+	}
+
+	// @spec components/entity/user/create "Letter case kept"
+	t.Run("the email is stored in its own letter case", func(t *testing.T) {
+		cleanDatabase(t)
+
+		created, err := repo.Create(ctx, newTestUser("ext-taken-6", "Fan@Example.com", "Fan"))
+		require.NoError(t, err)
+
+		stored, err := repo.Get(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Fan@Example.com", stored.Email)
+	})
+}
+
 func TestUserRepository_Get(t *testing.T) {
 	repo := rdb.NewUserRepository(testDB, testOutbox)
 	ctx := context.Background()
@@ -289,18 +356,6 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 		_, err := repo.GetByEmail(ctx, "")
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	t.Run("fails with Internal when two users have the address once letter case is ignored", func(t *testing.T) {
-		cleanDatabase(t)
-		_, err := repo.Create(ctx, newTestUser("ext-by-email-4", "fan@example.com", "Fan"))
-		require.NoError(t, err)
-		_, err = repo.Create(ctx, newTestUser("ext-by-email-5", "FAN@example.com", "Fan Two"))
-		require.NoError(t, err)
-
-		_, err = repo.GetByEmail(ctx, "fan@example.com")
-
-		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 }
 

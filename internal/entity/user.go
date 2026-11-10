@@ -210,13 +210,15 @@ func NewHome(countryCode, level1 string, level2 *string) *Home {
 
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
-	// Create creates a new user.
-	// If params.Home is non-nil, the home area is persisted atomically.
+	// Create stores a new User with the email as given, in its own letter
+	// case, and, when params.Home is set, its Home together with it.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If email or name is invalid.
-	//  - AlreadyExists: If a user with the same email already exists.
+	//  - InvalidArgument: params is nil or its preferred language is empty.
+	//  - AlreadyExists: another User has the same provider user ID or the
+	//    same email; two emails are the same when they are equal with letter
+	//    case ignored. Nothing is stored.
 	//  - Unavailable: The announcement could not be recorded; nothing is
 	//    stored.
 	//

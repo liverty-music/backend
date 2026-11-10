@@ -43,8 +43,9 @@ const (
 	`
 
 	// getUsersByEmailQuery matches the address with letter case ignored
-	// (served by idx_users_email_lower). UNIQUE (email) is case-sensitive, so
-	// two rows can match; LIMIT 2 is enough to tell one match from several.
+	// (served by uq_users_email_lower, which also keeps two rows from
+	// matching). LIMIT 2 still tells one match from several, so a breach of
+	// that index would be reported instead of answered with the first row.
 	getUsersByEmailQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
