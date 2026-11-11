@@ -7,6 +7,7 @@ package migrationtest
 import (
 	"context"
 	"fmt"
+	"github.com/liverty-music/backend/internal/testutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -394,7 +395,11 @@ func setupScratchDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, func(to
 		if toVersion != "" {
 			args = append(args, "--to-version", toVersion)
 		}
+		// The grant migrations grant to every fake IAM role another test
+		// holds at this moment; the lock keeps them apart.
+		unlock := testutil.LockMigrations(t)
 		out, err := exec.CommandContext(ctx, atlasPath, args...).CombinedOutput()
+		unlock()
 		require.NoError(t, err, "atlas migrate apply: %s", out)
 	}
 	return conn, apply

@@ -15,21 +15,21 @@ import (
 // the given state for userID with its Order of count tickets (Pending, or
 // Void when Lost) with a card authorization recorded for it, and returns
 // the entry's id.
-func seedLotteryEntryWithState(t *testing.T, f *stockFixture, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
+func seedLotteryEntryWithState(t *testing.T, db *rdb.Database, f *stockFixture, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
 	t.Helper()
-	return seedLotteryEntryInSale(t, f, f.SaleID, userID, state, count)
+	return seedLotteryEntryInSale(t, db, f, f.SaleID, userID, state, count)
 }
 
 // seedLotteryEntryInSale is seedLotteryEntryWithState for an entry of the
 // given sale.
-func seedLotteryEntryInSale(t *testing.T, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
+func seedLotteryEntryInSale(t *testing.T, db *rdb.Database, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int) entity.LotteryEntryID {
 	t.Helper()
-	return seedLotteryEntryWithCode(t, f, saleID, userID, state, count, "")
+	return seedLotteryEntryWithCode(t, db, f, saleID, userID, state, count, "")
 }
 
 // seedLotteryEntryWithCode is seedLotteryEntryInSale with the Order's
 // referral code, unless it is empty.
-func seedLotteryEntryWithCode(t *testing.T, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int, code entity.ReferralCode) entity.LotteryEntryID {
+func seedLotteryEntryWithCode(t *testing.T, db *rdb.Database, f *stockFixture, saleID entity.TicketSaleID, userID string, state entity.LotteryEntryState, count int, code entity.ReferralCode) entity.LotteryEntryID {
 	t.Helper()
 	ctx := context.Background()
 	id, orderID := entity.NewID(), entity.NewID()
@@ -41,12 +41,12 @@ func seedLotteryEntryWithCode(t *testing.T, f *stockFixture, saleID entity.Ticke
 	if code != "" {
 		referralCode = string(code)
 	}
-	_, err := testDB.Pool.Exec(ctx, `
+	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, referral_code, card_authorization_id, provider, status, amount, currency)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, 'JPY')`,
-		orderID, userID, string(f.ID), count, referralCode, newCardAuthorizationID(), int16(status), f.Price()*int64(count))
+		orderID, userID, string(f.ID), count, referralCode, newCardAuthorizationID(db), int16(status), f.Price()*int64(count))
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx, `
+	_, err = db.Pool.Exec(ctx, `
 		INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, $2, $3, $4)`,
 		id, int16(state), orderID, string(saleID))
 	require.NoError(t, err)
@@ -54,19 +54,18 @@ func seedLotteryEntryWithCode(t *testing.T, f *stockFixture, saleID entity.Ticke
 }
 
 func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewCheckoutRepository(db, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(time.Hour)
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
 
 	t.Run("the code is stored on the new order", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t), 2, code("member-a"), at)
+		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t, db), 2, code("member-a"), at)
 
 		require.NoError(t, err)
 		assert.Equal(t, code("member-a"), c.Order.ReferralCode)
@@ -76,8 +75,8 @@ func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
 	})
 
 	t.Run("a resumed hold keeps the code it started with", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
 		first, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, code("member-a"), at)
 		require.NoError(t, err)
 
@@ -89,9 +88,9 @@ func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
 	})
 
 	t.Run("no code", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 
-		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t), 1, nil, at)
+		c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, nextFan(t, db), 1, nil, at)
 
 		require.NoError(t, err)
 		got, err := repo.Get(ctx, c.ID)
@@ -101,11 +100,10 @@ func TestCheckoutRepository_GetOrCreateHeld_ReferralCode(t *testing.T) {
 }
 
 func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewOrderRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewOrderRepository(db)
 	ctx := context.Background()
 	code := func(c entity.ReferralCode) *entity.ReferralCode { return &c }
 	// checkoutOrder stores an Order of count tickets for amount yen with the
@@ -117,13 +115,13 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 		if status == entity.OrderStatusVoid {
 			checkoutStatus = entity.CheckoutStatusExpired
 		}
-		insertCheckoutOrder(t, f, orderSeed{count: count, amount: amount, code: refCode, status: status},
+		insertCheckoutOrder(t, db, f, orderSeed{count: count, amount: amount, code: refCode, status: status},
 			checkoutStatus, issuedTicketsTime)
 	}
 
 	t.Run("two codes and direct purchases", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Two codes and direct purchases"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 		checkoutOrder(t, f, "member-a", entity.OrderStatusPaid, 2, 6500)
 		checkoutOrder(t, f, "member-a", entity.OrderStatusPaid, 3, 9750)
 		checkoutOrder(t, f, "", entity.OrderStatusPaid, 1, 3250)
@@ -139,20 +137,20 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("lottery win counted once its order exists", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Lottery win counted once its Order exists"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE seat_types SET price = 8000 WHERE id = $1`, string(f.SeatType.ID))
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		_, err := db.Pool.Exec(ctx, `UPDATE seat_types SET price = 8000 WHERE id = $1`, string(f.SeatType.ID))
 		require.NoError(t, err)
 		f.SeatType.Price = 8000
-		entryID := seedLotteryEntryWithCode(t, f, f.SaleID, seedFanUser(t), entity.LotteryEntryStateEntered, 2, "member-b")
+		entryID := seedLotteryEntryWithCode(t, db, f, f.SaleID, seedFanUser(t, db), entity.LotteryEntryStateEntered, 2, "member-b")
 
 		before, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 		require.NoError(t, err)
 		assert.Empty(t, before, "a Pending Order of an Entered entry is not counted")
 
-		_, err = testDB.Pool.Exec(ctx, `UPDATE lottery_entries SET state = 2 WHERE id = $1`, string(entryID))
+		_, err = db.Pool.Exec(ctx, `UPDATE lottery_entries SET state = 2 WHERE id = $1`, string(entryID))
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_paid_' || id, pay_at = now() WHERE id = $1`,
-			string(entryOrderID(t, entryID)))
+		_, err = db.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_paid_' || id, pay_at = now() WHERE id = $1`,
+			string(entryOrderID(t, db, entryID)))
 		require.NoError(t, err)
 
 		after, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
@@ -164,7 +162,7 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("refunded order excluded", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Refunded order excluded"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 		checkoutOrder(t, f, "member-a", entity.OrderStatusRefunded, 2, 6000)
 		checkoutOrder(t, f, "", entity.OrderStatusPaid, 1, 3000)
 
@@ -178,7 +176,7 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("abandoned checkout not counted", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Abandoned checkout not counted"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 		checkoutOrder(t, f, "member-c", entity.OrderStatusVoid, 2, 6000)
 
 		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
@@ -189,9 +187,9 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("other events not counted", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "Other events not counted"
-		events := seedFirstPartyEvents(t, "PUBLISHED", "PUBLISHED")
-		this := seedStockForEvent(t, events[0], entity.TicketSaleMethodFirstCome, 100, 4)
-		other := seedStockForEvent(t, events[1], entity.TicketSaleMethodFirstCome, 100, 4)
+		events := seedFirstPartyEvents(t, db, "PUBLISHED", "PUBLISHED")
+		this := seedStockForEvent(t, db, events[0], entity.TicketSaleMethodFirstCome, 100, 4)
+		other := seedStockForEvent(t, db, events[1], entity.TicketSaleMethodFirstCome, 100, 4)
 		checkoutOrder(t, this, "member-a", entity.OrderStatusPaid, 1, 3000)
 		checkoutOrder(t, other, "member-a", entity.OrderStatusPaid, 2, 6000)
 
@@ -205,7 +203,7 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 	t.Run("no purchases", func(t *testing.T) {
 		// @spec components/entity/order/list-referral-stats-by-event "No purchases"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 
 		got, err := repo.ListReferralStatsByEvent(ctx, f.EventID)
 
@@ -214,7 +212,7 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 	})
 
 	t.Run("groups ordered by order count then code", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 		checkoutOrder(t, f, "zz", entity.OrderStatusPaid, 1, 3000)
 		checkoutOrder(t, f, "b", entity.OrderStatusPaid, 1, 3000)
 		checkoutOrder(t, f, "a-1", entity.OrderStatusPaid, 1, 3000)

@@ -14,11 +14,11 @@ import (
 
 // seedDiscoveredSale stores a discovered lottery of a new series and returns
 // its id.
-func seedDiscoveredSale(t *testing.T) entity.TicketSaleID {
+func seedDiscoveredSale(t *testing.T, db *rdb.Database) entity.TicketSaleID {
 	t.Helper()
 	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
-	id, _, err := rdb.NewTicketSaleRepository(testDB, testOutbox).UpsertDiscovered(context.Background(), &entity.DiscoveredTicketSale{
-		SeriesID:      seedSeriesOnly(t, "Reminder Tour"),
+	id, _, err := rdb.NewTicketSaleRepository(db, testOutbox).UpsertDiscovered(context.Background(), &entity.DiscoveredTicketSale{
+		SeriesID:      seedSeriesOnly(t, db, "Reminder Tour"),
 		Name:          "オフィシャル先行",
 		Method:        entity.TicketSaleMethodLottery,
 		SaleStartTime: t0,
@@ -29,15 +29,13 @@ func seedDiscoveredSale(t *testing.T) entity.TicketSaleID {
 }
 
 func TestTicketSaleReminderRepository_AlreadySent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewTicketSaleReminderRepository(testDB)
-	cleanDatabase(t)
+	repo := rdb.NewTicketSaleReminderRepository(db)
 
-	saleID := seedDiscoveredSale(t)
-	userID := seedUser(t, "UserAS", "useras@example.com", "ext-as")
+	saleID := seedDiscoveredSale(t, db)
+	userID := seedUser(t, db, "UserAS", "useras@example.com", "ext-as")
 	require.NoError(t, repo.RecordSent(ctx, userID, saleID, entity.ReminderStageApplyClose24H))
 
 	t.Run("recorded", func(t *testing.T) {
@@ -62,16 +60,14 @@ func TestTicketSaleReminderRepository_AlreadySent(t *testing.T) {
 }
 
 func TestTicketSaleReminderRepository_ListSentStages(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewTicketSaleReminderRepository(testDB)
-	cleanDatabase(t)
+	repo := rdb.NewTicketSaleReminderRepository(db)
 
-	saleID := seedDiscoveredSale(t)
-	userA := seedUser(t, "UserLA", "userla@example.com", "ext-la")
-	userB := seedUser(t, "UserLB", "userlb@example.com", "ext-lb")
+	saleID := seedDiscoveredSale(t, db)
+	userA := seedUser(t, db, "UserLA", "userla@example.com", "ext-la")
+	userB := seedUser(t, db, "UserLB", "userlb@example.com", "ext-lb")
 	require.NoError(t, repo.RecordSent(ctx, userA, saleID, entity.ReminderStageApplyOpen))
 	require.NoError(t, repo.RecordSent(ctx, userA, saleID, entity.ReminderStageApplyClose24H))
 
@@ -99,18 +95,16 @@ func TestTicketSaleReminderRepository_ListSentStages(t *testing.T) {
 }
 
 func TestTicketSaleReminderRepository_RecordSent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewTicketSaleReminderRepository(testDB)
-	cleanDatabase(t)
+	repo := rdb.NewTicketSaleReminderRepository(db)
 
-	saleID := seedDiscoveredSale(t)
-	userID := seedUser(t, "UserRS", "userrs@example.com", "ext-rs")
+	saleID := seedDiscoveredSale(t, db)
+	userID := seedUser(t, db, "UserRS", "userrs@example.com", "ext-rs")
 	sentAt := func(t *testing.T) []time.Time {
 		t.Helper()
-		rows, err := testDB.Pool.Query(ctx,
+		rows, err := db.Pool.Query(ctx,
 			`SELECT sent_at FROM ticket_sale_reminders WHERE user_id = $1 AND ticket_sale_id = $2 AND stage = 1`,
 			userID, string(saleID))
 		require.NoError(t, err)

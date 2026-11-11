@@ -2,15 +2,12 @@ package messaging_test
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -19,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/pkg/config"
 )
 
@@ -54,22 +52,12 @@ func startOutboxJetStream(t *testing.T) (string, nats.JetStreamContext) {
 	return url, js
 }
 
-// isolatedOutboxPool returns a pool whose search path is a schema of its own
-// holding an empty copy of the outbox table, so the forwarder under test
-// reads only the rows this test records.
+// isolatedOutboxPool returns a pool on a database of the test's own (see
+// [testutil.NewDatabase]), so the forwarder under test reads only the rows
+// this test records.
 func isolatedOutboxPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx := context.Background()
-	schema := "outbox_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	admin := connectTestDB(t, nil)
-	_, err := admin.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA %s; CREATE TABLE %s.watermill_events_outbox (LIKE app.watermill_events_outbox INCLUDING ALL)`, schema, schema))
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = connectTestDB(t, nil).Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE`, schema))
-	})
-
-	port, name := testDBPortAndName()
-	pool, err := pgxpool.New(ctx, fmt.Sprintf("postgres://test-user@localhost:%s/%s?sslmode=disable&search_path=%s", port, name, schema))
+	pool, err := pgxpool.New(context.Background(), testutil.NewDatabase(t).URL("app"))
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	return pool

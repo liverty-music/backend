@@ -33,33 +33,33 @@ type publishStory struct {
 	date      time.Time
 }
 
-func newPublishStory(t *testing.T) *publishStory {
+func newPublishStory(t *testing.T, db *rdb.Database) *publishStory {
 	t.Helper()
-	cleanDatabase(t)
+	cleanTables(t, db)
 	logger, err := logging.New()
 	require.NoError(t, err)
 
 	s := &publishStory{
 		t:         t,
 		ctx:       context.Background(),
-		orgID:     seedOrganizer(t),
-		artistID:  seedArtist(t, "Story Band", uuid.NewV4().String()),
+		orgID:     seedOrganizer(t, db),
+		artistID:  seedArtist(t, db, "Story Band", uuid.NewV4().String()),
 		placeID:   "ChIJ-story-" + uuid.NewV7().String(),
 		venueName: "Zepp Haneda",
 		date:      time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 30),
 	}
-	_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, s.orgID, s.artistID)
+	_, err = db.Pool.Exec(s.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, s.orgID, s.artistID)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2)`,
+	_, err = db.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2)`,
 		entity.NewID(), s.placeID)
 	require.NoError(t, err)
 
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), venueRepo, nil, organizerRepo,
-		rdb.NewTicketSaleRepository(testDB, testOutbox), nil, usecase.StorageBuckets{}, logger, time.Now)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db, testOutbox)
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, testOutbox), venueRepo, nil, organizerRepo,
+		rdb.NewTicketSaleRepository(db, testOutbox), nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.concerts = usecase.NewConcertUseCase(nil, concertRepo, venueRepo, seriesRepo, organizerRepo,
 		nil, nil, nil, nil, nil, &storyWorkflows{}, nil, nil, 0, 0, logger)
 	return s
@@ -99,20 +99,19 @@ func (s *publishStory) listed() []*entity.Concert {
 }
 
 func TestStory_PublishAnOrganizerConcert(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("a PUBLIC concert reaches the fan list only once published", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Public concert goes live"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour 2027", entity.SeriesVisibilityPublic),
 			[]*usecase.DraftEventInput{s.input(eventID, 0)}, []string{s.artistID})
 		require.NoError(t, err)
 		assert.Empty(t, s.listed(), "a draft is on no fan list")
 
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
@@ -120,12 +119,12 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, eventID, got[0].ID)
 		assert.Equal(t, "Story Tour 2027", got[0].Series.Title)
-		assert.Equal(t, [][]string{{eventID}}, concertsAnnouncedFor(t, mark, s.artistID), "its followers are told once")
+		assert.Equal(t, [][]string{{eventID}}, concertsAnnouncedFor(t, db, mark, s.artistID), "its followers are told once")
 	})
 
 	t.Run("an UNLISTED concert stays off the fan list", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Unlisted concert stays off lists"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, _ := s.create(entity.SeriesVisibilityUnlisted)
 
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
@@ -136,19 +135,19 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 
 	t.Run("publishing claims the discovered concert at the slot with its id", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Discovered concert claimed"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, _ := s.create(entity.SeriesVisibilityPublic)
 		found := entity.NewID()
 		discoveredID := entity.NewID()
-		_, err := testDB.Pool.Exec(s.ctx, `INSERT INTO series (id, title, type) VALUES ($1, 'Found Tour', 'TOUR')`, found)
+		_, err := db.Pool.Exec(s.ctx, `INSERT INTO series (id, title, type) VALUES ($1, 'Found Tour', 'TOUR')`, found)
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO events (id, series_id, venue_id, local_event_date)
+		_, err = db.Pool.Exec(s.ctx, `INSERT INTO events (id, series_id, venue_id, local_event_date)
 			SELECT $1, $2, id, $3 FROM venues WHERE google_place_id = $4`, discoveredID, found, s.date, s.placeID)
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, discoveredID)
+		_, err = db.Pool.Exec(s.ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, discoveredID)
 		require.NoError(t, err)
 
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 
@@ -156,12 +155,12 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, discoveredID, got[0].ID, "the discovered concert keeps its id")
 		assert.Equal(t, seriesID, got[0].SeriesID, "and joins the organizer's series")
-		assert.Empty(t, concertsAnnouncedFor(t, mark, s.artistID), "a claimed concert is not announced again")
+		assert.Empty(t, concertsAnnouncedFor(t, db, mark, s.artistID), "a claimed concert is not announced again")
 	})
 
 	t.Run("a cancelled concert leaves the fan list", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Cancel after publish"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, _ := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
@@ -174,7 +173,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 
 	t.Run("a tour adds a date that is listed and announced only once published", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Tour adds a date"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, firstID := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
@@ -187,17 +186,17 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		addedID := events[1].ID
 		assert.Equal(t, []string{firstID}, concertIDs(s.listed()), "the new date is not listed before its publish")
 
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		_, _, err = s.series.Publish(s.ctx, s.orgID, seriesID, []string{addedID})
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{firstID, addedID}, concertIDs(s.listed()))
-		assert.Equal(t, [][]string{{addedID}}, concertsAnnouncedFor(t, mark, s.artistID))
+		assert.Equal(t, [][]string{{addedID}}, concertsAnnouncedFor(t, db, mark, s.artistID))
 	})
 
 	t.Run("a doors-open time set after publish is listed", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Doors-open time announced after publish"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
@@ -217,7 +216,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 
 	t.Run("a published date cannot move to another venue", func(t *testing.T) {
 		// @spec stories/publish-an-organizer-concert "Venue cannot move after publish"
-		s := newPublishStory(t)
+		s := newPublishStory(t, db)
 		seriesID, eventID := s.create(entity.SeriesVisibilityPublic)
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)

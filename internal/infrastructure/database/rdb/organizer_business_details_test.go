@@ -22,10 +22,9 @@ func businessDetails() entity.BusinessDetails {
 }
 
 func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewOrganizerRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("new organizer has the default rate and no business details", func(t *testing.T) {
@@ -38,7 +37,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 
 	t.Run("details entered at vetting", func(t *testing.T) {
 		// @spec components/entity/organizer/set-business-details "Details entered at vetting"
-		id := seedOrganizer(t)
+		id := seedOrganizer(t, db)
 
 		updated, err := repo.SetBusinessDetails(ctx, id, businessDetails())
 
@@ -53,7 +52,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 
 	t.Run("malformed phone number", func(t *testing.T) {
 		// @spec components/entity/organizer/set-business-details "Malformed phone number"
-		id := seedOrganizer(t)
+		id := seedOrganizer(t, db)
 		details := businessDetails()
 		details.BusinessPhoneNumber = "03-1234-5678"
 
@@ -74,7 +73,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 
 	t.Run("pilot rate", func(t *testing.T) {
 		// @spec components/entity/organizer/set-platform-fee-rate "Pilot rate"
-		id := seedOrganizer(t)
+		id := seedOrganizer(t, db)
 
 		require.NoError(t, repo.SetPlatformFeeRate(ctx, id, 500))
 
@@ -85,7 +84,7 @@ func TestOrganizerRepository_BusinessDetailsAndFeeRate(t *testing.T) {
 
 	t.Run("out of range", func(t *testing.T) {
 		// @spec components/entity/organizer/set-platform-fee-rate "Out of range"
-		id := seedOrganizer(t)
+		id := seedOrganizer(t, db)
 
 		err := repo.SetPlatformFeeRate(ctx, id, 3100)
 

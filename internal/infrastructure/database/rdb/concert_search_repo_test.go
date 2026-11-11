@@ -13,7 +13,9 @@ import (
 )
 
 func TestConcertSearchRepository_Upsert(t *testing.T) {
-	repo := rdb.NewConcertSearchRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -24,8 +26,8 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 			name: "insert new concert search with pending status",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				searchTime, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
@@ -42,8 +44,8 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 			name: "upsert updates status when record already exists",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusFailed)
 				require.NoError(t, err)
@@ -60,8 +62,8 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 			name: "upsert updates searched_at timestamp",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
@@ -91,8 +93,9 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 }
 
 func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
-	cleanDatabase(t)
-	concertSearchRepo := rdb.NewConcertSearchRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
 	t.Run("not found", func(t *testing.T) {
@@ -102,7 +105,7 @@ func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
 	})
 
 	t.Run("returns status fields", func(t *testing.T) {
-		artistID := seedArtist(t, "GetByArtistID Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d2")
+		artistID := seedArtist(t, db, "GetByArtistID Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d2")
 
 		_, err := concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 		require.NoError(t, err)
@@ -119,12 +122,14 @@ func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
 }
 
 func TestConcertSearchRepository_MarkFound(t *testing.T) {
-	repo := rdb.NewConcertSearchRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
 	t.Run("sets last_found_at on existing row without disturbing searched_at", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "MarkFound Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4d01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "MarkFound Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4d01")
 
 		_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 		require.NoError(t, err)
@@ -146,7 +151,9 @@ func TestConcertSearchRepository_MarkFound(t *testing.T) {
 }
 
 func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
-	repo := rdb.NewConcertSearchRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -157,8 +164,8 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update to completed",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
@@ -168,8 +175,8 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update to failed",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
@@ -179,8 +186,8 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update from failed back to completed",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				err = repo.UpdateStatus(ctx, artistID, entity.ConcertSearchStatusFailed)
@@ -206,7 +213,9 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 }
 
 func TestConcertSearchRepository_Delete(t *testing.T) {
-	repo := rdb.NewConcertSearchRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -218,8 +227,8 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 			name: "deletes existing concert search",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Delete Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c01")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Delete Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c01")
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
 				return artistID
@@ -230,9 +239,9 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 			name: "deleting non-existent log is idempotent",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				cleanDatabase(t)
+				cleanTables(t, db)
 				// Seed an artist but intentionally do not upsert a concert search for it.
-				return seedArtist(t, "No Log Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c02")
+				return seedArtist(t, db, "No Log Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c02")
 			},
 			wantErr: nil,
 		},

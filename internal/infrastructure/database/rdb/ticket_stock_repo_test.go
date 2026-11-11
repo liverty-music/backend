@@ -14,26 +14,26 @@ import (
 )
 
 // saleFan seeds a fan user with a unique email and returns its id.
-func saleFan(t *testing.T) string {
+func saleFan(t *testing.T, db *rdb.Database) string {
 	t.Helper()
-	return seedUser(t, "sale-fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+	return seedUser(t, db, "sale-fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 }
 
 // insertStockOrder stores an Order of count tickets of the stock for the user
 // in the given status and returns its id. A Paid or Refunded Order gets its
 // payment columns and a card authorization; otherwise withAuth gives it a card
 // authorization.
-func insertStockOrder(t *testing.T, f *stockFixture, userID string, status entity.OrderStatus, count int, withAuth bool) string {
+func insertStockOrder(t *testing.T, db *rdb.Database, f *stockFixture, userID string, status entity.OrderStatus, count int, withAuth bool) string {
 	t.Helper()
 	id := entity.NewID()
 	var cardAuth, paymentID, payAt any
 	if withAuth || status == entity.OrderStatusPaid || status == entity.OrderStatusRefunded {
-		cardAuth = newCardAuthorizationID()
+		cardAuth = newCardAuthorizationID(db)
 	}
 	if status == entity.OrderStatusPaid || status == entity.OrderStatusRefunded {
 		paymentID, payAt = "pi_pay_"+id, issuedTicketsTime
 	}
-	_, err := testDB.Pool.Exec(context.Background(), `
+	_, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider,
 			provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, 'JPY', $9)`,
@@ -46,11 +46,11 @@ func insertStockOrder(t *testing.T, f *stockFixture, userID string, status entit
 // holdExpire, that names a new Order of count tickets of the stock in
 // orderStatus, and returns the checkout's and the order's ids. withAuth gives
 // the Order a card authorization.
-func insertStockCheckout(t *testing.T, f *stockFixture, userID string, orderStatus entity.OrderStatus, status entity.CheckoutStatus,
+func insertStockCheckout(t *testing.T, db *rdb.Database, f *stockFixture, userID string, orderStatus entity.OrderStatus, status entity.CheckoutStatus,
 	count int, holdExpire time.Time, withAuth bool,
 ) (checkoutID, orderID string) {
 	t.Helper()
-	orderID = insertStockOrder(t, f, userID, orderStatus, count, withAuth)
+	orderID = insertStockOrder(t, db, f, userID, orderStatus, count, withAuth)
 	checkoutID = entity.NewID()
 	var commitAt, captureAt any
 	if status == entity.CheckoutStatusCommitted || status == entity.CheckoutStatusCompleted {
@@ -59,7 +59,7 @@ func insertStockCheckout(t *testing.T, f *stockFixture, userID string, orderStat
 	if status == entity.CheckoutStatusCompleted {
 		captureAt = holdExpire.Add(-time.Minute)
 	}
-	_, err := testDB.Pool.Exec(context.Background(), `
+	_, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO checkouts (id, status, hold_expire_at, commit_at, capture_at, order_id, ticket_sale_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		checkoutID, int16(status), holdExpire, commitAt, captureAt, orderID, string(f.SaleID))
@@ -70,11 +70,11 @@ func insertStockCheckout(t *testing.T, f *stockFixture, userID string, orderStat
 // insertStockEntry stores a LotteryEntry of the stock's sale in the given
 // state that names a new Order of count tickets of the stock in orderStatus,
 // with a card authorization, and returns the entry's and the order's ids.
-func insertStockEntry(t *testing.T, f *stockFixture, userID string, orderStatus entity.OrderStatus, state entity.LotteryEntryState, count int) (entryID, orderID string) {
+func insertStockEntry(t *testing.T, db *rdb.Database, f *stockFixture, userID string, orderStatus entity.OrderStatus, state entity.LotteryEntryState, count int) (entryID, orderID string) {
 	t.Helper()
-	orderID = insertStockOrder(t, f, userID, orderStatus, count, true)
+	orderID = insertStockOrder(t, db, f, userID, orderStatus, count, true)
 	entryID = entity.NewID()
-	_, err := testDB.Pool.Exec(context.Background(),
+	_, err := db.Pool.Exec(context.Background(),
 		`INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, $2, $3, $4)`,
 		entryID, int16(state), orderID, string(f.SaleID))
 	require.NoError(t, err)
@@ -83,53 +83,52 @@ func insertStockEntry(t *testing.T, f *stockFixture, userID string, orderStatus 
 
 // insertHolds stores Pending Orders with Held checkouts of the stock for new
 // fans, one per count, each holding until holdExpire.
-func insertHolds(t *testing.T, f *stockFixture, holdExpire time.Time, counts ...int) {
+func insertHolds(t *testing.T, db *rdb.Database, f *stockFixture, holdExpire time.Time, counts ...int) {
 	t.Helper()
 	for _, n := range counts {
-		insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, n, holdExpire, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusPending, entity.CheckoutStatusHeld, n, holdExpire, true)
 	}
 }
 
 // backendBlocking reports whether any backend waits on a lock the backend pid
 // holds.
-func backendBlocking(t *testing.T, pid uint32) func() bool {
+func backendBlocking(t *testing.T, db *rdb.Database, pid uint32) func() bool {
 	t.Helper()
 	return func() bool {
 		var holds bool
-		require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+		require.NoError(t, db.Pool.QueryRow(context.Background(),
 			`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid)))`, int32(pid)).Scan(&holds))
 		return holds
 	}
 }
 
 // seatTypeOf stores a seat type of the event's Series with the repository.
-func seatTypeOf(t *testing.T, eventID, name string, price int64) *entity.SeatType {
+func seatTypeOf(t *testing.T, db *rdb.Database, eventID, name string, price int64) *entity.SeatType {
 	t.Helper()
-	st, err := rdb.NewSeatTypeRepository(testDB).Create(context.Background(), entity.NewSeatType(seriesOf(t, eventID), name, price))
+	st, err := rdb.NewSeatTypeRepository(db).Create(context.Background(), entity.NewSeatType(seriesOf(t, db, eventID), name, price))
 	require.NoError(t, err)
 	return st
 }
 
 // queryCount runs a SELECT COUNT(*) query and returns the count.
-func queryCount(t *testing.T, query string, args ...any) int {
+func queryCount(t *testing.T, db *rdb.Database, query string, args ...any) int {
 	t.Helper()
 	var n int
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(), query, args...).Scan(&n))
+	require.NoError(t, db.Pool.QueryRow(context.Background(), query, args...).Scan(&n))
 	return n
 }
 
 func TestTicketStockRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 
 	t.Run("stock stored", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/create "Stock stored"
-		eventID := seedPublishedEvent(t)
-		st := seatTypeOf(t, eventID, "S席", 8000)
+		eventID := seedPublishedEvent(t, db)
+		st := seatTypeOf(t, db, eventID, "S席", 8000)
 		stock := entity.NewTicketStock(eventID, st.ID, 150)
 
 		got, err := repo.Create(ctx, stock)
@@ -149,41 +148,41 @@ func TestTicketStockRepository_Create(t *testing.T) {
 
 	t.Run("same seat type twice", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/create "Same seat type twice"
-		eventID := seedPublishedEvent(t)
-		st := seatTypeOf(t, eventID, "S席", 8000)
+		eventID := seedPublishedEvent(t, db)
+		st := seatTypeOf(t, db, eventID, "S席", 8000)
 		_, err := repo.Create(ctx, entity.NewTicketStock(eventID, st.ID, 150))
 		require.NoError(t, err)
 
 		_, err = repo.Create(ctx, entity.NewTicketStock(eventID, st.ID, 100))
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
-		assert.Equal(t, 1, queryCount(t, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, eventID))
+		assert.Equal(t, 1, queryCount(t, db, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, eventID))
 	})
 
 	t.Run("event of another series", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/create "Event of another series"
-		st := seatTypeOf(t, seedPublishedEvent(t), "S席", 8000)
-		other := seedPublishedEvent(t)
+		st := seatTypeOf(t, db, seedPublishedEvent(t, db), "S席", 8000)
+		other := seedPublishedEvent(t, db)
 
 		_, err := repo.Create(ctx, entity.NewTicketStock(other, st.ID, 150))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		assert.Zero(t, queryCount(t, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, other))
+		assert.Zero(t, queryCount(t, db, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, other))
 	})
 
 	t.Run("unknown event", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/create "Unknown event"
-		st := seatTypeOf(t, seedPublishedEvent(t), "S席", 8000)
+		st := seatTypeOf(t, db, seedPublishedEvent(t, db), "S席", 8000)
 		missing := entity.NewID()
 
 		_, err := repo.Create(ctx, entity.NewTicketStock(missing, st.ID, 150))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		assert.Zero(t, queryCount(t, `SELECT COUNT(*) FROM ticket_stocks WHERE seat_type_id = $1`, string(st.ID)))
+		assert.Zero(t, queryCount(t, db, `SELECT COUNT(*) FROM ticket_stocks WHERE seat_type_id = $1`, string(st.ID)))
 	})
 
 	t.Run("unknown seat type", func(t *testing.T) {
-		eventID := seedPublishedEvent(t)
+		eventID := seedPublishedEvent(t, db)
 
 		_, err := repo.Create(ctx, entity.NewTicketStock(eventID, entity.SeatTypeID(entity.NewID()), 150))
 
@@ -191,31 +190,30 @@ func TestTicketStockRepository_Create(t *testing.T) {
 	})
 
 	t.Run("empty stock", func(t *testing.T) {
-		eventID := seedPublishedEvent(t)
-		st := seatTypeOf(t, eventID, "S席", 8000)
+		eventID := seedPublishedEvent(t, db)
+		st := seatTypeOf(t, db, eventID, "S席", 8000)
 
 		_, err := repo.Create(ctx, entity.NewTicketStock(eventID, st.ID, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		assert.Zero(t, queryCount(t, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, eventID))
+		assert.Zero(t, queryCount(t, db, `SELECT COUNT(*) FROM ticket_stocks WHERE event_id = $1`, eventID))
 	})
 }
 
 func TestTicketStockRepository_Get(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 
 	t.Run("stock with holds", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/get "Stock with holds"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
-		setStockSold(t, f, 100)
-		insertHolds(t, f, at.Add(entity.CheckoutHoldDuration), 2, 1)
-		insertHolds(t, f, at, 4) // lapsed at the read time
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
+		setStockSold(t, db, f, 100)
+		insertHolds(t, db, f, at.Add(entity.CheckoutHoldDuration), 2, 1)
+		insertHolds(t, db, f, at, 4) // lapsed at the read time
 
 		got, err := repo.Get(ctx, f.ID, at)
 
@@ -237,11 +235,10 @@ func TestTicketStockRepository_Get(t *testing.T) {
 // TestTicketStockRepository_Counts covers the sold and held counts every read
 // aggregates from the stock's Orders (design D5).
 func TestTicketStockRepository_Counts(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 	holding := at.Add(entity.CheckoutHoldDuration)
@@ -255,9 +252,9 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 
 	t.Run("some sold, some held", func(t *testing.T) {
 		// @spec components/entity/ticket-stock "Some sold, some held"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
-		setStockSold(t, f, 100)
-		insertHolds(t, f, holding, 4, 2)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
+		setStockSold(t, db, f, 100)
+		insertHolds(t, db, f, holding, 4, 2)
 
 		got := read(t, f)
 
@@ -268,9 +265,9 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 
 	t.Run("presale winners count as sold", func(t *testing.T) {
 		// @spec components/entity/ticket-stock "Presale winners count as sold"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 150, 10)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 10)
 		for range 12 {
-			insertStockEntry(t, f, saleFan(t), entity.OrderStatusPending, entity.LotteryEntryStateWon, 10)
+			insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusPending, entity.LotteryEntryStateWon, 10)
 		}
 
 		got := read(t, f)
@@ -282,11 +279,11 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 
 	t.Run("resold tickets do not count again", func(t *testing.T) {
 		// @spec components/entity/ticket-stock "Resold tickets do not count again"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
-		setStockSold(t, f, 150)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
+		setStockSold(t, db, f, 150)
 		// The buyer's Order of an official resale names the stock but no
 		// LotteryEntry or Checkout.
-		insertStockOrder(t, f, saleFan(t), entity.OrderStatusPaid, 2, true)
+		insertStockOrder(t, db, f, saleFan(t, db), entity.OrderStatusPaid, 2, true)
 
 		got := read(t, f)
 
@@ -295,26 +292,26 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 	})
 
 	t.Run("each order counts by its status and its checkout or entry", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
 		pending, paid, refunded, void := entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid
 		// Held: a Pending Order whose Checkout holds at the read time.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 1, holding, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), pending, entity.CheckoutStatusHeld, 1, holding, true)
 		// Neither: the hold lapsed at the read time, not yet recorded Expired.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusHeld, 2, at, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), pending, entity.CheckoutStatusHeld, 2, at, true)
 		// Sold: a Pending Order whose Checkout is Committed.
-		insertStockCheckout(t, f, saleFan(t), pending, entity.CheckoutStatusCommitted, 3, holding, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), pending, entity.CheckoutStatusCommitted, 3, holding, true)
 		// Sold: Paid and Refunded Orders of a Completed Checkout.
-		insertStockCheckout(t, f, saleFan(t), paid, entity.CheckoutStatusCompleted, 4, holding, true)
-		insertStockCheckout(t, f, saleFan(t), refunded, entity.CheckoutStatusCompleted, 5, holding, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), paid, entity.CheckoutStatusCompleted, 4, holding, true)
+		insertStockCheckout(t, db, f, saleFan(t, db), refunded, entity.CheckoutStatusCompleted, 5, holding, true)
 		// Sold: a Pending Order of a Won entry and a Refunded one of a Won entry.
-		insertStockEntry(t, f, saleFan(t), pending, entity.LotteryEntryStateWon, 6)
-		insertStockEntry(t, f, saleFan(t), refunded, entity.LotteryEntryStateWon, 7)
+		insertStockEntry(t, db, f, saleFan(t, db), pending, entity.LotteryEntryStateWon, 6)
+		insertStockEntry(t, db, f, saleFan(t, db), refunded, entity.LotteryEntryStateWon, 7)
 		// Neither: an Entered entry's Pending Order, and Void Orders of a Lost
 		// entry and of Expired and Released Checkouts.
-		insertStockEntry(t, f, saleFan(t), pending, entity.LotteryEntryStateEntered, 8)
-		insertStockEntry(t, f, saleFan(t), void, entity.LotteryEntryStateLost, 9)
-		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusExpired, 10, at.Add(-time.Hour), true)
-		insertStockCheckout(t, f, saleFan(t), void, entity.CheckoutStatusReleased, 10, holding, true)
+		insertStockEntry(t, db, f, saleFan(t, db), pending, entity.LotteryEntryStateEntered, 8)
+		insertStockEntry(t, db, f, saleFan(t, db), void, entity.LotteryEntryStateLost, 9)
+		insertStockCheckout(t, db, f, saleFan(t, db), void, entity.CheckoutStatusExpired, 10, at.Add(-time.Hour), true)
+		insertStockCheckout(t, db, f, saleFan(t, db), void, entity.CheckoutStatusReleased, 10, holding, true)
 
 		got := read(t, f)
 
@@ -323,10 +320,10 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 	})
 
 	t.Run("orders of another stock do not count", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
-		other := seedStockForEvent(t, f.EventID, entity.TicketSaleMethodFirstCome, 150, 10)
-		setStockSold(t, other, 20)
-		insertHolds(t, other, holding, 2)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
+		other := seedStockForEvent(t, db, f.EventID, entity.TicketSaleMethodFirstCome, 150, 10)
+		setStockSold(t, db, other, 20)
+		insertHolds(t, db, other, holding, 2)
 
 		got := read(t, f)
 
@@ -336,23 +333,22 @@ func TestTicketStockRepository_Counts(t *testing.T) {
 }
 
 func TestTicketStockRepository_ListByEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 
 	t.Run("two seat types", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/list-by-event "Two seat types"
-		eventID := seedPublishedEvent(t)
-		a, err := repo.Create(ctx, entity.NewTicketStock(eventID, seatTypeOf(t, eventID, "A席", 7000).ID, 100))
+		eventID := seedPublishedEvent(t, db)
+		a, err := repo.Create(ctx, entity.NewTicketStock(eventID, seatTypeOf(t, db, eventID, "A席", 7000).ID, 100))
 		require.NoError(t, err)
-		s, err := repo.Create(ctx, entity.NewTicketStock(eventID, seatTypeOf(t, eventID, "S席", 9000).ID, 50))
+		s, err := repo.Create(ctx, entity.NewTicketStock(eventID, seatTypeOf(t, db, eventID, "S席", 9000).ID, 50))
 		require.NoError(t, err)
-		seedPublishedEvent(t) // another event's stocks stay out
-		seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
+		seedPublishedEvent(t, db) // another event's stocks stay out
+		seedStock(t, db, entity.TicketSaleMethodFirstCome, 10, 4)
 
 		got, err := repo.ListByEvent(ctx, eventID, at)
 
@@ -366,8 +362,8 @@ func TestTicketStockRepository_ListByEvent(t *testing.T) {
 
 	t.Run("stock with holds", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/list-by-event "Stock with holds"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 10)
-		insertHolds(t, f, at.Add(entity.CheckoutHoldDuration), 3)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 10)
+		insertHolds(t, db, f, at.Add(entity.CheckoutHoldDuration), 3)
 
 		got, err := repo.ListByEvent(ctx, f.EventID, at)
 
@@ -379,7 +375,7 @@ func TestTicketStockRepository_ListByEvent(t *testing.T) {
 
 	t.Run("no stock", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/list-by-event "No stock"
-		got, err := repo.ListByEvent(ctx, seedPublishedEvent(t), at)
+		got, err := repo.ListByEvent(ctx, seedPublishedEvent(t, db), at)
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -387,32 +383,31 @@ func TestTicketStockRepository_ListByEvent(t *testing.T) {
 }
 
 func TestTicketStockRepository_Delete(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 
 	stockExists := func(t *testing.T, f *stockFixture) bool {
 		t.Helper()
-		return rowExists(t, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID))
+		return rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID))
 	}
 	orderExists := func(t *testing.T, id string) bool {
 		t.Helper()
-		return rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, id)
+		return rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, id)
 	}
 
 	t.Run("stock without orders", func(t *testing.T) {
 		// @spec components/entity/ticket-stock/delete "Stock without orders"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
 
 		require.NoError(t, repo.Delete(ctx, f.ID))
 
 		_, err := repo.Get(ctx, f.ID, at)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.True(t, rowExists(t, `SELECT 1 FROM seat_types WHERE id = $1`, string(f.SeatType.ID)), "the seat type remains")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM seat_types WHERE id = $1`, string(f.SeatType.ID)), "the seat type remains")
 	})
 
 	t.Run("stock with an abandoned checkout", func(t *testing.T) {
@@ -421,30 +416,30 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 		// The Void Order's card authorization may still be held: its release
 		// workflow, failing with NotFound on the removed Order, is reported to
 		// an admin (OrderUseCase.ReleaseCardAuthorization).
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
-		checkoutID, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 2, at, true)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
+		checkoutID, orderID := insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 2, at, true)
 		// A checkout that expired before the fan authorized a card has nothing
 		// to release.
-		unauthorizedID, unauthorizedOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, false)
+		unauthorizedID, unauthorizedOrder := insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, false)
 
 		require.NoError(t, repo.Delete(ctx, f.ID))
 
 		assert.False(t, stockExists(t, f), "stock")
 		assert.False(t, orderExists(t, orderID), "void order")
-		assert.False(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "checkout")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "checkout")
 		assert.False(t, orderExists(t, unauthorizedOrder), "void order without a card authorization")
-		assert.False(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, unauthorizedID), "checkout without a card authorization")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM checkouts WHERE id = $1`, unauthorizedID), "checkout without a card authorization")
 	})
 
 	t.Run("stock with a lost lottery entry", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodLottery, 150, 4)
-		entryID, orderID := insertStockEntry(t, f, saleFan(t), entity.OrderStatusVoid, entity.LotteryEntryStateLost, 2)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 4)
+		entryID, orderID := insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.LotteryEntryStateLost, 2)
 
 		require.NoError(t, repo.Delete(ctx, f.ID))
 
 		assert.False(t, stockExists(t, f), "stock")
 		assert.False(t, orderExists(t, orderID), "void order")
-		assert.False(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE id = $1`, entryID), "lost entry")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM lottery_entries WHERE id = $1`, entryID), "lost entry")
 	})
 
 	refused := []struct {
@@ -455,14 +450,14 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 			// @spec components/entity/ticket-stock/delete "Stock with a pending order"
 			name: "a pending order of a held checkout",
 			setup: func(t *testing.T, f *stockFixture) string {
-				_, orderID := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusPending, entity.CheckoutStatusHeld, 2, at.Add(entity.CheckoutHoldDuration), true)
+				_, orderID := insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusPending, entity.CheckoutStatusHeld, 2, at.Add(entity.CheckoutHoldDuration), true)
 				return orderID
 			},
 		},
 		{
 			name: "a pending order of an entered lottery entry",
 			setup: func(t *testing.T, f *stockFixture) string {
-				_, orderID := insertStockEntry(t, f, saleFan(t), entity.OrderStatusPending, entity.LotteryEntryStateEntered, 2)
+				_, orderID := insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusPending, entity.LotteryEntryStateEntered, 2)
 				return orderID
 			},
 		},
@@ -470,22 +465,22 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 			// @spec components/entity/ticket-stock/delete "Stock with a paid order"
 			name: "a paid order",
 			setup: func(t *testing.T, f *stockFixture) string {
-				return string(seedPaidOrder(t, f, saleFan(t), 2, issuedTicketsTime))
+				return string(seedPaidOrder(t, db, f, saleFan(t, db), 2, issuedTicketsTime))
 			},
 		},
 		{
 			name: "a refunded order",
 			setup: func(t *testing.T, f *stockFixture) string {
-				_, orderID := insertStockEntry(t, f, saleFan(t), entity.OrderStatusRefunded, entity.LotteryEntryStateWon, 2)
+				_, orderID := insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusRefunded, entity.LotteryEntryStateWon, 2)
 				return orderID
 			},
 		},
 	}
 	for _, tc := range refused {
 		t.Run("refuses "+tc.name+" and removes nothing", func(t *testing.T) {
-			f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+			f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
 			// An abandoned checkout the delete would remove with the stock.
-			_, voidOrder := insertStockCheckout(t, f, saleFan(t), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, true)
+			_, voidOrder := insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, at, true)
 			blocker := tc.setup(t, f)
 
 			err := repo.Delete(ctx, f.ID)
@@ -494,28 +489,28 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 			assert.True(t, stockExists(t, f), "stock")
 			assert.True(t, orderExists(t, blocker), "the blocking order")
 			assert.True(t, orderExists(t, voidOrder), "the abandoned checkout's void order")
-			assert.Equal(t, 1, queryCount(t, `SELECT COUNT(*) FROM checkouts c JOIN orders o ON o.id = c.order_id WHERE o.id = $1`, voidOrder))
+			assert.Equal(t, 1, queryCount(t, db, `SELECT COUNT(*) FROM checkouts c JOIN orders o ON o.id = c.order_id WHERE o.id = $1`, voidOrder))
 		})
 	}
 
 	t.Run("refuses an order created while the delete runs", func(t *testing.T) {
-		f := seedStock(t, entity.TicketSaleMethodLottery, 150, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 4)
 		// The application inserts its Pending Order, which takes a key-share
 		// lock on the stock row, and commits only once the delete waits.
-		purchase, err := testDB.Pool.Begin(ctx)
+		purchase, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = purchase.Rollback(ctx) }()
 		orderID := entity.NewID()
 		_, err = purchase.Exec(ctx, `
 			INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, provider, status, amount, currency)
-			VALUES ($1, $2, $3, 1, 1, 4, 3000, 'JPY')`, orderID, saleFan(t), string(f.ID))
+			VALUES ($1, $2, $3, 1, 1, 4, 3000, 'JPY')`, orderID, saleFan(t, db), string(f.ID))
 		require.NoError(t, err)
 		var pid uint32
 		require.NoError(t, purchase.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid))
 
 		deleted := make(chan error, 1)
 		go func() { deleted <- repo.Delete(ctx, f.ID) }()
-		require.Eventually(t, backendBlocking(t, pid), 5*time.Second, 20*time.Millisecond, "the delete waits for the application")
+		require.Eventually(t, backendBlocking(t, db, pid), 5*time.Second, 20*time.Millisecond, "the delete waits for the application")
 		require.NoError(t, purchase.Commit(ctx))
 
 		assert.ErrorIs(t, <-deleted, apperr.ErrFailedPrecondition)

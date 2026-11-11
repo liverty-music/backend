@@ -2,7 +2,6 @@ package rdb_test
 
 import (
 	"context"
-	"fmt"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"os"
@@ -70,6 +69,8 @@ var storyEventStart = storyWindowStart.Add(30 * 24 * time.Hour)
 // workflow runtime and the in-memory payment provider, all reading one
 // injected clock.
 type lotteryStory struct {
+	// db is the database of the test.
+	db          *rdb.Database
 	t           *testing.T
 	ctx         context.Context
 	now         time.Time
@@ -129,81 +130,71 @@ type lotteryStory struct {
 	journeyRepo *rdb.TicketJourneyRepository
 }
 
-// newLotteryStory skips unless the local database is available, empties the
-// database and the workflow tables, starts the workflow worker, and seeds an
-// Organizer with complete business details and one published, timed event
+// newLotteryStory starts the workflow worker on db, the database of the
+// test, and seeds an Organizer with complete business details and one published, timed event
 // of its Series with a per-account limit of 4.
-func newLotteryStory(t *testing.T) *lotteryStory {
+func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 	t.Helper()
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	// One executor id recovers every pending workflow of the database: start
-	// from none.
-	_, err := testDB.Pool.Exec(context.Background(), `TRUNCATE dbos.workflow_status, dbos.operation_outputs, dbos.workflow_input,
-		dbos.workflow_output, dbos.workflow_events, dbos.workflow_events_history, dbos.notifications, dbos.streams CASCADE`)
-	require.NoError(t, err)
-
 	logger, err := logging.New()
 	require.NoError(t, err)
 	s := &lotteryStory{
+		db:  db,
 		t:   t,
 		ctx: context.Background(),
 		// The Organizer sets the sale up a day before it opens.
 		now:           storyWindowStart.Add(-24 * time.Hour),
 		logger:        logger,
-		cards:         newFakeCards(),
+		cards:         newFakeCards(db),
 		pushes:        &pushStarts{},
-		drawnMark:     outboxMark(t),
-		paidMark:      outboxMark(t),
-		enteredMark:   outboxMark(t),
-		checkoutMark:  outboxMark(t),
-		cancelledMark: outboxMark(t),
-		orderRepo:     orderRepository(t, rdb.NewOrderRepository(testDB)),
-		userRepo:      rdb.NewUserRepository(testDB, testOutbox),
-		journeyRepo:   rdb.NewTicketJourneyRepository(testDB, testOutbox),
+		drawnMark:     outboxMark(t, db),
+		paidMark:      outboxMark(t, db),
+		enteredMark:   outboxMark(t, db),
+		checkoutMark:  outboxMark(t, db),
+		cancelledMark: outboxMark(t, db),
+		orderRepo:     orderRepository(t, rdb.NewOrderRepository(db)),
+		userRepo:      rdb.NewUserRepository(db, testOutbox),
+		journeyRepo:   rdb.NewTicketJourneyRepository(db, testOutbox),
 	}
 	s.seedOrganizerEvent()
 	s.checkoutCards = &routedCards{fake: s.cards}
-	cardAuthorizations := rdb.NewCardAuthorizationRepository(testDB, s.checkoutCards)
+	cardAuthorizations := rdb.NewCardAuthorizationRepository(db, s.checkoutCards)
 
 	clock := usecase.Clock(func() time.Time { return s.now })
-	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
-	stockRepo := rdb.NewTicketStockRepository(testDB)
-	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
-	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
-	eventRepo := rdb.NewEventRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
-	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)
-	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
-	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
-	eventState := rdb.NewEventPublishStateRepository(testDB)
-	resaleEntryRepo := rdb.NewResaleEntryRepository(testDB, testOutbox)
-	resaleListingRepo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	saleRepo := rdb.NewTicketSaleRepository(db, testOutbox)
+	stockRepo := rdb.NewTicketStockRepository(db)
+	seatTypeRepo := rdb.NewSeatTypeRepository(db)
+	entryRepo := rdb.NewLotteryEntryRepository(db, testOutbox)
+	eventRepo := rdb.NewEventRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
+	ticketRepo := rdb.NewTicketRepository(db, testOutbox)
+	organizerRepo := rdb.NewOrganizerRepository(db, testOutbox)
+	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
+	eventState := rdb.NewEventPublishStateRepository(db)
+	resaleEntryRepo := rdb.NewResaleEntryRepository(db, testOutbox)
+	resaleListingRepo := rdb.NewResaleListingRepository(db, testOutbox)
 	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo, listings: resaleListingRepo, resaleEntries: resaleEntryRepo}
 
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, entryRepo, s.orderRepo, seriesRepo, organizerRepo,
-		eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, clock, logger))
+		eventRepo, eventState, rdb.NewEventStartTimeRepository(db), clock)
+	s.lottery = usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, db, cardAuthorizations, clock, logger))
 	// The worker refunds through refundOrders: a sold listing's refund, and
 	// the charge of a resale win whose listing was cancelled.
 	refundOrders := s.orderRepo
 	if key := os.Getenv("STRIPE_SECRET_KEY"); strings.HasPrefix(key, "sk_test_") || strings.HasPrefix(key, "rk_test_") {
-		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(key, logger))
+		refundOrders = repository.NewOrderRepository(rdb.NewOrderRepository(db), payment.NewStripeOrderPayments(key, logger))
 	}
 	// The worker's OrderUseCase: issue, release, and the webhook's fulfilment.
 	s.orders = usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
+		IssuanceRepo:             rdb.NewIssuanceRepository(db, testOutbox),
 		OrderRepo:                refundOrders,
 		EntryRepo:                entryRepo,
 		ResaleEntryRepo:          resaleEntryRepo,
 		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
+		CheckoutRepo:             rdb.NewCheckoutRepository(db, testOutbox),
 		TicketSaleRepo:           saleRepo,
 		StockRepo:                stockRepo,
 		TicketRepo:               ticketRepo,
@@ -214,23 +205,23 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		Logger:                   logger,
 	})
 	s.expiry = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo: rdb.NewCheckoutRepository(testDB, testOutbox), Clock: clock, Logger: logger,
+		CheckoutRepo: rdb.NewCheckoutRepository(db, testOutbox), Clock: clock, Logger: logger,
 	})
-	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(testDB),
-		eventRepo, rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
-		rdb.NewRejectedScanRepository(testDB), logger)
-	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(testDB, testOutbox),
-		rdb.NewFollowRepository(testDB, testOutbox), entryRepo, logger)
+	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewScannerRepository(db),
+		eventRepo, rdb.NewWalletPublicKeyRepository(db), rdb.NewAdmissionRepository(db),
+		rdb.NewRejectedScanRepository(db), logger)
+	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(db, testOutbox),
+		rdb.NewFollowRepository(db, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(testDB), s.orderRepo, nil, cardAuthorizations, logger)
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(db), s.orderRepo, nil, cardAuthorizations, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
-	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB),
-		rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, s.pushes, nil, logger,
+	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),
+		rdb.NewPushSubscriptionRepository(db, testOutbox), nil, s.pushes, nil, logger,
 		usecase.OrderConfirmationDeps{
 			Orders:            s.orderRepo,
 			Users:             s.userRepo,
-			Concerts:          rdb.NewConcertRepository(testDB, testOutbox),
+			Concerts:          rdb.NewConcertRepository(db, testOutbox),
 			EventOrganizer:    eventOrganizerRepo,
 			Organizers:        organizerRepo,
 			Mailer:            s.mailer,
@@ -263,8 +254,8 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.checkoutStarter = event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
 	}), logger)
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox),
-		rdb.NewVenueRepository(testDB), nil, organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, logger, clock)
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, testOutbox),
+		rdb.NewVenueRepository(db), nil, organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, logger, clock)
 	// The event consumer's LotteryEntryUseCase only ends the entries of a
 	// cancelled Event.
 	s.lotteryCancellation = event.NewLotteryCancellationConsumer(usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
@@ -281,8 +272,8 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 func (s *lotteryStory) cancel(eventID string) {
 	s.t.Helper()
 	require.NoError(s.t, s.series.Cancel(s.ctx, s.organizerID, s.seriesID, []string{eventID}))
-	next := outboxMark(s.t)
-	msgs := announcedMessages(s.t, s.cancelledMark, entity.SubjectEventCancelled)
+	next := outboxMark(s.t, s.db)
+	msgs := announcedMessages(s.t, s.db, s.cancelledMark, entity.SubjectEventCancelled)
 	s.cancelledMark = next
 	require.NotEmpty(s.t, msgs, "the cancellation is announced")
 	for _, msg := range msgs {
@@ -306,7 +297,7 @@ func (s *lotteryStory) secondEvent(price int64, quantity int) (string, *entity.T
 	s.t.Helper()
 	eventID := uuid.NewV7().String()
 	start := storyEventStart.Add(24 * time.Hour)
-	_, err := testDB.Pool.Exec(s.ctx, `
+	_, err := s.db.Pool.Exec(s.ctx, `
 		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit)
 		SELECT $1, series_id, venue_id, $3, $4, 'PUBLISHED', 4 FROM events WHERE id = $2
 	`, eventID, s.eventID, start.Format(time.DateOnly), start)
@@ -322,7 +313,9 @@ func (s *lotteryStory) secondEvent(price int64, quantity int) (string, *entity.T
 // the pool when the runtime or client using it shuts down.
 func (s *lotteryStory) newPool() *pgxpool.Pool {
 	s.t.Helper()
-	pool, err := pgxpool.New(s.ctx, fmt.Sprintf("postgres://test-user@localhost:%d/%s?sslmode=disable", testDBPort(), testDBName()))
+	// At most 4 connections, as newTestDB: the default is one per CPU, and
+	// the stories that run together would pass the server's max_connections.
+	pool, err := pgxpool.New(s.ctx, databaseOf(s.t, s.db).URL("")+"&pool_max_conns=4")
 	require.NoError(s.t, err)
 	s.t.Cleanup(pool.Close)
 	return pool
@@ -368,8 +361,8 @@ func (s *lotteryStory) await(id string) {
 // a published Series with one event starting at storyEventStart.
 func (s *lotteryStory) seedOrganizerEvent() {
 	t := s.t
-	s.organizerID = seedOrganizer(t)
-	_, err := rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(s.ctx, s.organizerID, entity.BusinessDetails{
+	s.organizerID = seedOrganizer(t, s.db)
+	_, err := rdb.NewOrganizerRepository(s.db, testOutbox).SetBusinessDetails(s.ctx, s.organizerID, entity.BusinessDetails{
 		LegalName:           "株式会社テスト興行",
 		RepresentativeName:  "代表 太郎",
 		BusinessAddress:     "東京都渋谷区1-1-1",
@@ -379,16 +372,16 @@ func (s *lotteryStory) seedOrganizerEvent() {
 	require.NoError(t, err)
 
 	s.seriesID = uuid.NewV7().String()
-	_, err = testDB.Pool.Exec(s.ctx, `
+	_, err = s.db.Pool.Exec(s.ctx, `
 		INSERT INTO series (id, title, type, organizer_id, visibility)
 		VALUES ($1, 'Story Live', 'SINGLE', $2, 'PUBLIC')
 	`, s.seriesID, s.organizerID)
 	require.NoError(t, err)
 
 	s.eventID = uuid.NewV7().String()
-	_, err = testDB.Pool.Exec(s.ctx, `
+	_, err = s.db.Pool.Exec(s.ctx, `
 		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED', 4)
-	`, s.eventID, s.seriesID, seedVenue(t, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
+	`, s.eventID, s.seriesID, seedVenue(t, s.db, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
 	require.NoError(t, err)
 }
 
@@ -423,7 +416,7 @@ func (s *lotteryStory) createLottery(name string, start, end time.Time) entity.T
 // newFan signs a new fan up.
 func (s *lotteryStory) newFan() entity.UserID {
 	s.t.Helper()
-	return entity.UserID(seedUser(s.t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+	return entity.UserID(seedUser(s.t, s.db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 }
 
 // emailsTo returns the emails sent to the fan's address.
@@ -494,8 +487,8 @@ func errorsIsNotFound(err error) bool {
 // loss notifier. It remembers the workflows the starter starts.
 func (s *lotteryStory) startFollowUps() int {
 	s.t.Helper()
-	next := outboxMark(s.t)
-	msgs := announcedMessages(s.t, s.drawnMark, entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost)
+	next := outboxMark(s.t, s.db)
+	msgs := announcedMessages(s.t, s.db, s.drawnMark, entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost)
 	s.drawnMark = next
 	for _, msg := range msgs {
 		require.NoError(s.t, s.drawn.HandleStartWorkflow(msg))
@@ -538,10 +531,10 @@ func (s *lotteryStory) startCheckoutFollowUps(subjects ...string) []string {
 	if len(subjects) == 0 {
 		subjects = []string{entity.SubjectCheckoutHeld, entity.SubjectCheckoutExpired, entity.SubjectCheckoutReleased}
 	}
-	next := outboxMark(s.t)
+	next := outboxMark(s.t, s.db)
 	var ids []string
 	for _, subject := range subjects {
-		for _, msg := range announcedMessages(s.t, s.checkoutMark, subject) {
+		for _, msg := range announcedMessages(s.t, s.db, s.checkoutMark, subject) {
 			require.NoError(s.t, s.checkoutStarter.HandleStartWorkflow(msg))
 			var c entityv1.Checkout
 			require.NoError(s.t, proto.Unmarshal(msg.Payload, &c))
@@ -613,11 +606,11 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 // as the mark-ticket-journey-applied consumer does.
 func (s *lotteryStory) markEnteredApplied() {
 	s.t.Helper()
-	next := outboxMark(s.t)
-	orders := announcedSince(s.t, s.enteredMark, entity.SubjectLotteryEntryEntered, func() *entityv1.Order { return &entityv1.Order{} },
+	next := outboxMark(s.t, s.db)
+	orders := announcedSince(s.t, s.db, s.enteredMark, entity.SubjectLotteryEntryEntered, func() *entityv1.Order { return &entityv1.Order{} },
 		func(o *entityv1.Order) bool {
 			var eventID string
-			require.NoError(s.t, testDB.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
+			require.NoError(s.t, s.db.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
 				o.GetTicketStockId().GetValue()).Scan(&eventID))
 			return eventID == s.eventID
 		})
@@ -633,11 +626,11 @@ func (s *lotteryStory) markEnteredApplied() {
 // since the previous take, as the order-paid consumers read them.
 func (s *lotteryStory) takePaid() []entity.OrderPaidData {
 	s.t.Helper()
-	next := outboxMark(s.t)
-	orders := announcedSince(s.t, s.paidMark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
+	next := outboxMark(s.t, s.db)
+	orders := announcedSince(s.t, s.db, s.paidMark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
 		func(o *entityv1.Order) bool {
 			var eventID string
-			require.NoError(s.t, testDB.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
+			require.NoError(s.t, s.db.Pool.QueryRow(s.ctx, `SELECT event_id FROM ticket_stocks WHERE id = $1`,
 				o.GetTicketStockId().GetValue()).Scan(&eventID))
 			return eventID == s.eventID
 		})
@@ -723,8 +716,10 @@ func (s *lotteryStory) openGeneralSale(presaleEnd time.Time) entity.TicketSaleID
 }
 
 func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Demand within quantity"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -770,7 +765,9 @@ func TestLotteryStory_DemandWithinQuantity(t *testing.T) {
 }
 
 func TestLotteryStory_EntryMarksJourneyApplied(t *testing.T) {
-	s := newLotteryStory(t)
+	t.Parallel()
+	db := newTestDB(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -817,8 +814,10 @@ func TestLotteryStory_EntryMarksJourneyApplied(t *testing.T) {
 }
 
 func TestLotteryStory_OversubscribedSale(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Oversubscribed sale"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 4)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -868,8 +867,10 @@ func TestLotteryStory_OversubscribedSale(t *testing.T) {
 }
 
 func TestLotteryStory_StoppedAfterTheFirstCharge(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Stopped after the first charge"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 4)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -942,9 +943,11 @@ func TestLotteryStory_StoppedAfterTheFirstCharge(t *testing.T) {
 }
 
 func TestLotteryStory_CardClosedBeforeTheCharge(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Card closed before the charge"
 	// @spec components/usecase/order/release-card-authorization "Win reverted"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -971,8 +974,10 @@ func TestLotteryStory_CardClosedBeforeTheCharge(t *testing.T) {
 }
 
 func TestLotteryStory_CountChangedBeforeConfirming(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Count changed before confirming"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -996,8 +1001,10 @@ func TestLotteryStory_CountChangedBeforeConfirming(t *testing.T) {
 }
 
 func TestLotteryStory_BrowserClosedAfterCardAuthentication(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Browser closed after card authentication"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1019,8 +1026,10 @@ func TestLotteryStory_BrowserClosedAfterCardAuthentication(t *testing.T) {
 }
 
 func TestLotteryStory_EntryMadeOnlyAfterTheWindowClosed(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Entry made only after the window closed"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	// A window that has already ended by the database clock: the fan
 	// completes card authentication 10 seconds before the end time, and the
@@ -1049,8 +1058,10 @@ func TestLotteryStory_EntryMadeOnlyAfterTheWindowClosed(t *testing.T) {
 }
 
 func TestLotteryStory_CardAuthenticationAbandoned(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Card authentication abandoned"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1072,7 +1083,9 @@ func TestLotteryStory_CardAuthenticationAbandoned(t *testing.T) {
 // code carries it on its Order, and once the Order is Paid the Organizer's
 // sales count it under that code.
 func TestLotteryStory_EntryFromAReferralLink(t *testing.T) {
-	s := newLotteryStory(t)
+	t.Parallel()
+	db := newTestDB(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1098,8 +1111,10 @@ func TestLotteryStory_EntryFromAReferralLink(t *testing.T) {
 }
 
 func TestLotteryStory_PresaleWinnerAtTheLimit(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Presale winner at the limit"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	fan := s.newFan()
 	general := s.openGeneralSale(s.winPresale(stock, fan, 4))
@@ -1111,8 +1126,10 @@ func TestLotteryStory_PresaleWinnerAtTheLimit(t *testing.T) {
 }
 
 func TestLotteryStory_PresaleWinnerBelowTheLimit(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Presale winner below the limit"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	fan := s.newFan()
 	general := s.openGeneralSale(s.winPresale(stock, fan, 2))
@@ -1122,8 +1139,10 @@ func TestLotteryStory_PresaleWinnerBelowTheLimit(t *testing.T) {
 }
 
 func TestLotteryStory_PresaleWinnerPicksAnotherSeatType(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Presale winner picks another seat type"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	sSeat := s.stock("S席", 8000, 100)
 	aSeat := s.stock("A席", 6000, 100)
 	fan := s.newFan()
@@ -1142,8 +1161,10 @@ func TestLotteryStory_PresaleWinnerPicksAnotherSeatType(t *testing.T) {
 }
 
 func TestLotteryStory_SecondEntryIntoTheSameSale(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Second entry into the same sale"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1161,9 +1182,11 @@ func TestLotteryStory_SecondEntryIntoTheSameSale(t *testing.T) {
 }
 
 func TestLotteryStory_CancelledDuringTheWindow(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Cancelled during the window"
 	// @spec components/usecase/lottery-entry/end-for-cancelled-event "Concert cancelled during the window"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1189,7 +1212,7 @@ func TestLotteryStory_CancelledDuringTheWindow(t *testing.T) {
 		assert.Contains(t, emails[0].body, "カードへの請求はありません")
 		assert.True(t, s.pushedLoss(e.ID), "fan %d is pushed once", i)
 	}
-	saleAfter, err := rdb.NewTicketSaleRepository(testDB, testOutbox).Get(s.ctx, sale)
+	saleAfter, err := rdb.NewTicketSaleRepository(db, testOutbox).Get(s.ctx, sale)
 	require.NoError(t, err)
 	assert.Equal(t, end, saleAfter.SaleEndTime.UTC(), "the window of the sale is unchanged")
 
@@ -1204,9 +1227,11 @@ func TestLotteryStory_CancelledDuringTheWindow(t *testing.T) {
 }
 
 func TestLotteryStory_CancelledBetweenTheDrawAndTheCharge(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Cancelled between the draw and the charge"
 	// @spec components/usecase/order/release-card-authorization "Win reverted for a cancelled concert"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1236,8 +1261,10 @@ func TestLotteryStory_CancelledBetweenTheDrawAndTheCharge(t *testing.T) {
 }
 
 func TestLotteryStory_EnteringAfterTheCancellation(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Entering after the cancellation"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -1262,8 +1289,10 @@ func TestLotteryStory_EnteringAfterTheCancellation(t *testing.T) {
 }
 
 func TestLotteryStory_AnotherDateOfTheSale(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/win-tickets-in-a-lottery "Another date of the sale"
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	first := s.stock("S席", 8000, 100)
 	secondEventID, second := s.secondEvent(8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)

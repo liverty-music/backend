@@ -15,14 +15,13 @@ import (
 // plus the ACTIVE-only reads: GetByUserID returns any-status rows while
 // GetByProviderUserID only surfaces the ACTIVE person key.
 func TestIdentityVerificationRepository_CreateAndGet(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	ctx := context.Background()
-	repo := rdb.NewIdentityVerificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
 
-	userID := seedUser(t, "vi-user", "vi-user@example.com", "ext-vi-1")
+	ctx := context.Background()
+	repo := rdb.NewIdentityVerificationRepository(db)
+
+	userID := seedUser(t, db, "vi-user", "vi-user@example.com", "ext-vi-1")
 	vi := entity.NewIdentityVerification(userID, "ps-key-1", entity.VerificationMethodJPKI)
 
 	created, err := repo.Create(ctx, vi)
@@ -50,15 +49,14 @@ func TestIdentityVerificationRepository_CreateAndGet(t *testing.T) {
 // for the same key — even on a different account — must be rejected; but once the
 // first is downgraded (NEEDS_REVERIFICATION), the key is free again.
 func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	ctx := context.Background()
-	repo := rdb.NewIdentityVerificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
 
-	user1 := seedUser(t, "person-a1", "a1@example.com", "ext-a1")
-	user2 := seedUser(t, "person-a2", "a2@example.com", "ext-a2")
+	ctx := context.Background()
+	repo := rdb.NewIdentityVerificationRepository(db)
+
+	user1 := seedUser(t, db, "person-a1", "a1@example.com", "ext-a1")
+	user2 := seedUser(t, db, "person-a2", "a2@example.com", "ext-a2")
 	const sharedKey = "ps-shared-person"
 
 	first, err := repo.Create(ctx, entity.NewIdentityVerification(user1, sharedKey, entity.VerificationMethodJPKI))
@@ -87,12 +85,11 @@ func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
 // inserting a IdentityVerification for a non-existent account fails closed with
 // FailedPrecondition (not a bare DB error).
 func TestIdentityVerificationRepository_CreateMissingUser(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
+	t.Parallel()
+	db := newTestDB(t)
+
 	ctx := context.Background()
-	repo := rdb.NewIdentityVerificationRepository(testDB)
+	repo := rdb.NewIdentityVerificationRepository(db)
 
 	// A syntactically valid but non-existent user id.
 	orphan := entity.NewIdentityVerification(entity.NewID(), "ps-orphan", entity.VerificationMethodJPKI)
@@ -107,12 +104,11 @@ func TestIdentityVerificationRepository_CreateMissingUser(t *testing.T) {
 // GetByUserID / GetByProviderUserID on an unknown key, and UpdateStatus /
 // Delete on an unknown id (RowsAffected == 0).
 func TestIdentityVerificationRepository_NotFoundPaths(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
+	t.Parallel()
+	db := newTestDB(t)
+
 	ctx := context.Background()
-	repo := rdb.NewIdentityVerificationRepository(testDB)
+	repo := rdb.NewIdentityVerificationRepository(db)
 
 	_, err := repo.GetByUserID(ctx, entity.NewID())
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "GetByUserID on an unknown user must return NotFound")
@@ -130,14 +126,13 @@ func TestIdentityVerificationRepository_NotFoundPaths(t *testing.T) {
 // TestIdentityVerificationRepository_UpdateStatusAndDelete covers the mutating happy
 // paths: a status change is observable, and Delete removes the row.
 func TestIdentityVerificationRepository_UpdateStatusAndDelete(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	ctx := context.Background()
-	repo := rdb.NewIdentityVerificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
 
-	userID := seedUser(t, "vi-mut", "vi-mut@example.com", "ext-vi-mut")
+	ctx := context.Background()
+	repo := rdb.NewIdentityVerificationRepository(db)
+
+	userID := seedUser(t, db, "vi-mut", "vi-mut@example.com", "ext-vi-mut")
 	created, err := repo.Create(ctx, entity.NewIdentityVerification(userID, "ps-mut", entity.VerificationMethodJPKI))
 	require.NoError(t, err)
 

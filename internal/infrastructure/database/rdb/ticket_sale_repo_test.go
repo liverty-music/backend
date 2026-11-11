@@ -21,11 +21,11 @@ var seriesEventDays atomic.Int32
 // seedEventInSeriesOf inserts another event of the Series of eventID, at the
 // same venue on a later date, with its publish state and per-account limit,
 // and returns its id.
-func seedEventInSeriesOf(t *testing.T, eventID string) string {
+func seedEventInSeriesOf(t *testing.T, db *rdb.Database, eventID string) string {
 	t.Helper()
 	ctx := context.Background()
 	id := uuid.NewV7().String()
-	_, err := testDB.Pool.Exec(ctx, `
+	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit)
 		SELECT $1, series_id, venue_id, local_event_date + $3::int, publish_state, per_account_limit FROM events WHERE id = $2
 	`, id, eventID, seriesEventDays.Add(1))
@@ -34,24 +34,24 @@ func seedEventInSeriesOf(t *testing.T, eventID string) string {
 }
 
 // seriesOf returns the Series id of the event.
-func seriesOf(t *testing.T, eventID string) string {
+func seriesOf(t *testing.T, db *rdb.Database, eventID string) string {
 	t.Helper()
 	var seriesID string
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(), `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID))
+	require.NoError(t, db.Pool.QueryRow(context.Background(), `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID))
 	return seriesID
 }
 
 // newSaleFor returns an unsaved sale named ファンクラブ先行 over the Series of
 // the first event, naming the events.
-func newSaleFor(t *testing.T, method entity.TicketSaleMethod, start, end time.Time, eventIDs ...string) *entity.TicketSale {
+func newSaleFor(t *testing.T, db *rdb.Database, method entity.TicketSaleMethod, start, end time.Time, eventIDs ...string) *entity.TicketSale {
 	t.Helper()
-	return entity.NewTicketSale(seriesOf(t, eventIDs[0]), "ファンクラブ先行", method, start, end, eventIDs...)
+	return entity.NewTicketSale(seriesOf(t, db, eventIDs[0]), "ファンクラブ先行", method, start, end, eventIDs...)
 }
 
 // createSale stores the sale with the repository.
-func createSale(t *testing.T, sale *entity.TicketSale) *entity.TicketSale {
+func createSale(t *testing.T, db *rdb.Database, sale *entity.TicketSale) *entity.TicketSale {
 	t.Helper()
-	created, err := rdb.NewTicketSaleRepository(testDB, testOutbox).Create(context.Background(), sale)
+	created, err := rdb.NewTicketSaleRepository(db, testOutbox).Create(context.Background(), sale)
 	require.NoError(t, err)
 	return created
 }
@@ -66,11 +66,10 @@ func saleIDs(sales []*entity.TicketSale) []entity.TicketSaleID {
 }
 
 func TestTicketSaleRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
 	end := saleWindowStart.Add(7 * 24 * time.Hour)
 
@@ -78,14 +77,14 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 		t.Helper()
 		_, err := repo.Get(ctx, sale.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.Zero(t, queryCount(t, `SELECT COUNT(*) FROM ticket_sale_events WHERE ticket_sale_id = $1`, string(sale.ID)))
+		assert.Zero(t, queryCount(t, db, `SELECT COUNT(*) FROM ticket_sale_events WHERE ticket_sale_id = $1`, string(sale.ID)))
 	}
 
 	t.Run("sale stored", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/create "Sale stored"
-		first := seedPublishedEvent(t)
-		second := seedEventInSeriesOf(t, first)
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, first, second)
+		first := seedPublishedEvent(t, db)
+		second := seedEventInSeriesOf(t, db, first)
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, first, second)
 
 		created, err := repo.Create(ctx, sale)
 
@@ -105,7 +104,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 
 	t.Run("unknown event", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/create "Unknown event"
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t))
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t, db))
 		sale.EventIDs = append(sale.EventIDs, entity.NewID())
 
 		_, err := repo.Create(ctx, sale)
@@ -115,7 +114,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 	})
 
 	t.Run("unknown series", func(t *testing.T) {
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t))
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t, db))
 		sale.SeriesID = entity.NewID()
 
 		_, err := repo.Create(ctx, sale)
@@ -126,8 +125,8 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 
 	t.Run("same event twice", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/create "Same event twice"
-		eventID := seedPublishedEvent(t)
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, eventID, eventID)
+		eventID := seedPublishedEvent(t, db)
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, eventID, eventID)
 
 		_, err := repo.Create(ctx, sale)
 
@@ -137,7 +136,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 
 	t.Run("event of another series", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/create "Event of another Series"
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t), seedPublishedEvent(t))
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t, db), seedPublishedEvent(t, db))
 
 		_, err := repo.Create(ctx, sale)
 
@@ -146,7 +145,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 	})
 
 	t.Run("sale without an event", func(t *testing.T) {
-		sale := newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t))
+		sale := newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t, db))
 		sale.EventIDs = nil
 
 		_, err := repo.Create(ctx, sale)
@@ -157,18 +156,17 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 }
 
 func TestTicketSaleRepository_Get(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("sale covering several events", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/get "Sale covering several events"
-		first := seedPublishedEvent(t)
-		second := seedEventInSeriesOf(t, first)
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, saleWindowStart, saleWindowStart.Add(10*24*time.Hour), first, second))
+		first := seedPublishedEvent(t, db)
+		second := seedEventInSeriesOf(t, db, first)
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, saleWindowStart, saleWindowStart.Add(10*24*time.Hour), first, second))
 
 		got, err := repo.Get(ctx, sale.ID)
 
@@ -189,21 +187,20 @@ func TestTicketSaleRepository_Get(t *testing.T) {
 // sale is returned with its events; the event's stocks, with their counts,
 // are read alongside it from TicketStockRepository.ListByEvent.
 func TestTicketSaleRepository_ListByEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
-	stocks := rdb.NewTicketStockRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
+	stocks := rdb.NewTicketStockRepository(db)
 	ctx := context.Background()
 	at := saleWindowStart.Add(17 * time.Hour)
 
 	t.Run("presale and general sale", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-by-event "Presale and general sale"
-		eventID := seedPublishedEvent(t)
+		eventID := seedPublishedEvent(t, db)
 		nov20 := time.Date(2026, 11, 20, 1, 0, 0, 0, time.UTC)
-		general := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, nov20, nov20.Add(5*24*time.Hour), eventID))
-		presale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), eventID))
+		general := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov20, nov20.Add(5*24*time.Hour), eventID))
+		presale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), eventID))
 
 		got, err := repo.ListByEvent(ctx, eventID)
 
@@ -213,11 +210,11 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 
 	t.Run("sale covering several events", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-by-event "Sale covering several events"
-		eventID := seedPublishedEvent(t)
-		second, third := seedEventInSeriesOf(t, eventID), seedEventInSeriesOf(t, eventID)
-		own := seedStockForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 4)
-		seedStockForEvent(t, second, entity.TicketSaleMethodLottery, 100, 4)
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour),
+		eventID := seedPublishedEvent(t, db)
+		second, third := seedEventInSeriesOf(t, db, eventID), seedEventInSeriesOf(t, db, eventID)
+		own := seedStockForEvent(t, db, eventID, entity.TicketSaleMethodLottery, 100, 4)
+		seedStockForEvent(t, db, second, entity.TicketSaleMethodLottery, 100, 4)
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour),
 			eventID, second, third))
 
 		got, err := repo.ListByEvent(ctx, eventID)
@@ -241,8 +238,8 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 
 	t.Run("first-come sale with holds", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-by-event "First-come sale with holds"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
-		insertHolds(t, f, at.Add(entity.CheckoutHoldDuration), 3)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
+		insertHolds(t, db, f, at.Add(entity.CheckoutHoldDuration), 3)
 
 		got, err := repo.ListByEvent(ctx, f.EventID)
 
@@ -256,8 +253,8 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 
 	t.Run("sold-out stock", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-by-event "Sold-out stock"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 150, 10)
-		setStockSold(t, f, 150)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 10)
+		setStockSold(t, db, f, 150)
 
 		got, err := repo.ListByEvent(ctx, f.EventID)
 
@@ -271,7 +268,7 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 
 	t.Run("no sale", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-by-event "No sale"
-		got, err := repo.ListByEvent(ctx, seedPublishedEvent(t))
+		got, err := repo.ListByEvent(ctx, seedPublishedEvent(t, db))
 
 		require.NoError(t, err)
 		assert.NotNil(t, got)
@@ -280,11 +277,10 @@ func TestTicketSaleRepository_ListByEvent(t *testing.T) {
 }
 
 func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
 	now := saleWindowStart.Add(7*24*time.Hour + 2*time.Minute)
 
@@ -292,15 +288,15 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	// entry in each given state.
 	lottery := func(t *testing.T, end time.Time, states ...entity.LotteryEntryState) entity.TicketSaleID {
 		t.Helper()
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET sale_end_at = $2 WHERE id = $1`, string(f.SaleID), end)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET sale_end_at = $2 WHERE id = $1`, string(f.SaleID), end)
 		require.NoError(t, err)
 		for _, s := range states {
 			orderStatus := entity.OrderStatusPending
 			if s == entity.LotteryEntryStateLost {
 				orderStatus = entity.OrderStatusVoid
 			}
-			insertStockEntry(t, f, saleFan(t), orderStatus, s, 1)
+			insertStockEntry(t, db, f, saleFan(t, db), orderStatus, s, 1)
 		}
 		return f.SaleID
 	}
@@ -313,7 +309,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	drawn := lottery(t, now.Add(-2*time.Minute), won, lost)
 	empty := lottery(t, now.Add(-2*time.Minute))
 	discoveredID, _, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
-		SeriesID: seedSeriesOnly(t, "Discovered Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
+		SeriesID: seedSeriesOnly(t, db, "Discovered Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: saleWindowStart, SaleEndTime: now.Add(-time.Hour),
 	})
 	require.NoError(t, err)
@@ -362,18 +358,17 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 }
 
 func TestTicketSaleRepository_SetWindow(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
 	nov := func(day int) time.Time { return time.Date(2026, 11, day, 1, 0, 0, 0, time.UTC) }
 
 	t.Run("window moved", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/set-window "Window moved"
-		first := seedPublishedEvent(t)
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, nov(1), nov(10), first, seedEventInSeriesOf(t, first)))
+		first := seedPublishedEvent(t, db)
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(10), first, seedEventInSeriesOf(t, db, first)))
 
 		got, err := repo.SetWindow(ctx, sale.ID, nov(2), nov(11))
 
@@ -392,7 +387,7 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 
 	t.Run("lottery window too long", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/set-window "Lottery window too long"
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, nov(1), nov(8), seedPublishedEvent(t)))
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodLottery, nov(1), nov(8), seedPublishedEvent(t, db)))
 
 		_, err := repo.SetWindow(ctx, sale.ID, nov(1), nov(16))
 
@@ -403,7 +398,7 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 	})
 
 	t.Run("end not after start", func(t *testing.T) {
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, nov(1), nov(8), seedPublishedEvent(t)))
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(8), seedPublishedEvent(t, db)))
 
 		_, err := repo.SetWindow(ctx, sale.ID, nov(8), nov(8))
 
@@ -419,16 +414,15 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 }
 
 func TestTicketSaleRepository_SetVerificationRequirement(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("requirement changed", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/set-verification-requirement "Requirement changed"
-		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), seedPublishedEvent(t)))
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), seedPublishedEvent(t, db)))
 		require.Equal(t, entity.VerificationRequirementNone, sale.VerificationRequirement)
 
 		got, err := repo.SetVerificationRequirement(ctx, sale.ID, entity.VerificationRequirementJPKIOnly)

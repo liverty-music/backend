@@ -15,23 +15,25 @@ import (
 )
 
 func TestPushSubscriptionRepository_Announces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	repo := rdb.NewPushSubscriptionRepository(db, testOutbox)
 
 	newFan := func(t *testing.T) string {
 		t.Helper()
 		tag := uuid.NewV7().String()
-		return seedUser(t, "push "+tag, tag+"@example.test", "ext-"+tag)
+		return seedUser(t, db, "push "+tag, tag+"@example.test", "ext-"+tag)
 	}
 	newEndpoint := func() string { return "https://web.push.apple.com/sub/" + uuid.NewV7().String() }
 	subscribed := func(t *testing.T, subject string, mark int64, id string) []*entityv1.PushSubscription {
 		t.Helper()
-		return announcedSince(t, mark, subject, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		return announcedSince(t, db, mark, subject, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetId().GetValue() == id })
 	}
 	stored := func(t *testing.T, endpoint string) (userID string, n int) {
 		t.Helper()
-		require.NoError(t, testDB.Pool.QueryRow(ctx,
+		require.NoError(t, db.Pool.QueryRow(ctx,
 			`SELECT COALESCE(MAX(user_id::text), ''), count(*) FROM push_subscriptions WHERE endpoint = $1`, endpoint).Scan(&userID, &n))
 		return userID, n
 	}
@@ -41,7 +43,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		// @spec components/entity/push-subscription/create "New browser announced"
 		// @spec components/infrastructure/backend/process/event-delivery "New push subscription announced"
 		fan, endpoint := newFan(t), newEndpoint()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		sub := &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}
 
 		require.NoError(t, repo.Create(ctx, sub))
@@ -75,7 +77,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		fan, endpoint := newFan(t), newEndpoint()
 		first := &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}
 		require.NoError(t, repo.Create(ctx, first))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		again := &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}
 		require.NoError(t, repo.Create(ctx, again))
@@ -88,7 +90,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		// @spec components/entity/push-subscription/create "Browser moves to another fan"
 		fanA, fanB, endpoint := newFan(t), newFan(t), newEndpoint()
 		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fanA, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		moved := &entity.PushSubscription{UserID: fanB, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}
 		require.NoError(t, repo.Create(ctx, moved))
@@ -105,7 +107,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		// @spec components/entity/push-subscription/create "Announcement cannot be recorded"
 		fan, endpoint := newFan(t), newEndpoint()
 
-		err := rdb.NewPushSubscriptionRepository(testDB, failingOutbox{}).Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"})
+		err := rdb.NewPushSubscriptionRepository(db, failingOutbox{}).Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		_, n := stored(t, endpoint)
@@ -117,7 +119,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		fan, endpoint := newFan(t), newEndpoint()
 		sub := &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}
 		require.NoError(t, repo.Create(ctx, sub))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Delete(ctx, fan, endpoint))
 
@@ -132,10 +134,10 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 	t.Run("not registered", func(t *testing.T) {
 		// @spec components/entity/push-subscription/delete "Not registered"
 		fan := newFan(t)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Delete(ctx, fan, newEndpoint()))
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, db, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 
@@ -144,7 +146,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		fan, endpoint := newFan(t), newEndpoint()
 		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}))
 
-		err := rdb.NewPushSubscriptionRepository(testDB, failingOutbox{}).Delete(ctx, fan, endpoint)
+		err := rdb.NewPushSubscriptionRepository(db, failingOutbox{}).Delete(ctx, fan, endpoint)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		_, n := stored(t, endpoint)
@@ -156,7 +158,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		fan, endpoint, other := newFan(t), newEndpoint(), newEndpoint()
 		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: endpoint, P256dh: "k1", Auth: "a1"}))
 		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: other, P256dh: "k2", Auth: "a2"}))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.DeleteGone(ctx, fan, endpoint))
 
@@ -164,7 +166,7 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		assert.Zero(t, n)
 		_, n = stored(t, other)
 		assert.Equal(t, 1, n, "the fan's other browser keeps its subscription")
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, db, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 
@@ -172,13 +174,13 @@ func TestPushSubscriptionRepository_Announces(t *testing.T) {
 		// @spec components/entity/push-subscription/delete-gone "Already removed"
 		fan, kept := newFan(t), newEndpoint()
 		require.NoError(t, repo.Create(ctx, &entity.PushSubscription{UserID: fan, Endpoint: kept, P256dh: "k1", Auth: "a1"}))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.DeleteGone(ctx, fan, newEndpoint()))
 
 		_, n := stored(t, kept)
 		assert.Equal(t, 1, n, "the fan's registered browser is unchanged")
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
+		assert.Empty(t, announcedSince(t, db, mark, entity.SubjectPushSubscriptionUnsubscribed, func() *entityv1.PushSubscription { return &entityv1.PushSubscription{} },
 			func(p *entityv1.PushSubscription) bool { return p.GetUserId().GetValue() == fan }))
 	})
 }

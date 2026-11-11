@@ -47,9 +47,9 @@ type consoleStory struct {
 	tickets   usecase.TicketUseCase
 }
 
-func newConsoleStory(t *testing.T) *consoleStory {
+func newConsoleStory(t *testing.T, db *rdb.Database) *consoleStory {
 	t.Helper()
-	cleanDatabase(t)
+	cleanTables(t, db)
 	logger, err := logging.New()
 	require.NoError(t, err)
 
@@ -61,12 +61,12 @@ func newConsoleStory(t *testing.T) *consoleStory {
 	s := &consoleStory{
 		t:        t,
 		ctx:      context.Background(),
-		orgID:    seedOrganizer(t),
-		artistID: seedArtist(t, "XX", uuid.NewV4().String()),
+		orgID:    seedOrganizer(t, db),
+		artistID: seedArtist(t, db, "XX", uuid.NewV4().String()),
 		placeID:  "ChIJ-console-" + uuid.NewV7().String(),
 		eventDay: time.Date(year, 12, 20, 0, 0, 0, 0, jst),
 	}
-	_, err = rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(s.ctx, s.orgID, entity.BusinessDetails{
+	_, err = rdb.NewOrganizerRepository(db, testOutbox).SetBusinessDetails(s.ctx, s.orgID, entity.BusinessDetails{
 		LegalName:           "株式会社テスト興行",
 		RepresentativeName:  "代表 太郎",
 		BusinessAddress:     "東京都渋谷区1-1-1",
@@ -74,33 +74,33 @@ func newConsoleStory(t *testing.T) *consoleStory {
 		ContactEmail:        "contact@example.test",
 	})
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, s.orgID, s.artistID)
+	_, err = db.Pool.Exec(s.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, s.orgID, s.artistID)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2)`,
+	_, err = db.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2)`,
 		entity.NewID(), s.placeID)
 	require.NoError(t, err)
 
 	clock := usecase.Clock(time.Now)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
-	eventRepo := rdb.NewEventRepository(testDB)
-	stockRepo := rdb.NewTicketStockRepository(testDB)
-	seatTypeRepo := rdb.NewSeatTypeRepository(testDB)
-	organizerRepo := rdb.NewOrganizerRepository(testDB, testOutbox)
-	saleRepo := rdb.NewTicketSaleRepository(testDB, testOutbox)
-	eventOrganizerRepo := rdb.NewEventOrganizerRepository(testDB)
-	eventState := rdb.NewEventPublishStateRepository(testDB)
-	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
-	scannerRepo := rdb.NewScannerRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
+	eventRepo := rdb.NewEventRepository(db)
+	stockRepo := rdb.NewTicketStockRepository(db)
+	seatTypeRepo := rdb.NewSeatTypeRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db, testOutbox)
+	saleRepo := rdb.NewTicketSaleRepository(db, testOutbox)
+	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
+	eventState := rdb.NewEventPublishStateRepository(db)
+	orderRepo := orderRepository(t, rdb.NewOrderRepository(db))
+	scannerRepo := rdb.NewScannerRepository(db)
 
-	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(testDB, testOutbox), rdb.NewVenueRepository(testDB), nil,
+	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, testOutbox), rdb.NewVenueRepository(db), nil,
 		organizerRepo, saleRepo, nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)
-	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, rdb.NewLotteryEntryRepository(testDB, testOutbox), orderRepo, seriesRepo,
-		organizerRepo, eventRepo, eventState, rdb.NewEventStartTimeRepository(testDB), clock)
+	s.sales = usecase.NewTicketSaleUseCase(saleRepo, stockRepo, rdb.NewLotteryEntryRepository(db, testOutbox), orderRepo, seriesRepo,
+		organizerRepo, eventRepo, eventState, rdb.NewEventStartTimeRepository(db), clock)
 	s.scanners = usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventState, logger)
-	s.tickets = usecase.NewTicketUseCase(orderRepo, rdb.NewTicketRepository(testDB, testOutbox), scannerRepo, eventRepo,
-		rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB), rdb.NewRejectedScanRepository(testDB),
+	s.tickets = usecase.NewTicketUseCase(orderRepo, rdb.NewTicketRepository(db, testOutbox), scannerRepo, eventRepo,
+		rdb.NewWalletPublicKeyRepository(db), rdb.NewAdmissionRepository(db), rdb.NewRejectedScanRepository(db),
 		logger)
 	return s
 }
@@ -177,13 +177,12 @@ func (s *consoleStory) runConsole() (string, *entity.Scanner) {
 }
 
 func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("the whole flow publishes, stocks, sells and staffs the event", func(t *testing.T) {
 		// @spec stories/run-an-event-from-the-organizer-console "Whole flow on a PC"
-		s := newConsoleStory(t)
+		s := newConsoleStory(t, db)
 		eventID, issued := s.runConsole()
 
 		event := s.authoredEvent(eventID)
@@ -226,8 +225,8 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		// Declining the dialog sends no Publish; the backend half is that the
 		// event then stays draft, nothing is announced, and the steps that
 		// need a published event stay closed.
-		s := newConsoleStory(t)
-		mark := outboxMark(t)
+		s := newConsoleStory(t, db)
+		mark := outboxMark(t, db)
 		seriesID, eventID := s.draftConcert()
 		seatType, err := s.seatTypes.Create(s.ctx, s.orgID, seriesID, "S席", 8000)
 		require.NoError(t, err)
@@ -235,7 +234,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		event := s.authoredEvent(eventID)
 		require.NotNil(t, event.PublishState)
 		assert.Equal(t, entity.PublishStateDraft, *event.PublishState)
-		assert.Empty(t, concertsAnnouncedFor(t, mark, s.artistID), "no follower is notified")
+		assert.Empty(t, concertsAnnouncedFor(t, db, mark, s.artistID), "no follower is notified")
 
 		// A draft event may be stocked, but no sale opens on it.
 		_, err = s.stocks.Create(s.ctx, s.orgID, eventID, seatType.ID, 100)
@@ -255,7 +254,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		// The dialog and snackbar are the frontend's. The backend half: the
 		// seat type is stored with the confirmed name and price, the console
 		// lists it so, and the use case offers no edit of either.
-		s := newConsoleStory(t)
+		s := newConsoleStory(t, db)
 		seriesID, _ := s.draftConcert()
 
 		created, err := s.seatTypes.Create(s.ctx, s.orgID, seriesID, "S席", 8000)
@@ -274,14 +273,14 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 
 	t.Run("a revoked scanner can no longer admit anyone", func(t *testing.T) {
 		// @spec stories/run-an-event-from-the-organizer-console "Scanner revoked"
-		s := newConsoleStory(t)
+		s := newConsoleStory(t, db)
 		eventID, issued := s.runConsole()
 
 		// A fan holds two tickets of the event with a registered wallet key.
 		fanKey := testutil.NewDeviceKey(t)
-		fanID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-		tickets := seedIssuedTickets(t, eventID, string(fanID), 2)
-		_, _, err := rdb.NewWalletPublicKeyRepository(testDB).Register(s.ctx, fanID, fanKey.PublicKey(t), time.Now())
+		fanID := entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+		tickets := seedIssuedTickets(t, db, eventID, string(fanID), 2)
+		_, _, err := rdb.NewWalletPublicKeyRepository(db).Register(s.ctx, fanID, fanKey.PublicKey(t), time.Now())
 		require.NoError(t, err)
 
 		// Staff open 受付1 on their device on the event day.
@@ -319,7 +318,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		_, err = admit(tickets[1], s.at(18, 40))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied, "the device that opened 受付1 can no longer admit anyone")
 		var admissions int
-		require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT count(*) FROM admissions WHERE event_id = $1`, eventID).Scan(&admissions))
+		require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT count(*) FROM admissions WHERE event_id = $1`, eventID).Scan(&admissions))
 		assert.Equal(t, 1, admissions, "only the scan before the revoke admitted")
 	})
 }

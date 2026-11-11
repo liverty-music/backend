@@ -15,13 +15,15 @@ import (
 const googlePasswordManagerAAGUID = "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4"
 
 func TestPasskeyRepository(t *testing.T) {
-	users := rdb.NewUserRepository(testDB, testOutbox)
-	repo := rdb.NewPasskeyRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	users := rdb.NewUserRepository(db, testOutbox)
+	repo := rdb.NewPasskeyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	newFan := func(t *testing.T) *entity.User {
 		t.Helper()
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := users.Create(ctx, newTestUser("ext-passkey-1", "passkey@example.com", "Passkey Fan"))
 		require.NoError(t, err)
 		return user
@@ -65,7 +67,7 @@ func TestPasskeyRepository(t *testing.T) {
 
 	// @spec components/entity/passkey/create "Unknown User"
 	t.Run("Create for a user that does not exist fails with NotFound and stores nothing", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		missing := "019a0000-0000-7000-8000-000000000001"
 
 		err := repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: "token-1", UserID: missing, AAGUID: entity.ZeroAAGUID, CreateTime: oct1})
@@ -98,7 +100,7 @@ func TestPasskeyRepository(t *testing.T) {
 
 	// @spec components/entity/passkey/delete "Never recorded"
 	t.Run("Delete succeeds when no passkey has the provider passkey id", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		assert.NoError(t, repo.Delete(ctx, "token-never-recorded"))
 	})

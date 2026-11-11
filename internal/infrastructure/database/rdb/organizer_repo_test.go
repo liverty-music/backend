@@ -25,10 +25,9 @@ func uniqueEmail() string {
 }
 
 func TestOrganizerRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewOrganizerRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("stores a new provisioning Organizer with its short name", func(t *testing.T) {
@@ -102,10 +101,9 @@ func TestOrganizerRepository_Create(t *testing.T) {
 }
 
 func TestOrganizerRepository_ListByOwnerEmail(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewOrganizerRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewOrganizerRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// create stores an Organizer with the owner email and moves it to status.

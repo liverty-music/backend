@@ -31,26 +31,28 @@ func newUniqueUser() *entity.NewUser {
 	return &entity.NewUser{ProviderUserID: "ext-" + tag, Email: tag + "@example.com", Name: "Display Name", PreferredLanguage: "ja"}
 }
 
-func usersAnnounced(t *testing.T, mark int64, subject, userID string) []*entityv1.User {
+func usersAnnounced(t *testing.T, db *rdb.Database, mark int64, subject, userID string) []*entityv1.User {
 	t.Helper()
-	return announcedSince(t, mark, subject, func() *entityv1.User { return &entityv1.User{} },
+	return announcedSince(t, db, mark, subject, func() *entityv1.User { return &entityv1.User{} },
 		func(u *entityv1.User) bool { return u.GetId().GetValue() == userID })
 }
 
 func TestUserRepository_CreateAnnounces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	repo := rdb.NewUserRepository(db, testOutbox)
 
 	t.Run("new user", func(t *testing.T) {
 		// @spec components/entity/user/create "New user"
 		// @spec components/infrastructure/backend/process/event-delivery "New user announced"
 		params := newUniqueUser()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		user, err := repo.Create(ctx, params)
 
 		require.NoError(t, err)
-		got := usersAnnounced(t, mark, entity.SubjectUserCreated, user.ID)
+		got := usersAnnounced(t, db, mark, entity.SubjectUserCreated, user.ID)
 		require.Len(t, got, 1)
 		assert.Equal(t, params.ProviderUserID, got[0].GetProviderUserId().GetValue())
 		assert.Equal(t, params.Email, got[0].GetEmail().GetValue())
@@ -64,12 +66,12 @@ func TestUserRepository_CreateAnnounces(t *testing.T) {
 		params := newUniqueUser()
 		first, err := repo.Create(ctx, params)
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, err = repo.Create(ctx, params)
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
-		assert.Empty(t, announcedSince(t, mark, entity.SubjectUserCreated, func() *entityv1.User { return &entityv1.User{} },
+		assert.Empty(t, announcedSince(t, db, mark, entity.SubjectUserCreated, func() *entityv1.User { return &entityv1.User{} },
 			func(u *entityv1.User) bool { return u.GetProviderUserId().GetValue() == params.ProviderUserID }))
 		_ = first
 	})
@@ -78,7 +80,7 @@ func TestUserRepository_CreateAnnounces(t *testing.T) {
 		// @spec components/entity/user/create "Announcement cannot be recorded"
 		params := newUniqueUser()
 
-		_, err := rdb.NewUserRepository(testDB, failingOutbox{}).Create(ctx, params)
+		_, err := rdb.NewUserRepository(db, failingOutbox{}).Create(ctx, params)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		_, err = repo.GetByProviderUserID(ctx, params.ProviderUserID)
@@ -87,8 +89,10 @@ func TestUserRepository_CreateAnnounces(t *testing.T) {
 }
 
 func TestUserRepository_RecordLogin(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	jst := time.FixedZone("JST", 9*60*60)
 	at10, at12 := time.Date(2026, 10, 28, 10, 0, 0, 0, jst), time.Date(2026, 10, 28, 12, 0, 0, 0, jst)
 	newUser := func(t *testing.T) *entity.User {
@@ -119,12 +123,12 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 		// @spec components/entity/user/record-login "Sign-in announced"
 		u := newUser(t)
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at10))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at12))
 
 		assert.True(t, lastLogin(t, u.ID).Equal(at12))
-		got := usersAnnounced(t, mark, entity.SubjectUserSignedIn, u.ID)
+		got := usersAnnounced(t, db, mark, entity.SubjectUserSignedIn, u.ID)
 		require.Len(t, got, 1)
 		assert.True(t, got[0].GetLastLoginTime().AsTime().Equal(at12))
 		assert.Empty(t, got[0].GetName())
@@ -134,13 +138,13 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 		// @spec components/entity/user/record-login "Same or older sign-in"
 		u := newUser(t)
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at12))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at12))
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at10))
 
 		assert.True(t, lastLogin(t, u.ID).Equal(at12))
-		assert.Empty(t, usersAnnounced(t, mark, entity.SubjectUserSignedIn, u.ID))
+		assert.Empty(t, usersAnnounced(t, db, mark, entity.SubjectUserSignedIn, u.ID))
 	})
 
 	t.Run("unknown user", func(t *testing.T) {
@@ -153,7 +157,7 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 		u := newUser(t)
 		require.NoError(t, repo.RecordLogin(ctx, u.ID, at10))
 
-		err := rdb.NewUserRepository(testDB, failingOutbox{}).RecordLogin(ctx, u.ID, at12)
+		err := rdb.NewUserRepository(db, failingOutbox{}).RecordLogin(ctx, u.ID, at12)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.True(t, lastLogin(t, u.ID).Equal(at10), "the last login time is unchanged")
@@ -161,9 +165,11 @@ func TestUserRepository_RecordLogin(t *testing.T) {
 }
 
 func TestPasskeyRepository_Announces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	users := rdb.NewUserRepository(testDB, testOutbox)
-	repo := rdb.NewPasskeyRepository(testDB, testOutbox)
+	users := rdb.NewUserRepository(db, testOutbox)
+	repo := rdb.NewPasskeyRepository(db, testOutbox)
 	created := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	newFan := func(t *testing.T) *entity.User {
 		t.Helper()
@@ -173,7 +179,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 	}
 	passkeysAnnounced := func(t *testing.T, mark int64, subject, id string) []*entityv1.Passkey {
 		t.Helper()
-		return announcedSince(t, mark, subject, func() *entityv1.Passkey { return &entityv1.Passkey{} },
+		return announcedSince(t, db, mark, subject, func() *entityv1.Passkey { return &entityv1.Passkey{} },
 			func(p *entityv1.Passkey) bool { return p.GetId().GetValue() == id })
 	}
 	stored := func(t *testing.T, userID string) int {
@@ -186,7 +192,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 	t.Run("passkey added", func(t *testing.T) {
 		// @spec components/entity/passkey/create "Passkey added"
 		fan, id, name := newFan(t), "token-"+uuid.NewV7().String(), "iPhone"
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created, Name: &name}))
 
@@ -202,7 +208,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		// @spec components/entity/passkey/create "Same passkey again"
 		fan, id := newFan(t), "token-"+uuid.NewV7().String()
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created}))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: entity.ZeroAAGUID, CreateTime: created}))
 
@@ -213,7 +219,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		// @spec components/entity/passkey/create "Announcement cannot be recorded"
 		fan := newFan(t)
 
-		err := rdb.NewPasskeyRepository(testDB, failingOutbox{}).Create(ctx, &entity.Passkey{ProviderPasskeyID: "token-" + uuid.NewV7().String(), UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created})
+		err := rdb.NewPasskeyRepository(db, failingOutbox{}).Create(ctx, &entity.Passkey{ProviderPasskeyID: "token-" + uuid.NewV7().String(), UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Zero(t, stored(t, fan.ID))
@@ -223,7 +229,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		// @spec components/entity/passkey/delete "Passkey removed"
 		fan, id := newFan(t), "token-"+uuid.NewV7().String()
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created}))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Delete(ctx, id))
 
@@ -237,7 +243,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 	t.Run("never recorded", func(t *testing.T) {
 		// @spec components/entity/passkey/delete "Never recorded"
 		id := "token-" + uuid.NewV7().String()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Delete(ctx, id))
 		assert.Empty(t, passkeysAnnounced(t, mark, entity.SubjectPasskeyRemoved, id))
@@ -248,7 +254,7 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 		fan, id := newFan(t), "token-"+uuid.NewV7().String()
 		require.NoError(t, repo.Create(ctx, &entity.Passkey{ProviderPasskeyID: id, UserID: fan.ID, AAGUID: googlePasswordManagerAAGUID, CreateTime: created}))
 
-		err := rdb.NewPasskeyRepository(testDB, failingOutbox{}).Delete(ctx, id)
+		err := rdb.NewPasskeyRepository(db, failingOutbox{}).Delete(ctx, id)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Equal(t, 1, stored(t, fan.ID), "the Passkey is still stored")
@@ -261,10 +267,12 @@ func TestPasskeyRepository_Announces(t *testing.T) {
 //
 // @spec components/adapter/fan/api/webhook/login-events "Older notice arrives late"
 func TestLoginEvents_OlderNoticeArrivesLate(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	u, err := repo.Create(ctx, newUniqueUser())
 	require.NoError(t, err)
 	users := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, logger)

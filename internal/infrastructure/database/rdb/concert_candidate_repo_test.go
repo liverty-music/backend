@@ -16,7 +16,7 @@ import (
 // buildConcertCandidate returns a minimal ConcertCandidate for the given artist. It
 // seeds a parent series row (concert_candidates.series_id is a real FK) and points
 // the concert candidate at it.
-func buildConcertCandidate(t *testing.T, artistID string) *entity.ConcertCandidate {
+func buildConcertCandidate(t *testing.T, db *rdb.Database, artistID string) *entity.ConcertCandidate {
 	t.Helper()
 	id := uuid.NewV7().String()
 	localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -25,7 +25,7 @@ func buildConcertCandidate(t *testing.T, artistID string) *entity.ConcertCandida
 	return &entity.ConcertCandidate{
 		ID:              id,
 		ArtistID:        artistID,
-		SeriesID:        seedSeriesOnly(t, "Test Series"),
+		SeriesID:        seedSeriesOnly(t, db, "Test Series"),
 		Title:           "Test Concert",
 		LocalDate:       localDate,
 		ListedVenueName: listedVenue,
@@ -34,22 +34,23 @@ func buildConcertCandidate(t *testing.T, artistID string) *entity.ConcertCandida
 }
 
 // buildConcertCandidateWithPlace returns a ConcertCandidate with a resolved place ID.
-func buildConcertCandidateWithPlace(t *testing.T, artistID, placeID, venueName string) *entity.ConcertCandidate {
+func buildConcertCandidateWithPlace(t *testing.T, db *rdb.Database, artistID, placeID, venueName string) *entity.ConcertCandidate {
 	t.Helper()
-	sc := buildConcertCandidate(t, artistID)
+	sc := buildConcertCandidate(t, db, artistID)
 	sc.ResolvedPlaceID = &placeID
 	sc.ResolvedVenueName = &venueName
 	return sc
 }
 
 func TestConcertCandidateRepository_Upsert_Insert(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
-	cleanDatabase(t)
-	artistID := seedArtist(t, "Stage Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000001")
+	artistID := seedArtist(t, db, "Stage Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000001")
 
-	sc := buildConcertCandidate(t, artistID)
+	sc := buildConcertCandidate(t, db, artistID)
 
 	err := repo.Upsert(ctx, sc)
 	require.NoError(t, err)
@@ -64,15 +65,17 @@ func TestConcertCandidateRepository_Upsert_Insert(t *testing.T) {
 }
 
 func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByListedName(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
 	// Natural key: (artist_id, local_date, listed_venue_name) when resolved_place_id IS NULL.
 	t.Run("refresh by listed name keeps original discovered_at and no duplicate", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Listed Name Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000002")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Listed Name Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000002")
 
-		first := buildConcertCandidate(t, artistID)
+		first := buildConcertCandidate(t, db, artistID)
 		err := repo.Upsert(ctx, first)
 		require.NoError(t, err)
 
@@ -81,7 +84,7 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByListedName(t *tes
 		originalDiscovered := firstRow.DiscoveredTime
 
 		// Upsert again with same (artist, date, listed_venue_name) but different ID + new title.
-		second := buildConcertCandidate(t, artistID)
+		second := buildConcertCandidate(t, db, artistID)
 		second.Title = "Updated Title"
 
 		err = repo.Upsert(ctx, second)
@@ -99,14 +102,16 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByListedName(t *tes
 }
 
 func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByPlaceID(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
 	t.Run("refresh by place id keeps original discovered_at and no duplicate", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Place ID Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000003")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Place ID Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000003")
 
-		first := buildConcertCandidateWithPlace(t, artistID, "place-abc", "Canonical Venue")
+		first := buildConcertCandidateWithPlace(t, db, artistID, "place-abc", "Canonical Venue")
 		err := repo.Upsert(ctx, first)
 		require.NoError(t, err)
 
@@ -115,7 +120,7 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByPlaceID(t *testin
 		originalDiscovered := firstRow.DiscoveredTime
 
 		// Second upsert: same (artist, date, place_id) but new title.
-		second := buildConcertCandidateWithPlace(t, artistID, "place-abc", "Canonical Venue Updated")
+		second := buildConcertCandidateWithPlace(t, db, artistID, "place-abc", "Canonical Venue Updated")
 		second.Title = "Refreshed Title"
 
 		err = repo.Upsert(ctx, second)
@@ -130,14 +135,16 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByPlaceID(t *testin
 }
 
 func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
 	t.Run("resolved place id path", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Place Path Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000004")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Place Path Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000004")
 
-		sc := buildConcertCandidateWithPlace(t, artistID, "place-xyz", "Venue XYZ")
+		sc := buildConcertCandidateWithPlace(t, db, artistID, "place-xyz", "Venue XYZ")
 		err := repo.Upsert(ctx, sc)
 		require.NoError(t, err)
 
@@ -150,10 +157,10 @@ func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {
 	})
 
 	t.Run("null place id fallback path", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Fallback Path Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000005")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Fallback Path Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000005")
 
-		sc := buildConcertCandidate(t, artistID) // no ResolvedPlaceID
+		sc := buildConcertCandidate(t, db, artistID) // no ResolvedPlaceID
 		err := repo.Upsert(ctx, sc)
 		require.NoError(t, err)
 
@@ -165,14 +172,16 @@ func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {
 }
 
 func TestConcertCandidateRepository_Delete(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
 	t.Run("deletes existing row", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Delete Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000006")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Delete Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000006")
 
-		sc := buildConcertCandidate(t, artistID)
+		sc := buildConcertCandidate(t, db, artistID)
 		require.NoError(t, repo.Upsert(ctx, sc))
 
 		err := repo.Delete(ctx, sc.ID)
@@ -183,7 +192,7 @@ func TestConcertCandidateRepository_Delete(t *testing.T) {
 	})
 
 	t.Run("idempotent when row does not exist", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		err := repo.Delete(ctx, uuid.NewV7().String())
 		assert.NoError(t, err)
@@ -191,24 +200,25 @@ func TestConcertCandidateRepository_Delete(t *testing.T) {
 }
 
 func TestConcertCandidateRepository_ListPending_Order(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
-	cleanDatabase(t)
-	artistID := seedArtist(t, "Order Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000007")
+	artistID := seedArtist(t, db, "Order Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000007")
 
 	// Insert three rows with different titles; discovered_at is set by the DB to NOW()
 	// so they will be in insertion order.
-	sc1 := buildConcertCandidate(t, artistID)
+	sc1 := buildConcertCandidate(t, db, artistID)
 	sc1.Title = "First"
 	require.NoError(t, repo.Upsert(ctx, sc1))
 
-	sc2 := buildConcertCandidate(t, artistID)
+	sc2 := buildConcertCandidate(t, db, artistID)
 	sc2.Title = "Second"
 	sc2.LocalDate = sc2.LocalDate.AddDate(0, 0, 1) // different date to avoid natural-key conflict
 	require.NoError(t, repo.Upsert(ctx, sc2))
 
-	sc3 := buildConcertCandidate(t, artistID)
+	sc3 := buildConcertCandidate(t, db, artistID)
 	sc3.Title = "Third"
 	sc3.LocalDate = sc3.LocalDate.AddDate(0, 0, 2)
 	require.NoError(t, repo.Upsert(ctx, sc3))
@@ -223,38 +233,39 @@ func TestConcertCandidateRepository_ListPending_Order(t *testing.T) {
 }
 
 func TestConcertCandidateRepository_GetByID_NotFound(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
-
-	cleanDatabase(t)
 
 	_, err := repo.GetByID(ctx, uuid.NewV7().String())
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestConcertCandidateRepository_ListPendingDedupKeysByArtist(t *testing.T) {
-	repo := rdb.NewConcertCandidateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertCandidateRepository(db)
 	ctx := context.Background()
 
-	cleanDatabase(t)
-	artistA := seedArtist(t, "Artist A", "aaaaaaaa-aaaa-aaaa-aaaa-100000000008")
-	artistB := seedArtist(t, "Artist B", "aaaaaaaa-aaaa-aaaa-aaaa-100000000009")
+	artistA := seedArtist(t, db, "Artist A", "aaaaaaaa-aaaa-aaaa-aaaa-100000000008")
+	artistB := seedArtist(t, db, "Artist B", "aaaaaaaa-aaaa-aaaa-aaaa-100000000009")
 
 	date1 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	date2 := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 
 	// Artist A — two concert candidates.
 	scA1 := &entity.ConcertCandidate{
-		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, "Series A1"), Title: "Show 1",
+		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, db, "Series A1"), Title: "Show 1",
 		LocalDate: date1, ListedVenueName: "Venue Alpha",
 	}
 	scA2 := &entity.ConcertCandidate{
-		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, "Series A2"), Title: "Show 2",
+		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, db, "Series A2"), Title: "Show 2",
 		LocalDate: date2, ListedVenueName: "Venue Beta",
 	}
 	// Artist B — one concert candidate.
 	scB1 := &entity.ConcertCandidate{
-		ID: uuid.NewV7().String(), ArtistID: artistB, SeriesID: seedSeriesOnly(t, "Series B1"), Title: "Show B",
+		ID: uuid.NewV7().String(), ArtistID: artistB, SeriesID: seedSeriesOnly(t, db, "Series B1"), Title: "Show B",
 		LocalDate: date1, ListedVenueName: "Venue Gamma",
 	}
 	require.NoError(t, repo.Upsert(ctx, scA1))

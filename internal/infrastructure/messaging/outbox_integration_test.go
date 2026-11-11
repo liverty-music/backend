@@ -3,8 +3,6 @@ package messaging_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/testutil"
 )
 
 // insertCounter counts the INSERT statements a connection sends to the
@@ -33,32 +32,18 @@ func (c *insertCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data p
 
 func (c *insertCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-// connectTestDB connects to the integration-test PostgreSQL (the compose
-// service, or TEST_DB_PORT / TEST_DB_NAME) with the app search path.
+// connectTestDB connects to a database of the test's own (see
+// [testutil.NewDatabase]) with the app search path, so the rows the test
+// reads are only the rows it recorded.
 func connectTestDB(t *testing.T, tracer pgx.QueryTracer) *pgx.Conn {
 	t.Helper()
-	port, name := testDBPortAndName()
-	cfg, err := pgx.ParseConfig(fmt.Sprintf("postgres://test-user@localhost:%s/%s?sslmode=disable&search_path=app,public", port, name))
+	cfg, err := pgx.ParseConfig(testutil.NewDatabase(t).URL("app,public"))
 	require.NoError(t, err)
 	cfg.Tracer = tracer
 	conn, err := pgx.ConnectConfig(context.Background(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	return conn
-}
-
-// testDBPortAndName returns the port and database of the integration-test
-// PostgreSQL: TEST_DB_PORT and TEST_DB_NAME when set, else the compose
-// service's 15432 and test-db.
-func testDBPortAndName() (string, string) {
-	port, name := os.Getenv("TEST_DB_PORT"), os.Getenv("TEST_DB_NAME")
-	if port == "" {
-		port = "15432"
-	}
-	if name == "" {
-		name = "test-db"
-	}
-	return port, name
 }
 
 // envelope is the part of the forwarder envelope a row holds that the test

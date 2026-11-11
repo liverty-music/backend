@@ -49,9 +49,8 @@ type firstComeStory struct {
 	stockRepo *rdb.TicketStockRepository
 }
 
-// newFirstComeStory skips unless the Stripe test API and the local database
-// are available, and seeds the Organizer's event as newLotteryStory does.
-func newFirstComeStory(t *testing.T) *firstComeStory {
+// newFirstComeStory skips unless the Stripe test API is available, and seeds the Organizer's event as newLotteryStory does.
+func newFirstComeStory(t *testing.T, db *rdb.Database) *firstComeStory {
 	t.Helper()
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
@@ -60,22 +59,22 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 	if !strings.HasPrefix(key, "sk_test_") && !strings.HasPrefix(key, "rk_test_") {
 		t.Skip("STRIPE_SECRET_KEY must be a test-mode key (sk_test_… or rk_test_…)")
 	}
-	s := &firstComeStory{lotteryStory: newLotteryStory(t), key: key, stockRepo: rdb.NewTicketStockRepository(testDB)}
+	s := &firstComeStory{lotteryStory: newLotteryStory(t, db), key: key, stockRepo: rdb.NewTicketStockRepository(db)}
 	logger, err := logging.New()
 	require.NoError(t, err)
 	clock := usecase.Clock(func() time.Time { return s.now })
-	eventState := rdb.NewEventPublishStateRepository(testDB)
-	eventRepo := rdb.NewEventRepository(testDB)
+	eventState := rdb.NewEventPublishStateRepository(db)
+	eventRepo := rdb.NewEventRepository(db)
 	stripeCards := payment.NewStripeCardAuthorizationProvider(key, payment.CheckoutCardAuthorizationPolicy, logger)
 	// The worker captures and releases the checkouts' card authorizations
 	// through the Stripe test API.
 	s.checkoutCards.other = stripeCards
-	checkoutCards := rdb.NewCardAuthorizationRepository(testDB, stripeCards)
+	checkoutCards := rdb.NewCardAuthorizationRepository(db, stripeCards)
 	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		OrderRepo:                s.orderRepo,
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
-		TicketSaleRepo:           rdb.NewTicketSaleRepository(testDB, testOutbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
+		CheckoutRepo:             rdb.NewCheckoutRepository(db, testOutbox),
+		TicketSaleRepo:           rdb.NewTicketSaleRepository(db, testOutbox),
 		StockRepo:                s.stockRepo,
 		EventState:               eventState,
 		CardAuthorizations:       checkoutCards,
@@ -84,13 +83,13 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		Logger:                   logger,
 	})
 	s.checkouts = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo:             rdb.NewCheckoutRepository(testDB, testOutbox),
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
+		CheckoutRepo:             rdb.NewCheckoutRepository(db, testOutbox),
+		SaleRepo:                 rdb.NewTicketSaleRepository(db, testOutbox),
 		StockRepo:                s.stockRepo,
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
+		EntryRepo:                rdb.NewLotteryEntryRepository(db, testOutbox),
 		OrderRepo:                s.orderRepo,
 		UserRepo:                 s.userRepo,
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
 		EventState:               eventState,
 		EventRepo:                eventRepo,
 		CardAuthorizations:       checkoutCards,
@@ -98,8 +97,8 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 		Logger:                   logger,
 	})
 	s.resale = usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-		Listings:   rdb.NewResaleListingRepository(testDB, testOutbox),
-		Tickets:    rdb.NewTicketRepository(testDB, testOutbox),
+		Listings:   rdb.NewResaleListingRepository(db, testOutbox),
+		Tickets:    rdb.NewTicketRepository(db, testOutbox),
 		Orders:     s.orderRepo,
 		Stocks:     s.stockRepo,
 		EventState: eventState,
@@ -113,7 +112,7 @@ func newFirstComeStory(t *testing.T) *firstComeStory {
 // paymentIntent reads a PaymentIntent from the Stripe test API.
 func (s *firstComeStory) paymentIntent(cardAuthorizationID string) *stripe.PaymentIntent {
 	s.t.Helper()
-	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, cardAuthorizationID), nil)
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, s.db, cardAuthorizationID), nil)
 	require.NoError(s.t, err)
 	return pi
 }
@@ -163,7 +162,7 @@ func (s *firstComeStory) authorizeCheckout(checkout *entity.Checkout, fan entity
 	require.NoError(s.t, err)
 	id := got.Order.CardAuthorizationID
 	require.NotEmpty(s.t, id)
-	confirmCardAuthorization(s.t, s.key, providerCardAuthorizationID(s.t, id))
+	confirmCardAuthorization(s.t, s.db, s.key, providerCardAuthorizationID(s.t, s.db, id))
 	return id
 }
 
@@ -223,8 +222,10 @@ func (s *firstComeStory) assertTicketsOf(fan entity.UserID, stockID entity.Ticke
 }
 
 func TestFirstComeStory_TwoTicketsBought(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Two tickets bought"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -255,8 +256,10 @@ func TestFirstComeStory_TwoTicketsBought(t *testing.T) {
 }
 
 func TestFirstComeStory_LastTicketTwoFans(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Last ticket, two fans"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 1)
 	s.openFirstCome()
 
@@ -296,15 +299,17 @@ func TestFirstComeStory_LastTicketTwoFans(t *testing.T) {
 }
 
 func TestFirstComeStory_PresaleWinnersLeaveTheRest(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Presale winners leave the rest"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 
 	// -- a lottery presale of the event in which 120 tickets were won: Paid
 	//    Orders of Won entries stand in for the drawn and issued wins --
 	presaleEnd := storyWindowStart.Add(2 * 24 * time.Hour)
 	presale := s.createLottery("先行抽選", storyWindowStart, presaleEnd)
-	setStockSold(t, &stockFixture{ID: stock.ID, SaleID: presale, EventID: s.eventID,
+	setStockSold(t, db, &stockFixture{ID: stock.ID, SaleID: presale, EventID: s.eventID,
 		SeatType: &entity.SeatType{ID: stock.SeatTypeID, Price: 3000}, Quantity: 150}, 120)
 
 	// -- the first-come general sale opens a day after the presale --
@@ -338,8 +343,10 @@ func TestFirstComeStory_PresaleWinnersLeaveTheRest(t *testing.T) {
 }
 
 func TestFirstComeStory_HoldRanOut(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Hold ran out"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -360,14 +367,16 @@ func TestFirstComeStory_HoldRanOut(t *testing.T) {
 	pi = s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived, "the fan is not charged")
-	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, checkout.OrderID))
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, db, checkout.OrderID))
 	assert.Empty(t, s.eventTickets(fan))
 }
 
 func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Double tap everywhere"
 	// @spec components/usecase/order/issue "Placed checkout"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -414,10 +423,12 @@ func TestFirstComeStory_DoubleTapEverywhere(t *testing.T) {
 }
 
 func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/buy-tickets-first-come "Fan closes the tab"
 	// @spec components/usecase/checkout/expire "Fan walked away"
 	// @spec components/usecase/order/release-card-authorization "Hold expired"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -437,15 +448,17 @@ func TestFirstComeStory_FanClosesTheTab(t *testing.T) {
 	expired, err := s.checkouts.Get(s.ctx, fan, checkout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.CheckoutStatusExpired, expired.Status)
-	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, checkout.OrderID))
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, db, checkout.OrderID))
 	pi := s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived)
 }
 
 func TestFirstComeStory_CountChangedAfterAuthorizing(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec components/usecase/order/release-card-authorization "Count changed after authorizing"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -461,7 +474,7 @@ func TestFirstComeStory_CountChangedAfterAuthorizing(t *testing.T) {
 	pi := s.paymentIntent(authorization)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the card authorization is released")
 	assert.Zero(t, pi.AmountReceived)
-	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, two.OrderID))
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, db, two.OrderID))
 	got, err := s.checkouts.Get(s.ctx, fan, three.ID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.CheckoutStatusHeld, got.Status, "the new hold lasts")
@@ -473,7 +486,9 @@ func TestFirstComeStory_CountChangedAfterAuthorizing(t *testing.T) {
 // the lottery presale buys 2 more S席 tickets first come in the general sale,
 // up to the event's limit of 4, and a fifth is refused.
 func TestFirstComeStory_PresaleWinnerTopsUpInTheGeneralSale(t *testing.T) {
-	s := newFirstComeStory(t)
+	t.Parallel()
+	db := newTestDB(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	fan := s.newFan()
 	presaleEnd := s.winPresale(stock, fan, 2)
@@ -503,7 +518,9 @@ func TestFirstComeStory_PresaleWinnerTopsUpInTheGeneralSale(t *testing.T) {
 // who bought S席 first come cannot hold A席 of the same event, while another
 // fan can.
 func TestFirstComeStory_SecondSeatTypeRefused(t *testing.T) {
-	s := newFirstComeStory(t)
+	t.Parallel()
+	db := newTestDB(t)
+	s := newFirstComeStory(t, db)
 	sSeat := s.stock("S席", 5000, 150)
 	aSeat := s.stock("A席", 3000, 150)
 	s.openFirstCome()

@@ -15,9 +15,9 @@ import (
 )
 
 // followArtist records that userID follows artistID.
-func followArtist(t *testing.T, userID, artistID string) {
+func followArtist(t *testing.T, db *rdb.Database, userID, artistID string) {
 	t.Helper()
-	_, err := testDB.Pool.Exec(context.Background(),
+	_, err := db.Pool.Exec(context.Background(),
 		"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
 		userID, artistID,
 	)
@@ -25,10 +25,10 @@ func followArtist(t *testing.T, userID, artistID string) {
 }
 
 // officialSiteCheckTime reads artists.official_site_checked_at for artistID.
-func officialSiteCheckTime(t *testing.T, artistID string) *time.Time {
+func officialSiteCheckTime(t *testing.T, db *rdb.Database, artistID string) *time.Time {
 	t.Helper()
 	var checkedAt *time.Time
-	err := testDB.Pool.QueryRow(context.Background(),
+	err := db.Pool.QueryRow(context.Background(),
 		"SELECT official_site_checked_at FROM artists WHERE id = $1", artistID,
 	).Scan(&checkedAt)
 	require.NoError(t, err)
@@ -44,21 +44,20 @@ func artistNames(artists []*entity.Artist) []string {
 }
 
 func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 	const age = 7 * 24 * time.Hour
 
 	// @spec components/entity/artist/list-stale-official-site "Never-checked and stale artists"
 	t.Run("Never-checked and stale artists", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-stale@example.com", "ext-fan-stale")
-		staleID := seedArtist(t, "Stale", "51000000-0000-0000-0000-00000000aa01")
-		neverID := seedArtist(t, "Never", "51000000-0000-0000-0000-00000000aa02")
-		followArtist(t, userID, staleID)
-		followArtist(t, userID, neverID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-stale@example.com", "ext-fan-stale")
+		staleID := seedArtist(t, db, "Stale", "51000000-0000-0000-0000-00000000aa01")
+		neverID := seedArtist(t, db, "Never", "51000000-0000-0000-0000-00000000aa02")
+		followArtist(t, db, userID, staleID)
+		followArtist(t, db, userID, neverID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, staleID, time.Now().Add(-8*24*time.Hour)))
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
@@ -73,10 +72,10 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-official-site "Recently checked artist"
 	t.Run("Recently checked artist", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-recent@example.com", "ext-fan-recent")
-		artistID := seedArtist(t, "Recent", "52000000-0000-0000-0000-00000000aa01")
-		followArtist(t, userID, artistID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-recent@example.com", "ext-fan-recent")
+		artistID := seedArtist(t, db, "Recent", "52000000-0000-0000-0000-00000000aa01")
+		followArtist(t, db, userID, artistID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, artistID, time.Now().Add(-2*24*time.Hour)))
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
@@ -87,12 +86,12 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-official-site "Followed artist without an official site"
 	t.Run("Followed artist without an official site", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-nosite@example.com", "ext-fan-nosite")
-		withSiteID := seedArtist(t, "With Site", "53000000-0000-0000-0000-00000000aa01")
-		noSiteID := seedArtist(t, "No Site", "53000000-0000-0000-0000-00000000aa02")
-		followArtist(t, userID, withSiteID)
-		followArtist(t, userID, noSiteID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-nosite@example.com", "ext-fan-nosite")
+		withSiteID := seedArtist(t, db, "With Site", "53000000-0000-0000-0000-00000000aa01")
+		noSiteID := seedArtist(t, db, "No Site", "53000000-0000-0000-0000-00000000aa02")
+		followArtist(t, db, userID, withSiteID)
+		followArtist(t, db, userID, noSiteID)
 		require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(withSiteID, "https://example.com/")))
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
@@ -103,13 +102,13 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-official-site "Artist nobody follows"
 	t.Run("Artist nobody follows", func(t *testing.T) {
-		cleanDatabase(t)
-		user1 := seedUser(t, "Fan 1", "fan-1@example.com", "ext-fan-1")
-		user2 := seedUser(t, "Fan 2", "fan-2@example.com", "ext-fan-2")
-		followedID := seedArtist(t, "Followed Twice", "54000000-0000-0000-0000-00000000aa01")
-		seedArtist(t, "Unfollowed", "54000000-0000-0000-0000-00000000aa02")
-		followArtist(t, user1, followedID)
-		followArtist(t, user2, followedID)
+		cleanTables(t, db)
+		user1 := seedUser(t, db, "Fan 1", "fan-1@example.com", "ext-fan-1")
+		user2 := seedUser(t, db, "Fan 2", "fan-2@example.com", "ext-fan-2")
+		followedID := seedArtist(t, db, "Followed Twice", "54000000-0000-0000-0000-00000000aa01")
+		seedArtist(t, db, "Unfollowed", "54000000-0000-0000-0000-00000000aa02")
+		followArtist(t, db, user1, followedID)
+		followArtist(t, db, user2, followedID)
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
 
@@ -120,11 +119,11 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-official-site "More due artists than the limit"
 	t.Run("More due artists than the limit", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-limit@example.com", "ext-fan-limit")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-limit@example.com", "ext-fan-limit")
 		for i := range 30 {
-			artistID := seedArtist(t, fmt.Sprintf("Due %02d", i), fmt.Sprintf("55000000-0000-0000-0000-0000000000%02d", i))
-			followArtist(t, userID, artistID)
+			artistID := seedArtist(t, db, fmt.Sprintf("Due %02d", i), fmt.Sprintf("55000000-0000-0000-0000-0000000000%02d", i))
+			followArtist(t, db, userID, artistID)
 		}
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 20)
@@ -135,10 +134,10 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-official-site "Nothing due"
 	t.Run("Nothing due", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-none@example.com", "ext-fan-none")
-		artistID := seedArtist(t, "Fresh", "56000000-0000-0000-0000-00000000aa01")
-		followArtist(t, userID, artistID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-none@example.com", "ext-fan-none")
+		artistID := seedArtist(t, db, "Fresh", "56000000-0000-0000-0000-00000000aa01")
+		followArtist(t, db, userID, artistID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, artistID, time.Now()))
 
 		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
@@ -150,16 +149,15 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/artist/update-official-site-url "Artist with a site"
 	t.Run("Artist with a site", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "羊文学", "61000000-0000-0000-0000-00000000aa01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "羊文学", "61000000-0000-0000-0000-00000000aa01")
 		site := entity.NewOfficialSite(artistID, "http://hitsujibungaku.jimdo.com/")
 		require.NoError(t, repo.CreateOfficialSite(ctx, site))
 
@@ -175,8 +173,8 @@ func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
 
 	// @spec components/entity/artist/update-official-site-url "Artist without a site"
 	t.Run("Artist without a site", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "No Site", "61000000-0000-0000-0000-00000000aa02")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "No Site", "61000000-0000-0000-0000-00000000aa02")
 
 		err := repo.UpdateOfficialSiteURL(ctx, artistID, "https://example.com/")
 
@@ -186,7 +184,7 @@ func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
 	})
 
 	t.Run("unknown artist fails with NotFound", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		err := repo.UpdateOfficialSiteURL(ctx, entity.NewID(), "https://example.com/")
 
@@ -195,8 +193,8 @@ func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
 
 	// @spec components/entity/artist/update-official-site-url "Invalid URL"
 	t.Run("Invalid URL", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Long URL", "61000000-0000-0000-0000-00000000aa03")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Long URL", "61000000-0000-0000-0000-00000000aa03")
 		require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, "https://example.com/")))
 		overlong := "https://example.com/" + strings.Repeat("a", 2049)
 
@@ -210,16 +208,15 @@ func TestArtistRepository_UpdateOfficialSiteURL(t *testing.T) {
 }
 
 func TestArtistRepository_MarkOfficialSiteChecked(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/artist/mark-official-site-checked "Artist checked"
 	t.Run("Artist checked", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Checked", "71000000-0000-0000-0000-00000000aa01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Checked", "71000000-0000-0000-0000-00000000aa01")
 		require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, "https://example.com/")))
 		checkTime := time.Date(2026, 10, 5, 19, 0, 0, 0, time.UTC)
 
@@ -234,20 +231,20 @@ func TestArtistRepository_MarkOfficialSiteChecked(t *testing.T) {
 
 	// @spec components/entity/artist/mark-official-site-checked "Artist without an official site"
 	t.Run("Artist without an official site", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "No Site", "71000000-0000-0000-0000-00000000aa02")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "No Site", "71000000-0000-0000-0000-00000000aa02")
 
 		err := repo.MarkOfficialSiteChecked(ctx, artistID, time.Now())
 
 		require.NoError(t, err)
-		assert.NotNil(t, officialSiteCheckTime(t, artistID))
+		assert.NotNil(t, officialSiteCheckTime(t, db, artistID))
 		_, err = repo.GetOfficialSite(ctx, artistID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	// @spec components/entity/artist/mark-official-site-checked "Unknown artist"
 	t.Run("Unknown artist", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		err := repo.MarkOfficialSiteChecked(ctx, entity.NewID(), time.Now())
 

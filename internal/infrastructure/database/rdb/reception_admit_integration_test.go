@@ -23,13 +23,14 @@ import (
 	"uuid"
 )
 
+// receptionTestRole is a login role named like the reception-api Cloud SQL
+// IAM user, so the reception grant migration applies to it. Roles belong to
+// the whole server: the project part is new on every run, so a role another
+// run left behind never blocks this one.
+var receptionTestRole = "reception-api@admit-test-" + uuid.NewV7().String()[24:] + ".iam"
+
 const (
 	integrationAdmitProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Admit"
-
-	// receptionTestRole is a login role named like the reception-api Cloud
-	// SQL IAM user, so the reception grant migration applies to it. It differs
-	// from the grants test's role because roles are cluster-wide.
-	receptionTestRole = "reception-api@admit-test.iam"
 
 	// receptionGrantMigration grants the reception-api role its reads and
 	// writes.
@@ -43,16 +44,20 @@ const (
 // connectAsReceptionRole returns a connection to the test database as a role
 // holding only what the reception grant migrations give reception-api, so a
 // reception path that needs a missing grant fails here rather than at the
-// door. Seeding and assertions keep using testDB.
-func connectAsReceptionRole(t *testing.T) *rdb.Database {
+// door. Seeding and assertions keep using db.
+func connectAsReceptionRole(t *testing.T, db *rdb.Database) *rdb.Database {
 	t.Helper()
 	ctx := context.Background()
 	role := pgx.Identifier{receptionTestRole}.Sanitize()
+	// Held until the role is dropped (cleanups run last first): a migration
+	// applied elsewhere meanwhile would grant to the role, and it could then
+	// not be dropped.
+	testutil.LockMigrations(t)
 
 	var exists bool
-	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, receptionTestRole).Scan(&exists))
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, receptionTestRole).Scan(&exists))
 	if !exists {
-		_, err := testDB.Pool.Exec(ctx, "CREATE ROLE "+role+" LOGIN")
+		_, err := db.Pool.Exec(ctx, "CREATE ROLE "+role+" LOGIN")
 		require.NoError(t, err)
 	}
 	migration, err := os.ReadFile(receptionGrantMigration)
@@ -68,19 +73,19 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 		"(status, bound_public_key, bound_at, token) ON reception_links", "(status, bound_public_key, bound_at, link_token) ON scanners",
 		"reception_links", "scanners",
 	).Replace(string(migration))
-	_, err = testDB.Pool.Exec(ctx, grants)
+	_, err = db.Pool.Exec(ctx, grants)
 	require.NoError(t, err)
 	outboxGrant, err := os.ReadFile(outboxGrantMigration)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx, string(outboxGrant))
+	_, err = db.Pool.Exec(ctx, string(outboxGrant))
 	require.NoError(t, err)
 
 	logger, err := logging.New()
 	require.NoError(t, err)
-	db, err := rdb.New(ctx, config.DatabaseConfig{
+	roleDB, err := rdb.New(ctx, config.DatabaseConfig{
 		Host:              "localhost",
-		Port:              testDBPort(),
-		Name:              testDBName(),
+		Port:              testutil.DatabasePort(),
+		Name:              databaseOf(t, db).Name,
 		User:              receptionTestRole,
 		SSLMode:           "disable",
 		Schema:            "app",
@@ -92,36 +97,37 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 	}, true, logger)
 	require.NoError(t, err)
 	t.Cleanup(func() {
+		assert.NoError(t, roleDB.Close())
 		ctx := context.Background()
-		assert.NoError(t, db.Close())
-		_, err := testDB.Pool.Exec(ctx, "DROP OWNED BY "+role)
+		_, err := db.Pool.Exec(ctx, "DROP OWNED BY "+role)
 		assert.NoError(t, err)
-		_, err = testDB.Pool.Exec(ctx, "DROP ROLE "+role)
+		_, err = db.Pool.Exec(ctx, "DROP ROLE "+role)
 		assert.NoError(t, err)
 	})
-	return db
+	return roleDB
 }
 
 // TestTicketUseCase_Admit_Integration runs TicketUseCase.Admit against the
 // real store, connected as the reception-api role: the same fan code scanned
 // at two entrances at once, and a ticket presented again later.
 func TestTicketUseCase_Admit_Integration(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	// Not parallel: the role connectAsReceptionRole creates belongs to the
+	// whole server and has one name in this run, which
+	// TestScannerUseCase_Open_Integration creates and drops too.
+	db := newTestDB(t)
 	ctx := context.Background()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	receptionDB := connectAsReceptionRole(t)
+	receptionDB := connectAsReceptionRole(t, db)
 	uc := usecase.NewTicketUseCase(
 		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB, testOutbox), rdb.NewScannerRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
 		rdb.NewRejectedScanRepository(receptionDB), logger,
 	)
 	// Seeding runs as the test superuser.
-	scannerRepo := rdb.NewScannerRepository(testDB)
-	keyRepo := rdb.NewWalletPublicKeyRepository(testDB)
+	scannerRepo := rdb.NewScannerRepository(db)
+	keyRepo := rdb.NewWalletPublicKeyRepository(db)
 
 	// setup seeds an event opening 18:00 / starting 19:00 on 2026-11-20, a
 	// fan holding n tickets with a registered wallet key, and two scanners
@@ -136,17 +142,17 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 	}
 	setup := func(t *testing.T, n int) *stage {
 		t.Helper()
-		cleanDatabase(t)
-		s := &stage{eventID: seedAdmissionEvent(t), fan: testutil.NewDeviceKey(t)}
-		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
+		cleanTables(t, db)
+		s := &stage{eventID: seedAdmissionEvent(t, db), fan: testutil.NewDeviceKey(t)}
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
-		s.fanID = entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-		s.tickets = seedIssuedTickets(t, s.eventID, string(s.fanID), n)
+		s.fanID = entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+		s.tickets = seedIssuedTickets(t, db, s.eventID, string(s.fanID), n)
 		_, _, err = keyRepo.Register(ctx, s.fanID, s.fan.PublicKey(t), nov20(9, 0))
 		require.NoError(t, err)
 		for i := range 2 {
 			s.staff[i] = testutil.NewDeviceKey(t)
-			scanner := seedScanner(t, s.eventID)
+			scanner := seedScanner(t, db, s.eventID)
 			_, bound, err := scannerRepo.BindDevice(ctx, scanner.ID, s.staff[i].PublicKey(t), nov20(14, 0))
 			require.NoError(t, err)
 			bound.LinkToken = scanner.LinkToken
@@ -198,8 +204,8 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		assert.Equal(t, 2, already, "and rejected as AlreadyAdmitted through the other")
 
 		var admissions, rejections int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM admissions WHERE event_id = $1`, s.eventID).Scan(&admissions))
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM rejected_scans WHERE event_id = $1 AND reason = 6`, s.eventID).Scan(&rejections))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM admissions WHERE event_id = $1`, s.eventID).Scan(&admissions))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM rejected_scans WHERE event_id = $1 AND reason = 6`, s.eventID).Scan(&rejections))
 		assert.Equal(t, 2, admissions)
 		assert.Equal(t, 2, rejections)
 	})
@@ -222,7 +228,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 
 		var reason int16
 		var scannerID string
-		require.NoError(t, testDB.Pool.QueryRow(ctx,
+		require.NoError(t, db.Pool.QueryRow(ctx,
 			`SELECT reason, scanner_id FROM rejected_scans WHERE ticket_id = $1`, string(s.tickets[0])).Scan(&reason, &scannerID))
 		assert.Equal(t, int16(entity.RejectedScanReasonAlreadyAdmitted), reason)
 		assert.Equal(t, string(s.scanners[1].ID), scannerID)
@@ -235,20 +241,18 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 // is told the scanner is in use on another device (FailedPrecondition), never
 // PermissionDenied.
 func TestScannerUseCase_Open_Integration(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	// Not parallel: see TestTicketUseCase_Admit_Integration.
+	db := newTestDB(t)
 	ctx := context.Background()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
-	cleanDatabase(t)
-	eventID := seedAdmissionEvent(t)
-	_, err = testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
+	eventID := seedAdmissionEvent(t, db)
+	_, err = db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
 	require.NoError(t, err)
-	scanner := seedScanner(t, eventID)
-	receptionDB := connectAsReceptionRole(t)
+	scanner := seedScanner(t, db, eventID)
+	receptionDB := connectAsReceptionRole(t, db)
 	uc := usecase.NewScannerUseCase(rdb.NewScannerRepository(receptionDB), rdb.NewEventRepository(receptionDB),
 		rdb.NewEventOrganizerRepository(receptionDB), rdb.NewEventPublishStateRepository(receptionDB), logger)
 

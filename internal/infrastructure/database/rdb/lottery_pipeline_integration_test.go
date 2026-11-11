@@ -36,6 +36,8 @@ import (
 // STRIPE_INTEGRATION_TEST=1, a test-mode key, and a local DB. make check / CI
 // skip it.
 func TestLotteryPipeline_Integration(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -43,37 +45,34 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	if !strings.HasPrefix(key, "sk_test_") && !strings.HasPrefix(key, "rk_test_") {
 		t.Skip("STRIPE_SECRET_KEY must be a test-mode key (sk_test_… or rk_test_…)")
 	}
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
 
 	ctx := context.Background()
 	logger, _ := logging.New()
 
-	entryRepo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
-	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
-	stripePort := rdb.NewCardAuthorizationRepository(testDB, payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, logger))
+	entryRepo := rdb.NewLotteryEntryRepository(db, testOutbox)
+	orderRepo := orderRepository(t, rdb.NewOrderRepository(db))
+	stripePort := rdb.NewCardAuthorizationRepository(db, payment.NewStripeCardAuthorizationProvider(key, payment.LotteryCardAuthorizationPolicy, logger))
 
 	// -- a Lottery sale of a stock of 2 tickets, so 3 single-ticket entries force one loss --
 	const (
 		quantity = 2
 		entrants = 3
 	)
-	f := seedStock(t, entity.TicketSaleMethodLottery, quantity, 1)
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, quantity, 1)
 	// The entry is stored only before the end time by the database clock, so
 	// the window is placed around it and the use case reads the same time.
-	setSaleEndByDatabaseClock(t, f.SaleID, 24*time.Hour)
+	setSaleEndByDatabaseClock(t, db, f.SaleID, 24*time.Hour)
 	now := time.Now()
-	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, stripePort, func() time.Time { return now }, logger))
+	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, db, stripePort, func() time.Time { return now }, logger))
 
 	// enter authorizes one fan's card, completes card authentication and
 	// confirms the entry.
 	enter := func() entity.LotteryEntryID {
 		t.Helper()
-		userID := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+		userID := entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		authorization, err := uc.AuthorizeCard(ctx, f.SaleID, f.ID, userID, 1, "Test Fan", "+819012345678", nil)
 		require.NoError(t, err)
-		confirmCardAuthorization(t, key, authorization.ID) // → requires_capture
+		confirmCardAuthorization(t, db, key, authorization.ID) // → requires_capture
 		entered, err := uc.Confirm(ctx, authorization.ID, &userID)
 		require.NoError(t, err)
 		require.Equal(t, entity.LotteryEntryStateEntered, entered.State)
@@ -84,7 +83,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		entryIDs = append(entryIDs, enter())
 	}
 	// A 4th fan authorizes but never completes card authentication.
-	abandonedFan := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+	abandonedFan := entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 	abandoned, err := uc.AuthorizeCard(ctx, f.SaleID, f.ID, abandonedFan, 1, "Test Fan", "+819012345678", nil)
 	require.NoError(t, err)
 
@@ -92,14 +91,14 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	_, err = uc.Draw(ctx, inlineFlow{}, f.SaleID)
 	require.NoError(t, err)
 	orders := usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:             rdb.NewIssuanceRepository(testDB, testOutbox),
+		IssuanceRepo:             rdb.NewIssuanceRepository(db, testOutbox),
 		OrderRepo:                orderRepo,
 		EntryRepo:                entryRepo,
-		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
-		OrganizerRepo:            rdb.NewOrganizerRepository(testDB, testOutbox),
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
-		TicketSaleRepo:           rdb.NewTicketSaleRepository(testDB, testOutbox),
-		StockRepo:                rdb.NewTicketStockRepository(testDB),
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
+		OrganizerRepo:            rdb.NewOrganizerRepository(db, testOutbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
+		TicketSaleRepo:           rdb.NewTicketSaleRepository(db, testOutbox),
+		StockRepo:                rdb.NewTicketStockRepository(db),
 		CardAuthorizations:       stripePort,
 		Clock:                    func() time.Time { return now },
 		Logger:                   logger,
@@ -124,12 +123,12 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		switch e.State {
 		case entity.LotteryEntryStateWon:
 			won++
-			assert.Equal(t, stripe.PaymentIntentStatusSucceeded, piStatus(t, key, e.Order.CardAuthorizationID),
+			assert.Equal(t, stripe.PaymentIntentStatusSucceeded, piStatus(t, db, key, e.Order.CardAuthorizationID),
 				"winner PaymentIntent must be captured (succeeded)")
 			assert.Equal(t, entity.OrderStatusPaid, e.Order.Status, "a winner's Order is issued")
 		case entity.LotteryEntryStateLost:
 			lost++
-			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, e.Order.CardAuthorizationID),
+			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, db, key, e.Order.CardAuthorizationID),
 				"loser PaymentIntent must be released (canceled)")
 			assert.NotNil(t, e.DrawPosition, "loser must carry a draw position")
 			assert.Equal(t, entity.OrderStatusVoid, e.Order.Status, "a loser's Order is Void")
@@ -146,7 +145,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	held, err := orderRepo.GetHeldForEvent(ctx, abandonedFan, f.EventID, nil, now)
 	require.NoError(t, err)
 	assert.Zero(t, held.Count, "a fan who never authenticated holds nothing")
-	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, piStatus(t, key, abandoned.ID),
+	assert.Equal(t, stripe.PaymentIntentStatusRequiresPaymentMethod, piStatus(t, db, key, abandoned.ID),
 		"the unauthenticated card authorization holds nothing")
 
 	entered, err := entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, f.SaleID, f.ID)
@@ -176,17 +175,17 @@ func (inlineFlow) DeprecatePatch(context.Context, string) error { return nil }
 
 // lotteryEntryDeps wires the lottery entry use case over the real
 // repositories, with the given card authorizations, publisher and clock.
-func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationRepository, clock usecase.Clock, logger *logging.Logger) usecase.LotteryEntryDeps {
+func lotteryEntryDeps(t *testing.T, db *rdb.Database, cardAuthorizations entity.CardAuthorizationRepository, clock usecase.Clock, logger *logging.Logger) usecase.LotteryEntryDeps {
 	t.Helper()
 	return usecase.LotteryEntryDeps{
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
-		StockRepo:                rdb.NewTicketStockRepository(testDB),
-		EntryRepo:                rdb.NewLotteryEntryRepository(testDB, testOutbox),
-		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(testDB)),
-		EventRepo:                rdb.NewEventRepository(testDB),
-		EventState:               rdb.NewEventPublishStateRepository(testDB),
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
-		UserRepo:                 rdb.NewUserRepository(testDB, testOutbox),
+		SaleRepo:                 rdb.NewTicketSaleRepository(db, testOutbox),
+		StockRepo:                rdb.NewTicketStockRepository(db),
+		EntryRepo:                rdb.NewLotteryEntryRepository(db, testOutbox),
+		OrderRepo:                orderRepository(t, rdb.NewOrderRepository(db)),
+		EventRepo:                rdb.NewEventRepository(db),
+		EventState:               rdb.NewEventPublishStateRepository(db),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
+		UserRepo:                 rdb.NewUserRepository(db, testOutbox),
 		CardAuthorizations:       cardAuthorizations,
 		Clock:                    clock,
 		Logger:                   logger,
@@ -196,10 +195,10 @@ func lotteryEntryDeps(t *testing.T, cardAuthorizations entity.CardAuthorizationR
 // confirmCardAuthorization drives a freshly-created manual-capture PaymentIntent to
 // requires_capture using a non-3DS test card, standing in for the fan's
 // in-browser 3DS confirmation.
-func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
+func confirmCardAuthorization(t *testing.T, db *rdb.Database, key, cardAuthorizationID string) {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), &stripe.PaymentIntentConfirmParams{
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), providerCardAuthorizationID(t, db, cardAuthorizationID), &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
@@ -207,10 +206,10 @@ func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 }
 
 // piStatus fetches the current status of a PaymentIntent from the Stripe test API.
-func piStatus(t *testing.T, key, cardAuthorizationID string) stripe.PaymentIntentStatus {
+func piStatus(t *testing.T, db *rdb.Database, key, cardAuthorizationID string) stripe.PaymentIntentStatus {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), providerCardAuthorizationID(t, cardAuthorizationID), nil)
+	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), providerCardAuthorizationID(t, db, cardAuthorizationID), nil)
 	require.NoError(t, err)
 	return pi.Status
 }

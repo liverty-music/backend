@@ -34,14 +34,13 @@ const eventRecordTablesQuery = `
 // RESTRICT key is caught here instead of failing a prod deletion. It then
 // deletes the event and asserts every such table is empty again.
 func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	cleanDatabase(t)
-	e := seedRemovableEvent(t, entity.OrganizerStatusActive)
 
-	rows, err := testDB.Pool.Query(ctx, eventRecordTablesQuery)
+	e := seedRemovableEvent(t, db, entity.OrganizerStatusActive)
+
+	rows, err := db.Pool.Query(ctx, eventRecordTablesQuery)
 	require.NoError(t, err)
 	var tables []string
 	for rows.Next() {
@@ -55,7 +54,7 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 	count := func(table string) int {
 		t.Helper()
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM `+table).Scan(&n))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM `+table).Scan(&n))
 		return n
 	}
 	for _, table := range tables {
@@ -63,14 +62,14 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 			"%s references an event's records but the fixture has no row in it: add one to seedRemovableEvent and handle it in removeEvents", table)
 	}
 
-	require.NoError(t, rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(ctx, e.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, e.eventID))
 
 	for _, table := range tables {
 		assert.Zerof(t, count(table), "%s keeps rows of the deleted event", table)
 	}
-	assert.False(t, rowExists(t, `SELECT 1 FROM card_authorizations WHERE id = $1`, e.resaleCardAuthorizationID),
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM card_authorizations WHERE id = $1`, e.resaleCardAuthorizationID),
 		"the card authorization of a removed Order is removed with it")
-	assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, e.eventID), "event")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, e.eventID), "event")
 	assert.Equal(t, 1, count("suppressed_concerts"), "the slot is suppressed")
 }
 
@@ -80,9 +79,8 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 // started during a checkout or an Order issuance waits for it, without a
 // deadlock, and then refuses.
 func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
 	insertPending := `INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, provider, status, amount, currency)
 		VALUES ($1, $2, $3, 1, 1, 4, 3000, 'JPY')`
@@ -101,31 +99,31 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 	blocked := func(pid uint32) func() bool {
 		return func() bool {
 			var waits bool
-			require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT cardinality(pg_blocking_pids($1)) > 0`, int32(pid)).Scan(&waits))
+			require.NoError(t, db.Pool.QueryRow(ctx, `SELECT cardinality(pg_blocking_pids($1)) > 0`, int32(pid)).Scan(&waits))
 			return waits
 		}
 	}
 
 	t.Run("an application started during the removal is refused", func(t *testing.T) {
-		cleanDatabase(t)
-		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
-		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		cleanTables(t, db)
+		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+		f := seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		orderID := entity.NewID()
 
-		removal, err := testDB.Pool.Begin(ctx)
+		removal, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = removal.Rollback(ctx) }()
 		require.NoError(t, rdb.LockAndCheckEventRemoval(ctx, removal, []string{o.eventID}))
 
 		// The application stores its Pending Order between the check and the
 		// removal, the window the stock row locks close.
-		purchase, err := testDB.Pool.Begin(ctx)
+		purchase, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = purchase.Rollback(ctx) }()
 		pid := backendPID(t, purchase)
 		inserted := make(chan error, 1)
 		go func() {
-			_, err := purchase.Exec(ctx, insertPending, orderID, saleFan(t), string(f.ID))
+			_, err := purchase.Exec(ctx, insertPending, orderID, saleFan(t, db), string(f.ID))
 			inserted <- err
 		}()
 		require.Eventually(t, blocked(pid), 5*time.Second, 20*time.Millisecond, "the application waits for the removal")
@@ -133,56 +131,56 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		require.NoError(t, removal.Commit(ctx))
 
 		assert.True(t, rdb.IsForeignKeyViolation(<-inserted), "the application is refused on the removed ticket stock")
-		assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, orderID), "no order")
-		assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event is removed")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "no order")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event is removed")
 	})
 
 	t.Run("a removal started during a checkout waits and refuses", func(t *testing.T) {
-		cleanDatabase(t)
-		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
-		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		cleanTables(t, db)
+		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+		f := seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		checkoutID, orderID := entity.NewID(), entity.NewID()
 
-		purchase, err := testDB.Pool.Begin(ctx)
+		purchase, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = purchase.Rollback(ctx) }()
-		_, err = purchase.Exec(ctx, insertPending, orderID, saleFan(t), string(f.ID))
+		_, err = purchase.Exec(ctx, insertPending, orderID, saleFan(t, db), string(f.ID))
 		require.NoError(t, err)
 		_, err = purchase.Exec(ctx, insertHeld, checkoutID, orderID, string(f.SaleID))
 		require.NoError(t, err)
 
 		deleted := make(chan error, 1)
-		go func() { deleted <- rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
-		require.Eventually(t, backendBlocking(t, backendPID(t, purchase)), 5*time.Second, 20*time.Millisecond, "the removal waits for the checkout")
+		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
+		require.Eventually(t, backendBlocking(t, db, backendPID(t, purchase)), 5*time.Second, 20*time.Millisecond, "the removal waits for the checkout")
 		require.NoError(t, purchase.Commit(ctx))
 
 		assert.ErrorIs(t, <-deleted, apperr.ErrFailedPrecondition, "the held checkout blocks the removal")
-		assert.True(t, rowExists(t, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "the checkout remains")
-		assert.True(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "the checkout remains")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
 	})
 
 	t.Run("a removal started during an order issuance waits without a deadlock and refuses", func(t *testing.T) {
-		cleanDatabase(t)
-		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
-		f := seedStockForEvent(t, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		fan := saleFan(t)
+		cleanTables(t, db)
+		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+		f := seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		fan := saleFan(t, db)
 		captured := time.Now()
-		checkoutID, orderID := insertStockCheckout(t, f, fan, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, captured, true)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE checkouts SET capture_at = now() WHERE id = $1`, checkoutID)
+		checkoutID, orderID := insertStockCheckout(t, db, f, fan, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, captured, true)
+		_, err := db.Pool.Exec(ctx, `UPDATE checkouts SET capture_at = now() WHERE id = $1`, checkoutID)
 		require.NoError(t, err)
 
 		// The issuance: complete the checkout (locking its row), then, once the
 		// removal waits, make the Order Paid and insert its Ticket, whose
 		// foreign keys reach the order and the event.
-		issuance, err := testDB.Pool.Begin(ctx)
+		issuance, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = issuance.Rollback(ctx) }()
 		_, err = issuance.Exec(ctx, `UPDATE checkouts SET status = 3 WHERE id = $1`, checkoutID)
 		require.NoError(t, err)
 
 		deleted := make(chan error, 1)
-		go func() { deleted <- rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
-		require.Eventually(t, backendBlocking(t, backendPID(t, issuance)), 5*time.Second, 20*time.Millisecond, "the removal waits for the issuance")
+		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
+		require.Eventually(t, backendBlocking(t, db, backendPID(t, issuance)), 5*time.Second, 20*time.Millisecond, "the removal waits for the issuance")
 		_, err = issuance.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_issue', pay_at = now() WHERE id = $1`, orderID)
 		require.NoError(t, err)
 		_, err = issuance.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, now())`,
@@ -191,7 +189,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		require.NoError(t, issuance.Commit(ctx))
 
 		assert.ErrorIs(t, <-deleted, apperr.ErrFailedPrecondition, "the paid order blocks the removal")
-		assert.True(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, orderID), "the order remains")
-		assert.True(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "the order remains")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
 	})
 }

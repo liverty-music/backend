@@ -14,24 +14,23 @@ import (
 )
 
 func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewLotteryEntryRepository(testDB, testOutbox)
+	repo := rdb.NewLotteryEntryRepository(db, testOutbox)
 	enteredOf := func(t *testing.T, mark int64, userID entity.UserID) []*entityv1.Order {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectLotteryEntryEntered, func() *entityv1.Order { return &entityv1.Order{} },
+		return announcedSince(t, db, mark, entity.SubjectLotteryEntryEntered, func() *entityv1.Order { return &entityv1.Order{} },
 			func(o *entityv1.Order) bool { return o.GetUserId().GetValue() == string(userID) })
 	}
 
 	t.Run("entry stored", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Entry stored"
-		f := openLotteryStock(t)
-		userID := newUserID(t)
-		mark := outboxMark(t)
+		f := openLotteryStock(t, db)
+		userID := newUserID(t, db)
+		mark := outboxMark(t, db)
 
-		got, err := repo.Create(ctx, newEntry(f, f.SaleID, userID, 2, nil))
+		got, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
 
 		require.NoError(t, err)
 		announced := enteredOf(t, mark, userID)
@@ -44,14 +43,14 @@ func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
 
 	t.Run("same card authorization again", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Same card authorization again"
-		f := openLotteryStock(t)
-		userID := newUserID(t)
-		entry := newEntry(f, f.SaleID, userID, 2, nil)
+		f := openLotteryStock(t, db)
+		userID := newUserID(t, db)
+		entry := newEntry(db, f, f.SaleID, userID, 2, nil)
 		_, err := repo.Create(ctx, entry)
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
-		again := newEntry(f, f.SaleID, userID, 2, nil)
+		again := newEntry(db, f, f.SaleID, userID, 2, nil)
 		again.Order.CardAuthorizationID = entry.Order.CardAuthorizationID
 		_, err = repo.Create(ctx, again)
 
@@ -61,12 +60,12 @@ func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/create "Announcement cannot be recorded"
-		f := openLotteryStock(t)
-		userID := newUserID(t)
+		f := openLotteryStock(t, db)
+		userID := newUserID(t, db)
 
-		_, err := rdb.NewLotteryEntryRepository(testDB, failingOutbox{}).Create(ctx, newEntry(f, f.SaleID, userID, 2, nil))
+		_, err := rdb.NewLotteryEntryRepository(db, failingOutbox{}).Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Zero(t, countOrdersOfUser(t, userID), "no entry or Order is stored")
+		assert.Zero(t, countOrdersOfUser(t, db, userID), "no entry or Order is stored")
 	})
 }

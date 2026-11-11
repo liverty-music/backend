@@ -19,13 +19,15 @@ import (
 // real Postgres) end to end, confirming a fresh id is stored and that a second
 // site for the same artist is rejected as AlreadyExists.
 func TestOfficialSiteUseCase_Create_Integration(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	uc := usecase.NewOfficialSiteUseCase(rdb.NewArtistRepository(testDB, testOutbox))
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	uc := usecase.NewOfficialSiteUseCase(rdb.NewArtistRepository(db, testOutbox))
+	repo := rdb.NewArtistRepository(db, testOutbox)
 
 	t.Run("stores a new official site with a fresh id for an artist without one", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Site Artist", "aa000000-0000-0000-0000-00000ucsite1")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Site Artist", "aa000000-0000-0000-0000-00000ucsite1")
 
 		err := uc.Create(ctx, artistID, "https://example.com")
 		require.NoError(t, err)
@@ -38,8 +40,8 @@ func TestOfficialSiteUseCase_Create_Integration(t *testing.T) {
 	})
 
 	t.Run("a second official site for the same artist fails with AlreadyExists", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Site Artist Dup", "aa000000-0000-0000-0000-00000ucsite2")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Site Artist Dup", "aa000000-0000-0000-0000-00000ucsite2")
 
 		require.NoError(t, uc.Create(ctx, artistID, "https://first.example.com"))
 
@@ -54,7 +56,7 @@ func TestOfficialSiteUseCase_Create_Integration(t *testing.T) {
 	})
 
 	t.Run("an unknown artist id fails with FailedPrecondition", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		err := uc.Create(ctx, entity.NewID(), "https://example.com")
 
@@ -62,9 +64,9 @@ func TestOfficialSiteUseCase_Create_Integration(t *testing.T) {
 	})
 
 	t.Run("successive calls mint different ids", func(t *testing.T) {
-		cleanDatabase(t)
-		artistA := seedArtist(t, "Artist A", "aa000000-0000-0000-0000-00000ucsite3")
-		artistB := seedArtist(t, "Artist B", "aa000000-0000-0000-0000-00000ucsite4")
+		cleanTables(t, db)
+		artistA := seedArtist(t, db, "Artist A", "aa000000-0000-0000-0000-00000ucsite3")
+		artistB := seedArtist(t, db, "Artist B", "aa000000-0000-0000-0000-00000ucsite4")
 
 		require.NoError(t, uc.Create(ctx, artistA, "https://a.example.com"))
 		require.NoError(t, uc.Create(ctx, artistB, "https://b.example.com"))

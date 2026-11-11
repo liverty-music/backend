@@ -25,6 +25,8 @@ var resaleDeadline = resaleEventStart.Add(-3 * time.Hour)
 // whose every ticket one seller holds through a Paid Order, so it is sold out
 // and its resale is open.
 type soldOutType struct {
+	// db is the database of the test.
+	db      *rdb.Database
 	f       *stockFixture
 	seller  entity.UserID
 	tickets []*entity.Ticket
@@ -32,19 +34,19 @@ type soldOutType struct {
 
 // seedSoldOutType sells out a fresh stock of quantity tickets (1 to 10) to
 // one seller and gives its event a start time.
-func seedSoldOutType(t *testing.T, quantity int) *soldOutType {
+func seedSoldOutType(t *testing.T, db *rdb.Database, quantity int) *soldOutType {
 	t.Helper()
 	ctx := context.Background()
-	f := seedStock(t, entity.TicketSaleMethodFirstCome, quantity, quantity)
-	_, err := testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleEventStart)
+	f := seedStock(t, db, entity.TicketSaleMethodFirstCome, quantity, quantity)
+	_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleEventStart)
 	require.NoError(t, err)
 
-	seller := entity.UserID(saleFan(t))
-	seedIssuedTicketsOf(t, f, string(seller), quantity)
-	tickets, err := rdb.NewTicketRepository(testDB, testOutbox).ListByUserAndEvent(ctx, seller, f.EventID)
+	seller := entity.UserID(saleFan(t, db))
+	seedIssuedTicketsOf(t, db, f, string(seller), quantity)
+	tickets, err := rdb.NewTicketRepository(db, testOutbox).ListByUserAndEvent(ctx, seller, f.EventID)
 	require.NoError(t, err)
 	require.Len(t, tickets, quantity)
-	return &soldOutType{f: f, seller: seller, tickets: tickets}
+	return &soldOutType{db: db, f: f, seller: seller, tickets: tickets}
 }
 
 // newListing returns an unsaved listing of the i-th ticket of the seller at at.
@@ -55,31 +57,30 @@ func (s *soldOutType) newListing(i int, at time.Time) *entity.ResaleListing {
 // list lists the i-th ticket of the seller at at.
 func (s *soldOutType) list(t *testing.T, i int, at time.Time) *entity.ResaleListing {
 	t.Helper()
-	l, err := rdb.NewResaleListingRepository(testDB, testOutbox).Create(context.Background(), s.newListing(i, at))
+	l, err := rdb.NewResaleListingRepository(s.db, testOutbox).Create(context.Background(), s.newListing(i, at))
 	require.NoError(t, err)
 	return l
 }
 
 // listingStatus returns the stored status of the listing.
-func listingStatus(t *testing.T, id entity.ResaleListingID) entity.ResaleListingStatus {
+func listingStatus(t *testing.T, db *rdb.Database, id entity.ResaleListingID) entity.ResaleListingStatus {
 	t.Helper()
-	l, err := rdb.NewResaleListingRepository(testDB, testOutbox).Get(context.Background(), id)
+	l, err := rdb.NewResaleListingRepository(db, testOutbox).Get(context.Background(), id)
 	require.NoError(t, err)
 	return l.Status
 }
 
 func TestResaleListingRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewResaleListingRepository(db, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(24 * time.Hour)
 
 	t.Run("first listing", func(t *testing.T) {
 		// @spec components/entity/resale-listing/create "First listing"
-		s := seedSoldOutType(t, 2)
+		s := seedSoldOutType(t, db, 2)
 
 		got, err := repo.Create(ctx, s.newListing(0, at))
 
@@ -95,7 +96,7 @@ func TestResaleListingRepository_Create(t *testing.T) {
 
 	t.Run("listed twice", func(t *testing.T) {
 		// @spec components/entity/resale-listing/create "Listed twice"
-		s := seedSoldOutType(t, 2)
+		s := seedSoldOutType(t, db, 2)
 
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
@@ -121,8 +122,8 @@ func TestResaleListingRepository_Create(t *testing.T) {
 
 	t.Run("ticket voided meanwhile", func(t *testing.T) {
 		// @spec components/entity/resale-listing/create "Ticket voided meanwhile"
-		s := seedSoldOutType(t, 1)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(s.tickets[0].ID))
+		s := seedSoldOutType(t, db, 1)
+		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(s.tickets[0].ID))
 		require.NoError(t, err)
 
 		_, err = repo.Create(ctx, s.newListing(0, at))
@@ -134,8 +135,8 @@ func TestResaleListingRepository_Create(t *testing.T) {
 	})
 
 	t.Run("admitted ticket", func(t *testing.T) {
-		s := seedSoldOutType(t, 1)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET admit_at = $2 WHERE id = $1`, string(s.tickets[0].ID), at)
+		s := seedSoldOutType(t, db, 1)
+		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET admit_at = $2 WHERE id = $1`, string(s.tickets[0].ID), at)
 		require.NoError(t, err)
 
 		_, err = repo.Create(ctx, s.newListing(0, at))
@@ -145,7 +146,7 @@ func TestResaleListingRepository_Create(t *testing.T) {
 
 	t.Run("listed again after withdrawing", func(t *testing.T) {
 		// @spec components/entity/resale-listing/create "Listed again after withdrawing"
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		first := s.list(t, 0, at)
 		require.NoError(t, repo.Withdraw(ctx, first.ID, at.Add(time.Minute)))
 
@@ -157,7 +158,7 @@ func TestResaleListingRepository_Create(t *testing.T) {
 	})
 
 	t.Run("unknown ticket", func(t *testing.T) {
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		ghost := &entity.Ticket{ID: entity.TicketID(entity.NewID()), OrderID: s.tickets[0].OrderID, UserID: s.seller}
 
 		_, err := repo.Create(ctx, entity.NewResaleListing(ghost, s.f.ID, s.f.SeatType, at))
@@ -167,17 +168,16 @@ func TestResaleListingRepository_Create(t *testing.T) {
 }
 
 func TestResaleListingRepository_Get(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewResaleListingRepository(db, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(24 * time.Hour)
 
 	t.Run("existing listing", func(t *testing.T) {
 		// @spec components/entity/resale-listing/get "Existing listing"
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
 
 		got, err := repo.Get(ctx, listed.ID)
@@ -197,17 +197,16 @@ func TestResaleListingRepository_Get(t *testing.T) {
 }
 
 func TestResaleListingRepository_Withdraw(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewResaleListingRepository(db, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(24 * time.Hour)
 
 	t.Run("fan withdraws an open listing", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Fan withdraws an open listing"
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
 
 		require.NoError(t, repo.Withdraw(ctx, listed.ID, at.Add(time.Minute)))
@@ -221,9 +220,9 @@ func TestResaleListingRepository_Withdraw(t *testing.T) {
 
 	t.Run("already sold", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Already sold"
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(listed.ID), at)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(listed.ID), at)
 		require.NoError(t, err)
 
 		err = repo.Withdraw(ctx, listed.ID, at.Add(time.Minute))
@@ -232,18 +231,18 @@ func TestResaleListingRepository_Withdraw(t *testing.T) {
 	})
 
 	t.Run("expired listing", func(t *testing.T) {
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
 
 		err := repo.Withdraw(ctx, listed.ID, resaleDeadline)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		assert.Equal(t, entity.ResaleListingStatusListed, listingStatus(t, listed.ID))
+		assert.Equal(t, entity.ResaleListingStatusListed, listingStatus(t, db, listed.ID))
 	})
 
 	t.Run("withdrawn twice", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Withdrawn twice"
-		s := seedSoldOutType(t, 1)
+		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
 		require.NoError(t, repo.Withdraw(ctx, listed.ID, at.Add(time.Minute)))
 
@@ -261,16 +260,15 @@ func TestResaleListingRepository_Withdraw(t *testing.T) {
 }
 
 func TestResaleListingRepository_ListByUser(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewResaleListingRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("two listings", func(t *testing.T) {
 		// @spec components/entity/resale-listing/list-by-user "Two listings"
-		s := seedSoldOutType(t, 2)
+		s := seedSoldOutType(t, db, 2)
 		nov1 := s.list(t, 0, saleWindowStart)
 		require.NoError(t, repo.Withdraw(ctx, nov1.ID, saleWindowStart.Add(time.Hour)))
 		nov3 := s.list(t, 1, saleWindowStart.Add(48*time.Hour))
@@ -286,7 +284,7 @@ func TestResaleListingRepository_ListByUser(t *testing.T) {
 
 	t.Run("no listings", func(t *testing.T) {
 		// @spec components/entity/resale-listing/list-by-user "No listings"
-		got, err := repo.ListByUser(ctx, entity.UserID(saleFan(t)))
+		got, err := repo.ListByUser(ctx, entity.UserID(saleFan(t, db)))
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -294,18 +292,17 @@ func TestResaleListingRepository_ListByUser(t *testing.T) {
 }
 
 func TestResaleListingRepository_RecordRefund(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewResaleListingRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewResaleListingRepository(db, testOutbox)
 	ctx := context.Background()
 	at := saleWindowStart.Add(24 * time.Hour)
 
-	s := seedSoldOutType(t, 5)
+	s := seedSoldOutType(t, db, 5)
 	sell := func(l *entity.ResaleListing, soldAt time.Time) {
 		t.Helper()
-		_, err := testDB.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l.ID), soldAt)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l.ID), soldAt)
 		require.NoError(t, err)
 	}
 	justSold := s.list(t, 0, at)
@@ -321,14 +318,14 @@ func TestResaleListingRepository_RecordRefund(t *testing.T) {
 
 	refundedOf := func(t *testing.T, mark int64, id entity.ResaleListingID) []*entityv1.ResaleListing {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectResaleListingRefunded, func() *entityv1.ResaleListing { return &entityv1.ResaleListing{} },
+		return announcedSince(t, db, mark, entity.SubjectResaleListingRefunded, func() *entityv1.ResaleListing { return &entityv1.ResaleListing{} },
 			func(l *entityv1.ResaleListing) bool { return l.GetId().GetValue() == string(id) })
 	}
 
 	t.Run("refund recorded", func(t *testing.T) {
 		// @spec components/entity/resale-listing/record-refund "Refund recorded"
 		// @spec components/entity/resale-listing/record-refund "Refund announced"
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		require.NoError(t, repo.RecordRefund(ctx, justSold.ID, "re_3", at.Add(3*time.Hour)))
 
 		announced := refundedOf(t, mark, justSold.ID)
@@ -344,7 +341,7 @@ func TestResaleListingRepository_RecordRefund(t *testing.T) {
 
 	t.Run("recorded twice", func(t *testing.T) {
 		// @spec components/entity/resale-listing/record-refund "Recorded twice"
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 		require.NoError(t, repo.RecordRefund(ctx, justSold.ID, "re_other", at.Add(4*time.Hour)))
 		assert.Empty(t, refundedOf(t, mark, justSold.ID))
 
@@ -359,7 +356,7 @@ func TestResaleListingRepository_RecordRefund(t *testing.T) {
 		pending := s.list(t, 4, at)
 		sell(pending, at.Add(time.Hour))
 
-		err := rdb.NewResaleListingRepository(testDB, failingOutbox{}).RecordRefund(ctx, pending.ID, "re_5", at.Add(2*time.Hour))
+		err := rdb.NewResaleListingRepository(db, failingOutbox{}).RecordRefund(ctx, pending.ID, "re_5", at.Add(2*time.Hour))
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		l, err := repo.Get(ctx, pending.ID)

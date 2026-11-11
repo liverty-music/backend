@@ -63,8 +63,10 @@ func (s *firstComeStory) resaleOpenOnEventPage(stockID entity.TicketStockID) boo
 }
 
 func TestResaleStory_OneOfTwoTicketsListed(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "One of two tickets listed"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 5000, 2)
 	s.openFirstCome()
 
@@ -91,8 +93,10 @@ func TestResaleStory_OneOfTwoTicketsListed(t *testing.T) {
 }
 
 func TestResaleStory_LotteryWonTicketListed(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Lottery-won ticket listed"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 5000, 2)
 
 	// -- a fan wins 2 S席 tickets in the lottery presale, and S席 sells out --
@@ -113,7 +117,9 @@ func TestResaleStory_LotteryWonTicketListed(t *testing.T) {
 // of a sold-out seat type is listed": while the stock still has tickets, the
 // primary sale sells them and no listing is made.
 func TestResaleStory_NotSoldOutIsNotListed(t *testing.T) {
-	s := newFirstComeStory(t)
+	t.Parallel()
+	db := newTestDB(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 5000, 150)
 	s.openFirstCome()
 
@@ -126,8 +132,10 @@ func TestResaleStory_NotSoldOutIsNotListed(t *testing.T) {
 }
 
 func TestResaleStory_UnsoldAtTheDeadline(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Unsold at the deadline"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 5000, 2)
 	s.openFirstCome()
 

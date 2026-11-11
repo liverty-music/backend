@@ -25,6 +25,8 @@ import (
 
 // newConcertsStory carries announced concerts through to the browsers.
 type newConcertsStory struct {
+	// db is the database of the test.
+	db       *rdb.Database
 	t        *testing.T
 	ctx      context.Context
 	d        *storyDeps
@@ -32,22 +34,23 @@ type newConcertsStory struct {
 	mark     int64
 }
 
-func newNewConcertsStory(t *testing.T) *newConcertsStory {
+func newNewConcertsStory(t *testing.T, db *rdb.Database) *newConcertsStory {
 	t.Helper()
-	d := newStoryDeps(t)
+	d := newStoryDeps(t, db)
 	return &newConcertsStory{
+		db:       db,
 		t:        t,
 		ctx:      context.Background(),
 		d:        d,
 		consumer: event.NewNotificationConsumer(d.deliver, d.logger),
-		mark:     outboxMark(t),
+		mark:     outboxMark(t, db),
 	}
 }
 
 // follow has the fan follow the artist at the hype level.
 func (s *newConcertsStory) follow(fanID, artistID string, hype entity.Hype) {
 	s.t.Helper()
-	follows := rdb.NewFollowRepository(testDB, testOutbox)
+	follows := rdb.NewFollowRepository(s.db, testOutbox)
 	require.NoError(s.t, follows.Follow(s.ctx, fanID, artistID))
 	require.NoError(s.t, follows.SetHype(s.ctx, fanID, artistID, hype))
 }
@@ -69,18 +72,18 @@ func (s *newConcertsStory) discover(artistID, artistName, tour string, count int
 		batch.Events = append(batch.Events, &entity.DiscoveredEvent{ListedVenueName: name, LocalDate: first.AddDate(0, 0, i)})
 	}
 	uc := usecase.NewConcertCreationUseCase(
-		rdb.NewConcertCandidateRepository(testDB),
-		rdb.NewVenueRepository(testDB),
-		rdb.NewConcertRepository(testDB, testOutbox),
-		rdb.NewSeriesRepository(testDB, testOutbox),
-		rdb.NewSuppressedConcertRepository(testDB),
+		rdb.NewConcertCandidateRepository(s.db),
+		rdb.NewVenueRepository(s.db),
+		rdb.NewConcertRepository(s.db, testOutbox),
+		rdb.NewSeriesRepository(s.db, testOutbox),
+		rdb.NewSuppressedConcertRepository(s.db),
 		places, nil, s.d.logger,
 	)
 	require.NoError(s.t, uc.CreateFromDiscovered(s.ctx, entity.ConcertDiscoveredData{
 		ArtistID: artistID, ArtistName: artistName, Series: []*entity.DiscoveredSeries{batch},
 	}))
 
-	rows, err := testDB.Pool.Query(s.ctx, `
+	rows, err := s.db.Pool.Query(s.ctx, `
 		SELECT e.id::text FROM events e JOIN concert_artists ca ON ca.event_id = e.id
 		WHERE ca.artist_id = $1 ORDER BY e.local_event_date`, artistID)
 	require.NoError(s.t, err)
@@ -100,10 +103,10 @@ func (s *newConcertsStory) discover(artistID, artistName, tour string, count int
 // the consumer and runs the deliveries it starts.
 func (s *newConcertsStory) deliverAnnounced() {
 	s.t.Helper()
-	for _, msg := range announcedMessages(s.t, s.mark, entity.SubjectConcertCreated) {
+	for _, msg := range announcedMessages(s.t, s.db, s.mark, entity.SubjectConcertCreated) {
 		require.NoError(s.t, s.consumer.Handle(msg))
 	}
-	s.mark = outboxMark(s.t)
+	s.mark = outboxMark(s.t, s.db)
 	s.d.deliverRequested(s.t)
 }
 
@@ -114,16 +117,15 @@ func (s *newConcertsStory) newConcertsOf(fanID string) []*entity.Notification {
 }
 
 func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	// @spec stories/get-notified-of-new-concerts "Away follower with one browser"
 	t.Run("Away follower with one browser", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Vaundy", uuid.NewV4().String())
-		fan := storyFan(t, "away", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Vaundy", uuid.NewV4().String())
+		fan := storyFan(t, db, "away", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, artistID, entity.HypeAway)
 
 		ids := s.discover(artistID, "Vaundy", "ROADSIDE", 1)
@@ -141,10 +143,10 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 
 	// @spec stories/get-notified-of-new-concerts "Matched follower without a browser"
 	t.Run("Matched follower without a browser", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Vaundy", uuid.NewV4().String())
-		fan := storyFanWithoutBrowser(t, "nobrowser", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Vaundy", uuid.NewV4().String())
+		fan := storyFanWithoutBrowser(t, db, "nobrowser", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, artistID, entity.HypeAway)
 
 		ids := s.discover(artistID, "Vaundy", "ROADSIDE", 1)
@@ -163,11 +165,11 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 
 	// @spec stories/get-notified-of-new-concerts "Watch follower"
 	t.Run("Watch follower", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Vaundy", uuid.NewV4().String())
-		watcher := storyFan(t, "watcher", "ja", "Asia/Tokyo")
-		away := storyFan(t, "away", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Vaundy", uuid.NewV4().String())
+		watcher := storyFan(t, db, "watcher", "ja", "Asia/Tokyo")
+		away := storyFan(t, db, "away", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(watcher, artistID, entity.HypeWatch)
 		s.follow(away, artistID, entity.HypeAway)
 
@@ -181,13 +183,13 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 
 	// @spec stories/get-notified-of-new-concerts "Browser gone"
 	t.Run("Browser gone", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Vaundy", uuid.NewV4().String())
-		fan := storyFan(t, "gone", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Vaundy", uuid.NewV4().String())
+		fan := storyFan(t, db, "gone", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, artistID, entity.HypeAway)
 		s.d.push.goneEndpoints = map[string]bool{"https://push.example/gone": true}
-		pushSubs := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+		pushSubs := rdb.NewPushSubscriptionRepository(db, testOutbox)
 		before, err := pushSubs.ListByUserIDs(s.ctx, []string{fan})
 		require.NoError(t, err)
 		require.Len(t, before, 1)
@@ -203,12 +205,12 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 
 	// @spec stories/get-notified-of-new-concerts "Organizer publishes a co-headlined concert"
 	t.Run("Organizer publishes a co-headlined concert", func(t *testing.T) {
-		p := newPublishStory(t)
-		second := seedArtist(t, "Second Band", uuid.NewV4().String())
-		_, err := testDB.Pool.Exec(p.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, p.orgID, second)
+		p := newPublishStory(t, db)
+		second := seedArtist(t, db, "Second Band", uuid.NewV4().String())
+		_, err := db.Pool.Exec(p.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, p.orgID, second)
 		require.NoError(t, err)
-		fan := storyFan(t, "both", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		fan := storyFan(t, db, "both", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, p.artistID, entity.HypeAway)
 		s.follow(fan, second, entity.HypeAway)
 
@@ -239,15 +241,15 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 	// series. The PUBLIC concert published afterwards by the same Organizer shows
 	// the path reaches this fan.
 	t.Run("Unlisted concert", func(t *testing.T) {
-		p := newPublishStory(t)
-		fan := storyFan(t, "unlisted", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		p := newPublishStory(t, db)
+		fan := storyFan(t, db, "unlisted", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, p.artistID, entity.HypeAway)
 
 		unlistedSeries, unlistedEvent := p.create(entity.SeriesVisibilityUnlisted)
 		_, _, err := p.series.Publish(p.ctx, p.orgID, unlistedSeries, nil)
 		require.NoError(t, err)
-		require.True(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1 AND publish_state = 'PUBLISHED'`, unlistedEvent),
+		require.True(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1 AND publish_state = 'PUBLISHED'`, unlistedEvent),
 			"the unlisted concert is published")
 		s.deliverAnnounced()
 
@@ -271,10 +273,10 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 
 	// @spec stories/get-notified-of-new-concerts "Tour found by discovery"
 	t.Run("Tour found by discovery", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Vaundy", uuid.NewV4().String())
-		fan := storyFan(t, "tour", "ja", "Asia/Tokyo")
-		s := newNewConcertsStory(t)
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Vaundy", uuid.NewV4().String())
+		fan := storyFan(t, db, "tour", "ja", "Asia/Tokyo")
+		s := newNewConcertsStory(t, db)
 		s.follow(fan, artistID, entity.HypeAway)
 
 		ids := s.discover(artistID, "Vaundy", "ROADSIDE", 3)

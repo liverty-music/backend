@@ -59,10 +59,11 @@ fix:
 	go fix ./...
 	gofmt -w .
 
-## test: unit tests with local DB (docker compose)
+## test: unit tests with local DB (docker compose). Each database test gets a
+## copy of a template database that the tests build with the atlas CLI
+## (internal/testutil/database.go), so atlas must be on PATH.
 test:
 	docker compose up -d postgres --wait
-	atlas migrate apply --env local
 	go test ./...
 
 ## test-integration: integration tests (DB must already be running)

@@ -46,11 +46,13 @@ func newTestID(t *testing.T) string {
 }
 
 func TestConcertRepository_Create(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1b49a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1b49b1"
@@ -61,7 +63,7 @@ func TestConcertRepository_Create(t *testing.T) {
 
 	setupFixtures := func(t *testing.T) {
 		t.Helper()
-		cleanDatabase(t)
+		cleanTables(t, db)
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
 		{
@@ -506,11 +508,13 @@ func TestConcertRepository_Create(t *testing.T) {
 // see the full lineup. Covers the "Co-headliner persistence" scenario from the
 // event-management spec.
 func TestConcertRepository_CoHeadliners(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	headliner := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a1"
 	support := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a2"
@@ -519,7 +523,6 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	eventID := "018b2f19-e591-7d12-bf9e-f0e74f1bc0c1"
 	concertDate, _ := time.Parse("2006-01-02", "2026-07-04")
 
-	cleanDatabase(t)
 	_, err := artistRepo.Create(ctx,
 		&entity.Artist{ID: headliner, Name: "Headliner Band", MBID: "11111111-2222-3333-4444-555555555aaa"},
 		&entity.Artist{ID: support, Name: "Support Act", MBID: "22222222-3333-4444-5555-666666666bbb"},
@@ -570,11 +573,13 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 // Covers the event-management "Event Natural Key Reflects Physical Identity"
 // scenarios.
 func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1b1"
@@ -582,7 +587,6 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	matinee := time.Date(2026, 8, 15, 13, 0, 0, 0, time.UTC)
 	evening := time.Date(2026, 8, 15, 18, 0, 0, 0, time.UTC)
 
-	cleanDatabase(t)
 	_, err := artistRepo.Create(ctx, &entity.Artist{
 		ID: artistID, Name: "Shared Artist",
 		MBID: "44444444-5555-6666-7777-888888888ddd",
@@ -634,14 +638,16 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 // correctly scanned from the database in both the NULL and non-NULL cases.
 // This is a regression test for the scan correctness of the nullable column.
 func TestConcertRepository_ListedVenueName(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 	listedName := "Zepp Nagoya"
@@ -711,7 +717,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cleanDatabase(t)
+			cleanTables(t, db)
 
 			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 			_, err := artistRepo.Create(ctx, artist)
@@ -736,13 +742,13 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtist(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
-
-	cleanDatabase(t)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	// Setup: Create test data
 	testArtist1 := &entity.Artist{
@@ -942,7 +948,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// Pre-migration rows have NULL in listed_venue_name; scanning NULL into a
 	// non-pointer string would panic at runtime.
 	t.Run("NULL listed_venue_name is scanned to nil without error", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -975,7 +981,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	})
 
 	t.Run("non-NULL listed_venue_name is persisted and retrieved correctly", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -1010,14 +1016,16 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtists(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	t.Run("returns concerts for multiple artists with coordinates", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6001", Name: "Multi Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001"}
 		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6002", Name: "Multi Band 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002"}
@@ -1077,7 +1085,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	})
 
 	t.Run("returns empty list for unknown artist IDs", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		got, err := concertRepo.ListByArtists(ctx, []string{"018b2f19-e591-7d12-bf9e-f0e74f1b6099"})
 		assert.NoError(t, err)
@@ -1085,7 +1093,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	})
 
 	t.Run("venue without coordinates returns nil Coordinates", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6003", Name: "No Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -1115,22 +1123,24 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 }
 
 func TestConcertRepository_ListByFollower(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	// epoch is an explicit far-past lower bound so these follower/coordinate
 	// assertions stay independent of the current date (the default when from is nil).
 	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	t.Run("returns concerts for followed artists", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		// Setup: user, 2 artists, venue, concerts, follow relationships
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5001"
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Test User", "follower@test.com", "ext-user-001",
 		)
@@ -1172,7 +1182,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 
 		// Follow only artist1
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
 			userID, artist1.ID,
 		)
@@ -1189,10 +1199,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	})
 
 	t.Run("returns venue Coordinates when DB has lat/lng", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5003"
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Coord User", "coord@test.com", "ext-user-003",
 		)
@@ -1221,7 +1231,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			Artists: []*entity.Artist{{ID: artist.ID}},
 		})
 
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
 			userID, artist.ID,
 		)
@@ -1237,10 +1247,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	})
 
 	t.Run("returns empty list when no followed artists", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5002"
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Lonely User", "lonely@test.com", "ext-user-002",
 		)
@@ -1252,10 +1262,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	})
 
 	t.Run("default (nil from) returns only concerts on or after today", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5004"
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Date User", "date@test.com", "ext-user-004",
 		)
@@ -1293,7 +1303,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			},
 		)
 
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
 			userID, artist.ID,
 		)
@@ -1327,14 +1337,14 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	// omitted firstPartyVisibilityGuard, so DRAFT/UNLISTED/CANCELLED first-party
 	// series leaked onto a follower's dashboard.
 	t.Run("excludes DRAFT, UNLISTED and CANCELLED first-party series", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
-		userID := seedUser(t, "Guard User", "guard@test.com", "ext-user-guard")
-		artistID := seedArtist(t, "Guard Band", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5099")
-		venueID := seedVenue(t, "Guard Venue")
-		organizerID := seedOrganizer(t)
+		userID := seedUser(t, db, "Guard User", "guard@test.com", "ext-user-guard")
+		artistID := seedArtist(t, db, "Guard Band", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5099")
+		venueID := seedVenue(t, db, "Guard Venue")
+		organizerID := seedOrganizer(t, db)
 
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
 			userID, artistID,
 		)
@@ -1346,21 +1356,21 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		seedFirstPartySeriesEvent := func(title, publishState, visibility, date string) string {
 			t.Helper()
 			seriesID := newTestID(t)
-			_, err := testDB.Pool.Exec(ctx, `
+			_, err := db.Pool.Exec(ctx, `
 				INSERT INTO series (id, title, type, organizer_id, visibility)
 				VALUES ($1, $2, 'SINGLE', $3, $4)
 			`, seriesID, title, organizerID, visibility)
 			require.NoError(t, err)
 
 			eventID := newTestID(t)
-			_, err = testDB.Pool.Exec(ctx,
+			_, err = db.Pool.Exec(ctx,
 				"INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::event_publish_state IS NULL THEN NULL ELSE 4 END)",
 				eventID, seriesID, venueID, date, publishState,
 			)
 			require.NoError(t, err)
-			_, err = testDB.Pool.Exec(ctx, "INSERT INTO concerts (event_id) VALUES ($1)", eventID)
+			_, err = db.Pool.Exec(ctx, "INSERT INTO concerts (event_id) VALUES ($1)", eventID)
 			require.NoError(t, err)
-			_, err = testDB.Pool.Exec(ctx,
+			_, err = db.Pool.Exec(ctx,
 				"INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)",
 				eventID, artistID,
 			)
@@ -1373,9 +1383,9 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.PublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
 		publishedSeriesID := seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.PublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
 		coverID := newTestID(t)
-		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_images (id, organizer_id) VALUES ($1, $2)", coverID, organizerID)
+		_, err = db.Pool.Exec(ctx, "INSERT INTO series_images (id, organizer_id) VALUES ($1, $2)", coverID, organizerID)
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_cover_images (series_id, series_image_id) VALUES ($1, $2)", publishedSeriesID, coverID)
+		_, err = db.Pool.Exec(ctx, "INSERT INTO series_cover_images (series_id, series_image_id) VALUES ($1, $2)", publishedSeriesID, coverID)
 		require.NoError(t, err)
 
 		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
@@ -1403,7 +1413,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", BusinessAddress: "東京都渋谷区1-2-3",
 			BusinessPhoneNumber: "+81312345678", ContactEmail: "info@example.com",
 		}
-		_, err = rdb.NewOrganizerRepository(testDB, testOutbox).SetBusinessDetails(ctx, organizerID, details)
+		_, err = rdb.NewOrganizerRepository(db, testOutbox).SetBusinessDetails(ctx, organizerID, details)
 		require.NoError(t, err)
 		byID, err := concertRepo.ListByIDs(ctx, []string{got[0].ID})
 		require.NoError(t, err)
@@ -1418,16 +1428,18 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 }
 
 func TestConcertRepository_List(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
 
 	t.Run("returns every published concert with no audience filter", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artistID := newTestID(t)
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "List Test Band", MBID: newTestID(t)})
@@ -1463,7 +1475,7 @@ func TestConcertRepository_List(t *testing.T) {
 	})
 
 	t.Run("returns empty when nothing is published", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		got, err := concertRepo.List(ctx)
 		require.NoError(t, err)
@@ -1472,16 +1484,18 @@ func TestConcertRepository_List(t *testing.T) {
 }
 
 func TestConcertRepository_Delete(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-10-10")
 
 	t.Run("removes the event and cascades to dependent rows", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artistID := newTestID(t)
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Delete Test Band", MBID: newTestID(t)})
@@ -1502,28 +1516,28 @@ func TestConcertRepository_Delete(t *testing.T) {
 
 		// Seed a fan-owned dependent row to prove the cascade reaches it.
 		userID := newTestID(t)
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			"INSERT INTO users (id, name, email, provider_user_id, preferred_language) VALUES ($1, $2, $3, $4, 'ja')",
 			userID, "Delete Test Fan", "delete-fan@test.com", "ext-"+userID,
 		)
 		require.NoError(t, err)
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			"INSERT INTO ticket_journeys (user_id, event_id, status) VALUES ($1, $2, 1)", // 1 = TRACKING
 			userID, eventID,
 		)
 		require.NoError(t, err)
 
 		// Sanity: the event and its dependents exist before deletion.
-		assert.Equal(t, 1, countRows(t, ctx, "events", eventID))
-		assert.Equal(t, 1, countRows(t, ctx, "concert_artists", eventID))
-		assert.Equal(t, 1, countRows(t, ctx, "ticket_journeys", eventID))
+		assert.Equal(t, 1, countRows(t, db, ctx, "events", eventID))
+		assert.Equal(t, 1, countRows(t, db, ctx, "concert_artists", eventID))
+		assert.Equal(t, 1, countRows(t, db, ctx, "ticket_journeys", eventID))
 
 		require.NoError(t, concertRepo.Delete(ctx, eventID))
 
 		// The event is gone and the FK cascade removed every referencing row.
-		assert.Equal(t, 0, countRows(t, ctx, "events", eventID), "event removed")
-		assert.Equal(t, 0, countRows(t, ctx, "concert_artists", eventID), "concert_artists cascaded")
-		assert.Equal(t, 0, countRows(t, ctx, "ticket_journeys", eventID), "ticket_journeys cascaded")
+		assert.Equal(t, 0, countRows(t, db, ctx, "events", eventID), "event removed")
+		assert.Equal(t, 0, countRows(t, db, ctx, "concert_artists", eventID), "concert_artists cascaded")
+		assert.Equal(t, 0, countRows(t, db, ctx, "ticket_journeys", eventID), "ticket_journeys cascaded")
 
 		got, err := concertRepo.List(ctx)
 		require.NoError(t, err)
@@ -1531,21 +1545,21 @@ func TestConcertRepository_Delete(t *testing.T) {
 	})
 
 	t.Run("is idempotent for a missing id", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		require.NoError(t, concertRepo.Delete(ctx, newTestID(t)), "deleting an absent event is a no-op success")
 	})
 }
 
 // countRows returns the number of rows in the given table referencing eventID
 // via its event_id / id column. Used to assert ON DELETE CASCADE behaviour.
-func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
+func countRows(t *testing.T, db *rdb.Database, ctx context.Context, table, eventID string) int {
 	t.Helper()
 	col := "event_id"
 	if table == "events" {
 		col = "id"
 	}
 	var n int
-	err := testDB.Pool.QueryRow(ctx,
+	err := db.Pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM "+table+" WHERE "+col+" = $1", eventID,
 	).Scan(&n)
 	require.NoError(t, err)
@@ -1553,14 +1567,16 @@ func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
 }
 
 func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	t.Run("overwrites listed_venue_name on an existing event", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist := &entity.Artist{ID: newTestID(t), Name: "Adopt Test Band", MBID: newTestID(t)}
 		_, err := artistRepo.Create(ctx, artist)
@@ -1594,21 +1610,23 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 	})
 
 	t.Run("missing id is a no-op success", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		require.NoError(t, concertRepo.UpdateEventListedVenueName(ctx, newTestID(t), "Whatever"))
 	})
 }
 
 func TestConcertRepository_ListEventsBySeries(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	concertRepo := rdb.NewConcertRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
-	venueRepo := rdb.NewVenueRepository(testDB)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	concertRepo := rdb.NewConcertRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 
 	// @spec components/entity/concert/list-events-by-series "Two events, one after the other"
 	t.Run("events are ordered by date then start time, NULLs last", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artist := &entity.Artist{ID: newTestID(t), Name: "List Events Band", MBID: newTestID(t)}
 		_, err := artistRepo.Create(ctx, artist)
@@ -1669,7 +1687,7 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 
 	// @spec components/entity/concert/list-events-by-series "Series with no event"
 	t.Run("series with no event returns an empty slice", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		seriesID := seedSeries(t, ctx, seriesRepo, "Empty Series")
 
 		got, err := concertRepo.ListEventsBySeries(ctx, seriesID)

@@ -43,20 +43,20 @@ type resaleStory struct {
 	mark int64
 }
 
-func newResaleStory(t *testing.T) *resaleStory {
+func newResaleStory(t *testing.T, db *rdb.Database) *resaleStory {
 	t.Helper()
-	fc := newFirstComeStory(t)
-	s := &resaleStory{firstComeStory: fc, mark: outboxMark(t)}
+	fc := newFirstComeStory(t, db)
+	s := &resaleStory{firstComeStory: fc, mark: outboxMark(t, db)}
 	clock := usecase.Clock(func() time.Time { return s.now })
-	cards := rdb.NewCardAuthorizationRepository(testDB, payment.NewStripeCardAuthorizationProvider(fc.key, payment.LotteryCardAuthorizationPolicy, fc.logger))
+	cards := rdb.NewCardAuthorizationRepository(db, payment.NewStripeCardAuthorizationProvider(fc.key, payment.LotteryCardAuthorizationPolicy, fc.logger))
 	s.entries = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
-		EntryRepo:                rdb.NewResaleEntryRepository(testDB, testOutbox),
+		EntryRepo:                rdb.NewResaleEntryRepository(db, testOutbox),
 		StockRepo:                fc.stockRepo,
-		SaleRepo:                 rdb.NewTicketSaleRepository(testDB, testOutbox),
+		SaleRepo:                 rdb.NewTicketSaleRepository(db, testOutbox),
 		OrderRepo:                fc.orderRepo,
-		EventRepo:                rdb.NewEventRepository(testDB),
-		EventState:               rdb.NewEventPublishStateRepository(testDB),
-		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(testDB),
+		EventRepo:                rdb.NewEventRepository(db),
+		EventState:               rdb.NewEventPublishStateRepository(db),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(db),
 		UserRepo:                 fc.userRepo,
 		CardAuthorizations:       cards,
 		Clock:                    clock,
@@ -141,13 +141,13 @@ func (s *resaleStory) draw(at time.Time, stocks ...entity.TicketStockID) {
 func (s *resaleStory) followUp() {
 	s.t.Helper()
 	for {
-		next := outboxMark(s.t)
+		next := outboxMark(s.t, s.db)
 		if next == s.mark {
 			return
 		}
 		mark := s.mark
 		s.mark = next
-		for _, msg := range announcedMessages(s.t, mark, entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed,
+		for _, msg := range announcedMessages(s.t, s.db, mark, entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed,
 			entity.SubjectResaleEntryLost, entity.SubjectResaleEntryWithdrawn) {
 			require.NoError(s.t, s.changed.HandleStartWorkflow(msg))
 			if subject := messaging.CloudEventType(msg); subject == entity.SubjectResaleEntryLapsed || subject == entity.SubjectResaleEntryLost {
@@ -165,13 +165,13 @@ func (s *resaleStory) followUp() {
 				s.await(usecase.ReleaseWorkflowID(orderID))
 			}
 		}
-		for _, msg := range announcedMessages(s.t, mark, entity.SubjectResaleListingSold) {
+		for _, msg := range announcedMessages(s.t, s.db, mark, entity.SubjectResaleListingSold) {
 			require.NoError(s.t, s.sold.HandleStartRefund(msg))
 			var l entityv1.ResaleListing
 			require.NoError(s.t, proto.Unmarshal(msg.Payload, &l))
 			s.await(usecase.RefundSoldWorkflowID(entity.ResaleListingID(l.GetId().GetValue())))
 		}
-		for _, msg := range announcedMessages(s.t, mark, entity.SubjectResaleListingRefunded) {
+		for _, msg := range announcedMessages(s.t, s.db, mark, entity.SubjectResaleListingRefunded) {
 			require.NoError(s.t, s.refunded.Handle(msg))
 		}
 		for _, paid := range s.takePaid() {
@@ -183,7 +183,7 @@ func (s *resaleStory) followUp() {
 // entry reads the entry.
 func (s *resaleStory) entry(id entity.ResaleEntryID) *entity.ResaleEntry {
 	s.t.Helper()
-	e, err := rdb.NewResaleEntryRepository(testDB, testOutbox).Get(s.ctx, id)
+	e, err := rdb.NewResaleEntryRepository(s.db, testOutbox).Get(s.ctx, id)
 	require.NoError(s.t, err)
 	return e
 }
@@ -205,7 +205,7 @@ func (s *resaleStory) pushed(typ entity.NotificationType, id entity.ResaleEntryI
 func (s *resaleStory) sumSplits() int64 {
 	s.t.Helper()
 	var sum int64
-	require.NoError(s.t, testDB.Pool.QueryRow(s.ctx, `
+	require.NoError(s.t, s.db.Pool.QueryRow(s.ctx, `
 		SELECT COALESCE(SUM(sp.amount), 0)::bigint FROM settlement_splits sp
 		JOIN settlements st ON st.id = sp.settlement_id
 		WHERE st.event_id = $1 AND st.status = 1`, s.eventID).Scan(&sum))
@@ -213,11 +213,13 @@ func (s *resaleStory) sumSplits() int64 {
 }
 
 func TestResaleDrawStory_OneOfTwoTicketsResold(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "One of two tickets resold"
 	// @spec stories/resell-a-ticket "Payout after a resale"
 	// @spec components/usecase/order/issue "Won resale entry"
-	s := newResaleStory(t)
-	_, err := testDB.Pool.Exec(s.ctx, `UPDATE organizers SET platform_fee_rate_bps = 500 WHERE id = $1`, s.organizerID)
+	s := newResaleStory(t, db)
+	_, err := db.Pool.Exec(s.ctx, `UPDATE organizers SET platform_fee_rate_bps = 500 WHERE id = $1`, s.organizerID)
 	require.NoError(t, err)
 	stock, seller := s.soldOutTo(2)
 	listed := s.listOne(seller)
@@ -261,8 +263,10 @@ func TestResaleDrawStory_OneOfTwoTicketsResold(t *testing.T) {
 }
 
 func TestResaleDrawStory_TwoFansOneListing(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Two fans, one listing"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)
 	a := s.apply(stock.ID, s.newFan(), 1, "pm_card_visa")
@@ -281,8 +285,10 @@ func TestResaleDrawStory_TwoFansOneListing(t *testing.T) {
 }
 
 func TestResaleDrawStory_WithdrawnBeforeTheDraw(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Withdrawn before the draw"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	listed := s.listOne(seller)
 	entry := s.apply(stock.ID, s.newFan(), 1, "pm_card_visa")
@@ -296,12 +302,14 @@ func TestResaleDrawStory_WithdrawnBeforeTheDraw(t *testing.T) {
 }
 
 func TestResaleDrawStory_NobodyWinsAtTheLastDraw(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Nobody wins at the last draw"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	// The show is 8 days after the first-come sale (7 days) opens, so the
 	// card authorization still holds at the last draw.
 	start := storyWindowStart.Add(8 * 24 * time.Hour)
-	_, err := testDB.Pool.Exec(s.ctx, `UPDATE events SET start_at = $2, local_event_date = $3 WHERE id = $1`,
+	_, err := db.Pool.Exec(s.ctx, `UPDATE events SET start_at = $2, local_event_date = $3 WHERE id = $1`,
 		s.eventID, start, start.In(storyJST).Format(time.DateOnly))
 	require.NoError(t, err)
 	stock, seller := s.soldOutTo(2)
@@ -320,8 +328,10 @@ func TestResaleDrawStory_NobodyWinsAtTheLastDraw(t *testing.T) {
 }
 
 func TestResaleDrawStory_AuthorizationAboutToExpire(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Authorization about to expire"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)
 	fan := s.newFan()
@@ -342,9 +352,11 @@ func TestResaleDrawStory_AuthorizationAboutToExpire(t *testing.T) {
 }
 
 func TestResaleDrawStory_PlansChanged(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Plans changed"
 	// @spec components/usecase/order/release-card-authorization "Resale entry withdrawn"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)
 	fan := s.newFan()
@@ -362,13 +374,15 @@ func TestResaleDrawStory_PlansChanged(t *testing.T) {
 }
 
 func TestResaleDrawStory_CancelledBeforeTheDraw(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/resell-a-ticket "Cancelled before the draw"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)
 	fan := s.newFan()
 	entry := s.apply(stock.ID, fan, 1, "pm_card_visa")
-	_, err := testDB.Pool.Exec(context.Background(), `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
+	_, err := db.Pool.Exec(context.Background(), `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
 	require.NoError(t, err)
 
 	s.draw(noonAfter(s.now), stock.ID)
@@ -386,11 +400,11 @@ func TestResaleDrawStory_CancelledBeforeTheDraw(t *testing.T) {
 func (s *resaleStory) adminOrders() usecase.OrderUseCase {
 	s.t.Helper()
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
-		OrderRepo:      repository.NewOrderRepository(rdb.NewOrderRepository(testDB), payment.NewStripeOrderPayments(s.key, s.logger)),
-		TicketRepo:     rdb.NewTicketRepository(testDB, testOutbox),
-		EventRepo:      rdb.NewEventRepository(testDB),
-		RefundRepo:     rdb.NewRefundRepository(testDB, testOutbox),
-		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(testDB), payment.NewNoopSettlementPayouts(s.logger)),
+		OrderRepo:      repository.NewOrderRepository(rdb.NewOrderRepository(s.db), payment.NewStripeOrderPayments(s.key, s.logger)),
+		TicketRepo:     rdb.NewTicketRepository(s.db, testOutbox),
+		EventRepo:      rdb.NewEventRepository(s.db),
+		RefundRepo:     rdb.NewRefundRepository(s.db, testOutbox),
+		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(s.db), payment.NewNoopSettlementPayouts(s.logger)),
 		Clock:          func() time.Time { return s.now },
 		Logger:         s.logger,
 	})
@@ -402,15 +416,17 @@ func (s *resaleStory) latestCharge(e *entity.ResaleEntry) *stripe.Charge {
 	s.t.Helper()
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
-	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, e.Order.CardAuthorizationID), params)
+	pi, err := stripe.NewClient(s.key).V1PaymentIntents.Retrieve(s.ctx, providerCardAuthorizationID(s.t, s.db, e.Order.CardAuthorizationID), params)
 	require.NoError(s.t, err)
 	require.NotNil(s.t, pi.LatestCharge)
 	return pi.LatestCharge
 }
 
 func TestResaleDrawStory_ListingCancelledAfterTheCharge(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec components/usecase/order/issue "Listing cancelled after the charge"
-	s := newResaleStory(t)
+	s := newResaleStory(t, db)
 	stock, seller := s.soldOutTo(2)
 	listed := s.listOne(seller)
 	buyer := s.newFan()
@@ -429,7 +445,7 @@ func TestResaleDrawStory_ListingCancelledAfterTheCharge(t *testing.T) {
 	refunded := make(chan error, 1)
 	s.checkoutCards.onCapture(func(ctx context.Context) {
 		s.checkoutCards.onCapture(nil)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
 		if err == nil {
 			_, err = admin.Refund(ctx, sellerOrder, usecase.RefundReasonCancellation, s.now)
 		}
@@ -454,10 +470,10 @@ func TestResaleDrawStory_ListingCancelledAfterTheCharge(t *testing.T) {
 	assert.Empty(t, s.eventTickets(buyer), "no Ticket is issued")
 
 	var ticketStatus int16
-	require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT status FROM tickets WHERE id = $1`, string(listed.Listing.TicketID)).Scan(&ticketStatus))
+	require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT status FROM tickets WHERE id = $1`, string(listed.Listing.TicketID)).Scan(&ticketStatus))
 	assert.Equal(t, entity.TicketStatusVoided, entity.TicketStatus(ticketStatus), "the listed Ticket stays Voided")
 	var listingStatus int16
-	require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(listed.Listing.ID)).Scan(&listingStatus))
+	require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(listed.Listing.ID)).Scan(&listingStatus))
 	assert.Equal(t, entity.ResaleListingStatusCancelled, entity.ResaleListingStatus(listingStatus))
 
 	emails := s.emailsTo(buyer)

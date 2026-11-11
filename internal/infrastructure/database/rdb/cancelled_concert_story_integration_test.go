@@ -2,7 +2,6 @@ package rdb_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +64,8 @@ func (noStoryMetrics) RecordDeliveryOutcome(context.Context, string, string) {}
 // fans, the worker running the notice workflows, and the consumer of the
 // cancellation and refund announcements.
 type cancelledConcertStory struct {
+	// db is the database of the test.
+	db          *rdb.Database
 	t           *testing.T
 	ctx         context.Context
 	eventID     string
@@ -83,67 +84,60 @@ type cancelledConcertStory struct {
 	mark     int64
 }
 
-func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
+func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertStory {
 	t.Helper()
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	_, err := testDB.Pool.Exec(context.Background(), `TRUNCATE dbos.workflow_status, dbos.operation_outputs, dbos.workflow_input,
-		dbos.workflow_output, dbos.workflow_events, dbos.workflow_events_history, dbos.notifications, dbos.streams CASCADE`)
-	require.NoError(t, err)
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	s := &cancelledConcertStory{t: t, ctx: context.Background()}
-	f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
+	s := &cancelledConcertStory{db: db, t: t, ctx: context.Background()}
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, 10, 4)
 	s.eventID = f.EventID
-	require.NoError(t, testDB.Pool.QueryRow(s.ctx,
+	require.NoError(t, db.Pool.QueryRow(s.ctx,
 		`SELECT s.id, s.organizer_id FROM events e JOIN series s ON s.id = e.series_id WHERE e.id = $1`, s.eventID).
 		Scan(&s.seriesID, &s.organizerID))
-	organizerID := seedOrganizer(t)
+	organizerID := seedOrganizer(t, db)
 	for range 2 {
-		fan := seedFanUser(t)
-		tickets := seedIssuedTicketsOf(t, f, fan, 2)
+		fan := seedFanUser(t, db)
+		tickets := seedIssuedTicketsOf(t, db, f, fan, 2)
 		var orderID, email string
-		require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(tickets[0])).Scan(&orderID))
-		require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT email FROM users WHERE id = $1`, fan).Scan(&email))
-		_, err := testDB.Pool.Exec(s.ctx, `UPDATE orders SET card_brand = 'visa', card_last4 = '4242' WHERE id = $1`, orderID)
+		require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(tickets[0])).Scan(&orderID))
+		require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT email FROM users WHERE id = $1`, fan).Scan(&email))
+		_, err := db.Pool.Exec(s.ctx, `UPDATE orders SET card_brand = 'visa', card_last4 = '4242' WHERE id = $1`, orderID)
 		require.NoError(t, err)
 		settlementID := entity.NewID()
-		_, err = testDB.Pool.Exec(s.ctx, `
+		_, err = db.Pool.Exec(s.ctx, `
 			INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, 1, $5)`,
 			settlementID, orderID, organizerID, s.eventID, issuedTicketsTime)
 		require.NoError(t, err)
-		insertSettlementSplit(t, entity.SettlementID(settlementID), organizerID, 5400)
+		insertSettlementSplit(t, db, entity.SettlementID(settlementID), organizerID, 5400)
 		s.orders = append(s.orders, entity.OrderID(orderID))
 		s.fans = append(s.fans, fan)
 		s.emails = append(s.emails, email)
 	}
 
-	orderRepo := orderRepository(t, rdb.NewOrderRepository(testDB))
+	orderRepo := orderRepository(t, rdb.NewOrderRepository(db))
 	s.refunder = &storyRefunder{OrderRepository: orderRepo, refunds: map[entity.OrderID]int64{}}
-	ticketRepo := rdb.NewTicketRepository(testDB, testOutbox)
+	ticketRepo := rdb.NewTicketRepository(db, testOutbox)
 	s.mailer = &storyMailer{orders: orderRepo}
 	notifications := func(workflows usecase.Workflows) usecase.NotificationUseCase {
-		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(testDB),
-			rdb.NewPushSubscriptionRepository(testDB, testOutbox), nil, workflows, noStoryMetrics{}, logger,
+		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),
+			rdb.NewPushSubscriptionRepository(db, testOutbox), nil, workflows, noStoryMetrics{}, logger,
 			usecase.OrderConfirmationDeps{
 				Orders:   orderRepo,
-				Users:    rdb.NewUserRepository(testDB, testOutbox),
-				Concerts: rdb.NewConcertRepository(testDB, testOutbox),
+				Users:    rdb.NewUserRepository(db, testOutbox),
+				Concerts: rdb.NewConcertRepository(db, testOutbox),
 				Tickets:  ticketRepo,
 				Mailer:   s.mailer,
 				TimeZone: time.UTC,
 			}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{
-				Users:         rdb.NewUserRepository(testDB, testOutbox),
-				Follows:       rdb.NewFollowRepository(testDB, testOutbox),
-				Artists:       rdb.NewArtistRepository(testDB, testOutbox),
-				Concerts:      rdb.NewConcertRepository(testDB, testOutbox),
+				Users:         rdb.NewUserRepository(db, testOutbox),
+				Follows:       rdb.NewFollowRepository(db, testOutbox),
+				Artists:       rdb.NewArtistRepository(db, testOutbox),
+				Concerts:      rdb.NewConcertRepository(db, testOutbox),
 				Orders:        orderRepo,
-				TicketSales:   rdb.NewTicketSaleRepository(testDB, testOutbox),
-				Entries:       rdb.NewLotteryEntryRepository(testDB, testOutbox),
-				ResaleEntries: rdb.NewResaleEntryRepository(testDB, testOutbox),
+				TicketSales:   rdb.NewTicketSaleRepository(db, testOutbox),
+				Entries:       rdb.NewLotteryEntryRepository(db, testOutbox),
+				ResaleEntries: rdb.NewResaleEntryRepository(db, testOutbox),
 			})
 	}
 
@@ -167,26 +161,28 @@ func newCancelledConcertStory(t *testing.T) *cancelledConcertStory {
 	s.refunds = usecase.NewOrderUseCase(usecase.OrderDeps{
 		OrderRepo:  s.refunder,
 		TicketRepo: ticketRepo,
-		EventRepo:  rdb.NewEventRepository(testDB),
-		RefundRepo: rdb.NewRefundRepository(testDB, testOutbox),
+		EventRepo:  rdb.NewEventRepository(db),
+		RefundRepo: rdb.NewRefundRepository(db, testOutbox),
 		// Held Settlements are reversed without a payout to claw back.
-		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(testDB), payment.NewNoopSettlementPayouts(logger)),
+		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payment.NewNoopSettlementPayouts(logger)),
 		Clock:          time.Now,
 		Logger:         logger,
 	})
 	// The organizer console's SeriesUseCase: Cancel reads the authored series
 	// and cancels through the series repository.
-	s.series = usecase.NewSeriesUseCase(rdb.NewSeriesRepository(testDB, testOutbox), rdb.NewSeriesImageRepository(testDB, testOutbox),
-		rdb.NewVenueRepository(testDB), nil, rdb.NewOrganizerRepository(testDB, testOutbox), rdb.NewTicketSaleRepository(testDB, testOutbox),
+	s.series = usecase.NewSeriesUseCase(rdb.NewSeriesRepository(db, testOutbox), rdb.NewSeriesImageRepository(db, testOutbox),
+		rdb.NewVenueRepository(db), nil, rdb.NewOrganizerRepository(db, testOutbox), rdb.NewTicketSaleRepository(db, testOutbox),
 		nil, usecase.StorageBuckets{}, logger, time.Now)
-	s.mark = outboxMark(t)
+	s.mark = outboxMark(t, db)
 	return s
 }
 
 // newPool returns the database pool of one simulated process.
 func (s *cancelledConcertStory) newPool() *pgxpool.Pool {
 	s.t.Helper()
-	pool, err := pgxpool.New(s.ctx, fmt.Sprintf("postgres://test-user@localhost:%d/%s?sslmode=disable", testDBPort(), testDBName()))
+	// At most 4 connections, as newTestDB: the default is one per CPU, and
+	// the stories that run together would pass the server's max_connections.
+	pool, err := pgxpool.New(s.ctx, databaseOf(s.t, s.db).URL("")+"&pool_max_conns=4")
 	require.NoError(s.t, err)
 	s.t.Cleanup(pool.Close)
 	return pool
@@ -197,7 +193,7 @@ func (s *cancelledConcertStory) newPool() *pgxpool.Pool {
 // with prefix and its push.
 func (s *cancelledConcertStory) deliver(subject string, handle func(*message.Message) error, prefix string, push entity.NotificationType) {
 	s.t.Helper()
-	msgs := announcedMessages(s.t, s.mark, subject)
+	msgs := announcedMessages(s.t, s.db, s.mark, subject)
 	require.NotEmpty(s.t, msgs, "%s announced", subject)
 	for _, msg := range msgs {
 		require.NoError(s.t, handle(msg))
@@ -236,15 +232,17 @@ func (s *cancelledConcertStory) emailsTo(i int) []sentEmail {
 func (s *cancelledConcertStory) notifications(i int, typ entity.NotificationType) int {
 	s.t.Helper()
 	var n int
-	require.NoError(s.t, testDB.Pool.QueryRow(s.ctx,
+	require.NoError(s.t, s.db.Pool.QueryRow(s.ctx,
 		`SELECT count(*) FROM notifications WHERE user_id = $1 AND type = $2`, s.fans[i], string(typ)).Scan(&n))
 	return n
 }
 
 func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/remove-a-cancelled-concert "Cancelled and refunded"
 	// @spec components/usecase/order/refund "Tickets voided"
-	s := newCancelledConcertStory(t)
+	s := newCancelledConcertStory(t, db)
 
 	s.cancel()
 	for i := range s.fans {
@@ -270,17 +268,17 @@ func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
 		var issued int
-		require.NoError(t, testDB.Pool.QueryRow(s.ctx, `SELECT count(*) FROM tickets WHERE order_id = $1 AND status = $2`,
+		require.NoError(t, db.Pool.QueryRow(s.ctx, `SELECT count(*) FROM tickets WHERE order_id = $1 AND status = $2`,
 			string(o), int16(entity.TicketStatusIssued)).Scan(&issued))
 		assert.Zero(t, issued, "both Tickets of the Order are Voided")
 	}
 
 	// A repeated delivery of every announcement sends nothing new.
 	s.mark = 0
-	for _, msg := range announcedMessages(t, s.mark, entity.SubjectEventCancelled) {
+	for _, msg := range announcedMessages(t, db, s.mark, entity.SubjectEventCancelled) {
 		require.NoError(t, s.consumer.HandleEventCancelled(msg))
 	}
-	for _, msg := range announcedMessages(t, s.mark, entity.SubjectOrderRefunded) {
+	for _, msg := range announcedMessages(t, db, s.mark, entity.SubjectOrderRefunded) {
 		require.NoError(t, s.consumer.HandleOrderRefunded(msg))
 	}
 	for _, o := range s.orders {
@@ -292,14 +290,16 @@ func TestCancelledConcertStory_CancelledAndRefunded(t *testing.T) {
 }
 
 func TestCancelledConcertStory_DeletedRightAfterTheRefunds(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/remove-a-cancelled-concert "Deleted right after the refunds"
-	s := newCancelledConcertStory(t)
+	s := newCancelledConcertStory(t, db)
 	s.cancel()
 	s.refundAll()
 
-	require.NoError(t, rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
 
-	assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
 	for i := range s.fans {
 		got := s.emailsTo(i)
 		require.Len(t, got, 2, "fan %d keeps the cancellation and the refund email", i)
@@ -308,10 +308,12 @@ func TestCancelledConcertStory_DeletedRightAfterTheRefunds(t *testing.T) {
 }
 
 func TestCancelledConcertStory_DeletedDuringTheWindow(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/remove-a-cancelled-concert "Deleted during the window"
 	// The lottery story's harness: the Event is the only one of its Series,
 	// its lottery is open and one fan is Entered.
-	s := newLotteryStory(t)
+	s := newLotteryStory(t, db)
 	stock := s.stock("S席", 8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	sale := s.createLottery("抽選", storyWindowStart, end)
@@ -322,10 +324,10 @@ func TestCancelledConcertStory_DeletedDuringTheWindow(t *testing.T) {
 	s.cancel(s.eventID)
 	require.Equal(t, entity.LotteryEntryStateLost, s.ownEntry(sale, fan, entry.ID).State, "the entry has ended")
 
-	require.NoError(t, rdb.NewConcertRepository(testDB, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
 
-	assert.False(t, rowExists(t, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
-	assert.False(t, rowExists(t, `SELECT 1 FROM series WHERE id = $1`, s.seriesID), "the Series no longer exists")
-	assert.False(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE id = $1`, string(entry.ID)), "the entry no longer exists")
-	assert.False(t, rowExists(t, `SELECT 1 FROM orders WHERE id = $1`, string(entry.OrderID)), "its Void Order no longer exists")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1`, s.seriesID), "the Series no longer exists")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM lottery_entries WHERE id = $1`, string(entry.ID)), "the entry no longer exists")
+	assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, string(entry.OrderID)), "its Void Order no longer exists")
 }

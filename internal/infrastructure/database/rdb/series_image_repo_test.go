@@ -11,16 +11,15 @@ import (
 )
 
 func TestSeriesImageRepository_ListByOrganizer(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewSeriesImageRepository(testDB, testOutbox)
+	repo := rdb.NewSeriesImageRepository(db, testOutbox)
 
 	t.Run("returns the cover and an image no series uses", func(t *testing.T) {
 		// @spec components/entity/series-image/list-by-organizer "Cover and replaced upload"
-		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
-		other := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
+		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+		other := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
 
 		got, err := repo.ListByOrganizer(ctx, o.organizerID)
 

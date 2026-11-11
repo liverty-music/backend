@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"testing"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -32,10 +33,10 @@ func (failingOutbox) RecordAll(context.Context, pgx.Tx, string, []messaging.Anno
 
 // outboxMark returns the newest outbox offset, so a test reads only the rows
 // recorded after it.
-func outboxMark(t *testing.T) int64 {
+func outboxMark(t *testing.T, db *rdb.Database) int64 {
 	t.Helper()
 	var mark int64
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT COALESCE(MAX("offset"), 0) FROM watermill_events_outbox`).Scan(&mark))
 	return mark
 }
@@ -52,9 +53,9 @@ type recordedAnnouncement struct {
 // announcedSince returns the announcements of subject recorded after mark
 // whose payload, decoded into a new T, satisfies match; tests running at the
 // same time record their own rows, so match picks this test's entities.
-func announcedSince[T proto.Message](t *testing.T, mark int64, subject string, newT func() T, match func(T) bool) []T {
+func announcedSince[T proto.Message](t *testing.T, db *rdb.Database, mark int64, subject string, newT func() T, match func(T) bool) []T {
 	t.Helper()
-	rows, err := testDB.Pool.Query(context.Background(),
+	rows, err := db.Pool.Query(context.Background(),
 		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = $2 ORDER BY "offset"`,
 		mark, subject)
 	require.NoError(t, err)
@@ -77,9 +78,9 @@ func announcedSince[T proto.Message](t *testing.T, mark int64, subject string, n
 
 // announcedAbout returns the announcements of subject recorded after mark
 // whose ce_subject is about, decoded into new Ts.
-func announcedAbout[T proto.Message](t *testing.T, mark int64, subject, about string, newT func() T) []T {
+func announcedAbout[T proto.Message](t *testing.T, db *rdb.Database, mark int64, subject, about string, newT func() T) []T {
 	t.Helper()
-	rows, err := testDB.Pool.Query(context.Background(),
+	rows, err := db.Pool.Query(context.Background(),
 		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = $2 ORDER BY "offset"`,
 		mark, subject)
 	require.NoError(t, err)
