@@ -32,29 +32,6 @@ func (f *noticeFlow) Start(ctx context.Context, workflow, id string, input any, 
 	return f.inlineFlow.Start(ctx, workflow, id, input, opts...)
 }
 
-// onceWorkflows records the order notice workflows a use case starts, once per
-// id, as Workflows.Start promises: a start of an existing id starts nothing.
-type onceWorkflows struct {
-	ucmocks.MockWorkflows
-	mu      sync.Mutex
-	started []usecase.OrderNotice
-	ids     map[string]bool
-}
-
-func (w *onceWorkflows) Start(_ context.Context, _, id string, input any, _ ...usecase.StartOption) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.ids == nil {
-		w.ids = map[string]bool{}
-	}
-	if w.ids[id] {
-		return nil
-	}
-	w.ids[id] = true
-	w.started = append(w.started, input.(usecase.OrderNotice))
-	return nil
-}
-
 // noticeFixture holds the mocks of the order notices under test: the Orders
 // of event-1 and their fans, and the email they receive.
 type noticeFixture struct {
@@ -62,8 +39,10 @@ type noticeFixture struct {
 	users     *entitymocks.MockUserRepository
 	tickets   *entitymocks.MockTicketRepository
 	mailer    *entitymocks.MockOrderMailer
-	workflows *onceWorkflows
-	uc        usecase.NotificationUseCase
+	workflows *ucmocks.MockWorkflows
+	// starts lists the order notice workflows f.uc started.
+	starts func() []workflowStart
+	uc     usecase.NotificationUseCase
 
 	mu     sync.Mutex
 	emails map[entity.OrderID][]entity.OrderEmail
@@ -76,15 +55,16 @@ func newNoticeFixture(t *testing.T) *noticeFixture {
 		users:     entitymocks.NewMockUserRepository(t),
 		tickets:   entitymocks.NewMockTicketRepository(t),
 		mailer:    entitymocks.NewMockOrderMailer(t),
-		workflows: &onceWorkflows{},
+		workflows: ucmocks.NewMockWorkflows(t),
 		emails:    map[entity.OrderID][]entity.OrderEmail{},
 	}
+	f.starts = captureStarts(f.workflows)
 	concert := &entity.Concert{
 		ID: "event-1", LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
 		Venue: &entity.Venue{Name: "Zepp Shinjuku"}, Series: &entity.Series{Title: "Liverty Live 2026", OrganizerID: new("org-1")},
 	}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), f.workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:      time.Now,
 			Orders:   f.orders,
@@ -149,14 +129,30 @@ func (f *noticeFixture) readable(o *entity.Order, issued, resold int) {
 	f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, o.UserID, "event-1").Return(tickets, nil).Maybe()
 }
 
-// runStarted runs each notice workflow the use case started, as the workflow
-// worker does, and returns the Deliver requests they started by id.
+// notices returns the input of each notice workflow the use case started, in
+// the order it started them.
+func (f *noticeFixture) notices() []usecase.OrderNotice {
+	var out []usecase.OrderNotice
+	for _, s := range f.starts() {
+		out = append(out, s.input.(usecase.OrderNotice))
+	}
+	return out
+}
+
+// runStarted runs the notice workflows the use case started, once per
+// workflow id as the engine does, and returns the Deliver requests they
+// started by id.
 func (f *noticeFixture) runStarted(t *testing.T, run func(context.Context, usecase.Flow, usecase.OrderNotice) (struct{}, error)) map[string]usecase.DeliverRequest {
 	t.Helper()
 	pushes := map[string]usecase.DeliverRequest{}
-	for _, in := range f.workflows.started {
+	ran := map[string]bool{}
+	for _, start := range f.starts() {
+		if ran[start.id] {
+			continue
+		}
+		ran[start.id] = true
 		flow := &noticeFlow{}
-		_, err := run(context.Background(), flow, in)
+		_, err := run(context.Background(), flow, start.input.(usecase.OrderNotice))
 		require.NoError(t, err)
 		for id, input := range flow.inputs {
 			pushes[id] = input.(usecase.DeliverRequest)
@@ -198,8 +194,8 @@ func TestNotificationUseCase_SendEventCancelled(t *testing.T) {
 
 		require.NoError(t, f.uc.SendEventCancelled(ctx, "event-1"))
 
-		require.Len(t, f.workflows.started, 1)
-		assert.Equal(t, "order-a", f.workflows.started[0].OrderID)
+		require.Len(t, f.notices(), 1)
+		assert.Equal(t, "order-a", f.notices()[0].OrderID)
 	})
 
 	t.Run("refunded by a dispute before the cancellation", func(t *testing.T) {
@@ -211,7 +207,7 @@ func TestNotificationUseCase_SendEventCancelled(t *testing.T) {
 
 		require.NoError(t, f.uc.SendEventCancelled(ctx, "event-1"))
 
-		assert.Empty(t, f.workflows.started)
+		assert.Empty(t, f.starts())
 	})
 
 	t.Run("cancellation announced twice", func(t *testing.T) {
@@ -225,6 +221,12 @@ func TestNotificationUseCase_SendEventCancelled(t *testing.T) {
 
 		require.NoError(t, f.uc.SendEventCancelled(ctx, "event-1"))
 		require.NoError(t, f.uc.SendEventCancelled(ctx, "event-1"))
+		// The second announcement starts the same workflow ids, which the
+		// engine runs once.
+		starts := f.starts()
+		require.Len(t, starts, 4)
+		assert.Equal(t, []string{starts[0].id, starts[1].id}, []string{starts[2].id, starts[3].id})
+		assert.NotEqual(t, starts[0].id, starts[1].id)
 		pushes := f.runStarted(t, f.uc.RunNotifyEventCancelled)
 
 		assert.Len(t, f.emails["order-a"], 1)
@@ -240,7 +242,7 @@ func TestNotificationUseCase_SendEventCancelled(t *testing.T) {
 
 		require.NoError(t, f.uc.SendEventCancelled(ctx, "event-1"))
 
-		assert.Empty(t, f.workflows.started)
+		assert.Empty(t, f.starts())
 	})
 
 	t.Run("listing fails", func(t *testing.T) {
@@ -399,7 +401,7 @@ func rebuildWithMailer(t *testing.T, f *noticeFixture) usecase.NotificationUseCa
 		Venue: &entity.Venue{Name: "Zepp Shinjuku"}, Series: &entity.Series{Title: "Liverty Live 2026", OrganizerID: new("org-1")},
 	}
 	return usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), f.workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:    time.Now,
 			Orders: f.orders, Users: f.users, Concerts: concertReader(t, concert), Tickets: f.tickets, Mailer: f.mailer, TimeZone: tsJST,

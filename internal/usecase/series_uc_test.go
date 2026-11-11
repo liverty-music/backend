@@ -131,7 +131,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
 		d.workflows,
-		noopMetrics{},
+		anyConcertMetrics(t),
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
 	)
@@ -159,7 +159,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
 		d.workflows,
-		noopMetrics{},
+		anyConcertMetrics(t),
 		nil,
 		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
 	)

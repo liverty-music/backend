@@ -59,7 +59,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		nil, // concertSearcher — not used by admin methods
 		nil, // centroidResolver — not used by admin methods
 		ucmocks.NewMockWorkflows(t),
-		noopMetrics{},
+		anyConcertMetrics(t),
 		nil,         // analytics — not used by admin methods
 		0,           // searchCacheTTL — not used by admin methods
 		0, time.Now, // discoveryWindow — not used by admin methods

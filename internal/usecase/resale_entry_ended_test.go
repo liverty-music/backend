@@ -44,7 +44,7 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 	concert.ID, concert.LocalDate, concert.StartTime = "event-1", start, &start
 	concert.Venue = &entity.Venue{Name: "Zepp Shinjuku"}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), f.workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:               func() time.Time { return endedNow },
 			Users:             f.users,

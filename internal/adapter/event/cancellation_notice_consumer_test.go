@@ -48,7 +48,7 @@ func newNoticeConsumer(t *testing.T, workflows usecase.Workflows) *event.Cancell
 		{ID: "order-b", Status: entity.OrderStatusPaid},
 	}, nil).Maybe()
 	notifications := usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), workflows, noopPushMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{Now: time.Now, Orders: orders}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	return event.NewCancellationNoticeConsumer(notifications, newTestLogger(t))
 }

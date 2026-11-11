@@ -93,7 +93,7 @@ func newConcertsUC(t *testing.T, ctx context.Context, w usecase.Workflows, calls
 	followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
 		{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 	}, nil).Times(calls)
-	return usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
+	return usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, anyPushMetrics(t), newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo}, usecase.SubjectDeps{Now: time.Now})
 }
 
@@ -151,7 +151,7 @@ func TestNotifyNewConcerts_CountsOnlyTheGivenConcerts(t *testing.T) {
 	concertRepo := entitymocks.NewMockConcertRepository(t)
 	followRepo := entitymocks.NewMockFollowRepository(t)
 	w := ucmocks.NewMockWorkflows(t)
-	uc := usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
+	uc := usecase.NewNotificationUseCase(nil, entitymocks.NewMockPushSubscriptionRepository(t), nil, w, anyPushMetrics(t), newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo}, usecase.SubjectDeps{Now: time.Now})
 	area := "JP-13"
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
@@ -182,7 +182,7 @@ func TestNotifyNewConcerts_UnknownArtist(t *testing.T) {
 	artistRepo := entitymocks.NewMockArtistRepository(t)
 	// w expects no Start: nothing is sent.
 	w := ucmocks.NewMockWorkflows(t)
-	uc := usecase.NewNotificationUseCase(nil, nil, nil, w, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
+	uc := usecase.NewNotificationUseCase(nil, nil, nil, w, anyPushMetrics(t), newTestLogger(t), usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: entitymocks.NewMockConcertRepository(t), FollowRepo: entitymocks.NewMockFollowRepository(t)}, usecase.SubjectDeps{Now: time.Now})
 	artistRepo.EXPECT().Get(ctx, "missing").Return(nil, apperr.ErrNotFound).Once()
 

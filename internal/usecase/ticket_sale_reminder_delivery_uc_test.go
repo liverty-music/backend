@@ -45,7 +45,7 @@ func newReminderDeliveryTestDeps(t *testing.T) *reminderDeliveryTestDeps {
 		f.pushSubs,
 		f.sender,
 		f.subjects(),
-		noopMetrics{},
+		anyPushMetrics(t),
 		newTestLogger(t),
 	)
 	return d
