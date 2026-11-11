@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -275,7 +273,7 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		if err != nil {
 			return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to read the discovered sale", attrs...)
 		}
-		if err := announce(ctx, r.outbox, tx, entity.SubjectTicketSaleDiscovered, messaging.Announcement{Payload: pb.FromTicketSale(sale)}); err != nil {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectTicketSaleDiscovered, sale); err != nil {
 			return "", entity.UpsertOutcomeSkipped, err
 		}
 	}

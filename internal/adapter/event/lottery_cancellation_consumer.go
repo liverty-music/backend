@@ -8,8 +8,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -32,7 +32,7 @@ func NewLotteryCancellationConsumer(lotteryUC usecase.LotteryEntryUseCase, logge
 // Event. A failure is returned so the announcement is delivered again.
 func (h *LotteryCancellationConsumer) HandleEventCancelled(msg *message.Message) error {
 	var e entityv1.Event
-	if err := messaging.ParseProtobufData(msg, &e); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &e); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
 		return fmt.Errorf("parse %s event: %w", entity.SubjectEventCancelled, err)
 	}

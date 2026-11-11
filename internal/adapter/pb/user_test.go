@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func TestGetExternalUserID(t *testing.T) {
 		{
 			name: "valid claims with non-empty Sub",
 			args: args{
-				ctx: auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-123"}),
+				ctx: authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "ext-user-123"}),
 			},
 			want:    "ext-user-123",
 			wantErr: nil,
@@ -44,7 +44,7 @@ func TestGetExternalUserID(t *testing.T) {
 		{
 			name: "nil claims in context",
 			args: args{
-				ctx: auth.WithClaims(context.Background(), nil),
+				ctx: authctx.WithClaims(context.Background(), nil),
 			},
 			want:    "",
 			wantErr: connect.NewError(connect.CodeUnauthenticated, ""),
@@ -52,7 +52,7 @@ func TestGetExternalUserID(t *testing.T) {
 		{
 			name: "empty Sub claim",
 			args: args{
-				ctx: auth.WithClaims(context.Background(), &auth.Claims{Sub: "", Email: "test@example.com"}),
+				ctx: authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "", Email: "test@example.com"}),
 			},
 			want:    "",
 			wantErr: connect.NewError(connect.CodeUnauthenticated, ""),
@@ -182,7 +182,7 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		claims   *auth.Claims
+		claims   *authctx.Claims
 		req      *userv1.CreateRequest
 		wantNil  bool
 		wantLang string
@@ -195,7 +195,7 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 		},
 		{
 			name: "carries preferred_language from request",
-			claims: &auth.Claims{
+			claims: &authctx.Claims{
 				Sub:   "ext-123",
 				Email: "user@example.com",
 				Name:  "Hana",
@@ -209,7 +209,7 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 		},
 		{
 			name: "absent preferred_language is propagated as empty string",
-			claims: &auth.Claims{
+			claims: &authctx.Claims{
 				Sub:   "ext-456",
 				Email: "empty@example.com",
 				Name:  "Empty",

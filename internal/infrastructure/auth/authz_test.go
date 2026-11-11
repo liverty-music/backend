@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func TestRequireRoleInterceptor(t *testing.T) {
 		{
 			name: "allow caller holding the required role",
 			ctx: func() context.Context {
-				return auth.WithClaims(context.Background(), &auth.Claims{
+				return authctx.WithClaims(context.Background(), &authctx.Claims{
 					Sub:   "admin-user",
 					Roles: []string{"admin"},
 				})
@@ -33,7 +34,7 @@ func TestRequireRoleInterceptor(t *testing.T) {
 		{
 			name: "deny authenticated caller without the role",
 			ctx: func() context.Context {
-				return auth.WithClaims(context.Background(), &auth.Claims{
+				return authctx.WithClaims(context.Background(), &authctx.Claims{
 					Sub:   "regular-user",
 					Roles: []string{"viewer"},
 				})

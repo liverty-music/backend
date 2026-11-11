@@ -9,8 +9,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -62,7 +62,7 @@ func (h *PasskeyConsumer) handle(msg *message.Message, kind entity.PasskeyChange
 // to email.
 func parsePasskeyAnnouncement(msg *message.Message, kind entity.PasskeyChangeKind) (usecase.PasskeyChangeNotice, error) {
 	var passkey entityv1.Passkey
-	if err := messaging.ParseProtobufData(msg, &passkey); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &passkey); err != nil {
 		return usecase.PasskeyChangeNotice{}, err
 	}
 	userID := passkey.GetUserId().GetValue()

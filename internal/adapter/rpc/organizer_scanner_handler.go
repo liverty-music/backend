@@ -11,8 +11,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -46,7 +46,7 @@ func NewOrganizerScannerHandler(
 // resolveCallerOrganizer reads the Zitadel org id from context and delegates
 // to OrganizerUseCase.ResolveCaller, whose failure is returned unchanged.
 func (h *OrganizerScannerHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}

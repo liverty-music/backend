@@ -18,7 +18,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 )
 
 // maxDescriptionRunes is the upper bound on og:description, in characters.
@@ -59,12 +58,12 @@ type Tags struct {
 // TagBuilder turns a Concert and its Series' Concerts into preview Tags.
 type TagBuilder struct {
 	siteBaseURL string
-	imageURLs   *pb.SeriesImageURLBuilder
+	imageURLs   pb.SeriesImageURLs
 }
 
 // NewTagBuilder creates a TagBuilder. siteBaseURL is the fan web origin
 // (e.g. "https://liverty-music.app"); imageURLs composes the cover image URL.
-func NewTagBuilder(siteBaseURL string, imageURLs *pb.SeriesImageURLBuilder) *TagBuilder {
+func NewTagBuilder(siteBaseURL string, imageURLs pb.SeriesImageURLs) *TagBuilder {
 	return &TagBuilder{
 		siteBaseURL: strings.TrimRight(siteBaseURL, "/"),
 		imageURLs:   imageURLs,
@@ -152,7 +151,7 @@ func venue(v *entity.Venue) string {
 		return ""
 	}
 	if v.AdminArea != nil {
-		if pref, ok := geo.PrefectureName(*v.AdminArea); ok {
+		if pref, ok := entity.PrefectureName(*v.AdminArea); ok {
 			return v.Name + "（" + pref + "）"
 		}
 	}

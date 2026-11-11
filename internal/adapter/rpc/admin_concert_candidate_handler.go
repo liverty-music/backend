@@ -7,8 +7,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertcandidatev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert_candidate/v1"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -69,7 +69,7 @@ func (h *AdminConcertCandidateHandler) Approve(
 ) (*concertcandidatev1.ApproveResponse, error) {
 	// Reviewer identity is captured from the admin JWT (as in Reject) so a
 	// keep-existing reconciliation can attribute the rejection-log entry.
-	claims, ok := auth.GetClaims(ctx)
+	claims, ok := authctx.GetClaims(ctx)
 	reviewerSub := ""
 	if ok && claims != nil {
 		reviewerSub = claims.Sub
@@ -136,7 +136,7 @@ func (h *AdminConcertCandidateHandler) Reject(
 	ctx context.Context,
 	req *concertcandidatev1.RejectRequest,
 ) (*concertcandidatev1.RejectResponse, error) {
-	claims, ok := auth.GetClaims(ctx)
+	claims, ok := authctx.GetClaims(ctx)
 	reviewerSub := ""
 	if ok && claims != nil {
 		reviewerSub = claims.Sub

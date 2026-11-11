@@ -7,9 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // PushSubscriptionRepository implements entity.PushSubscriptionRepository for PostgreSQL.
@@ -91,7 +89,7 @@ func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.Pus
 	if err != nil {
 		return toAppErr(err, "failed to upsert push subscription", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionSubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(sub)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionSubscribed, sub); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -139,7 +137,7 @@ func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, endpoin
 	if err != nil {
 		return toAppErr(err, "failed to delete push subscription", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionUnsubscribed, messaging.Announcement{Payload: pb.FromPushSubscriptionForAnnouncement(&s)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPushSubscriptionUnsubscribed, &s); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

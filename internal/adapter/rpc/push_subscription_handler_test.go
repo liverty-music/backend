@@ -9,9 +9,8 @@ import (
 	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +19,7 @@ import (
 )
 
 func authedCtx(providerUserID string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: providerUserID})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: providerUserID})
 }
 
 const (
@@ -30,18 +29,18 @@ const (
 )
 
 // newPushSubscriptionHandler wires a PushSubscriptionHandler with fresh mocks.
-func newPushSubscriptionHandler(t *testing.T) (*handler.PushSubscriptionHandler, *ucmocks.MockPushSubscriptionUseCase, *entitymocks.MockUserRepository) {
+func newPushSubscriptionHandler(t *testing.T) (*handler.PushSubscriptionHandler, *ucmocks.MockPushSubscriptionUseCase, *ucmocks.MockUserUseCase) {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	uc := ucmocks.NewMockPushSubscriptionUseCase(t)
-	ur := entitymocks.NewMockUserRepository(t)
+	ur := ucmocks.NewMockUserUseCase(t)
 	return handler.NewPushSubscriptionHandler(uc, ur, logger), uc, ur
 }
 
 // expectPushCaller makes the user repository resolve the signed-in caller.
-func expectPushCaller(ur *entitymocks.MockUserRepository) {
-	ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).
+func expectPushCaller(ur *ucmocks.MockUserUseCase) {
+	ur.EXPECT().ResolveCaller(mock.Anything, pushTestExtID).
 		Return(&entity.User{ID: pushTestUserID, ProviderUserID: pushTestExtID}, nil).Once()
 }
 
@@ -97,7 +96,7 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
 		t.Parallel()
 		h, _, ur := newPushSubscriptionHandler(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).Return(nil, apperr.ErrNotFound).Once()
+		ur.EXPECT().ResolveCaller(mock.Anything, pushTestExtID).Return(nil, apperr.ErrNotFound).Once()
 
 		_, err := h.Create(authedCtx(pushTestExtID), &rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
@@ -132,7 +131,7 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/push-subscription "Push address of another fan"
 		const othersEndpoint = "https://push.example.com/someone-else"
 		h, uc, ur := newPushSubscriptionHandler(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).
+		ur.EXPECT().ResolveCaller(mock.Anything, pushTestExtID).
 			Return(&entity.User{ID: pushTestUserID, ProviderUserID: pushTestExtID}, nil).Twice()
 		// Both calls are scoped to the caller's own User, so another fan's
 		// subscription is neither found nor removed.

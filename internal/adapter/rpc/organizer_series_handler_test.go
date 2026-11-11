@@ -13,7 +13,6 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -46,7 +45,7 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	d.handler = rpc.NewOrganizerSeriesHandler(
 		d.seriesUC,
 		d.organizerUC,
-		pb.NewSeriesImageURLBuilder("https://cdn.example.com"),
+		cdnURLs(t),
 		logger,
 	)
 	return d

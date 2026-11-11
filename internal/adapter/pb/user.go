@@ -8,7 +8,7 @@ import (
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -97,8 +97,8 @@ func ToHome(pbHome *proto.Home) *entity.Home {
 
 // GetClaimsFromContext extracts JWT claims from the authenticated context.
 // Returns an error if the context is not authenticated or claims are missing.
-func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
-	claims, ok := auth.GetClaims(ctx)
+func GetClaimsFromContext(ctx context.Context) (*authctx.Claims, error) {
+	claims, ok := authctx.GetClaims(ctx)
 	if !ok || claims == nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, "authentication required")
 	}
@@ -128,7 +128,7 @@ func GetExternalUserID(ctx context.Context) (string, error) {
 // preferred_language is optional in the proto; an absent field returns an empty string
 // via GetPreferredLanguage(), which is passed through to the entity as-is. The
 // repository treats empty string as a NULL preferred_language in the database.
-func NewUserFromCreateRequest(claims *auth.Claims, req *userv1.CreateRequest) *entity.NewUser {
+func NewUserFromCreateRequest(claims *authctx.Claims, req *userv1.CreateRequest) *entity.NewUser {
 	if claims == nil {
 		return nil
 	}

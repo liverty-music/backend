@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -249,7 +247,7 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	pending := *order
 	pending.Status = entity.OrderStatusPending
 	pending.LotteryEntryID = entry.ID
-	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryEntered, messaging.Announcement{Payload: pb.FromOrder(&pending)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryEntered, &pending); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -345,11 +343,11 @@ const drawAnnouncementChunk = 2000
 func (r *LotteryEntryRepository) announceDrawn(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, subject string, changed []drawnEntry, set func(*entity.LotteryEntry)) error {
 	for start := 0; start < len(changed); start += drawAnnouncementChunk {
 		end := min(start+drawAnnouncementChunk, len(changed))
-		chunk := make([]messaging.Announcement, 0, end-start)
+		chunk := make([]*entity.LotteryEntry, 0, end-start)
 		for _, c := range changed[start:end] {
 			e := &entity.LotteryEntry{ID: entity.LotteryEntryID(c.ID), OrderID: entity.OrderID(c.OrderID), TicketSaleID: saleID}
 			set(e)
-			chunk = append(chunk, messaging.Announcement{Payload: pb.FromLotteryEntry(e)})
+			chunk = append(chunk, e)
 		}
 		if err := announceAll(ctx, r.outbox, tx, subject, chunk); err != nil {
 			return err
@@ -563,7 +561,7 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 	entry.State = entity.LotteryEntryStateLost
 	entry.LostReason = reason
 	entry.Order.Status = entity.OrderStatusVoid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, messaging.Announcement{Payload: pb.FromLotteryEntry(entry)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, entry); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -635,15 +633,15 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 	}
 	for start := 0; start < len(ended); start += drawAnnouncementChunk {
 		end := min(start+drawAnnouncementChunk, len(ended))
-		chunk := make([]messaging.Announcement, 0, end-start)
+		chunk := make([]*entity.LotteryEntry, 0, end-start)
 		for _, e := range ended[start:end] {
-			chunk = append(chunk, messaging.Announcement{Payload: pb.FromLotteryEntry(&entity.LotteryEntry{
+			chunk = append(chunk, &entity.LotteryEntry{
 				ID:           entity.LotteryEntryID(e.ID),
 				OrderID:      entity.OrderID(e.OrderID),
 				TicketSaleID: entity.TicketSaleID(e.TicketSaleID),
 				State:        entity.LotteryEntryStateLost,
 				LostReason:   reason,
-			})})
+			})
 		}
 		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, chunk); err != nil {
 			return err

@@ -7,8 +7,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -25,7 +25,7 @@ func makeSeriesImageRequestMsg(t *testing.T, seriesImageID, seriesID string) *me
 	})
 	require.NoError(t, err)
 	msg := message.NewMessage("test-uuid", payload)
-	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	if seriesID != "" {
 		msg.Metadata.Set("ce_subject", seriesID)
 	}

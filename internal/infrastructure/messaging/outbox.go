@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -11,6 +12,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/pkg/eventmsg"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/protobuf/proto"
@@ -26,44 +30,59 @@ const OutboxTopic = "events_outbox"
 // 65,535 parameters and each row uses three.
 const outboxChunkSize = 5000
 
-// ContentTypeProtobuf is the ce_datacontenttype of an announcement whose
-// payload is a binary protobuf message.
-const ContentTypeProtobuf = "application/protobuf"
-
 // Announcement is one message to record: the entity after the change, and
 // the CloudEvents subject (ce_subject) when the receiver needs the entity the
 // message is about named apart from the payload.
 type Announcement struct {
 	// Payload is the changed entity, or the entities of one type one
-	// operation changed together.
-	Payload proto.Message
+	// operation changed together. The Outbox encodes it with its Encoder.
+	Payload any
 	// Subject is the ce_subject attribute; empty leaves it unset.
 	Subject string
+}
+
+// Encoder turns an announced entity into its entity/v1 message. The
+// adapter that maps entities to Protobuf implements it (internal/adapter/pb),
+// and internal/di passes it to [NewOutbox].
+type Encoder interface {
+	// Encode returns the message of payload, announced under subject.
+	//
+	// # Possible errors
+	//
+	//   - Internal: payload is of a type that cannot be announced.
+	Encode(subject string, payload any) (proto.Message, error)
 }
 
 // Outbox records announcements in the transaction of the change they
 // announce. A forwarder in workflow-worker delivers each recorded row to its
 // NATS subject and deletes it (see NewForwarder).
 type Outbox struct {
-	logger watermill.LoggerAdapter
-	now    func() time.Time
+	logger  watermill.LoggerAdapter
+	encoder Encoder
+	now     func() time.Time
 }
 
-// NewOutbox returns an Outbox.
-func NewOutbox(logger watermill.LoggerAdapter) *Outbox {
-	return &Outbox{logger: logger, now: time.Now}
+// NewOutbox returns an Outbox that encodes each payload with encoder.
+func NewOutbox(logger watermill.LoggerAdapter, encoder Encoder) *Outbox {
+	return &Outbox{logger: logger, encoder: encoder, now: time.Now}
 }
 
 // Record records one announcement of subject on tx. The announcement gets a
 // new UUIDv7 id, used as its CloudEvents id and its message UUID, so every
 // delivery of it carries the same id. It is delivered only if tx commits.
+//
+// # Possible errors
+//
+//   - Internal: the Encoder cannot encode the payload.
+//
+// Any other error is a failure to record the announcement.
 func (o *Outbox) Record(ctx context.Context, tx pgx.Tx, subject string, a Announcement) error {
 	return o.RecordAll(ctx, tx, subject, []Announcement{a})
 }
 
 // RecordAll records announcements of one subject on tx, each with its own id,
 // in one multi-row INSERT per 5,000 announcements. Recording none does
-// nothing.
+// nothing. It fails as [Outbox.Record] does.
 func (o *Outbox) RecordAll(ctx context.Context, tx pgx.Tx, subject string, as []Announcement) error {
 	if len(as) == 0 {
 		return nil
@@ -98,7 +117,11 @@ func (o *Outbox) newMessage(ctx context.Context, subject string, a Announcement)
 	if err != nil {
 		return nil, fmt.Errorf("new announcement id: %w", err)
 	}
-	payload, err := proto.Marshal(a.Payload)
+	m, err := o.encoder.Encode(subject, a.Payload)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to encode the announcement", slog.String("subject", subject))
+	}
+	payload, err := proto.Marshal(m)
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s announcement: %w", subject, err)
 	}
@@ -110,7 +133,7 @@ func (o *Outbox) newMessage(ctx context.Context, subject string, a Announcement)
 	msg.Metadata.Set("ce_id", id.String())
 	msg.Metadata.Set("ce_type", subject)
 	msg.Metadata.Set("ce_time", o.now().UTC().Format(time.RFC3339Nano))
-	msg.Metadata.Set("ce_datacontenttype", ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	if a.Subject != "" {
 		msg.Metadata.Set("ce_subject", a.Subject)
 	}

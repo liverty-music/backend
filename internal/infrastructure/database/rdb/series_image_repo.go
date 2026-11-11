@@ -12,9 +12,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // SeriesImageRepository implements entity.SeriesImageRepository over the
@@ -60,10 +58,7 @@ func (r *SeriesImageRepository) Create(ctx context.Context, seriesImage *entity.
 	if err != nil {
 		return toAppErr(err, "failed to insert series image row", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectSeriesImageUploaded, messaging.Announcement{
-		Payload: pb.FromSeriesImage(seriesImage),
-		Subject: seriesID,
-	}); err != nil {
+	if err := announceAbout(ctx, r.outbox, tx, entity.SubjectSeriesImageUploaded, seriesID, seriesImage); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

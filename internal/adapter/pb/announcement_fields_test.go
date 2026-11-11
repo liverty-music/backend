@@ -4,11 +4,14 @@ import (
 	"testing"
 	"time"
 
+	pbmocks "github.com/liverty-music/backend/internal/adapter/pb/mocks"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,8 +141,9 @@ func TestFromResaleListing_References(t *testing.T) {
 func TestFromSeries_CoverImageOrganizer(t *testing.T) {
 	t.Parallel()
 
-	b := pb.NewSeriesImageURLBuilder("https://cdn.example.com")
-	got := b.FromSeries(&entity.Series{ID: "s", CoverImage: &entity.SeriesImage{ID: "img", OrganizerID: "org-1"}})
+	urls := pbmocks.NewMockSeriesImageURLs(t)
+	urls.EXPECT().VariantURL("org-1", "img", mock.Anything).Return("https://cdn.example.com/img")
+	got := pb.FromSeriesWithCoverImage(urls, &entity.Series{ID: "s", CoverImage: &entity.SeriesImage{ID: "img", OrganizerID: "org-1"}})
 
 	assert.Equal(t, "org-1", got.GetCoverImage().GetOrganizerId().GetValue())
 }

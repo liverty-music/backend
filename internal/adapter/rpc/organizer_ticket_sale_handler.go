@@ -10,8 +10,8 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // Compile-time assertion that OrganizerTicketSaleHandler satisfies the
@@ -42,7 +42,7 @@ func NewOrganizerTicketSaleHandler(
 // with PermissionDenied when the caller has no Organization; a failure of
 // OrganizerUseCase.ResolveCaller is returned unchanged.
 func resolveCallerOrganizer(ctx context.Context, organizerUC usecase.OrganizerUseCase) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}

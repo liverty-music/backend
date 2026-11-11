@@ -10,9 +10,9 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ func TestAdminServer_ConcertListByArtist(t *testing.T) {
 		t.Helper()
 		validator := authmocks.NewMockTokenValidator(t)
 		validator.EXPECT().ValidateToken(mock.Anything, adminToken).
-			Return(&auth.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
+			Return(&authctx.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
 		ts := newTestAdminServer(t, validator, usecasemocks.NewMockArtistUseCase(t), concertUC)
 		return adminconcertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 	}
@@ -88,7 +88,7 @@ func TestAdminServer_ConcertListByArtist(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/concert "Non-admin lists an artist's concerts"
 		validator := authmocks.NewMockTokenValidator(t)
 		validator.EXPECT().ValidateToken(mock.Anything, "viewer-token").
-			Return(&auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
+			Return(&authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
 		ts := newTestAdminServer(t, validator, usecasemocks.NewMockArtistUseCase(t), usecasemocks.NewMockConcertUseCase(t))
 		client := adminconcertv1connect.NewConcertServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 

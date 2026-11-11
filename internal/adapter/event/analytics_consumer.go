@@ -10,8 +10,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -286,7 +286,7 @@ func orderPaidFact(data entity.OrderPaidData) fact {
 // The fan and the TicketStock are the entry's Order's. A message under
 // another subject is not a result and fails as unparsable.
 func (c *AnalyticsConsumer) HandleLotteryEntryResult(msg *message.Message) error {
-	subject := messaging.CloudEventType(msg)
+	subject := eventmsg.CloudEventType(msg)
 	event, result := usecase.EventLotteryEntryWon, "won"
 	switch subject {
 	case entity.SubjectLotteryEntryWon:
@@ -378,7 +378,7 @@ func decodeFact[P any, PP interface {
 	proto.Message
 }](msg *message.Message, fromProto func(PP) (fact, error)) (fact, error) {
 	payload := PP(new(P))
-	if err := messaging.ParseProtobufData(msg, payload); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, payload); err != nil {
 		return fact{}, err
 	}
 	return fromProto(payload)

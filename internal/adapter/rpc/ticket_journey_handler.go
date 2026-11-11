@@ -5,7 +5,6 @@ import (
 
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_journey/v1"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -13,19 +12,19 @@ import (
 // TicketJourneyHandler implements the TicketJourneyService Connect interface.
 type TicketJourneyHandler struct {
 	ticketJourneyUC usecase.TicketJourneyUseCase
-	userRepo        entity.UserRepository
+	userUC          usecase.UserUseCase
 	logger          *logging.Logger
 }
 
 // NewTicketJourneyHandler creates a new instance of the ticket journey RPC service handler.
 func NewTicketJourneyHandler(
 	ticketJourneyUC usecase.TicketJourneyUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *TicketJourneyHandler {
 	return &TicketJourneyHandler{
 		ticketJourneyUC: ticketJourneyUC,
-		userRepo:        userRepo,
+		userUC:          userUC,
 		logger:          logger,
 	}
 }
@@ -42,7 +41,7 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *rpc.SetStatus
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +62,7 @@ func (h *TicketJourneyHandler) InferTracking(ctx context.Context, req *rpc.Infer
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +85,7 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *rpc.DeleteReques
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +108,7 @@ func (h *TicketJourneyHandler) List(ctx context.Context, _ *rpc.ListRequest) (*r
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

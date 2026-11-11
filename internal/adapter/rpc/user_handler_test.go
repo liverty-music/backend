@@ -12,8 +12,8 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	rpcmocks "github.com/liverty-music/backend/internal/adapter/rpc/mocks"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -220,7 +220,7 @@ func TestUserHandler_Create(t *testing.T) {
 	t.Parallel()
 
 	identityCtx := func() context.Context {
-		return auth.WithClaims(context.Background(), &auth.Claims{Sub: testCallerExtID, Email: "id@example.com", Name: "Identity Name"})
+		return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: testCallerExtID, Email: "id@example.com", Name: "Identity Name"})
 	}
 
 	// @spec components/adapter/fan/api/rpc/user "First sign-in"

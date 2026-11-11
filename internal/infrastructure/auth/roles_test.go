@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // createTokenWithRoles creates a signed JWT token that carries the given Zitadel
@@ -135,7 +136,7 @@ func TestRequireRole(t *testing.T) {
 		{
 			name: "allow caller holding the role",
 			ctx: func() context.Context {
-				return auth.WithClaims(context.Background(), &auth.Claims{
+				return authctx.WithClaims(context.Background(), &authctx.Claims{
 					Sub:   "admin-user",
 					Roles: []string{"admin"},
 				})
@@ -145,7 +146,7 @@ func TestRequireRole(t *testing.T) {
 		{
 			name: "deny caller without the role with PermissionDenied",
 			ctx: func() context.Context {
-				return auth.WithClaims(context.Background(), &auth.Claims{
+				return authctx.WithClaims(context.Background(), &authctx.Claims{
 					Sub:   "regular-user",
 					Roles: []string{"viewer"},
 				})
@@ -156,7 +157,7 @@ func TestRequireRole(t *testing.T) {
 		{
 			name: "deny caller with no roles at all with PermissionDenied",
 			ctx: func() context.Context {
-				return auth.WithClaims(context.Background(), &auth.Claims{
+				return authctx.WithClaims(context.Background(), &authctx.Claims{
 					Sub: "regular-user",
 				})
 			},

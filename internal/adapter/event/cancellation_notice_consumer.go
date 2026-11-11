@@ -8,8 +8,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -33,7 +33,7 @@ func NewCancellationNoticeConsumer(notificationUC usecase.NotificationUseCase, l
 // the cancelled Event.
 func (h *CancellationNoticeConsumer) HandleEventCancelled(msg *message.Message) error {
 	var e entityv1.Event
-	if err := messaging.ParseProtobufData(msg, &e); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &e); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse EVENT.cancelled event", err)
 		return fmt.Errorf("parse %s event: %w", entity.SubjectEventCancelled, err)
 	}
@@ -53,7 +53,7 @@ func (h *CancellationNoticeConsumer) HandleEventCancelled(msg *message.Message) 
 // HandleOrderRefunded starts the refund notice of the refunded Order.
 func (h *CancellationNoticeConsumer) HandleOrderRefunded(msg *message.Message) error {
 	var o entityv1.Order
-	if err := messaging.ParseProtobufData(msg, &o); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &o); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse ORDER.refunded event", err)
 		return fmt.Errorf("parse %s event: %w", entity.SubjectOrderRefunded, err)
 	}

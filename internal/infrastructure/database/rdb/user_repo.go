@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -294,7 +292,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 
 	user.Home = home
-	if err := announce(ctx, r.outbox, tx, entity.SubjectUserCreated, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectUserCreated, user); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -345,7 +343,7 @@ func (r *UserRepository) RecordLogin(ctx context.Context, id string, at time.Tim
 	if err != nil {
 		return toAppErr(err, "failed to read the signed-in user", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectUserSignedIn, messaging.Announcement{Payload: pb.FromUserForAnnouncement(user)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectUserSignedIn, user); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

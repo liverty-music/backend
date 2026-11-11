@@ -9,9 +9,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -151,6 +151,6 @@ func TestLotteryEntryResultConsumer_HandleSendLotteryLoss(t *testing.T) {
 		err := consumer.HandleSendLotteryLoss(makeResultMsg(t, "announcement-1",
 			entity.SubjectLotteryEntryLost, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN))
 
-		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+		assert.True(t, eventmsg.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
 	})
 }

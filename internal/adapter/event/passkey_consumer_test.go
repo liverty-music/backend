@@ -9,9 +9,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -31,7 +31,7 @@ func makePasskeyMsg(t *testing.T, id string, passkey *entityv1.Passkey, announce
 	msg := message.NewMessage(id, payload)
 	msg.Metadata.Set("ce_id", id)
 	msg.Metadata.Set("ce_time", announced.Format(time.RFC3339Nano))
-	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	return msg
 }
 

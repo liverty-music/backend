@@ -9,9 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -87,7 +85,7 @@ func (r *PasskeyRepository) Create(ctx context.Context, passkey *entity.Passkey)
 		}
 		return toAppErr(err, "failed to create passkey", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyAdded, messaging.Announcement{Payload: pb.FromPasskey(passkey)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyAdded, passkey); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -129,7 +127,7 @@ func (r *PasskeyRepository) Delete(ctx context.Context, providerPasskeyID string
 	if name.Valid {
 		p.Name = &name.String
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyRemoved, messaging.Announcement{Payload: pb.FromPasskey(&p)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectPasskeyRemoved, &p); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

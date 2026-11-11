@@ -7,10 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -197,9 +194,7 @@ func (r *ResaleListingRepository) RecordRefund(ctx context.Context, id entity.Re
 	if err != nil {
 		return toAppErr(err, "failed to read the refunded resale listing", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingRefunded, messaging.Announcement{
-		Payload: pb.FromResaleListing(&usecase.ResaleListingAt{Listing: refunded, Status: refunded.Status}),
-	}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingRefunded, refunded); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

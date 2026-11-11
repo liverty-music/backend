@@ -6,6 +6,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	wotel "github.com/voi-oss/watermill-opentelemetry/pkg/opentelemetry"
 )
 
@@ -28,7 +29,7 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 	// handler marked with RedeliverLater is nacked for a delayed redelivery
 	// instead.
 	pq, err := middleware.PoisonQueueWithFilter(poisonQueuePub, poisonQueueTopic,
-		func(err error) bool { return !IsRedeliverLater(err) })
+		func(err error) bool { return !eventmsg.IsRedeliverLater(err) })
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,7 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 		InitialInterval: 500 * time.Millisecond,
 		Multiplier:      2.0,
 		// A RedeliverLater failure waits for the broker's delayed redelivery.
-		ShouldRetry: func(params middleware.RetryParams) bool { return !IsRedeliverLater(params.Err) },
+		ShouldRetry: func(params middleware.RetryParams) bool { return !eventmsg.IsRedeliverLater(params.Err) },
 		Logger:      wmLogger,
 	}.Middleware)
 

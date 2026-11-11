@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -136,7 +137,7 @@ func (s *pullSubscriber) Subscribe(ctx context.Context, topic string) (<-chan *m
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		// Build a watermill message. The payload stays equal to m.Data() so
-		// handlers that call messaging.ParseProtobufData receive the raw bytes.
+		// handlers that call eventmsg.ParseProtobufData receive the raw bytes.
 		// Copy JetStream headers into watermill Metadata for completeness.
 		wmMsg := message.NewMessage(watermill.NewUUID(), m.Data())
 		for k, vals := range m.Headers() {
@@ -159,7 +160,7 @@ func (s *pullSubscriber) Subscribe(ctx context.Context, topic string) (<-chan *m
 		case <-wmMsg.Acked():
 			_ = m.Ack() //nolint:errcheck
 		case <-wmMsg.Nacked():
-			if delay := redeliveryDelay(wmMsg); delay > 0 {
+			if delay := eventmsg.RedeliveryDelay(wmMsg); delay > 0 {
 				_ = m.NakWithDelay(delay) //nolint:errcheck
 				return
 			}

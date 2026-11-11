@@ -1,4 +1,4 @@
-package messaging
+package eventmsg
 
 import (
 	"errors"
@@ -13,7 +13,8 @@ import (
 const redeliveryDelayKey = "x-liverty-redelivery-delay"
 
 // redeliveryError marks a handler failure that a later delivery may succeed
-// on (e.g. a record another event creates has not been stored yet).
+// on (e.g. a record another event creates has not been stored yet). It is a
+// type of its own, not an apperr code, because it carries the delay.
 type redeliveryError struct {
 	err   error
 	delay time.Duration
@@ -41,9 +42,9 @@ func IsRedeliverLater(err error) bool {
 	return errors.As(err, &r)
 }
 
-// redeliveryDelay returns the delay a handler asked for with RedeliverLater,
-// or 0 when it asked for none.
-func redeliveryDelay(msg *message.Message) time.Duration {
+// RedeliveryDelay returns the delay a handler asked for with
+// [RedeliverLater], or 0 when it asked for none.
+func RedeliveryDelay(msg *message.Message) time.Duration {
 	d, err := time.ParseDuration(msg.Metadata.Get(redeliveryDelayKey))
 	if err != nil || d < 0 {
 		return 0

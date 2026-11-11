@@ -22,22 +22,22 @@ var _ walletpublickeyv1connect.WalletPublicKeyServiceHandler = (*WalletPublicKey
 // shows their entry QR code. The caller is always resolved from the token.
 type WalletPublicKeyHandler struct {
 	walletUC usecase.WalletPublicKeyUseCase
-	userRepo entity.UserRepository
+	userUC   usecase.UserUseCase
 	logger   *logging.Logger
 }
 
 // NewWalletPublicKeyHandler creates a new WalletPublicKeyHandler.
 func NewWalletPublicKeyHandler(
 	walletUC usecase.WalletPublicKeyUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *WalletPublicKeyHandler {
-	return &WalletPublicKeyHandler{walletUC: walletUC, userRepo: userRepo, logger: logger}
+	return &WalletPublicKeyHandler{walletUC: walletUC, userUC: userUC, logger: logger}
 }
 
 // storedUserID resolves the caller's Zitadel subject to their stored users.id.
 func (h *WalletPublicKeyHandler) storedUserID(ctx context.Context, providerUserID string) (entity.UserID, error) {
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return "", err
 	}

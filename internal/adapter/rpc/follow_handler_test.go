@@ -11,9 +11,8 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +21,7 @@ import (
 )
 
 func followAuthedCtx(sub string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: sub})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: sub})
 }
 
 func TestFollowHandler_Follow(t *testing.T) {
@@ -35,7 +34,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *followv1.FollowRequest
-		setup    func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -44,8 +43,8 @@ func TestFollowHandler_Follow(t *testing.T) {
 			name: "success",
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
-			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			setup: func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().Follow(mock.Anything, internalUserID, artistID).Return(nil).Once()
 			},
 			wantErr: false,
@@ -55,7 +54,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
 			req:      &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
-			setup:    func(_ *ucmocks.MockFollowUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockFollowUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -64,8 +63,8 @@ func TestFollowHandler_Follow(t *testing.T) {
 			name: "error - caller has no account",
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
-			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
+			setup: func(_ *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
 			},
 			wantErr: true,
 		},
@@ -79,7 +78,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockFollowUseCase(t)
-			repo := entitymocks.NewMockUserRepository(t)
+			repo := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
@@ -111,7 +110,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *followv1.UnfollowRequest
-		setup    func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -119,8 +118,8 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 			name: "success",
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.UnfollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
-			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			setup: func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().Unfollow(mock.Anything, internalUserID, artistID).Return(nil).Once()
 			},
 			wantErr: false,
@@ -129,7 +128,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
 			req:      &followv1.UnfollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
-			setup:    func(_ *ucmocks.MockFollowUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockFollowUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -143,7 +142,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockFollowUseCase(t)
-			repo := entitymocks.NewMockUserRepository(t)
+			repo := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
@@ -170,15 +169,15 @@ func TestFollowHandler_List(t *testing.T) {
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		setup    func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
 		{
 			name: "success",
 			ctx:  followAuthedCtx("ext-user-1"),
-			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			setup: func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().List(mock.Anything, internalUserID).Return([]*entity.FollowedArtist{}, nil).Once()
 			},
 			wantErr: false,
@@ -186,7 +185,7 @@ func TestFollowHandler_List(t *testing.T) {
 		{
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
-			setup:    func(_ *ucmocks.MockFollowUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockFollowUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -200,7 +199,7 @@ func TestFollowHandler_List(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockFollowUseCase(t)
-			repo := entitymocks.NewMockUserRepository(t)
+			repo := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
@@ -229,7 +228,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *followv1.SetHypeRequest
-		setup    func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -240,8 +239,8 @@ func TestFollowHandler_SetHype(t *testing.T) {
 				ArtistId: &entityv1.ArtistId{Value: artistID},
 				Hype:     entityv1.HypeType_HYPE_TYPE_HOME,
 			},
-			setup: func(uc *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			setup: func(uc *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 				uc.EXPECT().SetHype(mock.Anything, internalUserID, artistID, mock.Anything).Return(nil).Once()
 			},
 			wantErr: false,
@@ -250,7 +249,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
 			req:      &followv1.SetHypeRequest{ArtistId: &entityv1.ArtistId{Value: artistID}, Hype: entityv1.HypeType_HYPE_TYPE_HOME},
-			setup:    func(_ *ucmocks.MockFollowUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockFollowUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -262,8 +261,8 @@ func TestFollowHandler_SetHype(t *testing.T) {
 				ArtistId: &entityv1.ArtistId{Value: artistID},
 				Hype:     entityv1.HypeType_HYPE_TYPE_UNSPECIFIED,
 			},
-			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
-				repo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			setup: func(_ *ucmocks.MockFollowUseCase, repo *ucmocks.MockUserUseCase) {
+				repo.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
 			},
 			wantCode: connect.CodeInvalidArgument,
 			wantErr:  true,
@@ -278,7 +277,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockFollowUseCase(t)
-			repo := entitymocks.NewMockUserRepository(t)
+			repo := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
@@ -306,7 +305,7 @@ func TestFollowHandler_Boundary(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		// The mocks fail the test if the usecase runs.
-		h := handler.NewFollowHandler(ucmocks.NewMockFollowUseCase(t), entitymocks.NewMockUserRepository(t), logger)
+		h := handler.NewFollowHandler(ucmocks.NewMockFollowUseCase(t), ucmocks.NewMockUserUseCase(t), logger)
 		srv := newFanBoundaryServer(t, func(s *connect.Server) {
 			followv1connect.RegisterFollowServiceHandler(s, h)
 		})

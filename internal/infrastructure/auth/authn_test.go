@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -35,7 +36,7 @@ func TestNewAuthFunc(t *testing.T) {
 		publicProcedures    map[string]bool
 	}
 	type want struct {
-		claimsEqual *auth.Claims
+		claimsEqual *authctx.Claims
 		claimsNil   bool
 		connectCode connectv1.Code
 	}
@@ -56,7 +57,7 @@ func TestNewAuthFunc(t *testing.T) {
 			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
 				t.Helper()
 				m := mocks.NewMockTokenValidator(t)
-				m.On("ValidateToken", mock.Anything, "valid-token").Return(&auth.Claims{
+				m.On("ValidateToken", mock.Anything, "valid-token").Return(&authctx.Claims{
 					Sub:   "user-123",
 					Email: "test@example.com",
 					Name:  "Test User",
@@ -64,7 +65,7 @@ func TestNewAuthFunc(t *testing.T) {
 				return m
 			},
 			want: want{
-				claimsEqual: &auth.Claims{
+				claimsEqual: &authctx.Claims{
 					Sub:   "user-123",
 					Email: "test@example.com",
 					Name:  "Test User",
@@ -96,7 +97,7 @@ func TestNewAuthFunc(t *testing.T) {
 				t.Helper()
 				m := mocks.NewMockTokenValidator(t)
 				m.On("ValidateToken", mock.Anything, "bad-token").
-					Return((*auth.Claims)(nil), errors.New("token expired"))
+					Return((*authctx.Claims)(nil), errors.New("token expired"))
 				return m
 			},
 			want:    want{connectCode: connectv1.CodeUnauthenticated},
@@ -138,7 +139,7 @@ func TestNewAuthFunc(t *testing.T) {
 			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
 				t.Helper()
 				m := mocks.NewMockTokenValidator(t)
-				m.On("ValidateToken", mock.Anything, "valid-token").Return(&auth.Claims{
+				m.On("ValidateToken", mock.Anything, "valid-token").Return(&authctx.Claims{
 					Sub:   "user-789",
 					Email: "public@example.com",
 					Name:  "Public User",
@@ -146,7 +147,7 @@ func TestNewAuthFunc(t *testing.T) {
 				return m
 			},
 			want: want{
-				claimsEqual: &auth.Claims{
+				claimsEqual: &authctx.Claims{
 					Sub:   "user-789",
 					Email: "public@example.com",
 					Name:  "Public User",
@@ -164,7 +165,7 @@ func TestNewAuthFunc(t *testing.T) {
 				t.Helper()
 				m := mocks.NewMockTokenValidator(t)
 				m.On("ValidateToken", mock.Anything, "expired-token").
-					Return((*auth.Claims)(nil), errors.New("token expired"))
+					Return((*authctx.Claims)(nil), errors.New("token expired"))
 				return m
 			},
 			want: want{claimsNil: true},
@@ -196,7 +197,7 @@ func TestNewAuthFunc(t *testing.T) {
 			if tt.want.claimsNil {
 				assert.Nil(t, info)
 			} else {
-				claims, ok := info.(*auth.Claims)
+				claims, ok := info.(*authctx.Claims)
 				assert.True(t, ok)
 				assert.Equal(t, tt.want.claimsEqual, claims)
 			}
@@ -210,7 +211,7 @@ func TestClaimsBridgeInterceptor(t *testing.T) {
 
 	type want struct {
 		claimsFound bool
-		claims      *auth.Claims
+		claims      *authctx.Claims
 	}
 	tests := []struct {
 		name     string
@@ -221,7 +222,7 @@ func TestClaimsBridgeInterceptor(t *testing.T) {
 		{
 			name: "propagate claims to handler context when info is set",
 			setupCtx: func() context.Context {
-				return authn.SetInfo(context.Background(), &auth.Claims{
+				return authn.SetInfo(context.Background(), &authctx.Claims{
 					Sub:   "user-456",
 					Email: "bridge@example.com",
 					Name:  "Bridge User",
@@ -229,7 +230,7 @@ func TestClaimsBridgeInterceptor(t *testing.T) {
 			},
 			want: want{
 				claimsFound: true,
-				claims: &auth.Claims{
+				claims: &authctx.Claims{
 					Sub:   "user-456",
 					Email: "bridge@example.com",
 					Name:  "Bridge User",
@@ -273,7 +274,7 @@ func TestClaimsBridgeInterceptor(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-				claims, ok := auth.GetClaims(capturedCtx)
+				claims, ok := authctx.GetClaims(capturedCtx)
 				assert.Equal(t, tt.want.claimsFound, ok)
 				if tt.want.claimsFound {
 					assert.Equal(t, tt.want.claims, claims)

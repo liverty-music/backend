@@ -5,25 +5,8 @@ import (
 	"slices"
 
 	"connectrpc.com/connect/v2"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
-
-// callerOrgIDKey is the context key under which the resolved caller Zitadel
-// org id is stored after the org-scoped interceptor validates the token.
-type callerOrgIDKey struct{}
-
-// WithCallerOrgID returns a new context carrying the resolved caller Zitadel
-// org id. Called by OrgScopedInterceptor after successful validation.
-func WithCallerOrgID(ctx context.Context, orgID string) context.Context {
-	return context.WithValue(ctx, callerOrgIDKey{}, orgID)
-}
-
-// GetCallerOrgID retrieves the caller's Zitadel org id that was resolved and
-// stored by OrgScopedInterceptor. Returns ("", false) when the value is absent
-// (i.e. the request did not pass through the interceptor or failed validation).
-func GetCallerOrgID(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(callerOrgIDKey{}).(string)
-	return v, ok && v != ""
-}
 
 // NewOrgScopedInterceptor returns a server interceptor that enforces org-scoped authorization for the organizer
 // Connect server. It runs as an extraInterceptor (after the claims bridge from NewClaimsBridgeInterceptor,
@@ -101,7 +84,7 @@ func (i orgScopedAuthorizer) authorize(ctx context.Context) (context.Context, er
 		return ctx, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
 
-	claims, ok := GetClaims(ctx)
+	claims, ok := authctx.GetClaims(ctx)
 	if !ok || claims == nil {
 		// Missing claims should be caught by the authn layer (UNAUTHENTICATED).
 		// Returning PERMISSION_DENIED here is a defence-in-depth fallback for
@@ -131,5 +114,5 @@ func (i orgScopedAuthorizer) authorize(ctx context.Context) (context.Context, er
 		return denied()
 	}
 
-	return WithCallerOrgID(ctx, claims.LoginScopeOrgID), nil
+	return authctx.WithCallerOrgID(ctx, claims.LoginScopeOrgID), nil
 }

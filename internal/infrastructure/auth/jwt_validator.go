@@ -11,6 +11,7 @@ import (
 	"github.com/lestrrat-go/httprc/v3"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/lestrrat-go/jwx/v4/jwt"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // JWTValidator validates JWT tokens using JWKS.
@@ -127,7 +128,7 @@ func (v *JWTValidator) WithAcceptedIssuers(issuers []string) *JWTValidator {
 }
 
 // ValidateToken validates a JWT token and returns the claims.
-func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
+func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*authctx.Claims, error) {
 	keySet, err := v.jwks.keySet(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS: %w", err)
@@ -207,7 +208,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	// organizer RPCs.
 	roleOrgIDs, loginScopeOrgID := extractRoleOrgIDs(token)
 
-	return &Claims{
+	return &authctx.Claims{
 		Sub:             sub,
 		Email:           emailStr,
 		Name:            name,

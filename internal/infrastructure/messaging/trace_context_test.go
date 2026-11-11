@@ -14,6 +14,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -261,7 +262,7 @@ func TestRouter_TracePropagation(t *testing.T) {
 			{
 				name: "broker redelivery after a nack",
 				fail: func(msg *message.Message) error {
-					return messaging.RedeliverLater(msg, errors.New("not yet"), time.Millisecond)
+					return eventmsg.RedeliverLater(msg, errors.New("not yet"), time.Millisecond)
 				},
 			},
 		}

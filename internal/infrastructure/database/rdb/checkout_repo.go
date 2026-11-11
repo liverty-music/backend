@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -233,7 +231,7 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 		if next == entity.CheckoutStatusReleased {
 			subject = entity.SubjectCheckoutReleased
 		}
-		if err := announce(ctx, r.outbox, tx, subject, messaging.Announcement{Payload: pb.FromCheckout(&ended)}); err != nil {
+		if err := announce(ctx, r.outbox, tx, subject, &ended); err != nil {
 			return nil, err
 		}
 	}
@@ -246,7 +244,7 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 	if _, err := tx.Exec(ctx, checkoutInsertQuery, string(checkout.ID), string(order.ID), string(saleID), checkout.HoldExpireTime); err != nil {
 		return nil, toAppErr(err, "failed to insert checkout", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutHeld, messaging.Announcement{Payload: pb.FromCheckout(checkout)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutHeld, checkout); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -381,7 +379,7 @@ func (r *CheckoutRepository) Release(ctx context.Context, id entity.CheckoutID, 
 	if err != nil {
 		return false, toAppErr(err, "failed to read the released checkout", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutExpired, messaging.Announcement{Payload: pb.FromCheckout(released)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutExpired, released); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -443,7 +441,7 @@ func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.Checkou
 	if err != nil {
 		return toAppErr(err, "failed to read the reverted checkout", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutReleased, messaging.Announcement{Payload: pb.FromCheckout(reverted)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutReleased, reverted); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

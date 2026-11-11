@@ -6,9 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -203,7 +201,7 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	if err != nil {
 		return toAppErr(err, "failed to read the refunded order in refund tx", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderRefunded, messaging.Announcement{Payload: pb.FromOrder(refunded)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderRefunded, refunded); err != nil {
 		return err
 	}
 

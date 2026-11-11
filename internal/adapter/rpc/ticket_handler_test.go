@@ -9,8 +9,8 @@ import (
 	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +20,7 @@ import (
 
 // ticketAuthedCtx returns a context signed in as sub.
 func ticketAuthedCtx(sub string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: sub})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: sub})
 }
 
 func newTicketHandler(t *testing.T) (*handler.TicketHandler, *ucmocks.MockTicketUseCase, *ucmocks.MockUserUseCase) {

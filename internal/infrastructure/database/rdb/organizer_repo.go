@@ -7,9 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -318,7 +316,7 @@ func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string
 		if err != nil {
 			return false, toAppErr(err, "failed to read the activated organizer", attrs...)
 		}
-		if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerActivated, messaging.Announcement{Payload: pb.FromOrganizer(o)}); err != nil {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectOrganizerActivated, o); err != nil {
 			return false, err
 		}
 	}
@@ -368,7 +366,7 @@ func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, 
 	if err != nil {
 		return toAppErr(err, "failed to read the associated artist", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectArtistRepresented, messaging.Announcement{Payload: pb.FromArtist(artist)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectArtistRepresented, artist); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

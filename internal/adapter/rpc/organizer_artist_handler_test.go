@@ -10,6 +10,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -113,7 +114,7 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 			_, err := h.List(ctx, &organizerartistv1.ListRequest{})
 			return err
 		})
-		ctx := auth.WithClaims(context.Background(), &auth.Claims{
+		ctx := authctx.WithClaims(context.Background(), &authctx.Claims{
 			Sub:             "op-sub",
 			Audiences:       []string{"fan-app-project"},
 			LoginScopeOrgID: testProviderOrganizerID,

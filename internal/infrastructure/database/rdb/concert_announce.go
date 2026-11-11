@@ -7,10 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // announcedConcertsQuery reads, inside the announcing transaction, the
@@ -66,28 +63,25 @@ func announceNewConcerts(ctx context.Context, out Announcer, tx pgx.Tx, byArtist
 		artists = append(artists, a)
 	}
 	sort.Strings(artists)
-	var announcements []messaging.Announcement
+	var announcements []announcement[[]*entity.Concert]
 	for _, artistID := range artists {
-		bySeries := map[string]*entityv1.ConcertList{}
+		bySeries := map[string][]*entity.Concert{}
 		var seriesOrder []string
 		for _, id := range byArtist[artistID] {
 			c, ok := concerts[id]
 			if !ok {
 				continue
 			}
-			list, ok := bySeries[c.SeriesID]
-			if !ok {
-				list = &entityv1.ConcertList{}
-				bySeries[c.SeriesID] = list
+			if _, ok := bySeries[c.SeriesID]; !ok {
 				seriesOrder = append(seriesOrder, c.SeriesID)
 			}
-			list.Concerts = append(list.Concerts, pb.FromConcert(c))
+			bySeries[c.SeriesID] = append(bySeries[c.SeriesID], c)
 		}
 		for _, seriesID := range seriesOrder {
-			announcements = append(announcements, messaging.Announcement{Payload: bySeries[seriesID], Subject: artistID})
+			announcements = append(announcements, announcement[[]*entity.Concert]{Payload: bySeries[seriesID], About: artistID})
 		}
 	}
-	return announceAll(ctx, out, tx, entity.SubjectConcertCreated, announcements)
+	return announceAllAbout(ctx, out, tx, entity.SubjectConcertCreated, announcements)
 }
 
 // readAnnouncedConcerts reads the Concerts of the event ids on tx, keyed by

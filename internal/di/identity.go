@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -115,10 +116,10 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	// set is refused with PermissionDenied instead of looking unimplemented.
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
-			backenduserv1connect.RegisterUserServiceHandler(s, rpc.NewBackendUserHandler(emailVerifier, identityRemover, passkeyLinks))
+			backenduserv1connect.RegisterUserServiceHandler(s, rpc.NewBackendUserHandler(usecase.NewIdentityUserUseCase(emailVerifier, passkeyLinks, identityRemover)))
 		},
 		func(s *connect.Server) {
-			backendorganizationv1connect.RegisterOrganizationServiceHandler(s, rpc.NewBackendOrganizationHandler(organizations))
+			backendorganizationv1connect.RegisterOrganizationServiceHandler(s, rpc.NewBackendOrganizationHandler(usecase.NewIdentityOrganizationUseCase(organizations)))
 		},
 	}
 	listener := func(port int) server.BackendServerSettings {

@@ -10,9 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -223,12 +221,12 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	}
 	rows.Close()
 
-	var created []messaging.Announcement
+	var created []*entity.Artist
 	announcedIDs := map[string]bool{}
 	for _, a := range resultByOrigIdx {
 		if inserted[a.ID] && !announcedIDs[a.ID] {
 			announcedIDs[a.ID] = true
-			created = append(created, messaging.Announcement{Payload: pb.FromArtist(a)})
+			created = append(created, a)
 		}
 	}
 	if err := announceAll(ctx, r.outbox, tx, entity.SubjectArtistCreated, created); err != nil {

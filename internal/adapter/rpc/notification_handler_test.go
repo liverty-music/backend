@@ -12,10 +12,9 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -24,13 +23,13 @@ import (
 )
 
 func notificationAuthedCtx(sub string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: sub})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: sub})
 }
 
-func newTestNotificationHandler(t *testing.T) (*handler.NotificationHandler, *ucmocks.MockNotificationUseCase, *entitymocks.MockUserRepository) {
+func newTestNotificationHandler(t *testing.T) (*handler.NotificationHandler, *ucmocks.MockNotificationUseCase, *ucmocks.MockUserUseCase) {
 	t.Helper()
 	uc := ucmocks.NewMockNotificationUseCase(t)
-	ur := entitymocks.NewMockUserRepository(t)
+	ur := ucmocks.NewMockUserUseCase(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return handler.NewNotificationHandler(uc, ur, logger), uc, ur
@@ -44,8 +43,8 @@ func TestNotificationHandler_ListAndMarkRead(t *testing.T) {
 		userID  = "user-uuid-1"
 		notifID = "01890000-0000-7000-8000-000000000abc"
 	)
-	expectCaller := func(ur *entitymocks.MockUserRepository) {
-		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(&entity.User{ID: userID, ProviderUserID: extID}, nil).Once()
+	expectCaller := func(ur *ucmocks.MockUserUseCase) {
+		ur.EXPECT().ResolveCaller(mock.Anything, extID).Return(&entity.User{ID: userID, ProviderUserID: extID}, nil).Once()
 	}
 
 	t.Run("fan marks their notification read", func(t *testing.T) {
@@ -118,7 +117,7 @@ func TestNotificationHandler_ListAndMarkRead(t *testing.T) {
 	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
 		t.Parallel()
 		h, _, ur := newTestNotificationHandler(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
+		ur.EXPECT().ResolveCaller(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
 
 		_, err := h.List(notificationAuthedCtx(extID), &notificationv1.ListRequest{})
 

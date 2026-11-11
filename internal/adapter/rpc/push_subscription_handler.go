@@ -24,19 +24,19 @@ var _ pushsubscriptionv1connect.PushSubscriptionServiceHandler = (*PushSubscript
 // push subscriptions; no request names a user.
 type PushSubscriptionHandler struct {
 	pushUseCase usecase.PushSubscriptionUseCase
-	userRepo    entity.UserRepository
+	userUC      usecase.UserUseCase
 	logger      *logging.Logger
 }
 
 // NewPushSubscriptionHandler creates a new PushSubscriptionHandler.
 func NewPushSubscriptionHandler(
 	pushUseCase usecase.PushSubscriptionUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *PushSubscriptionHandler {
 	return &PushSubscriptionHandler{
 		pushUseCase: pushUseCase,
-		userRepo:    userRepo,
+		userUC:      userUC,
 		logger:      logger,
 	}
 }
@@ -124,7 +124,7 @@ func (h *PushSubscriptionHandler) resolveCallerUser(ctx context.Context) (*entit
 	// push_subscriptions.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id, so we must resolve
 	// the internal user record before interacting with the repository.
-	return h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	return h.userUC.ResolveCaller(ctx, providerUserID)
 }
 
 // toPushSubscriptionProto maps the internal entity to the wire type returned

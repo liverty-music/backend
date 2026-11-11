@@ -4,20 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"testing"
+
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // testOutbox records announcements in the test database's outbox table, as
 // the repositories do in production.
-var testOutbox = messaging.NewOutbox(watermill.NopLogger{})
+var testOutbox = messaging.NewOutbox(watermill.NopLogger{}, pb.NewAnnouncementEncoder())
 
 // failingOutbox fails every recording, standing for an outbox insert that
 // fails inside the operation's transaction.

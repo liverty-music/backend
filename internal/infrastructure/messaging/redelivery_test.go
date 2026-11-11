@@ -12,6 +12,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,20 +41,6 @@ func (p *recordingPublisher) published() []string {
 func TestRedeliverLater(t *testing.T) {
 	t.Parallel()
 
-	t.Run("marks the error and the message's redelivery delay", func(t *testing.T) {
-		t.Parallel()
-		msg := message.NewMessage("m", nil)
-		cause := errors.New("not yet")
-
-		err := messaging.RedeliverLater(msg, cause, 15*time.Second)
-
-		assert.True(t, messaging.IsRedeliverLater(err))
-		assert.ErrorIs(t, err, cause)
-		assert.Equal(t, 15*time.Second, messaging.RedeliveryDelay(msg))
-		assert.False(t, messaging.IsRedeliverLater(cause))
-		assert.Zero(t, messaging.RedeliveryDelay(message.NewMessage("other", nil)))
-	})
-
 	t.Run("the router nacks it without in-process retries or the poison queue", func(t *testing.T) {
 		t.Parallel()
 		logger := watermill.NopLogger{}
@@ -66,7 +53,7 @@ func TestRedeliverLater(t *testing.T) {
 		done := make(chan struct{})
 		router.AddConsumerHandler("redeliver-later", "TEST.subject", pubsub, func(msg *message.Message) error {
 			if calls.Add(1) == 1 {
-				return messaging.RedeliverLater(msg, errors.New("not yet"), time.Second)
+				return eventmsg.RedeliverLater(msg, errors.New("not yet"), time.Second)
 			}
 			close(done)
 			return nil

@@ -1,19 +1,15 @@
-package pb_test
+package storage_test
 
 import (
 	"testing"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/stretchr/testify/assert"
 )
 
 // TestSeriesImageURLBuilder_VariantURL verifies that SeriesImageURLBuilder composes correct
 // CDN URLs when a CDN base is configured, and returns "" (never a malformed
-// relative URL) when it is not. Moved from
-// internal/adapter/event/series_image_consumer_test.go as part of
-// liverty-music/backend#485: the CDN base is now injected at construction
-// (config.ServerConfig.CDNBaseURL via DI) instead of being read
-// from the environment by the entity package.
+// relative URL) when it is not.
 func TestSeriesImageURLBuilder_VariantURL(t *testing.T) {
 	t.Parallel()
 
@@ -22,7 +18,7 @@ func TestSeriesImageURLBuilder_VariantURL(t *testing.T) {
 
 	t.Run("composes CDN URL when base is configured", func(t *testing.T) {
 		t.Parallel()
-		b := pb.NewSeriesImageURLBuilder("https://cdn.example.com")
+		b := storage.NewSeriesImageURLBuilder("https://cdn.example.com")
 
 		assert.Equal(t, "https://cdn.example.com/cdn/org-test/image-abc/thumb.webp",
 			b.VariantURL(orgID, seriesImageID, "thumb"))
@@ -32,7 +28,7 @@ func TestSeriesImageURLBuilder_VariantURL(t *testing.T) {
 
 	t.Run("trims a trailing slash on the configured base", func(t *testing.T) {
 		t.Parallel()
-		b := pb.NewSeriesImageURLBuilder("https://cdn.example.com/")
+		b := storage.NewSeriesImageURLBuilder("https://cdn.example.com/")
 
 		assert.Equal(t, "https://cdn.example.com/cdn/org-test/image-abc/thumb.webp",
 			b.VariantURL(orgID, seriesImageID, "thumb"))
@@ -40,7 +36,7 @@ func TestSeriesImageURLBuilder_VariantURL(t *testing.T) {
 
 	t.Run("returns empty string when no CDN base is configured", func(t *testing.T) {
 		t.Parallel()
-		b := pb.NewSeriesImageURLBuilder("")
+		b := storage.NewSeriesImageURLBuilder("")
 
 		assert.Equal(t, "", b.VariantURL(orgID, seriesImageID, "thumb"))
 	})

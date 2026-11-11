@@ -11,8 +11,8 @@ import (
 	"connectrpc.com/validate"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	apperrconnect "github.com/pannpers/go-apperr/apperr/connectv2"
@@ -62,7 +62,7 @@ func serveValidated(
 // signedInAs returns a decorator that signs the request in as sub.
 func signedInAs(sub string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return auth.WithClaims(ctx, &auth.Claims{Sub: sub})
+		return authctx.WithClaims(ctx, &authctx.Claims{Sub: sub})
 	}
 }
 
@@ -70,7 +70,7 @@ func signedInAs(sub string) func(context.Context) context.Context {
 // given Organization.
 func asMember(providerOrganizerID string) func(context.Context) context.Context {
 	return func(ctx context.Context) context.Context {
-		return auth.WithCallerOrgID(auth.WithClaims(ctx, &auth.Claims{Sub: "op-sub"}), providerOrganizerID)
+		return authctx.WithCallerOrgID(authctx.WithClaims(ctx, &authctx.Claims{Sub: "op-sub"}), providerOrganizerID)
 	}
 }
 

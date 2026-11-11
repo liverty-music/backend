@@ -7,6 +7,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
@@ -90,5 +91,5 @@ func severityAttr(groups []string, a slog.Attr) slog.Attr {
 // newOutbox returns the outbox announcing repositories record their
 // announcements through.
 func newOutbox(logger *logging.Logger) *messaging.Outbox {
-	return messaging.NewOutbox(watermill.NewSlogLogger(logger.Slog()))
+	return messaging.NewOutbox(watermill.NewSlogLogger(logger.Slog()), pb.NewAnnouncementEncoder())
 }

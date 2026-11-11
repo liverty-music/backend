@@ -8,8 +8,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +51,7 @@ func TestResaleListingRefundedConsumer(t *testing.T) {
 
 		err := consumer.Handle(makeListingRefundedMsg(t))
 
-		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+		assert.True(t, eventmsg.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
 	})
 
 	t.Run("a malformed payload is rejected", func(t *testing.T) {
