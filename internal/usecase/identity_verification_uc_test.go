@@ -17,6 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// identityVerificationNow is the time the tests' clock reads.
+var identityVerificationNow = time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+
 // identityVerificationTestDeps wires all dependencies for IdentityVerificationUseCase tests.
 type identityVerificationTestDeps struct {
 	identityVerificationRepo *entitymocks.MockIdentityVerificationRepository
@@ -32,7 +35,7 @@ func newIdentityVerificationTestDeps(t *testing.T) *identityVerificationTestDeps
 		userRepo:                 entitymocks.NewMockUserRepository(t),
 		verifier:                 ucmocks.NewMockIdentityVerifier(t),
 	}
-	d.uc = usecase.NewIdentityVerificationUseCase(d.identityVerificationRepo, d.userRepo, d.verifier, newTestLogger(t))
+	d.uc = usecase.NewIdentityVerificationUseCase(d.identityVerificationRepo, d.userRepo, d.verifier, func() time.Time { return identityVerificationNow }, newTestLogger(t))
 	return d
 }
 
@@ -49,7 +52,7 @@ func sampleIdentityVerification(id, userID, providerUserID string) *entity.Ident
 		Method:         entity.VerificationMethodJPKI,
 		ProviderUserID: providerUserID,
 		DedupeStrength: entity.DedupeStrengthStrong,
-		VerifyTime:     time.Now().UTC(),
+		VerifyTime:     identityVerificationNow,
 		Status:         entity.VerificationStatusActive,
 	}
 }
@@ -512,7 +515,8 @@ func TestIdentityVerificationUseCase_Delete(t *testing.T) {
 // with the given userID and pocketSignUserID.
 func matchIdentityVerification(userID, providerUserID string) any {
 	return mock.MatchedBy(func(identityVerification *entity.IdentityVerification) bool {
-		return identityVerification != nil && identityVerification.UserID == userID && identityVerification.ProviderUserID == providerUserID
+		return identityVerification != nil && identityVerification.UserID == userID && identityVerification.ProviderUserID == providerUserID &&
+			identityVerification.VerifyTime.Equal(identityVerificationNow)
 	})
 }
 

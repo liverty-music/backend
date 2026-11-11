@@ -133,7 +133,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 		d.workflows,
 		noopMetrics{},
 		nil,
-		testSearchCacheTTL, testDiscoveryWindow, logger,
+		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
 	)
 
 	concerts, err := uc.SearchNewConcerts(ctx, "artist-1", usecase.SearchTriggerDaily)
@@ -161,7 +161,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		d.workflows,
 		noopMetrics{},
 		nil,
-		testSearchCacheTTL, testDiscoveryWindow, logger,
+		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
 	)
 
 	// Artist not represented → discovery pipeline proceeds.

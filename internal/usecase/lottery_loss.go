@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -39,7 +38,7 @@ func (uc *notificationUseCase) SendLotteryLoss(ctx context.Context, entryID enti
 	if err != nil {
 		return err
 	}
-	stock, err := d.Stocks.Get(ctx, order.TicketStockID, time.Now())
+	stock, err := d.Stocks.Get(ctx, order.TicketStockID, d.Now())
 	if err != nil {
 		return err
 	}

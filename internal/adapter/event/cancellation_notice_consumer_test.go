@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/adapter/event"
@@ -48,7 +49,7 @@ func newNoticeConsumer(t *testing.T, workflows usecase.Workflows) *event.Cancell
 	}, nil).Maybe()
 	notifications := usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), workflows, noopPushMetrics{}, newTestLogger(t),
-		usecase.OrderConfirmationDeps{Orders: orders}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		usecase.OrderConfirmationDeps{Now: time.Now, Orders: orders}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	return event.NewCancellationNoticeConsumer(notifications, newTestLogger(t))
 }
 

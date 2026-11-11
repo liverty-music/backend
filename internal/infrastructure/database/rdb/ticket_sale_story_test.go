@@ -1,7 +1,6 @@
 package rdb_test
 
 import (
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -212,6 +213,7 @@ func newStoryDeps(t *testing.T, db *rdb.Database) *storyDeps {
 	}
 	pushSubs := rdb.NewPushSubscriptionRepository(db, testOutbox)
 	subjects := usecase.SubjectDeps{
+		Now:           time.Now,
 		Users:         d.users,
 		Follows:       rdb.NewFollowRepository(db, testOutbox),
 		Artists:       rdb.NewArtistRepository(db, testOutbox),
@@ -221,7 +223,7 @@ func newStoryDeps(t *testing.T, db *rdb.Database) *storyDeps {
 		Entries:       rdb.NewLotteryEntryRepository(db, testOutbox),
 		ResaleEntries: rdb.NewResaleEntryRepository(db, testOutbox),
 	}
-	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{}, usecase.NewConcertsDeps{
+	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.wf, storyMetrics{}, logger, usecase.OrderConfirmationDeps{Now: time.Now}, usecase.NewConcertsDeps{
 		ArtistRepo:  subjects.Artists,
 		ConcertRepo: rdb.NewConcertRepository(db, testOutbox),
 		FollowRepo:  subjects.Follows,
@@ -311,7 +313,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	discover := usecase.NewTicketSaleDiscoveryUseCase(
 		rdb.NewConcertRepository(db, testOutbox), rdb.NewArtistRepository(db, testOutbox), rdb.NewTicketSaleRepository(db, testOutbox),
 		rdb.NewTicketSaleSearchRepository(db), rdb.NewTicketJourneyRepository(db, testOutbox),
-		searcher, nil, d.logger)
+		searcher, nil, time.Now, d.logger)
 	announce := usecase.NewTicketSaleAnnouncementUseCase(
 		rdb.NewUserRepository(db, testOutbox), rdb.NewTicketJourneyRepository(db, testOutbox), d.wf, d.logger)
 
@@ -429,7 +431,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		sales, rdb.NewTicketSaleReminderRepository(db), rdb.NewTicketJourneyRepository(db, testOutbox),
-		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, time.Now, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)
@@ -524,7 +526,7 @@ func TestStory_LotteryClosingSoon(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		sales, rdb.NewTicketSaleReminderRepository(db), rdb.NewTicketJourneyRepository(db, testOutbox),
-		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, time.Now, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)
@@ -596,7 +598,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 
 	scan := usecase.NewTicketSaleReminderUseCase(
 		rdb.NewTicketSaleRepository(db, testOutbox), rdb.NewTicketSaleReminderRepository(db), rdb.NewTicketJourneyRepository(db, testOutbox),
-		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, d.logger)
+		rdb.NewUserRepository(db, testOutbox), d.wf, 7*24*time.Hour, time.Now, d.logger)
 
 	requested, err := scan.ScanDueReminders(ctx)
 	require.NoError(t, err)

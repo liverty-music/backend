@@ -41,9 +41,10 @@ func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 
 // Validate reports whether d follows the TicketSale rules for a discovered
 // sale (see [TicketSale.Validate]). It fails with InvalidArgument on the first
-// failure.
-func (d *DiscoveredTicketSale) Validate() error {
-	return d.TicketSale(time.Now()).Validate()
+// failure. now stands in for the discovered time, which the rules only
+// require to be set.
+func (d *DiscoveredTicketSale) Validate(now time.Time) error {
+	return d.TicketSale(now).Validate()
 }
 
 // UpsertOutcome tells whether UpsertDiscovered created a sale, updated a known

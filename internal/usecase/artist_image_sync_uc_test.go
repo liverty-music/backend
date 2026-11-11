@@ -11,7 +11,6 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 // artistImageSyncTestDeps holds all dependencies for ArtistImageSyncUseCase tests.
@@ -27,7 +26,7 @@ func newArtistImageSyncTestDeps(t *testing.T) *artistImageSyncTestDeps {
 		artistRepo:    mocks.NewMockArtistRepository(t),
 		imageResolver: mocks.NewMockArtistImageResolver(t),
 	}
-	d.uc = usecase.NewArtistImageSyncUseCase(d.artistRepo, d.imageResolver, newTestLogger(t))
+	d.uc = usecase.NewArtistImageSyncUseCase(d.artistRepo, d.imageResolver, func() time.Time { return refreshNow }, newTestLogger(t))
 	return d
 }
 
@@ -52,14 +51,14 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 	tests := []struct {
 		name    string
 		mbid    string
-		setup   func(t *testing.T, d *artistImageSyncTestDeps, start time.Time)
+		setup   func(t *testing.T, d *artistImageSyncTestDeps)
 		wantErr error
 	}{
 		{
 			// @spec components/usecase/artist/sync-artist-image "Images found"
 			name: "images found are recorded with the current check time",
 			mbid: mbid,
-			setup: func(t *testing.T, d *artistImageSyncTestDeps, start time.Time) {
+			setup: func(t *testing.T, d *artistImageSyncTestDeps) {
 				t.Helper()
 				fanart := sampleFanart()
 
@@ -69,7 +68,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, fanart, checkedNow(start)).
+					UpdateFanart(ctx, artistID, fanart, refreshNow).
 					Return(nil).
 					Once()
 			},
@@ -78,7 +77,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 			// @spec components/usecase/artist/sync-artist-image "Empty MBID"
 			name: "empty MBID makes no lookup, records nothing and does not fail",
 			mbid: "",
-			setup: func(_ *testing.T, _ *artistImageSyncTestDeps, _ time.Time) {
+			setup: func(_ *testing.T, _ *artistImageSyncTestDeps) {
 				// The mocks fail the test if ResolveImages or UpdateFanart is called.
 			},
 		},
@@ -86,7 +85,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 			// @spec components/usecase/artist/sync-artist-image "No images"
 			name: "no images records no fanart with the current check time and does not fail",
 			mbid: mbid,
-			setup: func(t *testing.T, d *artistImageSyncTestDeps, start time.Time) {
+			setup: func(t *testing.T, d *artistImageSyncTestDeps) {
 				t.Helper()
 				d.imageResolver.EXPECT().
 					ResolveImages(ctx, mbid).
@@ -94,7 +93,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), checkedNow(start)).
+					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), refreshNow).
 					Return(nil).
 					Once()
 			},
@@ -102,7 +101,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 		{
 			name: "propagates artist repository error",
 			mbid: mbid,
-			setup: func(t *testing.T, d *artistImageSyncTestDeps, _ time.Time) {
+			setup: func(t *testing.T, d *artistImageSyncTestDeps) {
 				t.Helper()
 				d.imageResolver.EXPECT().
 					ResolveImages(ctx, mbid).
@@ -110,7 +109,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), mock.AnythingOfType("time.Time")).
+					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), refreshNow).
 					Return(apperr.New(codes.Internal, "db error")).
 					Once()
 			},
@@ -119,7 +118,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 		{
 			name: "propagates image resolver error without calling repository",
 			mbid: mbid,
-			setup: func(t *testing.T, d *artistImageSyncTestDeps, _ time.Time) {
+			setup: func(t *testing.T, d *artistImageSyncTestDeps) {
 				t.Helper()
 				d.imageResolver.EXPECT().
 					ResolveImages(ctx, mbid).
@@ -134,8 +133,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := newArtistImageSyncTestDeps(t)
-			start := time.Now()
-			tt.setup(t, d, start)
+			tt.setup(t, d)
 
 			err := d.uc.SyncArtistImage(ctx, artistID, tt.mbid)
 

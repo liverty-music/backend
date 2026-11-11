@@ -141,6 +141,7 @@ type identityVerificationUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
 	verifier                 IdentityVerifier
+	clock                    Clock
 	logger                   *logging.Logger
 }
 
@@ -149,12 +150,14 @@ func NewIdentityVerificationUseCase(
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
 	verifier IdentityVerifier,
+	clock Clock,
 	logger *logging.Logger,
 ) IdentityVerificationUseCase {
 	return &identityVerificationUseCase{
 		identityVerificationRepo: identityVerificationRepo,
 		userRepo:                 userRepo,
 		verifier:                 verifier,
+		clock:                    clock,
 		logger:                   logger,
 	}
 }
@@ -233,7 +236,7 @@ func (uc *identityVerificationUseCase) Create(
 
 	// Only provider_user_id + method are stored; no 基本4情報, no raw
 	// serial, no 個人番号.
-	created, err := uc.identityVerificationRepo.Create(ctx, entity.NewIdentityVerification(userID, result.ProviderUserID, result.Method))
+	created, err := uc.identityVerificationRepo.Create(ctx, entity.NewIdentityVerification(userID, result.ProviderUserID, result.Method, uc.clock()))
 	if err != nil {
 		return nil, err
 	}

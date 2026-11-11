@@ -221,6 +221,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),
 		rdb.NewPushSubscriptionRepository(db, testOutbox), nil, s.pushes, nil, logger,
 		usecase.OrderConfirmationDeps{
+			Now:               time.Now,
 			Orders:            s.orderRepo,
 			Users:             s.userRepo,
 			Concerts:          rdb.NewConcertRepository(db, testOutbox),
@@ -237,7 +238,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 			TimeZone:          japanTime,
 			// The stories' pushes are only started (pushStarts), so nothing renders
 			// a Notification.
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 
 	s.resaleWorker = usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
 		EntryRepo: resaleEntryRepo, StockRepo: stockRepo, EventRepo: eventRepo, EventState: eventState, Clock: clock, Logger: logger,

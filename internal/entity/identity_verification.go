@@ -82,8 +82,9 @@ type IdentityVerification struct {
 // id. The status is set to Active; DedupeStrength is derived from Method.
 //
 // Raw certificate data MUST NOT be passed here — callers are responsible for
-// discarding it immediately after the Pocket Sign Verify API call.
-func NewIdentityVerification(userID, providerUserID string, method VerificationMethod) *IdentityVerification {
+// discarding it immediately after the Pocket Sign Verify API call. verifyTime
+// is when the identity was verified; it is stored in UTC.
+func NewIdentityVerification(userID, providerUserID string, method VerificationMethod, verifyTime time.Time) *IdentityVerification {
 	strength := DedupeStrengthWeak
 	if method == VerificationMethodJPKI {
 		strength = DedupeStrengthStrong
@@ -94,7 +95,7 @@ func NewIdentityVerification(userID, providerUserID string, method VerificationM
 		Method:         method,
 		ProviderUserID: providerUserID,
 		DedupeStrength: strength,
-		VerifyTime:     time.Now().UTC(),
+		VerifyTime:     verifyTime.UTC(),
 		Status:         VerificationStatusActive,
 	}
 }

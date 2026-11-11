@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 // knownPlaces resolves the venues it lists and no other.
@@ -59,7 +60,7 @@ func TestCreateFromDiscovered_ProcessedAgain(t *testing.T) {
 		rdb.NewConcertRepository(db, testOutbox),
 		rdb.NewSeriesRepository(db, testOutbox),
 		rdb.NewSuppressedConcertRepository(db),
-		places, nil, logger,
+		places, nil, time.Now, logger,
 	)
 	day := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2027, 3, 1, 9, 0, 0, 0, time.UTC)

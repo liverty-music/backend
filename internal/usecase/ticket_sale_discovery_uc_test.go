@@ -103,7 +103,7 @@ func (m *discoveryMocks) record(seriesIDs []string, err error) {
 func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
 	nextMonth := now.AddDate(0, 1, 0)
 	candidate := &entity.DiscoveredTicketSale{
 		SeriesID:      "series-a",
@@ -380,7 +380,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 
 			uc := usecase.NewTicketSaleDiscoveryUseCase(
 				m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-				m.searcher, nil, logger,
+				m.searcher, nil, func() time.Time { return now }, logger,
 			)
 			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 
@@ -477,7 +477,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.record(series, nil)
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, analytics, newTestLogger(t))
+			m.searcher, analytics, time.Now, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)
@@ -500,7 +500,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.search(series, nil, apperr.New(codes.PermissionDenied, "Spend cap breached for project"))
 		analytics := &recordingAnalytics{}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, analytics, newTestLogger(t))
+			m.searcher, analytics, time.Now, newTestLogger(t))
 
 		_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.ErrorIs(t, err, apperr.ErrPermissionDenied)
@@ -521,7 +521,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_ReportsOutcome(t *testing.
 		m.record(series, nil)
 		analytics := &recordingAnalytics{err: errors.New("queue full")}
 		uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-			m.searcher, analytics, newTestLogger(t))
+			m.searcher, analytics, time.Now, newTestLogger(t))
 
 		n, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 		require.NoError(t, err)
@@ -541,7 +541,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_EndedArtist(t *testing.T) 
 	m := newDiscoveryMocks(t)
 	uc := usecase.NewTicketSaleDiscoveryUseCase(
 		m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
-		m.searcher, nil, logger,
+		m.searcher, nil, time.Now, logger,
 	)
 	ended := *discoveryArtist
 	ended.ActivityEnded = true

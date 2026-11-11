@@ -74,6 +74,7 @@ type officialSiteRefreshUseCase struct {
 	artistRepo   entity.ArtistRepository
 	followRepo   entity.FollowRepository
 	siteResolver entity.OfficialSiteResolver
+	clock        Clock
 	logger       *logging.Logger
 }
 
@@ -85,12 +86,14 @@ func NewOfficialSiteRefreshUseCase(
 	artistRepo entity.ArtistRepository,
 	followRepo entity.FollowRepository,
 	siteResolver entity.OfficialSiteResolver,
+	clock Clock,
 	logger *logging.Logger,
 ) OfficialSiteRefreshUseCase {
 	return &officialSiteRefreshUseCase{
 		artistRepo:   artistRepo,
 		followRepo:   followRepo,
 		siteResolver: siteResolver,
+		clock:        clock,
 		logger:       logger,
 	}
 }
@@ -127,7 +130,7 @@ func (uc *officialSiteRefreshUseCase) RefreshOfficialSite(ctx context.Context, a
 		}
 	}
 
-	if err := uc.artistRepo.MarkOfficialSiteChecked(ctx, artistID, time.Now()); err != nil {
+	if err := uc.artistRepo.MarkOfficialSiteChecked(ctx, artistID, uc.clock()); err != nil {
 		return fmt.Errorf("mark official site checked for artist %s: %w", artistID, err)
 	}
 	return nil

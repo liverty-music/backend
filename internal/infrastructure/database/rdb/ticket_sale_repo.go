@@ -235,7 +235,7 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		r.db.logger.Info(ctx, "ticket_sale_repo: skipping discovered sale without a start or end time", attrs...)
 		return "", entity.UpsertOutcomeSkipped, nil
 	}
-	if err := found.Validate(); err != nil {
+	if err := found.Validate(time.Now()); err != nil {
 		return "", entity.UpsertOutcomeSkipped, err
 	}
 

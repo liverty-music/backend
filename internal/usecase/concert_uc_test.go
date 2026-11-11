@@ -67,7 +67,7 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		workflows:            &recordingWorkflows{},
 		analytics:            &recordingAnalytics{},
 	}
-	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, logger)
+	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, time.Now, logger)
 	d.uc = uc
 	return d
 }
@@ -1542,7 +1542,7 @@ func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
 		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowCreateFromDiscovered, mock.Anything, mock.Anything).
 			Return(apperr.New(codes.Unavailable, "database down")).Once()
 		uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo,
-			d.rejectedConcertRepo, d.searcher, d.centroidResolver, workflows, noopMetrics{}, nil, testSearchCacheTTL, testDiscoveryWindow, newTestLogger(t))
+			d.rejectedConcertRepo, d.searcher, d.centroidResolver, workflows, noopMetrics{}, nil, testSearchCacheTTL, testDiscoveryWindow, time.Now, newTestLogger(t))
 		expectSearch(d, entity.ConcertSearchStatusFailed)
 
 		_, err := uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)

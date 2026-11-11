@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/user/v1/userv1connect"
@@ -66,7 +67,7 @@ func TestProvideIdentityClients_None(t *testing.T) {
 	assert.Equal(t, "identity-provider clients built", entries[0]["msg"])
 	assert.Equal(t, "none", entries[0]["clients"])
 
-	userUC := usecase.NewUserUseCase(nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	userUC := usecase.NewUserUseCase(nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
 	server := connect.NewServer()
 	assert.NotPanics(t, func() {
 		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, nil, logger))

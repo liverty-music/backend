@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -31,7 +32,7 @@ func newCandidateListDeps(t *testing.T) *candidateListDeps {
 	// The other dependencies are nil: List never touches them.
 	d.uc = usecase.NewConcertCandidateUseCase(usecase.NewConcertUseCase(
 		d.artists, nil, nil, nil, nil, nil, d.candidates, nil, nil, nil,
-		&recordingWorkflows{}, noopMetrics{}, nil, 0, 0, newTestLogger(t),
+		&recordingWorkflows{}, noopMetrics{}, nil, 0, 0, time.Now, newTestLogger(t),
 	))
 	return d
 }

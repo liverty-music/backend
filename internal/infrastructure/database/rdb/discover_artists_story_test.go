@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
@@ -16,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"uuid"
 )
 
 // Story tests for stories/discover-artists. They run the real ArtistUseCase,
@@ -120,7 +121,7 @@ func newDiscoverStory(t *testing.T, db *rdb.Database) *discoverStory {
 	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, s.found, s.mb, discoveries, time.Now, logger)
 	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(db, testOutbox), s.artistRepo, storyNoOfficialSite{},
 		storyFollowMetrics{}, logger)
-	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, logger)
+	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, time.Now, logger)
 	return s
 }
 

@@ -300,10 +300,13 @@ func TestReminderMessage(t *testing.T) {
 // event the audience lists for the fan is the event the pushed message opens.
 //
 // @spec components/usecase/ticket-sale/scan-due-reminders "Link to the tracked event"
+// reminderNow is the time the reminder tests' clock reads.
+var reminderNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+
 func TestReminderMessage_LinksToTheTrackedEvent(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: deliverySaleID, SeriesID: "series-1", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.Add(-10 * time.Minute),
@@ -311,7 +314,7 @@ func TestReminderMessage_LinksToTheTrackedEvent(t *testing.T) {
 		DiscoveredTime: new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "user-001", PreferredLanguage: "ja", TimeZone: noonZone(now)}
-	scan := newScanDeps(t, sale)
+	scan := newScanDeps(t, now, sale)
 	scan.audience(sale, user, "event-nov1", nil)
 	var due entity.TicketSaleReminderDueData
 	scan.pub.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverReminder, mock.Anything, mock.Anything).
@@ -371,7 +374,7 @@ type scanDeps struct {
 
 const scanLookahead = 7 * 24 * time.Hour
 
-func newScanDeps(t *testing.T, sales ...*entity.TicketSale) *scanDeps {
+func newScanDeps(t *testing.T, now time.Time, sales ...*entity.TicketSale) *scanDeps {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -387,7 +390,7 @@ func newScanDeps(t *testing.T, sales ...*entity.TicketSale) *scanDeps {
 		Return(sales, nil).Once()
 	d.uc = usecase.NewTicketSaleReminderUseCase(
 		d.ticketSaleRepo, d.reminderRepo, d.journeyRepo, d.userRepo,
-		d.pub, scanLookahead, logger,
+		d.pub, scanLookahead, func() time.Time { return now }, logger,
 	)
 	return d
 }
@@ -425,7 +428,7 @@ func (d *scanDeps) expectReminder(userID, saleID string, stage entity.ReminderSt
 func TestScanDueReminders_FirstComeAboutToOpen(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-fc", SeriesID: "series-fc", Method: entity.TicketSaleMethodFirstCome,
 		SaleStartTime:  now.Add(20 * time.Minute), // anchor 10 minutes ago
@@ -433,7 +436,7 @@ func TestScanDueReminders_FirstComeAboutToOpen(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-osaka", nil)
 	d.expectReminder("fan-1", "sale-fc", entity.ReminderStageApplyOpen, "event-osaka")
 
@@ -446,7 +449,7 @@ func TestScanDueReminders_FirstComeAboutToOpen(t *testing.T) {
 func TestScanDueReminders_FirstComeAlreadyOpen(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-fc", SeriesID: "series-fc", Method: entity.TicketSaleMethodFirstCome,
 		SaleStartTime:  now.Add(-5 * time.Minute), // opened 5 minutes ago
@@ -454,7 +457,7 @@ func TestScanDueReminders_FirstComeAlreadyOpen(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-1", nil)
 	// No publish is expected: the stage expired when the sale opened.
 
@@ -468,7 +471,7 @@ func TestScanDueReminders_FirstComeAlreadyOpen(t *testing.T) {
 func TestScanDueReminders_LotteryOpens(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-lot", SeriesID: "series-lot", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.Add(-10 * time.Minute),
@@ -477,7 +480,7 @@ func TestScanDueReminders_LotteryOpens(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-1", nil)
 	d.expectReminder("fan-1", "sale-lot", entity.ReminderStageApplyOpen, "event-1")
 
@@ -490,7 +493,7 @@ func TestScanDueReminders_LotteryOpens(t *testing.T) {
 func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-sent", SeriesID: "series-sent", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.Add(-10 * time.Minute),
@@ -499,7 +502,7 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-1", map[entity.ReminderStage]bool{entity.ReminderStageApplyOpen: true})
 	// No publish is expected: APPLY_OPEN is already recorded as sent.
 
@@ -515,7 +518,7 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-expired", SeriesID: "series-expired", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.AddDate(0, 0, -30),
@@ -524,7 +527,7 @@ func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: "Asia/Tokyo"}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-1", nil)
 	// No publish expectation: the mock fails the test on any stale reminder.
 
@@ -537,7 +540,7 @@ func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 func TestScanDueReminders_FanNoLongerListed(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-rd", SeriesID: "series-rd", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.AddDate(0, 0, -5),
@@ -545,7 +548,7 @@ func TestScanDueReminders_FanNoLongerListed(t *testing.T) {
 		DiscoveredTime: new(now.AddDate(0, 0, -30)),
 	}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	// The fan who tracked earlier is no longer returned when the closing
 	// reminder becomes due.
 	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-rd").Return(nil, nil).Once()
@@ -560,7 +563,7 @@ func TestScanDueReminders_FanNoLongerListed(t *testing.T) {
 func TestScanDueReminders_EvaluatesEachListedSale(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	broken := &entity.TicketSale{
 		ID: "sale-broken", SeriesID: "series-broken", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
@@ -578,7 +581,7 @@ func TestScanDueReminders_EvaluatesEachListedSale(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, broken, inThreeDays, open)
+	d := newScanDeps(t, now, broken, inThreeDays, open)
 	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-broken").
 		Return(nil, errors.New("db down")).Once()
 	// The sale opening in 3 days is evaluated (its audience is read) but has
@@ -643,11 +646,11 @@ func TestUserTimezone(t *testing.T) {
 func TestScanDueReminders_OrganizerSale(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := organizerLottery(now.Add(-10*time.Minute), now.AddDate(0, 0, 5))
 	fanA := &entity.User{ID: "fan-a", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	// The audience is read over the offered events, not the series: fan B,
 	// who tracks only the Osaka event, is not returned.
 	d.journeyRepo.EXPECT().ListUserIDsTrackingEvents(mock.Anything, []string{"event-tokyo"}).
@@ -697,7 +700,7 @@ func TestReminderWorkflowID(t *testing.T) {
 func TestScanDueReminders_MilestonePastAtDiscovery(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-late", SeriesID: "series-late", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.Add(-2 * time.Hour),
@@ -706,7 +709,7 @@ func TestScanDueReminders_MilestonePastAtDiscovery(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.audience(sale, user, "event-1", nil)
 
 	published, err := d.uc.ScanDueReminders(context.Background())
@@ -721,11 +724,11 @@ func TestScanDueReminders_MilestonePastAtDiscovery(t *testing.T) {
 func TestScanDueReminders_OrganizerSaleCreatedAfterItOpened(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := organizerLottery(now.Add(-2*time.Hour), now.AddDate(0, 0, 5))
 	user := &entity.User{ID: "fan-a", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.journeyRepo.EXPECT().ListUserIDsTrackingEvents(mock.Anything, []string{"event-tokyo"}).
 		Return([]*entity.SeriesTracker{{UserID: "fan-a", EventID: "event-tokyo"}}, nil).Once()
 	d.recipient(sale, user, nil)
@@ -741,7 +744,7 @@ func TestScanDueReminders_OrganizerSaleCreatedAfterItOpened(t *testing.T) {
 func TestScanDueReminders_SentStagesUnreadable(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-lot", SeriesID: "series-lot", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:  now.Add(-10 * time.Minute),
@@ -750,7 +753,7 @@ func TestScanDueReminders_SentStagesUnreadable(t *testing.T) {
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
-	d := newScanDeps(t, sale)
+	d := newScanDeps(t, now, sale)
 	d.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-lot").
 		Return([]*entity.SeriesTracker{{UserID: "fan-1", EventID: "event-1"}}, nil).Once()
 	d.userRepo.EXPECT().Get(mock.Anything, "fan-1").Return(user, nil).Once()

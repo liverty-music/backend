@@ -109,14 +109,14 @@ func errorCode(err error) string {
 // may be nil (no PostHog key configured: nothing is sent), with a new event
 // id and now as the time the work ended. A failure is logged and never
 // returned, so a signal can never change the outcome it reports.
-func sendSystemSignal(ctx context.Context, client AnalyticsClient, logger *logging.Logger, eventName AnalyticsEventName, properties AnalyticsProperties) {
+func sendSystemSignal(ctx context.Context, client AnalyticsClient, logger *logging.Logger, eventName AnalyticsEventName, now time.Time, properties AnalyticsProperties) {
 	if client == nil {
 		return
 	}
 	if err := client.Capture(ctx, AnalyticsEvent{
 		Name:       eventName,
 		UUID:       entity.NewID(),
-		Time:       time.Now(),
+		Time:       now,
 		Personless: true,
 		Properties: properties,
 	}); err != nil {

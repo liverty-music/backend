@@ -131,9 +131,9 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		nil, // centroidResolver — not used by admin methods
 		&recordingWorkflows{},
 		noopMetrics{},
-		nil, // analytics — not used by admin methods
-		0,   // searchCacheTTL — not used by admin methods
-		0,   // discoveryWindow — not used by admin methods
+		nil,         // analytics — not used by admin methods
+		0,           // searchCacheTTL — not used by admin methods
+		0, time.Now, // discoveryWindow — not used by admin methods
 		newTestLogger(t),
 	)
 	d.concerts = concerts

@@ -58,7 +58,7 @@ func InitializeOfficialSiteRefreshJobApp(ctx context.Context) (*OfficialSiteRefr
 	musicbrainzClient := musicbrainz.NewClient(extHTTPClient, logger)
 
 	// Use Cases
-	officialSiteRefreshUC := usecase.NewOfficialSiteRefreshUseCase(artistRepo, followRepo, musicbrainzClient, logger)
+	officialSiteRefreshUC := usecase.NewOfficialSiteRefreshUseCase(artistRepo, followRepo, musicbrainzClient, time.Now, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

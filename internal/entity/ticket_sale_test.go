@@ -261,7 +261,7 @@ func TestDiscoveredTicketSale_TicketSale(t *testing.T) {
 
 	assert.True(t, sale.IsDiscovered())
 	assert.True(t, first.Equal(*sale.DiscoveredTime))
-	assert.NoError(t, found.Validate())
+	assert.NoError(t, found.Validate(first))
 }
 
 func TestTicketSale_Validate_Kind(t *testing.T) {

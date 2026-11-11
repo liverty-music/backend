@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 // Story test for stories/get-notified-of-new-concerts. Concerts are added by
@@ -77,7 +78,7 @@ func (s *newConcertsStory) discover(artistID, artistName, tour string, count int
 		rdb.NewConcertRepository(s.db, testOutbox),
 		rdb.NewSeriesRepository(s.db, testOutbox),
 		rdb.NewSuppressedConcertRepository(s.db),
-		places, nil, s.d.logger,
+		places, nil, time.Now, s.d.logger,
 	)
 	require.NoError(s.t, uc.CreateFromDiscovered(s.ctx, entity.ConcertDiscoveredData{
 		ArtistID: artistID, ArtistName: artistName, Series: []*entity.DiscoveredSeries{batch},

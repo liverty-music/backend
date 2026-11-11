@@ -123,6 +123,7 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),
 			rdb.NewPushSubscriptionRepository(db, testOutbox), nil, workflows, noStoryMetrics{}, logger,
 			usecase.OrderConfirmationDeps{
+				Now:      time.Now,
 				Orders:   orderRepo,
 				Users:    rdb.NewUserRepository(db, testOutbox),
 				Concerts: rdb.NewConcertRepository(db, testOutbox),
@@ -130,6 +131,7 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 				Mailer:   s.mailer,
 				TimeZone: time.UTC,
 			}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{
+				Now:           time.Now,
 				Users:         rdb.NewUserRepository(db, testOutbox),
 				Follows:       rdb.NewFollowRepository(db, testOutbox),
 				Artists:       rdb.NewArtistRepository(db, testOutbox),

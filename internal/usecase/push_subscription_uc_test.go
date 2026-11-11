@@ -672,8 +672,8 @@ func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, 
 func newNotifyNewConcertsUC(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.NotificationUseCase {
 	t.Helper()
 	return usecase.NewNotificationUseCase(nil, d.pushSubRepo, nil, d.publisher, noopMetrics{}, logger,
-		usecase.OrderConfirmationDeps{},
-		usecase.NewConcertsDeps{ArtistRepo: d.artistRepo, ConcertRepo: d.concertRepo, FollowRepo: d.followRepo}, usecase.SubjectDeps{})
+		usecase.OrderConfirmationDeps{Now: time.Now},
+		usecase.NewConcertsDeps{ArtistRepo: d.artistRepo, ConcertRepo: d.concertRepo, FollowRepo: d.followRepo}, usecase.SubjectDeps{Now: time.Now})
 }
 
 // TestNotifyNewConcerts_ZeroRecipientPathsAreLogged verifies each zero-dispatch

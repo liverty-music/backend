@@ -3,9 +3,10 @@ package usecase_test
 import (
 	"context"
 	"errors"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"testing"
 	"time"
+
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
@@ -467,7 +468,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		h.uc = usecase.NewConcertCreationUseCase(
 			h.candidate, h.venue, h.concert, h.series, h.suppressed,
-			h.place, h.analytics, newTestLogger(t),
+			h.place, h.analytics, time.Now, newTestLogger(t),
 		)
 		return h
 	}
@@ -886,7 +887,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(
 			&fakeConcertCandidateRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
-			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
+			newFakeSuppressedConcertRepo(), nil, nil, time.Now, newTestLogger(t),
 		)
 	})
 }
@@ -921,7 +922,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 		uc := usecase.NewConcertCreationUseCase(
 			candidate, venue, concert, series, suppressed,
-			place, nil, newTestLogger(t),
+			place, nil, time.Now, newTestLogger(t),
 		)
 		return uc, concert, series, candidate, pub
 	}
@@ -1040,7 +1041,7 @@ func newCreationUC(t *testing.T, concert *fakeConcertRepo, venues ...string) (us
 	}
 	candidate := &fakeConcertCandidateRepo{}
 	uc := usecase.NewConcertCreationUseCase(candidate, newFakeVenueRepo(), concert, &fakeSeriesRepo{},
-		newFakeSuppressedConcertRepo(), place, nil, newTestLogger(t))
+		newFakeSuppressedConcertRepo(), place, nil, time.Now, newTestLogger(t))
 	return uc, candidate
 }
 

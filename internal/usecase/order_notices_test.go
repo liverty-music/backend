@@ -86,13 +86,14 @@ func newNoticeFixture(t *testing.T) *noticeFixture {
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
+			Now:      time.Now,
 			Orders:   f.orders,
 			Users:    f.users,
 			Concerts: stubConcerts{concert: concert},
 			Tickets:  f.tickets,
 			Mailer:   f.mailer,
 			TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	f.mailer.EXPECT().SendCancellationEmail(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, id entity.OrderID, _ string, m entity.OrderEmail) error {
 			f.record(id, m)
@@ -400,8 +401,9 @@ func rebuildWithMailer(t *testing.T, f *noticeFixture) usecase.NotificationUseCa
 	return usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
+			Now:    time.Now,
 			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert}, Tickets: f.tickets, Mailer: f.mailer, TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 }
 
 func TestNotificationUseCase_SendOrderRefunded(t *testing.T) {

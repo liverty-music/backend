@@ -44,6 +44,7 @@ type ticketSaleReminderUseCase struct {
 	lookahead time.Duration
 	// lookbackMargin is the grace period passed to ListWithPendingMilestones.
 	lookbackMargin time.Duration
+	clock          Clock
 	logger         *logging.Logger
 }
 
@@ -63,6 +64,7 @@ func NewTicketSaleReminderUseCase(
 	userRepo entity.UserRepository,
 	workflows Workflows,
 	lookahead time.Duration,
+	clock Clock,
 	logger *logging.Logger,
 ) TicketSaleReminderUseCase {
 	return &ticketSaleReminderUseCase{
@@ -73,13 +75,14 @@ func NewTicketSaleReminderUseCase(
 		workflows:      workflows,
 		lookahead:      lookahead,
 		lookbackMargin: reminderScanLookbackMargin,
+		clock:          clock,
 		logger:         logger,
 	}
 }
 
 // ScanDueReminders implements [TicketSaleReminderUseCase].
 func (uc *ticketSaleReminderUseCase) ScanDueReminders(ctx context.Context) (int, error) {
-	now := time.Now().UTC()
+	now := uc.clock().UTC()
 	uc.logger.Info(ctx, "ticket_sale_reminder: starting scan", slog.String("now", now.Format(time.RFC3339)))
 
 	sales, err := uc.ticketSaleRepo.ListWithPendingMilestones(ctx, uc.lookahead, uc.lookbackMargin)

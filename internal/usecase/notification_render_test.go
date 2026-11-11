@@ -21,6 +21,8 @@ import (
 // test reads the message the Notification entity renders from the records a
 // subject names, as the fan's browser receives it.
 type subjectFixture struct {
+	// now is the clock Deliver and List read; time.Now unless a test pins it.
+	now           func() time.Time
 	users         *entitymocks.MockUserRepository
 	follows       *entitymocks.MockFollowRepository
 	artists       *entitymocks.MockArtistRepository
@@ -41,6 +43,7 @@ type subjectFixture struct {
 func newSubjectFixture(t *testing.T) *subjectFixture {
 	t.Helper()
 	f := &subjectFixture{
+		now:           time.Now,
 		users:         entitymocks.NewMockUserRepository(t),
 		follows:       entitymocks.NewMockFollowRepository(t),
 		artists:       entitymocks.NewMockArtistRepository(t),
@@ -58,7 +61,7 @@ func newSubjectFixture(t *testing.T) *subjectFixture {
 	logger, logs := newCaptureLogger(t)
 	f.logs = logs
 	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.workflows, f.metrics, logger,
-		usecase.OrderConfirmationDeps{},
+		usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: f.artists, ConcertRepo: f.concerts, FollowRepo: f.follows},
 		f.subjects())
 	return f
@@ -67,6 +70,7 @@ func newSubjectFixture(t *testing.T) *subjectFixture {
 // subjects returns the fixture's ports as what Deliver and List read.
 func (f *subjectFixture) subjects() usecase.SubjectDeps {
 	return usecase.SubjectDeps{
+		Now:           func() time.Time { return f.now() },
 		Users:         f.users,
 		Follows:       f.follows,
 		Artists:       f.artists,

@@ -36,16 +36,13 @@ func newOfficialSiteRefreshTestDeps(t *testing.T) *officialSiteRefreshTestDeps {
 		followRepo:   mocks.NewMockFollowRepository(t),
 		siteResolver: mocks.NewMockOfficialSiteResolver(t),
 	}
-	d.uc = usecase.NewOfficialSiteRefreshUseCase(d.artistRepo, d.followRepo, d.siteResolver, newTestLogger(t))
+	d.uc = usecase.NewOfficialSiteRefreshUseCase(d.artistRepo, d.followRepo, d.siteResolver, func() time.Time { return refreshNow }, newTestLogger(t))
 	return d
 }
 
-// checkedNow matches a check time taken during the test, between start and now.
-func checkedNow(start time.Time) any {
-	return mock.MatchedBy(func(t time.Time) bool {
-		return !t.Before(start) && !t.After(time.Now())
-	})
-}
+// refreshNow is the time the tests' clock reads; a refresh records it as the
+// check time.
+var refreshNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
 
 func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Parallel()
@@ -56,13 +53,12 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("Catalog resolves to a different site", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).Return("https://www.hitsujibungaku.info/", nil).Once()
 		d.artistRepo.EXPECT().GetOfficialSite(ctx, refreshArtistID).
 			Return(&entity.OfficialSite{ID: "site-1", ArtistID: refreshArtistID, URL: "http://hitsujibungaku.jimdo.com/"}, nil).Once()
 		d.artistRepo.EXPECT().UpdateOfficialSiteURL(ctx, refreshArtistID, "https://www.hitsujibungaku.info/").Return(nil).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 
@@ -73,12 +69,11 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("Catalog resolves to the stored site", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).Return("https://yorushika.com/", nil).Once()
 		d.artistRepo.EXPECT().GetOfficialSite(ctx, refreshArtistID).
 			Return(&entity.OfficialSite{ID: "site-1", ArtistID: refreshArtistID, URL: "https://yorushika.com/"}, nil).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 
@@ -91,7 +86,6 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("Artist without a site gets one", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).Return("https://illit-official.jp/", nil).Once()
 		d.artistRepo.EXPECT().GetOfficialSite(ctx, refreshArtistID).
@@ -99,7 +93,7 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 		d.artistRepo.EXPECT().CreateOfficialSite(ctx, mock.MatchedBy(func(s *entity.OfficialSite) bool {
 			return s.ID != "" && s.ArtistID == refreshArtistID && s.URL == "https://illit-official.jp/"
 		})).Return(nil).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 
@@ -110,10 +104,9 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("Catalog lists no active homepage", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).Return("", nil).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 
@@ -126,10 +119,9 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("No site anywhere", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).Return("", nil).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 
@@ -141,11 +133,10 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 	t.Run("MBID unknown to the catalog", func(t *testing.T) {
 		t.Parallel()
 		d := newOfficialSiteRefreshTestDeps(t)
-		start := time.Now()
 
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).
 			Return("", apperr.New(codes.NotFound, "musicbrainz url-rels request failed")).Once()
-		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, refreshNow).Return(nil).Once()
 
 		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
 

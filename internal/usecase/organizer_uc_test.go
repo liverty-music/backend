@@ -48,7 +48,7 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		d.seriesImageRepo,
 		d.imageStorer,
 		usecase.StorageBuckets{Internal: testInternalBucket, Served: testServedBucket},
-		d.metrics,
+		d.metrics, time.Now,
 		newTestLogger(t),
 	)
 	return d
@@ -1300,7 +1300,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			d := newOrganizerTestDeps(t)
 			if tt.noStorage {
 				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.signInLinks, d.artistRepo, d.organizationRepo, d.seriesImageRepo, nil,
-					usecase.StorageBuckets{}, d.metrics, newTestLogger(t))
+					usecase.StorageBuckets{}, d.metrics, time.Now, newTestLogger(t))
 			}
 			var calls []string
 			tt.setup(d, &calls)

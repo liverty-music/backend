@@ -59,7 +59,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		Checkouts:      d.checkoutRepo,
 		Orders:         d.orderRepo,
 		Now:            func() time.Time { return userTestNow },
-	}, &recordingWorkflows{}, d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, newTestLogger(t))
+	}, &recordingWorkflows{}, d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -70,7 +70,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, &recordingWorkflows{}, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, &recordingWorkflows{}, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -890,7 +890,7 @@ func newUserTestDepsWithWorkflows(t *testing.T) (*userTestDeps, *ucmocks.MockWor
 		repo:          mocks.NewMockUserRepository(t),
 		emailVerifier: mocks.NewMockEmailVerifier(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, workflows, d.emailVerifier, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, workflows, d.emailVerifier, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
 	return d, workflows
 }
 
@@ -900,6 +900,9 @@ func expectResendStarted(workflows *ucmocks.MockWorkflows, userID string, times 
 	workflows.EXPECT().Start(mock.Anything, usecase.WorkflowReissueEmailVerification, mock.Anything,
 		usecase.UserRequest{UserID: userID}).Return(nil).Times(times)
 }
+
+// resendNow is the time the resend tests' clock reads.
+var resendNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
 
 func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	t.Parallel()
@@ -927,7 +930,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		workflows := ucmocks.NewMockWorkflows(t)
 		repo := mocks.NewMockUserRepository(t)
-		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
 
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
@@ -1021,7 +1024,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		w := &recordingWorkflows{}
 		repo := mocks.NewMockUserRepository(t)
-		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Twice()
 
@@ -1828,7 +1831,7 @@ func TestUserUseCase_RunSendVerification(t *testing.T) {
 	t.Run("the same announcement starts one email", func(t *testing.T) {
 		t.Parallel()
 		w := &recordingWorkflows{}
-		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, newTestLogger(t))
+		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))

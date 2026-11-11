@@ -205,12 +205,13 @@ func NewOrganizerUseCase(
 	imageStorer ImageStorer,
 	storageBuckets StorageBuckets,
 	metrics OrganizerMetrics,
+	clock Clock,
 	logger *logging.Logger,
 ) OrganizerUseCase {
 	return &organizerUseCase{
 		organizerRepo:     organizerRepo,
 		signInLinks:       signInLinks,
-		signInLinkLimiter: newSlidingWindowLimiter(signInLinkLimit, signInLinkWindow, time.Now),
+		signInLinkLimiter: newSlidingWindowLimiter(signInLinkLimit, signInLinkWindow, clock),
 		background:        func(task func()) { go task() },
 		artistRepo:        artistRepo,
 		organizationRepo:  organizationRepo,
