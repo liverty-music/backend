@@ -40,8 +40,8 @@ func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 }
 
 // Validate reports whether d follows the TicketSale rules for a discovered
-// sale (see [TicketSale.Validate]). It returns a stdlib error describing the
-// first failure; callers wrap it with an apperr code.
+// sale (see [TicketSale.Validate]). It fails with InvalidArgument on the first
+// failure.
 func (d *DiscoveredTicketSale) Validate() error {
 	return d.TicketSale(time.Now()).Validate()
 }

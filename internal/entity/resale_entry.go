@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ResaleEntryID is the opaque identifier for a single ResaleEntry.
@@ -154,20 +156,18 @@ func (e *ResaleEntry) IsWithdrawable() bool {
 	return e.State == ResaleEntryStateEntered
 }
 
-// ErrResaleWinNotRevertible is returned by [ResaleEntry.RevertWin] for an
-// entry that is not a Won entry with a Pending Order.
-var ErrResaleWinNotRevertible = errors.New("only a won resale entry whose order is pending can be made lost")
-
 // RevertWin makes a Won entry whose Order is Pending Lost with the reason,
 // and its Order Void, so the listings allocated to it that are still Listed
 // are free for the next draw ([ResaleListing.IsFreeForDrawAt]); a Cancelled
-// one never is. An entry already Lost is left as it is.
+// one never is. An entry already Lost is left as it is. It fails with
+// FailedPrecondition for an entry that is not a Won entry with a Pending
+// Order.
 func (e *ResaleEntry) RevertWin(reason ResaleEntryLostReason) error {
 	if e.State == ResaleEntryStateLost {
 		return nil
 	}
 	if e.State != ResaleEntryStateWon || e.Order == nil || e.Order.Status != OrderStatusPending {
-		return ErrResaleWinNotRevertible
+		return apperr.New(codes.FailedPrecondition, "only a won resale entry whose order is pending can be made lost")
 	}
 	e.State, e.LostReason = ResaleEntryStateLost, reason
 	e.Order.Status = OrderStatusVoid

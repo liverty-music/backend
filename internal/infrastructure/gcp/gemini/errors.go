@@ -27,16 +27,10 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		return apperr.Wrap(err, codes.Canceled, msg, attrs...)
 	}
 
-	// A response without a candidate or one stopped by too many tool calls:
-	// the service answered but produced no result, so the search can succeed
-	// on a later run.
-	if errors.Is(err, errNoCandidates) || errors.Is(err, errTooManyToolCalls) {
-		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
-	}
-	// A structurally broken response: invalid JSON, or a normal finish
-	// without text.
-	if errors.Is(err, errInvalidJSON) || errors.Is(err, errNoText) {
-		return apperr.Wrap(err, codes.Internal, msg, attrs...)
+	// An error this package created with its code (an empty or broken
+	// response, a refused fetch) keeps that code.
+	if ae, ok := errors.AsType[*apperr.AppErr](err); ok {
+		return apperr.Wrap(err, ae.Code, msg, attrs...)
 	}
 
 	// Handle Gemini API errors

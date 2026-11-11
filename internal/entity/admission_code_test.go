@@ -5,11 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -77,7 +80,7 @@ func TestAdmissionCode_Validate(t *testing.T) {
 			}
 			err := code.Validate()
 			if tt.wantErr {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 				return
 			}
 			assert.NoError(t, err)

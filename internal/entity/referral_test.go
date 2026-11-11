@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,7 +38,7 @@ func TestReferralCode_Validate(t *testing.T) {
 			err := tt.code.Validate()
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 				return
 			}
 			assert.NoError(t, err)

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -49,7 +51,7 @@ func TestOrganizer_HasCompleteBusinessDetails(t *testing.T) {
 		d := completeBusinessDetails()
 		d.BusinessPhoneNumber = "03-1234-5678"
 
-		assert.Error(t, d.Validate())
+		assert.ErrorIs(t, d.Validate(), apperr.ErrInvalidArgument)
 	})
 
 	t.Run("malformed contact email", func(t *testing.T) {
@@ -57,7 +59,7 @@ func TestOrganizer_HasCompleteBusinessDetails(t *testing.T) {
 		d := completeBusinessDetails()
 		d.ContactEmail = "not-an-email"
 
-		assert.Error(t, d.Validate())
+		assert.ErrorIs(t, d.Validate(), apperr.ErrInvalidArgument)
 	})
 
 	t.Run("contact email too long", func(t *testing.T) {
@@ -66,7 +68,7 @@ func TestOrganizer_HasCompleteBusinessDetails(t *testing.T) {
 		d := completeBusinessDetails()
 		d.ContactEmail = emailOfLength(166)
 
-		assert.Error(t, d.Validate())
+		assert.ErrorIs(t, d.Validate(), apperr.ErrInvalidArgument)
 
 		d.ContactEmail = emailOfLength(165)
 		assert.NoError(t, d.Validate())
@@ -192,7 +194,7 @@ func TestOrganizer_Validate(t *testing.T) {
 			err := o.Validate()
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 				return
 			}
 			assert.NoError(t, err)
@@ -207,8 +209,8 @@ func TestOrganizer_PlatformFeeRate(t *testing.T) {
 	assert.Equal(t, 800, entity.NewOrganizer("Label", "label", "owner@example.com").PlatformFeeRateBps)
 
 	// @spec components/entity/organizer "Rate over the bound"
-	assert.Error(t, entity.ValidatePlatformFeeRate(3100))
-	assert.Error(t, entity.ValidatePlatformFeeRate(-1))
+	assert.ErrorIs(t, entity.ValidatePlatformFeeRate(3100), apperr.ErrInvalidArgument)
+	assert.ErrorIs(t, entity.ValidatePlatformFeeRate(-1), apperr.ErrInvalidArgument)
 	assert.NoError(t, entity.ValidatePlatformFeeRate(0))
 	assert.NoError(t, entity.ValidatePlatformFeeRate(3000))
 }

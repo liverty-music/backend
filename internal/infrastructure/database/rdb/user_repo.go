@@ -420,7 +420,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.
 // an empty value as absent, and returns the refreshed user.
 func (r *UserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber *string) (*entity.User, error) {
 	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid personal details")
+		return nil, err
 	}
 	// A nil pointer is sent as NULL: the value is stored as absent.
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePersonalDetailsQuery, id, fullName, phoneNumber))

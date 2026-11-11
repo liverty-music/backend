@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -64,7 +63,7 @@ func (uc *seatTypeUseCase) Create(ctx context.Context, organizerID, seriesID, na
 	}
 	seatType := entity.NewSeatType(seriesID, name, price)
 	if err := seatType.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid seat type")
+		return nil, err
 	}
 	return uc.seatTypeRepo.Create(ctx, seatType)
 }

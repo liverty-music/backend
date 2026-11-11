@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/net/html"
 	"golang.org/x/net/publicsuffix"
@@ -36,17 +38,24 @@ const (
 	officialPageUserAgent = "LivertyMusic/1.0 (+https://liverty-music.app)"
 )
 
-var (
-	// errNonPublicAddress is returned when a fetch would dial a loopback,
-	// private, link-local, unspecified or multicast address.
-	errNonPublicAddress = errors.New("refused to dial a non-public address")
+// errNonPublicAddress returns the FailedPrecondition error of a fetch that
+// would dial ip, a loopback, private, link-local, unspecified or multicast
+// address.
+func errNonPublicAddress(ip netip.Addr) error {
+	return apperr.New(codes.FailedPrecondition, "refused to dial a non-public address: "+ip.String())
+}
 
-	// errOffSiteRedirect is returned when the top page redirects to another
-	// registrable domain than the official site's.
-	errOffSiteRedirect = errors.New("official top page redirected to another domain")
+// errOffSiteRedirect returns the FailedPrecondition error of a top page that
+// redirected to host, of another registrable domain than the official site's.
+func errOffSiteRedirect(host string) error {
+	return apperr.New(codes.FailedPrecondition, "official top page redirected to another domain: "+host)
+}
 
-	errTooManyRedirects = errors.New("official top page redirected too many times")
-)
+// errTooManyRedirects returns the FailedPrecondition error of a top page that
+// redirected more than officialPageMaxRedirects times.
+func errTooManyRedirects() error {
+	return apperr.New(codes.FailedPrecondition, "official top page redirected too many times")
+}
 
 // linkProfile selects the links of an official top page for one searcher.
 // Tiers are keyword lists in priority order: a link belongs to the first tier
@@ -92,7 +101,7 @@ func newOfficialPageClient(dial func(ctx context.Context, network, addr string) 
 			// via holds the requests already sent: the original and earlier
 			// redirects.
 			if len(via) > officialPageMaxRedirects {
-				return errTooManyRedirects
+				return errTooManyRedirects()
 			}
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("redirect to unsupported scheme %q", req.URL.Scheme)
@@ -116,7 +125,7 @@ func refuseNonPublicAddress(_, address string, _ syscall.RawConn) error {
 	ip = ip.Unmap()
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return fmt.Errorf("%w: %s", errNonPublicAddress, ip)
+		return errNonPublicAddress(ip)
 	}
 	return nil
 }
@@ -170,7 +179,7 @@ func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL, pro
 	}
 	final := resp.Request.URL
 	if registrableDomain(final.Hostname()) != domain {
-		return nil, fmt.Errorf("%w: %s", errOffSiteRedirect, final.Host)
+		return nil, errOffSiteRedirect(final.Host)
 	}
 
 	return selectLinks(io.LimitReader(resp.Body, officialPageMaxBytes), final, domain, profile), nil

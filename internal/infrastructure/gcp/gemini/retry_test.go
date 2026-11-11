@@ -210,7 +210,6 @@ func TestSearch_TooManyToolCallsFailsWithoutRetry(t *testing.T) {
 	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
 	assert.Nil(t, got)
-	assert.ErrorIs(t, err, gemini.ErrTooManyToolCalls)
 	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	assert.Equal(t, int32(1), calls.Load(), "not retried")
 	require.NotNil(t, md.Grounded)
@@ -353,7 +352,6 @@ func TestSearch_StopWithoutTextFailsWithoutRetry(t *testing.T) {
 
 	got, _, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
-	assert.ErrorIs(t, err, gemini.ErrNoText)
 	assert.ErrorIs(t, err, apperr.ErrInternal)
 	assert.Empty(t, got)
 	assert.Equal(t, int32(1), calls.Load(), "not retried")

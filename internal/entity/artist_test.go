@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -159,7 +161,7 @@ func TestValidateOfficialSiteURL(t *testing.T) {
 			err := entity.ValidateOfficialSiteURL(tt.url)
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			} else {
 				assert.NoError(t, err)
 			}

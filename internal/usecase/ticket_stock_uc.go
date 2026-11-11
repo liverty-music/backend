@@ -116,7 +116,7 @@ func (uc *ticketStockUseCase) Create(ctx context.Context, organizerID, eventID s
 	}
 	stock := entity.NewTicketStock(eventID, seatTypeID, quantity)
 	if err := stock.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid ticket stock")
+		return nil, err
 	}
 	if event.HasPublishState(entity.PublishStateCancelled) {
 		return nil, apperr.New(codes.FailedPrecondition, "a cancelled event cannot be stocked")

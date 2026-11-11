@@ -407,7 +407,7 @@ func TestSeriesImageUseCase_Process_UnsupportedImage(t *testing.T) {
 	seriesImage := &entity.SeriesImage{ID: seriesImageID, OrganizerID: orgID}
 	d.seriesImageRepo.EXPECT().Get(mock.Anything, seriesImageID).Return(seriesImage, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
-		Return(nil, nil, entity.ErrUnsupportedImage)
+		Return(nil, nil, apperr.New(codes.InvalidArgument, "unsupported image"))
 
 	err := d.uc.Process(context.Background(), seriesImageID, seriesID)
 	assert.NoError(t, err, "permanent failure must not be retried")

@@ -292,7 +292,7 @@ func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID st
 	// Checked before the venue is resolved, so a refused save creates no
 	// Venue.
 	if err := (&entity.Event{PerAccountLimit: &limit}).ValidatePerAccountLimit(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	venueID, err := uc.resolveVenueForInput(ctx, inp)
 	if err != nil {

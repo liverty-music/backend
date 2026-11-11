@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,11 +132,11 @@ func TestSettlement_GiveUpResoldShare(t *testing.T) {
 		t.Parallel()
 		s := held(9500)
 		s.Status = entity.SettlementStatusReleased
-		assert.Error(t, s.GiveUpResoldShare(1, 2))
+		assert.ErrorIs(t, s.GiveUpResoldShare(1, 2), apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("more resold than issued", func(t *testing.T) {
 		t.Parallel()
-		assert.Error(t, held(9500).GiveUpResoldShare(3, 2))
+		assert.ErrorIs(t, held(9500).GiveUpResoldShare(3, 2), apperr.ErrFailedPrecondition)
 	})
 }

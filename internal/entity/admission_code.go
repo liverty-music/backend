@@ -2,11 +2,13 @@ package entity
 
 import (
 	"encoding/binary"
-	"errors"
 	"math"
 	"time"
 
 	"uuid"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 const (
@@ -72,8 +74,11 @@ const (
 	AdmissionCodeExpired
 )
 
-// errInvalidAdmissionCode is returned by [AdmissionCode.Validate].
-var errInvalidAdmissionCode = errors.New("invalid admission code")
+// errInvalidAdmissionCode returns the InvalidArgument error of a code that
+// breaks the rules of [AdmissionCode.Validate].
+func errInvalidAdmissionCode() error {
+	return apperr.New(codes.InvalidArgument, "invalid admission code")
+}
 
 // Validate reports an error unless the code presents 1 to 10 distinct
 // Tickets and names a user and an event as UUIDs. That every presented Ticket
@@ -81,27 +86,27 @@ var errInvalidAdmissionCode = errors.New("invalid admission code")
 // ids); admission refuses such a Ticket on its own.
 func (c *AdmissionCode) Validate() error {
 	if _, err := uuid.Parse(string(c.UserID)); err != nil {
-		return errInvalidAdmissionCode
+		return errInvalidAdmissionCode()
 	}
 	if _, err := uuid.Parse(c.EventID); err != nil {
-		return errInvalidAdmissionCode
+		return errInvalidAdmissionCode()
 	}
 	if len(c.TicketIDs) < 1 || len(c.TicketIDs) > MaxAdmissionCodeTickets {
-		return errInvalidAdmissionCode
+		return errInvalidAdmissionCode()
 	}
 	seen := make(map[uuid.UUID]struct{}, len(c.TicketIDs))
 	for _, id := range c.TicketIDs {
 		u, err := uuid.Parse(string(id))
 		if err != nil {
-			return errInvalidAdmissionCode
+			return errInvalidAdmissionCode()
 		}
 		if _, dup := seen[u]; dup {
-			return errInvalidAdmissionCode
+			return errInvalidAdmissionCode()
 		}
 		seen[u] = struct{}{}
 	}
 	if c.SignedTime.Unix() < 0 || c.SignedTime.Unix() > math.MaxUint32 {
-		return errInvalidAdmissionCode
+		return errInvalidAdmissionCode()
 	}
 	return nil
 }
@@ -136,7 +141,7 @@ func (c *AdmissionCode) Encode() (string, error) {
 		return "", err
 	}
 	if len(c.Signature) != SignatureLen {
-		return "", errInvalidAdmissionCode
+		return "", errInvalidAdmissionCode()
 	}
 	return base45Encode(append(payload, c.Signature...)), nil
 }
@@ -214,7 +219,11 @@ func (c *AdmissionCode) Verify(key *WalletPublicKey, now time.Time) AdmissionCod
 // base45Alphabet is the RFC 9285 alphabet, the QR alphanumeric character set.
 const base45Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
 
-var errBase45 = errors.New("invalid base45")
+// errBase45 returns the InvalidArgument error of text that is not RFC 9285
+// Base45.
+func errBase45() error {
+	return apperr.New(codes.InvalidArgument, "invalid base45")
+}
 
 // base45Encode encodes data per RFC 9285.
 func base45Encode(data []byte) string {
@@ -234,13 +243,13 @@ func base45Encode(data []byte) string {
 // alphabet, a dangling single character and groups that overflow.
 func base45Decode(text string) ([]byte, error) {
 	if len(text)%3 == 1 {
-		return nil, errBase45
+		return nil, errBase45()
 	}
 	vals := make([]int, len(text))
 	for i := range len(text) {
 		v := base45Index(text[i])
 		if v < 0 {
-			return nil, errBase45
+			return nil, errBase45()
 		}
 		vals[i] = v
 	}
@@ -249,14 +258,14 @@ func base45Decode(text string) ([]byte, error) {
 	for ; i+2 < len(vals); i += 3 {
 		n := vals[i] + vals[i+1]*45 + vals[i+2]*2025
 		if n > 0xFFFF {
-			return nil, errBase45
+			return nil, errBase45()
 		}
 		out = append(out, byte(n>>8), byte(n))
 	}
 	if i < len(vals) {
 		n := vals[i] + vals[i+1]*45
 		if n > 0xFF {
-			return nil, errBase45
+			return nil, errBase45()
 		}
 		out = append(out, byte(n))
 	}

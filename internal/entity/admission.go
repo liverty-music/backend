@@ -2,7 +2,6 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
 )
 
@@ -27,11 +26,6 @@ type Admission struct {
 	// admitted time.
 	AdmitTime time.Time
 }
-
-// ErrScannerNotUsable is the cause of the PermissionDenied that
-// [TicketRepository.Admit] returns when the Scanner was revoked
-// before the ticket could be admitted through it.
-var ErrScannerNotUsable = errors.New("scanner is not usable")
 
 // AdmissionRepository reads [Admission]s. Admissions are written only by
 // [TicketRepository.Admit].

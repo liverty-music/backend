@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketSaleSearchRepository implements [entity.TicketSaleSearchRepository]
@@ -74,7 +72,7 @@ func (r *TicketSaleSearchRepository) Record(ctx context.Context, seriesIDs []str
 	}
 	search := &entity.TicketSaleSearch{SearchedTime: searchedTime}
 	if err := search.Validate(time.Now()); err != nil {
-		return apperr.New(codes.InvalidArgument, err.Error())
+		return err
 	}
 
 	if _, err := r.db.Pool.Exec(ctx, recordTicketSaleSearchsQuery, seriesIDs, searchedTime); err != nil {

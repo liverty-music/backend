@@ -2,10 +2,12 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // LotteryDrawDelay is how long after a Lottery sale's end time its draw
@@ -147,49 +149,49 @@ func (s *TicketSale) IsDiscovered() bool {
 // Validate reports whether the sale follows the TicketSale rules for its kind:
 // a name, a method, a window with an end, and for an Organizer's sale at least
 // one event, none named twice, or for a discovered sale no event and the
-// verification requirement None. That every named event is one of the
-// Series' events is checked with [TicketSale.CheckEventsOfSeries]. The entity
-// layer returns stdlib errors; callers wrap them with an apperr code.
+// verification requirement None. That every named event is one of the Series'
+// events is checked with [TicketSale.CheckEventsOfSeries]. It fails with
+// InvalidArgument, which callers return as it is.
 func (s *TicketSale) Validate() error {
 	if !s.Method.IsValid() {
-		return errors.New("sale method must be FirstCome or Lottery")
+		return apperr.New(codes.InvalidArgument, "sale method must be FirstCome or Lottery")
 	}
 	if s.SaleStartTime.IsZero() {
-		return errors.New("sale start time is required")
+		return apperr.New(codes.InvalidArgument, "sale start time is required")
 	}
 	if err := s.ValidateWindow(s.SaleStartTime, s.SaleEndTime); err != nil {
 		return err
 	}
 	if n := utf8.RuneCountInString(s.Name); n < 1 || n > TicketSaleNameMaxLen {
-		return errors.New("sale name must be 1 to 100 characters")
+		return apperr.New(codes.InvalidArgument, "sale name must be 1 to 100 characters")
 	}
 	if s.IsDiscovered() {
 		if len(s.EventIDs) > 0 {
-			return errors.New("a discovered sale names no event")
+			return apperr.New(codes.InvalidArgument, "a discovered sale names no event")
 		}
 		if s.VerificationRequirement != VerificationRequirementNone {
-			return errors.New("a discovered sale has no verification requirement")
+			return apperr.New(codes.InvalidArgument, "a discovered sale has no verification requirement")
 		}
 		if s.ResultDate != nil {
 			if s.Method != TicketSaleMethodLottery {
-				return errors.New("only a lottery has a result date")
+				return apperr.New(codes.InvalidArgument, "only a lottery has a result date")
 			}
 			if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime) {
-				return errors.New("a result date is no earlier than the day of the sale end")
+				return apperr.New(codes.InvalidArgument, "a result date is no earlier than the day of the sale end")
 			}
 		}
 		return nil
 	}
 	if s.ResultDate != nil {
-		return errors.New("an Organizer's sale has no result date")
+		return apperr.New(codes.InvalidArgument, "an Organizer's sale has no result date")
 	}
 	if len(s.EventIDs) == 0 {
-		return errors.New("an Organizer's sale names at least one event")
+		return apperr.New(codes.InvalidArgument, "an Organizer's sale names at least one event")
 	}
 	events := make(map[string]struct{}, len(s.EventIDs))
 	for _, id := range s.EventIDs {
 		if _, dup := events[id]; dup {
-			return errors.New("a sale names each event at most once")
+			return apperr.New(codes.InvalidArgument, "a sale names each event at most once")
 		}
 		events[id] = struct{}{}
 	}
@@ -211,8 +213,8 @@ func IsResultDateOnOrAfterEnd(resultDate, end time.Time) bool {
 }
 
 // CheckEventsOfSeries reports whether every event the sale names is among
-// events and belongs to the sale's Series. The entity layer returns stdlib
-// errors; callers wrap them with an apperr code.
+// events and belongs to the sale's Series. It fails with InvalidArgument,
+// which callers return as it is.
 func (s *TicketSale) CheckEventsOfSeries(events []*Event) error {
 	series := make(map[string]string, len(events))
 	for _, e := range events {
@@ -220,7 +222,7 @@ func (s *TicketSale) CheckEventsOfSeries(events []*Event) error {
 	}
 	for _, id := range s.EventIDs {
 		if got, ok := series[id]; !ok || got != s.SeriesID {
-			return errors.New("every event of a sale must be an event of its Series")
+			return apperr.New(codes.InvalidArgument, "every event of a sale must be an event of its Series")
 		}
 	}
 	return nil
@@ -232,14 +234,14 @@ func (s *TicketSale) CheckEventsOfSeries(events []*Event) error {
 // stored window, so a usecase can check a new window before storing it.
 func (s *TicketSale) ValidateWindow(start, end time.Time) error {
 	if end.IsZero() {
-		return errors.New("a sale needs an end time")
+		return apperr.New(codes.InvalidArgument, "a sale needs an end time")
 	}
 	if !end.After(start) {
-		return errors.New("sale end must be after the sale start")
+		return apperr.New(codes.InvalidArgument, "sale end must be after the sale start")
 	}
 	if s.Method == TicketSaleMethodLottery && !s.IsDiscovered() {
 		if d := end.Sub(start); d < LotteryMinWindow || d > LotteryMaxWindow {
-			return errors.New("a lottery window must last 1 to 14 days")
+			return apperr.New(codes.InvalidArgument, "a lottery window must last 1 to 14 days")
 		}
 	}
 	return nil

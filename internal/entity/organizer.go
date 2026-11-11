@@ -2,11 +2,13 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"net/mail"
 	"regexp"
 	"slices"
 	"unicode/utf8"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // OrganizerStatus is the operational provisioning lifecycle of an Organizer.
@@ -85,10 +87,10 @@ const EmailMaxLen = 165
 // [EmailMaxLen] characters.
 func ValidateEmail(s string) error {
 	if addr, err := mail.ParseAddress(s); err != nil || addr.Address != s {
-		return errors.New("must be an email address")
+		return apperr.New(codes.InvalidArgument, "must be an email address")
 	}
 	if utf8.RuneCountInString(s) > EmailMaxLen {
-		return errors.New("must be at most 165 characters")
+		return apperr.New(codes.InvalidArgument, "must be at most 165 characters")
 	}
 	return nil
 }
@@ -106,10 +108,10 @@ var reservedShortNames = []string{"admin", "liverty-music"}
 // ValidateShortName reports whether s is a valid, unreserved short name.
 func ValidateShortName(s string) error {
 	if !shortNameRe.MatchString(s) {
-		return errors.New("short name must be 3 to 32 lowercase letters, digits and hyphens, starting with a letter")
+		return apperr.New(codes.InvalidArgument, "short name must be 3 to 32 lowercase letters, digits and hyphens, starting with a letter")
 	}
 	if slices.Contains(reservedShortNames, s) {
-		return errors.New("short name is reserved")
+		return apperr.New(codes.InvalidArgument, "short name is reserved")
 	}
 	return nil
 }
@@ -119,13 +121,13 @@ func ValidateShortName(s string) error {
 // address of at most 165 characters.
 func (o *Organizer) Validate() error {
 	if !lenBetween(o.Name, 1, 200) {
-		return errors.New("name must be 1 to 200 characters")
+		return apperr.New(codes.InvalidArgument, "name must be 1 to 200 characters")
 	}
 	if err := ValidateShortName(o.ShortName); err != nil {
 		return err
 	}
 	if err := ValidateEmail(o.OwnerEmail); err != nil {
-		return errors.New("owner email " + err.Error())
+		return apperr.Wrap(err, codes.InvalidArgument, "owner email "+err.Error())
 	}
 	return nil
 }
@@ -139,7 +141,7 @@ func (o *Organizer) HasCompleteBusinessDetails() bool {
 // ValidatePlatformFeeRate reports whether rateBps is within 0 to 30%.
 func ValidatePlatformFeeRate(rateBps int) error {
 	if rateBps < 0 || rateBps > MaxPlatformFeeRateBps {
-		return errors.New("platform fee rate must be 0 to 3000 basis points")
+		return apperr.New(codes.InvalidArgument, "platform fee rate must be 0 to 3000 basis points")
 	}
 	return nil
 }
@@ -171,19 +173,19 @@ type BusinessDetails struct {
 // Validate reports whether all five business details are present and valid.
 func (d *BusinessDetails) Validate() error {
 	if !lenBetween(d.LegalName, 1, 200) {
-		return errors.New("legal name must be 1 to 200 characters")
+		return apperr.New(codes.InvalidArgument, "legal name must be 1 to 200 characters")
 	}
 	if !lenBetween(d.RepresentativeName, 1, 100) {
-		return errors.New("representative must be 1 to 100 characters")
+		return apperr.New(codes.InvalidArgument, "representative must be 1 to 100 characters")
 	}
 	if !lenBetween(d.BusinessAddress, 1, 300) {
-		return errors.New("business address must be 1 to 300 characters")
+		return apperr.New(codes.InvalidArgument, "business address must be 1 to 300 characters")
 	}
 	if !IsE164(d.BusinessPhoneNumber) {
-		return errors.New("business phone number must be in E.164 form")
+		return apperr.New(codes.InvalidArgument, "business phone number must be in E.164 form")
 	}
 	if err := ValidateEmail(d.ContactEmail); err != nil {
-		return errors.New("contact email " + err.Error())
+		return apperr.Wrap(err, codes.InvalidArgument, "contact email "+err.Error())
 	}
 	return nil
 }

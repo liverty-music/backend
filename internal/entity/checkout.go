@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // CheckoutID is the opaque identifier for a single Checkout. Server-generated
@@ -108,18 +110,18 @@ func NewCheckout(order *Order, saleID TicketSaleID, now time.Time) *Checkout {
 	return c
 }
 
-// ValidateCheckoutSale reports whether a Checkout can belong to sale for stock: a
-// FirstCome sale that names the stock's event. The entity layer returns
-// stdlib errors; callers wrap them with an apperr code.
+// ValidateCheckoutSale reports whether a Checkout can belong to sale for
+// stock: a FirstCome sale that names the stock's event. It fails with
+// FailedPrecondition, which callers return as it is.
 func ValidateCheckoutSale(sale *TicketSale, stock *TicketStock) error {
 	if sale == nil {
-		return errors.New("a checkout belongs to a ticket sale")
+		return apperr.New(codes.FailedPrecondition, "a checkout belongs to a ticket sale")
 	}
 	if sale.Method != TicketSaleMethodFirstCome {
-		return errors.New("a checkout belongs to a first-come sale")
+		return apperr.New(codes.FailedPrecondition, "a checkout belongs to a first-come sale")
 	}
 	if !sale.NamesEvent(stock.EventID) {
-		return errors.New("a checkout's sale must name the event of its ticket stock")
+		return apperr.New(codes.FailedPrecondition, "a checkout's sale must name the event of its ticket stock")
 	}
 	return nil
 }

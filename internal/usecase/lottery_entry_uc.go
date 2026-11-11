@@ -227,20 +227,20 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 		return nil, err
 	}
 	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
-		return nil, apperr.New(codes.FailedPrecondition, err.Error())
+		return nil, err
 	}
 	event, err := uc.eventRepo.Get(ctx, stock.EventID)
 	if err != nil {
 		return nil, err
 	}
 	if err := entity.ValidateTicketCount(count, event); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	if fullName == "" || phoneNumber == "" {
 		return nil, apperr.New(codes.InvalidArgument, "full name and phone number are required")
 	}
 	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	if !sale.IsOpenAt(now) {
 		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")

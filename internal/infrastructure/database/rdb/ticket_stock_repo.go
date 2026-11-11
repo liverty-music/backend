@@ -75,7 +75,7 @@ const (
 func (r *TicketStockRepository) Create(ctx context.Context, stock *entity.TicketStock) (*entity.TicketStock, error) {
 	attrs := []slog.Attr{slog.String("event_id", stock.EventID), slog.String("seat_type_id", string(stock.SeatTypeID))}
 	if err := stock.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error(), attrs...)
+		return nil, err
 	}
 	tag, err := r.db.Pool.Exec(ctx, ticketStockInsertQuery, string(stock.ID), stock.EventID, string(stock.SeatTypeID), stock.Quantity)
 	if err != nil {

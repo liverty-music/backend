@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -182,7 +184,7 @@ func TestHome_Validate(t *testing.T) {
 			err := tt.args.home.Validate()
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 				return
 			}
 
@@ -259,7 +261,7 @@ func TestValidatePersonalDetails(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			assert.Error(t, err)
+			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		})
 	}
 }
@@ -279,5 +281,5 @@ func TestNewUser_ValidateEmail(t *testing.T) {
 	email := func(n int) string { return strings.Repeat("a", n-len(domain)) + domain }
 
 	assert.NoError(t, (&entity.NewUser{Email: email(165)}).ValidateEmail())
-	assert.Error(t, (&entity.NewUser{Email: email(166)}).ValidateEmail())
+	assert.ErrorIs(t, (&entity.NewUser{Email: email(166)}).ValidateEmail(), apperr.ErrInvalidArgument)
 }

@@ -3,11 +3,13 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // Artist represents a musical artist or group recorded in the system.
@@ -72,21 +74,21 @@ const maxOfficialSiteURLLength = 2048
 
 // ValidateOfficialSiteURL checks that raw is a valid official site URL: an
 // absolute URI of 1 to 2048 characters. It mirrors the protovalidate
-// constraint on liverty_music.entity.v1.Url. The entity layer returns stdlib
-// errors; callers wrap them with the appropriate apperr code.
+// constraint on liverty_music.entity.v1.Url. It fails with InvalidArgument,
+// which callers return as it is.
 func ValidateOfficialSiteURL(raw string) error {
 	if raw == "" {
-		return errors.New("official site url must not be empty")
+		return apperr.New(codes.InvalidArgument, "official site url must not be empty")
 	}
 	if n := utf8.RuneCountInString(raw); n > maxOfficialSiteURLLength {
-		return fmt.Errorf("official site url must be at most %d characters, got %d", maxOfficialSiteURLLength, n)
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("official site url must be at most %d characters, got %d", maxOfficialSiteURLLength, n))
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("official site url is not a valid URI: %w", err)
+		return apperr.Wrap(err, codes.InvalidArgument, "official site url is not a valid URI")
 	}
 	if u.Scheme == "" {
-		return fmt.Errorf("official site url must be an absolute URI, got %q", raw)
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("official site url must be an absolute URI, got %q", raw))
 	}
 	return nil
 }

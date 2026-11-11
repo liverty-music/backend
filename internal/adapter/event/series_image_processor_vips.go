@@ -12,6 +12,8 @@ import (
 
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	_ "golang.org/x/image/webp" // Register the WebP decoder for the magic-byte safety check below.
 )
@@ -46,47 +48,47 @@ func (p *vipsProcessor) ProcessImage(ctx context.Context, data []byte) (thumb []
 	// Magic-byte + header-first safety check via stdlib image.DecodeConfig.
 	// This is fast (does not decode the full image) and catches:
 	//   - invalid/corrupt headers
-	//   - SVG (not registered → unknown format → entity.ErrUnsupportedImage)
+	//   - SVG (not registered → unknown format → InvalidArgument)
 	cfg, format, decodeErr := image.DecodeConfig(bytes.NewReader(data))
 	if decodeErr != nil {
-		return nil, nil, fmt.Errorf("%w: decode config: %v", entity.ErrUnsupportedImage, decodeErr)
+		return nil, nil, apperr.Wrap(decodeErr, codes.InvalidArgument, "unsupported or unsafe image: decode config")
 	}
 	if format == "svg" || format == "" {
-		return nil, nil, fmt.Errorf("%w: format %q not allowed", entity.ErrUnsupportedImage, format)
+		return nil, nil, apperr.New(codes.InvalidArgument, fmt.Sprintf("unsupported or unsafe image: format %q not allowed", format))
 	}
 	// Edge limit (before full decode).
 	if cfg.Width > maxEdgePx || cfg.Height > maxEdgePx {
-		return nil, nil, fmt.Errorf("%w: image edge %dx%d exceeds limit %d",
-			entity.ErrUnsupportedImage, cfg.Width, cfg.Height, maxEdgePx)
+		return nil, nil, apperr.New(codes.InvalidArgument, fmt.Sprintf("unsupported or unsafe image: image edge %dx%d exceeds limit %d",
+			cfg.Width, cfg.Height, maxEdgePx))
 	}
 	// Pixel-count limit (before full decode).
 	if int64(cfg.Width)*int64(cfg.Height) > maxPixels {
-		return nil, nil, fmt.Errorf("%w: pixel count %d exceeds limit %d",
-			entity.ErrUnsupportedImage, int64(cfg.Width)*int64(cfg.Height), maxPixels)
+		return nil, nil, apperr.New(codes.InvalidArgument, fmt.Sprintf("unsupported or unsafe image: pixel count %d exceeds limit %d",
+			int64(cfg.Width)*int64(cfg.Height), maxPixels))
 	}
 
 	// Load via libvips.
 	img, err := vips.NewImageFromBuffer(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: vips load: %v", entity.ErrUnsupportedImage, err)
+		return nil, nil, apperr.Wrap(err, codes.InvalidArgument, "unsupported or unsafe image: vips load")
 	}
 	defer img.Close()
 
 	// Strip EXIF / ICC profile metadata.
 	if err := img.RemoveMetadata(); err != nil {
-		return nil, nil, fmt.Errorf("strip metadata: %w", err)
+		return nil, nil, apperr.Wrap(err, codes.Internal, "strip metadata")
 	}
 
 	// Encode thumb (max 800 w, aspect-preserved, no crop).
 	thumb, err = resizeAndEncodeWebP(img, 800)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encode thumb: %w", err)
+		return nil, nil, apperr.Wrap(err, codes.Internal, "encode thumb")
 	}
 
 	// Encode large (max 1920 w, aspect-preserved, no crop).
 	large, err = resizeAndEncodeWebP(img, 1920)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encode large: %w", err)
+		return nil, nil, apperr.Wrap(err, codes.Internal, "encode large")
 	}
 
 	return thumb, large, nil

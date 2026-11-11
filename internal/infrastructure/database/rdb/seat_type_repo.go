@@ -40,7 +40,7 @@ const (
 func (r *SeatTypeRepository) Create(ctx context.Context, seatType *entity.SeatType) (*entity.SeatType, error) {
 	attrs := []slog.Attr{slog.String("series_id", seatType.SeriesID), slog.String("seat_type_id", string(seatType.ID))}
 	if err := seatType.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error(), attrs...)
+		return nil, err
 	}
 	tag, err := r.db.Pool.Exec(ctx, seatTypeInsertQuery, string(seatType.ID), seatType.SeriesID, seatType.Name, seatType.Price)
 	if err != nil {

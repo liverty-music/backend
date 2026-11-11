@@ -94,7 +94,7 @@ type SeriesImageUseCase interface {
 	// A missing series image row (upload cancelled before processing) or a missing
 	// series (deleted before the cut-over) is not an error: the original is
 	// cleaned up and processing ends silently. An unsupported/unsafe image
-	// (entity.ErrUnsupportedImage) is a permanent failure: the original is
+	// (InvalidArgument from the processor) is a permanent failure: the original is
 	// deleted and nil is returned so the event is not retried. Every other
 	// failure is returned so the caller can retry.
 	//
@@ -219,7 +219,7 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, series
 	// Process the image (decode, safety check, resize, encode WebP).
 	thumb, large, err := uc.processor.ProcessImage(ctx, rawData)
 	if err != nil {
-		if errors.Is(err, entity.ErrUnsupportedImage) {
+		if errors.Is(err, apperr.ErrInvalidArgument) {
 			// Permanent failure: delete the original and stop so the message is
 			// not re-delivered. This is USER error (a bad/unsafe upload), not a
 			// system incident, so it logs WARN.

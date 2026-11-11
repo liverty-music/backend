@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // SettlementID is the opaque identifier for a single Settlement.
@@ -132,14 +135,14 @@ func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, n
 // Settlement of an Order that had m Issued Tickets before the resale: each
 // split falls by its amount × k ÷ m, rounded down to the yen, so rounding
 // favours the Organizer. When k equals m nothing is left to pay out for the
-// Order, and the Settlement becomes Reversed instead, keeping its splits. The
-// entity layer returns stdlib errors; callers wrap them with an apperr code.
+// Order, and the Settlement becomes Reversed instead, keeping its splits. It
+// fails with FailedPrecondition, which callers return as it is.
 func (s *Settlement) GiveUpResoldShare(k, m int) error {
 	if s.Status != SettlementStatusHeld {
-		return fmt.Errorf("only a Held settlement gives up a resold share, not a %s one", s.Status)
+		return apperr.New(codes.FailedPrecondition, fmt.Sprintf("only a Held settlement gives up a resold share, not a %s one", s.Status))
 	}
 	if k < 1 || k > m {
-		return fmt.Errorf("resold tickets must be 1 to %d, not %d", m, k)
+		return apperr.New(codes.FailedPrecondition, fmt.Sprintf("resold tickets must be 1 to %d, not %d", m, k))
 	}
 	if k == m {
 		s.Status = SettlementStatusReversed
