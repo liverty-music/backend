@@ -80,6 +80,10 @@ func TestSeriesUseCase_List(t *testing.T) {
 	})
 
 	// @spec components/usecase/series/list "Missing Organizer"
+	//
+	// Series.ListByOrganizer refuses the missing id (its contract test,
+	// TestSeriesRepository_ListByOrganizer); this checks that List reads
+	// nothing else and returns that refusal as it is.
 	t.Run("no Organizer fails with InvalidArgument", func(t *testing.T) {
 		t.Parallel()
 		d := newAuthoringDeps(t)

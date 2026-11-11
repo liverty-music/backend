@@ -105,13 +105,7 @@ func TestAdminOrganizerHandler_List(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	// @spec components/adapter/admin/api/rpc/organizer "Admin lists Organizers and inspects a roster"
 	// @spec components/adapter/admin/api/rpc/organizer "Admin lists Organizers in every status"
-	//
-	// The roster half of the first scenario holds by construction: the
-	// service has no method that returns Artists (the compile-time assertion
-	// in admin_organizer_handler.go pins its method set), and
-	// AdminArtistHandler.ListByOrganizer returns them.
 	t.Run("returns every Organizer with its short name and its own status", func(t *testing.T) {
 		t.Parallel()
 		h, uc := newAdminOrganizerHandler(t)
