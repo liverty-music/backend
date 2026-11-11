@@ -17,6 +17,13 @@ func TestNormalizeVenueName(t *testing.T) {
 	}{
 		{name: "unprefixed name is unchanged", in: "フェスティバルホール", want: "フェスティバルホール"},
 		{
+			// @spec components/entity/venue "Already normalized name is unchanged"
+			name: "already normalized name is unchanged",
+			in:   "日本武道館",
+			want: "日本武道館",
+		},
+		{
+			// @spec components/entity/venue "Prefecture prefix removed"
 			name: "leading admin-area dot prefix is stripped",
 			in:   "大阪・フェスティバルホール",
 			want: "フェスティバルホール",
@@ -29,6 +36,7 @@ func TestNormalizeVenueName(t *testing.T) {
 		{
 			// A ≤6-rune FACILITY name before a middle dot must be preserved — only
 			// prefecture tokens are stripped, not any short token.
+			// @spec components/entity/venue "Middle dot after a non-prefecture word is kept"
 			name: "short non-prefecture facility name before a dot is preserved",
 			in:   "東京文化会館・大ホール",
 			want: "東京文化会館・大ホール",
@@ -39,6 +47,7 @@ func TestNormalizeVenueName(t *testing.T) {
 			want: "杉並公会堂・大ホール",
 		},
 		{
+			// @spec components/entity/venue "Performance-city prefix removed"
 			name: "full-width performance prefix is stripped",
 			in:   "大阪公演 ＠フェスティバルホール",
 			want: "フェスティバルホール",
@@ -57,6 +66,12 @@ func TestNormalizeVenueName(t *testing.T) {
 			name: "whitespace is collapsed and trimmed",
 			in:   "  フェスティバル　　ホール  ",
 			want: "フェスティバル ホール",
+		},
+		{
+			// @spec components/entity/venue "Whitespace-only name is missing"
+			name: "whitespace-only input, full-width space included, is missing",
+			in:   "\u3000 ",
+			want: "",
 		},
 		{name: "blank input returns empty", in: "   ", want: ""},
 		{
