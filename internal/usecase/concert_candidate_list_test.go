@@ -13,6 +13,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // candidateListDeps is a ConcertCandidateUseCase over mocked operations; List
@@ -32,7 +33,7 @@ func newCandidateListDeps(t *testing.T) *candidateListDeps {
 	// The other dependencies are nil: List never touches them.
 	d.uc = usecase.NewConcertCandidateUseCase(usecase.NewConcertUseCase(
 		d.artists, nil, nil, nil, nil, nil, d.candidates, nil, nil, nil,
-		&recordingWorkflows{}, noopMetrics{}, nil, 0, 0, time.Now, newTestLogger(t),
+		ucmocks.NewMockWorkflows(t), noopMetrics{}, nil, 0, 0, time.Now, newTestLogger(t),
 	))
 	return d
 }

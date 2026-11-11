@@ -49,7 +49,7 @@ func newLossFixture(t *testing.T) *lossFixture {
 			Now:        func() time.Time { return lossNow },
 			Orders:     f.orders,
 			Users:      f.users,
-			Concerts:   stubConcerts{concert: concert},
+			Concerts:   concertReader(t, concert),
 			Entries:    f.entries,
 			Stocks:     f.stocks,
 			LossMailer: f.mailer,

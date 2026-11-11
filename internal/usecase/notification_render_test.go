@@ -15,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // subjectFixture runs the real Deliver and List over mocks of their ports, so a
@@ -34,10 +35,12 @@ type subjectFixture struct {
 	notifs        *entitymocks.MockNotificationRepository
 	pushSubs      *entitymocks.MockPushSubscriptionRepository
 	sender        *entitymocks.MockPushNotificationSender
-	workflows     *recordingWorkflows
-	metrics       *captureMetrics
-	logs          *bytes.Buffer
-	uc            usecase.NotificationUseCase
+	workflows     *ucmocks.MockWorkflows
+	// starts lists the workflows f.uc started.
+	starts  func() []workflowStart
+	metrics *captureMetrics
+	logs    *bytes.Buffer
+	uc      usecase.NotificationUseCase
 }
 
 func newSubjectFixture(t *testing.T) *subjectFixture {
@@ -55,9 +58,10 @@ func newSubjectFixture(t *testing.T) *subjectFixture {
 		notifs:        entitymocks.NewMockNotificationRepository(t),
 		pushSubs:      entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:        entitymocks.NewMockPushNotificationSender(t),
-		workflows:     &recordingWorkflows{},
+		workflows:     ucmocks.NewMockWorkflows(t),
 		metrics:       &captureMetrics{},
 	}
+	f.starts = captureStarts(f.workflows)
 	logger, logs := newCaptureLogger(t)
 	f.logs = logs
 	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.workflows, f.metrics, logger,
@@ -165,14 +169,18 @@ func (f *subjectFixture) push(t *testing.T, req usecase.DeliverRequest) *entity.
 }
 
 // startedRequests returns the Deliver requests of the workflows f.uc started,
-// by workflow id.
+// by workflow id. A second start under an id already started starts nothing
+// new, as in the workflow runtime, so the first request under an id is kept.
 func (f *subjectFixture) startedRequests(t *testing.T) map[string]usecase.DeliverRequest {
 	t.Helper()
-	requests := make(map[string]usecase.DeliverRequest, len(f.workflows.started))
-	for id, input := range f.workflows.started {
-		req, ok := input.(usecase.DeliverRequest)
-		require.True(t, ok, "workflow %s is not a deliver-notification", id)
-		requests[id] = req
+	started := f.starts()
+	requests := make(map[string]usecase.DeliverRequest, len(started))
+	for _, start := range started {
+		req, ok := start.input.(usecase.DeliverRequest)
+		require.True(t, ok, "workflow %s is not a deliver-notification", start.id)
+		if _, ok := requests[start.id]; !ok {
+			requests[start.id] = req
+		}
 	}
 	return requests
 }

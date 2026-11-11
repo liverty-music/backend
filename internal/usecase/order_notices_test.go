@@ -89,7 +89,7 @@ func newNoticeFixture(t *testing.T) *noticeFixture {
 			Now:      time.Now,
 			Orders:   f.orders,
 			Users:    f.users,
-			Concerts: stubConcerts{concert: concert},
+			Concerts: concertReader(t, concert),
 			Tickets:  f.tickets,
 			Mailer:   f.mailer,
 			TimeZone: tsJST,
@@ -402,7 +402,7 @@ func rebuildWithMailer(t *testing.T, f *noticeFixture) usecase.NotificationUseCa
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:    time.Now,
-			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert}, Tickets: f.tickets, Mailer: f.mailer, TimeZone: tsJST,
+			Orders: f.orders, Users: f.users, Concerts: concertReader(t, concert), Tickets: f.tickets, Mailer: f.mailer, TimeZone: tsJST,
 		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 }
 

@@ -5,56 +5,49 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stubs
-// ─────────────────────────────────────────────────────────────────────────────
-
-type stubProcessedWebhookEventRepo struct {
-	isProcessedFn   func(ctx context.Context, id string) (bool, error)
-	markProcessedFn func(ctx context.Context, id string) error
+// webhookFixture holds the mocks of a StripeWebhookService under test.
+type webhookFixture struct {
+	processed *ucmocks.MockProcessedWebhookEventRepository
+	orders    *entitymocks.MockOrderRepository
+	refunds   *ucmocks.MockOrderRefunder
+	svc       usecase.StripeWebhookService
 }
 
-func (s *stubProcessedWebhookEventRepo) IsProcessed(ctx context.Context, id string) (bool, error) {
-	if s.isProcessedFn != nil {
-		return s.isProcessedFn(ctx, id)
+func newWebhookFixture(t *testing.T) *webhookFixture {
+	t.Helper()
+	f := &webhookFixture{
+		processed: ucmocks.NewMockProcessedWebhookEventRepository(t),
+		orders:    entitymocks.NewMockOrderRepository(t),
+		refunds:   ucmocks.NewMockOrderRefunder(t),
 	}
-	return false, nil
-}
-func (s *stubProcessedWebhookEventRepo) MarkProcessed(ctx context.Context, id string) error {
-	if s.markProcessedFn != nil {
-		return s.markProcessedFn(ctx, id)
-	}
-	return nil
+	f.svc = usecase.NewStripeWebhookService(f.processed, f.orders, f.refunds, nil, newTestLogger(t))
+	return f
 }
 
-type stubRefundUC struct {
-	refundOrderFn func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error)
+// firstDelivery makes the notice providerEventID unprocessed and expects it
+// to be recorded as processed once.
+func (f *webhookFixture) firstDelivery(providerEventID string) {
+	f.processed.EXPECT().IsProcessed(mock.Anything, providerEventID).Return(false, nil).Once()
+	f.processed.EXPECT().MarkProcessed(mock.Anything, providerEventID).Return(nil).Once()
 }
 
-func (s *stubRefundUC) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
-	if s.refundOrderFn != nil {
-		return s.refundOrderFn(ctx, orderID, reason, now)
-	}
-	return &entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil
-}
-
-// newWebhookSvc constructs the real StripeWebhookService with the given deps.
-// settlementRepo is no longer a constructor parameter (removed in Fix #1 — it
-// was previously injected but never used).
-func newWebhookSvc(
-	processedRepo usecase.ProcessedWebhookEventRepository,
-	orderRepo entity.OrderRepository,
-	refundUC usecase.OrderRefunder,
-	t *testing.T,
-) usecase.StripeWebhookService {
-	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, nil, newTestLogger(t))
+// paidOrderOf makes providerPaymentID resolve to the Paid Order orderID.
+func (f *webhookFixture) paidOrderOf(providerPaymentID string, orderID entity.OrderID) {
+	f.orders.EXPECT().GetByProviderPaymentID(mock.Anything, providerPaymentID).Return(&entity.Order{
+		ID: orderID, Status: entity.OrderStatusPaid,
+		Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: providerPaymentID},
+	}, nil)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,43 +59,19 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 
 	ctx := context.Background()
 
-	refundCallCount := 0
-	markProcessedCallCount := 0
-
-	processedRepo := &stubProcessedWebhookEventRepo{
-		isProcessedFn: func() func(context.Context, string) (bool, error) {
-			call := 0
-			return func(_ context.Context, _ string) (bool, error) {
-				call++
-				return call > 1, nil
-			}
-		}(),
-		markProcessedFn: func(_ context.Context, _ string) error {
-			markProcessedCallCount++
-			return nil
-		},
-	}
-
 	// The order repo resolves pi_ → Order for the dispute path.
 	const (
 		providerPaymentID = "pi_dup"
 		orderID           = entity.OrderID("order-dup")
 	)
-	orderRepo := &stubOrderRepo{
-		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
-			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: providerPaymentID}}, nil
-		},
-	}
-
-	refundUC := &stubRefundUC{
-		refundOrderFn: func(_ context.Context, _ entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
-			refundCallCount++
-			return &entity.Order{Status: entity.OrderStatusRefunded}, nil
-		},
-	}
-
-	svc := newWebhookSvc(processedRepo, orderRepo, refundUC, t)
+	f := newWebhookFixture(t)
+	// First delivery: processed and marked once. Second delivery: already
+	// processed, so neither Refund nor MarkProcessed runs again.
+	f.firstDelivery("evt_dup_001")
+	f.processed.EXPECT().IsProcessed(mock.Anything, "evt_dup_001").Return(true, nil).Once()
+	f.paidOrderOf(providerPaymentID, orderID)
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+		Return(&entity.Order{Status: entity.OrderStatusRefunded}, nil).Once()
 
 	event := usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dup_001",
@@ -113,14 +82,14 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 	}
 
 	// First delivery — should process and mark.
-	require.NoError(t, svc.HandleEvent(ctx, event))
-	assert.Equal(t, 1, refundCallCount, "refund should be called on first delivery")
-	assert.Equal(t, 1, markProcessedCallCount, "event should be marked processed after first delivery")
+	require.NoError(t, f.svc.HandleEvent(ctx, event))
+	f.refunds.AssertNumberOfCalls(t, "Refund", 1)
+	f.processed.AssertNumberOfCalls(t, "MarkProcessed", 1)
 
 	// Second delivery — should be a no-op (idempotency fast-path).
-	require.NoError(t, svc.HandleEvent(ctx, event))
-	assert.Equal(t, 1, refundCallCount, "refund must NOT be called again on duplicate delivery")
-	assert.Equal(t, 1, markProcessedCallCount, "MarkProcessed must NOT be called again")
+	require.NoError(t, f.svc.HandleEvent(ctx, event))
+	f.refunds.AssertNumberOfCalls(t, "Refund", 1)
+	f.processed.AssertNumberOfCalls(t, "MarkProcessed", 1)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,45 +112,21 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 		orderID           = entity.OrderID("order-dispute-wh")
 	)
 
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_dispute_001")
 	// The order repo is the real resolution path: pi_ → Order.
-	orderRepo := &stubOrderRepo{
-		getByProviderPaymentIDFn: func(_ context.Context, ref string) (*entity.Order, error) {
-			assert.Equal(t, providerPaymentID, ref)
-			return &entity.Order{
-				ID:     orderID,
-				Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{
-					Provider:          entity.PaymentProviderStripe,
-					ProviderPaymentID: providerPaymentID,
-				},
-			}, nil
-		},
-	}
+	f.paidOrderOf(providerPaymentID, orderID)
+	// RefundOrder must be called with the resolved OrderID, for a dispute.
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil).Once()
 
-	var (
-		gotOrderID entity.OrderID
-		gotReason  usecase.RefundReason
-	)
-	refundUC := &stubRefundUC{
-		refundOrderFn: func(_ context.Context, id entity.OrderID, reason usecase.RefundReason, _ time.Time) (*entity.Order, error) {
-			gotOrderID = id
-			gotReason = reason
-			return &entity.Order{ID: id, Status: entity.OrderStatusRefunded}, nil
-		},
-	}
-
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
-
-	require.NoError(t, svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	require.NoError(t, f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dispute_001",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  providerChargeID,
 		ProviderPaymentID: providerPaymentID,
 		ReceivedAt:        time.Now(),
 	}))
-
-	assert.Equal(t, orderID, gotOrderID, "RefundOrder must be called with the resolved OrderID")
-	assert.Equal(t, usecase.RefundReasonDispute, gotReason)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,18 +138,11 @@ func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) 
 
 	ctx := context.Background()
 
-	refundCalled := false
-	refundUC := &stubRefundUC{
-		refundOrderFn: func(_ context.Context, _ entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
-			refundCalled = true
-			return nil, nil
-		},
-	}
-
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, &stubOrderRepo{}, refundUC, t)
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_dispute_no_pi")
 
 	// No ProviderPaymentID — cannot resolve Order; handler warns and accepts.
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dispute_no_pi",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_no_pi",
@@ -212,7 +150,7 @@ func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) 
 		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "Refund must NOT be called when ProviderPaymentID is missing")
+	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,23 +163,11 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 
 	ctx := context.Background()
 
-	orderRepo := &stubOrderRepo{
-		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
-			return nil, apperr.ErrNotFound
-		},
-	}
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_dispute_notfound")
+	f.orders.EXPECT().GetByProviderPaymentID(mock.Anything, "pi_notfound").Return(nil, apperr.ErrNotFound)
 
-	refundCalled := false
-	refundUC := &stubRefundUC{
-		refundOrderFn: func(_ context.Context, _ entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
-			refundCalled = true
-			return nil, nil
-		},
-	}
-
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
-
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dispute_notfound",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_notfound",
@@ -249,7 +175,7 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "Refund must NOT be called when Order cannot be found")
+	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,23 +187,19 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 	t.Parallel()
 
 	const orderID = entity.OrderID("order-already-refunded")
-	orderRepo := &stubOrderRepo{
-		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
-			return &entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil
-		},
-	}
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_dispute_after_refund")
+	f.orders.EXPECT().GetByProviderPaymentID(mock.Anything, "pi_after_refund").
+		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil)
 	var got *entity.Order
-	refundUC := &stubRefundUC{
-		// RefundOrder is idempotent: an already refunded Order comes back as is.
-		refundOrderFn: func(_ context.Context, id entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
+	// RefundOrder is idempotent: an already refunded Order comes back as is.
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+		RunAndReturn(func(_ context.Context, id entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
 			got = &entity.Order{ID: id, Status: entity.OrderStatusRefunded}
 			return got, nil
-		},
-	}
+		}).Once()
 
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
-
-	err := svc.HandleEvent(context.Background(), usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(context.Background(), usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dispute_after_refund",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_after_refund",
@@ -300,24 +222,17 @@ func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 
 	ctx := context.Background()
 
-	refundCalled := false
-	refundUC := &stubRefundUC{
-		refundOrderFn: func(_ context.Context, _ entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
-			refundCalled = true
-			return nil, nil
-		},
-	}
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_charge_refunded_001")
 
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, &stubOrderRepo{}, refundUC, t)
-
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:  "evt_charge_refunded_001",
 		Type:             usecase.StripeEventChargeRefunded,
 		ProviderChargeID: "ch_refunded",
 		ReceivedAt:       time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "Refund must NOT be called for informational charge.refunded")
+	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,9 +244,10 @@ func TestStripeWebhook_UnknownEventType_AcceptedWithNoError(t *testing.T) {
 
 	ctx := context.Background()
 
-	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, &stubOrderRepo{}, &stubRefundUC{}, t)
+	f := newWebhookFixture(t)
+	f.firstDelivery("evt_unknown_001")
 
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID: "evt_unknown_001",
 		Type:            usecase.StripeEventType("customer.created"),
 		ReceivedAt:      time.Now(),
@@ -348,21 +264,18 @@ func TestStripeWebhook_IsProcessedDBError_Propagated(t *testing.T) {
 
 	ctx := context.Background()
 
-	processedRepo := &stubProcessedWebhookEventRepo{
-		isProcessedFn: func(_ context.Context, _ string) (bool, error) {
-			return false, apperr.New(apperr.ErrInternal.Code, "db failure")
-		},
-	}
+	f := newWebhookFixture(t)
+	f.processed.EXPECT().IsProcessed(mock.Anything, "evt_db_err").
+		Return(false, apperr.New(apperr.ErrInternal.Code, "db failure")).Once()
 
-	svc := newWebhookSvc(processedRepo, &stubOrderRepo{}, &stubRefundUC{}, t)
-
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_db_err",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderPaymentID: "pi_db_err",
 		ReceivedAt:        time.Now(),
 	})
 	require.Error(t, err, "DB error from IsProcessed must be propagated so Stripe retries")
+	f.processed.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -379,24 +292,16 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 		orderID           = entity.OrderID("order-mark-fail")
 	)
 
-	orderRepo := &stubOrderRepo{
-		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
-			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: providerPaymentID}}, nil
-		},
-	}
+	f := newWebhookFixture(t)
+	f.paidOrderOf(providerPaymentID, orderID)
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil).Once()
+	f.processed.EXPECT().IsProcessed(mock.Anything, "evt_mark_fail").Return(false, nil).Once()
+	// Simulate a transient DB failure when recording the processed event.
+	f.processed.EXPECT().MarkProcessed(mock.Anything, "evt_mark_fail").
+		Return(apperr.New(apperr.ErrInternal.Code, "mark processed failed")).Once()
 
-	processedRepo := &stubProcessedWebhookEventRepo{
-		isProcessedFn: func(_ context.Context, _ string) (bool, error) { return false, nil },
-		markProcessedFn: func(_ context.Context, _ string) error {
-			// Simulate a transient DB failure when recording the processed event.
-			return apperr.New(apperr.ErrInternal.Code, "mark processed failed")
-		},
-	}
-
-	svc := newWebhookSvc(processedRepo, orderRepo, &stubRefundUC{}, t)
-
-	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
+	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_mark_fail",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_mark_fail",
@@ -420,35 +325,22 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/webhook/payment-events "Completed charge"
 		// No Order is read or refunded: OrderUseCase.Issue made the Order
-		// Paid, and Order.Issue announced it.
-		marked := 0
-		processed := &stubProcessedWebhookEventRepo{markProcessedFn: func(context.Context, string) error { marked++; return nil }}
-		orders := &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) {
-			t.Fatal("the notice reads no Order")
-			return nil, nil
-		}}
-		refunds := &stubRefundUC{refundOrderFn: func(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error) {
-			t.Fatal("the notice refunds nothing")
-			return nil, nil
-		}}
-		svc := usecase.NewStripeWebhookService(processed, orders, refunds, nil, newTestLogger(t))
+		// Paid, and Order.Issue announced it. The order and refund mocks
+		// expect no call.
+		f := newWebhookFixture(t)
+		// The notice is recorded as processed, once.
+		f.firstDelivery("evt_pi_1")
 
-		require.NoError(t, svc.HandleEvent(context.Background(), event))
-
-		assert.Equal(t, 1, marked, "the notice is recorded as processed")
+		require.NoError(t, f.svc.HandleEvent(context.Background(), event))
 	})
 
 	t.Run("redelivered", func(t *testing.T) {
 		t.Parallel()
-		marked := 0
-		processed := &stubProcessedWebhookEventRepo{
-			isProcessedFn:   func(context.Context, string) (bool, error) { return true, nil },
-			markProcessedFn: func(context.Context, string) error { marked++; return nil },
-		}
-		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, nil, newTestLogger(t))
+		f := newWebhookFixture(t)
+		f.processed.EXPECT().IsProcessed(mock.Anything, "evt_pi_1").Return(true, nil).Once()
 
-		require.NoError(t, svc.HandleEvent(context.Background(), event))
+		require.NoError(t, f.svc.HandleEvent(context.Background(), event))
 
-		assert.Zero(t, marked, "a redelivered notice stays a no-op")
+		f.processed.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything)
 	})
 }

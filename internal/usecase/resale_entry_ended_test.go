@@ -48,7 +48,7 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 		usecase.OrderConfirmationDeps{
 			Now:               func() time.Time { return endedNow },
 			Users:             f.users,
-			Concerts:          stubConcerts{concert: concert},
+			Concerts:          concertReader(t, concert),
 			Stocks:            f.stocks,
 			ResaleEntries:     f.entries,
 			ResaleEntryMailer: f.mailer,

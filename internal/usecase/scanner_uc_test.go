@@ -27,7 +27,7 @@ type scannerFixture struct {
 	scanners   *entitymocks.MockScannerRepository
 	events     *entitymocks.MockEventRepository
 	eventState *ucmocks.MockEventPublishStatePort
-	owner      *stubEventOrganizerRepo
+	owner      *ucmocks.MockEventOrganizerRepository
 	event      *entity.Event
 }
 
@@ -45,12 +45,9 @@ func newScannerFixture(t *testing.T) *scannerFixture {
 			StartTime: &start,
 		},
 	}
-	f.owner = &stubEventOrganizerRepo{getOrganizerIDFn: func(_ context.Context, eventID string) (string, error) {
-		if eventID != f.event.ID {
-			return "", apperr.New(codes.NotFound, "no event")
-		}
-		return "org-owner", nil
-	}}
+	f.owner = ucmocks.NewMockEventOrganizerRepository(t)
+	f.owner.EXPECT().GetOrganizerID(mock.Anything, f.event.ID).Return("org-owner", nil).Maybe()
+	f.owner.EXPECT().GetOrganizerID(mock.Anything, mock.Anything).Return("", apperr.New(codes.NotFound, "no event")).Maybe()
 	f.uc = usecase.NewScannerUseCase(f.scanners, f.events, f.owner, f.eventState, newTestLogger(t))
 	return f
 }

@@ -7,413 +7,19 @@ import (
 	"time"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-// --- test doubles ---
-
-type fakeVenueRepo struct {
-	venues  map[string]*entity.Venue
-	created []*entity.Venue
-}
-
-func newFakeVenueRepo() *fakeVenueRepo {
-	return &fakeVenueRepo{venues: make(map[string]*entity.Venue)}
-}
-
-func (r *fakeVenueRepo) Create(_ context.Context, v *entity.Venue) (string, error) {
-	r.venues[v.Name] = v
-	r.created = append(r.created, v)
-	return v.ID, nil
-}
-
-func (r *fakeVenueRepo) BackfillPlaceID(_ context.Context, venueID, placeID string) error {
-	for _, v := range r.venues {
-		if v.ID == venueID {
-			if v.GooglePlaceID == nil {
-				pid := placeID
-				v.GooglePlaceID = &pid
-			}
-			return nil
-		}
-	}
-	return nil
-}
-
-func (r *fakeVenueRepo) Get(_ context.Context, id string) (*entity.Venue, error) {
-	for _, v := range r.venues {
-		if v.ID == id {
-			return v, nil
-		}
-	}
-	return nil, apperr.New(codes.NotFound, "venue not found")
-}
-
-func (r *fakeVenueRepo) GetByPlaceID(_ context.Context, placeID string) (*entity.Venue, error) {
-	for _, v := range r.venues {
-		if v.GooglePlaceID != nil && *v.GooglePlaceID == placeID {
-			return v, nil
-		}
-	}
-	return nil, apperr.New(codes.NotFound, "venue not found")
-}
-
-func (r *fakeVenueRepo) GetByListedName(_ context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error) {
-	for _, v := range r.venues {
-		if v.ListedVenueName == nil || *v.ListedVenueName != listedVenueName {
-			continue
-		}
-		if adminArea == nil && v.AdminArea == nil {
-			return v, nil
-		}
-		if adminArea != nil && v.AdminArea != nil && *adminArea == *v.AdminArea {
-			return v, nil
-		}
-	}
-	return nil, apperr.New(codes.NotFound, "venue not found")
-}
-
-type fakeSeriesRepo struct {
-	created []*entity.Series
-	// byID lets tests seed series so Get resolves a title (e.g. for the
-	// duplicate-conflict preview). Nil map → Get returns NotFound.
-	byID map[string]*entity.Series
-	// deleteOrphanedCalls counts how many times DeleteOrphaned was invoked.
-	deleteOrphanedCalls int
-	// deleteOrphanedIDs captures the candidate ids passed to the last
-	// DeleteOrphaned call, so tests can assert the sweep is scoped.
-	deleteOrphanedIDs []string
-	// createErrByTitle makes Create fail for a series of that title, as the
-	// database does when the insert fails.
-	createErrByTitle map[string]error
-}
-
-func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
-	for _, s := range series {
-		if s != nil {
-			if err := r.createErrByTitle[s.Title]; err != nil {
-				return nil, err
-			}
-		}
-	}
-	r.created = append(r.created, series...)
-	ids := make([]string, 0, len(series))
-	for _, s := range series {
-		if s != nil {
-			ids = append(ids, s.ID)
-		}
-	}
-	return ids, nil
-}
-
-func (r *fakeSeriesRepo) Get(_ context.Context, id string) (*entity.Series, error) {
-	if s, ok := r.byID[id]; ok {
-		return s, nil
-	}
-	return nil, apperr.New(codes.NotFound, "series not found")
-}
-
-func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Series, error) {
-	return nil, nil
-}
-
-// DeleteOrphaned removes, from among the given candidate ids, series rows that
-// have no member events and no pending concert candidates. In the fake it is always a
-// no-op and merely records the call and the candidate ids.
-func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context, seriesIDs []string) (int64, error) {
-	r.deleteOrphanedCalls++
-	r.deleteOrphanedIDs = seriesIDs
-	return 0, nil
-}
-
-// The following methods satisfy the expanded entity.SeriesRepository interface
-// introduced by the organizer-event-authoring feature. Tests that exercise
-// discovery pipeline logic do not exercise these paths, so all are no-ops.
-
-func (r *fakeSeriesRepo) CreateDraft(_ context.Context, _ *entity.Series, _ []*entity.Event, _ []string) error {
-	return nil
-}
-
-func (r *fakeSeriesRepo) Update(_ context.Context, _ *entity.Series, _ []*entity.Event, _ []string) error {
-	return nil
-}
-
-func (r *fakeSeriesRepo) GetAuthored(_ context.Context, _ string) (*entity.Series, []*entity.Concert, error) {
-	return nil, nil, nil
-}
-
-func (r *fakeSeriesRepo) ListByOrganizer(_ context.Context, _ string) ([]*entity.Series, error) {
-	return nil, nil
-}
-
-func (r *fakeSeriesRepo) GetByUnlistedToken(_ context.Context, _ string) (*entity.Series, error) {
-	return nil, apperr.New(codes.NotFound, "not found")
-}
-
-func (r *fakeSeriesRepo) SetUnlistedToken(_ context.Context, _ string, _ string) error {
-	return nil
-}
-
-func (r *fakeSeriesRepo) ReplaceCoverImage(_ context.Context, _ string, _ *entity.SeriesImage) (string, error) {
-	return "", nil
-}
-
-func (r *fakeSeriesRepo) PublishEvents(_ context.Context, _ string, _ []string, _ *string) ([]string, error) {
-	return nil, nil
-}
-
-func (r *fakeSeriesRepo) CancelEvents(_ context.Context, _ string, _ []string) ([]string, error) {
-	return nil, nil
-}
-
-type fakeConcertRepo struct {
-	created []*entity.Concert
-	// calls holds the concerts of each Create call.
-	calls [][]*entity.Concert
-	// createErr, when set, is returned by Create, which then stores nothing.
-	createErr error
-	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,
-	// letting tests exercise series adoption and start-time fill.
-	existing map[string][]*entity.Event
-	// existingByArtist maps "artistID|YYYY-MM-DD" → events that
-	// FindEventsByArtistAndDate returns. Used by the re-discovery fast-path and
-	// resolveSeriesForGroup. Most tests leave this nil (empty → mint-new-series path).
-	existingByArtist map[string][]*entity.Event
-	// filledIDs / filledStarts capture FillEventStartTimes calls.
-	filledIDs    []string
-	filledStarts []*time.Time
-	// updatedListedNames maps eventID → the listed_venue_name written via
-	// UpdateEventListedVenueName; adopt-candidate tests assert on this.
-	updatedListedNames map[string]string
-}
-
-// errNotFaked is returned by the admin catalog methods, which the concert
-// creation and candidate tests never call; the admin methods are tested with
-// the mockery mock (concert_uc_admin_test.go).
-var errNotFaked = errors.New("fakeConcertRepo: admin catalog methods are not faked")
-
-func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) ListUpcomingByArtist(_ context.Context, _ string, _ time.Time) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) FindEventsByVenueAndDate(_ context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error) {
-	if r.existing == nil {
-		return nil, nil
-	}
-	seen := make(map[string]bool)
-	var out []*entity.Event
-	for i := range venueIDs {
-		k := venueIDs[i] + "|" + dates[i].Format("2006-01-02")
-		for _, e := range r.existing[k] {
-			if !seen[e.ID] {
-				seen[e.ID] = true
-				out = append(out, e)
-			}
-		}
-	}
-	return out, nil
-}
-
-// FindEventsByArtistAndDate returns existing events on any of the given dates
-// at which the artist already performs. The existingByArtist map is keyed by
-// "artistID|YYYY-MM-DD". Most tests leave this nil (empty slice → mint-new-series
-// path in resolveSeriesForGroup).
-func (r *fakeConcertRepo) FindEventsByArtistAndDate(_ context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
-	if r.existingByArtist == nil {
-		return nil, nil
-	}
-	seen := make(map[string]bool)
-	var out []*entity.Event
-	for _, d := range dates {
-		k := artistID + "|" + d.Format("2006-01-02")
-		for _, e := range r.existingByArtist[k] {
-			if !seen[e.ID] {
-				seen[e.ID] = true
-				out = append(out, e)
-			}
-		}
-	}
-	return out, nil
-}
-
-func (r *fakeConcertRepo) ListEventsBySeries(_ context.Context, _ string) ([]*entity.Event, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) FillEventStartTimes(_ context.Context, eventIDs []string, startTimes, _ []*time.Time) error {
-	r.filledIDs = append(r.filledIDs, eventIDs...)
-	r.filledStarts = append(r.filledStarts, startTimes...)
-	return nil
-}
-
-func (r *fakeConcertRepo) UpdateEventListedVenueName(_ context.Context, eventID string, listedVenueName string) error {
-	if r.updatedListedNames == nil {
-		r.updatedListedNames = make(map[string]string)
-	}
-	r.updatedListedNames[eventID] = listedVenueName
-	return nil
-}
-
-func (r *fakeConcertRepo) ListByFollower(_ context.Context, _ string, _ *time.Time) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) ListByArtists(_ context.Context, _ []string) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) ListByLocation(_ context.Context, _ *entity.GeoLocation, _, _ time.Time) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Concert, error) {
-	return nil, nil
-}
-
-func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
-	if r.createErr != nil {
-		return nil, r.createErr
-	}
-	r.calls = append(r.calls, concerts)
-	r.created = append(r.created, concerts...)
-	ids := make([]string, 0, len(concerts))
-	for _, c := range concerts {
-		if c != nil {
-			ids = append(ids, c.ID)
-		}
-	}
-	return ids, nil
-}
-
-func (r *fakeConcertRepo) List(_ context.Context) ([]*entity.Concert, error) {
-	return nil, errNotFaked
-}
-
-func (r *fakeConcertRepo) ListCatalogByArtist(_ context.Context, _ string) ([]*entity.Concert, error) {
-	return nil, errNotFaked
-}
-
-func (r *fakeConcertRepo) Delete(_ context.Context, _ string) error {
-	return errNotFaked
-}
-
-func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, _ string) error {
-	return errNotFaked
-}
-
-// fakeConcertCandidateRepo is an in-memory implementation for unit tests.
-type fakeConcertCandidateRepo struct {
-	upserted []*entity.ConcertCandidate
-}
-
-func (r *fakeConcertCandidateRepo) Upsert(_ context.Context, sc *entity.ConcertCandidate) error {
-	r.upserted = append(r.upserted, sc)
-	return nil
-}
-
-func (r *fakeConcertCandidateRepo) ListPending(_ context.Context) ([]*entity.ConcertCandidate, error) {
-	return r.upserted, nil
-}
-
-func (r *fakeConcertCandidateRepo) GetByID(_ context.Context, id string) (*entity.ConcertCandidate, error) {
-	for _, sc := range r.upserted {
-		if sc.ID == id {
-			return sc, nil
-		}
-	}
-	return nil, apperr.New(codes.NotFound, "concert candidate not found")
-}
-
-func (r *fakeConcertCandidateRepo) Delete(_ context.Context, id string) error {
-	for i, sc := range r.upserted {
-		if sc.ID == id {
-			r.upserted = append(r.upserted[:i], r.upserted[i+1:]...)
-			return nil
-		}
-	}
-	return nil
-}
-
-func (r *fakeConcertCandidateRepo) ListPendingDedupKeysByArtist(_ context.Context, _ string) ([]entity.ConcertCandidateDedupKey, error) {
-	return nil, nil
-}
-
-// fakeSuppressedConcertRepo is an in-memory suppression set for unit tests. Tests
-// seed suppressed keys via suppress(); the consumer's Exists gate reads them.
-type fakeSuppressedConcertRepo struct {
-	keys     map[string]bool
-	inserted []*entity.SuppressedConcert
-}
-
-func newFakeSuppressedConcertRepo() *fakeSuppressedConcertRepo {
-	return &fakeSuppressedConcertRepo{keys: make(map[string]bool)}
-}
-
-// suppressedKey mirrors the (venue_id, local_date, start_at) natural key with a
-// NULL-safe start component so a nil start collapses onto the same slot.
-func suppressedKey(venueID string, localDate time.Time, startTime *time.Time) string {
-	start := ""
-	if startTime != nil && !startTime.IsZero() {
-		start = startTime.UTC().Format(time.RFC3339)
-	}
-	return venueID + "|" + localDate.Format("2006-01-02") + "|" + start
-}
-
-// suppress seeds a suppressed natural key for the test.
-func (r *fakeSuppressedConcertRepo) suppress(venueID string, localDate time.Time, startTime *time.Time) {
-	r.keys[suppressedKey(venueID, localDate, startTime)] = true
-}
-
-func (r *fakeSuppressedConcertRepo) Insert(_ context.Context, sc *entity.SuppressedConcert) error {
-	r.inserted = append(r.inserted, sc)
-	r.keys[suppressedKey(sc.VenueID, sc.LocalEventDate, sc.StartTime)] = true
-	return nil
-}
-
-func (r *fakeSuppressedConcertRepo) Exists(_ context.Context, venueID string, localDate time.Time, startTime *time.Time) (bool, error) {
-	return r.keys[suppressedKey(venueID, localDate, startTime)], nil
-}
-
-func (r *fakeSuppressedConcertRepo) Delete(_ context.Context, venueID string, localDate time.Time, startTime *time.Time) error {
-	delete(r.keys, suppressedKey(venueID, localDate, startTime))
-	return nil
-}
-
-// stubPlaceSearcher returns pre-configured results keyed by venue name.
-type stubPlaceSearcher struct {
-	places map[string]*entity.VenuePlace
-}
-
-func newStubPlaceSearcher() *stubPlaceSearcher {
-	return &stubPlaceSearcher{places: make(map[string]*entity.VenuePlace)}
-}
-
-func (s *stubPlaceSearcher) SearchPlace(_ context.Context, name, _ string) (*entity.VenuePlace, error) {
-	if p, ok := s.places[name]; ok {
-		return p, nil
-	}
-	return nil, apperr.New(codes.NotFound, "place not found")
-}
-
-// --- helpers ---
-
-func newGoChannelPub(t *testing.T) *gochannel.GoChannel {
-	t.Helper()
-	return gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 256}, watermill.NopLogger{})
-}
 
 // --- helpers ---
 
@@ -433,6 +39,181 @@ func (noopMetrics) RecordFollow(_ context.Context, _ string)             {}
 func (noopMetrics) RecordPushSend(_ context.Context, _ string)           {}
 func (noopMetrics) RecordDeliveryOutcome(_ context.Context, _, _ string) {}
 
+// notFound is the NotFound error a repository or the place searcher returns
+// when it has no record of what.
+func notFound(what string) error {
+	return apperr.New(codes.NotFound, what+" not found")
+}
+
+// anyArgs returns n mock.Anything matchers, for the variadic arguments of a
+// mocked call (the mocks unroll variadic arguments, so a call matches only an
+// expectation with as many matchers as it has arguments).
+func anyArgs(n int) []any {
+	args := make([]any, n)
+	for i := range args {
+		args[i] = mock.Anything
+	}
+	return args
+}
+
+// ingestSignal is one AnalyticsClient.Capture call of the creation usecase.
+type ingestSignal struct {
+	event usecase.AnalyticsEvent
+	// traceID is the trace of the context the signal was sent under.
+	traceID string
+}
+
+// creationHarness is a ConcertCreationUseCase over mocks. Its expectation
+// helpers record what the usecase passes to the mocks, so a test can assert on
+// what was stored; a call no test expects fails the test.
+type creationHarness struct {
+	uc         usecase.ConcertCreationUseCase
+	candidate  *entitymocks.MockConcertCandidateRepository
+	venue      *entitymocks.MockVenueRepository
+	concert    *entitymocks.MockConcertRepository
+	series     *entitymocks.MockSeriesRepository
+	suppressed *entitymocks.MockSuppressedConcertRepository
+	place      *entitymocks.MockVenuePlaceSearcher
+
+	createdSeries   []*entity.Series
+	createdVenues   []*entity.Venue
+	createdConcerts []*entity.Concert
+	// createCalls holds the concerts of each Concert.Create call.
+	createCalls [][]*entity.Concert
+	staged      []*entity.ConcertCandidate
+	signals     []ingestSignal
+}
+
+func newCreationHarness(t *testing.T) *creationHarness {
+	t.Helper()
+	h := &creationHarness{
+		candidate:  entitymocks.NewMockConcertCandidateRepository(t),
+		venue:      entitymocks.NewMockVenueRepository(t),
+		concert:    entitymocks.NewMockConcertRepository(t),
+		series:     entitymocks.NewMockSeriesRepository(t),
+		suppressed: entitymocks.NewMockSuppressedConcertRepository(t),
+		place:      entitymocks.NewMockVenuePlaceSearcher(t),
+	}
+	analytics := ucmocks.NewMockAnalyticsClient(t)
+	analytics.EXPECT().Capture(mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, e usecase.AnalyticsEvent) error {
+			h.signals = append(h.signals, ingestSignal{event: e, traceID: trace.SpanContextFromContext(ctx).TraceID().String()})
+			return nil
+		}).Maybe()
+	h.uc = usecase.NewConcertCreationUseCase(
+		h.candidate, h.venue, h.concert, h.series, h.suppressed,
+		h.place, analytics, time.Now, newTestLogger(t),
+	)
+	return h
+}
+
+// ingestReports returns the properties and trace ids of the
+// concert.ingest.completed signals sent.
+func (h *creationHarness) ingestReports() ([]usecase.AnalyticsProperties, []string) {
+	var props []usecase.AnalyticsProperties
+	var traces []string
+	for _, s := range h.signals {
+		if s.event.Name == usecase.EventConcertIngestCompleted {
+			props = append(props, s.event.Properties)
+			traces = append(traces, s.traceID)
+		}
+	}
+	return props, traces
+}
+
+// findsNoArtistEvents expects each of n series to look up the Artist's stored
+// Events on its dates and find none, so its series is minted.
+func (h *creationHarness) findsNoArtistEvents(n int) {
+	h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Times(n)
+}
+
+// createsSeries expects n series to be created and records them.
+func (h *creationHarness) createsSeries(n int) {
+	h.series.EXPECT().Create(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, series ...*entity.Series) ([]string, error) {
+			h.createdSeries = append(h.createdSeries, series...)
+			return []string{series[0].ID}, nil
+		}).Times(n)
+}
+
+// sweepsOrphans expects the end-of-batch sweep of the series the batch minted.
+func (h *creationHarness) sweepsOrphans() {
+	h.series.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).Return(0, nil).Once()
+}
+
+// resolvesPlace expects Google Places to be asked once for the listed venue
+// name and to resolve it to place.
+func (h *creationHarness) resolvesPlace(name string, place *entity.VenuePlace) {
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(place, nil).Once()
+}
+
+// cannotResolvePlace expects Google Places to be asked once for the listed
+// venue name and to find no place.
+func (h *creationHarness) cannotResolvePlace(name string) {
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(nil, notFound("place")).Once()
+}
+
+// createsVenue expects the venue of placeID, stored under neither that place
+// id nor listedName, to be created, and records it.
+func (h *creationHarness) createsVenue(placeID, listedName string) {
+	h.venue.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(nil, notFound("venue")).Once()
+	h.venue.EXPECT().GetByListedName(mock.Anything, listedName, (*string)(nil)).Return(nil, notFound("venue")).Once()
+	h.venue.EXPECT().Create(mock.Anything, mock.MatchedBy(func(v *entity.Venue) bool {
+		return v.GooglePlaceID != nil && *v.GooglePlaceID == placeID
+	})).RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
+		h.createdVenues = append(h.createdVenues, v)
+		return v.ID, nil
+	}).Once()
+}
+
+// storedVenue expects the venue lookup by placeID to find the stored venue
+// venueID.
+func (h *creationHarness) storedVenue(placeID, venueID string) {
+	h.venue.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(&entity.Venue{ID: venueID, GooglePlaceID: &placeID}, nil).Once()
+}
+
+// notSuppressed expects n events to be checked against the suppression set
+// and found absent.
+func (h *creationHarness) notSuppressed(n int) {
+	h.suppressed.EXPECT().Exists(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Times(n)
+}
+
+// slotsFree expects n events to find no stored Event at their venue and date.
+func (h *creationHarness) slotsFree(n int) {
+	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Times(n)
+}
+
+// slotHolds expects the lookup at venueID on date to find events.
+func (h *creationHarness) slotHolds(venueID string, date time.Time, events ...*entity.Event) {
+	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{venueID}, []time.Time{date}).Return(events, nil).Once()
+}
+
+// stages expects n events to be staged as ConcertCandidates and records them.
+func (h *creationHarness) stages(n int) {
+	h.candidate.EXPECT().Upsert(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, c *entity.ConcertCandidate) error {
+			h.staged = append(h.staged, c)
+			return nil
+		}).Times(n)
+}
+
+// publishes expects one Concert.Create call per series, with the given number
+// of concerts each, and records them.
+func (h *creationHarness) publishes(perSeries ...int) {
+	for _, n := range perSeries {
+		h.concert.EXPECT().Create(mock.Anything, anyArgs(n)...).
+			RunAndReturn(func(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
+				h.createCalls = append(h.createCalls, concerts)
+				h.createdConcerts = append(h.createdConcerts, concerts...)
+				ids := make([]string, 0, len(concerts))
+				for _, c := range concerts {
+					ids = append(ids, c.ID)
+				}
+				return ids, nil
+			}).Once()
+	}
+}
+
 // --- tests ---
 
 func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
@@ -441,68 +222,21 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
 
-	// creationHarness bundles the usecase with its fakes and the publisher so a
-	// test can assert on auto-publish, staging, suppression, and CONCERT.created.
-	type creationHarness struct {
-		uc         usecase.ConcertCreationUseCase
-		candidate  *fakeConcertCandidateRepo
-		venue      *fakeVenueRepo
-		concert    *fakeConcertRepo
-		series     *fakeSeriesRepo
-		suppressed *fakeSuppressedConcertRepo
-		place      *stubPlaceSearcher
-		pub        *gochannel.GoChannel
-		analytics  *recordingAnalytics
-	}
-	build := func(t *testing.T) *creationHarness {
-		t.Helper()
-		h := &creationHarness{
-			candidate:  &fakeConcertCandidateRepo{},
-			venue:      newFakeVenueRepo(),
-			concert:    &fakeConcertRepo{},
-			series:     &fakeSeriesRepo{},
-			suppressed: newFakeSuppressedConcertRepo(),
-			place:      newStubPlaceSearcher(),
-			pub:        newGoChannelPub(t),
-			analytics:  &recordingAnalytics{},
-		}
-		h.uc = usecase.NewConcertCreationUseCase(
-			h.candidate, h.venue, h.concert, h.series, h.suppressed,
-			h.place, h.analytics, time.Now, newTestLogger(t),
-		)
-		return h
-	}
-
-	// seedVenue registers an existing venues row keyed by place id so
-	// resolveOrCreateVenue returns a known id (letting tests seed existing events
-	// at that venue without minting a fresh uuid they cannot predict).
-	seedVenue := func(h *creationHarness, venueID, listedName, placeID string) {
-		pid := placeID
-		ln := listedName
-		h.venue.venues[listedName] = &entity.Venue{
-			ID:              venueID,
-			Name:            listedName,
-			GooglePlaceID:   &pid,
-			ListedVenueName: &ln,
-		}
-	}
-
-	expectNoPublish := func(t *testing.T, h *creationHarness) {
-		t.Helper()
-		ch, err := h.pub.Subscribe(context.Background(), "CONCERT.created")
-		require.NoError(t, err)
-		select {
-		case msg := <-ch:
-			t.Fatalf("unexpected CONCERT.created published: %s", msg.Payload)
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	// A CONCERT.created announcement is recorded only by Concert.Create, so a
+	// test that sets no publishes expectation also proves nothing is announced.
 
 	t.Run("auto-publishes a genuinely new concert at a resolved venue", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Genuinely new"
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"}
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"})
+		h.createsVenue("place-x", "Venue X")
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
@@ -519,23 +253,32 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		// Published directly: an event was inserted, a venue was created, and the
-		// concert was NOT staged.
-		require.Len(t, h.concert.created, 1)
-		require.Len(t, h.series.created, 1)
-		assert.Equal(t, h.series.created[0].ID, h.concert.created[0].SeriesID, "the Event is published under the series' Series")
-		assert.Empty(t, h.candidate.upserted, "a genuinely new concert must not be staged")
-		assert.Len(t, h.venue.created, 1, "venue is created only on the auto-publish path")
+		// Published directly: an event was inserted and a venue was created; the
+		// concert was not staged (no Upsert is expected).
+		require.Len(t, h.createdConcerts, 1)
+		require.Len(t, h.createdSeries, 1)
+		assert.Equal(t, h.createdSeries[0].ID, h.createdConcerts[0].SeriesID, "the Event is published under the series' Series")
+		assert.Len(t, h.createdVenues, 1, "venue is created only on the auto-publish path")
 	})
 
 	t.Run("mixed batch reports what it did", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Mixed batch"
-		h := build(t)
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
 		for _, v := range []string{"Venue A", "Venue B", "Venue C"} {
-			h.place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
+			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
+			h.createsVenue("place-"+v, v)
 		}
 		// "Venue Unknown" has no place: staged for review.
+		h.cannotResolvePlace("Venue Unknown")
+		h.notSuppressed(3)
+		h.slotsFree(3)
+		h.stages(1)
+		h.publishes(3)
+		h.sweepsOrphans()
+
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
 			Series: []*entity.DiscoveredSeries{{
@@ -554,8 +297,9 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		require.NoError(t, h.uc.CreateFromDiscovered(ctx, data))
 
-		require.Len(t, h.concert.created, 3)
-		require.Len(t, h.candidate.upserted, 1)
+		require.Len(t, h.createdConcerts, 3)
+		require.Len(t, h.staged, 1)
+		props, traces := h.ingestReports()
 		assert.Equal(t, []usecase.AnalyticsProperties{{
 			"artist_id":        "artist-1",
 			"outcome":          "completed",
@@ -564,19 +308,29 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			"filled_count":     0,
 			"suppressed_count": 0,
 			"conflict_count":   0,
-		}}, h.analytics.sent(usecase.EventConcertIngestCompleted))
-		assert.Equal(t, []string{span.SpanContext().TraceID().String()}, h.analytics.traces(usecase.EventConcertIngestCompleted))
+		}}, props)
+		assert.Equal(t, []string{span.SpanContext().TraceID().String()}, traces)
 	})
 
 	t.Run("batch failing part way reports what it did before failing", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Batch fails part way"
-		h := build(t)
-		for _, v := range []string{"Venue A", "Venue B", "Venue C"} {
-			h.place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
-		}
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(2)
 		errCreate := errors.New("insert series failed")
-		h.series.createErrByTitle = map[string]error{"Second Tour": errCreate}
+		h.series.EXPECT().Create(mock.Anything, mock.MatchedBy(func(s *entity.Series) bool { return s.Title == "First Tour" })).
+			RunAndReturn(func(_ context.Context, series ...*entity.Series) ([]string, error) {
+				return []string{series[0].ID}, nil
+			}).Once()
+		h.series.EXPECT().Create(mock.Anything, mock.MatchedBy(func(s *entity.Series) bool { return s.Title == "Second Tour" })).
+			Return(nil, errCreate).Once()
+		for _, v := range []string{"Venue A", "Venue B"} {
+			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
+			h.createsVenue("place-"+v, v)
+		}
+		h.notSuppressed(2)
+		h.slotsFree(2)
+		h.publishes(2)
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
 			Series: []*entity.DiscoveredSeries{
@@ -599,7 +353,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		err := h.uc.CreateFromDiscovered(context.Background(), data)
 
 		require.ErrorIs(t, err, errCreate)
-		require.Len(t, h.concert.created, 2)
+		require.Len(t, h.createdConcerts, 2)
+		props, _ := h.ingestReports()
 		assert.Equal(t, []usecase.AnalyticsProperties{{
 			"artist_id":        "artist-1",
 			"outcome":          "failed",
@@ -608,19 +363,23 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			"filled_count":     0,
 			"suppressed_count": 0,
 			"conflict_count":   0,
-		}}, h.analytics.sent(usecase.EventConcertIngestCompleted))
+		}}, props)
 	})
 
 	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Same slot as an existing event"
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		// The place resolves to the stored venue-1, so no venue is created.
+		h.storedVenue("place-x", "venue-1")
+		h.notSuppressed(1)
 		// An existing published event at the resolved (venue, date, start) → conflict.
-		h.concert.existing = map[string][]*entity.Event{
-			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime}},
-		}
+		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime})
+		h.stages(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
@@ -637,26 +396,26 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.candidate.upserted, 1, "a conflict must be staged for reconciliation")
-		staged := h.candidate.upserted[0]
+		require.Len(t, h.staged, 1, "a conflict must be staged for reconciliation")
+		staged := h.staged[0]
 		require.NotNil(t, staged.ResolvedPlaceID, "the staged event carries its resolved preview")
 		assert.Equal(t, "place-x", *staged.ResolvedPlaceID)
 		require.NotNil(t, staged.ResolvedVenueName)
 		assert.Equal(t, "Venue X", *staged.ResolvedVenueName)
-		assert.Empty(t, h.concert.created, "a conflict must not be auto-published")
-		assert.Empty(t, h.venue.created, "a conflict resolves to the existing venue; no new venue")
-		expectNoPublish(t, h)
 	})
 
 	t.Run("stages an unknown start next to an Event with a known start", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Unknown start next to a known start"
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
-		h.concert.existing = map[string][]*entity.Event{
-			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime}},
-		}
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.storedVenue("place-x", "venue-1")
+		h.notSuppressed(1)
+		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime})
+		h.stages(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
@@ -667,21 +426,24 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.candidate.upserted, 1, "an unknown start next to a known start is staged")
-		assert.Empty(t, h.concert.created)
+		assert.Len(t, h.staged, 1, "an unknown start next to a known start is staged")
 	})
 
 	t.Run("publishes a known start next to another Event with no start", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Known start next to an unknown-start event"
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.storedVenue("place-x", "venue-1")
+		h.notSuppressed(1)
 		// Another artist's Event at the Venue and date, with no start time; the
-		// discovering Artist has no Event there, so nothing is filled.
-		h.concert.existing = map[string][]*entity.Event{
-			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate}},
-		}
+		// discovering Artist has no Event there, so nothing is filled (no
+		// FillEventStartTimes is expected).
+		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate})
+		h.publishes(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
@@ -692,17 +454,19 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.concert.created, 1, "a new Event with the known start is published")
-		require.NotNil(t, h.concert.created[0].StartTime)
-		assert.True(t, h.concert.created[0].StartTime.Equal(startTime), "the new Event has the discovered start")
-		assert.Empty(t, h.candidate.upserted)
-		assert.Empty(t, h.concert.filledIDs, "the other artist's Event is left as it is")
+		require.Len(t, h.createdConcerts, 1, "a new Event with the known start is published")
+		require.NotNil(t, h.createdConcerts[0].StartTime)
+		assert.True(t, h.createdConcerts[0].StartTime.Equal(startTime), "the new Event has the discovered start")
 	})
 
 	t.Run("stages an unresolved venue without creating a venue or publishing", func(t *testing.T) {
 		t.Parallel()
-		h := build(t)
-		// "Nowhere" is not in the place stub → SearchPlace returns NotFound.
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.cannotResolvePlace("Nowhere")
+		h.stages(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-2",
@@ -719,20 +483,21 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.candidate.upserted, 1, "an unresolved venue is staged for review")
-		assert.Nil(t, h.candidate.upserted[0].ResolvedPlaceID)
-		assert.Empty(t, h.venue.created, "no venues row for an unresolved venue")
-		assert.Empty(t, h.concert.created)
-		expectNoPublish(t, h)
+		// No venues row is looked up or created for an unresolved venue.
+		require.Len(t, h.staged, 1, "an unresolved venue is staged for review")
+		assert.Nil(t, h.staged[0].ResolvedPlaceID)
 	})
 
 	t.Run("skips a suppressed concert entirely (no publish, no stage)", func(t *testing.T) {
 		t.Parallel()
 		// @spec stories/delete-a-wrong-concert "Discovery finds it again"
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
-		h.suppressed.suppress("venue-1", localDate, &startTime)
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.storedVenue("place-x", "venue-1")
+		h.suppressed.EXPECT().Exists(mock.Anything, "venue-1", localDate, &startTime).Return(true, nil).Once()
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-3",
@@ -747,28 +512,23 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		assert.Empty(t, h.candidate.upserted, "a suppressed concert must not be staged")
-		assert.Empty(t, h.concert.created, "a suppressed concert must not be auto-published")
-		expectNoPublish(t, h)
+		// Neither Upsert nor Concert.Create is expected: a suppressed concert is
+		// neither staged nor auto-published.
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 	})
 
 	t.Run("known-start fill is routed to the publish path, not staged", func(t *testing.T) {
 		t.Parallel()
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
-		// An existing unknown-start row that the known-start discovery fills (not a conflict).
+		h := newCreationHarness(t)
+		// The Artist's existing unknown-start row on the date at the same listed
+		// venue: the re-discovery fast path adopts its series, skips the Places
+		// API, and fills the row's start (not a conflict).
 		listedName := "Venue X"
-		h.concert.existing = map[string][]*entity.Event{
-			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}},
-		}
-		// Seed the same event in the artist-date index so the re-discovery fast-path
-		// finds the venue and skips the Places API.
-		h.concert.existingByArtist = map[string][]*entity.Event{
-			"artist-4|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}},
-		}
+		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-4", []time.Time{localDate}).
+			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}}, nil).Once()
+		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, []*time.Time{&startTime}, []*time.Time{nil}).Return(nil).Once()
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-4",
@@ -783,22 +543,25 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		// The fill path completes the existing row (via FillEventStartTimes) and does
-		// not stage the concert as a conflict.
-		assert.Contains(t, h.concert.filledIDs, "event-1", "known-start fill must fill the existing row")
-		assert.Empty(t, h.candidate.upserted, "a fill is the publish path, not a conflict to stage")
+		// The fill completes the existing row (FillEventStartTimes) and stages
+		// nothing (no Upsert is expected).
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 	})
 
-	t.Run("un-suppressing a key re-enables auto-publish on re-discovery", func(t *testing.T) {
+	t.Run("a slot no longer suppressed is auto-published on re-discovery", func(t *testing.T) {
 		t.Parallel()
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		seedVenue(h, "venue-1", "Venue X", "place-x")
-		h.suppressed.suppress("venue-1", localDate, &startTime)
-		// An admin removes the suppression entry (the deliberate un-suppress path).
-		require.NoError(t, h.suppressed.Delete(context.Background(), "venue-1", localDate, &startTime))
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.storedVenue("place-x", "venue-1")
+		// An admin removed the suppression entry (the deliberate un-suppress
+		// path), so the suppression set no longer holds the slot.
+		h.suppressed.EXPECT().Exists(mock.Anything, "venue-1", localDate, &startTime).Return(false, nil).Once()
+		h.slotHolds("venue-1", localDate)
+		h.publishes(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-6",
@@ -816,14 +579,20 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
 		// No longer suppressed → auto-published again.
-		require.Len(t, h.concert.created, 1)
-		assert.Empty(t, h.candidate.upserted)
+		assert.Len(t, h.createdConcerts, 1)
 	})
 
 	t.Run("skips a concert with empty venue name without poisoning the batch", func(t *testing.T) {
 		t.Parallel()
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.createsVenue("place-x", "Venue X")
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-5",
@@ -843,17 +612,23 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
 		// The empty-venue row is skipped; the valid one is auto-published.
-		assert.Len(t, h.concert.created, 1)
-		assert.Empty(t, h.candidate.upserted)
+		assert.Len(t, h.createdConcerts, 1)
 	})
 
 	t.Run("skips an event whose venue is TBA and stores no Venue named TBA", func(t *testing.T) {
 		t.Parallel()
 		// Follows from entity/venue "Venue not yet announced is missing" and
 		// the skip of a blank name ("Venue to be announced").
-		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
-		h.place.places["TBA"] = &entity.VenuePlace{ProviderUserID: "place-tba", Name: "TBA"}
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		// Google Places is never asked for "TBA" (no SearchPlace expectation).
+		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
+		h.createsVenue("place-x", "Venue X")
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-6",
@@ -871,13 +646,11 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.concert.created, 1, "only the event at a named venue is stored")
-		assert.True(t, localDate.Equal(h.concert.created[0].LocalDate))
-		assert.Empty(t, h.candidate.upserted)
-		for _, v := range h.venue.created {
+		require.Len(t, h.createdConcerts, 1, "only the event at a named venue is stored")
+		assert.True(t, localDate.Equal(h.createdConcerts[0].LocalDate))
+		for _, v := range h.createdVenues {
 			assert.NotEqual(t, "TBA", v.Name, "no Venue named TBA is stored")
 		}
-		assert.NotContains(t, h.venue.venues, "TBA")
 	})
 }
 
@@ -886,8 +659,9 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(
-			&fakeConcertCandidateRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
-			newFakeSuppressedConcertRepo(), nil, nil, time.Now, newTestLogger(t),
+			entitymocks.NewMockConcertCandidateRepository(t), entitymocks.NewMockVenueRepository(t),
+			entitymocks.NewMockConcertRepository(t), entitymocks.NewMockSeriesRepository(t),
+			entitymocks.NewMockSuppressedConcertRepository(t), nil, nil, time.Now, newTestLogger(t),
 		)
 	})
 }
@@ -895,43 +669,32 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 // TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries is the
 // regression guard for the series-fragmentation bug: a multi-date tour discovered
 // as one DiscoveredSeries must persist exactly one series row of type TOUR, with
-// all member events sharing that single SeriesID, and exactly one CONCERT.created
-// published carrying all event IDs. The pre-fix code minted one series per event,
-// causing 1-event series proliferation in production.
+// all member events sharing that single SeriesID, stored in one Concert.Create
+// call. The pre-fix code minted one series per event, causing 1-event series
+// proliferation in production.
 func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.T) {
 	t.Parallel()
 
-	// Three dates, each at a different venue; all resolved via the place stub.
+	// Three dates, each at a different venue; all resolved via Google Places.
 	date1 := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
 	date2 := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
 	date3 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
 
-	build := func(t *testing.T) (usecase.ConcertCreationUseCase, *fakeConcertRepo, *fakeSeriesRepo, *fakeConcertCandidateRepo, *gochannel.GoChannel) {
-		t.Helper()
-		candidate := &fakeConcertCandidateRepo{}
-		venue := newFakeVenueRepo()
-		concert := &fakeConcertRepo{}
-		series := &fakeSeriesRepo{}
-		suppressed := newFakeSuppressedConcertRepo()
-		place := newStubPlaceSearcher()
-		pub := newGoChannelPub(t)
-
-		place.places["Venue A"] = &entity.VenuePlace{ProviderUserID: "place-a", Name: "Venue A Canonical"}
-		place.places["Venue B"] = &entity.VenuePlace{ProviderUserID: "place-b", Name: "Venue B Canonical"}
-		place.places["Venue C"] = &entity.VenuePlace{ProviderUserID: "place-c", Name: "Venue C Canonical"}
-
-		uc := usecase.NewConcertCreationUseCase(
-			candidate, venue, concert, series, suppressed,
-			place, nil, time.Now, newTestLogger(t),
-		)
-		return uc, concert, series, candidate, pub
-	}
-
 	t.Run("three-date tour produces exactly one TOUR series", func(t *testing.T) {
 		t.Parallel()
-		uc, concert, series, candidate, _ := build(t)
-
-		ctx := context.Background()
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		// Exactly one series row minted (not one per event): a second
+		// Series.Create would fail the mock.
+		h.createsSeries(1)
+		for _, v := range []string{"A", "B", "C"} {
+			h.resolvesPlace("Venue "+v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: "Venue " + v + " Canonical"})
+			h.createsVenue("place-"+v, "Venue "+v)
+		}
+		h.notSuppressed(3)
+		h.slotsFree(3)
+		h.publishes(3)
+		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-tour",
@@ -948,25 +711,20 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 				},
 			},
 		}
-		require.NoError(t, uc.CreateFromDiscovered(ctx, data))
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		// Exactly one series row minted (not one per event).
-		require.Len(t, series.created, 1, "one DiscoveredSeries must produce exactly one series row")
-		assert.Equal(t, entity.SeriesTypeTour, series.created[0].Type, "series type must be TOUR")
-		assert.Equal(t, "Eras Tour 2026", series.created[0].Title)
+		require.Len(t, h.createdSeries, 1, "one DiscoveredSeries must produce exactly one series row")
+		assert.Equal(t, entity.SeriesTypeTour, h.createdSeries[0].Type, "series type must be TOUR")
+		assert.Equal(t, "Eras Tour 2026", h.createdSeries[0].Title)
 
-		// All three events inserted.
-		require.Len(t, concert.created, 3, "all three tour dates must be inserted")
-
-		// All events share the single minted series ID.
-		sharedSeriesID := series.created[0].ID
-		for _, c := range concert.created {
+		// All three events inserted, each under the single minted series ID;
+		// nothing staged (no Upsert is expected).
+		require.Len(t, h.createdConcerts, 3, "all three tour dates must be inserted")
+		sharedSeriesID := h.createdSeries[0].ID
+		for _, c := range h.createdConcerts {
 			assert.Equal(t, sharedSeriesID, c.SeriesID,
 				"every concert must share the single tour series ID (got %q, want %q)", c.SeriesID, sharedSeriesID)
 		}
-
-		// Nothing staged (all venues resolved).
-		assert.Empty(t, candidate.upserted)
 	})
 }
 
@@ -981,20 +739,10 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 	artist := &entity.Artist{ID: "artist-tour", Name: "Tour Artist", MBID: "22222222-2222-2222-2222-222222222222"}
 	const tourSeriesID = "series-tour-existing"
 
-	build := func(t *testing.T) *approvalTestDeps {
-		t.Helper()
-		d := newApprovalTestDeps(t, artist)
-		// Seed the pre-existing tour series so Get resolves its title.
-		d.seriesRepo.byID = map[string]*entity.Series{
-			tourSeriesID: {ID: tourSeriesID, Title: "Eras Tour 2026", Type: entity.SeriesTypeTour},
-		}
-		return d
-	}
-
 	// @spec components/usecase/concert-candidate/approve "Tour stop joins its tour"
 	t.Run("approve inserts under the existing tour series ID without minting a new series", func(t *testing.T) {
 		t.Parallel()
-		d := build(t)
+		d := newApprovalTestDeps(t, artist)
 
 		placeID := "place-hall"
 		venueName := "Concert Hall Canonical"
@@ -1010,39 +758,38 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 			ResolvedPlaceID:   &placeID,
 			ResolvedVenueName: &venueName,
 		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		d.pending(sc)
+		d.createsVenue(placeID, "Concert Hall", nil)
+		d.slotFree()
+		d.inserts()
+		// The concert candidate is deleted; no Series.Create is expected, since
+		// approval never mints a series.
+		d.deletes(sc.ID)
 
-		ctx := context.Background()
-
-		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Event inserted under the pre-existing tour series.
-		require.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, tourSeriesID, d.concertRepo.created[0].SeriesID,
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, tourSeriesID, d.createdConcerts[0].SeriesID,
 			"approved event must be inserted under the concert candidate's existing series ID")
-
-		// NO new series row created — approval never mints a series.
-		assert.Empty(t, d.seriesRepo.created,
-			"Approve must not create a new series; the tour series already exists")
-
-		// Concert candidate deleted.
-		assert.Empty(t, d.candidateRepo.upserted)
 	})
 }
 
-// newCreationUC returns a ConcertCreationUseCase over fakes in which every
-// listed venue resolves to a place of its own name.
-func newCreationUC(t *testing.T, concert *fakeConcertRepo, venues ...string) (usecase.ConcertCreationUseCase, *fakeConcertCandidateRepo) {
+// newCreationUC returns a creation harness in which every listed venue
+// resolves to a place of its own name, stored under neither its place id nor
+// its name, so its venue is created; it expects one series to be looked up,
+// minted, and swept at the end of the batch.
+func newCreationUC(t *testing.T, venues ...string) *creationHarness {
 	t.Helper()
-	place := newStubPlaceSearcher()
+	h := newCreationHarness(t)
+	h.findsNoArtistEvents(1)
+	h.createsSeries(1)
 	for _, v := range venues {
-		place.places[v] = &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v}
+		h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
+		h.createsVenue("place-"+v, v)
 	}
-	candidate := &fakeConcertCandidateRepo{}
-	uc := usecase.NewConcertCreationUseCase(candidate, newFakeVenueRepo(), concert, &fakeSeriesRepo{},
-		newFakeSuppressedConcertRepo(), place, nil, time.Now, newTestLogger(t))
-	return uc, candidate
+	return h
 }
 
 // TestCreateFromDiscovered_OneCreatePerSeries shows that the events of a
@@ -1061,74 +808,102 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 	// @spec components/usecase/concert/create-from-discovered "Three-stop tour"
 	t.Run("three events of a tour are created in one call", func(t *testing.T) {
 		t.Parallel()
-		concert := &fakeConcertRepo{}
-		uc, _ := newCreationUC(t, concert, "Venue A", "Venue B", "Venue C")
+		h := newCreationUC(t, "Venue A", "Venue B", "Venue C")
+		h.notSuppressed(3)
+		h.slotsFree(3)
+		h.publishes(3)
+		h.sweepsOrphans()
 
-		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
 			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
 			&entity.DiscoveredEvent{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 0, 1), StartTime: start.AddDate(0, 0, 1)},
 			&entity.DiscoveredEvent{ListedVenueName: "Venue C", LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
 		)))
 
-		require.Len(t, concert.calls, 1)
-		assert.Len(t, concert.calls[0], 3)
+		require.Len(t, h.createCalls, 1)
+		assert.Len(t, h.createCalls[0], 3)
 	})
 
 	// @spec components/usecase/concert/create-from-discovered "Everything staged"
 	t.Run("a series whose events are all staged creates nothing", func(t *testing.T) {
 		t.Parallel()
-		concert := &fakeConcertRepo{}
-		uc, candidates := newCreationUC(t, concert)
+		h := newCreationUC(t)
+		h.cannotResolvePlace("Unknown A")
+		h.cannotResolvePlace("Unknown B")
+		h.stages(2)
+		h.sweepsOrphans()
 
-		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+		// No Concert.Create is expected.
+		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
 			&entity.DiscoveredEvent{ListedVenueName: "Unknown A", LocalDate: day},
 			&entity.DiscoveredEvent{ListedVenueName: "Unknown B", LocalDate: day.AddDate(0, 0, 1)},
 		)))
 
-		assert.Empty(t, concert.calls)
-		assert.Len(t, candidates.upserted, 2)
+		assert.Len(t, h.staged, 2)
 	})
 
 	// @spec components/usecase/concert/create-from-discovered "Concerts cannot be created"
 	t.Run("a failed create fails the batch", func(t *testing.T) {
 		t.Parallel()
-		concert := &fakeConcertRepo{createErr: apperr.New(codes.Unavailable, "database down")}
-		uc, _ := newCreationUC(t, concert, "Venue A")
+		h := newCreationUC(t, "Venue A")
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.concert.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
 
-		err := uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
+		err := h.uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
 	t.Run("an unknown start colliding with a known start decided in the same series is staged", func(t *testing.T) {
 		t.Parallel()
-		concert := &fakeConcertRepo{}
-		uc, candidates := newCreationUC(t, concert, "Venue A")
+		h := newCreationUC(t, "Venue A")
+		// The second event, at the same place (Google Places is asked once),
+		// finds the venue the first event created.
+		h.venue.EXPECT().GetByPlaceID(mock.Anything, "place-Venue A").
+			RunAndReturn(func(context.Context, string) (*entity.Venue, error) {
+				require.Len(t, h.createdVenues, 1)
+				return h.createdVenues[0], nil
+			}).Once()
+		h.notSuppressed(2)
+		h.slotsFree(2)
+		h.stages(1)
+		h.publishes(1)
+		h.sweepsOrphans()
 
-		require.NoError(t, uc.CreateFromDiscovered(ctx, tour(
+		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
 			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
 			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day},
 		)))
 
-		require.Len(t, concert.calls, 1)
-		assert.Len(t, concert.calls[0], 1)
-		assert.Len(t, candidates.upserted, 1)
+		require.Len(t, h.createCalls, 1)
+		assert.Len(t, h.createCalls[0], 1)
+		assert.Len(t, h.staged, 1)
 	})
 
 	// @spec components/usecase/concert/create-from-discovered "Search keeps new concerts"
 	t.Run("the workflow processes both series of the search", func(t *testing.T) {
 		t.Parallel()
-		concert := &fakeConcertRepo{}
-		uc, _ := newCreationUC(t, concert, "Venue A", "Venue B")
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(2)
+		h.createsSeries(2)
+		for _, v := range []string{"Venue A", "Venue B"} {
+			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
+			h.createsVenue("place-"+v, v)
+		}
+		h.notSuppressed(2)
+		h.slotsFree(2)
+		h.publishes(1, 1)
+		h.sweepsOrphans()
 		data := entity.ConcertDiscoveredData{ArtistID: "artist-1", Series: []*entity.DiscoveredSeries{
 			{Title: "Tour", Type: entity.SeriesTypeTour, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}}},
 			{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 1, 0), StartTime: start.AddDate(0, 1, 0)}}},
 		}}
 
-		_, err := uc.RunCreateFromDiscovered(ctx, &inlineFlow{}, data)
+		_, err := h.uc.RunCreateFromDiscovered(ctx, &inlineFlow{}, data)
 
 		require.NoError(t, err)
-		assert.Len(t, concert.calls, 2, "one Concert.Create per series")
+		assert.Len(t, h.createCalls, 2, "one Concert.Create per series")
 	})
 }
 
@@ -1142,21 +917,25 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 	day := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	evening := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC) // 18:00 JST
 
+	// build expects the candidate to resolve to the stored venue-fill, whose
+	// only Event on the day has no start, and to be deleted afterwards. No
+	// Concert.Create is expected: no Event is added.
 	build := func(t *testing.T) (*approvalTestDeps, *entity.ConcertCandidate) {
 		t.Helper()
 		d := newApprovalTestDeps(t, artist)
 		placeID, listed := "place-fill", "Fill Hall"
-		d.venueRepo.venues[listed] = &entity.Venue{ID: "venue-fill", Name: listed, GooglePlaceID: &placeID, ListedVenueName: &listed}
-		d.concertRepo.existing = map[string][]*entity.Event{
-			"venue-fill|2026-06-01": {{ID: "event-unknown-start", VenueID: "venue-fill", LocalDate: day}},
-		}
 		resolved := listed
 		sc := &entity.ConcertCandidate{
 			ID: "candidate-fill", ArtistID: artist.ID, SeriesID: "series-staged", Title: "Show",
 			LocalDate: day, StartTime: &evening, ListedVenueName: listed,
 			ResolvedPlaceID: &placeID, ResolvedVenueName: &resolved,
 		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		d.pending(sc)
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, placeID).
+			Return(&entity.Venue{ID: "venue-fill", Name: listed, GooglePlaceID: &placeID, ListedVenueName: &listed}, nil).Once()
+		d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-fill"}, []time.Time{day}).
+			Return([]*entity.Event{{ID: "event-unknown-start", VenueID: "venue-fill", LocalDate: day}}, nil).Once()
+		d.deletes(sc.ID)
 		return d, sc
 	}
 
@@ -1164,27 +943,35 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 	t.Run("fills the Event's start time, adds nothing and removes the candidate", func(t *testing.T) {
 		t.Parallel()
 		d, sc := build(t)
+		var filledIDs []string
+		var filledStarts []*time.Time
+		d.concertRepo.EXPECT().FillEventStartTimes(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, ids []string, starts, _ []*time.Time) error {
+				filledIDs = append(filledIDs, ids...)
+				filledStarts = append(filledStarts, starts...)
+				return nil
+			}).Once()
+		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).Return(0, nil).Once()
 
 		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
 
 		require.NoError(t, err)
-		assert.Equal(t, []string{"event-unknown-start"}, d.concertRepo.filledIDs)
-		require.Len(t, d.concertRepo.filledStarts, 1)
-		assert.True(t, d.concertRepo.filledStarts[0].Equal(evening))
-		assert.Empty(t, d.concertRepo.created, "no Event is added")
-		assert.Empty(t, d.candidateRepo.upserted, "the candidate is removed")
+		assert.Equal(t, []string{"event-unknown-start"}, filledIDs)
+		require.Len(t, filledStarts, 1)
+		assert.True(t, filledStarts[0].Equal(evening))
 	})
 
 	// @spec components/usecase/concert-candidate/approve "Last staged row of an empty series"
 	t.Run("asks to remove the candidate's Series once nothing was added", func(t *testing.T) {
 		t.Parallel()
 		d, sc := build(t)
+		d.concertRepo.EXPECT().FillEventStartTimes(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		// Series.DeleteOrphaned removes it when it has no Event and no
+		// ConcertCandidate left.
+		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{"series-staged"}).Return(0, nil).Once()
 
 		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
 
 		require.NoError(t, err)
-		assert.Equal(t, 1, d.seriesRepo.deleteOrphanedCalls)
-		assert.Equal(t, []string{"series-staged"}, d.seriesRepo.deleteOrphanedIDs,
-			"Series.DeleteOrphaned removes it when it has no Event and no ConcertCandidate left")
 	})
 }

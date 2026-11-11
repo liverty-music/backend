@@ -59,7 +59,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		Checkouts:      d.checkoutRepo,
 		Orders:         d.orderRepo,
 		Now:            func() time.Time { return userTestNow },
-	}, &recordingWorkflows{}, d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+	}, ucmocks.NewMockWorkflows(t), d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -70,7 +70,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, &recordingWorkflows{}, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, ucmocks.NewMockWorkflows(t), nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -1022,7 +1022,8 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	// @spec components/usecase/user/resend-email-verification "Two requests"
 	t.Run("each request starts its own resend", func(t *testing.T) {
 		t.Parallel()
-		w := &recordingWorkflows{}
+		w := ucmocks.NewMockWorkflows(t)
+		starts := captureStarts(w)
 		repo := mocks.NewMockUserRepository(t)
 		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
@@ -1031,9 +1032,12 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		require.NoError(t, uc.ResendEmailVerification(ctx, testResolveExtID))
 		require.NoError(t, uc.ResendEmailVerification(ctx, testResolveExtID))
 
-		assert.Equal(t, 2, w.runs(), "two resends run for the caller's User")
-		for _, input := range w.started {
-			assert.Equal(t, usecase.UserRequest{UserID: testResolveUserID}, input)
+		started := starts()
+		require.Len(t, started, 2)
+		assert.NotEqual(t, started[0].id, started[1].id, "two resends run for the caller's User")
+		for _, start := range started {
+			assert.Equal(t, usecase.WorkflowReissueEmailVerification, start.workflow)
+			assert.Equal(t, usecase.UserRequest{UserID: testResolveUserID}, start.input)
 		}
 	})
 
@@ -1830,13 +1834,18 @@ func TestUserUseCase_RunSendVerification(t *testing.T) {
 
 	t.Run("the same announcement starts one email", func(t *testing.T) {
 		t.Parallel()
-		w := &recordingWorkflows{}
+		w := ucmocks.NewMockWorkflows(t)
+		starts := captureStarts(w)
 		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
 
-		assert.Equal(t, 1, w.runs())
+		// Both starts carry one id, so the workflow runtime runs one workflow.
+		started := starts()
+		require.Len(t, started, 2)
+		assert.Equal(t, started[0].id, started[1].id)
+		assert.Equal(t, usecase.WorkflowSendVerification, started[0].workflow)
 	})
 }
 

@@ -9,127 +9,36 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// --- self-contained test doubles for ⑤ issuance ports ---
-//
-// Function-field stubs shared by the issuance, settlement, refund and webhook
-// tests of this package.
-
-type stubIssuanceRepo struct {
-	issueFn func(ctx context.Context, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement) error
+// eventOrganizer returns an EventOrganizerRepository that resolves every
+// event to organizerID.
+func eventOrganizer(t *testing.T, organizerID string) *ucmocks.MockEventOrganizerRepository {
+	t.Helper()
+	owners := ucmocks.NewMockEventOrganizerRepository(t)
+	owners.EXPECT().GetOrganizerID(mock.Anything, mock.Anything).Return(organizerID, nil).Maybe()
+	return owners
 }
 
-func (s *stubIssuanceRepo) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement) error {
-	if s.issueFn != nil {
-		return s.issueFn(ctx, order, tickets, settlement)
-	}
-	return nil
+// capturedCards returns a CardAuthorizationRepository whose every card
+// authorization reads back Captured with payment. No capture is expected;
+// a test that charges the card adds the Capture expectation.
+func capturedCards(t *testing.T, payment *entity.CapturedPayment) *entitymocks.MockCardAuthorizationRepository {
+	t.Helper()
+	cards := entitymocks.NewMockCardAuthorizationRepository(t)
+	cards.EXPECT().Get(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, id string) (*entity.CardAuthorization, error) {
+			return capturedCardAuthorization(id, payment), nil
+		}).Maybe()
+	return cards
 }
 
-// stubEventOrganizerRepo is a self-contained test double for
-// usecase.EventOrganizerRepository (same rationale as the other stubs above).
-type stubEventOrganizerRepo struct {
-	getOrganizerIDFn func(ctx context.Context, eventID string) (string, error)
-}
-
-func (s *stubEventOrganizerRepo) GetOrganizerID(ctx context.Context, eventID string) (string, error) {
-	if s.getOrganizerIDFn != nil {
-		return s.getOrganizerIDFn(ctx, eventID)
-	}
-	return "org-1", nil
-}
-
-type stubOrderRepo struct {
-	entity.OrderRepository
-	getFn                    func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
-	getByLotteryEntryIDFn    func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
-	getByProviderPaymentIDFn func(ctx context.Context, providerPaymentID string) (*entity.Order, error)
-	updateStatusFn           func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
-	getEventIDFn             func(ctx context.Context, id entity.OrderID) (string, error)
-}
-
-func (s *stubOrderRepo) GetEventID(ctx context.Context, id entity.OrderID) (string, error) {
-	if s.getEventIDFn != nil {
-		return s.getEventIDFn(ctx, id)
-	}
-	return "event-1", nil
-}
-
-func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubOrderRepo) GetByLotteryEntryID(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
-	if s.getByLotteryEntryIDFn != nil {
-		return s.getByLotteryEntryIDFn(ctx, lotteryEntryID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubOrderRepo) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
-	if s.getByProviderPaymentIDFn != nil {
-		return s.getByProviderPaymentIDFn(ctx, providerPaymentID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubOrderRepo) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
-	if s.updateStatusFn != nil {
-		return s.updateStatusFn(ctx, id, status)
-	}
-	return nil
-}
-
-func (s *stubOrderRepo) ListByUser(_ context.Context, _ entity.UserID) ([]*entity.Order, error) {
-	return nil, nil
-}
-
-func (s *stubOrderRepo) GetByCheckoutID(_ context.Context, _ entity.CheckoutID) (*entity.Order, error) {
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubOrderRepo) MarkConfirmationSent(_ context.Context, _ entity.OrderID, _ time.Time) error {
-	return nil
-}
-
-// stubCardAuthorizations is a CardAuthorizationRepository whose Get reports
-// getFn's card authorization, by default a Captured 10000 yen Visa payment,
-// and whose Capture reports captureFn's outcome, by default a success. It
-// counts the captures.
-type stubCardAuthorizations struct {
-	entity.CardAuthorizationRepository
-	getFn     func(ctx context.Context, id string) (*entity.CardAuthorization, error)
-	captureFn func(ctx context.Context, id string) error
-	captures  int
-}
-
-func (s *stubCardAuthorizations) Capture(ctx context.Context, id string) error {
-	s.captures++
-	if s.captureFn != nil {
-		return s.captureFn(ctx, id)
-	}
-	return nil
-}
-
-func (s *stubCardAuthorizations) Get(ctx context.Context, id string) (*entity.CardAuthorization, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
-	}
-	return capturedCardAuthorization(id, &entity.CapturedPayment{
-		Provider:  entity.PaymentProviderStripe,
-		AmountJPY: 10000,
-		Currency:  "JPY",
-		CardBrand: "visa",
-		CardLast4: "4242",
-	}), nil
+// visa10000 is a captured 10000 yen Visa payment.
+func visa10000() *entity.CapturedPayment {
+	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, AmountJPY: 10000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}
 }
 
 // capturedCardAuthorization is the Captured card authorization id that took
@@ -149,8 +58,9 @@ func capturedCardAuthorization(id string, payment *entity.CapturedPayment) *enti
 // A nil field gets a default: the entry repository returns [wonEntry], the
 // sale repository a Lottery sale without a verification requirement, the
 // order repository the entry's Pending Order, the stock repository stock-1
-// of event-1, the card authorization a captured 10000 yen Visa payment and
-// the Organizer resolves to "org-1".
+// of event-1, the issuance repository stores nothing and expects no call,
+// the card authorization reads back a captured 10000 yen Visa payment and
+// expects no capture, and the Organizer resolves to "org-1".
 type lotteryIssuanceDeps struct {
 	stockRepo                entity.TicketStockRepository
 	issuanceRepo             entity.IssuanceRepository
@@ -174,10 +84,13 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 	organizers.EXPECT().Get(mock.Anything, mock.Anything).
 		Return(&entity.Organizer{ID: "organizer-1", PlatformFeeRateBps: 500}, nil).Maybe()
 	if d.issuanceRepo == nil {
-		d.issuanceRepo = &stubIssuanceRepo{}
+		d.issuanceRepo = entitymocks.NewMockIssuanceRepository(t)
 	}
 	if d.orderRepo == nil {
-		d.orderRepo = &stubOrderRepo{getFn: func(context.Context, entity.OrderID) (*entity.Order, error) { return wonEntry().Order, nil }}
+		orders := entitymocks.NewMockOrderRepository(t)
+		orders.EXPECT().Get(mock.Anything, wonEntry().OrderID).
+			RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) { return wonEntry().Order, nil }).Maybe()
+		d.orderRepo = orders
 	}
 	if d.stockRepo == nil {
 		stocks := entitymocks.NewMockTicketStockRepository(t)
@@ -197,10 +110,10 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 		d.identityVerificationRepo = entitymocks.NewMockIdentityVerificationRepository(t)
 	}
 	if d.eventOrganizerRepo == nil {
-		d.eventOrganizerRepo = &stubEventOrganizerRepo{}
+		d.eventOrganizerRepo = eventOrganizer(t, "org-1")
 	}
 	if d.cardAuthorizations == nil {
-		d.cardAuthorizations = &stubCardAuthorizations{}
+		d.cardAuthorizations = capturedCards(t, visa10000())
 	}
 	if d.published == nil {
 		d.published = func() bool { return true }
@@ -228,20 +141,6 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 // result.
 func issueEntry(uc usecase.OrderUseCase) (usecase.IssueResult, error) {
 	return uc.Issue(context.Background(), &inlineFlow{}, usecase.IssueRequest{LotteryEntryID: "entry-1"})
-}
-
-// storedOrPending returns an OrderRepository whose Get returns the Order Issue
-// stored, and entry-1's Pending Order before that.
-func storedOrPending(stored **entity.Order) *stubOrderRepo {
-	return &stubOrderRepo{getFn: func(_ context.Context, id entity.OrderID) (*entity.Order, error) {
-		if *stored != nil && (*stored).ID == id {
-			return *stored, nil
-		}
-		if pending := wonEntry().Order; pending.ID == id {
-			return pending, nil
-		}
-		return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-	}}
 }
 
 // lotterySaleRepo returns a sale repository whose drawn Lottery sale
@@ -273,52 +172,59 @@ func wonEntry() *entity.LotteryEntry {
 	}
 }
 
-// recordingIssuanceRepo returns an IssuanceRepository stub that records what
-// Issue stores, and a pointer to whether Issue was called.
-func recordingIssuanceRepo(order **entity.Order, tickets *[]*entity.Ticket, settlement **entity.Settlement) (*stubIssuanceRepo, *bool) {
-	called := false
-	return &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, ts []*entity.Ticket, s *entity.Settlement) error {
-		called = true
-		if order != nil {
-			*order = o
-		}
-		if tickets != nil {
-			*tickets = ts
-		}
-		if settlement != nil {
-			*settlement = s
-		}
-		return nil
-	}}, &called
+// issuanceRecorder returns an IssuanceRepository that expects one Issue and
+// records what it stores into the non-nil pointers.
+func issuanceRecorder(t *testing.T, order **entity.Order, tickets *[]*entity.Ticket, settlement **entity.Settlement) *entitymocks.MockIssuanceRepository {
+	t.Helper()
+	issuances := entitymocks.NewMockIssuanceRepository(t)
+	issuances.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, o *entity.Order, ts []*entity.Ticket, s *entity.Settlement) error {
+			if order != nil {
+				*order = o
+			}
+			if tickets != nil {
+				*tickets = ts
+			}
+			if settlement != nil {
+				*settlement = s
+			}
+			return nil
+		}).Once()
+	return issuances
+}
+
+// assertNothingIssued asserts that Order.Issue was not called.
+func assertNothingIssued(t *testing.T, issuances *entitymocks.MockIssuanceRepository) {
+	t.Helper()
+	issuances.AssertNotCalled(t, "Issue", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// assertNotCharged asserts that the card was not charged.
+func assertNotCharged(t *testing.T, cards *entitymocks.MockCardAuthorizationRepository) {
+	t.Helper()
+	cards.AssertNotCalled(t, "Capture", mock.Anything, mock.Anything)
 }
 
 // TestOrderUseCase_ThroughSettlementRelease follows an Order end to end:
 // issuance creates the Held Settlement (backend#468), and the payout sweeper
-// — reusing the settlement_uc_test.go stubs, since both live in package
-// usecase_test — later releases it once the event has started and the
-// dispute buffer has passed. This is the regression test for the bug: before
-// this change, SettlementUseCase.ListHeld was always empty because nothing
-// ever created a Settlement.
+// later releases it once the event has started and the dispute buffer has
+// passed. This is the regression test for the bug: before this change,
+// SettlementUseCase.ListHeld was always empty because nothing ever created a
+// Settlement.
 func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
-	// In-memory stand-in for the atomic DB transaction that
-	// IssuanceRepository.Issue performs: what Issue "wrote" is what the
-	// settlement/order repos below "read back".
+	// What Issue stores in its atomic DB transaction is what the sweeper's
+	// settlement and order reads below return.
 	var storedOrder *entity.Order
 	var storedSettlement *entity.Settlement
+	issuanceRepo := issuanceRecorder(t, &storedOrder, nil, &storedSettlement)
+	cards := capturedCards(t, visa10000())
+	cards.EXPECT().Capture(mock.Anything, "pi_won_1").Return(nil).Once()
 
-	issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, _ []*entity.Ticket, s *entity.Settlement) error {
-		storedOrder, storedSettlement = o, s
-		return nil
-	}}
-	orderRepo := storedOrPending(&storedOrder)
-	organizerRepo := &stubEventOrganizerRepo{getOrganizerIDFn: func(_ context.Context, _ string) (string, error) {
-		return "organizer-1", nil
-	}}
-
-	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, eventOrganizerRepo: organizerRepo, clock: fixedClock(now)})
+	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, eventOrganizerRepo: eventOrganizer(t, "organizer-1"),
+		cardAuthorizations: cards, clock: fixedClock(now)})
 
 	_, err := issueEntry(issuanceUC)
 	require.NoError(t, err)
@@ -330,32 +236,20 @@ func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 	// -- 8 days later, the event has started and the 7-day dispute buffer has
 	//    passed, and the Organizer's payout account is Active: the sweeper
 	//    releases the settlement issuance created above. --
-	var released *entity.Settlement
+	sweeper := newSettlementFixture(t, 7*24*time.Hour, fixedClock(now))
+	sweeper.held(storedSettlement, storedOrder)
+	sweeper.startsAt(storedSettlement.EventID, new(now.Add(-8*24*time.Hour)))
+	sweeper.account(&entity.PayoutAccount{OrganizerID: "organizer-1", Status: entity.PayoutOnboardingStatusActive}, entity.PayoutOnboardingStatusActive)
+	sweeper.paysOut(storedOrder.Payment.ProviderPaymentID, "ch_test", "tr_test")
 	var releasedSplits []entity.SettlementSplit
-	settlementRepo := &stubSettlementRepo{
-		listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-			return []*entity.Settlement{storedSettlement}, nil
-		},
-		markReleasedFn: func(_ context.Context, id entity.SettlementID, _ string, _ time.Time, splits []entity.SettlementSplit) error {
-			require.Equal(t, storedSettlement.ID, id)
-			released = storedSettlement
+	sweeper.settlements.EXPECT().MarkReleased(mock.Anything, storedSettlement.ID, "ch_test", now, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, splits []entity.SettlementSplit) error {
 			releasedSplits = splits
 			return nil
-		},
-	}
-	eventStarted := now.Add(-8 * 24 * time.Hour)
-	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
-		return &eventStarted, nil
-	}}
-	payoutAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
-		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
-	}}
+		}).Once()
 
-	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, &stubPaymentProvider{}), withOrderPayments(orderRepo, &stubPaymentProvider{}), withPayoutAccountProvider(payoutAccountRepo, &stubPaymentProvider{}), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
-
-	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
-	require.NotNil(t, released, "the settlement issuance created must be released once due")
-	require.Len(t, releasedSplits, 1)
+	require.NoError(t, sweeper.uc.ReleaseDueSettlements(context.Background()))
+	require.Len(t, releasedSplits, 1, "the settlement issuance created must be released once due")
 	assert.Equal(t, "organizer-1", releasedSplits[0].PayeeOrganizerID)
 	assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount, 500), releasedSplits[0].Amount)
 }
@@ -374,17 +268,12 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	var storedOrder *entity.Order
 	var storedTickets []*entity.Ticket
 	var storedSettlement *entity.Settlement
+	issuanceRepo := issuanceRecorder(t, &storedOrder, &storedTickets, &storedSettlement)
+	cards := capturedCards(t, visa10000())
+	cards.EXPECT().Capture(mock.Anything, "pi_won_1").Return(nil).Once()
 
-	issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, ts []*entity.Ticket, s *entity.Settlement) error {
-		storedOrder, storedTickets, storedSettlement = o, ts, s
-		return nil
-	}}
-	orderRepo := storedOrPending(&storedOrder)
-	organizerRepo := &stubEventOrganizerRepo{getOrganizerIDFn: func(_ context.Context, _ string) (string, error) {
-		return "organizer-pending", nil
-	}}
-
-	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, eventOrganizerRepo: organizerRepo, clock: fixedClock(now)})
+	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, eventOrganizerRepo: eventOrganizer(t, "organizer-pending"),
+		cardAuthorizations: cards, clock: fixedClock(now)})
 
 	// -- the fan is charged and holds Issued Tickets regardless of the
 	//    Organizer's payout readiness. --
@@ -401,38 +290,14 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	// -- the event started 8 days ago (past the dispute buffer), but the
 	//    Organizer's payout account is still Pending (identity check in
 	//    progress): the sweeper withholds the payout instead of failing. --
-	transferCalled := false
-	markReleasedCalled := false
-	settlementRepo := &stubSettlementRepo{
-		listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-			return []*entity.Settlement{storedSettlement}, nil
-		},
-		markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
-			markReleasedCalled = true
-			return nil
-		},
-	}
-	eventStarted := now.Add(-8 * 24 * time.Hour)
-	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
-		return &eventStarted, nil
-	}}
-	payoutAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
-		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
-	}}
-	payments := &stubPaymentProvider{
-		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-			return entity.PayoutOnboardingStatusPending, nil
-		},
-		createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-			transferCalled = true
-			return "tr_should_not_happen", nil
-		},
-	}
+	sweeper := newSettlementFixture(t, 7*24*time.Hour, fixedClock(now))
+	sweeper.held(storedSettlement, storedOrder)
+	sweeper.startsAt(storedSettlement.EventID, new(now.Add(-8*24*time.Hour)))
+	sweeper.account(&entity.PayoutAccount{OrganizerID: "organizer-pending", Status: entity.PayoutOnboardingStatusPending}, entity.PayoutOnboardingStatusPending)
 
-	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, payments), withOrderPayments(orderRepo, payments), withPayoutAccountProvider(payoutAccountRepo, payments), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
-
-	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
-	assert.False(t, transferCalled, "the Organizer's payout must stay Held while the account is Pending")
-	assert.False(t, markReleasedCalled, "the settlement must not be marked Released while the account is Pending")
+	require.NoError(t, sweeper.uc.ReleaseDueSettlements(context.Background()))
+	// The Organizer's payout must stay Held while the account is Pending: no
+	// transfer, and the settlement is not marked Released.
+	sweeper.assertNotPaidOut(t)
 	assert.Equal(t, entity.SettlementStatusHeld, storedSettlement.Status, "the settlement itself is untouched")
 }

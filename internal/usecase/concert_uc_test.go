@@ -37,9 +37,13 @@ type concertTestDeps struct {
 	rejectedConcertRepo  *mocks.MockRejectedConcertRepository
 	searcher             *mocks.MockConcertSearcher
 	centroidResolver     usecase.CentroidResolver
-	workflows            *recordingWorkflows
-	analytics            *recordingAnalytics
-	uc                   usecase.ConcertUseCase
+	workflows            *ucmocks.MockWorkflows
+	analytics            *ucmocks.MockAnalyticsClient
+	// starts lists the workflows uc started.
+	starts func() []workflowStart
+	// signals holds the analytics events uc captured.
+	signals *capturedAnalytics
+	uc      usecase.ConcertUseCase
 }
 
 // noopCentroidResolver is a test stub that always returns "not found".
@@ -64,9 +68,11 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		rejectedConcertRepo:  mocks.NewMockRejectedConcertRepository(t),
 		searcher:             mocks.NewMockConcertSearcher(t),
 		centroidResolver:     noopCentroidResolver{},
-		workflows:            &recordingWorkflows{},
-		analytics:            &recordingAnalytics{},
+		workflows:            ucmocks.NewMockWorkflows(t),
+		analytics:            ucmocks.NewMockAnalyticsClient(t),
 	}
+	d.starts = captureStarts(d.workflows)
+	d.signals = captureAnalytics(d.analytics, nil)
 	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, time.Now, logger)
 	d.uc = uc
 	return d
@@ -658,7 +664,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "stale cache should trigger re-search and publish")
 		})
 	})
@@ -716,7 +722,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "stale pending should trigger re-search and publish")
 		})
 	})
@@ -792,7 +798,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "null last_found_at must not skip; search should publish")
 		})
 	})
@@ -827,7 +833,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			assert.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "discovery beyond the window must not skip")
 		})
 	})
@@ -842,13 +848,11 @@ var testSearchTime = time.Date(2026, 5, 1, 9, 30, 0, 0, time.UTC)
 
 // startedConcerts returns the number of events handed to the
 // create-from-discovered workflows w started.
-func startedConcerts(t *testing.T, w *recordingWorkflows) int {
+func startedConcerts(t *testing.T, starts func() []workflowStart) int {
 	t.Helper()
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	n := 0
-	for _, input := range w.started {
-		data, ok := input.(entity.ConcertDiscoveredData)
+	for _, start := range starts() {
+		data, ok := start.input.(entity.ConcertDiscoveredData)
 		require.True(t, ok, "only create-from-discovered is started")
 		n += data.EventCount()
 	}
@@ -1042,7 +1046,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 				assert.NoError(t, err)
 
-				got := startedConcerts(t, d.workflows)
+				got := startedConcerts(t, d.starts)
 				assert.Equal(t, tt.wantNewConcerts, got,
 					"expected %d new concerts after dedup, got %d", tt.wantNewConcerts, got)
 			})
@@ -1212,7 +1216,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			require.NoError(t, err)
 
 			// Only the genuinely new concert should be published.
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "pending concert candidate must be excluded; only the new show should be published")
 		})
 	})
@@ -1259,7 +1263,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "drifted-name re-discovery must dedup against the pending concert candidate; only the new show publishes")
 		})
 	})
@@ -1297,7 +1301,7 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			_, err = d.uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)
 			require.NoError(t, err)
 
-			got := startedConcerts(t, d.workflows)
+			got := startedConcerts(t, d.starts)
 			assert.Equal(t, 1, got, "previously rejected concert is not suppressed — it should be re-discovered")
 		})
 	})
@@ -1343,10 +1347,10 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 			"outcome":      "nothing_new",
 			"series_count": 0,
 			"event_count":  0,
-		}}, d.analytics.sent(usecase.EventConcertSearchCompleted))
+		}}, d.signals.sent(usecase.EventConcertSearchCompleted))
 		// A signal the use case sends directly is personless, with a new
 		// event id and the time the search ended.
-		sent := d.analytics.captured(usecase.EventConcertSearchCompleted)
+		sent := d.signals.captured(usecase.EventConcertSearchCompleted)
 		require.Len(t, sent, 1)
 		assert.True(t, sent[0].Personless)
 		assert.NotEmpty(t, sent[0].UUID)
@@ -1365,7 +1369,7 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		require.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
 
-		sent := d.analytics.sent(usecase.EventConcertSearchCompleted)
+		sent := d.signals.sent(usecase.EventConcertSearchCompleted)
 		require.Len(t, sent, 1)
 		assert.Equal(t, "failed", sent[0]["outcome"])
 		assert.Equal(t, "deadline_exceeded", sent[0]["error_code"])
@@ -1386,7 +1390,7 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		require.Error(t, err)
 
-		sent := d.analytics.sent(usecase.EventConcertSearchCompleted)
+		sent := d.signals.sent(usecase.EventConcertSearchCompleted)
 		require.Len(t, sent, 1)
 		assert.Equal(t, "failed", sent[0]["outcome"])
 		assert.Equal(t, "unknown", sent[0]["error_code"])
@@ -1415,7 +1419,7 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 			"outcome":      "found",
 			"series_count": 1,
 			"event_count":  2,
-		}}, d.analytics.sent(usecase.EventConcertSearchCompleted))
+		}}, d.signals.sent(usecase.EventConcertSearchCompleted))
 	})
 
 	t.Run("a run that returns before the search sends nothing", func(t *testing.T) {
@@ -1428,7 +1432,7 @@ func TestConcertUseCase_SearchNewConcerts_ReportsOutcome(t *testing.T) {
 
 		_, err := d.uc.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 		require.NoError(t, err)
-		assert.Empty(t, d.analytics.sent(usecase.EventConcertSearchCompleted))
+		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
 	})
 }
 
@@ -1473,8 +1477,11 @@ func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, got, 3)
-		require.Equal(t, []string{usecase.ExportedDiscoveryWorkflowID(artistID, testSearchTime)}, d.workflows.starts)
-		data := d.workflows.started[d.workflows.starts[0]].(entity.ConcertDiscoveredData)
+		started := d.starts()
+		require.Len(t, started, 1)
+		assert.Equal(t, usecase.WorkflowCreateFromDiscovered, started[0].workflow)
+		require.Equal(t, usecase.ExportedDiscoveryWorkflowID(artistID, testSearchTime), started[0].id)
+		data := started[0].input.(entity.ConcertDiscoveredData)
 		assert.Equal(t, artistID, data.ArtistID)
 		assert.Len(t, data.Series, 2)
 	})
@@ -1531,7 +1538,7 @@ func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
-		assert.Empty(t, d.workflows.starts, "nothing is handed on")
+		assert.Empty(t, d.starts(), "nothing is handed on")
 	})
 
 	// @spec components/usecase/concert/search-new-concerts "Cannot be started"
@@ -1579,7 +1586,7 @@ func TestSearchNewConcerts_EndedArtist(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Nil(t, got)
-		assert.Empty(t, d.analytics.sent(usecase.EventConcertSearchCompleted))
+		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
 	})
 
 	// @spec components/usecase/concert/search-new-concerts "Ended artist in the daily run"

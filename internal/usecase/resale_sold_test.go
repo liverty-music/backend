@@ -46,7 +46,7 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 		entitymocks.NewMockPushNotificationSender(t), ucmocks.NewMockWorkflows(t), noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:    time.Now,
-			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert},
+			Orders: f.orders, Users: f.users, Concerts: concertReader(t, concert),
 			ResaleListings: f.listings, ResaleMailer: f.mailer, TimeZone: tsJST,
 		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	soldAt := time.Date(2026, 11, 13, 18, 20, 0, 0, tsJST)

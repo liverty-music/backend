@@ -71,7 +71,7 @@ func newResaleIssueFixtureOf(t *testing.T, now time.Time, count int) *resaleIssu
 		EventRepo:          f.events,
 		TicketSaleRepo:     f.sales,
 		OrganizerRepo:      f.organizers,
-		EventOrganizerRepo: &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "organizer-1", nil }},
+		EventOrganizerRepo: eventOrganizer(t, "organizer-1"),
 		CardAuthorizations: f.cardAuthorizations,
 		EventState:         f.eventState,
 		Clock:              fixedClock(now),
