@@ -1122,7 +1122,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
 
 	// epoch is an explicit far-past lower bound so these follower/coordinate
-	// assertions stay independent of CURRENT_DATE (the default when from is nil).
+	// assertions stay independent of the current date (the default when from is nil).
 	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	t.Run("returns concerts for followed artists", func(t *testing.T) {
@@ -1271,7 +1271,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			require.NoError(t, cErr)
 		}
 
-		// Seed one past and one future concert relative to CURRENT_DATE.
+		// Seed one past and one future concert relative to the current date.
 		today := time.Now().UTC().Truncate(24 * time.Hour)
 		pastDate := today.AddDate(0, 0, -10)
 		futureDate := today.AddDate(0, 0, 10)
