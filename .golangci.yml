@@ -6,9 +6,63 @@ run:
 
 linters:
   enable:
+    - depguard
     - forbidigo
     - revive
   settings:
+    # Every import points inward (OpenSpec change
+    # restructure-backend-responsibilities): entity <- usecase <- adapter /
+    # infrastructure, wired by internal/di and cmd/, which may import
+    # everything. pkg/ is shared plumbing and imports nothing from internal/.
+    # Test files are exempt: the boundary and story tests wire several layers
+    # together on purpose (an RPC handler behind the real interceptors, a
+    # repository with the real announcement encoder).
+    depguard:
+      rules:
+        entity:
+          list-mode: lax
+          files: ["**/internal/entity/**", "!$test"]
+          deny:
+            - pkg: github.com/liverty-music/backend/internal/usecase
+              desc: internal/entity imports nothing outward
+            - pkg: github.com/liverty-music/backend/internal/adapter
+              desc: internal/entity imports nothing outward
+            - pkg: github.com/liverty-music/backend/internal/infrastructure
+              desc: internal/entity imports nothing outward
+            - pkg: github.com/liverty-music/backend/internal/di
+              desc: internal/entity imports nothing outward
+        usecase:
+          list-mode: lax
+          files: ["**/internal/usecase/**", "!$test"]
+          deny:
+            - pkg: github.com/liverty-music/backend/internal/adapter
+              desc: a usecase reaches the outside through ports declared in entity or usecase
+            - pkg: github.com/liverty-music/backend/internal/infrastructure
+              desc: a usecase reaches the outside through ports declared in entity or usecase
+            - pkg: github.com/liverty-music/backend/internal/di
+              desc: only cmd/ imports internal/di
+        adapter:
+          list-mode: lax
+          files: ["**/internal/adapter/**", "!$test"]
+          deny:
+            - pkg: github.com/liverty-music/backend/internal/infrastructure
+              desc: declare an interface in the adapter or move the shared contract to pkg/ or entity
+            - pkg: github.com/liverty-music/backend/internal/di
+              desc: only cmd/ imports internal/di
+        infrastructure:
+          list-mode: lax
+          files: ["**/internal/infrastructure/**", "!$test"]
+          deny:
+            - pkg: github.com/liverty-music/backend/internal/adapter
+              desc: declare an interface in infrastructure and wire the adapter in internal/di
+            - pkg: github.com/liverty-music/backend/internal/di
+              desc: only cmd/ imports internal/di
+        pkg:
+          list-mode: lax
+          files: ["**/pkg/**", "!$test"]
+          deny:
+            - pkg: github.com/liverty-music/backend/internal
+              desc: pkg/ imports nothing from internal/
     revive:
       rules:
         - name: exported
