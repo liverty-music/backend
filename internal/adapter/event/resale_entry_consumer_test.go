@@ -119,3 +119,115 @@ func TestResaleEntryConsumer_HandleSendResaleEntryEnded(t *testing.T) {
 		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
 	})
 }
+
+func TestResaleEntryConsumer_HandleSendResaleEntryEnded_Errors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a mail service that timed out is delivered again later", func(t *testing.T) {
+		t.Parallel()
+		notifications := ucmocks.NewMockNotificationUseCase(t)
+		notifications.EXPECT().SendResaleEntryEnded(anyCtx, entity.ResaleEntryID("entry-1")).Return(apperr.New(codes.DeadlineExceeded, "postmark timed out")).Once()
+		consumer := event.NewResaleEntryConsumer(ucmocks.NewMockOrderUseCase(t), notifications, newTestLogger(t))
+
+		err := consumer.HandleSendResaleEntryEnded(makeResaleEntryMsg(t, "announcement-1", entity.SubjectResaleEntryLapsed, 0))
+
+		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+	})
+
+	t.Run("any other error is returned as it is", func(t *testing.T) {
+		t.Parallel()
+		notifications := ucmocks.NewMockNotificationUseCase(t)
+		notifications.EXPECT().SendResaleEntryEnded(anyCtx, entity.ResaleEntryID("entry-1")).Return(apperr.New(codes.NotFound, "no such entry")).Once()
+		consumer := event.NewResaleEntryConsumer(ucmocks.NewMockOrderUseCase(t), notifications, newTestLogger(t))
+
+		err := consumer.HandleSendResaleEntryEnded(makeResaleEntryMsg(t, "announcement-1", entity.SubjectResaleEntryLost, 0))
+
+		require.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.False(t, messaging.IsRedeliverLater(err), "only an unavailable or timed out mail service is waited for")
+	})
+}
+
+// TestResaleEntryConsumer_RefusedPayloads checks that neither handler calls
+// its usecase for an announcement it cannot read: the mocks expect no call.
+func TestResaleEntryConsumer_RefusedPayloads(t *testing.T) {
+	t.Parallel()
+
+	withSubject := func(msg *message.Message) *message.Message {
+		msg.Metadata.Set("ce_type", entity.SubjectResaleEntryLost)
+		return msg
+	}
+	tests := []struct {
+		name string
+		msg  func(t *testing.T) *message.Message
+	}{
+		{
+			name: "an entry without an id",
+			msg: func(t *testing.T) *message.Message {
+				return withSubject(makeAnnouncementMsg(t, "announcement-1", "", &entityv1.ResaleEntry{OrderId: &entityv1.OrderId{Value: "order-1"}}))
+			},
+		},
+		{
+			name: "an entry without an Order",
+			msg: func(t *testing.T) *message.Message {
+				return withSubject(makeAnnouncementMsg(t, "announcement-1", "", &entityv1.ResaleEntry{Id: &entityv1.ResaleEntryId{Value: "entry-1"}}))
+			},
+		},
+		{
+			name: "a payload that is not protobuf",
+			msg:  func(*testing.T) *message.Message { return withSubject(malformedMsg()) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			consumer := event.NewResaleEntryConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), newTestLogger(t))
+
+			assert.Error(t, consumer.HandleStartWorkflow(tt.msg(t)))
+			assert.Error(t, consumer.HandleSendResaleEntryEnded(tt.msg(t)))
+		})
+	}
+}
+
+func TestResaleListingSoldConsumer_HandleStartRefund(t *testing.T) {
+	t.Parallel()
+
+	soldMsg := func(t *testing.T, listing *entityv1.ResaleListing) *message.Message {
+		msg := makeAnnouncementMsg(t, "announcement-1", "", listing)
+		msg.Metadata.Set("ce_type", entity.SubjectResaleListingSold)
+		return msg
+	}
+
+	t.Run("a sold listing starts its refund", func(t *testing.T) {
+		t.Parallel()
+		listings := ucmocks.NewMockResaleListingUseCase(t)
+		listings.EXPECT().StartRefundSold(anyCtx, entity.ResaleListingID("listing-1")).Return(nil).Once()
+		consumer := event.NewResaleListingSoldConsumer(listings, newTestLogger(t))
+
+		require.NoError(t, consumer.HandleStartRefund(soldMsg(t, &entityv1.ResaleListing{Id: &entityv1.ResaleListingId{Value: "listing-1"}})))
+	})
+
+	t.Run("a failed start is returned for redelivery", func(t *testing.T) {
+		t.Parallel()
+		listings := ucmocks.NewMockResaleListingUseCase(t)
+		listings.EXPECT().StartRefundSold(anyCtx, entity.ResaleListingID("listing-1")).Return(apperr.New(codes.Unavailable, "db down")).Once()
+		consumer := event.NewResaleListingSoldConsumer(listings, newTestLogger(t))
+
+		err := consumer.HandleStartRefund(soldMsg(t, &entityv1.ResaleListing{Id: &entityv1.ResaleListingId{Value: "listing-1"}}))
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
+	t.Run("a listing without an id is refused", func(t *testing.T) {
+		t.Parallel()
+		consumer := event.NewResaleListingSoldConsumer(ucmocks.NewMockResaleListingUseCase(t), newTestLogger(t))
+
+		assert.Error(t, consumer.HandleStartRefund(soldMsg(t, &entityv1.ResaleListing{})))
+	})
+
+	t.Run("a payload that is not protobuf is refused", func(t *testing.T) {
+		t.Parallel()
+		consumer := event.NewResaleListingSoldConsumer(ucmocks.NewMockResaleListingUseCase(t), newTestLogger(t))
+
+		assert.Error(t, consumer.HandleStartRefund(malformedMsg()))
+	})
+}
