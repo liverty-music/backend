@@ -14,7 +14,9 @@ import (
 )
 
 func TestArtistRepository_Create(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// Pre-build reusable inputs so we can reference their generated IDs in want.
@@ -37,32 +39,32 @@ func TestArtistRepository_Create(t *testing.T) {
 	}{
 		{
 			name:  "single artist with MBID",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args:  args{artists: []*entity.Artist{beatles}},
 			want:  []*entity.Artist{beatles},
 		},
 		{
 			name:  "bulk insert multiple artists",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args:  args{artists: []*entity.Artist{bulkA, bulkB, bulkC}},
 			want:  []*entity.Artist{bulkA, bulkB, bulkC},
 		},
 		{
 			name:  "empty slice returns empty",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args:  args{artists: nil},
 			want:  []*entity.Artist{},
 		},
 		{
 			name:  "preserves pre-set ID",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args:  args{artists: []*entity.Artist{presetID}},
 			want:  []*entity.Artist{presetID},
 		},
 		{
 			name: "duplicate MBID returns original artist",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, entity.NewArtist("Original Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"))
 				require.NoError(t, err)
 			},
@@ -71,7 +73,7 @@ func TestArtistRepository_Create(t *testing.T) {
 		},
 		{
 			name:    "empty MBID returns error",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			args:    args{artists: []*entity.Artist{entity.NewArtist("Test", "")}},
 			wantErr: apperr.ErrInvalidArgument,
 		},
@@ -106,7 +108,9 @@ func TestArtistRepository_Create(t *testing.T) {
 }
 
 func TestArtistRepository_ListByMBIDs(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -119,7 +123,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		{
 			name: "returns matching artists in input order",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx,
 					entity.NewArtist("Artist A", "11111111-1111-1111-1111-11111111a001"),
 					entity.NewArtist("Artist B", "22222222-2222-2222-2222-22222222b002"),
@@ -136,7 +140,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		{
 			name: "unknown MBIDs are silently skipped",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, entity.NewArtist("Known", "44444444-4444-4444-4444-444444known1"))
 				require.NoError(t, err)
 			},
@@ -147,14 +151,14 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		},
 		{
 			name:  "empty input returns empty slice",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			mbids: nil,
 			want:  []*entity.Artist{},
 		},
 		{
 			name: "all MBIDs unknown returns empty slice",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 			},
 			mbids: []string{"66666666-6666-6666-6666-666nonexist1"},
 			want:  []*entity.Artist{},
@@ -186,11 +190,13 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateFanart(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("stores and retrieves fanart data", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		created, err := repo.Create(ctx, entity.NewArtist("Fanart Artist", "fa000000-0000-0000-0000-00000000dd01"))
 		require.NoError(t, err)
 		artistID := created[0].ID
@@ -221,7 +227,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("stores nil fanart with sync time", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		created, err := repo.Create(ctx, entity.NewArtist("No Fanart", "fa000000-0000-0000-0000-00000000dd02"))
 		require.NoError(t, err)
 		artistID := created[0].ID
@@ -238,14 +244,16 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("returns NotFound for unknown ID", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		err := repo.UpdateFanart(ctx, "00000000-0000-0000-0000-000000000000", nil, time.Now())
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
 
 func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 	const age = 7 * 24 * time.Hour
 	daysAgo := func(n int) time.Time { return time.Now().Add(-time.Duration(n) * 24 * time.Hour) }
@@ -257,11 +265,11 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Never-checked and stale artists"
 	t.Run("Never-checked and stale artists", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-fanart-stale@example.com", "ext-fan-fanart-stale")
-		staleID := seedArtist(t, "Stale", "50000000-0000-0000-0000-00000000aa01")
-		neverID := seedArtist(t, "Never", "50000000-0000-0000-0000-00000000aa02")
-		followArtist(t, userID, staleID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-fanart-stale@example.com", "ext-fan-fanart-stale")
+		staleID := seedArtist(t, db, "Stale", "50000000-0000-0000-0000-00000000aa01")
+		neverID := seedArtist(t, db, "Never", "50000000-0000-0000-0000-00000000aa02")
+		followArtist(t, db, userID, staleID)
 		require.NoError(t, repo.UpdateFanart(ctx, staleID, fanart, daysAgo(8)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
@@ -275,8 +283,8 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Never-checked artist nobody follows"
 	t.Run("Never-checked artist nobody follows", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Unfollowed Never", "50000000-0000-0000-0000-00000000bb01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Unfollowed Never", "50000000-0000-0000-0000-00000000bb01")
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
 
@@ -287,8 +295,8 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Stale artist nobody follows"
 	t.Run("Stale artist nobody follows", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Unfollowed Stale", "50000000-0000-0000-0000-00000000cc01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Unfollowed Stale", "50000000-0000-0000-0000-00000000cc01")
 		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(30)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
@@ -299,11 +307,11 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Artist followed by several fans"
 	t.Run("Artist followed by several fans", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Popular", "50000000-0000-0000-0000-00000000dd01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Popular", "50000000-0000-0000-0000-00000000dd01")
 		for i := range 3 {
-			userID := seedUser(t, fmt.Sprintf("Fan %d", i), fmt.Sprintf("fan-fanart-%d@example.com", i), fmt.Sprintf("ext-fan-fanart-%d", i))
-			followArtist(t, userID, artistID)
+			userID := seedUser(t, db, fmt.Sprintf("Fan %d", i), fmt.Sprintf("fan-fanart-%d@example.com", i), fmt.Sprintf("ext-fan-fanart-%d", i))
+			followArtist(t, db, userID, artistID)
 		}
 		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(8)))
 
@@ -315,10 +323,10 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Recently checked artist without images"
 	t.Run("Recently checked artist without images", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-fanart-recent@example.com", "ext-fan-fanart-recent")
-		artistID := seedArtist(t, "No Images", "50000000-0000-0000-0000-00000000ee01")
-		followArtist(t, userID, artistID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-fanart-recent@example.com", "ext-fan-fanart-recent")
+		artistID := seedArtist(t, db, "No Images", "50000000-0000-0000-0000-00000000ee01")
+		followArtist(t, db, userID, artistID)
 		require.NoError(t, repo.UpdateFanart(ctx, artistID, nil, daysAgo(2)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, age, 10)
@@ -329,7 +337,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "More due artists than the limit"
 	t.Run("More due artists than the limit", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		artists := make([]*entity.Artist, 600)
 		for i := range artists {
 			artists[i] = entity.NewArtist(fmt.Sprintf("Due %03d", i), fmt.Sprintf("50000000-0000-0000-0000-000000000%03d", i))
@@ -345,11 +353,11 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 
 	// @spec components/entity/artist/list-stale-or-missing-fanart "Nothing due"
 	t.Run("Nothing due", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "Fan", "fan-fanart-none@example.com", "ext-fan-fanart-none")
-		followedID := seedArtist(t, "Fresh Followed", "50000000-0000-0000-0000-00000000ff01")
-		unfollowedID := seedArtist(t, "Old Unfollowed", "50000000-0000-0000-0000-00000000ff02")
-		followArtist(t, userID, followedID)
+		cleanTables(t, db)
+		userID := seedUser(t, db, "Fan", "fan-fanart-none@example.com", "ext-fan-fanart-none")
+		followedID := seedArtist(t, db, "Fresh Followed", "50000000-0000-0000-0000-00000000ff01")
+		unfollowedID := seedArtist(t, db, "Old Unfollowed", "50000000-0000-0000-0000-00000000ff02")
+		followArtist(t, db, userID, followedID)
 		require.NoError(t, repo.UpdateFanart(ctx, followedID, fanart, time.Now()))
 		require.NoError(t, repo.UpdateFanart(ctx, unfollowedID, fanart, daysAgo(30)))
 
@@ -361,7 +369,9 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateName(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -373,7 +383,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		{
 			name: "updates name successfully",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-00000000ee01"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -383,7 +393,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		{
 			name: "returns NotFound for unknown ID",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			newName: "Anything",
@@ -413,7 +423,9 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 }
 
 func TestArtistRepository_Get(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -429,7 +441,7 @@ func TestArtistRepository_Get(t *testing.T) {
 		{
 			name: "returns existing artist",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("Get Test Artist", "aa000000-0000-0000-0000-000000get001"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -439,7 +451,7 @@ func TestArtistRepository_Get(t *testing.T) {
 		{
 			name: "returns NotFound for non-existent ID",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -466,7 +478,9 @@ func TestArtistRepository_Get(t *testing.T) {
 }
 
 func TestArtistRepository_GetByMBID(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	const knownMBID = "bb000000-0000-0000-0000-0000getmbid1"
@@ -484,7 +498,7 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 		{
 			name: "returns artist by known MBID",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, entity.NewArtist("MBID Test Artist", knownMBID))
 				require.NoError(t, err)
 			},
@@ -494,7 +508,7 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 		{
 			name: "returns NotFound for unknown MBID",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 			},
 			args:    args{mbid: "00000000-0000-0000-0000-000000000000"},
 			wantErr: apperr.ErrNotFound,
@@ -520,7 +534,9 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 }
 
 func TestArtistRepository_List(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -533,14 +549,14 @@ func TestArtistRepository_List(t *testing.T) {
 		{
 			name: "empty database returns empty slice",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 			},
 			wantEmpty: true,
 		},
 		{
 			name: "returns all artists",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx,
 					entity.NewArtist("List Artist A", "cc000000-0000-0000-0000-00000list001"),
 					entity.NewArtist("List Artist B", "cc000000-0000-0000-0000-00000list002"),
@@ -574,7 +590,9 @@ func TestArtistRepository_List(t *testing.T) {
 }
 
 func TestArtistRepository_CreateOfficialSite(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -590,7 +608,7 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 		{
 			name: "creates site for existing artist",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("Site Artist", "dd000000-0000-0000-0000-00000site001"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -600,7 +618,7 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 		{
 			name: "returns AlreadyExists when creating second site for same artist",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("Site Artist Dup", "dd000000-0000-0000-0000-00000site002"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -630,7 +648,9 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 }
 
 func TestArtistRepository_GetOfficialSite(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -647,7 +667,7 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 		{
 			name: "returns site after creating one",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("Get Site Artist", "ee000000-0000-0000-0000-0000getsite1"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -661,7 +681,7 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 		{
 			name: "returns NotFound when artist has no official site",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := repo.Create(ctx, entity.NewArtist("No Site Artist", "ee000000-0000-0000-0000-0000getsite2"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -691,13 +711,15 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 }
 
 func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/artist/update-activity-ended "Activity ended"
 	t.Run("Activity ended", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "SMAP", "60000000-0000-0000-0000-00000000aa01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "SMAP", "60000000-0000-0000-0000-00000000aa01")
 
 		err := repo.UpdateActivityEnded(ctx, artistID, true)
 
@@ -709,8 +731,8 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 
 	// @spec components/entity/artist/update-activity-ended "Activity resumed in the catalog"
 	t.Run("Activity resumed in the catalog", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "ELLEGARDEN", "60000000-0000-0000-0000-00000000aa02")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "ELLEGARDEN", "60000000-0000-0000-0000-00000000aa02")
 		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
 
 		err := repo.UpdateActivityEnded(ctx, artistID, false)
@@ -723,8 +745,8 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 
 	// @spec components/entity/artist/update-activity-ended "Same value"
 	t.Run("Same value", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "BiSH", "60000000-0000-0000-0000-00000000aa03")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "BiSH", "60000000-0000-0000-0000-00000000aa03")
 		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
 		before, err := repo.Get(ctx, artistID)
 		require.NoError(t, err)
@@ -739,7 +761,7 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 
 	// @spec components/entity/artist/update-activity-ended "Unknown artist"
 	t.Run("Unknown artist", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		err := repo.UpdateActivityEnded(ctx, entity.NewID(), true)
 
@@ -748,7 +770,9 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 }
 
 func TestArtistRepository_ListRefreshDue(t *testing.T) {
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 	const slots = 30
 
@@ -776,7 +800,7 @@ func TestArtistRepository_ListRefreshDue(t *testing.T) {
 
 	// @spec components/entity/artist/list-refresh-due "Same slot on every call"
 	t.Run("Same slot on every call", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		seedArtists(t, 300)
 
 		first, err := repo.ListRefreshDue(ctx, slots, 7)
@@ -790,10 +814,10 @@ func TestArtistRepository_ListRefreshDue(t *testing.T) {
 
 	// @spec components/entity/artist/list-refresh-due "Every artist in one slot"
 	t.Run("Every artist in one slot", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		seeded := seedArtists(t, 300)
-		userID := seedUser(t, "Fan", "fan-refresh-due@example.com", "ext-fan-refresh-due")
-		followArtist(t, userID, seeded[0])
+		userID := seedUser(t, db, "Fan", "fan-refresh-due@example.com", "ext-fan-refresh-due")
+		followArtist(t, db, userID, seeded[0])
 
 		var listed []string
 		for slot := range slots {
@@ -807,7 +831,7 @@ func TestArtistRepository_ListRefreshDue(t *testing.T) {
 
 	// @spec components/entity/artist/list-refresh-due "Spread over the slots"
 	t.Run("Spread over the slots", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		seedArtists(t, 3000)
 
 		for slot := range slots {
@@ -820,8 +844,8 @@ func TestArtistRepository_ListRefreshDue(t *testing.T) {
 
 	// @spec components/entity/artist/list-refresh-due "Empty slot"
 	t.Run("Empty slot", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "Only", "61000000-0000-0000-0000-00000000ff01")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Only", "61000000-0000-0000-0000-00000000ff01")
 		occupied := -1
 		for slot := range slots {
 			got, err := repo.ListRefreshDue(ctx, slots, slot)

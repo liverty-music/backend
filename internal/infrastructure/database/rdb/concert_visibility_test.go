@@ -20,6 +20,8 @@ import (
 // visibilityFixture builds the catalog rows the Concert read tests need:
 // venues, artists, discovered events and first-party events in any state.
 type visibilityFixture struct {
+	// db is the database of the test.
+	db    *rdb.Database
 	t     *testing.T
 	ctx   context.Context
 	repo  *rdb.ConcertRepository
@@ -27,21 +29,22 @@ type visibilityFixture struct {
 	today time.Time
 }
 
-func newVisibilityFixture(t *testing.T) *visibilityFixture {
+func newVisibilityFixture(t *testing.T, db *rdb.Database) *visibilityFixture {
 	t.Helper()
-	cleanDatabase(t)
+	cleanTables(t, db)
 	return &visibilityFixture{
+		db:    db,
 		t:     t,
 		ctx:   context.Background(),
-		repo:  rdb.NewConcertRepository(testDB, testOutbox),
-		orgID: seedOrganizer(t),
+		repo:  rdb.NewConcertRepository(db, testOutbox),
+		orgID: seedOrganizer(t, db),
 		today: entity.CurrentDateAtVenue(time.Now()),
 	}
 }
 
 func (f *visibilityFixture) exec(sql string, args ...any) {
 	f.t.Helper()
-	_, err := testDB.Pool.Exec(f.ctx, sql, args...)
+	_, err := f.db.Pool.Exec(f.ctx, sql, args...)
 	require.NoError(f.t, err, sql)
 }
 
@@ -56,7 +59,7 @@ func (f *visibilityFixture) venue(adminArea string, lat, lng *float64) string {
 
 func (f *visibilityFixture) artist() string {
 	f.t.Helper()
-	return seedArtist(f.t, "Band "+uuid.NewV7().String()[30:], uuid.NewV4().String())
+	return seedArtist(f.t, f.db, "Band "+uuid.NewV7().String()[30:], uuid.NewV4().String())
 }
 
 // event inserts one concert of the series at the venue on day (days from
@@ -101,7 +104,7 @@ func (f *visibilityFixture) firstPartySeries(visibility entity.SeriesVisibility)
 
 func (f *visibilityFixture) follower(artistIDs ...string) string {
 	f.t.Helper()
-	userID := seedUser(f.t, "Fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+	userID := seedUser(f.t, f.db, "Fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 	for _, a := range artistIDs {
 		f.exec(`INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, userID, a)
 	}
@@ -138,11 +141,10 @@ func sorted(ids []string) []string {
 // each one returns (design D4). A read method added to either interface
 // without a row here fails the test.
 func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	f := newVisibilityFixture(t)
-	eventState := rdb.NewEventPublishStateRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	f := newVisibilityFixture(t, db)
+	eventState := rdb.NewEventPublishStateRepository(db)
 
 	lat, lng := 35.6, 139.7
 	venueID := f.venue("JP-13", &lat, &lng)
@@ -284,7 +286,7 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 
 	t.Run("Discovery ignores a draft at the same slot", func(t *testing.T) {
 		// @spec components/entity/concert "Discovery ignores a draft at the same slot"
-		g := newVisibilityFixture(t)
+		g := newVisibilityFixture(t, db)
 		v := g.venue("JP-13", nil, nil)
 		a := g.artist()
 		draftOnly := g.event(g.firstPartySeries(entity.SeriesVisibilityPublic), v, 20, "DRAFT", a)
@@ -302,15 +304,15 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 		require.Len(t, events, 1, "discovery adds its own event beside the draft")
 		assert.NotEqual(t, draftOnly, events[0].ID)
 		var draftStart *time.Time
-		require.NoError(t, testDB.Pool.QueryRow(g.ctx, `SELECT start_at FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
+		require.NoError(t, db.Pool.QueryRow(g.ctx, `SELECT start_at FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
 		assert.Nil(t, draftStart, "the draft is left unchanged")
-		assert.Equal(t, []string{a}, sorted(performersOf(t, g.ctx, draftOnly)))
+		assert.Equal(t, []string{a}, sorted(performersOf(t, db, g.ctx, draftOnly)))
 	})
 }
 
-func performersOf(t *testing.T, ctx context.Context, eventID string) []string {
+func performersOf(t *testing.T, db *rdb.Database, ctx context.Context, eventID string) []string {
 	t.Helper()
-	rows, err := testDB.Pool.Query(ctx, `SELECT artist_id FROM concert_artists WHERE event_id = $1`, eventID)
+	rows, err := db.Pool.Query(ctx, `SELECT artist_id FROM concert_artists WHERE event_id = $1`, eventID)
 	require.NoError(t, err)
 	defer rows.Close()
 	var ids []string
@@ -323,13 +325,12 @@ func performersOf(t *testing.T, ctx context.Context, eventID string) []string {
 }
 
 func TestConcertRepository_List_PublishState(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("return a CANCELLED organizer concert as CANCELLED", func(t *testing.T) {
 		// @spec components/entity/concert/list "Cancelled Organizer concert included"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		id := f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 5, "CANCELLED", f.artist())
 
 		got, err := f.repo.List(f.ctx)
@@ -342,7 +343,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 
 	t.Run("leave out a pending concert candidate", func(t *testing.T) {
 		// @spec components/entity/concert/list "Concert candidate excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		f.exec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, listed_venue_name) VALUES ($1, $2, $3, 'Pending', $4, 'Somewhere')`,
 			entity.NewID(), f.artist(), f.discoveredSeries(), f.today.AddDate(0, 0, 5))
 
@@ -354,7 +355,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 
 	t.Run("return an empty list for an empty catalog", func(t *testing.T) {
 		// @spec components/entity/concert/list "Empty catalog"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 
 		got, err := f.repo.List(f.ctx)
 
@@ -364,7 +365,7 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 
 	t.Run("leave out the DRAFT event of a published series", func(t *testing.T) {
 		// @spec components/entity/concert/list "Draft event excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		s := f.firstPartySeries(entity.SeriesVisibilityPublic)
 		v := f.venue("JP-13", nil, nil)
 		pub := f.event(s, v, 5, "PUBLISHED", f.artist())
@@ -378,13 +379,12 @@ func TestConcertRepository_List_PublishState(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("return past and upcoming concerts, the past one first", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artist "Past and upcoming"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		past := f.event(s, v, -3, "", a)
 		future := f.event(s, v, 3, "", a)
@@ -397,7 +397,7 @@ func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
 
 	t.Run("leave out a DRAFT organizer concert", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artist "Draft Organizer concert excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 3, "DRAFT", a)
 
@@ -409,7 +409,7 @@ func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
 
 	t.Run("return an empty list for an artist with no concert", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artist "No concerts"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 
 		got, err := f.repo.ListByArtist(f.ctx, f.artist())
 
@@ -419,7 +419,7 @@ func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
 
 	t.Run("return only the PUBLISHED date of a tour with DRAFT and CANCELLED dates", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artist "Draft and cancelled dates of a published tour excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.firstPartySeries(entity.SeriesVisibilityPublic)
 		pub := f.event(s, v, 3, "PUBLISHED", a)
 		f.event(s, v, 4, "DRAFT", a)
@@ -433,13 +433,12 @@ func TestConcertRepository_ListByArtist_Visibility(t *testing.T) {
 }
 
 func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("leave out a past concert", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "Past concert left out"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		f.event(s, v, -3, "", a)
 		future := f.event(s, v, 3, "", a)
@@ -452,7 +451,7 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 	t.Run("return a concert held today", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "Concert today"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		today := f.event(f.discoveredSeries(), f.venue("JP-13", nil, nil), 0, "", a)
 
@@ -464,7 +463,7 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 	t.Run("leave out yesterday's concert when the new day has begun at the venue but not in UTC", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "Yesterday's concert early in the morning"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		f.eventOn(s, v, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), "", a)
 		next := f.eventOn(s, v, time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC), "", a)
@@ -479,7 +478,7 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 	t.Run("leave out a future DRAFT organizer concert", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "Draft Organizer concert excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 3, "DRAFT", a)
 
@@ -491,7 +490,7 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 	t.Run("return an empty list for an artist with only past concerts", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "No upcoming concerts"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		f.event(f.discoveredSeries(), f.venue("JP-13", nil, nil), -3, "", a)
 
@@ -503,7 +502,7 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 	t.Run("fail with INVALID_ARGUMENT when no artist is given", func(t *testing.T) {
 		// @spec components/entity/concert/list-upcoming-by-artist "Missing artist"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 
 		_, err := f.repo.ListUpcomingByArtist(f.ctx, "", time.Now())
 
@@ -512,13 +511,12 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("return B's earlier concert before A's", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artists "Two artists"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, b, v, s := f.artist(), f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		ofA := f.event(s, v, 2, "", a)
 		ofB := f.event(s, v, 1, "", b)
@@ -531,7 +529,7 @@ func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
 
 	t.Run("leave out a CANCELLED organizer concert", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artists "Cancelled Organizer concert excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 3, "CANCELLED", a)
 
@@ -543,7 +541,7 @@ func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
 
 	t.Run("return an empty list when no artist performs anywhere", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artists "No concerts"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 
 		got, err := f.repo.ListByArtists(f.ctx, []string{f.artist(), f.artist()})
 
@@ -553,7 +551,7 @@ func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
 
 	t.Run("return only the PUBLISHED date of a tour with a DRAFT date", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-artists "Draft date of a published tour excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.firstPartySeries(entity.SeriesVisibilityPublic)
 		pub := f.event(s, v, 3, "PUBLISHED", a)
 		f.event(s, v, 4, "DRAFT", a)
@@ -566,13 +564,12 @@ func TestConcertRepository_ListByArtists_Visibility(t *testing.T) {
 }
 
 func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("start from today when no date is given", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Default start is today"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		f.event(s, v, -1, "", a)
 		tomorrow := f.event(s, v, 1, "", a)
@@ -585,7 +582,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 
 	t.Run("widen the range to a past start date", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Past start date widens the range"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.discoveredSeries()
 		f.event(s, v, -8, "", a)
 		weekAgo := f.event(s, v, -7, "", a)
@@ -600,7 +597,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 
 	t.Run("return a concert with two followed performers once", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Two followed performers at one concert"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, b := f.artist(), f.artist()
 		id := f.event(f.discoveredSeries(), f.venue("JP-13", nil, nil), 1, "", a, b)
 
@@ -612,7 +609,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 
 	t.Run("leave out a PUBLISHED event of an UNLISTED series", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Unlisted Organizer concert excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		f.event(f.firstPartySeries(entity.SeriesVisibilityUnlisted), f.venue("JP-13", nil, nil), 1, "PUBLISHED", a)
 
@@ -624,7 +621,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 
 	t.Run("return an empty list for a user who follows nothing", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Follows nothing"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		f.event(f.discoveredSeries(), f.venue("JP-13", nil, nil), 1, "", f.artist())
 
 		got, err := f.repo.ListByFollower(f.ctx, f.follower(), nil)
@@ -635,7 +632,7 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 
 	t.Run("return only the PUBLISHED date of a tour with DRAFT and CANCELLED dates", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-follower "Draft and cancelled dates of a published tour excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.firstPartySeries(entity.SeriesVisibilityPublic)
 		pub := f.event(s, v, 1, "PUBLISHED", a)
 		f.event(s, v, 2, "DRAFT", a)
@@ -649,9 +646,8 @@ func TestConcertRepository_ListByFollower_Visibility(t *testing.T) {
 }
 
 func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	// The point is Tokyo Station; Hamamatsu is about 210 km away and Shizuoka
 	// about 150 km.
 	tokyo := &entity.GeoLocation{Latitude: 35.681, Longitude: 139.767, AdminArea: "JP-13"}
@@ -660,7 +656,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 	t.Run("return a concert in the admin area at a venue with no coordinates", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-location "Same admin area without coordinates"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		id := f.event(f.discoveredSeries(), f.venue("JP-13", nil, nil), 2, "", f.artist())
 
 		got, err := f.repo.ListByLocation(f.ctx, tokyo, f.today, f.today.AddDate(0, 0, 7))
@@ -671,7 +667,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 	t.Run("return a concert at a venue 150 km away in the range", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-location "Nearby venue in range"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		id := f.event(f.discoveredSeries(), f.venue("JP-22", &shizuokaLat, &shizuokaLng), 2, "", f.artist())
 
 		got, err := f.repo.ListByLocation(f.ctx, tokyo, f.today, f.today.AddDate(0, 0, 7))
@@ -682,7 +678,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 	t.Run("leave out a nearby concert the day after the range", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-location "Outside the date range"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		f.event(f.discoveredSeries(), f.venue("JP-22", &shizuokaLat, &shizuokaLng), 8, "", f.artist())
 
 		got, err := f.repo.ListByLocation(f.ctx, tokyo, f.today, f.today.AddDate(0, 0, 7))
@@ -693,7 +689,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 	t.Run("return an empty list when nothing is near or in the admin area", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-location "Nothing nearby"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		f.event(f.discoveredSeries(), f.venue("JP-01", &sapporoLat, &sapporoLng), 2, "", f.artist())
 
 		got, err := f.repo.ListByLocation(f.ctx, tokyo, f.today, f.today.AddDate(0, 0, 7))
@@ -704,7 +700,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 	t.Run("leave out DRAFT and CANCELLED dates of a published PUBLIC tour", func(t *testing.T) {
 		// @spec components/entity/concert/list-by-location "Draft and cancelled dates of a published tour excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, v, s := f.artist(), f.venue("JP-13", nil, nil), f.firstPartySeries(entity.SeriesVisibilityPublic)
 		pub := f.event(s, v, 1, "PUBLISHED", a)
 		f.event(s, v, 2, "DRAFT", a)
@@ -718,13 +714,12 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 }
 
 func TestConcertRepository_ListCatalogByArtist(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("return only the artist's concerts, oldest first", func(t *testing.T) {
 		// @spec components/entity/concert/list-catalog-by-artist "Narrowed to one artist"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a, other := f.artist(), f.artist()
 		v := f.venue("JP-13", nil, nil)
 		unlisted := f.event(f.firstPartySeries(entity.SeriesVisibilityUnlisted), v, 5, "PUBLISHED", a)
@@ -739,7 +734,7 @@ func TestConcertRepository_ListCatalogByArtist(t *testing.T) {
 
 	t.Run("return an empty list for an artist without concerts", func(t *testing.T) {
 		// @spec components/entity/concert/list-catalog-by-artist "Artist without concerts"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		f.event(f.firstPartySeries(entity.SeriesVisibilityPublic), f.venue("JP-13", nil, nil), 5, "PUBLISHED", f.artist())
 
 		got, err := f.repo.ListCatalogByArtist(f.ctx, f.artist())
@@ -750,7 +745,7 @@ func TestConcertRepository_ListCatalogByArtist(t *testing.T) {
 
 	t.Run("leave out the artist's DRAFT event", func(t *testing.T) {
 		// @spec components/entity/concert/list-catalog-by-artist "Draft event excluded"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 		a := f.artist()
 		s := f.firstPartySeries(entity.SeriesVisibilityPublic)
 		v := f.venue("JP-13", nil, nil)
@@ -765,7 +760,7 @@ func TestConcertRepository_ListCatalogByArtist(t *testing.T) {
 
 	t.Run("fail with InvalidArgument when no artist is given", func(t *testing.T) {
 		// @spec components/entity/concert/list-catalog-by-artist "No artist given"
-		f := newVisibilityFixture(t)
+		f := newVisibilityFixture(t, db)
 
 		_, err := f.repo.ListCatalogByArtist(f.ctx, "")
 

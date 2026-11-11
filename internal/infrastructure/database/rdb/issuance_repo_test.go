@@ -23,7 +23,7 @@ const issuancePlatformFeeBps = 800
 // issuanceOf returns what Issue takes for the Pending Order of an event: the
 // Order with its captured payment, one Issued Ticket per ticket of it and a
 // Held Settlement for a new Organizer.
-func issuanceOf(t *testing.T, pending *entity.Order, eventID string) (*entity.Order, []*entity.Ticket, *entity.Settlement) {
+func issuanceOf(t *testing.T, db *rdb.Database, pending *entity.Order, eventID string) (*entity.Order, []*entity.Ticket, *entity.Settlement) {
 	t.Helper()
 	order := *pending
 	order.Payment.ProviderPaymentID = order.CardAuthorizationID
@@ -39,31 +39,31 @@ func issuanceOf(t *testing.T, pending *entity.Order, eventID string) (*entity.Or
 			ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued, IssueTime: payTime,
 		})
 	}
-	settlement := entity.NewHeldSettlement(&order, seedOrganizer(t), eventID, issuancePlatformFeeBps, payTime)
+	settlement := entity.NewHeldSettlement(&order, seedOrganizer(t, db), eventID, issuancePlatformFeeBps, payTime)
 	return &order, tickets, settlement
 }
 
 // wonEntry stores a Won entry of a new fan for count tickets of a new
 // lottery stock, with its Pending Order, and returns it with the stock.
-func wonEntry(t *testing.T, count int) (*entity.LotteryEntry, *stockFixture) {
+func wonEntry(t *testing.T, db *rdb.Database, count int) (*entity.LotteryEntry, *stockFixture) {
 	t.Helper()
-	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-	return insertLotteryEntry(t, f, f.SaleID, newUserID(t), count, entity.LotteryEntryStateWon), f
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+	return insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), count, entity.LotteryEntryStateWon), f
 }
 
 // issuanceCheckout starts a Checkout of a new fan for 2 tickets of a new
 // first-come stock with its card authorization and commits it; captured
 // records the capture too. It returns the Checkout as read back with its
 // Order, and the stock.
-func issuanceCheckout(t *testing.T, captured bool) (*entity.Checkout, *stockFixture) {
+func issuanceCheckout(t *testing.T, db *rdb.Database, captured bool) (*entity.Checkout, *stockFixture) {
 	t.Helper()
 	ctx := context.Background()
-	repo := rdb.NewCheckoutRepository(testDB, testOutbox)
-	f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
+	repo := rdb.NewCheckoutRepository(db, testOutbox)
+	f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
 	start := saleWindowStart.Add(time.Hour)
-	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, newUserID(t), 2, nil, start)
+	c, err := repo.GetOrCreateHeld(ctx, f.ID, f.SaleID, newUserID(t, db), 2, nil, start)
 	require.NoError(t, err)
-	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, newCardAuthorizationID()))
+	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, newCardAuthorizationID(db)))
 	outcome, err := repo.Commit(ctx, c.ID, start.Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, entity.CommitOutcomeCommitted, outcome)
@@ -90,16 +90,15 @@ func ticketsOfOrder(t *testing.T, repo *rdb.TicketRepository, userID entity.User
 }
 
 func TestIssuanceRepository_Issue(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
+	t.Parallel()
+	db := newTestDB(t)
+
 	ctx := context.Background()
-	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
-	orders := rdb.NewOrderRepository(testDB)
-	tickets := rdb.NewTicketRepository(testDB, testOutbox)
-	settlements := rdb.NewSettlementRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
+	issuance := rdb.NewIssuanceRepository(db, testOutbox)
+	orders := rdb.NewOrderRepository(db)
+	tickets := rdb.NewTicketRepository(db, testOutbox)
+	settlements := rdb.NewSettlementRepository(db)
+	checkouts := rdb.NewCheckoutRepository(db, testOutbox)
 
 	// assertUnissued asserts the Order is still Pending with no Ticket and no
 	// Settlement.
@@ -117,8 +116,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("order issued", func(t *testing.T) {
 		// @spec components/entity/order/issue "Order issued"
-		entry, f := wonEntry(t, 3)
-		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		entry, f := wonEntry(t, db, 3)
+		order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 
@@ -153,8 +152,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("order issued from a checkout", func(t *testing.T) {
 		// @spec components/entity/order/issue "Order issued from a checkout"
-		c, f := issuanceCheckout(t, true)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		c, f := issuanceCheckout(t, db, true)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 
@@ -170,15 +169,15 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	paidOf := func(t *testing.T, mark int64, orderID entity.OrderID) []*entityv1.Order {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
+		return announcedSince(t, db, mark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
 			func(o *entityv1.Order) bool { return o.GetId().GetValue() == string(orderID) })
 	}
 
 	t.Run("order paid", func(t *testing.T) {
 		// @spec components/entity/order/issue "Order paid"
-		c, f := issuanceCheckout(t, true)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
-		mark := outboxMark(t)
+		c, f := issuanceCheckout(t, db, true)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 
@@ -189,12 +188,12 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("order already paid", func(t *testing.T) {
 		// @spec components/entity/order/issue "Order already paid"
-		c, f := issuanceCheckout(t, true)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		c, f := issuanceCheckout(t, db, true)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
-		again, againTickets, againSettlement := issuanceOf(t, c.Order, f.EventID)
+		again, againTickets, againSettlement := issuanceOf(t, db, c.Order, f.EventID)
 		err := issuance.Issue(ctx, again, againTickets, againSettlement)
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
@@ -203,10 +202,10 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("paid announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/order/issue "Announcement cannot be recorded"
-		c, f := issuanceCheckout(t, true)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		c, f := issuanceCheckout(t, db, true)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 
-		err := rdb.NewIssuanceRepository(testDB, failingOutbox{}).Issue(ctx, order, issued, settlement)
+		err := rdb.NewIssuanceRepository(db, failingOutbox{}).Issue(ctx, order, issued, settlement)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assertUnissued(t, c.Order)
@@ -217,8 +216,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("checkout not charged", func(t *testing.T) {
 		// @spec components/entity/order/issue "Checkout not charged"
-		c, f := issuanceCheckout(t, false)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		c, f := issuanceCheckout(t, db, false)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 
 		err := issuance.Issue(ctx, order, issued, settlement)
 
@@ -232,8 +231,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 	t.Run("failure stores nothing", func(t *testing.T) {
 		// @spec components/entity/order/issue "Failure stores nothing"
 		t.Run("lottery entry", func(t *testing.T) {
-			entry, f := wonEntry(t, 2)
-			order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+			entry, f := wonEntry(t, db, 2)
+			order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 			issued[1].EventID = entity.NewID() // violates the tickets.event_id foreign key
 
 			err := issuance.Issue(ctx, order, issued, settlement)
@@ -242,11 +241,11 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 			assertUnissued(t, entry.Order)
 		})
 		t.Run("settlement", func(t *testing.T) {
-			issuedBefore, f := wonEntry(t, 1)
-			before, beforeTickets, beforeSettlement := issuanceOf(t, issuedBefore.Order, f.EventID)
+			issuedBefore, f := wonEntry(t, db, 1)
+			before, beforeTickets, beforeSettlement := issuanceOf(t, db, issuedBefore.Order, f.EventID)
 			require.NoError(t, issuance.Issue(ctx, before, beforeTickets, beforeSettlement))
-			entry := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateWon)
-			order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+			entry := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateWon)
+			order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 			settlement.ID = beforeSettlement.ID // violates the settlements primary key
 
 			err := issuance.Issue(ctx, order, issued, settlement)
@@ -255,8 +254,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 			assertUnissued(t, entry.Order)
 		})
 		t.Run("checkout", func(t *testing.T) {
-			c, f := issuanceCheckout(t, true)
-			order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+			c, f := issuanceCheckout(t, db, true)
+			order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 			issued[1].EventID = entity.NewID()
 
 			err := issuance.Issue(ctx, order, issued, settlement)
@@ -271,13 +270,13 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("second order for the lottery entry", func(t *testing.T) {
 		// @spec components/entity/order/issue "Second order for the lottery entry"
-		entry, f := wonEntry(t, 2)
-		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		entry, f := wonEntry(t, db, 2)
+		order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 		paid, err := orders.Get(ctx, order.ID)
 		require.NoError(t, err)
 
-		again, againTickets, againSettlement := issuanceOf(t, entry.Order, f.EventID)
+		again, againTickets, againSettlement := issuanceOf(t, db, entry.Order, f.EventID)
 		again.Payment.ProviderPaymentID = "pi_other_" + entity.NewID()
 		err = issuance.Issue(ctx, again, againTickets, againSettlement)
 
@@ -293,11 +292,11 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 
 	t.Run("second order for the checkout", func(t *testing.T) {
 		// @spec components/entity/order/issue "Second order for the checkout"
-		c, f := issuanceCheckout(t, true)
-		order, issued, settlement := issuanceOf(t, c.Order, f.EventID)
+		c, f := issuanceCheckout(t, db, true)
+		order, issued, settlement := issuanceOf(t, db, c.Order, f.EventID)
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
 
-		again, againTickets, againSettlement := issuanceOf(t, c.Order, f.EventID)
+		again, againTickets, againSettlement := issuanceOf(t, db, c.Order, f.EventID)
 		err := issuance.Issue(ctx, again, againTickets, againSettlement)
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
@@ -311,37 +310,37 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 	})
 
 	t.Run("refunded order", func(t *testing.T) {
-		entry, f := wonEntry(t, 1)
-		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		entry, f := wonEntry(t, db, 1)
+		order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
-		_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(order.ID))
+		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(order.ID))
 		require.NoError(t, err)
 
-		again, againTickets, againSettlement := issuanceOf(t, entry.Order, f.EventID)
+		again, againTickets, againSettlement := issuanceOf(t, db, entry.Order, f.EventID)
 		err = issuance.Issue(ctx, again, againTickets, againSettlement)
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
-		assert.Equal(t, entity.OrderStatusRefunded, orderStatus(t, order.ID))
+		assert.Equal(t, entity.OrderStatusRefunded, orderStatus(t, db, order.ID))
 	})
 
 	t.Run("void order", func(t *testing.T) {
 		// @spec components/entity/order/issue "Void order"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		lost := insertLotteryEntry(t, f, f.SaleID, newUserID(t), 2, entity.LotteryEntryStateLost)
-		order, issued, settlement := issuanceOf(t, lost.Order, f.EventID)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		lost := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateLost)
+		order, issued, settlement := issuanceOf(t, db, lost.Order, f.EventID)
 
 		err := issuance.Issue(ctx, order, issued, settlement)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		assert.Equal(t, entity.OrderStatusVoid, orderStatus(t, order.ID))
+		assert.Equal(t, entity.OrderStatusVoid, orderStatus(t, db, order.ID))
 		assert.Empty(t, ticketsOfOrder(t, tickets, order.UserID, order.ID))
 		_, err = settlements.GetByOrderID(ctx, order.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("unknown order", func(t *testing.T) {
-		entry, f := wonEntry(t, 1)
-		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		entry, f := wonEntry(t, db, 1)
+		order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 		order.ID = entity.OrderID(entity.NewID())
 
 		err := issuance.Issue(ctx, order, issued, settlement)
@@ -350,8 +349,8 @@ func TestIssuanceRepository_Issue(t *testing.T) {
 	})
 
 	t.Run("order without its captured payment", func(t *testing.T) {
-		entry, f := wonEntry(t, 1)
-		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		entry, f := wonEntry(t, db, 1)
+		order, issued, settlement := issuanceOf(t, db, entry.Order, f.EventID)
 		order.PayTime = nil
 
 		err := issuance.Issue(ctx, order, issued, settlement)

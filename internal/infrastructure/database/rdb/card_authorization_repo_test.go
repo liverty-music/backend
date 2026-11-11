@@ -36,9 +36,8 @@ func (c *retriedCards) Create(ctx context.Context, purchase entity.CardAuthoriza
 }
 
 func TestCardAuthorizationRepository(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
 	entry := entity.CardAuthorizationPurchase{
 		Purpose:       entity.CardAuthorizationPurposeLotteryEntry,
@@ -49,8 +48,8 @@ func TestCardAuthorizationRepository(t *testing.T) {
 	}
 
 	t.Run("opened with an id of its own", func(t *testing.T) {
-		cards := newFakeCards()
-		repo := rdb.NewCardAuthorizationRepository(testDB, cards)
+		cards := newFakeCards(db)
+		repo := rdb.NewCardAuthorizationRepository(db, cards)
 
 		opened, err := repo.Create(ctx, entry, 10000)
 		require.NoError(t, err)
@@ -66,7 +65,7 @@ func TestCardAuthorizationRepository(t *testing.T) {
 	})
 
 	t.Run("a retried checkout keeps its record", func(t *testing.T) {
-		repo := rdb.NewCardAuthorizationRepository(testDB, &retriedCards{fakeCards: newFakeCards()})
+		repo := rdb.NewCardAuthorizationRepository(db, &retriedCards{fakeCards: newFakeCards(db)})
 		checkout := entity.CardAuthorizationPurchase{Purpose: entity.CardAuthorizationPurposeCheckout, CheckoutID: entity.CheckoutID(entity.NewID())}
 
 		first, err := repo.Create(ctx, checkout, 6000)
@@ -80,8 +79,8 @@ func TestCardAuthorizationRepository(t *testing.T) {
 
 	t.Run("notice for a known card authorization", func(t *testing.T) {
 		// @spec components/entity/card-authorization/get-by-provider-card-authorization-id "Notice for a known card authorization"
-		cards := newFakeCards()
-		repo := rdb.NewCardAuthorizationRepository(testDB, cards)
+		cards := newFakeCards(db)
+		repo := rdb.NewCardAuthorizationRepository(db, cards)
 		opened, err := repo.Create(ctx, entry, 10000)
 		require.NoError(t, err)
 		cards.authenticate(t, opened.ID)
@@ -98,7 +97,7 @@ func TestCardAuthorizationRepository(t *testing.T) {
 
 	t.Run("unknown provider ID", func(t *testing.T) {
 		// @spec components/entity/card-authorization/get-by-provider-card-authorization-id "Unknown provider ID"
-		repo := rdb.NewCardAuthorizationRepository(testDB, newFakeCards())
+		repo := rdb.NewCardAuthorizationRepository(db, newFakeCards(db))
 
 		_, err := repo.GetByProviderCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
 
@@ -107,10 +106,10 @@ func TestCardAuthorizationRepository(t *testing.T) {
 
 	t.Run("payment provider unavailable", func(t *testing.T) {
 		// @spec components/entity/card-authorization/get-by-provider-card-authorization-id "Payment provider unavailable"
-		id := newCardAuthorizationID()
+		id := newCardAuthorizationID(db)
 		logger, err := logging.New()
 		require.NoError(t, err)
-		repo := rdb.NewCardAuthorizationRepository(testDB, payment.NewNoopCardAuthorizationProvider(logger))
+		repo := rdb.NewCardAuthorizationRepository(db, payment.NewNoopCardAuthorizationProvider(logger))
 
 		_, err = repo.GetByProviderCardAuthorizationID(ctx, "pi_"+id)
 
@@ -118,7 +117,7 @@ func TestCardAuthorizationRepository(t *testing.T) {
 	})
 
 	t.Run("an id that is not a card authorization's", func(t *testing.T) {
-		repo := rdb.NewCardAuthorizationRepository(testDB, newFakeCards())
+		repo := rdb.NewCardAuthorizationRepository(db, newFakeCards(db))
 
 		_, err := repo.Get(ctx, "pi_not_an_id")
 

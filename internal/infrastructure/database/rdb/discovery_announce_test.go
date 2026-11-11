@@ -17,24 +17,26 @@ import (
 )
 
 func TestArtistRepository_CreateAnnounces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewArtistRepository(testDB, testOutbox)
+	repo := rdb.NewArtistRepository(db, testOutbox)
 	createdOf := func(t *testing.T, mark int64, mbid string) []*entityv1.Artist {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectArtistCreated, func() *entityv1.Artist { return &entityv1.Artist{} },
+		return announcedSince(t, db, mark, entity.SubjectArtistCreated, func() *entityv1.Artist { return &entityv1.Artist{} },
 			func(a *entityv1.Artist) bool { return a.GetMbid().GetValue() == mbid })
 	}
 	registered := func(t *testing.T, mbid string) int {
 		t.Helper()
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM artists WHERE mbid = $1`, mbid).Scan(&n))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM artists WHERE mbid = $1`, mbid).Scan(&n))
 		return n
 	}
 
 	t.Run("new MBID", func(t *testing.T) {
 		// @spec components/entity/artist/create "New MBID"
 		mbid := uuid.NewV7().String()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := repo.Create(ctx, &entity.Artist{Name: "New Band", MBID: mbid})
 
@@ -49,7 +51,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 		mbid := uuid.NewV7().String()
 		first, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid})
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid})
 
@@ -61,7 +63,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 	t.Run("registered by a concurrent call", func(t *testing.T) {
 		// @spec components/entity/artist/create "Registered by a concurrent call"
 		mbid := uuid.NewV7().String()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		var wg sync.WaitGroup
 		for range 2 {
@@ -80,7 +82,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 		// @spec components/entity/artist/create "Announcement cannot be recorded"
 		mbid := uuid.NewV7().String()
 
-		_, err := rdb.NewArtistRepository(testDB, failingOutbox{}).Create(ctx, &entity.Artist{Name: "Lost Band", MBID: mbid})
+		_, err := rdb.NewArtistRepository(db, failingOutbox{}).Create(ctx, &entity.Artist{Name: "Lost Band", MBID: mbid})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Zero(t, registered(t, mbid))
@@ -88,8 +90,10 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 }
 
 func TestTicketSaleRepository_UpsertDiscoveredAnnounces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewTicketSaleRepository(testDB, testOutbox)
+	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	jst := time.FixedZone("JST", 9*60*60)
 	oct5At16 := time.Date(2026, 10, 5, 16, 0, 0, 0, jst)
 	oct5At18 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
@@ -107,14 +111,14 @@ func TestTicketSaleRepository_UpsertDiscoveredAnnounces(t *testing.T) {
 	}
 	discoveredOf := func(t *testing.T, mark int64, seriesID string) []*entityv1.TicketSale {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
+		return announcedSince(t, db, mark, entity.SubjectTicketSaleDiscovered, func() *entityv1.TicketSale { return &entityv1.TicketSale{} },
 			func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == seriesID })
 	}
 
 	t.Run("new sale", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/upsert-discovered "New sale"
-		seriesID := seedSeriesOnly(t, "Tour")
-		mark := outboxMark(t)
+		seriesID := seedSeriesOnly(t, db, "Tour")
+		mark := outboxMark(t, db)
 
 		id, outcome, err := repo.UpsertDiscovered(ctx, lottery(seriesID, oct5At18))
 
@@ -127,10 +131,10 @@ func TestTicketSaleRepository_UpsertDiscoveredAnnounces(t *testing.T) {
 
 	t.Run("known sale discovered again", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/upsert-discovered "Known sale discovered again"
-		seriesID := seedSeriesOnly(t, "Tour")
+		seriesID := seedSeriesOnly(t, db, "Tour")
 		_, _, err := repo.UpsertDiscovered(ctx, lottery(seriesID, oct5At18))
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, outcome, err := repo.UpsertDiscovered(ctx, lottery(seriesID, oct5At16))
 
@@ -141,9 +145,9 @@ func TestTicketSaleRepository_UpsertDiscoveredAnnounces(t *testing.T) {
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/upsert-discovered "Announcement cannot be recorded"
-		seriesID := seedSeriesOnly(t, "Tour")
+		seriesID := seedSeriesOnly(t, db, "Tour")
 
-		_, _, err := rdb.NewTicketSaleRepository(testDB, failingOutbox{}).UpsertDiscovered(ctx, lottery(seriesID, oct5At18))
+		_, _, err := rdb.NewTicketSaleRepository(db, failingOutbox{}).UpsertDiscovered(ctx, lottery(seriesID, oct5At18))
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Empty(t, listOf(t, seriesID), "no sale is stored")

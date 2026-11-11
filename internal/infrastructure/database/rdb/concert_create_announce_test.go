@@ -15,9 +15,11 @@ import (
 )
 
 func TestConcertRepository_CreateAnnounces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewConcertRepository(testDB, testOutbox)
-	seriesRepo := rdb.NewSeriesRepository(testDB, testOutbox)
+	repo := rdb.NewConcertRepository(db, testOutbox)
+	seriesRepo := rdb.NewSeriesRepository(db, testOutbox)
 	day := func(d int) time.Time { return time.Date(2026, 12, d, 0, 0, 0, 0, time.UTC) }
 
 	// concertAt builds a Concert of the series at the venue on day d,
@@ -31,65 +33,65 @@ func TestConcertRepository_CreateAnnounces(t *testing.T) {
 	}
 	newArtist := func(t *testing.T) string {
 		t.Helper()
-		return seedArtist(t, "artist "+uuid.NewV7().String(), uuid.NewV7().String())
+		return seedArtist(t, db, "artist "+uuid.NewV7().String(), uuid.NewV7().String())
 	}
 
 	t.Run("three new events of one tour", func(t *testing.T) {
 		// @spec components/entity/concert/create "Three new events of one tour"
-		artist, venue := newArtist(t), seedVenue(t, "venue "+uuid.NewV7().String())
+		artist, venue := newArtist(t), seedVenue(t, db, "venue "+uuid.NewV7().String())
 		series := seedSeries(t, ctx, seriesRepo, "Tour")
 		concerts := []*entity.Concert{concertAt(series, venue, 1, artist), concertAt(series, venue, 2, artist), concertAt(series, venue, 3, artist)}
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, err := repo.Create(ctx, concerts...)
 
 		require.NoError(t, err)
-		got := concertsAnnouncedFor(t, mark, artist)
+		got := concertsAnnouncedFor(t, db, mark, artist)
 		require.Len(t, got, 1)
 		assert.ElementsMatch(t, []string{concerts[0].ID, concerts[1].ID, concerts[2].ID}, got[0])
 	})
 
 	t.Run("co-headliner found later", func(t *testing.T) {
 		// @spec components/entity/concert/create "Co-headliner found later"
-		a, b, venue := newArtist(t), newArtist(t), seedVenue(t, "venue "+uuid.NewV7().String())
+		a, b, venue := newArtist(t), newArtist(t), seedVenue(t, db, "venue "+uuid.NewV7().String())
 		series := seedSeries(t, ctx, seriesRepo, "Show")
 		first := concertAt(series, venue, 5, a)
 		_, err := repo.Create(ctx, first)
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, err = repo.Create(ctx, concertAt(series, venue, 5, b))
 
 		require.NoError(t, err)
-		assert.Equal(t, [][]string{{first.ID}}, concertsAnnouncedFor(t, mark, b))
-		assert.Empty(t, concertsAnnouncedFor(t, mark, a))
+		assert.Equal(t, [][]string{{first.ID}}, concertsAnnouncedFor(t, db, mark, b))
+		assert.Empty(t, concertsAnnouncedFor(t, db, mark, a))
 	})
 
 	t.Run("repeated create", func(t *testing.T) {
 		// @spec components/entity/concert/create "Repeated create"
-		artist, venue := newArtist(t), seedVenue(t, "venue "+uuid.NewV7().String())
+		artist, venue := newArtist(t), seedVenue(t, db, "venue "+uuid.NewV7().String())
 		series := seedSeries(t, ctx, seriesRepo, "Show")
 		_, err := repo.Create(ctx, concertAt(series, venue, 7, artist))
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, err = repo.Create(ctx, concertAt(series, venue, 7, artist))
 
 		require.NoError(t, err)
-		assert.Empty(t, concertsAnnouncedFor(t, mark, artist))
+		assert.Empty(t, concertsAnnouncedFor(t, db, mark, artist))
 	})
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/concert/create "Announcement cannot be recorded"
-		artist, venue := newArtist(t), seedVenue(t, "venue "+uuid.NewV7().String())
+		artist, venue := newArtist(t), seedVenue(t, db, "venue "+uuid.NewV7().String())
 		series := seedSeries(t, ctx, seriesRepo, "Show")
 		c := concertAt(series, venue, 9, artist)
 
-		_, err := rdb.NewConcertRepository(testDB, failingOutbox{}).Create(ctx, c)
+		_, err := rdb.NewConcertRepository(db, failingOutbox{}).Create(ctx, c)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM events WHERE series_id = $1`, series).Scan(&n))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM events WHERE series_id = $1`, series).Scan(&n))
 		assert.Zero(t, n, "nothing is stored")
 	})
 }

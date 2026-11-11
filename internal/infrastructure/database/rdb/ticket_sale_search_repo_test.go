@@ -12,19 +12,18 @@ import (
 )
 
 func TestTicketSaleSearchRepository_ListBySeries(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
-	repo := rdb.NewTicketSaleSearchRepository(testDB)
+	repo := rdb.NewTicketSaleSearchRepository(db)
 	ctx := context.Background()
 	oct1 := time.Date(2026, 10, 1, 21, 0, 0, 0, time.UTC)
 
 	// @spec components/entity/ticket-sale-search/list-by-series "One searched, one never searched"
 	t.Run("One searched, one never searched", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesA := seedSeriesOnly(t, "A")
-		seriesB := seedSeriesOnly(t, "B")
+		cleanTables(t, db)
+		seriesA := seedSeriesOnly(t, db, "A")
+		seriesB := seedSeriesOnly(t, db, "B")
 		require.NoError(t, repo.Record(ctx, []string{seriesA}, oct1))
 
 		searches, err := repo.ListBySeries(ctx, []string{seriesA, seriesB})
@@ -43,19 +42,18 @@ func TestTicketSaleSearchRepository_ListBySeries(t *testing.T) {
 }
 
 func TestTicketSaleSearchRepository_Record(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
-	repo := rdb.NewTicketSaleSearchRepository(testDB)
+	repo := rdb.NewTicketSaleSearchRepository(db)
 	ctx := context.Background()
 	sep1 := time.Date(2026, 9, 1, 21, 0, 0, 0, time.UTC)
 	oct1 := time.Date(2026, 10, 1, 21, 0, 0, 0, time.UTC)
 
 	// @spec components/entity/ticket-sale-search/record "Series searched again"
 	t.Run("Series searched again", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesA := seedSeriesOnly(t, "A")
+		cleanTables(t, db)
+		seriesA := seedSeriesOnly(t, db, "A")
 		require.NoError(t, repo.Record(ctx, []string{seriesA}, sep1))
 
 		require.NoError(t, repo.Record(ctx, []string{seriesA}, oct1))
@@ -68,8 +66,8 @@ func TestTicketSaleSearchRepository_Record(t *testing.T) {
 
 	// @spec components/entity/ticket-sale-search/record "Series searched for the first time"
 	t.Run("Series searched for the first time", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesA := seedSeriesOnly(t, "A")
+		cleanTables(t, db)
+		seriesA := seedSeriesOnly(t, db, "A")
 
 		require.NoError(t, repo.Record(ctx, []string{seriesA}, oct1))
 
@@ -81,8 +79,8 @@ func TestTicketSaleSearchRepository_Record(t *testing.T) {
 
 	// @spec components/entity/ticket-sale-search/record "Unknown series"
 	t.Run("Unknown series", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesA := seedSeriesOnly(t, "A")
+		cleanTables(t, db)
+		seriesA := seedSeriesOnly(t, db, "A")
 
 		err := repo.Record(ctx, []string{seriesA, mustNewV7()}, oct1)
 		assertAppErrCode(t, err, codes.FailedPrecondition)
@@ -97,8 +95,8 @@ func TestTicketSaleSearchRepository_Record(t *testing.T) {
 	})
 
 	t.Run("future searched time is rejected", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesA := seedSeriesOnly(t, "A")
+		cleanTables(t, db)
+		seriesA := seedSeriesOnly(t, db, "A")
 
 		err := repo.Record(ctx, []string{seriesA}, time.Now().Add(time.Hour))
 		assertAppErrCode(t, err, codes.InvalidArgument)

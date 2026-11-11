@@ -60,6 +60,8 @@ require (
 	github.com/nats-io/nats.go v1.55.0
 	github.com/pannpers/go-apperr v1.2.0
 	github.com/pannpers/go-logging v1.3.0
+	github.com/peterldowns/pgtestdb v0.1.1
+	github.com/peterldowns/pgtestdb/migrators/atlasmigrator v0.1.1
 	github.com/posthog/posthog-go v1.40.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1

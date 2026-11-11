@@ -3,6 +3,8 @@ package rdb_test
 import (
 	"context"
 	"fmt"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/testutil"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -11,20 +13,34 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"uuid"
 )
 
 // Fake Cloud SQL IAM service-account roles. Cloud SQL names them
 // `<name>@<project>.iam`, so they match the role patterns the grant
-// migrations loop over.
-const (
-	grantsOrganizerRole = "organizer-console-api@test.iam"
-	grantsZitadelRole   = "zitadel@test.iam"
-	grantsReceptionRole = "reception-api@test.iam"
+// migrations loop over. Roles belong to the whole server, and a role that
+// another run left with privileges in some database can never be dropped;
+// the project part is new on every run, so such a role never blocks this
+// test.
+var (
+	grantsRoleProject   = "test-" + uuid.NewV7().String()[24:] + ".iam"
+	grantsOrganizerRole = "organizer-console-api@" + grantsRoleProject
+	grantsZitadelRole   = "zitadel@" + grantsRoleProject
+	grantsReceptionRole = "reception-api@" + grantsRoleProject
 
 	// grantsRetiredMediaConsumerRole is the IAM user of the retired
 	// media-consumer worker. Its grants were revoked so Cloud SQL can drop it.
-	grantsRetiredMediaConsumerRole = "media-consumer@test.iam"
+	grantsRetiredMediaConsumerRole = "media-consumer@" + grantsRoleProject
 
+	// grantsAdminRole, grantsBackendRole and grantsFanRole keep full CRUD on
+	// the app schema and reach the workflow tables.
+	grantsAdminRole   = "admin-console-api@" + grantsRoleProject
+	grantsBackendRole = "backend-app@" + grantsRoleProject
+	grantsFanRole     = "fan-api@" + grantsRoleProject
+)
+
+const (
 	// grantsProbeTable is created after every migration has run, to check the
 	// default privileges a future table inherits.
 	grantsProbeTable = "grants_probe"
@@ -34,18 +50,14 @@ const (
 	// connection (k8s/atlas/base/atlas-migration.yaml), so every table lands in
 	// schema app as in production.
 	grantsTestDSNFormat = "postgres://test-user@localhost:%d/%s?sslmode=disable&search_path=app"
-
-	// grantsTestDatabase is the scratch database the migrations are applied
-	// to, next to the shared test-db.
-	grantsTestDatabase = "grants-test-db"
 )
 
 // grantsReadWriteRoles keep full CRUD on the app schema.
 var grantsReadWriteRoles = []string{
-	"admin-console-api@test.iam",
-	"backend-app@test.iam",
-	"fan-api@test.iam",
-	"series-image-consumer@test.iam",
+	grantsAdminRole,
+	grantsBackendRole,
+	grantsFanRole,
+	"series-image-consumer@" + grantsRoleProject,
 }
 
 // organizerTableWrites is the write set of one app table for the
@@ -126,11 +138,12 @@ var receptionAccess = map[string]receptionTableAccess{
 // organizer-console-api write set or the reception-api access, or gives
 // zitadel or the retired media-consumer any app privilege.
 func TestMigrationGrants_IAMRoles(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	// Parallel with the other tests: its roles and its database are named
+	// for this run, and it holds the migration lock while its roles exist.
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	conn := setupGrantsDatabase(t, ctx)
+	conn := setupGrantsDatabase(t, db, ctx)
 
 	tables := listAppTables(t, ctx, conn)
 	require.Contains(t, tables, grantsProbeTable)
@@ -242,22 +255,24 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 	// (20261031090000_grant_dbos_to_backend_app_and_admin_console_api.sql).
 	t.Run("only fan-api, backend-app and admin-console-api reach the workflow tables in schema dbos", func(t *testing.T) {
 		for _, role := range append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...) {
-			want := role == "fan-api@test.iam" || role == "backend-app@test.iam" || role == "admin-console-api@test.iam"
+			want := role == grantsFanRole || role == grantsBackendRole || role == grantsAdminRole
 			assert.Equal(t, want, hasSchemaPrivilege(t, ctx, conn, role, "dbos", "USAGE"), "USAGE on schema dbos for %s", role)
 			assert.Equal(t, want, hasTablePrivilegeIn(t, ctx, conn, role, "dbos", "workflow_status", "SELECT"), "SELECT on dbos.workflow_status for %s", role)
 		}
 	})
 }
 
-// setupGrantsDatabase creates the fake IAM roles, empties the scratch
-// database, applies every migration to it with atlas as the Atlas Operator
+// setupGrantsDatabase creates the fake IAM roles and an empty database of the
+// test's own, applies every migration to it with atlas as the Atlas Operator
 // does, creates the probe table, and returns a connection to it. Cleanup
-// empties the scratch database again and drops the roles.
+// drops the database and then the roles: dropping the database removes every
+// privilege the roles hold, and no other migration runs while they exist
+// (see [testutil.LockMigrations]), so DROP ROLE cannot fail on dependent
+// objects.
 //
-// The scratch database is reused rather than dropped: DROP DATABASE forces an
-// immediate checkpoint, which can take minutes on a test cluster whose other
-// tests TRUNCATE tables between cases. Dropping its schemas is cheap.
-func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
+// The database is not a copy of the template: the grant migrations must run
+// while the roles exist, as they do in production.
+func setupGrantsDatabase(t *testing.T, db *rdb.Database, ctx context.Context) *pgx.Conn {
 	t.Helper()
 
 	atlasPath, err := exec.LookPath("atlas")
@@ -265,47 +280,31 @@ func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
 	migrationsDir, err := filepath.Abs("../../../../k8s/atlas/base/migrations")
 	require.NoError(t, err)
 
-	var dbExists bool
-	require.NoError(t, testDB.Pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, grantsTestDatabase).Scan(&dbExists))
-	if !dbExists {
-		_, err := testDB.Pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{grantsTestDatabase}.Sanitize())
-		require.NoError(t, err)
-	}
-	dsn := fmt.Sprintf(grantsTestDSNFormat, testDBPort(), grantsTestDatabase)
+	// Released after the roles are dropped: cleanups run last first.
+	testutil.LockMigrations(t)
+	name := "grants-" + uuid.NewV7().String()[24:]
+	_, err = db.Pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
+	require.NoError(t, err)
+	dsn := fmt.Sprintf(grantsTestDSNFormat, testutil.DatabasePort(), name)
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
 
 	roles := append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...)
 	t.Cleanup(func() {
 		ctx := context.Background()
-		resetGrantsDatabase(t, ctx, conn, roles)
 		assert.NoError(t, conn.Close(ctx))
+		_, err := db.Pool.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+		assert.NoError(t, err)
 		for _, role := range roles {
-			var exists bool
-			require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists))
-			if !exists {
-				continue
-			}
-			// DROP OWNED clears any privilege the role holds in the shared test
-			// database, so DROP ROLE cannot fail on dependent objects.
-			_, err := testDB.Pool.Exec(ctx, "DROP OWNED BY "+pgx.Identifier{role}.Sanitize())
-			assert.NoError(t, err)
-			_, err = testDB.Pool.Exec(ctx, "DROP ROLE "+pgx.Identifier{role}.Sanitize())
+			_, err := db.Pool.Exec(ctx, "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
 			assert.NoError(t, err)
 		}
 	})
 
 	for _, role := range roles {
-		var exists bool
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists))
-		if !exists {
-			_, err := testDB.Pool.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+" NOLOGIN")
-			require.NoError(t, err)
-		}
+		_, err := db.Pool.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+" NOLOGIN")
+		require.NoError(t, err)
 	}
-	// Start from an empty database even if an earlier run did not clean up.
-	resetGrantsDatabase(t, ctx, conn, roles)
 
 	out, err := exec.CommandContext(ctx, atlasPath, "migrate", "apply",
 		"--url", dsn, "--dir", "file://"+migrationsDir).CombinedOutput()
@@ -314,27 +313,6 @@ func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
 	_, err = conn.Exec(ctx, "CREATE TABLE app."+grantsProbeTable+" (id UUID PRIMARY KEY, note TEXT)")
 	require.NoError(t, err)
 	return conn
-}
-
-// resetGrantsDatabase revokes everything the roles hold in the scratch
-// database and drops every schema the migrations create.
-func resetGrantsDatabase(t *testing.T, ctx context.Context, conn *pgx.Conn, roles []string) {
-	t.Helper()
-	for _, role := range roles {
-		var exists bool
-		require.NoError(t, conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists))
-		if exists {
-			_, err := conn.Exec(ctx, "DROP OWNED BY "+pgx.Identifier{role}.Sanitize())
-			require.NoError(t, err)
-		}
-	}
-	_, err := conn.Exec(ctx, `
-		DROP SCHEMA IF EXISTS app CASCADE;
-		DROP SCHEMA IF EXISTS dbos CASCADE;
-		DROP SCHEMA IF EXISTS atlas_schema_revisions CASCADE;
-		DROP SCHEMA IF EXISTS public CASCADE;
-		CREATE SCHEMA public;`)
-	require.NoError(t, err)
 }
 
 func listAppTables(t *testing.T, ctx context.Context, conn *pgx.Conn) []string {

@@ -393,6 +393,12 @@ github.com/pannpers/go-apperr v1.2.0 h1:B3s1BgbPF5AvkO0l8N7JyTpHmB1j8Fm4OgY0V+VC
 github.com/pannpers/go-apperr v1.2.0/go.mod h1:0H7HYqCdDu1Xnhc0oGGi/KyfstyBhSTo1xFV+GAnzIM=
 github.com/pannpers/go-logging v1.3.0 h1:AIjz7F/3Mlcn1zdEsR8TiQFsJL7mHvseCXiSJWPUcFY=
 github.com/pannpers/go-logging v1.3.0/go.mod h1:MQUNlEyAST5ggg/LmBcjLLujOCTOLOWDngtDNzHndvw=
+github.com/peterldowns/pgtestdb v0.1.1 h1:+hBCD1DcbKeg5Sfg0G+5WNIy/Cm0ORgwMkF4ygihrmU=
+github.com/peterldowns/pgtestdb v0.1.1/go.mod h1:yVWInWV0dxvmLdL2ao3nXDzWZ9+G6EhJ4gRwvI1Ozeg=
+github.com/peterldowns/pgtestdb/migrators/atlasmigrator v0.1.1 h1:o0KvuNcZvyQP4Nu07dclUQylCvnZ+X63BlC2nnACzMo=
+github.com/peterldowns/pgtestdb/migrators/atlasmigrator v0.1.1/go.mod h1:PBn6c0qSWJPpKD59lhqgOZMnRt6LY7d/7MLlHJ0iaFQ=
+github.com/peterldowns/testy v0.0.1 h1:9a6LzvnKcL52Crzud1z7jbsAojTntCh89ho6mgsr4KU=
+github.com/peterldowns/testy v0.0.1/go.mod h1:J4sm75UEzbfBIcq0zbrshWWjsJQiJ5RrhTPYKVY2Ww8=
 github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b h1:OzNsuVdSWGwXvWKTtChx9ve89k4cFJ6NxYM4Aw4/f+E=
 github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b/go.mod h1:pxMtw7cyUw6B2bRH0ZBANSPg+AoSud1I1iyJHI69jH4=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=

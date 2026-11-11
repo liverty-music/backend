@@ -12,7 +12,9 @@ import (
 )
 
 func TestPushSubscriptionRepository_Create(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewPushSubscriptionRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// Captured by the setup/check closures of the re-registration cases below,
@@ -32,8 +34,8 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 		{
 			name: "creates new subscription",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-create-user", "push-create@example.com", "ext-push-create-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-create-user", "push-create@example.com", "ext-push-create-01")
 				return &entity.PushSubscription{
 					UserID:   userID,
 					Endpoint: "https://push.example.com/create-new",
@@ -50,8 +52,8 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 		{
 			name: "upsert updates existing subscription on same endpoint",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-upsert-user", "push-upsert@example.com", "ext-push-upsert-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-upsert-user", "push-upsert@example.com", "ext-push-upsert-01")
 				first := &entity.PushSubscription{
 					UserID:   userID,
 					Endpoint: "https://push.example.com/upsert-endpoint",
@@ -85,8 +87,8 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 			// usecase layer does. See liverty-music/backend#474.
 			name: "re-registering the same endpoint by the same user returns the existing stored id",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-reregister-user", "push-reregister@example.com", "ext-push-reregister-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-reregister-user", "push-reregister@example.com", "ext-push-reregister-01")
 				first := &entity.PushSubscription{
 					UserID:   userID,
 					Endpoint: "https://push.example.com/reregister-endpoint",
@@ -117,8 +119,8 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 			// owns it) but keeps its stored id. See liverty-music/backend#474.
 			name: "re-registering the same endpoint by a different user reassigns it and keeps the stored id",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase(t)
-				ownerID := seedUser(t, "push-reassign-owner", "push-reassign-owner@example.com", "ext-push-reassign-owner-01")
+				cleanTables(t, db)
+				ownerID := seedUser(t, db, "push-reassign-owner", "push-reassign-owner@example.com", "ext-push-reassign-owner-01")
 				first := &entity.PushSubscription{
 					UserID:   ownerID,
 					Endpoint: "https://push.example.com/reassign-endpoint",
@@ -129,7 +131,7 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 				reassignFirstID = first.ID
 				reassignPreviousOwnerID = ownerID
 
-				newOwnerID := seedUser(t, "push-reassign-new-owner", "push-reassign-new-owner@example.com", "ext-push-reassign-new-owner-01")
+				newOwnerID := seedUser(t, db, "push-reassign-new-owner", "push-reassign-new-owner@example.com", "ext-push-reassign-new-owner-01")
 				return &entity.PushSubscription{
 					UserID:   newOwnerID,
 					Endpoint: "https://push.example.com/reassign-endpoint",
@@ -175,7 +177,9 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_Get(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewPushSubscriptionRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -187,8 +191,8 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 		{
 			name: "returns matching subscription",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-get-user", "push-get@example.com", "ext-push-get-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-get-user", "push-get@example.com", "ext-push-get-01")
 				sub := &entity.PushSubscription{
 					UserID:   userID,
 					Endpoint: "https://push.example.com/get-endpoint",
@@ -210,8 +214,8 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 		{
 			name: "returns NotFound when endpoint does not match for user",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-get-miss-user", "push-get-miss@example.com", "ext-push-get-miss-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-get-miss-user", "push-get-miss@example.com", "ext-push-get-miss-01")
 				return userID, "https://push.example.com/nonexistent"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -219,8 +223,8 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 		{
 			name: "returns NotFound when subscription exists but belongs to different user",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				ownerID := seedUser(t, "push-get-owner", "push-get-owner@example.com", "ext-push-get-owner-01")
+				cleanTables(t, db)
+				ownerID := seedUser(t, db, "push-get-owner", "push-get-owner@example.com", "ext-push-get-owner-01")
 				sub := &entity.PushSubscription{
 					UserID:   ownerID,
 					Endpoint: "https://push.example.com/cross-user-endpoint",
@@ -229,7 +233,7 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 				}
 				err := repo.Create(ctx, sub)
 				require.NoError(t, err)
-				otherID := seedUser(t, "push-get-other", "push-get-other@example.com", "ext-push-get-other-01")
+				otherID := seedUser(t, db, "push-get-other", "push-get-other@example.com", "ext-push-get-other-01")
 				return otherID, sub.Endpoint
 			},
 			wantErr: apperr.ErrNotFound,
@@ -256,7 +260,9 @@ func TestPushSubscriptionRepository_Get(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_Delete(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewPushSubscriptionRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -267,8 +273,8 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 		{
 			name: "deletes only the specified browser's subscription",
 			setup: func() (string, string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-delete-user", "push-delete@example.com", "ext-push-delete-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-delete-user", "push-delete@example.com", "ext-push-delete-01")
 				target := &entity.PushSubscription{
 					UserID:   userID,
 					Endpoint: "https://push.example.com/delete-target",
@@ -290,8 +296,8 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 		{
 			name: "deleting non-existent pair is idempotent",
 			setup: func() (string, string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-delete-idem-user", "push-delete-idem@example.com", "ext-push-delete-idem-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "push-delete-idem-user", "push-delete-idem@example.com", "ext-push-delete-idem-01")
 				return userID, "https://push.example.com/does-not-exist", ""
 			},
 			wantErr: nil,
@@ -299,8 +305,8 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 		{
 			name: "deleting another user's endpoint does not remove their row",
 			setup: func() (string, string, string) {
-				cleanDatabase(t)
-				ownerID := seedUser(t, "push-delete-owner", "push-delete-owner@example.com", "ext-push-delete-owner-01")
+				cleanTables(t, db)
+				ownerID := seedUser(t, db, "push-delete-owner", "push-delete-owner@example.com", "ext-push-delete-owner-01")
 				sub := &entity.PushSubscription{
 					UserID:   ownerID,
 					Endpoint: "https://push.example.com/owner-endpoint",
@@ -308,7 +314,7 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 					Auth:     "auth-owner",
 				}
 				require.NoError(t, repo.Create(ctx, sub))
-				otherID := seedUser(t, "push-delete-attacker", "push-delete-attacker@example.com", "ext-push-delete-attacker-01")
+				otherID := seedUser(t, db, "push-delete-attacker", "push-delete-attacker@example.com", "ext-push-delete-attacker-01")
 				// The attacker tries to delete the owner's endpoint using the attacker's userID.
 				// Repository scoping by (userID, endpoint) must leave the owner's row intact.
 				return otherID, sub.Endpoint, ""
@@ -345,7 +351,9 @@ func TestPushSubscriptionRepository_Delete(t *testing.T) {
 }
 
 func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewPushSubscriptionRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -357,7 +365,7 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "empty input returns empty slice",
 			setup: func() []string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return nil
 			},
 			want:    0,
@@ -366,9 +374,9 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "returns subscriptions for matching users",
 			setup: func() []string {
-				cleanDatabase(t)
-				userID1 := seedUser(t, "push-list-user1", "push-list-1@example.com", "ext-push-list-01")
-				userID2 := seedUser(t, "push-list-user2", "push-list-2@example.com", "ext-push-list-02")
+				cleanTables(t, db)
+				userID1 := seedUser(t, db, "push-list-user1", "push-list-1@example.com", "ext-push-list-01")
+				userID2 := seedUser(t, db, "push-list-user2", "push-list-2@example.com", "ext-push-list-02")
 				err := repo.Create(ctx, &entity.PushSubscription{
 					UserID:   userID1,
 					Endpoint: "https://push.example.com/list-user1",
@@ -391,7 +399,7 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "returns empty for non-matching users",
 			setup: func() []string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return []string{"00000000-0000-0000-0000-000000000001"}
 			},
 			want:    0,

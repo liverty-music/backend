@@ -14,24 +14,23 @@ import (
 // TestEventOrganizerRepository_GetOrganizerID exercises the event -> series ->
 // organizer_id resolution (backend#468) against a real local Postgres.
 func TestEventOrganizerRepository_GetOrganizerID(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewEventOrganizerRepository(testDB)
+	repo := rdb.NewEventOrganizerRepository(db)
 
 	// @spec components/entity/event/get-organizer-id "Organizer-authored event"
 	t.Run("returns the Organizer id for an event whose series is organizer-authored", func(t *testing.T) {
-		organizerID := seedOrganizer(t)
-		venueID := seedVenue(t, "eorg-venue-owned")
+		organizerID := seedOrganizer(t, db)
+		venueID := seedVenue(t, db, "eorg-venue-owned")
 		seriesID := entity.NewID()
-		_, err := testDB.Pool.Exec(ctx, `
+		_, err := db.Pool.Exec(ctx, `
 			INSERT INTO series (id, title, type, organizer_id, visibility)
 			VALUES ($1, 'Organizer Series', 'SINGLE', $2, 'PUBLIC')
 		`, seriesID, organizerID)
 		require.NoError(t, err)
 		eventID := entity.NewID()
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2027-06-01')`,
 			eventID, seriesID, venueID,
 		)
@@ -50,15 +49,15 @@ func TestEventOrganizerRepository_GetOrganizerID(t *testing.T) {
 
 	// @spec components/entity/event/get-organizer-id "Discovery-pipeline event"
 	t.Run("fails with NotFound when the event's series has no Organizer", func(t *testing.T) {
-		venueID := seedVenue(t, "eorg-venue-discovered")
+		venueID := seedVenue(t, db, "eorg-venue-discovered")
 		seriesID := entity.NewID()
-		_, err := testDB.Pool.Exec(ctx,
+		_, err := db.Pool.Exec(ctx,
 			`INSERT INTO series (id, title, type) VALUES ($1, 'Discovered Series', 'SINGLE')`,
 			seriesID,
 		)
 		require.NoError(t, err)
 		eventID := entity.NewID()
-		_, err = testDB.Pool.Exec(ctx,
+		_, err = db.Pool.Exec(ctx,
 			`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2027-06-02')`,
 			eventID, seriesID, venueID,
 		)

@@ -134,8 +134,10 @@ jobs:
       postgres:
         image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
         # Throwaway test database: durability is traded for speed (PostgreSQL
-        # docs, "Non-Durable Settings"). Same settings as compose.yml.
-        command: -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+        # docs, "Non-Durable Settings"), and max_connections is raised for the
+        # tests that each connect to a database of their own. Same settings as
+        # compose.yml.
+        command: -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=300
         env:
           POSTGRES_USER: test-user
           POSTGRES_DB: test-db
@@ -162,13 +164,11 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
+      # The database tests apply the migrations themselves: each test gets a
+      # copy of a template database built with the atlas CLI
+      # (internal/testutil/database.go), so atlas must be on PATH.
       - name: Setup Atlas
         uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
-
-      # search_path=app as the Atlas Operator applies them in production, so
-      # every table lands in app (#769).
-      - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run integration tests
         run: make test-integration GOTEST_FLAGS="-v -coverprofile=coverage.out -covermode=atomic"

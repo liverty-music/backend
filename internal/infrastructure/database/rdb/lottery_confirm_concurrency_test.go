@@ -24,19 +24,18 @@ import (
 // and the card authorization is never released (the mock fails the test on a
 // Release call).
 func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec components/usecase/lottery-entry/confirm "Fan and notice at the same time"
-	cleanDatabase(t)
+
 	ctx := context.Background()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-	setSaleEndByDatabaseClock(t, f.SaleID, 5*time.Second)
-	fan := entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-	cardAuthorizationID := newCardAuthorizationID()
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+	setSaleEndByDatabaseClock(t, db, f.SaleID, 5*time.Second)
+	fan := entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
+	cardAuthorizationID := newCardAuthorizationID(db)
 	cardAuthorizations := entitymocks.NewMockCardAuthorizationRepository(t)
 	cardAuthorizations.EXPECT().Get(mock.Anything, cardAuthorizationID).Return(&entity.CardAuthorization{
 		ID: cardAuthorizationID, Amount: f.SeatType.AmountFor(2), CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized,
@@ -47,8 +46,8 @@ func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {
 	}, nil)
 
 	now := time.Now()
-	entries := rdb.NewLotteryEntryRepository(testDB, testOutbox)
-	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, cardAuthorizations, func() time.Time { return now }, logger))
+	entries := rdb.NewLotteryEntryRepository(db, testOutbox)
+	uc := usecase.NewLotteryEntryUseCase(lotteryEntryDeps(t, db, cardAuthorizations, func() time.Time { return now }, logger))
 
 	callers := []*entity.UserID{&fan, nil} // the fan, and the notice without a fan
 	got := make([]*entity.LotteryEntry, len(callers))

@@ -12,7 +12,9 @@ import (
 )
 
 func TestSeriesRepository_Create(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewSeriesRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tour := entity.NewSeries("Eras Tour 2026", entity.SeriesTypeTour, "https://example.com/eras")
@@ -34,38 +36,38 @@ func TestSeriesRepository_Create(t *testing.T) {
 	}{
 		{
 			name:    "single TOUR series",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{tour},
 			wantIDs: []string{tour.ID},
 		},
 		{
 			name:    "bulk insert all three SeriesTypes",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{tour, single, festival},
 			wantIDs: []string{tour.ID, single.ID, festival.ID},
 		},
 		{
 			name:    "empty slice returns nil without error",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  nil,
 			wantIDs: nil,
 		},
 		{
 			name:    "nil entries are skipped silently",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{nil, tour, nil},
 			wantIDs: []string{tour.ID},
 		},
 		{
 			name:    "preserves pre-set ID",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{presetID},
 			wantIDs: []string{presetID.ID},
 		},
 		{
 			name: "duplicate ID is filtered by ON CONFLICT DO NOTHING",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, &entity.Series{
 					ID:    "018b2f19-e591-7d12-bf9e-f0e74f1ba002",
 					Title: "Original",
@@ -84,13 +86,13 @@ func TestSeriesRepository_Create(t *testing.T) {
 		},
 		{
 			name:    "empty title rejected",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1ba003", Title: "", Type: entity.SeriesTypeTour}},
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
 			name:    "empty type rejected",
-			setup:   func() { cleanDatabase(t) },
+			setup:   func() { cleanTables(t, db) },
 			series:  []*entity.Series{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1ba004", Title: "Untyped", Type: ""}},
 			wantErr: apperr.ErrInvalidArgument,
 		},
@@ -116,10 +118,11 @@ func TestSeriesRepository_Create(t *testing.T) {
 }
 
 func TestSeriesRepository_Get(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewSeriesRepository(db, testOutbox)
 	ctx := context.Background()
 
-	cleanDatabase(t)
 	seeded := entity.NewSeries("Get Test Tour", entity.SeriesTypeTour, "https://example.com/get-test")
 	_, err := repo.Create(ctx, seeded)
 	require.NoError(t, err)
@@ -155,10 +158,11 @@ func TestSeriesRepository_Get(t *testing.T) {
 }
 
 func TestSeriesRepository_ListByIDs(t *testing.T) {
-	repo := rdb.NewSeriesRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewSeriesRepository(db, testOutbox)
 	ctx := context.Background()
 
-	cleanDatabase(t)
 	a := entity.NewSeries("Series A", entity.SeriesTypeTour, "https://a.example.com")
 	b := entity.NewSeries("Series B", entity.SeriesTypeSingle, "")
 	c := entity.NewSeries("Series C", entity.SeriesTypeFestival, "https://c.example.com")

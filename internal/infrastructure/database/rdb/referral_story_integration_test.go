@@ -38,8 +38,10 @@ func referralCode(code string) *entity.ReferralCode {
 }
 
 func TestReferralStory_GuestFromAMembersLinkBuysAfterSigningUp(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Guest from a member's link buys after signing up"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -55,8 +57,10 @@ func TestReferralStory_GuestFromAMembersLinkBuysAfterSigningUp(t *testing.T) {
 }
 
 func TestReferralStory_LastLinkWins(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Last link wins"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -69,8 +73,10 @@ func TestReferralStory_LastLinkWins(t *testing.T) {
 }
 
 func TestReferralStory_HoldAlreadyInProgressKeepsItsLink(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Hold already in progress keeps its link"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -87,8 +93,10 @@ func TestReferralStory_HoldAlreadyInProgressKeepsItsLink(t *testing.T) {
 }
 
 func TestReferralStory_AnotherTourIsNotAttributed(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Another tour is not attributed"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -100,8 +108,10 @@ func TestReferralStory_AnotherTourIsNotAttributed(t *testing.T) {
 }
 
 func TestReferralStory_LinkOlderThan7Days(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Link older than 7 days"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -114,8 +124,10 @@ func TestReferralStory_LinkOlderThan7Days(t *testing.T) {
 }
 
 func TestReferralStory_AbandonedCheckoutIsNotCounted(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	// @spec stories/attribute-a-purchase-to-a-referral-link "Abandoned checkout is not counted"
-	s := newFirstComeStory(t)
+	s := newFirstComeStory(t, db)
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
@@ -126,6 +138,6 @@ func TestReferralStory_AbandonedCheckoutIsNotCounted(t *testing.T) {
 	// The hold lapses and its expiry ends the checkout.
 	s.now = checkout.HoldExpireTime.Add(time.Minute)
 	s.endLapsedHolds()
-	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, checkout.OrderID))
+	assert.Equal(t, entity.OrderStatusVoid, orderStatusOf(t, db, checkout.OrderID))
 	assert.Empty(t, s.salesTab(), "nothing is counted under member-a")
 }

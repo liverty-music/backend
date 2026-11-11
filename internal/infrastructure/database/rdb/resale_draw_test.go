@@ -22,26 +22,26 @@ var resaleDrawTime = time.Date(2026, 12, 11, 12, 0, 0, 0, resaleJST)
 
 // seedListing lists one Ticket of the stock, issued to a new fan, and returns
 // the listing's id.
-func seedListing(t *testing.T, f *stockFixture) entity.ResaleListingID {
+func seedListing(t *testing.T, db *rdb.Database, f *stockFixture) entity.ResaleListingID {
 	t.Helper()
 	ctx := context.Background()
-	seller := newUserID(t)
-	orderID := seedPaidOrder(t, f, string(seller), 1, issuedTicketsTime)
+	seller := newUserID(t, db)
+	orderID := seedPaidOrder(t, db, f, string(seller), 1, issuedTicketsTime)
 	ticketID, listingID := entity.NewID(), entity.NewID()
-	_, err := testDB.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+	_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
 		ticketID, string(orderID), string(seller), f.EventID, issuedTicketsTime)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx, `INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at)
+	_, err = db.Pool.Exec(ctx, `INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at)
 		VALUES ($1, $2, $3, $4, 3000, 1, $5)`, listingID, ticketID, string(seller), string(f.ID), resaleApplyTime)
 	require.NoError(t, err)
 	return entity.ResaleListingID(listingID)
 }
 
 // listingEntry returns the entry the listing is allocated to, empty when none.
-func listingEntry(t *testing.T, id entity.ResaleListingID) entity.ResaleEntryID {
+func listingEntry(t *testing.T, db *rdb.Database, id entity.ResaleListingID) entity.ResaleEntryID {
 	t.Helper()
 	var entryID *string
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(), `SELECT resale_entry_id::text FROM resale_listings WHERE id = $1`, string(id)).Scan(&entryID))
+	require.NoError(t, db.Pool.QueryRow(context.Background(), `SELECT resale_entry_id::text FROM resale_listings WHERE id = $1`, string(id)).Scan(&entryID))
 	if entryID == nil {
 		return ""
 	}
@@ -49,19 +49,18 @@ func listingEntry(t *testing.T, id entity.ResaleListingID) entity.ResaleEntryID 
 }
 
 // enterResale stores an Entered entry of a new fan for count tickets.
-func enterResale(t *testing.T, repo *rdb.ResaleEntryRepository, f *stockFixture, count int) *entity.ResaleEntry {
+func enterResale(t *testing.T, db *rdb.Database, repo *rdb.ResaleEntryRepository, f *stockFixture, count int) *entity.ResaleEntry {
 	t.Helper()
-	e, err := repo.Create(context.Background(), newResaleEntry(f, newUserID(t), count))
+	e, err := repo.Create(context.Background(), newResaleEntry(db, f, newUserID(t, db), count))
 	require.NoError(t, err)
 	return e
 }
 
 func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 	// announced returns the given entries announced under subject since mark,
 	// by id.
 	announced := func(t *testing.T, mark int64, subject string, ids ...entity.ResaleEntryID) map[entity.ResaleEntryID]*entityv1.ResaleEntry {
@@ -71,7 +70,7 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 			want[string(id)] = true
 		}
 		out := map[entity.ResaleEntryID]*entityv1.ResaleEntry{}
-		for _, e := range announcedSince(t, mark, subject, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		for _, e := range announcedSince(t, db, mark, subject, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(e *entityv1.ResaleEntry) bool { return want[e.GetId().GetValue()] }) {
 			out[entity.ResaleEntryID(e.GetId().GetValue())] = e
 		}
@@ -80,9 +79,9 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 	t.Run("outcome recorded", func(t *testing.T) {
 		// @spec components/entity/resale-entry/persist-draw-outcome "Outcome recorded"
-		f := seedResaleStock(t, 4, 4)
-		l1, l2 := seedListing(t, f), seedListing(t, f)
-		winner, lapsed := enterResale(t, repo, f, 2), enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l1, l2 := seedListing(t, db, f), seedListing(t, db, f)
+		winner, lapsed := enterResale(t, db, repo, f, 2), enterResale(t, db, repo, f, 1)
 
 		err := repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: winner, Listings: []entity.ResaleListingID{l1, l2}}},
@@ -96,8 +95,8 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 		require.NotNil(t, won.DrawTime)
 		assert.True(t, won.DrawTime.Equal(resaleDrawTime))
 		assert.Equal(t, entity.OrderStatusPending, won.Order.Status, "a winner's Order is Pending until charged")
-		assert.Equal(t, winner.ID, listingEntry(t, l1))
-		assert.Equal(t, winner.ID, listingEntry(t, l2))
+		assert.Equal(t, winner.ID, listingEntry(t, db, l1))
+		assert.Equal(t, winner.ID, listingEntry(t, db, l2))
 		gone, err := repo.Get(ctx, lapsed.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ResaleEntryStateLapsed, gone.State)
@@ -108,10 +107,10 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 	t.Run("listing withdrawn meanwhile", func(t *testing.T) {
 		// @spec components/entity/resale-entry/persist-draw-outcome "Listing withdrawn meanwhile"
-		f := seedResaleStock(t, 4, 4)
-		l1, l2 := seedListing(t, f), seedListing(t, f)
-		winner := enterResale(t, repo, f, 2)
-		require.NoError(t, rdb.NewResaleListingRepository(testDB, testOutbox).Withdraw(ctx, l2, resaleApplyTime))
+		f := seedResaleStock(t, db, 4, 4)
+		l1, l2 := seedListing(t, db, f), seedListing(t, db, f)
+		winner := enterResale(t, db, repo, f, 2)
+		require.NoError(t, rdb.NewResaleListingRepository(db, testOutbox).Withdraw(ctx, l2, resaleApplyTime))
 
 		err := repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: winner, Listings: []entity.ResaleListingID{l1, l2}}},
@@ -121,13 +120,13 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 		got, err := repo.Get(ctx, winner.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ResaleEntryStateEntered, got.State, "nothing is recorded")
-		assert.Empty(t, listingEntry(t, l1))
+		assert.Empty(t, listingEntry(t, db, l1))
 	})
 
 	t.Run("last draw", func(t *testing.T) {
 		// @spec components/entity/resale-entry/persist-draw-outcome "Last draw"
-		f := seedResaleStock(t, 4, 4)
-		a, b := enterResale(t, repo, f, 1), enterResale(t, repo, f, 2)
+		f := seedResaleStock(t, db, 4, 4)
+		a, b := enterResale(t, db, repo, f, 1), enterResale(t, db, repo, f, 2)
 
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Lost: []*entity.ResaleEntry{a, b}, LostReason: entity.ResaleEntryLostReasonNoTicketLeft,
@@ -143,31 +142,31 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 	})
 
 	t.Run("a listing whose winner could not be charged is drawn again", func(t *testing.T) {
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		first := enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		first := enterResale(t, db, repo, f, 1)
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: first, Listings: []entity.ResaleListingID{l}}},
 		}))
-		second := enterResale(t, repo, f, 1)
+		second := enterResale(t, db, repo, f, 1)
 		err := repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime.Add(24*time.Hour), entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: second, Listings: []entity.ResaleListingID{l}}},
 		})
 		require.ErrorIs(t, err, apperr.ErrFailedPrecondition, "allocated to a Won entry, it is not free")
 
-		setResaleEntryState(t, first.ID, entity.ResaleEntryStateLost)
+		setResaleEntryState(t, db, first.ID, entity.ResaleEntryStateLost)
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime.Add(24*time.Hour), entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: second, Listings: []entity.ResaleListingID{l}}},
 		}))
-		assert.Equal(t, second.ID, listingEntry(t, l))
+		assert.Equal(t, second.ID, listingEntry(t, db, l))
 	})
 
 	t.Run("three entries recorded", func(t *testing.T) {
 		// @spec components/entity/resale-entry/persist-draw-outcome "Three entries recorded"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		won, lapsed, lost := enterResale(t, repo, f, 1), enterResale(t, repo, f, 1), enterResale(t, repo, f, 1)
-		mark := outboxMark(t)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		won, lapsed, lost := enterResale(t, db, repo, f, 1), enterResale(t, db, repo, f, 1), enterResale(t, db, repo, f, 1)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: won, Listings: []entity.ResaleListingID{l}}},
@@ -194,11 +193,11 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/resale-entry/persist-draw-outcome "Announcement cannot be recorded"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		won, lapsed := enterResale(t, repo, f, 1), enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		won, lapsed := enterResale(t, db, repo, f, 1), enterResale(t, db, repo, f, 1)
 
-		err := rdb.NewResaleEntryRepository(testDB, failingOutbox{}).PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
+		err := rdb.NewResaleEntryRepository(db, failingOutbox{}).PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: won, Listings: []entity.ResaleListingID{l}}},
 			Lapsed:  []*entity.ResaleEntry{lapsed},
 		})
@@ -210,28 +209,27 @@ func TestResaleEntryRepository_PersistDrawOutcome(t *testing.T) {
 			assert.Equal(t, entity.ResaleEntryStateEntered, got.State)
 			assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
 		}
-		assert.Empty(t, listingEntry(t, l), "no listing changes")
+		assert.Empty(t, listingEntry(t, db, l), "no listing changes")
 	})
 }
 
 func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	entries := rdb.NewResaleEntryRepository(testDB, testOutbox)
-	listings := rdb.NewResaleListingRepository(testDB, testOutbox)
+	entries := rdb.NewResaleEntryRepository(db, testOutbox)
+	listings := rdb.NewResaleListingRepository(db, testOutbox)
 	status := func(t *testing.T, id entity.ResaleListingID) entity.ResaleListingStatus {
 		t.Helper()
 		var s int16
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(id)).Scan(&s))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT status FROM resale_listings WHERE id = $1`, string(id)).Scan(&s))
 		return entity.ResaleListingStatus(s)
 	}
 
 	t.Run("nobody is buying it", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Nobody is buying it"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
 
 		require.NoError(t, listings.Withdraw(ctx, l, resaleApplyTime))
 
@@ -240,9 +238,9 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 
 	t.Run("another fan won it", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Another fan won it"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		winner := enterResale(t, entries, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		winner := enterResale(t, db, entries, f, 1)
 		require.NoError(t, entries.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: winner, Listings: []entity.ResaleListingID{l}}},
 		}))
@@ -256,9 +254,9 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 	t.Run("withdraw and draw at the same moment", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Withdraw and draw at the same moment"
 		for range 5 {
-			f := seedResaleStock(t, 4, 4)
-			l := seedListing(t, f)
-			winner := enterResale(t, entries, f, 1)
+			f := seedResaleStock(t, db, 4, 4)
+			l := seedListing(t, db, f)
+			winner := enterResale(t, db, entries, f, 1)
 
 			var withdrawErr, drawErr error
 			var wg sync.WaitGroup
@@ -283,11 +281,11 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 			case withdrawErr == nil:
 				require.True(t, errors.Is(drawErr, apperr.ErrFailedPrecondition), "the draw records nothing: %v", drawErr)
 				assert.Equal(t, entity.ResaleListingStatusWithdrawn, status(t, l))
-				assert.Empty(t, listingEntry(t, l))
+				assert.Empty(t, listingEntry(t, db, l))
 			case drawErr == nil:
 				require.True(t, errors.Is(withdrawErr, apperr.ErrFailedPrecondition), "the withdrawal fails: %v", withdrawErr)
 				assert.Equal(t, entity.ResaleListingStatusListed, status(t, l))
-				assert.Equal(t, winner.ID, listingEntry(t, l))
+				assert.Equal(t, winner.ID, listingEntry(t, db, l))
 			default:
 				t.Fatalf("both failed: withdraw %v, draw %v", withdrawErr, drawErr)
 			}
@@ -296,9 +294,9 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 
 	t.Run("already sold", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Already sold"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l), resaleApplyTime)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l), resaleApplyTime)
 		require.NoError(t, err)
 
 		assert.ErrorIs(t, listings.Withdraw(ctx, l, resaleApplyTime), apperr.ErrFailedPrecondition)
@@ -306,8 +304,8 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 
 	t.Run("withdrawn twice", func(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Withdrawn twice"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
 		require.NoError(t, listings.Withdraw(ctx, l, resaleApplyTime))
 
 		require.NoError(t, listings.Withdraw(ctx, l, resaleApplyTime.Add(time.Hour)))
@@ -317,17 +315,16 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 }
 
 func TestResaleEntryRepository_Withdraw(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 	at := time.Date(2026, 12, 11, 10, 0, 0, 0, resaleJST)
 
 	t.Run("entry withdrawn", func(t *testing.T) {
 		// @spec components/entity/resale-entry/withdraw "Entry withdrawn"
-		f := seedResaleStock(t, 4, 4)
-		e := enterResale(t, repo, f, 2)
+		f := seedResaleStock(t, db, 4, 4)
+		e := enterResale(t, db, repo, f, 2)
 
 		got, err := repo.Withdraw(ctx, e.ID, at)
 
@@ -343,9 +340,9 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 
 	t.Run("draw recorded first", func(t *testing.T) {
 		// @spec components/entity/resale-entry/withdraw "Draw recorded first"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		e := enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		e := enterResale(t, db, repo, f, 1)
 		require.NoError(t, repo.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
 			Winners: []entity.ResaleWin{{Entry: e, Listings: []entity.ResaleListingID{l}}},
 		}))
@@ -360,9 +357,9 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 
 	t.Run("withdrawn first", func(t *testing.T) {
 		// @spec components/entity/resale-entry/withdraw "Withdrawn first"
-		f := seedResaleStock(t, 4, 4)
-		l := seedListing(t, f)
-		e := enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		l := seedListing(t, db, f)
+		e := enterResale(t, db, repo, f, 1)
 		_, err := repo.Withdraw(ctx, e.ID, at)
 		require.NoError(t, err)
 
@@ -373,7 +370,7 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 			Winners: []entity.ResaleWin{{Entry: e, Listings: []entity.ResaleListingID{l}}},
 		})
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "and allocates it no listing")
-		assert.Empty(t, listingEntry(t, l))
+		assert.Empty(t, listingEntry(t, db, l))
 	})
 
 	t.Run("unknown entry", func(t *testing.T) {
@@ -384,14 +381,14 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 
 	t.Run("withdrawal announced", func(t *testing.T) {
 		// @spec components/entity/resale-entry/withdraw "Withdrawal announced"
-		f := seedResaleStock(t, 4, 4)
-		e := enterResale(t, repo, f, 1)
-		mark := outboxMark(t)
+		f := seedResaleStock(t, db, 4, 4)
+		e := enterResale(t, db, repo, f, 1)
+		mark := outboxMark(t, db)
 
 		_, err := repo.Withdraw(ctx, e.ID, at)
 		require.NoError(t, err)
 
-		got := announcedSince(t, mark, entity.SubjectResaleEntryWithdrawn, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
+		got := announcedSince(t, db, mark, entity.SubjectResaleEntryWithdrawn, func() *entityv1.ResaleEntry { return &entityv1.ResaleEntry{} },
 			func(m *entityv1.ResaleEntry) bool { return m.GetId().GetValue() == string(e.ID) })
 		require.Len(t, got, 1, "announced as withdrawn once")
 		assert.Equal(t, entityv1.ResaleEntryState_RESALE_ENTRY_STATE_WITHDRAWN, got[0].GetState())
@@ -399,10 +396,10 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 
 	t.Run("announcement cannot be recorded", func(t *testing.T) {
 		// @spec components/entity/resale-entry/withdraw "Announcement cannot be recorded"
-		f := seedResaleStock(t, 4, 4)
-		e := enterResale(t, repo, f, 1)
+		f := seedResaleStock(t, db, 4, 4)
+		e := enterResale(t, db, repo, f, 1)
 
-		_, err := rdb.NewResaleEntryRepository(testDB, failingOutbox{}).Withdraw(ctx, e.ID, at)
+		_, err := rdb.NewResaleEntryRepository(db, failingOutbox{}).Withdraw(ctx, e.ID, at)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		stored, err := repo.Get(ctx, e.ID)
@@ -413,9 +410,9 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 
 	t.Run("withdraw and draw for one entry at the same time", func(t *testing.T) {
 		for range 5 {
-			f := seedResaleStock(t, 4, 4)
-			l := seedListing(t, f)
-			e := enterResale(t, repo, f, 1)
+			f := seedResaleStock(t, db, 4, 4)
+			l := seedListing(t, db, f)
+			e := enterResale(t, db, repo, f, 1)
 
 			var withdrawErr, drawErr error
 			var wg sync.WaitGroup
@@ -442,7 +439,7 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 			case withdrawErr == nil:
 				require.ErrorIs(t, drawErr, apperr.ErrFailedPrecondition)
 				assert.Equal(t, entity.ResaleEntryStateWithdrawn, stored.State)
-				assert.Empty(t, listingEntry(t, l))
+				assert.Empty(t, listingEntry(t, db, l))
 			case drawErr == nil:
 				require.ErrorIs(t, withdrawErr, apperr.ErrFailedPrecondition)
 				assert.Equal(t, entity.ResaleEntryStateWon, stored.State)

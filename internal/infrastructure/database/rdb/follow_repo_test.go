@@ -13,8 +13,10 @@ import (
 )
 
 func TestFollowRepository_ListByUser(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -26,12 +28,12 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "includes fanart when artist has fanart data",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := artistRepo.Create(ctx, entity.NewArtist("Fanart Artist", "f1000000-0000-0000-0000-00000000fa01"))
 				require.NoError(t, err)
 				artistID := created[0].ID
 
-				userID := seedUser(t, "Test User 1", "fanart-test-1@example.com", "ext-fanart-01")
+				userID := seedUser(t, db, "Test User 1", "fanart-test-1@example.com", "ext-fanart-01")
 
 				fanart := &entity.Fanart{
 					ArtistThumb: []entity.FanartImage{
@@ -74,15 +76,15 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 			// @spec components/entity/follow/list-by-user "Fan follows nobody"
 			name: "no followed artists returns empty slice",
 			setup: func() string {
-				cleanDatabase(t)
-				return seedUser(t, "Lonely User", "lonely@example.com", "ext-lonely-01")
+				cleanTables(t, db)
+				return seedUser(t, db, "Lonely User", "lonely@example.com", "ext-lonely-01")
 			},
 			want: nil,
 		},
 		{
 			name: "multiple artists with mixed fanart presence",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 
 				created, err := artistRepo.Create(ctx,
 					entity.NewArtist("With Fanart", "f3000000-0000-0000-0000-00000000fa03"),
@@ -98,7 +100,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 				err = artistRepo.UpdateFanart(ctx, created[0].ID, fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
 				require.NoError(t, err)
 
-				userID := seedUser(t, "Mixed User", "mixed@example.com", "ext-mixed-01")
+				userID := seedUser(t, db, "Mixed User", "mixed@example.com", "ext-mixed-01")
 
 				err = followRepo.Follow(ctx, userID, created[0].ID)
 				require.NoError(t, err)
@@ -134,12 +136,12 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns nil fanart when artist has no fanart data",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				created, err := artistRepo.Create(ctx, entity.NewArtist("Plain Artist", "f2000000-0000-0000-0000-00000000fa02"))
 				require.NoError(t, err)
 				artistID := created[0].ID
 
-				userID := seedUser(t, "Test User 2", "fanart-test-2@example.com", "ext-fanart-02")
+				userID := seedUser(t, db, "Test User 2", "fanart-test-2@example.com", "ext-fanart-02")
 
 				err = followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
@@ -191,7 +193,9 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 }
 
 func TestFollowRepository_Follow(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -204,9 +208,9 @@ func TestFollowRepository_Follow(t *testing.T) {
 			// @spec components/entity/follow/follow "First follow"
 			name: "follow succeeds",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Follow User", "follow@test.com", "ext-follow-01")
-				artistID := seedArtist(t, "Follow Artist", "a1000000-0000-0000-0000-000000000001")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Follow User", "follow@test.com", "ext-follow-01")
+				artistID := seedArtist(t, db, "Follow Artist", "a1000000-0000-0000-0000-000000000001")
 				return userID, artistID
 			},
 		},
@@ -219,9 +223,9 @@ func TestFollowRepository_Follow(t *testing.T) {
 			// hype level, untouched.
 			name: "duplicate follow fails with AlreadyExists and leaves hype unchanged",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Dup Follow User", "dupfollow@test.com", "ext-dupfollow-01")
-				artistID := seedArtist(t, "Dup Follow Artist", "a1000000-0000-0000-0000-000000000002")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Dup Follow User", "dupfollow@test.com", "ext-dupfollow-01")
+				artistID := seedArtist(t, db, "Dup Follow Artist", "a1000000-0000-0000-0000-000000000002")
 				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
 				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
@@ -242,8 +246,8 @@ func TestFollowRepository_Follow(t *testing.T) {
 			// @spec components/entity/follow/follow "Unknown artist"
 			name: "unknown artist fails with FailedPrecondition and stores nothing",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Orphan Follow User", "orphanfollow@test.com", "ext-orphanfollow-01")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Orphan Follow User", "orphanfollow@test.com", "ext-orphanfollow-01")
 				// A syntactically valid but non-existent artist id.
 				return userID, entity.NewID()
 			},
@@ -277,7 +281,9 @@ func TestFollowRepository_Follow(t *testing.T) {
 }
 
 func TestFollowRepository_Unfollow(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -288,9 +294,9 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 		{
 			name: "unfollow existing relationship",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Unfollow User", "unfollow@test.com", "ext-unfollow-01")
-				artistID := seedArtist(t, "Unfollow Artist", "a2000000-0000-0000-0000-000000000001")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Unfollow User", "unfollow@test.com", "ext-unfollow-01")
+				artistID := seedArtist(t, db, "Unfollow Artist", "a2000000-0000-0000-0000-000000000001")
 				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
 				return userID, artistID
@@ -299,9 +305,9 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 		{
 			name: "unfollow non-existent relationship",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Ghost Unfollow User", "ghost-unfollow@test.com", "ext-ghost-unfollow-01")
-				artistID := seedArtist(t, "Ghost Artist", "a2000000-0000-0000-0000-000000000002")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Ghost Unfollow User", "ghost-unfollow@test.com", "ext-ghost-unfollow-01")
+				artistID := seedArtist(t, db, "Ghost Artist", "a2000000-0000-0000-0000-000000000002")
 				return userID, artistID
 			},
 		},
@@ -324,7 +330,9 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 }
 
 func TestFollowRepository_SetHype(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -336,9 +344,9 @@ func TestFollowRepository_SetHype(t *testing.T) {
 		{
 			name: "set hype on existing follow",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "Hype User", "hype@test.com", "ext-hype-01")
-				artistID := seedArtist(t, "Hype Artist", "a3000000-0000-0000-0000-000000000001")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "Hype User", "hype@test.com", "ext-hype-01")
+				artistID := seedArtist(t, db, "Hype Artist", "a3000000-0000-0000-0000-000000000001")
 				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
 				return userID, artistID
@@ -348,9 +356,9 @@ func TestFollowRepository_SetHype(t *testing.T) {
 		{
 			name: "set hype on non-existent follow returns NotFound",
 			setup: func() (string, string) {
-				cleanDatabase(t)
-				userID := seedUser(t, "No Follow Hype User", "nofollow-hype@test.com", "ext-nofollow-hype-01")
-				artistID := seedArtist(t, "No Follow Hype Artist", "a3000000-0000-0000-0000-000000000002")
+				cleanTables(t, db)
+				userID := seedUser(t, db, "No Follow Hype User", "nofollow-hype@test.com", "ext-nofollow-hype-01")
+				artistID := seedArtist(t, db, "No Follow Hype Artist", "a3000000-0000-0000-0000-000000000002")
 				return userID, artistID
 			},
 			hype:    entity.HypeAway,
@@ -382,16 +390,18 @@ func TestFollowRepository_SetHype(t *testing.T) {
 }
 
 func TestFollowRepository_ListAll(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
-	artistRepo := rdb.NewArtistRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
+	artistRepo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/follow/list-all "Artist followed by two fans"
 	t.Run("Artist followed by two fans", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "ListAll Artist 1", "a4000000-0000-0000-0000-000000000001")
-		user1ID := seedUser(t, "ListAll User 1", "listall-user1@test.com", "ext-listall-01")
-		user2ID := seedUser(t, "ListAll User 2", "listall-user2@test.com", "ext-listall-02")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "ListAll Artist 1", "a4000000-0000-0000-0000-000000000001")
+		user1ID := seedUser(t, db, "ListAll User 1", "listall-user1@test.com", "ext-listall-01")
+		user2ID := seedUser(t, db, "ListAll User 2", "listall-user2@test.com", "ext-listall-02")
 		require.NoError(t, followRepo.Follow(ctx, user1ID, artistID))
 		require.NoError(t, followRepo.Follow(ctx, user2ID, artistID))
 
@@ -407,10 +417,10 @@ func TestFollowRepository_ListAll(t *testing.T) {
 
 	// @spec components/entity/follow/list-all "Unfollowed artist"
 	t.Run("Unfollowed artist", func(t *testing.T) {
-		cleanDatabase(t)
-		keptID := seedArtist(t, "ListAll Kept", "a4000000-0000-0000-0000-000000000002")
-		droppedID := seedArtist(t, "ListAll Dropped", "a4000000-0000-0000-0000-000000000003")
-		userID := seedUser(t, "ListAll User 3", "listall-user3@test.com", "ext-listall-03")
+		cleanTables(t, db)
+		keptID := seedArtist(t, db, "ListAll Kept", "a4000000-0000-0000-0000-000000000002")
+		droppedID := seedArtist(t, db, "ListAll Dropped", "a4000000-0000-0000-0000-000000000003")
+		userID := seedUser(t, db, "ListAll User 3", "listall-user3@test.com", "ext-listall-03")
 		require.NoError(t, followRepo.Follow(ctx, userID, keptID))
 		require.NoError(t, followRepo.Follow(ctx, userID, droppedID))
 		require.NoError(t, followRepo.Unfollow(ctx, userID, droppedID))
@@ -424,8 +434,8 @@ func TestFollowRepository_ListAll(t *testing.T) {
 
 	// @spec components/entity/follow/list-all "No follows"
 	t.Run("No follows", func(t *testing.T) {
-		cleanDatabase(t)
-		seedArtist(t, "ListAll Unfollowed", "a4000000-0000-0000-0000-000000000004")
+		cleanTables(t, db)
+		seedArtist(t, db, "ListAll Unfollowed", "a4000000-0000-0000-0000-000000000004")
 
 		got, err := followRepo.ListAll(ctx)
 
@@ -435,10 +445,10 @@ func TestFollowRepository_ListAll(t *testing.T) {
 
 	// @spec components/entity/follow/list-all "Followed artist whose activity has ended"
 	t.Run("Followed artist whose activity has ended", func(t *testing.T) {
-		cleanDatabase(t)
-		artistID := seedArtist(t, "ListAll Ended", "a4000000-0000-0000-0000-000000000005")
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "ListAll Ended", "a4000000-0000-0000-0000-000000000005")
 		require.NoError(t, artistRepo.UpdateActivityEnded(ctx, artistID, true))
-		userID := seedUser(t, "ListAll User 4", "listall-user4@test.com", "ext-listall-04")
+		userID := seedUser(t, db, "ListAll User 4", "listall-user4@test.com", "ext-listall-04")
 		require.NoError(t, followRepo.Follow(ctx, userID, artistID))
 
 		got, err := followRepo.ListAll(ctx)
@@ -451,7 +461,9 @@ func TestFollowRepository_ListAll(t *testing.T) {
 }
 
 func TestFollowRepository_ListFollowers(t *testing.T) {
-	followRepo := rdb.NewFollowRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	followRepo := rdb.NewFollowRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -463,8 +475,8 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		{
 			name: "empty when no followers",
 			setup: func() string {
-				cleanDatabase(t)
-				return seedArtist(t, "No Followers Artist", "a5000000-0000-0000-0000-000000000001")
+				cleanTables(t, db)
+				return seedArtist(t, db, "No Followers Artist", "a5000000-0000-0000-0000-000000000001")
 			},
 			check: func(t *testing.T, got []*entity.Follower) {
 				t.Helper()
@@ -474,20 +486,20 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		{
 			name: "returns followers with hype and home",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Followers Artist", "a5000000-0000-0000-0000-000000000002")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Followers Artist", "a5000000-0000-0000-0000-000000000002")
 
 				// User without home area.
-				noHomeUserID := seedUser(t, "No Home User", "nohome@test.com", "ext-nohome-01")
+				noHomeUserID := seedUser(t, db, "No Home User", "nohome@test.com", "ext-nohome-01")
 				err := followRepo.Follow(ctx, noHomeUserID, artistID)
 				require.NoError(t, err)
 				err = followRepo.SetHype(ctx, noHomeUserID, artistID, entity.HypeAway)
 				require.NoError(t, err)
 
 				// User with home area.
-				homeUserID := seedUser(t, "Home User", "home@test.com", "ext-home-01")
-				homeID := seedHome(t, "JP", "JP-13")
-				_, err = testDB.Pool.Exec(ctx,
+				homeUserID := seedUser(t, db, "Home User", "home@test.com", "ext-home-01")
+				homeID := seedHome(t, db, "JP", "JP-13")
+				_, err = db.Pool.Exec(ctx,
 					`UPDATE users SET home_id = $1 WHERE id = $2`,
 					homeID, homeUserID,
 				)
@@ -535,17 +547,17 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 			// HypeNearby followers (the default hype).
 			name: "populates home centroid",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Centroid Artist", "a5000000-0000-0000-0000-000000000004")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Centroid Artist", "a5000000-0000-0000-0000-000000000004")
 
-				userID := seedUser(t, "Centroid User", "centroid@test.com", "ext-centroid-01")
-				homeID := seedHome(t, "JP", "JP-13")
-				_, err := testDB.Pool.Exec(ctx,
+				userID := seedUser(t, db, "Centroid User", "centroid@test.com", "ext-centroid-01")
+				homeID := seedHome(t, db, "JP", "JP-13")
+				_, err := db.Pool.Exec(ctx,
 					`UPDATE homes SET centroid_latitude = $1, centroid_longitude = $2 WHERE id = $3`,
 					35.6762, 139.6503, homeID,
 				)
 				require.NoError(t, err)
-				_, err = testDB.Pool.Exec(ctx,
+				_, err = db.Pool.Exec(ctx,
 					`UPDATE users SET home_id = $1 WHERE id = $2`,
 					homeID, userID,
 				)
@@ -569,15 +581,15 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		{
 			name: "populates preferred_language",
 			setup: func() string {
-				cleanDatabase(t)
-				artistID := seedArtist(t, "Lang Artist", "a5000000-0000-0000-0000-000000000003")
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Lang Artist", "a5000000-0000-0000-0000-000000000003")
 
-				jaUserID := seedUser(t, "JA User", "ja@test.com", "ext-ja-01")
+				jaUserID := seedUser(t, db, "JA User", "ja@test.com", "ext-ja-01")
 				err := followRepo.Follow(ctx, jaUserID, artistID)
 				require.NoError(t, err)
 
-				enUserID := seedUser(t, "EN User", "en@test.com", "ext-en-01")
-				_, err = testDB.Pool.Exec(ctx,
+				enUserID := seedUser(t, db, "EN User", "en@test.com", "ext-en-01")
+				_, err = db.Pool.Exec(ctx,
 					`UPDATE users SET preferred_language = $1 WHERE id = $2`,
 					"en", enUserID,
 				)

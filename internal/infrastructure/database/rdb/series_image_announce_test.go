@@ -15,16 +15,18 @@ import (
 )
 
 func TestSeriesImageRepository_CreateRequestsProcessing(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewSeriesImageRepository(testDB, testOutbox)
+	repo := rdb.NewSeriesImageRepository(db, testOutbox)
 	newImage := func(t *testing.T) *entity.SeriesImage {
 		t.Helper()
-		return &entity.SeriesImage{ID: uuid.NewV7().String(), OrganizerID: seedOrganizer(t), Attributes: map[string]string{}}
+		return &entity.SeriesImage{ID: uuid.NewV7().String(), OrganizerID: seedOrganizer(t, db), Attributes: map[string]string{}}
 	}
 	requestsFor := func(t *testing.T, mark int64, seriesID, imageID string) []*entityv1.SeriesImage {
 		t.Helper()
 		var out []*entityv1.SeriesImage
-		for _, img := range announcedAbout(t, mark, entity.SubjectSeriesImageUploaded, seriesID, func() *entityv1.SeriesImage { return &entityv1.SeriesImage{} }) {
+		for _, img := range announcedAbout(t, db, mark, entity.SubjectSeriesImageUploaded, seriesID, func() *entityv1.SeriesImage { return &entityv1.SeriesImage{} }) {
 			if img.GetId().GetValue() == imageID {
 				out = append(out, img)
 			}
@@ -34,7 +36,7 @@ func TestSeriesImageRepository_CreateRequestsProcessing(t *testing.T) {
 	stored := func(t *testing.T, id string) int {
 		t.Helper()
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM series_images WHERE id = $1`, id).Scan(&n))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM series_images WHERE id = $1`, id).Scan(&n))
 		return n
 	}
 
@@ -42,7 +44,7 @@ func TestSeriesImageRepository_CreateRequestsProcessing(t *testing.T) {
 		// @spec components/entity/series-image/create "First attach"
 		// @spec components/infrastructure/backend/process/event-delivery "Request for a dedicated process"
 		img, seriesID := newImage(t), uuid.NewV7().String()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Create(ctx, img, seriesID))
 
@@ -55,7 +57,7 @@ func TestSeriesImageRepository_CreateRequestsProcessing(t *testing.T) {
 	t.Run("repeated attach", func(t *testing.T) {
 		// @spec components/entity/series-image/create "Repeated attach"
 		img, seriesID := newImage(t), uuid.NewV7().String()
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		require.NoError(t, repo.Create(ctx, img, seriesID))
 		require.NoError(t, repo.Create(ctx, img, seriesID))
@@ -68,7 +70,7 @@ func TestSeriesImageRepository_CreateRequestsProcessing(t *testing.T) {
 		// @spec components/entity/series-image/create "Request cannot be recorded"
 		img, seriesID := newImage(t), uuid.NewV7().String()
 
-		err := rdb.NewSeriesImageRepository(testDB, failingOutbox{}).Create(ctx, img, seriesID)
+		err := rdb.NewSeriesImageRepository(db, failingOutbox{}).Create(ctx, img, seriesID)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Zero(t, stored(t, img.ID))

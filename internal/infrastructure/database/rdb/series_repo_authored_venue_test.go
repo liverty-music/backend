@@ -17,17 +17,16 @@ import (
 // id) from the venues table, so the organizer List response can carry the
 // picked place.
 func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewSeriesRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewSeriesRepository(db, testOutbox)
 	ctx := context.Background()
 
-	organizerID := seedOrganizer(t)
-	artistID := seedArtist(t, "Authored Venue Artist", uuid.NewV4().String())
+	organizerID := seedOrganizer(t, db)
+	artistID := seedArtist(t, db, "Authored Venue Artist", uuid.NewV4().String())
 	placeID := "ChIJ-authored-" + uuid.NewV7().String()
 	venueID := uuid.NewV7().String()
-	_, err := testDB.Pool.Exec(ctx,
+	_, err := db.Pool.Exec(ctx,
 		`INSERT INTO venues (id, name, admin_area, google_place_id, latitude, longitude) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2, 35.5473958, 139.7565213)`,
 		venueID, placeID,
 	)

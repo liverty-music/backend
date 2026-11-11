@@ -33,10 +33,10 @@ type orderSeed struct {
 // insertOrder stores an order of the stock as s describes it, with a card
 // authorization recorded for it, and the captured payment a Paid or Refunded
 // order needs, and returns its id. Its source is stored by the caller.
-func insertOrder(t *testing.T, f *stockFixture, s orderSeed) entity.OrderID {
+func insertOrder(t *testing.T, db *rdb.Database, f *stockFixture, s orderSeed) entity.OrderID {
 	t.Helper()
 	if s.user == "" {
-		s.user = entity.UserID(seedFanUser(t))
+		s.user = entity.UserID(seedFanUser(t, db))
 	}
 	if s.count == 0 {
 		s.count = 1
@@ -58,11 +58,11 @@ func insertOrder(t *testing.T, f *stockFixture, s orderSeed) entity.OrderID {
 	if s.code != "" {
 		code = string(s.code)
 	}
-	_, err := testDB.Pool.Exec(context.Background(), `
+	_, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, referral_code, card_authorization_id, provider,
 			provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, 'JPY', $10)`,
-		id, string(s.user), string(f.ID), s.count, code, newCardAuthorizationID(), paymentID, int16(s.status), s.amount, payAt)
+		id, string(s.user), string(f.ID), s.count, code, newCardAuthorizationID(db), paymentID, int16(s.status), s.amount, payAt)
 	require.NoError(t, err)
 	return entity.OrderID(id)
 }
@@ -71,9 +71,9 @@ func insertOrder(t *testing.T, f *stockFixture, s orderSeed) entity.OrderID {
 // checkout of f's sale that names it, in the given status and held until
 // holdExpire, with the commit and capture times that status requires, and
 // returns the checkout's id.
-func insertCheckoutOrder(t *testing.T, f *stockFixture, s orderSeed, status entity.CheckoutStatus, holdExpire time.Time) entity.CheckoutID {
+func insertCheckoutOrder(t *testing.T, db *rdb.Database, f *stockFixture, s orderSeed, status entity.CheckoutStatus, holdExpire time.Time) entity.CheckoutID {
 	t.Helper()
-	orderID := insertOrder(t, f, s)
+	orderID := insertOrder(t, db, f, s)
 	id := entity.NewID()
 	var commitAt, captureAt any
 	switch status {
@@ -82,7 +82,7 @@ func insertCheckoutOrder(t *testing.T, f *stockFixture, s orderSeed, status enti
 	case entity.CheckoutStatusCompleted:
 		commitAt, captureAt = holdExpire.Add(-time.Minute), holdExpire
 	}
-	_, err := testDB.Pool.Exec(context.Background(), `
+	_, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO checkouts (id, order_id, ticket_sale_id, status, hold_expire_at, commit_at, capture_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		id, string(orderID), string(f.SaleID), int16(status), holdExpire, commitAt, captureAt)
@@ -95,7 +95,7 @@ func insertCheckoutOrder(t *testing.T, f *stockFixture, s orderSeed, status enti
 // Checkout of the stock's sale whose status follows from the Order's:
 // Completed for Paid and Refunded, Committed for Pending, Expired for Void.
 // It returns the Order's id.
-func seedCheckoutOrder(t *testing.T, f *stockFixture, status entity.OrderStatus, payAt time.Time) entity.OrderID {
+func seedCheckoutOrder(t *testing.T, db *rdb.Database, f *stockFixture, status entity.OrderStatus, payAt time.Time) entity.OrderID {
 	t.Helper()
 	checkoutStatus := map[entity.OrderStatus]entity.CheckoutStatus{
 		entity.OrderStatusPaid:     entity.CheckoutStatusCompleted,
@@ -104,27 +104,27 @@ func seedCheckoutOrder(t *testing.T, f *stockFixture, status entity.OrderStatus,
 		entity.OrderStatusVoid:     entity.CheckoutStatusExpired,
 	}[status]
 	require.NotZero(t, checkoutStatus, "unsupported order status %v", status)
-	id := insertCheckoutOrder(t, f, orderSeed{status: status, payAt: payAt}, checkoutStatus, payAt)
+	id := insertCheckoutOrder(t, db, f, orderSeed{status: status, payAt: payAt}, checkoutStatus, payAt)
 	var orderID string
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT order_id FROM checkouts WHERE id = $1`, string(id)).Scan(&orderID))
 	return entity.OrderID(orderID)
 }
 
 // entryOrderID returns the id of the order the lottery entry names.
-func entryOrderID(t *testing.T, id entity.LotteryEntryID) entity.OrderID {
+func entryOrderID(t *testing.T, db *rdb.Database, id entity.LotteryEntryID) entity.OrderID {
 	t.Helper()
 	var orderID string
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT order_id FROM lottery_entries WHERE id = $1`, string(id)).Scan(&orderID))
 	return entity.OrderID(orderID)
 }
 
 // paidOrderEntryID returns the id of the lottery entry that names the order.
-func paidOrderEntryID(t *testing.T, id entity.OrderID) entity.LotteryEntryID {
+func paidOrderEntryID(t *testing.T, db *rdb.Database, id entity.OrderID) entity.LotteryEntryID {
 	t.Helper()
 	var entryID string
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT id FROM lottery_entries WHERE order_id = $1`, string(id)).Scan(&entryID))
 	return entity.LotteryEntryID(entryID)
 }
@@ -139,23 +139,22 @@ func orderIDs(orders []*entity.Order) []entity.OrderID {
 }
 
 func TestOrderRepository_ListByUser(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
+	t.Parallel()
+	db := newTestDB(t)
+
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
+	repo := rdb.NewOrderRepository(db)
 
 	t.Run("paid and refunded orders", func(t *testing.T) {
 		// @spec components/entity/order/list-by-user "Paid and refunded orders"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		userID := nextFan(t)
-		paid := insertCheckoutOrder(t, f, orderSeed{user: userID, status: entity.OrderStatusPaid, payAt: issuedTicketsTime},
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		userID := nextFan(t, db)
+		paid := insertCheckoutOrder(t, db, f, orderSeed{user: userID, status: entity.OrderStatusPaid, payAt: issuedTicketsTime},
 			entity.CheckoutStatusCompleted, issuedTicketsTime)
-		refunded := seedPaidOrder(t, f, string(userID), 1, issuedTicketsTime.Add(time.Hour))
-		_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
+		refunded := seedPaidOrder(t, db, f, string(userID), 1, issuedTicketsTime.Add(time.Hour))
+		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
 		require.NoError(t, err)
-		seedPaidOrder(t, f, seedFanUser(t), 1, issuedTicketsTime) // another user's
+		seedPaidOrder(t, db, f, seedFanUser(t, db), 1, issuedTicketsTime) // another user's
 
 		got, err := repo.ListByUser(ctx, userID)
 
@@ -172,10 +171,10 @@ func TestOrderRepository_ListByUser(t *testing.T) {
 
 	t.Run("applications not bought", func(t *testing.T) {
 		// @spec components/entity/order/list-by-user "Applications not bought"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		userID := nextFan(t)
-		seedLotteryEntryWithState(t, f, string(userID), entity.LotteryEntryStateEntered, 2)
-		insertCheckoutOrder(t, f, orderSeed{user: userID, status: entity.OrderStatusVoid},
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		userID := nextFan(t, db)
+		seedLotteryEntryWithState(t, db, f, string(userID), entity.LotteryEntryStateEntered, 2)
+		insertCheckoutOrder(t, db, f, orderSeed{user: userID, status: entity.OrderStatusVoid},
 			entity.CheckoutStatusExpired, saleWindowStart)
 
 		got, err := repo.ListByUser(ctx, userID)
@@ -195,17 +194,16 @@ func TestOrderRepository_ListByUser(t *testing.T) {
 }
 
 func TestOrderRepository_GetByLotteryEntryID(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
+	repo := rdb.NewOrderRepository(db)
 
 	t.Run("issued entry", func(t *testing.T) {
 		// @spec components/entity/order/get-by-lottery-entry-id "Issued entry"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		orderID := seedPaidOrder(t, f, seedFanUser(t), 2, issuedTicketsTime)
-		entryID := paidOrderEntryID(t, orderID)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		orderID := seedPaidOrder(t, db, f, seedFanUser(t, db), 2, issuedTicketsTime)
+		entryID := paidOrderEntryID(t, db, orderID)
 
 		got, err := repo.GetByLotteryEntryID(ctx, entryID)
 
@@ -218,13 +216,13 @@ func TestOrderRepository_GetByLotteryEntryID(t *testing.T) {
 
 	t.Run("not yet issued", func(t *testing.T) {
 		// @spec components/entity/order/get-by-lottery-entry-id "Not yet issued"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		entryID := seedLotteryEntryWithState(t, f, seedFanUser(t), entity.LotteryEntryStateWon, 2)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		entryID := seedLotteryEntryWithState(t, db, f, seedFanUser(t, db), entity.LotteryEntryStateWon, 2)
 
 		got, err := repo.GetByLotteryEntryID(ctx, entryID)
 
 		require.NoError(t, err)
-		assert.Equal(t, entryOrderID(t, entryID), got.ID)
+		assert.Equal(t, entryOrderID(t, db, entryID), got.ID)
 		assert.Equal(t, entity.OrderStatusPending, got.Status)
 		assert.Equal(t, entryID, got.LotteryEntryID)
 		assert.Equal(t, 2, got.TicketCount)
@@ -241,18 +239,17 @@ func TestOrderRepository_GetByLotteryEntryID(t *testing.T) {
 }
 
 func TestOrderRepository_GetByCheckoutID(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
-	issuance := rdb.NewIssuanceRepository(testDB, testOutbox)
+	repo := rdb.NewOrderRepository(db)
+	checkouts := rdb.NewCheckoutRepository(db, testOutbox)
+	issuance := rdb.NewIssuanceRepository(db, testOutbox)
 	start := saleWindowStart.Add(time.Hour)
 
 	t.Run("paid checkout", func(t *testing.T) {
 		// @spec components/entity/order/get-by-checkout-id "Paid checkout"
-		c := completedCheckout(t, checkouts, issuance, start)
+		c := completedCheckout(t, db, checkouts, issuance, start)
 
 		got, err := repo.GetByCheckoutID(ctx, c.ID)
 
@@ -266,7 +263,7 @@ func TestOrderRepository_GetByCheckoutID(t *testing.T) {
 
 	t.Run("checkout not paid", func(t *testing.T) {
 		// @spec components/entity/order/get-by-checkout-id "Checkout not paid"
-		c := heldCheckout(t, checkouts, 1, start)
+		c := heldCheckout(t, db, checkouts, 1, start)
 
 		got, err := repo.GetByCheckoutID(ctx, c.ID)
 
@@ -285,20 +282,19 @@ func TestOrderRepository_GetByCheckoutID(t *testing.T) {
 }
 
 func TestOrderRepository_ListByEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
+	repo := rdb.NewOrderRepository(db)
 
 	t.Run("paid and refunded orders", func(t *testing.T) {
 		// @spec components/entity/order/list-by-event "Paid and refunded orders"
-		firstCome := seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
-		lottery := seedStockForEvent(t, firstCome.EventID, entity.TicketSaleMethodLottery, 10, 4)
-		refunded := seedPaidOrder(t, lottery, seedFanUser(t), 1, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
-		_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
+		firstCome := seedStock(t, db, entity.TicketSaleMethodFirstCome, 10, 4)
+		lottery := seedStockForEvent(t, db, firstCome.EventID, entity.TicketSaleMethodLottery, 10, 4)
+		refunded := seedPaidOrder(t, db, lottery, seedFanUser(t, db), 1, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
+		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
 		require.NoError(t, err)
-		paid := seedCheckoutOrder(t, firstCome, entity.OrderStatusPaid, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC))
+		paid := seedCheckoutOrder(t, db, firstCome, entity.OrderStatusPaid, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC))
 
 		got, err := repo.ListByEvent(ctx, firstCome.EventID)
 
@@ -312,10 +308,10 @@ func TestOrderRepository_ListByEvent(t *testing.T) {
 
 	t.Run("pending and void orders", func(t *testing.T) {
 		// @spec components/entity/order/list-by-event "Pending and void orders"
-		lottery := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
-		firstCome := seedStockForEvent(t, lottery.EventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		seedLotteryEntryWithState(t, lottery, seedFanUser(t), entity.LotteryEntryStateEntered, 2)
-		seedCheckoutOrder(t, firstCome, entity.OrderStatusVoid, saleWindowStart)
+		lottery := seedStock(t, db, entity.TicketSaleMethodLottery, 10, 4)
+		firstCome := seedStockForEvent(t, db, lottery.EventID, entity.TicketSaleMethodFirstCome, 10, 4)
+		seedLotteryEntryWithState(t, db, lottery, seedFanUser(t, db), entity.LotteryEntryStateEntered, 2)
+		seedCheckoutOrder(t, db, firstCome, entity.OrderStatusVoid, saleWindowStart)
 
 		got, err := repo.ListByEvent(ctx, lottery.EventID)
 
@@ -326,10 +322,10 @@ func TestOrderRepository_ListByEvent(t *testing.T) {
 
 	t.Run("orders of another event", func(t *testing.T) {
 		// @spec components/entity/order/list-by-event "Orders of another event"
-		events := seedFirstPartyEvents(t, "PUBLISHED", "PUBLISHED")
-		other := seedStockForEvent(t, events[1], entity.TicketSaleMethodFirstCome, 10, 4)
-		seedStockForEvent(t, events[0], entity.TicketSaleMethodFirstCome, 10, 4)
-		seedCheckoutOrder(t, other, entity.OrderStatusPaid, issuedTicketsTime)
+		events := seedFirstPartyEvents(t, db, "PUBLISHED", "PUBLISHED")
+		other := seedStockForEvent(t, db, events[1], entity.TicketSaleMethodFirstCome, 10, 4)
+		seedStockForEvent(t, db, events[0], entity.TicketSaleMethodFirstCome, 10, 4)
+		seedCheckoutOrder(t, db, other, entity.OrderStatusPaid, issuedTicketsTime)
 
 		got, err := repo.ListByEvent(ctx, events[0])
 
@@ -347,16 +343,15 @@ func TestOrderRepository_ListByEvent(t *testing.T) {
 }
 
 func TestOrderRepository_GetEventID(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
+	repo := rdb.NewOrderRepository(db)
 
 	t.Run("order from a checkout", func(t *testing.T) {
 		// @spec components/entity/order/get-event-id "Order from a checkout"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 10, 4)
-		orderID := seedCheckoutOrder(t, f, entity.OrderStatusPaid, issuedTicketsTime)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 10, 4)
+		orderID := seedCheckoutOrder(t, db, f, entity.OrderStatusPaid, issuedTicketsTime)
 
 		got, err := repo.GetEventID(ctx, orderID)
 
@@ -366,10 +361,10 @@ func TestOrderRepository_GetEventID(t *testing.T) {
 
 	t.Run("order from a won lottery entry", func(t *testing.T) {
 		// @spec components/entity/order/get-event-id "Order from a won lottery entry"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 10, 4)
-		entryID := seedLotteryEntryWithState(t, f, seedFanUser(t), entity.LotteryEntryStateWon, 1)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 10, 4)
+		entryID := seedLotteryEntryWithState(t, db, f, seedFanUser(t, db), entity.LotteryEntryStateWon, 1)
 
-		got, err := repo.GetEventID(ctx, entryOrderID(t, entryID))
+		got, err := repo.GetEventID(ctx, entryOrderID(t, db, entryID))
 
 		require.NoError(t, err)
 		assert.Equal(t, f.EventID, got)
@@ -384,21 +379,20 @@ func TestOrderRepository_GetEventID(t *testing.T) {
 }
 
 func TestOrderRepository_GetHeldForEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
+	t.Parallel()
+	db := newTestDB(t)
+
 	ctx := context.Background()
-	repo := rdb.NewOrderRepository(testDB)
-	checkouts := rdb.NewCheckoutRepository(testDB, testOutbox)
+	repo := rdb.NewOrderRepository(db)
+	checkouts := rdb.NewCheckoutRepository(db, testOutbox)
 	at := saleWindowStart.Add(time.Hour)
 	seatType := func(f *stockFixture) *entity.SeatTypeID { return &f.SeatType.ID }
 
 	t.Run("paid and pending orders", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Paid and pending orders"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		seedIssuedTicketsOf(t, f, string(fan), 2)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		seedIssuedTicketsOf(t, db, f, string(fan), 2)
 		_, err := checkouts.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 1, nil, at)
 		require.NoError(t, err)
 
@@ -410,9 +404,9 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("entered lottery entry", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Entered lottery entry"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 100, 4)
-		fan := nextFan(t)
-		seedLotteryEntryWithState(t, f, string(fan), entity.LotteryEntryStateEntered, 2)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+		fan := nextFan(t, db)
+		seedLotteryEntryWithState(t, db, f, string(fan), entity.LotteryEntryStateEntered, 2)
 
 		got, err := repo.GetHeldForEvent(ctx, fan, f.EventID, nil, at)
 
@@ -422,10 +416,10 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("resold ticket", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Resold ticket"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		tickets := seedIssuedTicketsOf(t, f, string(fan), 2)
-		voidTickets(t, tickets[0])
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		tickets := seedIssuedTicketsOf(t, db, f, string(fan), 2)
+		voidTickets(t, db, tickets[0])
 
 		got, err := repo.GetHeldForEvent(ctx, fan, f.EventID, nil, at)
 
@@ -435,9 +429,9 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("every ticket resold", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Every ticket resold"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		voidTickets(t, seedIssuedTicketsOf(t, f, string(fan), 2)...)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		voidTickets(t, db, seedIssuedTicketsOf(t, db, f, string(fan), 2)...)
 
 		got, err := repo.GetHeldForEvent(ctx, fan, f.EventID, nil, at)
 
@@ -447,9 +441,9 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("void order", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Void order"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		insertCheckoutOrder(t, f, orderSeed{user: fan, count: 2, status: entity.OrderStatusVoid}, entity.CheckoutStatusExpired, at)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		insertCheckoutOrder(t, db, f, orderSeed{user: fan, count: 2, status: entity.OrderStatusVoid}, entity.CheckoutStatusExpired, at)
 
 		got, err := repo.GetHeldForEvent(ctx, fan, f.EventID, nil, at)
 
@@ -459,11 +453,11 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("another event", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Another event"
-		events := seedFirstPartyEvents(t, "PUBLISHED", "PUBLISHED")
-		seedStockForEvent(t, events[0], entity.TicketSaleMethodFirstCome, 100, 4)
-		other := seedStockForEvent(t, events[1], entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		seedIssuedTicketsOf(t, other, string(fan), 2)
+		events := seedFirstPartyEvents(t, db, "PUBLISHED", "PUBLISHED")
+		seedStockForEvent(t, db, events[0], entity.TicketSaleMethodFirstCome, 100, 4)
+		other := seedStockForEvent(t, db, events[1], entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		seedIssuedTicketsOf(t, db, other, string(fan), 2)
 
 		got, err := repo.GetHeldForEvent(ctx, fan, events[0], nil, at)
 
@@ -473,8 +467,8 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("holding checkout left out", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Holding checkout left out"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
 		c, err := checkouts.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
 		require.NoError(t, err)
 
@@ -489,8 +483,8 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("lapsed hold", func(t *testing.T) {
 		// @spec components/entity/order/get-held-for-event "Lapsed hold"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
 		c, err := checkouts.GetOrCreateHeld(ctx, f.ID, f.SaleID, fan, 2, nil, at)
 		require.NoError(t, err)
 
@@ -502,11 +496,11 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 
 	t.Run("committed checkout and refunded order", func(t *testing.T) {
 		// A Committed checkout still counts; a Refunded order does not.
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 100, 4)
-		fan := nextFan(t)
-		insertCheckoutOrder(t, f, orderSeed{user: fan, count: 2, status: entity.OrderStatusPending}, entity.CheckoutStatusCommitted, at)
-		refunded := seedPaidOrder(t, f, string(fan), 2, issuedTicketsTime)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 100, 4)
+		fan := nextFan(t, db)
+		insertCheckoutOrder(t, db, f, orderSeed{user: fan, count: 2, status: entity.OrderStatusPending}, entity.CheckoutStatusCommitted, at)
+		refunded := seedPaidOrder(t, db, f, string(fan), 2, issuedTicketsTime)
+		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 2 WHERE id = $1`, string(refunded))
 		require.NoError(t, err)
 
 		got, err := repo.GetHeldForEvent(ctx, fan, f.EventID, nil, at.Add(time.Hour))
@@ -517,10 +511,10 @@ func TestOrderRepository_GetHeldForEvent(t *testing.T) {
 }
 
 // voidTickets marks the tickets Voided, as a resale of them does.
-func voidTickets(t *testing.T, ids ...entity.TicketID) {
+func voidTickets(t *testing.T, db *rdb.Database, ids ...entity.TicketID) {
 	t.Helper()
 	for _, id := range ids {
-		_, err := testDB.Pool.Exec(context.Background(), `UPDATE tickets SET status = 2 WHERE id = $1`, string(id))
+		_, err := db.Pool.Exec(context.Background(), `UPDATE tickets SET status = 2 WHERE id = $1`, string(id))
 		require.NoError(t, err)
 	}
 }

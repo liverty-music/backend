@@ -15,28 +15,30 @@ import (
 )
 
 func TestTicketRepository_AdmitAnnounces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewTicketRepository(testDB, testOutbox)
+	repo := rdb.NewTicketRepository(db, testOutbox)
 
 	// admittedOf returns the admission announcements of the ticket recorded
 	// after mark.
 	admittedOf := func(t *testing.T, mark int64, ticket entity.TicketID) []*entityv1.Ticket {
 		t.Helper()
-		return announcedSince(t, mark, entity.SubjectTicketAdmitted, func() *entityv1.Ticket { return &entityv1.Ticket{} },
+		return announcedSince(t, db, mark, entity.SubjectTicketAdmitted, func() *entityv1.Ticket { return &entityv1.Ticket{} },
 			func(got *entityv1.Ticket) bool { return got.GetId().GetValue() == string(ticket) })
 	}
 	// newTicket seeds an Issued ticket of its own event and a Scanner for it.
 	newTicket := func(t *testing.T) (entity.TicketID, *entity.Scanner) {
 		t.Helper()
-		eventID := seedAdmissionEvent(t)
-		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		return seedIssuedTickets(t, eventID, fan, 1)[0], seedScanner(t, eventID)
+		eventID := seedAdmissionEvent(t, db)
+		fan := seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		return seedIssuedTickets(t, db, eventID, fan, 1)[0], seedScanner(t, db, eventID)
 	}
 
 	t.Run("first admission announced", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "First admission announced"
 		ticket, scanner := newTicket(t)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		_, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
@@ -51,7 +53,7 @@ func TestTicketRepository_AdmitAnnounces(t *testing.T) {
 		ticket, scanner := newTicket(t)
 		_, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 40))
 		require.NoError(t, err)
@@ -62,9 +64,9 @@ func TestTicketRepository_AdmitAnnounces(t *testing.T) {
 	t.Run("voided ticket", func(t *testing.T) {
 		// @spec components/entity/ticket/admit "Voided ticket"
 		ticket, scanner := newTicket(t)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(ticket))
+		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(ticket))
 		require.NoError(t, err)
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		require.NoError(t, err)
@@ -76,11 +78,11 @@ func TestTicketRepository_AdmitAnnounces(t *testing.T) {
 		// @spec components/entity/ticket/admit "Announcement cannot be recorded"
 		ticket, scanner := newTicket(t)
 
-		_, err := rdb.NewTicketRepository(testDB, failingOutbox{}).Admit(ctx, ticket, scanner.ID, nov20(18, 32))
+		_, err := rdb.NewTicketRepository(db, failingOutbox{}).Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 
 		var admitted, admissions int
-		require.NoError(t, testDB.Pool.QueryRow(ctx,
+		require.NoError(t, db.Pool.QueryRow(ctx,
 			`SELECT (SELECT count(*) FROM tickets WHERE id = $1 AND admit_at IS NOT NULL), (SELECT count(*) FROM admissions WHERE ticket_id = $1)`,
 			string(ticket)).Scan(&admitted, &admissions))
 		assert.Zero(t, admitted, "the Ticket has no admit time")

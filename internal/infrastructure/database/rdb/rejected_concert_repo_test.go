@@ -13,11 +13,13 @@ import (
 )
 
 func TestRejectedConcertRepository_Append(t *testing.T) {
-	repo := rdb.NewRejectedConcertRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewRejectedConcertRepository(db)
 	ctx := context.Background()
 
 	t.Run("appends a rejection log entry", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		// rejected_concerts.artist_id has no FK, so no artist seed needed.
 		artistID := uuid.NewV7().String()
@@ -50,7 +52,7 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 
 		// Verify the row was inserted by counting rows in the table.
 		var count int
-		err = testDB.Pool.QueryRow(ctx,
+		err = db.Pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM rejected_concerts WHERE id = $1`, entry.ID,
 		).Scan(&count)
 		require.NoError(t, err)
@@ -58,7 +60,7 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 	})
 
 	t.Run("appends multiple entries for the same artist independently", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artistID := uuid.NewV7().String()
 		localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -77,7 +79,7 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 		}
 
 		var count int
-		err := testDB.Pool.QueryRow(ctx,
+		err := db.Pool.QueryRow(ctx,
 			`SELECT COUNT(*) FROM rejected_concerts WHERE artist_id = $1`, artistID,
 		).Scan(&count)
 		require.NoError(t, err)
@@ -85,7 +87,7 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 	})
 
 	t.Run("nil reviewed_by is stored as NULL", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		artistID := uuid.NewV7().String()
 		entryID := uuid.NewV7().String()
@@ -104,7 +106,7 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 		require.NoError(t, repo.Append(ctx, entry))
 
 		var reviewedBy *string
-		err := testDB.Pool.QueryRow(ctx,
+		err := db.Pool.QueryRow(ctx,
 			`SELECT reviewed_by FROM rejected_concerts WHERE id = $1`, entryID,
 		).Scan(&reviewedBy)
 		require.NoError(t, err)

@@ -22,11 +22,10 @@ func seatTypeNames(types []*entity.SeatType) []string {
 }
 
 func TestSeatTypeRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewSeatTypeRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewSeatTypeRepository(db)
 	ctx := context.Background()
 
 	listed := func(t *testing.T, seriesID string) []*entity.SeatType {
@@ -38,7 +37,7 @@ func TestSeatTypeRepository_Create(t *testing.T) {
 
 	t.Run("seat type stored", func(t *testing.T) {
 		// @spec components/entity/seat-type/create "Seat type stored"
-		seriesID := seriesOf(t, seedPublishedEvent(t))
+		seriesID := seriesOf(t, db, seedPublishedEvent(t, db))
 		st := entity.NewSeatType(seriesID, "S席", 8000)
 
 		got, err := repo.Create(ctx, st)
@@ -52,7 +51,7 @@ func TestSeatTypeRepository_Create(t *testing.T) {
 
 	t.Run("same name twice", func(t *testing.T) {
 		// @spec components/entity/seat-type/create "Same name twice"
-		seriesID := seriesOf(t, seedPublishedEvent(t))
+		seriesID := seriesOf(t, db, seedPublishedEvent(t, db))
 		first, err := repo.Create(ctx, entity.NewSeatType(seriesID, "S席", 8000))
 		require.NoError(t, err)
 
@@ -63,17 +62,17 @@ func TestSeatTypeRepository_Create(t *testing.T) {
 	})
 
 	t.Run("same name in another series", func(t *testing.T) {
-		_, err := repo.Create(ctx, entity.NewSeatType(seriesOf(t, seedPublishedEvent(t)), "S席", 8000))
+		_, err := repo.Create(ctx, entity.NewSeatType(seriesOf(t, db, seedPublishedEvent(t, db)), "S席", 8000))
 		require.NoError(t, err)
 
-		_, err = repo.Create(ctx, entity.NewSeatType(seriesOf(t, seedPublishedEvent(t)), "S席", 8000))
+		_, err = repo.Create(ctx, entity.NewSeatType(seriesOf(t, db, seedPublishedEvent(t, db)), "S席", 8000))
 
 		assert.NoError(t, err)
 	})
 
 	t.Run("discovered series", func(t *testing.T) {
 		// @spec components/entity/seat-type/create "Discovered series"
-		seriesID := seedSeriesOnly(t, "Found Tour")
+		seriesID := seedSeriesOnly(t, db, "Found Tour")
 
 		_, err := repo.Create(ctx, entity.NewSeatType(seriesID, "S席", 8000))
 
@@ -89,7 +88,7 @@ func TestSeatTypeRepository_Create(t *testing.T) {
 
 	t.Run("invalid price", func(t *testing.T) {
 		// @spec components/entity/seat-type/create "Invalid price"
-		seriesID := seriesOf(t, seedPublishedEvent(t))
+		seriesID := seriesOf(t, db, seedPublishedEvent(t, db))
 
 		_, err := repo.Create(ctx, entity.NewSeatType(seriesID, "S席", 0))
 
@@ -99,16 +98,15 @@ func TestSeatTypeRepository_Create(t *testing.T) {
 }
 
 func TestSeatTypeRepository_Get(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewSeatTypeRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewSeatTypeRepository(db)
 	ctx := context.Background()
 
 	t.Run("seat type found", func(t *testing.T) {
 		// @spec components/entity/seat-type/get "Seat type found"
-		seriesID := seriesOf(t, seedPublishedEvent(t))
+		seriesID := seriesOf(t, db, seedPublishedEvent(t, db))
 		st, err := repo.Create(ctx, entity.NewSeatType(seriesID, "S席", 8000))
 		require.NoError(t, err)
 
@@ -129,16 +127,15 @@ func TestSeatTypeRepository_Get(t *testing.T) {
 }
 
 func TestSeatTypeRepository_ListBySeries(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewSeatTypeRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewSeatTypeRepository(db)
 	ctx := context.Background()
 
 	t.Run("three seat types", func(t *testing.T) {
 		// @spec components/entity/seat-type/list-by-series "Three seat types"
-		seriesID := seriesOf(t, seedPublishedEvent(t))
+		seriesID := seriesOf(t, db, seedPublishedEvent(t, db))
 		for _, st := range []*entity.SeatType{
 			entity.NewSeatType(seriesID, "B席", 7000),
 			entity.NewSeatType(seriesID, "S席", 9000),
@@ -147,7 +144,7 @@ func TestSeatTypeRepository_ListBySeries(t *testing.T) {
 			_, err := repo.Create(ctx, st)
 			require.NoError(t, err)
 		}
-		_, err := repo.Create(ctx, entity.NewSeatType(seriesOf(t, seedPublishedEvent(t)), "SS席", 20000))
+		_, err := repo.Create(ctx, entity.NewSeatType(seriesOf(t, db, seedPublishedEvent(t, db)), "SS席", 20000))
 		require.NoError(t, err)
 
 		got, err := repo.ListBySeries(ctx, seriesID)
@@ -158,7 +155,7 @@ func TestSeatTypeRepository_ListBySeries(t *testing.T) {
 
 	t.Run("no seat type", func(t *testing.T) {
 		// @spec components/entity/seat-type/list-by-series "No seat type"
-		got, err := repo.ListBySeries(ctx, seriesOf(t, seedPublishedEvent(t)))
+		got, err := repo.ListBySeries(ctx, seriesOf(t, db, seedPublishedEvent(t, db)))
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -173,16 +170,15 @@ func TestSeatTypeRepository_ListBySeries(t *testing.T) {
 }
 
 func TestSeatTypeRepository_Delete(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	cleanDatabase(t)
-	repo := rdb.NewSeatTypeRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+
+	repo := rdb.NewSeatTypeRepository(db)
 	ctx := context.Background()
 
 	t.Run("unused seat type", func(t *testing.T) {
 		// @spec components/entity/seat-type/delete "Unused seat type"
-		st := seatTypeOf(t, seedPublishedEvent(t), "S席", 8000)
+		st := seatTypeOf(t, db, seedPublishedEvent(t, db), "S席", 8000)
 
 		require.NoError(t, repo.Delete(ctx, st.ID))
 
@@ -192,7 +188,7 @@ func TestSeatTypeRepository_Delete(t *testing.T) {
 
 	t.Run("stocked seat type", func(t *testing.T) {
 		// @spec components/entity/seat-type/delete "Stocked seat type"
-		f := seedStock(t, entity.TicketSaleMethodFirstCome, 150, 4)
+		f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
 
 		err := repo.Delete(ctx, f.SeatType.ID)
 
@@ -202,11 +198,11 @@ func TestSeatTypeRepository_Delete(t *testing.T) {
 	})
 
 	t.Run("stock created while the delete runs", func(t *testing.T) {
-		eventID := seedPublishedEvent(t)
-		st := seatTypeOf(t, eventID, "S席", 8000)
+		eventID := seedPublishedEvent(t, db)
+		st := seatTypeOf(t, db, eventID, "S席", 8000)
 		// The stock insert takes a key-share lock on the seat type row and
 		// commits only once the delete waits for it.
-		create, err := testDB.Pool.Begin(ctx)
+		create, err := db.Pool.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = create.Rollback(ctx) }()
 		_, err = create.Exec(ctx, `INSERT INTO ticket_stocks (id, event_id, seat_type_id, quantity) VALUES ($1, $2, $3, 10)`,
@@ -217,7 +213,7 @@ func TestSeatTypeRepository_Delete(t *testing.T) {
 
 		deleted := make(chan error, 1)
 		go func() { deleted <- repo.Delete(ctx, st.ID) }()
-		require.Eventually(t, backendBlocking(t, pid), 5*time.Second, 20*time.Millisecond, "the delete waits for the stock insert")
+		require.Eventually(t, backendBlocking(t, db, pid), 5*time.Second, 20*time.Millisecond, "the delete waits for the stock insert")
 		require.NoError(t, create.Commit(ctx))
 
 		assert.ErrorIs(t, <-deleted, apperr.ErrFailedPrecondition)

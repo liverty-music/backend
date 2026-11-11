@@ -85,6 +85,8 @@ type storyFollowMetrics struct{}
 func (storyFollowMetrics) RecordFollow(context.Context, string) {}
 
 type discoverStory struct {
+	// db is the database of the test.
+	db         *rdb.Database
 	t          *testing.T
 	ctx        context.Context
 	artistRepo *rdb.ArtistRepository
@@ -97,16 +99,17 @@ type discoverStory struct {
 	mb         *storyMusicBrainz
 }
 
-func newDiscoverStory(t *testing.T) *discoverStory {
+func newDiscoverStory(t *testing.T, db *rdb.Database) *discoverStory {
 	t.Helper()
-	cleanDatabase(t)
+	cleanTables(t, db)
 	logger, err := logging.New()
 	require.NoError(t, err)
 
 	s := &discoverStory{
+		db:         db,
 		t:          t,
 		ctx:        context.Background(),
-		artistRepo: rdb.NewArtistRepository(testDB, testOutbox),
+		artistRepo: rdb.NewArtistRepository(db, testOutbox),
 		logger:     logger,
 		found:      &storyArtistCatalog{},
 		catalog:    &storyImageCatalog{lookups: map[string]int{}},
@@ -115,7 +118,7 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 	discoveries := cache.NewMemoryCache(usecase.ArtistCacheTTL)
 	t.Cleanup(func() { _ = discoveries.Close() })
 	s.artists = usecase.NewArtistUseCase(s.artistRepo, nil, s.found, s.mb, discoveries, time.Now, logger)
-	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(testDB, testOutbox), s.artistRepo, storyNoOfficialSite{},
+	s.follows = usecase.NewFollowUseCase(rdb.NewFollowRepository(db, testOutbox), s.artistRepo, storyNoOfficialSite{},
 		storyFollowMetrics{}, logger)
 	s.imageSync = usecase.NewArtistImageSyncUseCase(s.artistRepo, s.catalog, logger)
 	return s
@@ -125,7 +128,7 @@ func newDiscoverStory(t *testing.T) *discoverStory {
 // after mark.
 func (s *discoverStory) createdSince(mark int64, mbid string) []*entityv1.Artist {
 	s.t.Helper()
-	return announcedSince(s.t, mark, entity.SubjectArtistCreated, func() *entityv1.Artist { return &entityv1.Artist{} },
+	return announcedSince(s.t, s.db, mark, entity.SubjectArtistCreated, func() *entityv1.Artist { return &entityv1.Artist{} },
 		func(a *entityv1.Artist) bool { return a.GetMbid().GetValue() == mbid })
 }
 
@@ -153,7 +156,7 @@ func (s *discoverStory) register(name string) *entity.Artist {
 func (s *discoverStory) follow(artistID string) {
 	s.t.Helper()
 	ext := uuid.NewV4().String()
-	userID := seedUser(s.t, "Fan", ext+"@example.com", ext)
+	userID := seedUser(s.t, s.db, "Fan", ext+"@example.com", ext)
 	require.NoError(s.t, s.follows.Follow(s.ctx, userID, artistID))
 }
 
@@ -223,17 +226,16 @@ func daysBefore(n int) time.Time {
 }
 
 func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("a newly found artist is registered and gets its canonical name and images", func(t *testing.T) {
 		// @spec stories/discover-artists "Newly discovered artist"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		mbid := uuid.NewV4().String()
 		s.mb.names[mbid] = "ヨルシカ"
 		s.found.results = []*entity.Artist{{Name: "yorushika", MBID: mbid}}
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := s.artists.Search(s.ctx, "yorushika")
 
@@ -259,10 +261,10 @@ func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
 
 	t.Run("a chart listing a registered artist returns it and announces nothing", func(t *testing.T) {
 		// @spec stories/discover-artists "Already registered artist"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		artist := s.register("Known Band")
 		s.found.results = []*entity.Artist{{Name: "Known Band", MBID: artist.MBID}}
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		got, err := s.artists.ListTop(s.ctx, "JP", "", 10)
 
@@ -274,13 +276,12 @@ func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
 }
 
 func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	t.Run("a followed artist's stale images are checked again", func(t *testing.T) {
 		// @spec stories/discover-artists "Stale images"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		artist := s.register("Stale Band")
 		s.follow(artist.ID)
 		s.runDaily()
@@ -296,7 +297,7 @@ func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
 
 	t.Run("an artist nobody follows keeps the images of its last check", func(t *testing.T) {
 		// @spec stories/discover-artists "Artist nobody follows"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		artist := s.register("Searched Band")
 		s.runDaily()
 		require.Equal(t, 1, s.catalog.lookups[artist.MBID], "the first check happens whoever registered the artist")
@@ -316,7 +317,7 @@ func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
 
 	t.Run("an artist followed later is checked again by the next run", func(t *testing.T) {
 		// @spec stories/discover-artists "Artist followed later"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		artist := s.register("Later Band")
 		s.runDaily()
 		s.checkedAt(artist.ID, daysBefore(30))
@@ -333,7 +334,7 @@ func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
 
 	t.Run("an artist registered directly is first checked by the next run", func(t *testing.T) {
 		// @spec stories/discover-artists "Artist registered directly"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		artist := s.register("Direct Band")
 		got, err := s.artistRepo.Get(s.ctx, artist.ID)
 		require.NoError(t, err)
@@ -348,9 +349,8 @@ func TestStory_DiscoverArtists_ImagesKeptCurrent(t *testing.T) {
 }
 
 func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
 	// dissolve marks the artist as dissolved in the catalog and refreshes it,
 	// as the announcement or the daily run does.
@@ -363,7 +363,7 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 
 	t.Run("the chart leaves out a dissolved group", func(t *testing.T) {
 		// @spec stories/discover-artists "Dissolved group in the chart"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		active := s.register("Active Band")
 		dissolved := s.register("SMAP")
 		dissolve(s, dissolved)
@@ -380,7 +380,7 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 
 	t.Run("a name search still finds a dissolved group", func(t *testing.T) {
 		// @spec stories/discover-artists "Name search for a dissolved group"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		dissolved := s.register("SMAP")
 		dissolve(s, dissolved)
 		s.found.results = []*entity.Artist{{Name: "SMAP", MBID: dissolved.MBID}}
@@ -393,7 +393,7 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 
 	t.Run("a group nobody follows is left out within 30 days of dissolving", func(t *testing.T) {
 		// @spec stories/discover-artists "Group dissolves after it was registered"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		seed := s.register("Seed Band")
 		active := s.register("Active Band")
 		group := s.register("BiSH")
@@ -417,13 +417,13 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 
 	t.Run("an ended artist found for the first time is left out once refreshed", func(t *testing.T) {
 		// @spec stories/discover-artists "Ended artist found for the first time"
-		s := newDiscoverStory(t)
+		s := newDiscoverStory(t, db)
 		seed := s.register("Seed Band")
 		mbid := uuid.NewV4().String()
 		s.mb.names[mbid] = "The Beatles"
 		s.mb.ended[mbid] = true
 		s.found.results = []*entity.Artist{{Name: "The Beatles", MBID: mbid}}
-		mark := outboxMark(t)
+		mark := outboxMark(t, db)
 
 		first, err := s.artists.ListSimilar(s.ctx, seed.ID, 0)
 

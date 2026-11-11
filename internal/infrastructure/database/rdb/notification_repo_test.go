@@ -23,22 +23,24 @@ func newTestNotification(userID string) *entity.Notification {
 }
 
 // notificationCount counts the stored Notifications of the fan.
-func notificationCount(t *testing.T, userID string) int {
+func notificationCount(t *testing.T, db *rdb.Database, userID string) int {
 	t.Helper()
 	var n int
-	require.NoError(t, testDB.Pool.QueryRow(context.Background(),
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM notifications WHERE user_id = $1`, userID).Scan(&n))
 	return n
 }
 
 func TestNotificationRepository_Create(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewNotificationRepository(db)
 	ctx := context.Background()
 
 	// @spec components/entity/notification/create "Notification recorded"
 	t.Run("Notification recorded", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-create-user", "notif-create@example.com", "ext-notif-create-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-create-user", "notif-create@example.com", "ext-notif-create-01")
 		n := newTestNotification(userID)
 
 		require.NoError(t, repo.Create(ctx, n))
@@ -53,8 +55,8 @@ func TestNotificationRepository_Create(t *testing.T) {
 
 	// @spec components/entity/notification/create "Two notifications"
 	t.Run("Two notifications", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-two-user", "notif-two@example.com", "ext-notif-two-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-two-user", "notif-two@example.com", "ext-notif-two-01")
 		first := newTestNotification(userID)
 		second := &entity.Notification{UserID: userID, Type: first.Type, Subject: first.Subject}
 
@@ -62,40 +64,42 @@ func TestNotificationRepository_Create(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, second))
 
 		assert.NotEqual(t, first.ID, second.ID)
-		assert.Equal(t, 2, notificationCount(t, userID))
+		assert.Equal(t, 2, notificationCount(t, db, userID))
 	})
 
 	// @spec components/entity/notification/create "Unknown fan"
 	t.Run("Unknown fan", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		unknown := entity.NewID()
 
 		err := repo.Create(ctx, newTestNotification(unknown))
 
 		assertAppErrCode(t, err, codes.FailedPrecondition)
-		assert.Zero(t, notificationCount(t, unknown))
+		assert.Zero(t, notificationCount(t, db, unknown))
 	})
 
 	// @spec components/entity/notification/create "Subject missing a record"
 	t.Run("Subject missing a record", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-invalid-user", "notif-invalid@example.com", "ext-notif-invalid-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-invalid-user", "notif-invalid@example.com", "ext-notif-invalid-01")
 
 		err := repo.Create(ctx, &entity.Notification{UserID: userID, Type: entity.NotificationTypeLotteryLoss})
 
 		assertAppErrCode(t, err, codes.InvalidArgument)
-		assert.Zero(t, notificationCount(t, userID))
+		assert.Zero(t, notificationCount(t, db, userID))
 	})
 }
 
 func TestNotificationRepository_Get(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewNotificationRepository(db)
 	ctx := context.Background()
 
 	// @spec components/entity/notification/get "Existing notification"
 	t.Run("Existing notification", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-get-user", "notif-get@example.com", "ext-notif-get-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-get-user", "notif-get@example.com", "ext-notif-get-01")
 		subject := entity.NotificationSubject{
 			TicketSaleID: entity.NewID(),
 			Stage:        entity.ReminderStageApplyClose24H,
@@ -121,7 +125,7 @@ func TestNotificationRepository_Get(t *testing.T) {
 
 	// @spec components/entity/notification/get "Unknown id"
 	t.Run("Unknown id", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		_, err := repo.Get(ctx, entity.NewID())
 
@@ -130,12 +134,13 @@ func TestNotificationRepository_Get(t *testing.T) {
 }
 
 func TestNotificationRepository_MarkRead(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewNotificationRepository(db)
 	ctx := context.Background()
 
-	cleanDatabase(t)
-	userID := seedUser(t, "notif-read-user", "notif-read@example.com", "ext-notif-read-01")
-	otherID := seedUser(t, "notif-read-other", "notif-read-other@example.com", "ext-notif-read-other-01")
+	userID := seedUser(t, db, "notif-read-user", "notif-read@example.com", "ext-notif-read-01")
+	otherID := seedUser(t, db, "notif-read-other", "notif-read-other@example.com", "ext-notif-read-other-01")
 	n := newTestNotification(userID)
 	require.NoError(t, repo.Create(ctx, n))
 
@@ -163,13 +168,15 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 }
 
 func TestNotificationRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewNotificationRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewNotificationRepository(db)
 	ctx := context.Background()
 
 	// @spec components/entity/notification/list-by-user "More than the limit"
 	t.Run("More than the limit", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-limit-user", "notif-limit@example.com", "ext-notif-limit-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-limit-user", "notif-limit@example.com", "ext-notif-limit-01")
 		// Each Create runs in its own transaction, so each gets a later created_at.
 		newestFirst := make([]string, 60)
 		for i := range newestFirst {
@@ -190,9 +197,9 @@ func TestNotificationRepository_ListByUser(t *testing.T) {
 
 	// @spec components/entity/notification/list-by-user "Another fan's notifications"
 	t.Run("Another fan's notifications", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-list-user", "notif-list@example.com", "ext-notif-list-01")
-		otherID := seedUser(t, "notif-list-other", "notif-list-other@example.com", "ext-notif-list-other-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-list-user", "notif-list@example.com", "ext-notif-list-01")
+		otherID := seedUser(t, db, "notif-list-other", "notif-list-other@example.com", "ext-notif-list-other-01")
 		own := newTestNotification(userID)
 		require.NoError(t, repo.Create(ctx, own))
 		require.NoError(t, repo.Create(ctx, newTestNotification(otherID)))
@@ -208,8 +215,8 @@ func TestNotificationRepository_ListByUser(t *testing.T) {
 
 	// @spec components/entity/notification/list-by-user "No notification"
 	t.Run("No notification", func(t *testing.T) {
-		cleanDatabase(t)
-		userID := seedUser(t, "notif-empty-user", "notif-empty@example.com", "ext-notif-empty-01")
+		cleanTables(t, db)
+		userID := seedUser(t, db, "notif-empty-user", "notif-empty@example.com", "ext-notif-empty-01")
 
 		got, err := repo.ListByUser(ctx, userID, 50)
 

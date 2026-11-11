@@ -13,17 +13,19 @@ import (
 
 // seedJourneyDeps inserts the FK dependencies required by the ticket_journeys table
 // and returns (userID, eventID).
-func seedJourneyDeps(t *testing.T) (userID, eventID string) {
+func seedJourneyDeps(t *testing.T, db *rdb.Database) (userID, eventID string) {
 	t.Helper()
-	userID = seedUser(t, "journey-user", "journey@test.com", "ext-journey-01")
-	artistID := seedArtist(t, "journey-artist", "jj000000-0000-0000-0000-000000jrn001")
-	venueID := seedVenue(t, "journey-venue")
-	eventID = seedEvent(t, venueID, artistID, "journey-event", "2026-06-01")
+	userID = seedUser(t, db, "journey-user", "journey@test.com", "ext-journey-01")
+	artistID := seedArtist(t, db, "journey-artist", "jj000000-0000-0000-0000-000000jrn001")
+	venueID := seedVenue(t, db, "journey-venue")
+	eventID = seedEvent(t, db, venueID, artistID, "journey-event", "2026-06-01")
 	return userID, eventID
 }
 
 func TestTicketJourneyRepository_Upsert(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -34,8 +36,8 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 		{
 			name: "creates new journey",
 			setup: func() *entity.TicketJourney {
-				cleanDatabase(t)
-				userID, eventID := seedJourneyDeps(t)
+				cleanTables(t, db)
+				userID, eventID := seedJourneyDeps(t, db)
 				return &entity.TicketJourney{
 					UserID:      userID,
 					EventID:     eventID,
@@ -54,8 +56,8 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 		{
 			name: "updates status on conflict",
 			setup: func() *entity.TicketJourney {
-				cleanDatabase(t)
-				userID, eventID := seedJourneyDeps(t)
+				cleanTables(t, db)
+				userID, eventID := seedJourneyDeps(t, db)
 
 				err := repo.Upsert(ctx, &entity.TicketJourney{
 					UserID:      userID,
@@ -95,7 +97,9 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_Delete(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -106,8 +110,8 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 		{
 			name: "deletes existing journey",
 			setup: func() (userID, eventID string) {
-				cleanDatabase(t)
-				userID, eventID = seedJourneyDeps(t)
+				cleanTables(t, db)
+				userID, eventID = seedJourneyDeps(t, db)
 				err := repo.Upsert(ctx, &entity.TicketJourney{
 					UserID:      userID,
 					EventID:     eventID,
@@ -122,8 +126,8 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 		{
 			name: "deleting non-existent journey is idempotent",
 			setup: func() (userID, eventID string) {
-				cleanDatabase(t)
-				return seedJourneyDeps(t)
+				cleanTables(t, db)
+				return seedJourneyDeps(t, db)
 			},
 			wantErr: nil,
 		},
@@ -150,11 +154,10 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
-	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// day returns the date offset from today, so "upcoming" and "past" hold
@@ -178,21 +181,21 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "A fan past the Tracking stage"
 	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Tracking an event of another series"
 	t.Run("Fans tracking events of the series", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
-		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
-		venueID := seedVenue(t, "track-venue")
-		seriesID := seedSeriesOnly(t, "TrackTour")
-		eventA := seedEventForSeries(t, seriesID, venueID, artistID, day(10))
-		eventB := seedEventForSeries(t, seriesID, venueID, artistID, day(11))
+		artistID := seedArtist(t, db, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, db, "track-venue")
+		seriesID := seedSeriesOnly(t, db, "TrackTour")
+		eventA := seedEventForSeries(t, db, seriesID, venueID, artistID, day(10))
+		eventB := seedEventForSeries(t, db, seriesID, venueID, artistID, day(11))
 
-		otherSeriesID := seedSeriesOnly(t, "OtherTour")
-		otherEvent := seedEventForSeries(t, otherSeriesID, venueID, artistID, day(20))
+		otherSeriesID := seedSeriesOnly(t, db, "OtherTour")
+		otherEvent := seedEventForSeries(t, db, otherSeriesID, venueID, artistID, day(20))
 
-		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
-		fanB := seedUser(t, "track-b", "track-b@test.com", "ext-track-b")
-		fanC := seedUser(t, "applied", "applied@test.com", "ext-applied")
-		fanD := seedUser(t, "other-series", "other@test.com", "ext-other")
+		fanA := seedUser(t, db, "track-a", "track-a@test.com", "ext-track-a")
+		fanB := seedUser(t, db, "track-b", "track-b@test.com", "ext-track-b")
+		fanC := seedUser(t, db, "applied", "applied@test.com", "ext-applied")
+		fanD := seedUser(t, db, "other-series", "other@test.com", "ext-other")
 
 		track(t, fanA, eventA, entity.TicketJourneyStatusTracking)
 		track(t, fanA, eventB, entity.TicketJourneyStatusTracking)
@@ -208,17 +211,17 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 
 	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Linked event is the earliest upcoming tracked event"
 	t.Run("Linked event is the earliest upcoming tracked event", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
-		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
-		venueID := seedVenue(t, "track-venue")
-		seriesID := seedSeriesOnly(t, "TrackTour")
-		past := seedEventForSeries(t, seriesID, venueID, artistID, day(-30))
-		_ = seedEventForSeries(t, seriesID, venueID, artistID, day(14)) // earlier, untracked
-		nov1 := seedEventForSeries(t, seriesID, venueID, artistID, day(26))
-		nov15 := seedEventForSeries(t, seriesID, venueID, artistID, day(40))
+		artistID := seedArtist(t, db, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, db, "track-venue")
+		seriesID := seedSeriesOnly(t, db, "TrackTour")
+		past := seedEventForSeries(t, db, seriesID, venueID, artistID, day(-30))
+		_ = seedEventForSeries(t, db, seriesID, venueID, artistID, day(14)) // earlier, untracked
+		nov1 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(26))
+		nov15 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(40))
 
-		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		fanA := seedUser(t, db, "track-a", "track-a@test.com", "ext-track-a")
 		track(t, fanA, nov15, entity.TicketJourneyStatusTracking)
 		track(t, fanA, past, entity.TicketJourneyStatusTracking)
 		track(t, fanA, nov1, entity.TicketJourneyStatusTracking)
@@ -230,15 +233,15 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 
 	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Every tracked event is past"
 	t.Run("Every tracked event is past", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
-		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
-		venueID := seedVenue(t, "track-venue")
-		seriesID := seedSeriesOnly(t, "TrackTour")
-		sep1 := seedEventForSeries(t, seriesID, venueID, artistID, day(-35))
-		sep5 := seedEventForSeries(t, seriesID, venueID, artistID, day(-31))
+		artistID := seedArtist(t, db, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, db, "track-venue")
+		seriesID := seedSeriesOnly(t, db, "TrackTour")
+		sep1 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(-35))
+		sep5 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(-31))
 
-		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		fanA := seedUser(t, db, "track-a", "track-a@test.com", "ext-track-a")
 		track(t, fanA, sep5, entity.TicketJourneyStatusTracking)
 		track(t, fanA, sep1, entity.TicketJourneyStatusTracking)
 
@@ -248,15 +251,15 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 	})
 
 	t.Run("an event today counts as upcoming", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
-		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
-		venueID := seedVenue(t, "track-venue")
-		seriesID := seedSeriesOnly(t, "TrackTour")
-		past := seedEventForSeries(t, seriesID, venueID, artistID, day(-3))
-		today := seedEventForSeries(t, seriesID, venueID, artistID, day(0))
+		artistID := seedArtist(t, db, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, db, "track-venue")
+		seriesID := seedSeriesOnly(t, db, "TrackTour")
+		past := seedEventForSeries(t, db, seriesID, venueID, artistID, day(-3))
+		today := seedEventForSeries(t, db, seriesID, venueID, artistID, day(0))
 
-		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		fanA := seedUser(t, db, "track-a", "track-a@test.com", "ext-track-a")
 		track(t, fanA, past, entity.TicketJourneyStatusTracking)
 		track(t, fanA, today, entity.TicketJourneyStatusTracking)
 
@@ -267,8 +270,8 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 
 	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Nobody is tracking"
 	t.Run("Nobody is tracking", func(t *testing.T) {
-		cleanDatabase(t)
-		seriesID := seedSeriesOnly(t, "EmptyTrackTour")
+		cleanTables(t, db)
+		seriesID := seedSeriesOnly(t, db, "EmptyTrackTour")
 
 		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
 		require.NoError(t, err)
@@ -277,7 +280,9 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_ListByUser(t *testing.T) {
-	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -289,8 +294,8 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns empty for user with no journeys",
 			setup: func() string {
-				cleanDatabase(t)
-				return seedUser(t, "empty-journey-user", "empty-journey@test.com", "ext-empty-jrn-01")
+				cleanTables(t, db)
+				return seedUser(t, db, "empty-journey-user", "empty-journey@test.com", "ext-empty-jrn-01")
 			},
 			wantCount: 0,
 			wantErr:   nil,
@@ -298,12 +303,12 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns multiple journeys",
 			setup: func() string {
-				cleanDatabase(t)
-				userID, eventID1 := seedJourneyDeps(t)
+				cleanTables(t, db)
+				userID, eventID1 := seedJourneyDeps(t, db)
 
-				artistID2 := seedArtist(t, "journey-artist-2", "jj000000-0000-0000-0000-000000jrn002")
-				venueID2 := seedVenue(t, "journey-venue-2")
-				eventID2 := seedEvent(t, venueID2, artistID2, "journey-event-2", "2026-07-01")
+				artistID2 := seedArtist(t, db, "journey-artist-2", "jj000000-0000-0000-0000-000000jrn002")
+				venueID2 := seedVenue(t, db, "journey-venue-2")
+				eventID2 := seedEvent(t, db, venueID2, artistID2, "journey-event-2", "2026-07-01")
 
 				err := repo.Upsert(ctx, &entity.TicketJourney{
 					UserID:      userID,
@@ -346,11 +351,10 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 }
 
 func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 
-	repo := rdb.NewTicketJourneyRepository(testDB, testOutbox)
+	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	ctx := context.Background()
 
 	day := func(offset int) string {
@@ -368,18 +372,17 @@ func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
 		return out
 	}
 
-	cleanDatabase(t)
-	artistID := seedArtist(t, "events-artist", "11112222-3333-4444-5555-666677779999")
-	venueID := seedVenue(t, "events-venue")
-	seriesID := seedSeriesOnly(t, "EventsTour")
-	oct20 := seedEventForSeries(t, seriesID, venueID, artistID, day(7))  // not given
-	nov1 := seedEventForSeries(t, seriesID, venueID, artistID, day(19))  // given
-	nov15 := seedEventForSeries(t, seriesID, venueID, artistID, day(33)) // given
+	artistID := seedArtist(t, db, "events-artist", "11112222-3333-4444-5555-666677779999")
+	venueID := seedVenue(t, db, "events-venue")
+	seriesID := seedSeriesOnly(t, db, "EventsTour")
+	oct20 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(7))  // not given
+	nov1 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(19))  // given
+	nov15 := seedEventForSeries(t, db, seriesID, venueID, artistID, day(33)) // given
 
-	fanA := seedUser(t, "events-a", "events-a@test.com", "ext-events-a")
-	fanB := seedUser(t, "events-b", "events-b@test.com", "ext-events-b")
-	fanC := seedUser(t, "events-c", "events-c@test.com", "ext-events-c")
-	fanD := seedUser(t, "events-d", "events-d@test.com", "ext-events-d")
+	fanA := seedUser(t, db, "events-a", "events-a@test.com", "ext-events-a")
+	fanB := seedUser(t, db, "events-b", "events-b@test.com", "ext-events-b")
+	fanC := seedUser(t, db, "events-c", "events-c@test.com", "ext-events-c")
+	fanD := seedUser(t, db, "events-d", "events-d@test.com", "ext-events-d")
 
 	track(t, fanA, oct20, entity.TicketJourneyStatusTracking)
 	track(t, fanA, nov1, entity.TicketJourneyStatusTracking)

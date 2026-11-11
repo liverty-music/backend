@@ -28,21 +28,21 @@ var (
 
 // seedResaleStock creates a stock of quantity tickets, all sold to another
 // fan, for an event starting at resaleShowStart with the per-account limit.
-func seedResaleStock(t *testing.T, quantity, limit int) *stockFixture {
+func seedResaleStock(t *testing.T, db *rdb.Database, quantity, limit int) *stockFixture {
 	t.Helper()
-	f := seedStock(t, entity.TicketSaleMethodLottery, quantity, limit)
-	_, err := testDB.Pool.Exec(context.Background(), `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, quantity, limit)
+	_, err := db.Pool.Exec(context.Background(), `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
 	require.NoError(t, err)
-	seedPaidOrder(t, f, string(newUserID(t)), quantity, issuedTicketsTime)
+	seedPaidOrder(t, db, f, string(newUserID(t, db)), quantity, issuedTicketsTime)
 	return f
 }
 
 // newResaleEntry returns a new Entered entry, applied for at resaleApplyTime,
 // with its Pending Order of the user for count tickets of the fixture's stock
 // and a fresh card authorization expiring at resaleCardExpiry.
-func newResaleEntry(f *stockFixture, userID entity.UserID, count int) *entity.ResaleEntry {
+func newResaleEntry(db *rdb.Database, f *stockFixture, userID entity.UserID, count int) *entity.ResaleEntry {
 	order := entity.NewPendingOrder(userID, stockOf(f), count, nil, entity.OrderPaymentProvider)
-	order.CardAuthorizationID = newCardAuthorizationID()
+	order.CardAuthorizationID = newCardAuthorizationID(db)
 	e := entity.NewResaleEntry(order, resaleApplyTime)
 	expire := resaleCardExpiry
 	e.CardAuthorizationExpireTime = &expire
@@ -51,7 +51,7 @@ func newResaleEntry(f *stockFixture, userID entity.UserID, count int) *entity.Re
 
 // setResaleEntryState stores the entry's state, with a draw time for a drawn
 // state, and voids its Order for an ended state.
-func setResaleEntryState(t *testing.T, id entity.ResaleEntryID, state entity.ResaleEntryState) {
+func setResaleEntryState(t *testing.T, db *rdb.Database, id entity.ResaleEntryID, state entity.ResaleEntryState) {
 	t.Helper()
 	ctx := context.Background()
 	var drawAt any
@@ -62,28 +62,27 @@ func setResaleEntryState(t *testing.T, id entity.ResaleEntryID, state entity.Res
 	if state == entity.ResaleEntryStateLost {
 		lostReason = int16(entity.ResaleEntryLostReasonNoTicketLeft)
 	}
-	_, err := testDB.Pool.Exec(ctx, `UPDATE resale_entries SET state = $2, draw_at = $3, lost_reason = $4 WHERE id = $1`,
+	_, err := db.Pool.Exec(ctx, `UPDATE resale_entries SET state = $2, draw_at = $3, lost_reason = $4 WHERE id = $1`,
 		string(id), int16(state), drawAt, lostReason)
 	require.NoError(t, err)
 	if state == entity.ResaleEntryStateLost || state == entity.ResaleEntryStateLapsed {
-		_, err = testDB.Pool.Exec(ctx, `UPDATE orders SET status = 5 WHERE id = (SELECT order_id FROM resale_entries WHERE id = $1)`, string(id))
+		_, err = db.Pool.Exec(ctx, `UPDATE orders SET status = 5 WHERE id = (SELECT order_id FROM resale_entries WHERE id = $1)`, string(id))
 		require.NoError(t, err)
 	}
 }
 
 func TestResaleEntryRepository_Create(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 
 	t.Run("entry stored", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Entry stored"
-		f := seedResaleStock(t, 4, 4)
-		fan := newUserID(t)
+		f := seedResaleStock(t, db, 4, 4)
+		fan := newUserID(t, db)
 
-		got, err := repo.Create(ctx, newResaleEntry(f, fan, 2))
+		got, err := repo.Create(ctx, newResaleEntry(db, f, fan, 2))
 
 		require.NoError(t, err)
 		stored, err := repo.Get(ctx, got.ID)
@@ -99,12 +98,12 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 
 	t.Run("resale not open", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Resale not open"
-		f := seedStock(t, entity.TicketSaleMethodLottery, 4, 4)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 4, 4)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
 		require.NoError(t, err)
-		fan := newUserID(t)
+		fan := newUserID(t, db)
 
-		_, err = repo.Create(ctx, newResaleEntry(f, fan, 1))
+		_, err = repo.Create(ctx, newResaleEntry(db, f, fan, 1))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		entries, err := repo.ListByUser(ctx, fan)
@@ -113,8 +112,8 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 	})
 
 	t.Run("after the resale deadline", func(t *testing.T) {
-		f := seedResaleStock(t, 2, 4)
-		e := newResaleEntry(f, newUserID(t), 1)
+		f := seedResaleStock(t, db, 2, 4)
+		e := newResaleEntry(db, f, newUserID(t, db), 1)
 		e.CreateTime = time.Date(2026, 12, 20, 12, 0, 0, 0, resaleJST)
 
 		_, err := repo.Create(ctx, e)
@@ -124,16 +123,16 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 
 	t.Run("over the limit", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Over the limit"
-		f := seedResaleStock(t, 4, 4)
-		fan := newUserID(t)
-		held := seedPaidOrder(t, f, string(fan), 3, issuedTicketsTime)
+		f := seedResaleStock(t, db, 4, 4)
+		fan := newUserID(t, db)
+		held := seedPaidOrder(t, db, f, string(fan), 3, issuedTicketsTime)
 		for range 3 {
-			_, err := testDB.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+			_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
 				entity.NewID(), string(held), string(fan), f.EventID, issuedTicketsTime)
 			require.NoError(t, err)
 		}
 
-		_, err := repo.Create(ctx, newResaleEntry(f, fan, 2))
+		_, err := repo.Create(ctx, newResaleEntry(db, f, fan, 2))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		entries, err := repo.ListByUser(ctx, fan)
@@ -143,12 +142,12 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 
 	t.Run("second entry for the event", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Second entry for the event"
-		f := seedResaleStock(t, 4, 4)
-		fan := newUserID(t)
-		_, err := repo.Create(ctx, newResaleEntry(f, fan, 1))
+		f := seedResaleStock(t, db, 4, 4)
+		fan := newUserID(t, db)
+		_, err := repo.Create(ctx, newResaleEntry(db, f, fan, 1))
 		require.NoError(t, err)
 
-		_, err = repo.Create(ctx, newResaleEntry(f, fan, 1))
+		_, err = repo.Create(ctx, newResaleEntry(db, f, fan, 1))
 
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 		entries, err := repo.ListByUser(ctx, fan)
@@ -158,13 +157,13 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 
 	t.Run("same card authorization again", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Same card authorization again"
-		f := seedResaleStock(t, 4, 4)
-		fan := newUserID(t)
-		first := newResaleEntry(f, fan, 2)
+		f := seedResaleStock(t, db, 4, 4)
+		fan := newUserID(t, db)
+		first := newResaleEntry(db, f, fan, 2)
 		created, err := repo.Create(ctx, first)
 		require.NoError(t, err)
 
-		again := newResaleEntry(f, fan, 2)
+		again := newResaleEntry(db, f, fan, 2)
 		again.Order.CardAuthorizationID = first.Order.CardAuthorizationID
 		got, err := repo.Create(ctx, again)
 
@@ -177,9 +176,9 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 
 	t.Run("two applications at once", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Two applications at once"
-		f := seedResaleStock(t, 4, 4)
-		fan := newUserID(t)
-		entries := []*entity.ResaleEntry{newResaleEntry(f, fan, 2), newResaleEntry(f, fan, 2)}
+		f := seedResaleStock(t, db, 4, 4)
+		fan := newUserID(t, db)
+		entries := []*entity.ResaleEntry{newResaleEntry(db, f, fan, 2), newResaleEntry(db, f, fan, 2)}
 
 		errs := make([]error, len(entries))
 		var wg sync.WaitGroup
@@ -212,8 +211,8 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 	})
 
 	t.Run("unknown stock", func(t *testing.T) {
-		f := seedResaleStock(t, 2, 4)
-		e := newResaleEntry(f, newUserID(t), 1)
+		f := seedResaleStock(t, db, 2, 4)
+		e := newResaleEntry(db, f, newUserID(t, db), 1)
 		e.Order.TicketStockID = entity.TicketStockID(entity.NewID())
 
 		_, err := repo.Create(ctx, e)
@@ -223,18 +222,17 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 }
 
 func TestResaleEntryRepository_Get(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 
 	t.Run("existing entry", func(t *testing.T) {
 		// @spec components/entity/resale-entry/get "Existing entry"
-		f := seedResaleStock(t, 2, 4)
-		created, err := repo.Create(ctx, newResaleEntry(f, newUserID(t), 1))
+		f := seedResaleStock(t, db, 2, 4)
+		created, err := repo.Create(ctx, newResaleEntry(db, f, newUserID(t, db), 1))
 		require.NoError(t, err)
-		setResaleEntryState(t, created.ID, entity.ResaleEntryStateLapsed)
+		setResaleEntryState(t, db, created.ID, entity.ResaleEntryStateLapsed)
 
 		got, err := repo.Get(ctx, created.ID)
 
@@ -253,19 +251,18 @@ func TestResaleEntryRepository_Get(t *testing.T) {
 }
 
 func TestResaleEntryRepository_ListByUser(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 
 	t.Run("entered and lapsed", func(t *testing.T) {
 		// @spec components/entity/resale-entry/list-by-user "Entered and Lapsed"
-		fan := newUserID(t)
-		older, err := repo.Create(ctx, newResaleEntry(seedResaleStock(t, 2, 4), fan, 1))
+		fan := newUserID(t, db)
+		older, err := repo.Create(ctx, newResaleEntry(db, seedResaleStock(t, db, 2, 4), fan, 1))
 		require.NoError(t, err)
-		setResaleEntryState(t, older.ID, entity.ResaleEntryStateLapsed)
-		newer, err := repo.Create(ctx, newResaleEntry(seedResaleStock(t, 2, 4), fan, 1))
+		setResaleEntryState(t, db, older.ID, entity.ResaleEntryStateLapsed)
+		newer, err := repo.Create(ctx, newResaleEntry(db, seedResaleStock(t, db, 2, 4), fan, 1))
 		require.NoError(t, err)
 
 		got, err := repo.ListByUser(ctx, fan)
@@ -280,30 +277,29 @@ func TestResaleEntryRepository_ListByUser(t *testing.T) {
 
 	t.Run("no entries", func(t *testing.T) {
 		// @spec components/entity/resale-entry/list-by-user "No entries"
-		got, err := repo.ListByUser(ctx, newUserID(t))
+		got, err := repo.ListByUser(ctx, newUserID(t, db))
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
 }
 
 func TestResaleEntryRepository_ListEnteredByTicketStock(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
-	repo := rdb.NewResaleEntryRepository(testDB, testOutbox)
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 
 	t.Run("mixed states", func(t *testing.T) {
 		// @spec components/entity/resale-entry/list-entered-by-ticket-stock "Mixed states"
-		f := seedResaleStock(t, 2, 4)
+		f := seedResaleStock(t, db, 2, 4)
 		ids := make([]entity.ResaleEntryID, 4)
 		for i := range ids {
-			e, err := repo.Create(ctx, newResaleEntry(f, newUserID(t), 1))
+			e, err := repo.Create(ctx, newResaleEntry(db, f, newUserID(t, db), 1))
 			require.NoError(t, err)
 			ids[i] = e.ID
 		}
-		setResaleEntryState(t, ids[2], entity.ResaleEntryStateWon)
-		setResaleEntryState(t, ids[3], entity.ResaleEntryStateLapsed)
+		setResaleEntryState(t, db, ids[2], entity.ResaleEntryStateWon)
+		setResaleEntryState(t, db, ids[3], entity.ResaleEntryStateLapsed)
 
 		got, err := repo.ListEnteredByTicketStock(ctx, f.ID)
 
@@ -318,7 +314,7 @@ func TestResaleEntryRepository_ListEnteredByTicketStock(t *testing.T) {
 
 	t.Run("no candidates", func(t *testing.T) {
 		// @spec components/entity/resale-entry/list-entered-by-ticket-stock "No candidates"
-		got, err := repo.ListEnteredByTicketStock(ctx, seedResaleStock(t, 2, 4).ID)
+		got, err := repo.ListEnteredByTicketStock(ctx, seedResaleStock(t, db, 2, 4).ID)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})

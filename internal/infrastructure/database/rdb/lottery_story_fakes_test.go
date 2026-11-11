@@ -24,6 +24,8 @@ import (
 // them Authorized, and each is captured or released at most once, as a
 // PaymentIntent is. It counts the charges of each card authorization.
 type fakeCards struct {
+	// db is the database of the test.
+	db      *rdb.Database
 	mu      sync.Mutex
 	byID    map[string]*entity.CardAuthorization
 	charges map[string]int
@@ -46,10 +48,10 @@ var fakeExpireTime = time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
 // fakeKey returns the key of a fake card authorization from its payment
 // provider's ID, or from its platform id through its card_authorizations
 // record.
-func fakeKey(id string) string {
+func fakeKey(db *rdb.Database, id string) string {
 	if !strings.HasPrefix(id, fakeProviderPrefix) {
 		var providerID string
-		if err := testDB.Pool.QueryRow(context.Background(),
+		if err := db.Pool.QueryRow(context.Background(),
 			`SELECT provider_card_authorization_id FROM card_authorizations WHERE id::text = $1`, id).Scan(&providerID); err == nil {
 			id = providerID
 		}
@@ -57,8 +59,8 @@ func fakeKey(id string) string {
 	return strings.TrimPrefix(id, fakeProviderPrefix)
 }
 
-func newFakeCards() *fakeCards {
-	return &fakeCards{byID: map[string]*entity.CardAuthorization{}, charges: map[string]int{}, closed: map[string]bool{}}
+func newFakeCards(db *rdb.Database) *fakeCards {
+	return &fakeCards{db: db, byID: map[string]*entity.CardAuthorization{}, charges: map[string]int{}, closed: map[string]bool{}}
 }
 
 // Create opens a Pending card authorization for the purchase.
@@ -71,7 +73,7 @@ func (c *fakeCards) Create(_ context.Context, purchase entity.CardAuthorizationP
 	a := &entity.CardAuthorization{
 		ProviderID: fakeProviderPrefix + entity.NewID(), Amount: amountJPY, Status: entity.CardAuthorizationStatusPending, Purchase: purchase,
 	}
-	c.byID[fakeKey(a.ProviderID)] = a
+	c.byID[fakeKey(c.db, a.ProviderID)] = a
 	copied := *a
 	copied.Secret = a.ProviderID + "_secret"
 	return &copied, nil
@@ -82,7 +84,7 @@ func (c *fakeCards) authenticate(t *testing.T, id string) {
 	t.Helper()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[fakeKey(id)]
+	a, ok := c.byID[fakeKey(c.db, id)]
 	require.True(t, ok, "card authorization %s", id)
 	require.Equal(t, entity.CardAuthorizationStatusPending, a.Status)
 	a.Status, a.CardBrand = entity.CardAuthorizationStatusAuthorized, "visa"
@@ -95,14 +97,14 @@ func (c *fakeCards) authenticate(t *testing.T, id string) {
 func (c *fakeCards) closeCard(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.closed[fakeKey(id)] = true
+	c.closed[fakeKey(c.db, id)] = true
 }
 
 // Get returns the card authorization.
 func (c *fakeCards) Get(_ context.Context, id string) (*entity.CardAuthorization, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[fakeKey(id)]
+	a, ok := c.byID[fakeKey(c.db, id)]
 	if !ok {
 		return nil, apperr.New(codes.NotFound, "no card authorization has the id")
 	}
@@ -113,7 +115,7 @@ func (c *fakeCards) Get(_ context.Context, id string) (*entity.CardAuthorization
 // Capture charges an Authorized card authorization once.
 func (c *fakeCards) Capture(ctx context.Context, id string) error {
 	c.mu.Lock()
-	a, ok := c.byID[fakeKey(id)]
+	a, ok := c.byID[fakeKey(c.db, id)]
 	switch {
 	case !ok:
 		c.mu.Unlock()
@@ -121,7 +123,7 @@ func (c *fakeCards) Capture(ctx context.Context, id string) error {
 	case a.Status == entity.CardAuthorizationStatusCaptured:
 		c.mu.Unlock()
 		return nil
-	case a.Status != entity.CardAuthorizationStatusAuthorized || c.closed[fakeKey(id)]:
+	case a.Status != entity.CardAuthorizationStatusAuthorized || c.closed[fakeKey(c.db, id)]:
 		c.mu.Unlock()
 		return apperr.New(codes.FailedPrecondition, "the card authorization can no longer be charged")
 	}
@@ -130,7 +132,7 @@ func (c *fakeCards) Capture(ctx context.Context, id string) error {
 		Provider: entity.PaymentProviderStripe, ProviderPaymentID: a.ProviderID, AmountJPY: a.Amount, Currency: "JPY",
 		CardBrand: string(a.CardBrand), CardLast4: "4242",
 	}
-	c.charges[fakeKey(id)]++
+	c.charges[fakeKey(c.db, id)]++
 	hook := c.afterCharge
 	c.mu.Unlock()
 	if hook != nil {
@@ -143,7 +145,7 @@ func (c *fakeCards) Capture(ctx context.Context, id string) error {
 func (c *fakeCards) Release(_ context.Context, id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a, ok := c.byID[fakeKey(id)]
+	a, ok := c.byID[fakeKey(c.db, id)]
 	switch {
 	case !ok:
 		return apperr.New(codes.NotFound, "no card authorization has the id")
@@ -158,14 +160,14 @@ func (c *fakeCards) Release(_ context.Context, id string) error {
 func (c *fakeCards) status(id string) entity.CardAuthorizationStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.byID[fakeKey(id)].Status
+	return c.byID[fakeKey(c.db, id)].Status
 }
 
 // charged returns how many times the card authorization was charged.
 func (c *fakeCards) charged(id string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.charges[fakeKey(id)]
+	return c.charges[fakeKey(c.db, id)]
 }
 
 // sentEmail is one email a storyMailer sent.
@@ -298,9 +300,9 @@ func (p *pushStarts) Cancel(context.Context, string) (bool, error) { return fals
 // mark, in the order they were recorded, as the messages a durable consumer
 // of those subjects receives: the protobuf payload with the CloudEvents
 // metadata.
-func announcedMessages(t *testing.T, mark int64, subjects ...string) []*message.Message {
+func announcedMessages(t *testing.T, db *rdb.Database, mark int64, subjects ...string) []*message.Message {
 	t.Helper()
-	rows, err := testDB.Pool.Query(context.Background(),
+	rows, err := db.Pool.Query(context.Background(),
 		`SELECT payload FROM watermill_events_outbox WHERE "offset" > $1 AND payload->>'destination_topic' = ANY($2) ORDER BY "offset"`,
 		mark, subjects)
 	require.NoError(t, err)

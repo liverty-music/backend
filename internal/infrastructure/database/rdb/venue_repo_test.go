@@ -14,8 +14,9 @@ import (
 )
 
 func TestVenueRepository_Create(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	type args struct {
@@ -100,8 +101,9 @@ func TestVenueRepository_Create(t *testing.T) {
 }
 
 func TestVenueRepository_Get(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	testVenue := &entity.Venue{
@@ -181,8 +183,9 @@ func TestVenueRepository_Get(t *testing.T) {
 }
 
 func TestVenueRepository_GetByListedName(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	adminArea := "JP-13"
@@ -262,8 +265,9 @@ func TestVenueRepository_GetByListedName(t *testing.T) {
 }
 
 func TestVenueRepository_GetByPlaceID(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	// Seed a venue with a known GooglePlaceID so the happy-path test can find it.
@@ -320,18 +324,19 @@ func TestVenueRepository_GetByPlaceID(t *testing.T) {
 
 // countVenuesByListedName returns how many venue rows carry the given
 // listed_venue_name — used to assert get-or-create never splits a venue.
-func countVenuesByListedName(t *testing.T, ctx context.Context, listedName string) int {
+func countVenuesByListedName(t *testing.T, db *rdb.Database, ctx context.Context, listedName string) int {
 	t.Helper()
 	var n int
-	err := testDB.Pool.QueryRow(ctx,
+	err := db.Pool.QueryRow(ctx,
 		"SELECT count(*) FROM venues WHERE listed_venue_name = $1", listedName).Scan(&n)
 	require.NoError(t, err)
 	return n
 }
 
 func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	// A physical venue that Google Places resolved with two different CIDs across
@@ -360,13 +365,14 @@ func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, existing.ID, gotID)
-		assert.Equal(t, 1, countVenuesByListedName(t, ctx, listedName))
+		assert.Equal(t, 1, countVenuesByListedName(t, db, ctx, listedName))
 	})
 }
 
 func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	const listedName = "Concurrent Hall"
@@ -396,12 +402,13 @@ func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
 		require.NoError(t, errs[i])
 		assert.Equal(t, ids[0], ids[i], "every concurrent create must resolve to the same surviving row")
 	}
-	assert.Equal(t, 1, countVenuesByListedName(t, ctx, listedName))
+	assert.Equal(t, 1, countVenuesByListedName(t, db, ctx, listedName))
 }
 
 func TestVenueRepository_BackfillPlaceID(t *testing.T) {
-	cleanDatabase(t)
-	repo := rdb.NewVenueRepository(testDB)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
 	t.Run("fills a NULL place_id and never overwrites a non-NULL one", func(t *testing.T) {

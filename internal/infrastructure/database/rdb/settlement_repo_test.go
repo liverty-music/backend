@@ -18,7 +18,7 @@ import (
 // Returns the Paid Order and the Settlement so callers can exercise
 // ListHeld/MarkReleased against a real settlement row.
 func seedOrderForSettlement(
-	t *testing.T,
+	t *testing.T, db *rdb.Database,
 	issuanceRepo *rdb.IssuanceRepository,
 	lotteryEntryID entity.LotteryEntryID,
 	organizerID, eventID string,
@@ -26,7 +26,7 @@ func seedOrderForSettlement(
 ) (*entity.Order, *entity.Settlement) {
 	t.Helper()
 	ctx := context.Background()
-	order, err := rdb.NewOrderRepository(testDB).GetByLotteryEntryID(ctx, lotteryEntryID)
+	order, err := rdb.NewOrderRepository(db).GetByLotteryEntryID(ctx, lotteryEntryID)
 	require.NoError(t, err)
 	order.Payment = entity.Payment{
 		Provider:          entity.PaymentProviderStripe,
@@ -50,17 +50,17 @@ func seedOrderForSettlement(
 
 // seedWonEntryForSettlement stores a Won lottery entry of userID for 2
 // tickets of the stock, with its Pending Order, and returns the entry's id.
-func seedWonEntryForSettlement(t *testing.T, f *stockFixture, userID string) entity.LotteryEntryID {
+func seedWonEntryForSettlement(t *testing.T, db *rdb.Database, f *stockFixture, userID string) entity.LotteryEntryID {
 	t.Helper()
-	return seedLotteryEntryWithState(t, f, userID, entity.LotteryEntryStateWon, 2)
+	return seedLotteryEntryWithState(t, db, f, userID, entity.LotteryEntryStateWon, 2)
 }
 
 // insertSettlementSplit inserts a settlement_splits row directly, since no
 // repository method creates splits yet (they are seeded by the payout
 // sweeper's splits engine, out of scope here).
-func insertSettlementSplit(t *testing.T, id entity.SettlementID, payeeOrganizerID string, amount int64) {
+func insertSettlementSplit(t *testing.T, db *rdb.Database, id entity.SettlementID, payeeOrganizerID string, amount int64) {
 	t.Helper()
-	_, err := testDB.Pool.Exec(context.Background(),
+	_, err := db.Pool.Exec(context.Background(),
 		`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, $3)`,
 		string(id), payeeOrganizerID, amount,
 	)
@@ -73,25 +73,24 @@ func insertSettlementSplit(t *testing.T, id entity.SettlementID, payeeOrganizerI
 // and, per #477, the atomicity of the status flip together with every
 // split's provider_payout_id update.
 func TestSettlementRepository_Integration(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
+	t.Parallel()
+	db := newTestDB(t)
 	ctx := context.Background()
 
-	issuanceRepo := rdb.NewIssuanceRepository(testDB, testOutbox)
-	settlementRepo := rdb.NewSettlementRepository(testDB)
+	issuanceRepo := rdb.NewIssuanceRepository(db, testOutbox)
+	settlementRepo := rdb.NewSettlementRepository(db)
 
-	eventID := seedPublishedEvent(t)
-	stock := seedStockForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 4)
-	userID := seedUser(t, "settlement-fan", entity.NewID()+"@example.test", entity.NewID())
-	entryID := seedWonEntryForSettlement(t, stock, userID)
+	eventID := seedPublishedEvent(t, db)
+	stock := seedStockForEvent(t, db, eventID, entity.TicketSaleMethodLottery, 100, 4)
+	userID := seedUser(t, db, "settlement-fan", entity.NewID()+"@example.test", entity.NewID())
+	entryID := seedWonEntryForSettlement(t, db, stock, userID)
 
 	organizerID := entity.NewID()
 	settledAt := time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC)
 
 	// -- Order.Issue creates the Held settlement atomically with the Order
 	//    (backend#468). --
-	_, created := seedOrderForSettlement(t, issuanceRepo, entryID, organizerID, eventID, settledAt)
+	_, created := seedOrderForSettlement(t, db, issuanceRepo, entryID, organizerID, eventID, settledAt)
 	assert.Equal(t, entity.SettlementStatusHeld, created.Status)
 
 	// -- ListHeld includes the freshly created settlement. --
@@ -109,7 +108,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	// @spec components/entity/settlement/mark-released "Already released or reversed"
 	t.Run("MarkReleased happy path flips status and persists every split's provider_payout_id together", func(t *testing.T) {
 		payeeID := entity.NewID()
-		insertSettlementSplit(t, created.ID, payeeID, 8000)
+		insertSettlementSplit(t, db, created.ID, payeeID, 8000)
 
 		releasedAt := settledAt.Add(48 * time.Hour)
 		err := settlementRepo.MarkReleased(ctx, created.ID, "ch_settlement_itest", releasedAt, []entity.SettlementSplit{
@@ -141,14 +140,14 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	// @spec components/entity/settlement/mark-released "Failure changes nothing"
 	t.Run("MarkReleased rolls back the status flip when a split update fails", func(t *testing.T) {
 		// A fresh user keeps one entry per user, sale and event.
-		otherUserID := seedUser(t, "settlement-fan-2", entity.NewID()+"@example.test", entity.NewID())
-		otherEntryID := seedWonEntryForSettlement(t, stock, otherUserID)
-		_, created := seedOrderForSettlement(t, issuanceRepo, otherEntryID, organizerID, eventID, settledAt)
+		otherUserID := seedUser(t, db, "settlement-fan-2", entity.NewID()+"@example.test", entity.NewID())
+		otherEntryID := seedWonEntryForSettlement(t, db, stock, otherUserID)
+		_, created := seedOrderForSettlement(t, db, issuanceRepo, otherEntryID, organizerID, eventID, settledAt)
 
 		payeeOK := entity.NewID()
 		payeeBad := entity.NewID()
-		insertSettlementSplit(t, created.ID, payeeOK, 3000)
-		insertSettlementSplit(t, created.ID, payeeBad, 5000)
+		insertSettlementSplit(t, db, created.ID, payeeOK, 3000)
+		insertSettlementSplit(t, db, created.ID, payeeBad, 5000)
 
 		releasedAt := settledAt.Add(48 * time.Hour)
 		// The first split's provider_payout_id update would succeed; the second's

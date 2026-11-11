@@ -34,7 +34,9 @@ func newTestUserWithHome(providerUserID, email, name string) *entity.NewUser {
 }
 
 func TestUserRepository_Create(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	type args struct {
@@ -49,7 +51,7 @@ func TestUserRepository_Create(t *testing.T) {
 	}{
 		{
 			name:  "creates a user successfully",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args: args{
 				params: newTestUser("ext-001", "alice@example.com", "Alice"),
 			},
@@ -57,7 +59,7 @@ func TestUserRepository_Create(t *testing.T) {
 		},
 		{
 			name:  "creates a user with home",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args: args{
 				params: newTestUserWithHome("ext-home-1", "withhome@example.com", "WithHome"),
 			},
@@ -65,7 +67,7 @@ func TestUserRepository_Create(t *testing.T) {
 		},
 		{
 			name:  "nil params returns error",
-			setup: func() { cleanDatabase(t) },
+			setup: func() { cleanTables(t, db) },
 			args: args{
 				params: nil,
 			},
@@ -74,7 +76,7 @@ func TestUserRepository_Create(t *testing.T) {
 		{
 			name: "duplicate email returns already exists",
 			setup: func() {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, newTestUser("ext-dup-1", "dup@example.com", "First"))
 				require.NoError(t, err)
 			},
@@ -123,13 +125,15 @@ func TestUserRepository_Create(t *testing.T) {
 // provider user ID and one email address, letter case ignored, belong to at
 // most one User.
 func TestUserRepository_Create_TakenIdentityOrEmail(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	countUsers := func(t *testing.T) int {
 		t.Helper()
 		var n int
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n))
 		return n
 	}
 
@@ -159,7 +163,7 @@ func TestUserRepository_Create_TakenIdentityOrEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cleanDatabase(t)
+			cleanTables(t, db)
 			first, err := repo.Create(ctx, tt.stored)
 			require.NoError(t, err)
 
@@ -175,7 +179,7 @@ func TestUserRepository_Create_TakenIdentityOrEmail(t *testing.T) {
 
 	// @spec components/entity/user/create "Letter case kept"
 	t.Run("the email is stored in its own letter case", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		created, err := repo.Create(ctx, newTestUser("ext-taken-6", "Fan@Example.com", "Fan"))
 		require.NoError(t, err)
@@ -187,7 +191,9 @@ func TestUserRepository_Create_TakenIdentityOrEmail(t *testing.T) {
 }
 
 func TestUserRepository_Get(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -199,7 +205,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "retrieves existing user",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				user, err := repo.Create(ctx, newTestUser("ext-get-1", "get@example.com", "GetUser"))
 				require.NoError(t, err)
 				return user.ID
@@ -209,7 +215,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "retrieves user with home",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				user, err := repo.Create(ctx, newTestUserWithHome("ext-get-home", "gethome@example.com", "GetHome"))
 				require.NoError(t, err)
 				return user.ID
@@ -227,7 +233,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "non-existent user returns not found",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -258,7 +264,9 @@ func TestUserRepository_Get(t *testing.T) {
 }
 
 func TestUserRepository_GetByProviderUserID(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -270,7 +278,7 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 		{
 			name: "retrieves user by provider user ID",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				_, err := repo.Create(ctx, newTestUser("ext-by-ext-1", "byext@example.com", "ByExt"))
 				require.NoError(t, err)
 				return "ext-by-ext-1"
@@ -287,7 +295,7 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 		{
 			name: "non-existent provider user ID returns not found",
 			setup: func() string {
-				cleanDatabase(t)
+				cleanTables(t, db)
 				return "non-existent-ext-id"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -312,12 +320,14 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 }
 
 func TestUserRepository_GetByEmail(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	// @spec components/entity/user/get-by-email "Registered address"
 	t.Run("returns the user whose email is the address", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		created, err := repo.Create(ctx, newTestUser("ext-by-email-1", "fan@example.com", "Fan"))
 		require.NoError(t, err)
 
@@ -330,7 +340,7 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 
 	// @spec components/entity/user/get-by-email "Different letter case"
 	t.Run("returns the user when the address differs only in letter case", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		created, err := repo.Create(ctx, newTestUser("ext-by-email-2", "fan@example.com", "Fan"))
 		require.NoError(t, err)
 
@@ -343,7 +353,7 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 
 	// @spec components/entity/user/get-by-email "Unregistered address"
 	t.Run("fails with NotFound when no user has the address", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		_, err := repo.Create(ctx, newTestUser("ext-by-email-3", "fan@example.com", "Fan"))
 		require.NoError(t, err)
 
@@ -361,57 +371,56 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 }
 
 func TestUserRepository_Delete(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("existing user", func(t *testing.T) {
 		// @spec components/entity/user/delete "Existing user"
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-del-1", "del@example.com", "Delete"))
 		require.NoError(t, err)
-		artistID := seedArtist(t, "del-artist", entity.NewID())
-		_, err = testDB.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, user.ID, artistID)
+		artistID := seedArtist(t, db, "del-artist", entity.NewID())
+		_, err = db.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, user.ID, artistID)
 		require.NoError(t, err)
-		_, err = rdb.NewIdentityVerificationRepository(testDB).Create(ctx, entity.NewIdentityVerification(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
+		_, err = rdb.NewIdentityVerificationRepository(db).Create(ctx, entity.NewIdentityVerification(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
 		require.NoError(t, err)
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
 
 		_, err = repo.Get(ctx, user.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.False(t, rowExists(t, `SELECT 1 FROM followed_artists WHERE user_id = $1`, user.ID), "follow")
-		assert.False(t, rowExists(t, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "identity_verification")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM followed_artists WHERE user_id = $1`, user.ID), "follow")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "identity_verification")
 	})
 
 	t.Run("purchases outlive the user", func(t *testing.T) {
 		// @spec components/entity/user/delete "Purchases outlive the user"
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-del-2", "del2@example.com", "Delete"))
 		require.NoError(t, err)
-		ticketID := seedIssuedTickets(t, seedAdmissionEvent(t), user.ID, 1)[0]
+		ticketID := seedIssuedTickets(t, db, seedAdmissionEvent(t, db), user.ID, 1)[0]
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
 
-		assert.True(t, rowExists(t, `SELECT 1 FROM tickets WHERE id = $1`, string(ticketID)), "ticket")
-		assert.True(t, rowExists(t, `SELECT 1 FROM orders o JOIN tickets t ON t.order_id = o.id WHERE t.id = $1`, string(ticketID)), "order")
-		assert.True(t, rowExists(t, `SELECT 1 FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE o.user_id = $1`, user.ID), "lottery entry")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM tickets WHERE id = $1`, string(ticketID)), "ticket")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM orders o JOIN tickets t ON t.order_id = o.id WHERE t.id = $1`, string(ticketID)), "order")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE o.user_id = $1`, user.ID), "lottery entry")
 	})
 
 	t.Run("reminder records go with the user", func(t *testing.T) {
 		// @spec components/entity/user/delete "Reminder records go with the user"
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-del-3", "del3@example.com", "Delete"))
 		require.NoError(t, err)
-		saleID := seedDiscoveredSale(t)
-		require.NoError(t, rdb.NewTicketSaleReminderRepository(testDB).RecordSent(ctx, user.ID, saleID, entity.ReminderStageApplyOpen))
+		saleID := seedDiscoveredSale(t, db)
+		require.NoError(t, rdb.NewTicketSaleReminderRepository(db).RecordSent(ctx, user.ID, saleID, entity.ReminderStageApplyOpen))
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
 
-		assert.False(t, rowExists(t, `SELECT 1 FROM ticket_sale_reminders WHERE user_id = $1`, user.ID), "ticket sale reminder")
-		assert.True(t, rowExists(t, `SELECT 1 FROM ticket_sales WHERE id = $1`, string(saleID)), "the sale stays")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM ticket_sale_reminders WHERE user_id = $1`, user.ID), "ticket sale reminder")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM ticket_sales WHERE id = $1`, string(saleID)), "the sale stays")
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
@@ -430,11 +439,13 @@ func TestUserRepository_Delete(t *testing.T) {
 }
 
 func TestUserRepository_UpdateHome(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("creates home for user without one", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-uh-1", "uh1@example.com", "UH1"))
 		require.NoError(t, err)
 		assert.Nil(t, user.Home)
@@ -455,7 +466,7 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 	})
 
 	t.Run("updates existing home", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUserWithHome("ext-uh-2", "uh2@example.com", "UH2"))
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
@@ -490,9 +501,10 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 // the second waits for the first and updates the Home it stored. Without the
 // row lock both insert a Home and one is left that no User refers to.
 func TestUserRepository_UpdateHome_ConcurrentFirstCalls(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
-	cleanDatabase(t)
 
 	// The window between the read and the insert is short, so the race is
 	// run for several Users.
@@ -516,19 +528,21 @@ func TestUserRepository_UpdateHome_ConcurrentFirstCalls(t *testing.T) {
 	}
 
 	var homes, unreferenced int
-	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT count(*) FROM homes`).Scan(&homes))
-	require.NoError(t, testDB.Pool.QueryRow(ctx,
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM homes`).Scan(&homes))
+	require.NoError(t, db.Pool.QueryRow(ctx,
 		`SELECT count(*) FROM homes h WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.home_id = h.id)`).Scan(&unreferenced))
 	assert.Equal(t, users, homes, "one Home per User")
 	assert.Zero(t, unreferenced, "no Home is left that no User refers to")
 }
 
 func TestUserRepository_CentroidRoundTrip(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("supported JP code resolves centroid on Create and persists through Get", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1"))
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
@@ -546,7 +560,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	})
 
 	t.Run("supported JP code resolves centroid on UpdateHome", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-crt-2", "crt2@example.com", "CRT2"))
 		require.NoError(t, err)
 
@@ -562,7 +576,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	})
 
 	t.Run("unsupported country code results in nil Centroid", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 		u := newTestUser("ext-crt-3", "crt3@example.com", "CRT3")
 		u.Home = &entity.Home{
 			CountryCode: "US",
@@ -582,11 +596,13 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 }
 
 func TestUserRepository_PreferredLanguage(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("Create persists preferred_language", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		params := newTestUser("ext-lang-1", "lang1@example.com", "Lang1")
 		params.PreferredLanguage = "ja"
@@ -602,7 +618,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 	})
 
 	t.Run("Create with empty preferred_language returns InvalidArgument and stores nothing", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		params := newTestUser("ext-lang-2", "lang2@example.com", "Lang2")
 		params.PreferredLanguage = ""
@@ -615,7 +631,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 	})
 
 	t.Run("idempotent Create does NOT overwrite existing preferred_language", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		// First Create: persists "ja".
 		first := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
@@ -640,7 +656,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 	})
 
 	t.Run("UpdatePreferredLanguage round-trips and persists", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		user, err := repo.Create(ctx, newTestUser("ext-lang-4", "lang4@example.com", "Lang4"))
 		require.NoError(t, err)
@@ -659,7 +675,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 	})
 
 	t.Run("UpdatePreferredLanguage — non-existent user returns NotFound", func(t *testing.T) {
-		cleanDatabase(t)
+		cleanTables(t, db)
 
 		_, err := repo.UpdatePreferredLanguage(ctx, "00000000-0000-0000-0000-000000000000", "en")
 
@@ -677,7 +693,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		// value at the repo boundary is a programmer error; we reject it
 		// rather than write NULL (which would falsely re-arm the
 		// hydration-backfill loop).
-		cleanDatabase(t)
+		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-lang-5", "lang5@example.com", "Lang5"))
 		require.NoError(t, err)
 
@@ -703,9 +719,10 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 // value (empty string). It SHALL fail loudly if a future refactor reverts the
 // column to a raw *string scan.
 func TestUserRepository_ScanNULLColumns(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
-	cleanDatabase(t)
 
 	// The repo's nullStringFromEmpty write boundary maps an empty TimeZone to
 	// SQL NULL.
@@ -731,7 +748,7 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	assert.Empty(t, created.TimeZone)
 
 	var stored sql.NullString
-	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT time_zone FROM users WHERE id = $1`, created.ID).Scan(&stored))
+	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT time_zone FROM users WHERE id = $1`, created.ID).Scan(&stored))
 	require.False(t, stored.Valid, "time_zone must be SQL NULL, got %q", stored.String)
 
 	assertEmptyNullableFields := func(t *testing.T, u *entity.User) {
@@ -776,15 +793,14 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 }
 
 func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	repo := rdb.NewUserRepository(testDB, testOutbox)
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
 	t.Run("first details", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "First details"
-		id := seedUser(t, "details", entity.NewID()+"@example.com", entity.NewID())
+		id := seedUser(t, db, "details", entity.NewID()+"@example.com", entity.NewID())
 		before, err := repo.Get(ctx, id)
 		require.NoError(t, err)
 		require.Nil(t, before.FullName)
@@ -807,11 +823,11 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 
 	t.Run("correction", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "Correction"
-		id := seedUser(t, "details-fix", entity.NewID()+"@example.com", entity.NewID())
+		id := seedUser(t, db, "details-fix", entity.NewID()+"@example.com", entity.NewID())
 		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
-		eventID := seedAdmissionEvent(t)
-		seedIssuedTickets(t, eventID, id, 2)
+		eventID := seedAdmissionEvent(t, db)
+		seedIssuedTickets(t, db, eventID, id, 2)
 
 		_, err = repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+818098765432"))
 
@@ -821,7 +837,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 		assert.Equal(t, new("+818098765432"), got.PhoneNumber)
 		// The ticket face reads the User's current values: the tickets are the
 		// User's, and no copy of the old phone number is kept on them.
-		tickets, err := rdb.NewTicketRepository(testDB, testOutbox).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
+		tickets, err := rdb.NewTicketRepository(db, testOutbox).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
 		require.NoError(t, err)
 		require.Len(t, tickets, 2)
 		for _, tk := range tickets {
@@ -832,7 +848,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 
 	t.Run("invalid phone number", func(t *testing.T) {
 		// @spec components/entity/user/update-personal-details "Invalid phone number"
-		id := seedUser(t, "details-bad", entity.NewID()+"@example.com", entity.NewID())
+		id := seedUser(t, db, "details-bad", entity.NewID()+"@example.com", entity.NewID())
 		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
 
@@ -852,7 +868,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 	})
 
 	t.Run("a value not given is stored as absent", func(t *testing.T) {
-		id := seedUser(t, "details-clear", entity.NewID()+"@example.com", entity.NewID())
+		id := seedUser(t, db, "details-clear", entity.NewID()+"@example.com", entity.NewID())
 		_, err := repo.UpdatePersonalDetails(ctx, id, new("山田 花子"), new("+819012345678"))
 		require.NoError(t, err)
 
@@ -861,7 +877,7 @@ func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, updated.FullName)
 		var fullNameIsNull bool
-		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT full_name IS NULL FROM users WHERE id = $1`, id).Scan(&fullNameIsNull))
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT full_name IS NULL FROM users WHERE id = $1`, id).Scan(&fullNameIsNull))
 		assert.True(t, fullNameIsNull)
 	})
 }
