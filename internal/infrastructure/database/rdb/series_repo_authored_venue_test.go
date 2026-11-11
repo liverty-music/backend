@@ -63,7 +63,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 	})
 
 	t.Run("fill the venue of each published event", func(t *testing.T) {
-		_, err := repo.PublishEvents(ctx, series.ID, []string{draftEvent.ID})
+		_, err := repo.PublishEvents(ctx, series.ID, []string{draftEvent.ID}, nil)
 		require.NoError(t, err)
 
 		_, concerts, err := repo.GetAuthored(ctx, series.ID)

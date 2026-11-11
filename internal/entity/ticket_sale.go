@@ -342,6 +342,8 @@ type TicketSaleRepository interface {
 	//  - InvalidArgument: the sale names no series, has no name or breaks the
 	//    TicketSale rules for a discovered sale.
 	//  - FailedPrecondition: the series does not exist or has an Organizer.
+	//  - Unavailable: the announcement could not be recorded; nothing is
+	//    stored.
 	//  - Internal: database failure.
 	//
 	// # Announces

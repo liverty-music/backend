@@ -17,7 +17,7 @@ type MatchKey struct {
 
 // Key returns the MatchKey for a fixture event.
 func (e GroundTruthEvent) Key() MatchKey {
-	return MatchKey{LocalDate: e.LocalDate, Venue: NormalizeVenue(e.Venue)}
+	return MatchKey{LocalDate: e.LocalDate, Venue: NormalizeFixtureVenue(e.Venue)}
 }
 
 // ScoredEvent pairs a model-produced discovered event with its series-level
@@ -51,7 +51,7 @@ func FlattenForScoring(series []*entity.DiscoveredSeries) []ScoredEvent {
 func KeyForScraped(sc ScoredEvent) MatchKey {
 	return MatchKey{
 		LocalDate: sc.Event.LocalDate.Format("2006-01-02"),
-		Venue:     NormalizeVenue(sc.Event.ListedVenueName),
+		Venue:     NormalizeFixtureVenue(sc.Event.ListedVenueName),
 	}
 }
 
@@ -79,7 +79,7 @@ type FieldAccuracy struct {
 func CompareEvent(scraped ScoredEvent, expected GroundTruthEvent) FieldAccuracy {
 	ev := scraped.Event
 	got := FieldAccuracy{
-		Venue:     NormalizeVenue(ev.ListedVenueName) == NormalizeVenue(expected.Venue),
+		Venue:     NormalizeFixtureVenue(ev.ListedVenueName) == NormalizeFixtureVenue(expected.Venue),
 		LocalDate: ev.LocalDate.Format("2006-01-02") == expected.LocalDate,
 	}
 

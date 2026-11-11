@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     provider_user_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
+    email TEXT NOT NULL,
     preferred_language TEXT NOT NULL,
     time_zone TEXT,
     home_id UUID,
@@ -508,11 +508,8 @@ COMMENT ON COLUMN suppressed_concerts.suppressed_at IS 'Timestamp when the conce
 CREATE INDEX IF NOT EXISTS idx_users_provider_user_id ON users(provider_user_id);
 COMMENT ON INDEX idx_users_provider_user_id IS 'Speeds up user lookup by the identity provider''s ID (Zitadel sub claim)';
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-COMMENT ON INDEX idx_users_email IS 'Speeds up user lookup by email during authentication';
-
-CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(lower(email));
-COMMENT ON INDEX idx_users_email_lower IS 'Speeds up the user lookup by email that ignores letter case (passkey recovery)';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_lower ON users(lower(email));
+COMMENT ON INDEX uq_users_email_lower IS 'One user per email address when letter case is ignored; also serves the lookup by email that ignores letter case (passkey recovery)';
 
 -- Artists indexes
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);

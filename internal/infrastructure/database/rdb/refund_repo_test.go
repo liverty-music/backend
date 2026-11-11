@@ -236,10 +236,13 @@ func TestRefundRepository_CommitRefund(t *testing.T) {
 		p := seedRefundablePurchase(t, 1)
 		require.NoError(t, refunds.CommitRefund(ctx, cancellation(p, 3000, "re_8")))
 
+		mark := outboxMark(t)
+
 		again := cancellation(p, 1000, "re_other")
 		again.RefundTime = refundAt.Add(time.Hour)
 		require.NoError(t, refunds.CommitRefund(ctx, again))
 
+		assert.Empty(t, refundedOf(t, mark, p.orderID), "nothing is announced")
 		got := order(t, p)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
 		require.NotNil(t, got.Refund)
@@ -248,6 +251,46 @@ func TestRefundRepository_CommitRefund(t *testing.T) {
 		assert.Equal(t, "re_8", got.Refund.ProviderRefundID)
 		assert.True(t, refundAt.Equal(got.Refund.RefundTime))
 		assert.Equal(t, 1, orderRefundRows(t, p.orderID))
+	})
+
+	for _, status := range []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusVoid} {
+		t.Run("order never paid: "+status.String(), func(t *testing.T) {
+			// @spec components/entity/order/commit-refund "Order never paid"
+			p := seedRefundablePurchase(t, 2)
+			// The Order was never paid; its Tickets and Settlement stand in
+			// for rows that a refund must leave as they are.
+			_, err := testDB.Pool.Exec(ctx, `UPDATE orders SET status = $2, provider_payment_id = NULL, pay_at = NULL WHERE id = $1`,
+				string(p.orderID), int16(status))
+			require.NoError(t, err)
+			mark := outboxMark(t)
+
+			err = refunds.CommitRefund(ctx, cancellation(p, 3000, "re_never_paid"))
+
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+			assert.Equal(t, status, order(t, p).Status)
+			assert.Nil(t, order(t, p).Refund)
+			assert.Zero(t, orderRefundRows(t, p.orderID))
+			for _, id := range p.tickets {
+				assert.Equal(t, entity.TicketStatusIssued, ticketStatus(t, id))
+			}
+			assert.Equal(t, entity.SettlementStatusHeld, settlement(t, p).Status)
+			assert.Empty(t, refundedOf(t, mark, p.orderID), "nothing is announced")
+		})
+	}
+
+	t.Run("unknown order", func(t *testing.T) {
+		// @spec components/entity/order/commit-refund "Unknown order"
+		unknown := entity.OrderID(entity.NewID())
+		mark := outboxMark(t)
+
+		err := refunds.CommitRefund(ctx, entity.RefundCommit{
+			OrderID: unknown, Reason: entity.RefundReasonCancellation, Amount: 3000,
+			ProviderRefundID: "re_unknown", RefundTime: refundAt,
+		})
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.Zero(t, orderRefundRows(t, unknown))
+		assert.Empty(t, refundedOf(t, mark, unknown), "nothing is announced")
 	})
 
 	t.Run("settlement already reversed", func(t *testing.T) {

@@ -50,6 +50,8 @@ type PasskeyRepository interface {
 	//  - InvalidArgument: a required attribute is missing or the AAGUID is
 	//    not a UUID.
 	//  - NotFound: the User does not exist; nothing is stored.
+	//  - Unavailable: the announcement could not be recorded; nothing is
+	//    stored.
 	//
 	// # Announces
 	//
@@ -63,6 +65,8 @@ type PasskeyRepository interface {
 	// # Possible errors
 	//
 	//  - InvalidArgument: the provider passkey id is empty.
+	//  - Unavailable: the announcement could not be recorded; nothing is
+	//    removed.
 	//
 	// # Announces
 	//

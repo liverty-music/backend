@@ -47,24 +47,24 @@ func TestTicket_Face(t *testing.T) {
 	t.Run("issued ticket face", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/ticket "Issued ticket face"
-		user := &entity.User{ID: "user-1", FullName: "山田 花子", PhoneNumber: "+819012345678"}
+		user := &entity.User{ID: "user-1", FullName: new("山田 花子"), PhoneNumber: new("+819012345678")}
 
 		assert.Equal(t, entity.TicketFace{
 			ResaleWithoutConsentProhibited: true,
 			EventID:                        "event-1",
 			UserID:                         "user-1",
-			FullName:                       "山田 花子",
-			PhoneNumber:                    "+819012345678",
+			FullName:                       new("山田 花子"),
+			PhoneNumber:                    new("+819012345678"),
 		}, ticket.Face(user))
 	})
 
 	t.Run("user corrects their details", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/ticket "User corrects their details"
-		user := &entity.User{ID: "user-1", FullName: "山田 花子", PhoneNumber: "+819012345678"}
-		user.PhoneNumber = "+818011112222"
+		user := &entity.User{ID: "user-1", FullName: new("山田 花子"), PhoneNumber: new("+819012345678")}
+		user.PhoneNumber = new("+818011112222")
 
-		assert.Equal(t, "+818011112222", ticket.Face(user).PhoneNumber)
+		assert.Equal(t, new("+818011112222"), ticket.Face(user).PhoneNumber)
 	})
 }
 

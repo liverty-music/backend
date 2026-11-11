@@ -208,6 +208,8 @@ type FollowRepository interface {
 	// # Possible errors:
 	//
 	//   - AlreadyExists: the user is already following this artist.
+	//   - Unavailable: the announcement could not be recorded; nothing is
+	//     stored.
 	//   - Internal: database execution failure.
 	//
 	// The new Follow is at [DefaultHype], set by default.

@@ -247,7 +247,12 @@ type OrganizerRepository interface {
 	// CompareAndSetStatus atomically transitions status from `from` to `to`. It
 	// reports whether the transition was applied — false means the current status
 	// was not `from` (e.g. a concurrent Deactivate superseded it), which the
-	// caller must not treat as its own success.
+	// caller must not treat as its own success. An id no organizer has also
+	// reports false.
+	//
+	// # Possible errors
+	//   - Unavailable: the announcement could not be recorded; the status is
+	//     unchanged.
 	//
 	// # Announces
 	//
@@ -255,12 +260,19 @@ type OrganizerRepository interface {
 	// it moves the Organizer from provisioning to active. Nothing otherwise.
 	CompareAndSetStatus(ctx context.Context, id string, from, to OrganizerStatus) (bool, error)
 
-	// AssociateArtist links an existing artist to the organizer. Existence of the
-	// organizer and artist is validated by the caller; this enforces the
-	// at-most-one-organizer-per-artist rule.
+	// AssociateArtist links an existing artist to the organizer. That the
+	// organizer and the artist exist is the caller's concern; this enforces
+	// that an artist has at most one organizer and that a deactivated
+	// organizer gains no artist. The organizer's status is judged in the
+	// same step as the link, so a deactivation stored before the link is
+	// never missed, whatever the caller read earlier.
 	//
 	// # Possible errors
-	//   - AlreadyExists: the artist is already represented by an organizer.
+	//   - FailedPrecondition: the organizer is deactivated. Nothing changes.
+	//   - AlreadyExists: the artist is already represented by an organizer,
+	//     the same one included. The existing link is kept.
+	//   - Unavailable: the announcement could not be recorded; nothing
+	//     changes.
 	//
 	// # Announces
 	//

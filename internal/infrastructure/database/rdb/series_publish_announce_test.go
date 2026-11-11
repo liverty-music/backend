@@ -43,7 +43,7 @@ func TestSeriesRepository_PublishEventsAnnounces(t *testing.T) {
 		f.exec(`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`, ids[0], second)
 		mark := outboxMark(t)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, [][]string{{ids[0]}}, concertsAnnouncedFor(t, mark, f.artistID))
@@ -56,7 +56,7 @@ func TestSeriesRepository_PublishEventsAnnounces(t *testing.T) {
 		seriesID, ids := f.series(entity.PublishStatePublished, entity.PublishStatePublished, entity.PublishStatePublished, entity.PublishStateDraft)
 		mark := outboxMark(t)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids[3:])
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids[3:], nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, [][]string{{ids[3]}}, concertsAnnouncedFor(t, mark, f.artistID))
@@ -69,7 +69,7 @@ func TestSeriesRepository_PublishEventsAnnounces(t *testing.T) {
 		f.discovered(authoredFirstDate, nil)
 		mark := outboxMark(t)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, concertsAnnouncedFor(t, mark, f.artistID))
@@ -82,7 +82,7 @@ func TestSeriesRepository_PublishEventsAnnounces(t *testing.T) {
 		f.exec(`UPDATE series SET visibility = 'UNLISTED' WHERE id = $1`, seriesID)
 		mark := outboxMark(t)
 
-		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids)
+		_, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, concertsAnnouncedFor(t, mark, f.artistID))
@@ -93,7 +93,7 @@ func TestSeriesRepository_PublishEventsAnnounces(t *testing.T) {
 		f := newAuthoredFixture(t)
 		seriesID, ids := f.series(entity.PublishStateDraft)
 
-		_, err := rdb.NewSeriesRepository(testDB, failingOutbox{}).PublishEvents(f.ctx, seriesID, ids)
+		_, err := rdb.NewSeriesRepository(testDB, failingOutbox{}).PublishEvents(f.ctx, seriesID, ids, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		state, _ := f.state(ids[0])

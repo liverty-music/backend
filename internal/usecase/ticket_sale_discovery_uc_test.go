@@ -57,7 +57,7 @@ func upcomingConcert(seriesID, title string, date time.Time) *entity.Concert {
 }
 
 func (m *discoveryMocks) concerts(cs ...*entity.Concert) {
-	m.concertRepo.EXPECT().ListByArtist(mock.Anything, discoveryArtistID, true).Return(cs, nil).Once()
+	m.concertRepo.EXPECT().ListUpcomingByArtist(mock.Anything, discoveryArtistID, mock.Anything).Return(cs, nil).Once()
 }
 
 func (m *discoveryMocks) tracked(seriesID string, tracked bool) {

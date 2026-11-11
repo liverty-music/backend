@@ -202,7 +202,7 @@ func (uc *resaleEntryUseCase) AuthorizeCard(ctx context.Context, stockID entity.
 	if fullName == "" || phoneNumber == "" {
 		return nil, apperr.New(codes.InvalidArgument, "full name and phone number are required")
 	}
-	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
+	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
 		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
 	deadline, ok := entity.ResaleDeadlineOf(event)
@@ -226,7 +226,7 @@ func (uc *resaleEntryUseCase) AuthorizeCard(ctx context.Context, stockID entity.
 	if err := uc.checkVerification(ctx, stock.EventID, userID); err != nil {
 		return nil, err
 	}
-	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
+	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), &fullName, &phoneNumber); err != nil {
 		return nil, err
 	}
 	return uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{

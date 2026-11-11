@@ -179,8 +179,9 @@ func (w AdmissionWindow) Contains(t time.Time) bool {
 }
 
 // AdmissionWindowOf derives the admission window from the event's current
-// local date and start time, in Japan time: it opens 3 hours before the start
-// time and closes at 04:00 on the day after the local date. The open time
+// local date and start time, in the time zone of the event's Venue
+// ([VenueTimeZone]): it opens 3 hours before the start time and closes at
+// 04:00 on the day after the local date. The open time
 // does not affect it, because an event may have none. ok is false when the
 // event has no start time (then it has no window).
 func AdmissionWindowOf(event *Event) (window AdmissionWindow, ok bool) {
@@ -190,7 +191,7 @@ func AdmissionWindowOf(event *Event) (window AdmissionWindow, ok bool) {
 	y, m, d := event.LocalDate.Date()
 	return AdmissionWindow{
 		OpenTime:  event.StartTime.Add(-admissionWindowLead),
-		CloseTime: time.Date(y, m, d+1, admissionWindowCloseHour, 0, 0, 0, japanTime),
+		CloseTime: time.Date(y, m, d+1, admissionWindowCloseHour, 0, 0, 0, VenueTimeZone()),
 	}, true
 }
 

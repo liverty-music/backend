@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNormalizeVenue(t *testing.T) {
+func TestNormalizeFixtureVenue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -58,7 +58,7 @@ func TestNormalizeVenue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := gemini.NormalizeVenue(tt.in)
+			got := gemini.NormalizeFixtureVenue(tt.in)
 			assert.Equal(t, tt.want, got)
 		})
 	}

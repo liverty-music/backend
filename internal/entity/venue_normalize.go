@@ -3,6 +3,7 @@ package entity
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -47,13 +48,61 @@ var (
 	venueAreaPrefixRE = regexp.MustCompile(`^(?:` + strings.Join(japanesePrefectureBases, "|") + `)[都道府県]?・`)
 )
 
-// NormalizeVenueName canonicalizes a scraped venue name for dedup comparison so
-// that Gemini's formatting drift across discovery runs collapses to one identity:
-// full/half-width forms are NFKC-folded, whitespace is collapsed, and a leading
+// unannouncedVenueMarkers are the names that only say the venue is not yet
+// announced, in the form [unannouncedVenueKey] gives them.
+var unannouncedVenueMarkers = map[string]struct{}{
+	"tba":           {},
+	"tbd":           {},
+	"tobeannounced": {},
+	"comingsoon":    {},
+	"staytuned":     {},
+	"未定":            {},
+	"後日発表":          {},
+}
+
+// undisclosedPlace marks a venue that is decided but not made public, as in
+// "横浜某所": any name containing it names no venue.
+const undisclosedPlace = "某所"
+
+// unannouncedVenueKey returns name without whitespace, punctuation and
+// symbols and in lower case, the form in which a whole name is compared with
+// [unannouncedVenueMarkers]: "-STAY TUNED-" becomes "staytuned".
+func unannouncedVenueKey(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+// isUnannouncedVenue reports whether a normalized name only says that the
+// venue is not yet announced: the whole name is one of the markers, or it
+// contains 某所. A real venue whose name contains a marker word, such as
+// "TBA Hall Osaka", is not one.
+func isUnannouncedVenue(normalized string) bool {
+	if strings.Contains(normalized, undisclosedPlace) {
+		return true
+	}
+	_, ok := unannouncedVenueMarkers[unannouncedVenueKey(normalized)]
+	return ok
+}
+
+// NormalizeVenueName is the one normalization of a listed venue name: every
+// comparison of venue names (an Event's listed venue name, a
+// ConcertCandidate's, and the events Concert.Search returns) starts from it,
+// so that formatting drift across discovery runs collapses to one identity.
+// Full/half-width forms are NFKC-folded, whitespace is collapsed, and a leading
 // location prefix ("大阪・…" or "大阪公演 ＠…") is stripped. It is a best-effort
 // heuristic — the event natural key `(venue_id, local_event_date, start_at)`
-// remains the DB-level safety net for anything it fails to collapse. A blank or
-// whitespace-only input returns "".
+// remains the DB-level safety net for anything it fails to collapse.
+//
+// It returns "" for a name that is missing: a blank or whitespace-only name,
+// and a name that only says the venue is not yet announced ("TBA",
+// "-STAY TUNED-", "未定", "横浜某所"; see [isUnannouncedVenue]). An event with
+// such a name is skipped like one with no venue name.
 func NormalizeVenueName(name string) string {
 	// NFKC folds full-width kana/ASCII and the full-width ＠ to canonical forms.
 	s := norm.NFKC.String(name)
@@ -62,6 +111,9 @@ func NormalizeVenueName(name string) string {
 	// Strip a leading "〈city〉公演 ＠" prefix before the "〈area〉・" prefix, since the
 	// former can itself contain a middle dot the latter would otherwise mis-strip.
 	s = venuePerformancePrefixRE.ReplaceAllString(s, "")
-	s = venueAreaPrefixRE.ReplaceAllString(s, "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(venueAreaPrefixRE.ReplaceAllString(s, ""))
+	if isUnannouncedVenue(s) {
+		return ""
+	}
+	return s
 }

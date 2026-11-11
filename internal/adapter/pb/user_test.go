@@ -168,8 +168,8 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/user "Returning fan"
 		pb := pb.FromUser(&entity.User{
 			ID:          "u-1",
-			FullName:    "山田 花子",
-			PhoneNumber: "+819012345678",
+			FullName:    new("山田 花子"),
+			PhoneNumber: new("+819012345678"),
 		})
 
 		assert.Equal(t, "山田 花子", pb.GetFullName().GetValue())

@@ -315,8 +315,8 @@ func TestUserHandler_Update(t *testing.T) {
 		t.Parallel()
 		h, userUC := newUserHandler(t)
 		updated := callerUser()
-		updated.FullName = "山田 花子"
-		updated.PhoneNumber = "+819098765432"
+		updated.FullName = new("山田 花子")
+		updated.PhoneNumber = new("+819098765432")
 		userUC.EXPECT().Update(mock.Anything, testCallerExtID,
 			mock.MatchedBy(func(fullName *string) bool { return fullName == nil }),
 			mock.MatchedBy(func(phone *string) bool { return phone != nil && *phone == "+819098765432" })).

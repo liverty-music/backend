@@ -177,14 +177,25 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		ReversedSplits:   reversedSplits,
 	}
 	if err := uc.refundRepo.CommitRefund(ctx, commit); err != nil {
-		// FailedPrecondition from CommitRefund means the settlement was already
-		// reversed by a concurrent call. The Order/ticket flips may or may not
-		// have committed in the concurrent call; re-read and return.
+		// FailedPrecondition from CommitRefund has two causes. Another refund
+		// of the same Order got there first (its Settlement is already
+		// Reversed): the Order read again is Refunded, and that is the
+		// result. Or the Order was never paid (Pending or Void), which cannot
+		// follow the Paid check above without a bug or a race after the money
+		// moved: the error is returned, so the refund fails and is seen
+		// instead of reported as done.
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			uc.logger.Info(ctx, "refund order: concurrent refund applied; reading current order state",
+			current, getErr := uc.orderRepo.Get(ctx, orderID)
+			if getErr != nil {
+				return nil, getErr
+			}
+			if current.Status != entity.OrderStatusRefunded {
+				return nil, err
+			}
+			uc.logger.Info(ctx, "refund order: concurrent refund applied; returning the refunded order",
 				slog.String("order_id", string(orderID)),
 			)
-			return uc.orderRepo.Get(ctx, orderID)
+			return current, nil
 		}
 		return nil, err
 	}

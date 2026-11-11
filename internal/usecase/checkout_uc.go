@@ -309,7 +309,7 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 	if fullName == "" || phoneNumber == "" {
 		return "", apperr.New(codes.InvalidArgument, "the full name and phone number are required")
 	}
-	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
+	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
 		return "", apperr.Wrap(err, codes.InvalidArgument, err.Error())
 	}
 	stock, err := uc.stockRepo.Get(ctx, checkout.Order.TicketStockID, now)
@@ -317,7 +317,7 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 		return "", err
 	}
 
-	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
+	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), &fullName, &phoneNumber); err != nil {
 		return "", err
 	}
 	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{

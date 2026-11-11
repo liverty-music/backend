@@ -47,10 +47,14 @@ func FromOrder(order *entity.Order) *entityv1.Order {
 	if order.ConfirmationSendTime != nil {
 		pb.ConfirmationSendTime = timestamppb.New(*order.ConfirmationSendTime)
 	}
-	// The source is exactly one of the lottery entry and the checkout.
-	if order.CheckoutID != "" {
+	// The source is exactly one of the checkout, the resale entry and the
+	// lottery entry ([entity.Order.ValidateSource]).
+	switch {
+	case order.CheckoutID != "":
 		pb.Source = &entityv1.Order_CheckoutId{CheckoutId: &entityv1.CheckoutId{Value: string(order.CheckoutID)}}
-	} else {
+	case order.ResaleEntryID != "":
+		pb.Source = &entityv1.Order_ResaleEntryId{ResaleEntryId: &entityv1.ResaleEntryId{Value: string(order.ResaleEntryID)}}
+	default:
 		pb.Source = &entityv1.Order_LotteryEntryId{LotteryEntryId: &entityv1.LotteryEntryId{Value: string(order.LotteryEntryID)}}
 	}
 	return pb

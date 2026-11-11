@@ -236,8 +236,8 @@ func (c *AnalyticsConsumer) HandleFollowHypeChanged(msg *message.Message) error 
 // HandleOrderPaid forwards the ORDER.paid NATS subject as the catalogue event
 // usecase.EventOrderPaid at the Order's pay time. Properties: order_id,
 // event_id (of the Order's TicketStock), ticket_count, amount, currency,
-// source ("lottery_entry" or "checkout"), and the source's id as
-// lottery_entry_id or checkout_id.
+// source ("lottery_entry", "checkout" or "resale_entry"), and exactly the
+// source's id as lottery_entry_id, checkout_id or resale_entry_id.
 func (c *AnalyticsConsumer) HandleOrderPaid(msg *message.Message) error {
 	return c.forward(msg, entity.SubjectOrderPaid, usecase.EventOrderPaid, func() (fact, error) {
 		return decodeFact(msg, func(o *entityv1.Order) (fact, error) {
@@ -249,7 +249,8 @@ func (c *AnalyticsConsumer) HandleOrderPaid(msg *message.Message) error {
 				OrderID: o.GetId().GetValue(), UserID: o.GetUserId().GetValue(), EventID: stock.EventID,
 				TicketCount: int(o.GetTicketCount()), Amount: o.GetAmount(), Currency: o.GetCurrency(),
 				LotteryEntryID: o.GetLotteryEntryId().GetValue(), CheckoutID: o.GetCheckoutId().GetValue(),
-				PayTime: o.GetPayTime().AsTime(),
+				ResaleEntryID: o.GetResaleEntryId().GetValue(),
+				PayTime:       o.GetPayTime().AsTime(),
 			}), nil
 		})
 	})
@@ -270,6 +271,9 @@ func orderPaidFact(data entity.OrderPaidData) fact {
 	case data.CheckoutID != "":
 		props["source"] = "checkout"
 		props["checkout_id"] = data.CheckoutID
+	case data.ResaleEntryID != "":
+		props["source"] = "resale_entry"
+		props["resale_entry_id"] = data.ResaleEntryID
 	}
 	return fact{distinctID: data.UserID, at: data.PayTime, props: props}
 }

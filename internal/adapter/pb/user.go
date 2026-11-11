@@ -36,11 +36,11 @@ func FromUser(user *entity.User) *proto.User {
 	if user.Home != nil {
 		pb.Home = FromHome(user.Home)
 	}
-	if user.FullName != "" {
-		pb.FullName = &proto.FullName{Value: user.FullName}
+	if user.FullName != nil {
+		pb.FullName = &proto.FullName{Value: *user.FullName}
 	}
-	if user.PhoneNumber != "" {
-		pb.PhoneNumber = &proto.PhoneNumber{Value: user.PhoneNumber}
+	if user.PhoneNumber != nil {
+		pb.PhoneNumber = &proto.PhoneNumber{Value: *user.PhoneNumber}
 	}
 	if user.TimeZone != "" {
 		pb.TimeZone = &proto.TimeZone{Value: user.TimeZone}
@@ -165,14 +165,7 @@ func PersonalDetailsFromUpdateRequest(req *userv1.UpdateRequest) (fullName, phon
 		}
 		phoneNumber = &v
 	}
-	var name, phone string
-	if fullName != nil {
-		name = *fullName
-	}
-	if phoneNumber != nil {
-		phone = *phoneNumber
-	}
-	if err := entity.ValidatePersonalDetails(name, phone); err != nil {
+	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
 		return nil, nil, err
 	}
 	return fullName, phoneNumber, nil

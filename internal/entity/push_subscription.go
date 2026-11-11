@@ -44,6 +44,8 @@ type PushSubscriptionRepository interface {
 	//
 	// # Possible errors:
 	//
+	//   - Unavailable: the announcement could not be recorded; nothing
+	//     changes.
 	//   - Internal: database connection or execution failure.
 	//
 	// # Announces
@@ -68,6 +70,8 @@ type PushSubscriptionRepository interface {
 	//
 	// # Possible errors:
 	//
+	//   - Unavailable: the announcement could not be recorded; nothing is
+	//     removed.
 	//   - Internal: database execution failure.
 	//
 	// # Announces

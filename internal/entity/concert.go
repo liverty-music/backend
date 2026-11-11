@@ -478,51 +478,80 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
-	// ListByArtist retrieves all concerts where the given artist appears in
-	// concert_artists. if upcomingOnly is true, it only returns concerts with
-	// LocalDate >= today.
+	// ListByArtist returns every Concert whose performers include the artist,
+	// of every date, ordered by local date ascending, each with its Venue
+	// (name and admin area), Series and performers. Concerts that are not
+	// visible to fans are left out: a DRAFT or CANCELLED event of a
+	// first-party series, and every event of an UNLISTED one. An artist with
+	// no concerts, or an unknown artist, gives an empty list.
+	// [ConcertRepository.ListUpcomingByArtist] lists only the concerts from
+	// the current date onward.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the artist ID is empty.
-	ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*Concert, error)
-	// ListByFollower retrieves concerts for artists followed by the given user
-	// whose local event date is on or after from, ordered by local_event_date
-	// ascending. A nil from defaults to the current date (today onward).
-	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*Concert, error)
-	// ListByArtists retrieves concerts where any of the given artists appear in
-	// concert_artists, in a single query. Venue coordinates are included for
-	// proximity classification. Results are ordered by local_event_date ascending.
-	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
-	// ListByLocation retrieves candidate concerts whose local_event_date falls
-	// within [from, to] and whose venue is a coarse spatial match for the given
-	// reference point: either inside a bounding box around the point's
-	// coordinates OR sharing the point's admin_area. The bounding box is a
-	// pre-filter to avoid a full-table scan; the precise Haversine 200 km cut is
-	// applied by the use-case layer. Venue coordinates are included for that
-	// classification. Results are ordered by local_event_date ascending.
-	ListByLocation(ctx context.Context, location *GeoLocation, from, to time.Time) ([]*Concert, error)
-	// Create persists one or more concerts using bulk insert with UPSERT semantics.
-	//
-	// Each concert must already carry an embedded Series whose row has been
-	// inserted (or will be inserted in the same transaction) via SeriesRepository.
-	// Events are inserted with ON CONFLICT on the natural key
-	// (series_id, local_event_date, venue_id). When a conflict is detected the
-	// existing row is preserved and concert_artists links are reconciled.
-	//
-	// Concert rows are only inserted for genuinely new events. Performer links
-	// (concert_artists) are inserted for every concert in the batch and use
-	// ON CONFLICT DO NOTHING so re-runs are idempotent.
-	//
-	// Nil elements in the input slice are silently skipped.
-	//
-	// Returns the event IDs of concerts that were genuinely inserted (i.e.,
-	// not deduplicated by natural-key UPSERT). Callers must not assume the
-	// returned slice matches the input slice in length or order.
+	ListByArtist(ctx context.Context, artistID string) ([]*Concert, error)
+	// ListUpcomingByArtist returns every Concert whose performers include the
+	// artist and whose local date is on or after the current date at its
+	// Venue at now ([CurrentDateAtVenue]), ordered by local date ascending,
+	// each with its Venue (name and admin area), Series and performers.
+	// Concerts that are not visible to fans are left out, as in
+	// [ConcertRepository.ListByArtist]. An artist with no upcoming concerts,
+	// or an unknown artist, gives an empty list.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid series, venue, or performer).
+	//  - InvalidArgument: If the artist ID is empty.
+	ListUpcomingByArtist(ctx context.Context, artistID string, now time.Time) ([]*Concert, error)
+	// ListByFollower returns, once each, every Concert at which an artist the
+	// user follows performs and whose local date is on or after from, ordered
+	// by local date ascending, each with its Venue with coordinates when
+	// known. A nil from means the current date at the Venue
+	// ([CurrentDateAtVenue]). Concerts that are not visible to fans are left
+	// out, as in [ConcertRepository.ListByArtist].
+	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*Concert, error)
+	// ListByArtists returns, once each, every Concert whose performers
+	// include any of the given artists, past and upcoming, in a single query,
+	// ordered by local date ascending, each with its Venue with coordinates
+	// when known for proximity classification. Concerts that are not visible
+	// to fans are left out, as in [ConcertRepository.ListByArtist].
+	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
+	// ListByLocation returns the candidate Concerts dated from from to to
+	// inclusive whose Venue shares the location's admin area or could lie
+	// within 200 km of its point, ordered by local date ascending, each with
+	// its Venue with coordinates when known. Concerts farther than 200 km can
+	// be among the candidates (the caller applies the exact distance cut),
+	// but none in the same admin area or within 200 km is left out. Concerts
+	// that are not visible to fans are left out, as in
+	// [ConcertRepository.ListByArtist].
+	ListByLocation(ctx context.Context, location *GeoLocation, from, to time.Time) ([]*Concert, error)
+	// Create stores the given Concerts under Series that already exist, all
+	// of them with their performers or none.
+	//
+	// A Concert's slot is its Venue, local date and start time; an unknown
+	// start time matches only an unknown start time. With no event at the
+	// slot, Create stores a new event. With one there, Create keeps that
+	// event and its id, fills its start and open time only where they are
+	// unknown, never overwrites a known time, and adds the Concert's
+	// performers to it. Concerts in one call that share a slot are stored
+	// once. A DRAFT event holds no slot and is never merged into.
+	//
+	// Nil elements in the input slice are skipped.
+	//
+	// It returns the ids of the events that are new, together with the ids of
+	// existing events to which one of the Concerts' performers was newly
+	// added, each id once. An event that already had every given performer
+	// is not returned, so the result need not match the input in length or
+	// order.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: A Concert has no id, no Venue, no Series or no
+	//    performer. Nothing is stored.
+	//  - FailedPrecondition: A referenced Series, Venue or Artist does not
+	//    exist. Nothing is stored.
+	//  - Unavailable: An announcement could not be recorded; nothing is
+	//    stored.
 	//
 	// # Announces
 	//
@@ -530,10 +559,11 @@ type ConcertRepository interface {
 	// with those Concerts (ce_subject the Artist id), together with the change.
 	// Nothing when no link is new.
 	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
-	// ListByIDs retrieves concerts by their event IDs. Venues, parent Series,
-	// and Artists are all populated so callers can render the response
-	// without follow-up queries. IDs that do not match any row are silently
-	// omitted from the result.
+	// ListByIDs returns the Concert for each given id that exists, ordered by
+	// local date ascending, each with its Venue with coordinates when known,
+	// Series and performers, whatever its visibility to fans. An id that
+	// matches no Concert is left out without error; the id of a DRAFT event
+	// matches no Concert.
 	//
 	// # Possible errors
 	//
@@ -549,7 +579,8 @@ type ConcertRepository interface {
 	//
 	// Only physical-identity and parentage fields are populated (ID, SeriesID,
 	// VenueID, LocalDate, StartTime); Venue and Artists are not hydrated.
-	// Returns an empty slice (no error) when the inputs are empty.
+	// A DRAFT event is not a Concert and is never returned. Returns an empty
+	// slice (no error) when the inputs are empty or no event matches.
 	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Event, error)
 	// FindEventsByArtistAndDate returns existing events on any of the given local
 	// event dates at which the artist already performs (joined through
@@ -560,8 +591,10 @@ type ConcertRepository interface {
 	// belongs to this tour and its series_id is adopted for the group.
 	//
 	// Only physical-identity and parentage fields are populated (ID, SeriesID,
-	// VenueID, LocalDate, StartTime); Venue and Artists are not hydrated.
-	// Returns an empty slice (no error) when the inputs are empty.
+	// VenueID, ListedVenueName, LocalDate, StartTime); Venue and Artists are
+	// not hydrated. A DRAFT event is not a Concert and is never returned.
+	// Returns an empty slice (no error) when the inputs are empty or no event
+	// matches.
 	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
 	// ListEventsBySeries retrieves every event belonging to the given series,
 	// ordered by local_event_date ascending and, for equal dates, by start_at
@@ -570,14 +603,17 @@ type ConcertRepository interface {
 	// TicketSaleAnnouncementUseCase and TicketSaleReminderUseCase).
 	//
 	// Only physical-identity fields are populated (ID, SeriesID, LocalDate,
-	// StartTime); Venue and Artists are not hydrated. Returns an empty
-	// slice (no error) when the series has no events.
+	// StartTime); Venue and Artists are not hydrated. A DRAFT event is not a
+	// Concert and is never returned. Returns an empty slice (no error) when
+	// the series has no such event.
 	ListEventsBySeries(ctx context.Context, seriesID string) ([]*Event, error)
 	// FillEventStartTimes sets start_at / open_at on existing events identified
 	// by eventIDs, only where the column is currently NULL (COALESCE), for the
 	// case where a later discovery supplies a time the first discovery lacked.
 	// The three slices are zipped element-wise; a nil time leaves the column
-	// unchanged. Idempotent: a no-op when eventIDs is empty.
+	// unchanged. An unknown event id is ignored, and so is the id of a DRAFT
+	// event, which is not a Concert: its times are not filled. Idempotent: a
+	// no-op when eventIDs is empty.
 	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error
 	// UpdateEventListedVenueName overwrites the listed_venue_name display field of
 	// an existing event. Used by the admin approval "adopt the candidate" reconciliation
@@ -608,8 +644,14 @@ type ConcertRepository interface {
 	// ON DELETE RESTRICT, so the delete fails instead of orphaning them when
 	// any exist. The event's series and the series' discovered ticket sales
 	// are untouched either way: a discovered sale names no event, so deleting
-	// one event never removes it. It is idempotent: deleting an id that no longer exists is a no-op
-	// success.
+	// one event never removes it. It is idempotent: an id that no longer
+	// exists is a no-op success, and so is the id of a DRAFT event, which is
+	// not a Concert and is not removed.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: an Order, Ticket or Settlement still refers to
+	//    the event. Nothing is removed.
 	Delete(ctx context.Context, eventID string) error
 	// DeleteAndSuppress removes a published event by id together with every
 	// record that depends only on it: its performers, Concert and ticket

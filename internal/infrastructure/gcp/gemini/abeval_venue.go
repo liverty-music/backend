@@ -7,7 +7,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// venuePunctStripper is the punctuation set NormalizeVenue strips.
+// venuePunctStripper is the punctuation set NormalizeFixtureVenue strips.
 var venuePunctStripper = strings.NewReplacer(
 	",", " ",
 	".", " ",
@@ -55,12 +55,18 @@ var tbdVenueMarkers = map[string]struct{}{
 	"tobeannounced": {},
 }
 
-// NormalizeVenue folds notation variants (NFKC), strips prefecture
-// qualifiers, lowercases, strips a fixed punctuation set (including the
-// Latin-1 middle dot), drops all whitespace, and collapses "venue TBD"
-// markers to the empty string. ConcertSearcher uses it as the venue part of
-// the repeat-removal key, and the A/B harness uses it to match returned
-// events against the ground truth on (date, venue) key.
+// NormalizeFixtureVenue is the venue form in which the A/B evaluation
+// matches an event the model returned against the hand-written ground truth
+// (fixture) on the (date, venue) key. It is for fixture matching only: the
+// product compares venue names through entity.NormalizeVenueName, and
+// ConcertSearcher's repeat removal starts from that. Its extra rules (a
+// prefecture in parentheses, a renamed venue) forgive differences between a
+// page and a fixture; they are not rules of the product.
+//
+// It folds notation variants (NFKC), strips prefecture qualifiers,
+// lowercases, strips a fixed punctuation set (including the Latin-1 middle
+// dot), drops all whitespace, and collapses "venue TBD" markers to the empty
+// string.
 //
 // Prefecture stripping rationale: artist sites quote venues in two
 // inconsistent forms — prefixed ("大阪府・Billborad Live OSAKA") or
@@ -68,7 +74,7 @@ var tbdVenueMarkers = map[string]struct{}{
 // reproduces whichever form is on the page, while our fixture may have
 // either. Stripping the prefecture from both sides before comparison
 // resolves the mismatch without changing either source of truth.
-func NormalizeVenue(s string) string {
+func NormalizeFixtureVenue(s string) string {
 	// NFKC first: official pages mix full-width and half-width forms
 	// （（）vs ()）, compatibility characters (the CJK radical ⽇ U+2F47 for 日)
 	// and half-width katakana (･), all of which NFKC folds together.

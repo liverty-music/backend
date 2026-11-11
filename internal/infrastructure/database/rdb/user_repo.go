@@ -35,6 +35,16 @@ const (
 		WHERE u.id = $1
 	`
 
+	// lockUserRowQuery locks the user's row until the transaction ends, so a
+	// write that decides on what it reads next (UpdateHome: insert a Home or
+	// update the stored one) runs after any concurrent one for the same user.
+	// It is its own statement on purpose: the read that follows takes a new
+	// snapshot and sees what the other transaction stored. FOR UPDATE on
+	// getUserQuery itself would not: after the lock wait PostgreSQL re-reads
+	// only the locked users row, and joins it to homes as of the statement's
+	// start, where the Home just stored does not exist yet.
+	lockUserRowQuery = `SELECT id FROM users WHERE id = $1 FOR UPDATE`
+
 	getUserByProviderUserIDQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
@@ -43,8 +53,9 @@ const (
 	`
 
 	// getUsersByEmailQuery matches the address with letter case ignored
-	// (served by idx_users_email_lower). UNIQUE (email) is case-sensitive, so
-	// two rows can match; LIMIT 2 is enough to tell one match from several.
+	// (served by uq_users_email_lower, which also keeps two rows from
+	// matching). LIMIT 2 still tells one match from several, so a breach of
+	// that index would be reported instead of answered with the first row.
 	getUsersByEmailQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
@@ -146,8 +157,9 @@ func nullStringFromEmpty(s string) sql.NullString {
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 //
 // Every nullable users column (time_zone, full_name, phone_number) is scanned
-// into a sql.NullString intermediate, then assigned to the entity field via
-// .String when .Valid. pgx errors out when scanning SQL NULL into a
+// into a sql.NullString intermediate, then assigned to the entity field when
+// .Valid: the time zone as its string, the full name and phone number as
+// pointers that stay nil for NULL. pgx errors out when scanning SQL NULL into a
 // non-nullable Go destination (a bare string), so the intermediate-local
 // pattern protects every read path that shares this scanner (Get,
 // GetByProviderUserID, GetByEmail, Update, UpdatePreferredLanguage,
@@ -173,10 +185,10 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 		user.TimeZone = timeZone.String
 	}
 	if fullName.Valid {
-		user.FullName = fullName.String
+		user.FullName = &fullName.String
 	}
 	if phoneNumber.Valid {
-		user.PhoneNumber = phoneNumber.String
+		user.PhoneNumber = &phoneNumber.String
 	}
 	if lastLoginAt.Valid {
 		t := lastLoginAt.Time
@@ -408,12 +420,12 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.
 
 // UpdatePersonalDetails sets the user's full name and phone number, storing
 // an empty value as absent, and returns the refreshed user.
-func (r *UserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*entity.User, error) {
+func (r *UserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber *string) (*entity.User, error) {
 	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid personal details")
 	}
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePersonalDetailsQuery, id,
-		nullStringFromEmpty(fullName), nullStringFromEmpty(phoneNumber)))
+	// A nil pointer is sent as NULL: the value is stored as absent.
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePersonalDetailsQuery, id, fullName, phoneNumber))
 	if err != nil {
 		return nil, toAppErr(err, "failed to update personal details", slog.String("user_id", id))
 	}
@@ -478,7 +490,13 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Fetch current user to determine whether a home record already exists.
+	// Lock the user's row, then read the user to decide whether a home
+	// record already exists: two concurrent first calls would otherwise both
+	// find none and both insert one, leaving a Home no user refers to.
+	var lockedID string
+	if err := tx.QueryRow(ctx, lockUserRowQuery, id).Scan(&lockedID); err != nil {
+		return nil, toAppErr(err, "failed to lock user for home update", slog.String("user_id", id))
+	}
 	current, err := scanUser(tx.QueryRow(ctx, getUserQuery, id))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))

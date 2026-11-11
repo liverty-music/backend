@@ -522,7 +522,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		d.seriesRepo.AssertNotCalled(t, "PublishEvents", mock.Anything, mock.Anything, mock.Anything)
+		d.seriesRepo.AssertNotCalled(t, "PublishEvents", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("publish a draft with no description or cover image", func(t *testing.T) {
@@ -532,7 +532,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
@@ -547,7 +547,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
 
 		gotSeries, gotConcerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
@@ -566,7 +566,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		s := lifecycleSeries(entity.SeriesVisibilityPublic)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return(nil, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return(nil, nil).Once()
 		published(d, s, nil, artists)
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
@@ -581,13 +581,12 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			d := newAuthoringDeps(t)
 			d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 				Return(lifecycleSeries(visibility), concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-			d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).
+			d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, mock.Anything).
 				Return(nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by another series' event")).Once()
 
 			_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-			d.seriesRepo.AssertNotCalled(t, "SetUnlistedToken", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 
@@ -599,7 +598,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
 		// Series.PublishEvents no longer refuses a suppressed slot.
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
 
 		_, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
@@ -630,7 +629,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			lifecycleEvent(pubC, entity.PublishStatePublished, date, nil),
 			lifecycleEvent(draftA, entity.PublishStateDraft, date.AddDate(0, 0, 1), nil),
 		}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
@@ -647,7 +646,7 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			lifecycleEvent(draftA, entity.PublishStateDraft, date, nil),
 			lifecycleEvent(draftB, entity.PublishStateDraft, date.AddDate(0, 0, 1), nil),
 		}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftB}).Return([]string{draftB}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftB}, (*string)(nil)).Return([]string{draftB}, nil).Once()
 		published(d, s, nil, artists)
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, []string{draftB})
@@ -655,7 +654,11 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("give an UNLISTED draft a share token, announce nothing and still report the publish", func(t *testing.T) {
+	// aNewToken matches the share token Publish generates: given, and not
+	// empty.
+	aNewToken := mock.MatchedBy(func(token *string) bool { return token != nil && *token != "" })
+
+	t.Run("give an UNLISTED draft a share token with the publish, announce nothing and still report the publish", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Unlisted publish"
 		// @spec components/usecase/series/publish "Unlisted publish reported"
@@ -663,16 +666,19 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		s := lifecycleSeries(entity.SeriesVisibilityUnlisted)
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
 			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
-		d.seriesRepo.EXPECT().SetUnlistedToken(mock.Anything, lifecycleSeriesID, mock.Anything).Return(nil).Once()
+		// The token is stored by Series.PublishEvents; Series.SetUnlistedToken
+		// is not expected, so a call to it fails the test.
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, aNewToken).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
 
-		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+		_, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
 		require.NoError(t, err)
+		require.Len(t, concerts, 1)
+		assert.True(t, concerts[0].HasPublishState(entity.PublishStatePublished))
 	})
 
-	t.Run("keep the share token when a new date of an UNLISTED series is published", func(t *testing.T) {
+	t.Run("give no new token when a new date of an UNLISTED series that has one is published", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "New date keeps the share link"
 		d := newAuthoringDeps(t)
@@ -682,13 +688,58 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 			lifecycleEvent(pubC, entity.PublishStatePublished, date, nil),
 			lifecycleEvent(draftA, entity.PublishStateDraft, date.AddDate(0, 0, 1), nil),
 		}, artists), nil).Once()
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}).Return([]string{draftA}, nil).Once()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
 		published(d, s, nil, artists)
+
+		got, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+
+		require.NoError(t, err)
+		require.NotNil(t, got.UnlistedToken)
+		assert.Equal(t, "existing-token", *got.UnlistedToken)
+	})
+
+	t.Run("fail and write nothing else when Series.PublishEvents fails for an UNLISTED draft", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/publish "Failed publish leaves no token"
+		d := newAuthoringDeps(t)
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
+			Return(lifecycleSeries(entity.SeriesVisibilityUnlisted), concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
+		// Series.PublishEvents stores the token and the publish together or
+		// neither, and it is the only write Publish makes: the mock fails the
+		// test on any other call, Series.SetUnlistedToken included.
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, aNewToken).
+			Return(nil, apperr.New(codes.Unavailable, "the announcement could not be recorded")).Once()
 
 		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
 
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
+	t.Run("give the token again when an UNLISTED draft is published after a failed publish", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/publish "Repeated publish after a failure"
+		d := newAuthoringDeps(t)
+		s := lifecycleSeries(entity.SeriesVisibilityUnlisted)
+		draft := concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists)
+		// The failed publish stored nothing, so the second Publish reads the
+		// same token-less draft and passes a token again.
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, draft, nil).Twice()
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, aNewToken).
+			Return(nil, apperr.New(codes.Unavailable, "the announcement could not be recorded")).Once()
+		_, _, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+
+		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, aNewToken).Return([]string{draftA}, nil).Once()
+		withToken := *s
+		withToken.UnlistedToken = new("stored-token")
+		published(d, &withToken, nil, artists)
+
+		got, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
+
 		require.NoError(t, err)
-		d.seriesRepo.AssertNotCalled(t, "SetUnlistedToken", mock.Anything, mock.Anything, mock.Anything)
+		require.NotNil(t, got.UnlistedToken)
+		require.Len(t, concerts, 1)
+		assert.True(t, concerts[0].HasPublishState(entity.PublishStatePublished))
 	})
 }
 

@@ -191,7 +191,7 @@ type LotteryEntryEnteredData struct {
 
 // OrderPaidData is what the receivers of an ORDER.paid announcement read
 // from the paid Order and the event of its TicketStock. At most one of
-// LotteryEntryID and CheckoutID is set: the Order's source.
+// LotteryEntryID, CheckoutID and ResaleEntryID is set: the Order's source.
 type OrderPaidData struct {
 	// OrderID is the paid Order; consumers are idempotent by it.
 	OrderID string
@@ -209,6 +209,8 @@ type OrderPaidData struct {
 	LotteryEntryID string
 	// CheckoutID is the completed checkout, when that is the source.
 	CheckoutID string
+	// ResaleEntryID is the won resale entry, when that is the source.
+	ResaleEntryID string
 	// PayTime is the Order's pay time, the time the fact happened (the
 	// analytics event time).
 	PayTime time.Time

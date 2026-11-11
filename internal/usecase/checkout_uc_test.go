@@ -547,8 +547,8 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(coStock(150, 0, 2), nil)
-		updateDetails := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).
-			Return(&entity.User{ID: "fan-1", FullName: name, PhoneNumber: phone}, nil).Call
+		updateDetails := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", new(name), new(phone)).
+			Return(&entity.User{ID: "fan-1", FullName: new(name), PhoneNumber: new(phone)}, nil).Call
 		createHold := f.auth.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
 			Purpose:    entity.CardAuthorizationPurposeCheckout,
 			CheckoutID: "checkout-1", UserID: "fan-1", TicketStockID: "stock-1", EventID: "event-1", TicketCount: 2,
@@ -569,7 +569,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		checkout.Order.CardAuthorizationID = "pi_1"
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkout, nil)
 		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(coStock(150, 0, 2), nil)
-		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).Return(&entity.User{ID: "fan-1"}, nil)
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", new(name), new(phone)).Return(&entity.User{ID: "fan-1"}, nil)
 		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 
@@ -588,8 +588,8 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkout, nil)
 		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(coStock(150, 0, 2), nil)
 		const corrected = "佐藤 花子"
-		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", corrected, phone).
-			Return(&entity.User{ID: "fan-1", FullName: corrected, PhoneNumber: phone}, nil).Once()
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", new(corrected), new(phone)).
+			Return(&entity.User{ID: "fan-1", FullName: new(corrected), PhoneNumber: new(phone)}, nil).Once()
 		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 

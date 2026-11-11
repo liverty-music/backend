@@ -106,7 +106,8 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: starting for artist", attrs...)
 
-	concerts, err := uc.concertRepo.ListByArtist(ctx, artist.ID, true)
+	now := time.Now()
+	concerts, err := uc.concertRepo.ListUpcomingByArtist(ctx, artist.ID, now)
 	if err != nil {
 		return 0, err
 	}
@@ -116,7 +117,6 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		return 0, nil
 	}
 
-	now := time.Now()
 	seriesRefs, err = uc.selectSeriesToSearch(ctx, seriesRefs, now)
 	if err != nil {
 		return 0, err

@@ -121,12 +121,19 @@ func NewOfficialSite(artistID, url string) *OfficialSite {
 
 // ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
-	// Create persists one or more artist records in the database using bulk upsert.
-	// Artists with matching MBIDs are deduplicated (ON CONFLICT DO NOTHING).
-	// Returns all artists (both newly inserted and pre-existing) with valid database IDs.
+	// Create registers every given artist whose MBID is not yet registered
+	// and returns, for each given artist in input order, the registered
+	// artist with that MBID. An artist whose MBID is already registered is
+	// returned as registered, unchanged, and is not registered a second time.
+	// A new artist keeps the id it was given, or gets a fresh id when it has
+	// none. All of the new artists are registered or none of them.
 	//
 	// # Possible errors:
 	//
+	//   - InvalidArgument: an artist has no MBID or an MBID that is not 36
+	//     characters long. Nothing is registered.
+	//   - Unavailable: an announcement could not be recorded; nothing is
+	//     registered.
 	//   - Internal: database connection or execution failure.
 	//
 	// # Announces
@@ -217,9 +224,10 @@ type ArtistRepository interface {
 
 	// Fanart operations
 
-	// UpdateFanart replaces the cached fanart.tv data for an artist.
-	// When fanart is nil, only fanart_synced_at is updated (marking
-	// the artist as synced with no images available).
+	// UpdateFanart replaces the artist's fanart with the given fanart and
+	// sets the time of the image check to syncTime. When fanart is nil, the
+	// artist is left with no fanart, removing any earlier images, and the
+	// check time is still set.
 	//
 	// # Possible errors:
 	//

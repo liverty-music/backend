@@ -88,6 +88,29 @@ func TestIssuanceRepository_IssueResaleEntry(t *testing.T) {
 		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_SOLD, sold[0].GetStatus())
 	})
 
+	t.Run("paid announcement of a won resale entry's order names the resale entry as its source", func(t *testing.T) {
+		// @spec components/entity/order/issue "Order of a won resale entry paid"
+		f := seedResaleStock(t, 4, 4)
+		seller := seedResoldSeller(t, f)
+		entry := enterResale(t, entries, f, 1)
+		require.NoError(t, entries.PersistDrawOutcome(ctx, f.ID, resaleDrawTime, entity.ResaleDrawOutcome{
+			Winners: []entity.ResaleWin{{Entry: entry, Listings: []entity.ResaleListingID{seller.listing}}},
+		}))
+		order, issued, settlement := issuanceOf(t, entry.Order, f.EventID)
+		mark := outboxMark(t)
+
+		require.NoError(t, issuance.Issue(ctx, order, issued, settlement))
+
+		paid := announcedSince(t, mark, entity.SubjectOrderPaid, func() *entityv1.Order { return &entityv1.Order{} },
+			func(o *entityv1.Order) bool { return o.GetId().GetValue() == string(order.ID) })
+		require.Len(t, paid, 1)
+		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, paid[0].GetStatus())
+		assert.True(t, paid[0].HasResaleEntryId(), "the source is the ResaleEntry")
+		assert.Equal(t, string(entry.ID), paid[0].GetResaleEntryId().GetValue())
+		assert.False(t, paid[0].HasLotteryEntryId(), "the source is not a LotteryEntry")
+		assert.False(t, paid[0].HasCheckoutId())
+	})
+
 	refunds := rdb.NewRefundRepository(testDB, testOutbox)
 	listingStatus := func(t *testing.T, id entity.ResaleListingID) entity.ResaleListingStatus {
 		t.Helper()

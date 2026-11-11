@@ -405,6 +405,69 @@ func TestAnalyticsConsumer_HandleOrderPaid_PaidCheckout(t *testing.T) {
 	require.NoError(t, c.HandleOrderPaid(announcedMsg(t, entity.SubjectOrderPaid, paidCheckout(), factTime)))
 }
 
+// A paid Order is recorded with how it was bought: source names the
+// LotteryEntry, Checkout or ResaleEntry, and only the matching id is sent.
+func TestAnalyticsConsumer_HandleOrderPaid_Source(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		source     func(o *entityv1.Order)
+		wantSource string
+		wantIDKey  string
+		wantID     string
+	}{
+		{
+			name: "record a Checkout Order with source checkout and its checkout_id",
+			source: func(o *entityv1.Order) {
+				o.Source = &entityv1.Order_CheckoutId{CheckoutId: &entityv1.CheckoutId{Value: "checkout-1"}}
+			},
+			wantSource: "checkout", wantIDKey: "checkout_id", wantID: "checkout-1",
+		},
+		{
+			name: "record a lottery Order with source lottery_entry and its lottery_entry_id",
+			source: func(o *entityv1.Order) {
+				o.Source = &entityv1.Order_LotteryEntryId{LotteryEntryId: &entityv1.LotteryEntryId{Value: "lottery-entry-1"}}
+			},
+			wantSource: "lottery_entry", wantIDKey: "lottery_entry_id", wantID: "lottery-entry-1",
+		},
+		{
+			name: "record a resale Order with source resale_entry and its resale_entry_id",
+			source: func(o *entityv1.Order) {
+				o.Source = &entityv1.Order_ResaleEntryId{ResaleEntryId: &entityv1.ResaleEntryId{Value: "resale-entry-1"}}
+			},
+			wantSource: "resale_entry", wantIDKey: "resale_entry_id", wantID: "resale-entry-1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Capture is matched on the whole property set, so an id of
+			// another source, set or empty, fails the test.
+			client := ucmocks.NewMockAnalyticsClient(t)
+			client.EXPECT().Capture(mock.Anything, usecase.AnalyticsEvent{
+				Name:       usecase.EventOrderPaid,
+				UUID:       "announcement-1",
+				Time:       factMillis,
+				DistinctID: fanID,
+				Properties: usecase.AnalyticsProperties{
+					"order_id":     "019a0000-0000-7000-8000-00000000a001",
+					"event_id":     "event-1",
+					"ticket_count": 2,
+					"amount":       int64(16000),
+					"currency":     "JPY",
+					"source":       tt.wantSource,
+					tt.wantIDKey:   tt.wantID,
+				},
+			}).Return(nil).Once()
+
+			c := event.NewAnalyticsConsumer(client, consumerMetrics(t, "forwarded"), stubOrders{}, stubStocks{}, newTestLogger(t))
+			require.NoError(t, c.HandleOrderPaid(announcedMsg(t, entity.SubjectOrderPaid, edited(paidCheckout(), tt.source), factTime)))
+		})
+	}
+}
+
 // The same announcement delivered twice (a JetStream redelivery) is handed
 // off with the same UUID (its announcement id) and the same time (the
 // Order's pay time), whatever the time of the delivery. PostHog treats events

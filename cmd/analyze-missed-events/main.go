@@ -134,7 +134,7 @@ func main() {
 		for _, rc := range pl.Concerts {
 			scKey := gemini.MatchKey{
 				LocalDate: trimDate(rc.LocalDate),
-				Venue:     gemini.NormalizeVenue(rc.ListedVenueName),
+				Venue:     gemini.NormalizeFixtureVenue(rc.ListedVenueName),
 			}
 			matched[scKey] = true
 		}

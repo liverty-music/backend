@@ -173,7 +173,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		Return(&entity.Artist{ID: "artist-2", Name: "Test Artist", MBID: "mbid-1"}, nil)
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-2").
 		Return(nil, apperr.New(codes.NotFound, "not found"))
-	d.concertRepo.EXPECT().ListByArtist(mock.Anything, "artist-2", true).
+	d.concertRepo.EXPECT().ListUpcomingByArtist(mock.Anything, "artist-2", mock.Anything).
 		Return(nil, nil)
 	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, "artist-2").
 		Return(nil, nil)

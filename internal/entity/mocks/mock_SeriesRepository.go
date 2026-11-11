@@ -686,8 +686,8 @@ func (_c *MockSeriesRepository_ListByOrganizer_Call) RunAndReturn(run func(ctx c
 }
 
 // PublishEvents provides a mock function for the type MockSeriesRepository
-func (_mock *MockSeriesRepository) PublishEvents(ctx context.Context, seriesID string, eventIDs []string) ([]string, error) {
-	ret := _mock.Called(ctx, seriesID, eventIDs)
+func (_mock *MockSeriesRepository) PublishEvents(ctx context.Context, seriesID string, eventIDs []string, token *string) ([]string, error) {
+	ret := _mock.Called(ctx, seriesID, eventIDs, token)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PublishEvents")
@@ -695,18 +695,18 @@ func (_mock *MockSeriesRepository) PublishEvents(ctx context.Context, seriesID s
 
 	var r0 []string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string) ([]string, error)); ok {
-		return returnFunc(ctx, seriesID, eventIDs)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, *string) ([]string, error)); ok {
+		return returnFunc(ctx, seriesID, eventIDs, token)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string) []string); ok {
-		r0 = returnFunc(ctx, seriesID, eventIDs)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []string, *string) []string); ok {
+		r0 = returnFunc(ctx, seriesID, eventIDs, token)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []string) error); ok {
-		r1 = returnFunc(ctx, seriesID, eventIDs)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []string, *string) error); ok {
+		r1 = returnFunc(ctx, seriesID, eventIDs, token)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -722,11 +722,12 @@ type MockSeriesRepository_PublishEvents_Call struct {
 //   - ctx context.Context
 //   - seriesID string
 //   - eventIDs []string
-func (_e *MockSeriesRepository_Expecter) PublishEvents(ctx any, seriesID any, eventIDs any) *MockSeriesRepository_PublishEvents_Call {
-	return &MockSeriesRepository_PublishEvents_Call{Call: _e.mock.On("PublishEvents", ctx, seriesID, eventIDs)}
+//   - token *string
+func (_e *MockSeriesRepository_Expecter) PublishEvents(ctx any, seriesID any, eventIDs any, token any) *MockSeriesRepository_PublishEvents_Call {
+	return &MockSeriesRepository_PublishEvents_Call{Call: _e.mock.On("PublishEvents", ctx, seriesID, eventIDs, token)}
 }
 
-func (_c *MockSeriesRepository_PublishEvents_Call) Run(run func(ctx context.Context, seriesID string, eventIDs []string)) *MockSeriesRepository_PublishEvents_Call {
+func (_c *MockSeriesRepository_PublishEvents_Call) Run(run func(ctx context.Context, seriesID string, eventIDs []string, token *string)) *MockSeriesRepository_PublishEvents_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -740,10 +741,15 @@ func (_c *MockSeriesRepository_PublishEvents_Call) Run(run func(ctx context.Cont
 		if args[2] != nil {
 			arg2 = args[2].([]string)
 		}
+		var arg3 *string
+		if args[3] != nil {
+			arg3 = args[3].(*string)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -754,7 +760,7 @@ func (_c *MockSeriesRepository_PublishEvents_Call) Return(publishedEventIDs []st
 	return _c
 }
 
-func (_c *MockSeriesRepository_PublishEvents_Call) RunAndReturn(run func(ctx context.Context, seriesID string, eventIDs []string) ([]string, error)) *MockSeriesRepository_PublishEvents_Call {
+func (_c *MockSeriesRepository_PublishEvents_Call) RunAndReturn(run func(ctx context.Context, seriesID string, eventIDs []string, token *string) ([]string, error)) *MockSeriesRepository_PublishEvents_Call {
 	_c.Call.Return(run)
 	return _c
 }

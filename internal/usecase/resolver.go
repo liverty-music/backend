@@ -6,5 +6,13 @@ import "github.com/liverty-music/backend/internal/entity"
 // Implementations map an ISO 3166-2 Level 1 subdivision code to approximate
 // WGS 84 lat/lng coordinates.
 type CentroidResolver interface {
+	// ResolveCentroid returns the approximate WGS 84 latitude and longitude
+	// of the centre of the home's level-1 area (its ISO 3166-2 subdivision
+	// code), from which a Concert's distance to the home is measured.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no home is given.
+	//  - NotFound: no centroid is known for the home's level-1 code.
 	ResolveCentroid(home *entity.Home) (lat, lng float64, err error)
 }

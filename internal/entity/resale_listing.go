@@ -53,14 +53,16 @@ const ResaleFeePercent = 10
 const ResaleDeadlineLead = admissionWindowLead
 
 // ResaleDeadlineAt returns the resale deadline of an event starting at start,
-// which is also its last resale draw: 12:00 Japan time on the event's day, or
-// 3 hours before the start time, when admission opens, if that is earlier.
+// which is also its last resale draw: 12:00 on the event's day in the time
+// zone of the event's Venue ([VenueTimeZone]), or 3 hours before the start
+// time, when admission opens, if that is earlier.
 // It is on a whole minute, rounded down from a start time with seconds: the
 // draw schedule runs on whole minutes, and a deadline between two of them
 // would never be drawn.
 func ResaleDeadlineAt(start time.Time) time.Time {
-	local := start.In(japanTime)
-	noon := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, japanTime)
+	venueZone := VenueTimeZone()
+	local := start.In(venueZone)
+	noon := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, venueZone)
 	if beforeAdmission := start.Add(-ResaleDeadlineLead).Truncate(time.Minute); beforeAdmission.Before(noon) {
 		return beforeAdmission
 	}
@@ -257,6 +259,8 @@ type ResaleListingRepository interface {
 	//
 	//  - FailedPrecondition: the listing is not Sold.
 	//  - NotFound: no listing has the id.
+	//  - Unavailable: the announcement could not be recorded; nothing
+	//    changes.
 	//  - Internal: database failure.
 	//
 	// # Announces

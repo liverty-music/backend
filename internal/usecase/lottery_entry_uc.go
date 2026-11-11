@@ -239,7 +239,7 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 	if fullName == "" || phoneNumber == "" {
 		return nil, apperr.New(codes.InvalidArgument, "full name and phone number are required")
 	}
-	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
+	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
 		return nil, apperr.New(codes.InvalidArgument, err.Error())
 	}
 	if !sale.IsOpenAt(now) {
@@ -272,7 +272,7 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 	if entered {
 		return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this sale for the event")
 	}
-	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
+	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), &fullName, &phoneNumber); err != nil {
 		return nil, err
 	}
 	return uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{

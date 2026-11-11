@@ -80,8 +80,8 @@ func TestFromUserForAnnouncement(t *testing.T) {
 		ID:          "u",
 		Email:       "fan@example.com",
 		Name:        "Taro Yamada",
-		FullName:    "山田 太郎",
-		PhoneNumber: "+819012345678",
+		FullName:    new("山田 太郎"),
+		PhoneNumber: new("+819012345678"),
 	}
 
 	got := pb.FromUserForAnnouncement(user)

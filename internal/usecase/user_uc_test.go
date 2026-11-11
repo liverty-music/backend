@@ -1670,7 +1670,7 @@ func TestUserUseCase_Update(t *testing.T) {
 	const extID = "ext-update-1"
 	strPtr := func(s string) *string { return &s }
 	current := func() *entity.User {
-		return &entity.User{ID: "user-update-1", ProviderUserID: extID, FullName: "山田 花子", PhoneNumber: "+819012345678"}
+		return &entity.User{ID: "user-update-1", ProviderUserID: extID, FullName: new("山田 花子"), PhoneNumber: new("+819012345678")}
 	}
 
 	type args struct {
@@ -1690,8 +1690,8 @@ func TestUserUseCase_Update(t *testing.T) {
 			args: args{fullName: strPtr("佐藤 花子")},
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(current(), nil).Once()
-				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "佐藤 花子", "+819012345678").
-					Return(&entity.User{ID: "user-update-1", FullName: "佐藤 花子", PhoneNumber: "+819012345678"}, nil).Once()
+				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", new("佐藤 花子"), new("+819012345678")).
+					Return(&entity.User{ID: "user-update-1", FullName: new("佐藤 花子"), PhoneNumber: new("+819012345678")}, nil).Once()
 			},
 			wantName: "佐藤 花子",
 		},
@@ -1701,8 +1701,8 @@ func TestUserUseCase_Update(t *testing.T) {
 			args: args{phoneNumber: strPtr("+818011112222")},
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(current(), nil).Once()
-				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "山田 花子", "+818011112222").
-					Return(&entity.User{ID: "user-update-1", FullName: "山田 花子", PhoneNumber: "+818011112222"}, nil).Once()
+				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", new("山田 花子"), new("+818011112222")).
+					Return(&entity.User{ID: "user-update-1", FullName: new("山田 花子"), PhoneNumber: new("+818011112222")}, nil).Once()
 			},
 			wantName: "山田 花子",
 		},
@@ -1750,10 +1750,10 @@ func TestUserUseCase_Update(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantName, got.FullName)
+			assert.Equal(t, &tt.wantName, got.FullName)
 			// The faces of the fan's Tickets read the User's current values.
 			face := (&entity.Ticket{UserID: entity.UserID(got.ID), ResaleWithoutConsentProhibited: true}).Face(got)
-			assert.Equal(t, tt.wantName, face.FullName)
+			assert.Equal(t, &tt.wantName, face.FullName)
 		})
 	}
 }

@@ -578,7 +578,7 @@ func (_c *MockUserRepository_UpdateHome_Call) RunAndReturn(run func(ctx context.
 }
 
 // UpdatePersonalDetails provides a mock function for the type MockUserRepository
-func (_mock *MockUserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName string, phoneNumber string) (*entity.User, error) {
+func (_mock *MockUserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName *string, phoneNumber *string) (*entity.User, error) {
 	ret := _mock.Called(ctx, id, fullName, phoneNumber)
 
 	if len(ret) == 0 {
@@ -587,17 +587,17 @@ func (_mock *MockUserRepository) UpdatePersonalDetails(ctx context.Context, id s
 
 	var r0 *entity.User
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) (*entity.User, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *string, *string) (*entity.User, error)); ok {
 		return returnFunc(ctx, id, fullName, phoneNumber)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) *entity.User); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *string, *string) *entity.User); ok {
 		r0 = returnFunc(ctx, id, fullName, phoneNumber)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.User)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *string, *string) error); ok {
 		r1 = returnFunc(ctx, id, fullName, phoneNumber)
 	} else {
 		r1 = ret.Error(1)
@@ -613,13 +613,13 @@ type MockUserRepository_UpdatePersonalDetails_Call struct {
 // UpdatePersonalDetails is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id string
-//   - fullName string
-//   - phoneNumber string
+//   - fullName *string
+//   - phoneNumber *string
 func (_e *MockUserRepository_Expecter) UpdatePersonalDetails(ctx any, id any, fullName any, phoneNumber any) *MockUserRepository_UpdatePersonalDetails_Call {
 	return &MockUserRepository_UpdatePersonalDetails_Call{Call: _e.mock.On("UpdatePersonalDetails", ctx, id, fullName, phoneNumber)}
 }
 
-func (_c *MockUserRepository_UpdatePersonalDetails_Call) Run(run func(ctx context.Context, id string, fullName string, phoneNumber string)) *MockUserRepository_UpdatePersonalDetails_Call {
+func (_c *MockUserRepository_UpdatePersonalDetails_Call) Run(run func(ctx context.Context, id string, fullName *string, phoneNumber *string)) *MockUserRepository_UpdatePersonalDetails_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -629,13 +629,13 @@ func (_c *MockUserRepository_UpdatePersonalDetails_Call) Run(run func(ctx contex
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 string
+		var arg2 *string
 		if args[2] != nil {
-			arg2 = args[2].(string)
+			arg2 = args[2].(*string)
 		}
-		var arg3 string
+		var arg3 *string
 		if args[3] != nil {
-			arg3 = args[3].(string)
+			arg3 = args[3].(*string)
 		}
 		run(
 			arg0,
@@ -652,7 +652,7 @@ func (_c *MockUserRepository_UpdatePersonalDetails_Call) Return(user *entity.Use
 	return _c
 }
 
-func (_c *MockUserRepository_UpdatePersonalDetails_Call) RunAndReturn(run func(ctx context.Context, id string, fullName string, phoneNumber string) (*entity.User, error)) *MockUserRepository_UpdatePersonalDetails_Call {
+func (_c *MockUserRepository_UpdatePersonalDetails_Call) RunAndReturn(run func(ctx context.Context, id string, fullName *string, phoneNumber *string) (*entity.User, error)) *MockUserRepository_UpdatePersonalDetails_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -715,10 +715,10 @@ func (uc *userUseCase) Update(ctx context.Context, providerUserID string, fullNa
 	}
 	name, phone := user.FullName, user.PhoneNumber
 	if fullName != nil {
-		name = *fullName
+		name = fullName
 	}
 	if phoneNumber != nil {
-		phone = *phoneNumber
+		phone = phoneNumber
 	}
 	if err := entity.ValidatePersonalDetails(name, phone); err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
