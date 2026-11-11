@@ -129,6 +129,19 @@ func TestPostmarkOrderMailer_SendConfirmationEmail(t *testing.T) {
 		assert.Nil(t, got.ConfirmationSendTime)
 	})
 
+	t.Run("black hole address is not sent", func(t *testing.T) {
+		t.Parallel()
+		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "e2e-test-password@Blackhole.Postmarkapp.com", msg))
+
+		assert.Empty(t, stub.sent)
+		got, _ := orders.Get(context.Background(), "order-1")
+		assert.Equal(t, &sentAt, got.ConfirmationSendTime)
+	})
+
 	t.Run("empty address", func(t *testing.T) {
 		t.Parallel()
 		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
@@ -273,7 +286,9 @@ func TestPostmarkOrderMailer_TestServerToken(t *testing.T) {
 	sender := mail.NewPostmarkOrderMailer(orders, "POSTMARK_API_TEST",
 		"noreply@mail.dev.liverty-music.app", "outbound", func() time.Time { return sentAt }, logger)
 
-	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "test@blackhole.postmarkapp.com", msg))
+	// Not a black hole address: the client skips those without a request.
+	// The test token delivers nothing whatever the address.
+	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg))
 
 	got, _ := orders.Get(context.Background(), "order-1")
 	assert.NotNil(t, got.ConfirmationSendTime)

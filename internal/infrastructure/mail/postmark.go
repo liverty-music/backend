@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -22,6 +23,14 @@ import (
 
 // postmarkAPIURL is Postmark's single-email endpoint.
 const postmarkAPIURL = "https://api.postmarkapp.com/email"
+
+// postmarkBlackHoleDomain is Postmark's black hole domain. Postmark drops
+// mail sent there, but still counts it toward the monthly sending volume, and
+// the free plan allows no overage. The prod E2E test users have their address
+// there, so every E2E run would spend that volume. The client skips the
+// request instead: the outcome is the same (nobody receives the mail).
+// https://postmarkapp.com/support/article/1213-best-practices-for-testing-your-emails-through-postmark
+const postmarkBlackHoleDomain = "@blackhole.postmarkapp.com"
 
 // postmarkHTTPTimeout bounds every Postmark call.
 const postmarkHTTPTimeout = 15 * time.Second
@@ -149,8 +158,14 @@ type postmarkResponse struct {
 
 // post sends one email to Postmark, tagged tag, with metadata and the log
 // attributes attrs. A request Postmark refuses on its merits fails with
-// InvalidArgument; any other failure with Unavailable.
+// InvalidArgument; any other failure with Unavailable. An email to Postmark's
+// black hole domain is not sent and counts as sent (see
+// [postmarkBlackHoleDomain]).
 func (s *postmarkClient) post(ctx context.Context, to, subject, textBody, tag string, metadata map[string]string, attrs ...slog.Attr) error {
+	if strings.HasSuffix(strings.ToLower(to), postmarkBlackHoleDomain) {
+		s.logger.Info(ctx, "email to the black hole domain skipped", append(attrs, slog.String("tag", tag))...)
+		return nil
+	}
 	body, err := json.Marshal(postmarkEmail{
 		From:          s.fromAddress,
 		To:            to,
