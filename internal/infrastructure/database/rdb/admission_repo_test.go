@@ -180,7 +180,6 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		_, err = repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
