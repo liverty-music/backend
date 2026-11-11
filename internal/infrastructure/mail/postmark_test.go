@@ -129,6 +129,19 @@ func TestPostmarkOrderMailer_SendConfirmationEmail(t *testing.T) {
 		assert.Nil(t, got.ConfirmationSendTime)
 	})
 
+	t.Run("black hole address is not sent", func(t *testing.T) {
+		t.Parallel()
+		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub, orders)
+
+		require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "e2e-test-password@Blackhole.Postmarkapp.com", msg))
+
+		assert.Empty(t, stub.sent)
+		got, _ := orders.Get(context.Background(), "order-1")
+		assert.Equal(t, &sentAt, got.ConfirmationSendTime)
+	})
+
 	t.Run("empty address", func(t *testing.T) {
 		t.Parallel()
 		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
