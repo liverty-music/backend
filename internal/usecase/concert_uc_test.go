@@ -46,13 +46,14 @@ type concertTestDeps struct {
 	uc      usecase.ConcertUseCase
 }
 
-// noopCentroidResolver is a test stub that always returns "not found".
-// Tests that exercise centroid resolution should supply a custom resolver via
-// usecase.NewConcertUseCase directly.
-type noopCentroidResolver struct{}
-
-func (noopCentroidResolver) ResolveCentroid(*entity.Home) (float64, float64, error) {
-	return 0, 0, fmt.Errorf("centroid not found")
+// unresolvedCentroids returns a CentroidResolver mock that finds no centroid
+// for any home. Tests that exercise centroid resolution set their own
+// expectation through usecase.NewConcertUseCase.
+func unresolvedCentroids(t *testing.T) *ucmocks.MockCentroidResolver {
+	t.Helper()
+	m := ucmocks.NewMockCentroidResolver(t)
+	m.EXPECT().ResolveCentroid(mock.Anything).Return(0, 0, apperr.New(codes.NotFound, "centroid not found")).Maybe()
+	return m
 }
 
 func newConcertTestDeps(t *testing.T) *concertTestDeps {
@@ -67,13 +68,13 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		concertCandidateRepo: mocks.NewMockConcertCandidateRepository(t),
 		rejectedConcertRepo:  mocks.NewMockRejectedConcertRepository(t),
 		searcher:             mocks.NewMockConcertSearcher(t),
-		centroidResolver:     noopCentroidResolver{},
+		centroidResolver:     unresolvedCentroids(t),
 		workflows:            ucmocks.NewMockWorkflows(t),
 		analytics:            ucmocks.NewMockAnalyticsClient(t),
 	}
 	d.starts = captureStarts(d.workflows)
 	d.signals = captureAnalytics(d.analytics, nil)
-	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, noopMetrics{}, d.analytics, testSearchCacheTTL, testDiscoveryWindow, time.Now, logger)
+	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, d.workflows, anyConcertMetrics(t), d.analytics, testSearchCacheTTL, testDiscoveryWindow, time.Now, logger)
 	d.uc = uc
 	return d
 }
@@ -1549,7 +1550,7 @@ func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
 		workflows.EXPECT().Start(mock.Anything, usecase.WorkflowCreateFromDiscovered, mock.Anything, mock.Anything).
 			Return(apperr.New(codes.Unavailable, "database down")).Once()
 		uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo,
-			d.rejectedConcertRepo, d.searcher, d.centroidResolver, workflows, noopMetrics{}, nil, testSearchCacheTTL, testDiscoveryWindow, time.Now, newTestLogger(t))
+			d.rejectedConcertRepo, d.searcher, d.centroidResolver, workflows, anyConcertMetrics(t), nil, testSearchCacheTTL, testDiscoveryWindow, time.Now, newTestLogger(t))
 		expectSearch(d, entity.ConcertSearchStatusFailed)
 
 		_, err := uc.SearchNewConcerts(ctx, artistID, usecase.SearchTriggerDaily)

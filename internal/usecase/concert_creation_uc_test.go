@@ -30,15 +30,6 @@ func newTestLogger(t *testing.T) *logging.Logger {
 	return logger
 }
 
-// noopMetrics is a no-op implementation of ConcertMetrics, FollowMetrics, and PushMetrics
-// for use in unit tests that do not assert on metric recording.
-type noopMetrics struct{}
-
-func (noopMetrics) RecordConcertSearch(_ context.Context, _ string)      {}
-func (noopMetrics) RecordFollow(_ context.Context, _ string)             {}
-func (noopMetrics) RecordPushSend(_ context.Context, _ string)           {}
-func (noopMetrics) RecordDeliveryOutcome(_ context.Context, _, _ string) {}
-
 // notFound is the NotFound error a repository or the place searcher returns
 // when it has no record of what.
 func notFound(what string) error {

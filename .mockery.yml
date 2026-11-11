@@ -99,14 +99,16 @@ packages:
       CheckoutUseCase: {}
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}
-      ConcertUseCase: {}
+      ConcertMetrics: {}
       ConcertsByIDsReader: {}
+      ConcertUseCase: {}
       EmailVerificationCodes: {}
       EventOrganizerRepository: {}
       EventPublishStatePort: {}
       EventStartTimeRepository: {}
       FeatureFlagEvaluator: {}
       Flow: {}
+      FollowMetrics: {}
       FollowUseCase: {}
       IdentityOrganizationUseCase: {}
       IdentityUserUseCase: {}
@@ -123,6 +125,7 @@ packages:
       PasskeyRegistrationLinkIssuer: {}
       PasskeyUseCase: {}
       ProcessedWebhookEventRepository: {}
+      PushMetrics: {}
       PushSubscriptionUseCase: {}
       ResaleEntryUseCase: {}
       ResaleListingUseCase: {}

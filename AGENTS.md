@@ -36,7 +36,7 @@ Entity types in `internal/entity/` are pure structs without struct tags, with on
 
 ## Announcements
 
-A fact is announced by the entity operation that stores it, in the same transaction, through the outbox (`messaging.Outbox`, table `watermill_events_outbox`); the forwarder in `workflow-worker` delivers each row to NATS JetStream. No code publishes to NATS directly, and usecases never announce. Design reference: `docs/event-delivery-design.md`.
+A fact is announced by the entity operation that stores it, in the same transaction, through the outbox (`messaging.Outbox`, table `watermill_events_outbox`); the forwarder in `workflow-worker` delivers each row to NATS JetStream. No code publishes to NATS directly, and usecases never announce. Design reference: `docs/event-delivery-design.md` in the `specification` repository.
 
 - An operation announces only when it changed something (a guard, rows affected, `RETURNING`), so a retried call or a redelivered message announces nothing a second time. A failure to record the announcement fails the operation with Unavailable and stores nothing.
 - A repository announces the changed entity itself; `rdb`'s generic `announce` helpers accept only the types listed in its `announced` constraint (`internal/infrastructure/database/rdb/announce.go`), and the Outbox encodes the entity through the `messaging.Encoder` that `internal/adapter/pb` implements (`AnnouncementEncoder`, wired in `internal/di`). A new announced type goes into both lists and the encoder's table test. A payload the encoder cannot encode fails the operation with Internal.
@@ -63,7 +63,7 @@ General Go guidance comes from the `go` plugin skills (go-errors, go-doc-comment
 - **Layers**: `internal/entity` (types and the ports they need), `internal/usecase`, `internal/adapter` (RPC handlers, event consumers), `internal/infrastructure` (database, external APIs), wired in `internal/di`. Dependencies point inward; see the review criteria below for the rules a review checks.
 - **Errors** crossing a layer are `apperr` errors (`github.com/pannpers/go-apperr`) with a code; the RPC layer maps the code to a Connect code.
 - **Doc comments** on interface methods list the apperr codes they return under a `# Possible errors` heading (cf. `internal/entity/identity_verification.go`). The list items are indented (`//   - NotFound: ...`); an unindented `- ` line is not rendered as a list.
-- **Tests** live in the external `_test` package, assert with testify (`require` for preconditions, `assert` for the rest), and stub ports with the mockery v3 mocks (`make mocks` regenerates them from `.mockery.yml`).
+- **Tests** live in the external `_test` package, assert with testify (`require` for preconditions, `assert` for the rest), and stub ports with the mockery v3 mocks (`make mocks` regenerates them from `.mockery.yml`). The one exception is the workflow engine: usecase tests run a workflow through the `usecase.Flow` runners in `internal/usecase/inline_flow_test.go` (and the runners built on them), which reproduce what DBOS does with steps, replay, retries and `Recv` timeouts. A runner may only reproduce engine behaviour; anything else a test needs is a mock expectation.
 - **IDs** are UUIDv7 strings from `entity.NewID()` (`internal/entity/id.go`).
 
 ### Database schema

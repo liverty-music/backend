@@ -56,7 +56,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 		StartTime: &start, OpenTime: &open, Venue: &entity.Venue{Name: "Zepp Shinjuku"},
 		Series: &entity.Series{Title: "Liverty Live 2026"},
 	}
-	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.publisher, noopMetrics{}, newTestLogger(t),
+	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.publisher, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:            time.Now,
 			Orders:         f.orders,

@@ -44,7 +44,7 @@ func newLossFixture(t *testing.T) *lossFixture {
 		Venue: &entity.Venue{Name: "Zepp Shinjuku"}, Series: &entity.Series{Title: "Liverty Live 2026", OrganizerID: new("org-1")},
 	}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
+		entitymocks.NewMockPushNotificationSender(t), f.workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
 			Now:        func() time.Time { return lossNow },
 			Orders:     f.orders,

@@ -37,10 +37,11 @@ type subjectFixture struct {
 	sender        *entitymocks.MockPushNotificationSender
 	workflows     *ucmocks.MockWorkflows
 	// starts lists the workflows f.uc started.
-	starts  func() []workflowStart
-	metrics *captureMetrics
-	logs    *bytes.Buffer
-	uc      usecase.NotificationUseCase
+	starts func() []workflowStart
+	// outcomes lists the delivery outcomes f.uc recorded.
+	outcomes func() []deliveryOutcomeCall
+	logs     *bytes.Buffer
+	uc       usecase.NotificationUseCase
 }
 
 func newSubjectFixture(t *testing.T) *subjectFixture {
@@ -59,12 +60,13 @@ func newSubjectFixture(t *testing.T) *subjectFixture {
 		pushSubs:      entitymocks.NewMockPushSubscriptionRepository(t),
 		sender:        entitymocks.NewMockPushNotificationSender(t),
 		workflows:     ucmocks.NewMockWorkflows(t),
-		metrics:       &captureMetrics{},
 	}
 	f.starts = captureStarts(f.workflows)
+	metrics := ucmocks.NewMockPushMetrics(t)
+	f.outcomes = captureOutcomes(metrics)
 	logger, logs := newCaptureLogger(t)
 	f.logs = logs
-	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.workflows, f.metrics, logger,
+	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.workflows, metrics, logger,
 		usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: f.artists, ConcertRepo: f.concerts, FollowRepo: f.follows},
 		f.subjects())

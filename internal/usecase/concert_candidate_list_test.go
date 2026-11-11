@@ -33,7 +33,7 @@ func newCandidateListDeps(t *testing.T) *candidateListDeps {
 	// The other dependencies are nil: List never touches them.
 	d.uc = usecase.NewConcertCandidateUseCase(usecase.NewConcertUseCase(
 		d.artists, nil, nil, nil, nil, nil, d.candidates, nil, nil, nil,
-		ucmocks.NewMockWorkflows(t), noopMetrics{}, nil, 0, 0, time.Now, newTestLogger(t),
+		ucmocks.NewMockWorkflows(t), anyConcertMetrics(t), nil, 0, 0, time.Now, newTestLogger(t),
 	))
 	return d
 }

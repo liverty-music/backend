@@ -671,7 +671,7 @@ func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, 
 // runs on, over the fixture's repositories and publisher.
 func newNotifyNewConcertsUC(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.NotificationUseCase {
 	t.Helper()
-	return usecase.NewNotificationUseCase(nil, d.pushSubRepo, nil, d.publisher, noopMetrics{}, logger,
+	return usecase.NewNotificationUseCase(nil, d.pushSubRepo, nil, d.publisher, anyPushMetrics(t), logger,
 		usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: d.artistRepo, ConcertRepo: d.concertRepo, FollowRepo: d.followRepo}, usecase.SubjectDeps{Now: time.Now})
 }

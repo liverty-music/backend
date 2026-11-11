@@ -146,7 +146,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:lottery_win:order-1", mock.Anything).Return(nil).Twice()
 
 	notificationUC := usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
-		entitymocks.NewMockPushNotificationSender(t), workflows, noopPushMetrics{}, logger, usecase.OrderConfirmationDeps{
+		entitymocks.NewMockPushNotificationSender(t), workflows, anyPushMetrics(t), logger, usecase.OrderConfirmationDeps{
 			Now:    time.Now,
 			Orders: orders, Users: users, Concerts: stubConcertReader{}, EventOrganizer: stubEventOrganizer{},
 			Organizers: organizers, Mailer: mailer, TimeZone: time.UTC,
@@ -167,11 +167,14 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	assert.Equal(t, 1, emails, "a redelivery produces one email")
 }
 
-// noopPushMetrics discards push metrics.
-type noopPushMetrics struct{}
-
-func (noopPushMetrics) RecordPushSend(context.Context, string)                {}
-func (noopPushMetrics) RecordDeliveryOutcome(context.Context, string, string) {}
+// anyPushMetrics returns a PushMetrics mock that accepts every recording.
+func anyPushMetrics(t *testing.T) *ucmocks.MockPushMetrics {
+	t.Helper()
+	m := ucmocks.NewMockPushMetrics(t)
+	m.EXPECT().RecordPushSend(mock.Anything, mock.Anything).Maybe()
+	m.EXPECT().RecordDeliveryOutcome(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	return m
+}
 
 // stubStocks returns every TicketStock as one of event-1.
 type stubStocks struct{}

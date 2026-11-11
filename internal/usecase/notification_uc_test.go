@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,21 +18,32 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // deliveryOutcomeCall captures one RecordDeliveryOutcome invocation.
 type deliveryOutcomeCall struct{ outcome, reason string }
 
-// captureMetrics is a PushMetrics spy that records delivery-outcome calls so a
-// test can assert the operational signal was emitted with the right labels.
-type captureMetrics struct {
-	outcomes []deliveryOutcomeCall
-}
-
-func (m *captureMetrics) RecordPushSend(_ context.Context, _ string) {}
-
-func (m *captureMetrics) RecordDeliveryOutcome(_ context.Context, outcome, reason string) {
-	m.outcomes = append(m.outcomes, deliveryOutcomeCall{outcome: outcome, reason: reason})
+// captureOutcomes makes m accept every recording and returns the delivery
+// outcomes recorded so far, so a test can assert the operational signal was
+// emitted with the right labels.
+func captureOutcomes(m *ucmocks.MockPushMetrics) func() []deliveryOutcomeCall {
+	var (
+		mu       sync.Mutex
+		outcomes []deliveryOutcomeCall
+	)
+	m.EXPECT().RecordPushSend(mock.Anything, mock.Anything).Maybe()
+	m.EXPECT().RecordDeliveryOutcome(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, outcome, reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			outcomes = append(outcomes, deliveryOutcomeCall{outcome: outcome, reason: reason})
+		}).Maybe()
+	return func() []deliveryOutcomeCall {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]deliveryOutcomeCall(nil), outcomes...)
+	}
 }
 
 // newCaptureLogger returns a JSON logger writing into the returned buffer so a
@@ -320,7 +332,7 @@ func TestDeliver_SubjectDeletedBeforeDelivery(t *testing.T) {
 	assert.Equal(t, usecase.DeliveryOutcome{Status: usecase.DeliveryStatusFailed, FailureReason: "subject no longer exists"}, outcome)
 	f.notifs.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	f.sender.AssertNotCalled(t, "Send", mock.Anything, mock.Anything, mock.Anything)
-	assert.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "subject_gone"})
+	assert.Contains(t, f.outcomes(), deliveryOutcomeCall{outcome: "failed", reason: "subject_gone"})
 }
 
 // A concert the subject names that no longer exists makes the subject gone too.
@@ -440,7 +452,7 @@ func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 	_, err := f.uc.Deliver(context.Background(), req)
 	require.NoError(t, err)
 
-	require.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "no_subscription"})
+	require.Contains(t, f.outcomes(), deliveryOutcomeCall{outcome: "failed", reason: "no_subscription"})
 	logs := f.logs.String()
 	assert.Contains(t, logs, `"level":"WARN"`)
 	assert.Contains(t, logs, "notification delivery failed")
@@ -455,7 +467,7 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 	f, req := newConcertsFixture(t)
 	f.push(t, req)
 
-	require.Contains(t, f.metrics.outcomes, deliveryOutcomeCall{outcome: "delivered", reason: "none"})
+	require.Contains(t, f.outcomes(), deliveryOutcomeCall{outcome: "delivered", reason: "none"})
 	assert.NotContains(t, f.logs.String(), "notification delivery failed")
 	assert.NotContains(t, f.logs.String(), `"level":"WARN"`)
 }
