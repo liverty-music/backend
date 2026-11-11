@@ -58,7 +58,7 @@ require (
 	github.com/lestrrat-go/jwx/v4 v4.6.0
 	github.com/nats-io/nats-server/v2 v2.15.2
 	github.com/nats-io/nats.go v1.55.0
-	github.com/pannpers/go-apperr v1.2.0
+	github.com/pannpers/go-apperr v1.3.0
 	github.com/pannpers/go-logging v1.3.0
 	github.com/peterldowns/pgtestdb v0.1.1
 	github.com/peterldowns/pgtestdb/migrators/atlasmigrator v0.1.1

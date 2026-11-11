@@ -246,6 +246,30 @@ func TestReceptionServer_TokenGuessing(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(openFrom(t, client, "198.51.100.9")))
 	})
 
+	t.Run("a client gets the same error for an unknown and a revoked token", func(t *testing.T) {
+		t.Parallel()
+		// The usecase refuses an unknown link token with a reason that only the
+		// unknown-token interceptor reads; a revoked Scanner without one.
+		unknown := apperr.New(codes.PermissionDenied, "scanner refused", apperr.WithReason("SCANNER_LINK_TOKEN_UNKNOWN"))
+		require.ErrorIs(t, unknown, usecase.ErrUnknownScannerLinkToken)
+		revoked := apperr.New(codes.PermissionDenied, "scanner refused")
+		refusal := func(cause error) *connect.Error {
+			ts, scannerUC := newReceptionTestServer(t)
+			scannerUC.EXPECT().Open(mock.Anything, mock.Anything).Return(nil, cause).Once()
+			client := scannerv1connect.NewScannerServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+			var connectErr *connect.Error
+			require.ErrorAs(t, openFrom(t, client, "192.0.2.10"), &connectErr)
+			return connectErr
+		}
+
+		gotUnknown, gotRevoked := refusal(unknown), refusal(revoked)
+
+		assert.Equal(t, connect.CodePermissionDenied, gotUnknown.Code())
+		assert.Equal(t, gotRevoked.Code(), gotUnknown.Code())
+		assert.Equal(t, gotRevoked.Message(), gotUnknown.Message())
+		assert.Equal(t, len(gotRevoked.Details()), len(gotUnknown.Details()), "the reason is not sent as an error detail")
+	})
+
 	t.Run("refusals other than unknown tokens do not count", func(t *testing.T) {
 		t.Parallel()
 		ts, scannerUC := newReceptionTestServer(t)
