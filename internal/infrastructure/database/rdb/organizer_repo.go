@@ -538,7 +538,7 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 // returns the updated organizer.
 func (r *OrganizerRepository) SetBusinessDetails(ctx context.Context, id string, details entity.BusinessDetails) (*entity.Organizer, error) {
 	if err := details.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid business details")
+		return nil, err
 	}
 	row := r.db.Pool.QueryRow(ctx, setOrganizerBusinessDetailsQuery, id,
 		details.LegalName, details.RepresentativeName, details.BusinessAddress,
@@ -554,7 +554,7 @@ func (r *OrganizerRepository) SetBusinessDetails(ctx context.Context, id string,
 // future orders.
 func (r *OrganizerRepository) SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error {
 	if err := entity.ValidatePlatformFeeRate(rateBps); err != nil {
-		return apperr.Wrap(err, codes.InvalidArgument, "invalid platform fee rate")
+		return err
 	}
 	tag, err := r.db.Pool.Exec(ctx, setOrganizerPlatformFeeRateQuery, id, rateBps)
 	if err != nil {

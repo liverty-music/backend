@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketID is the opaque identifier for a single issued Ticket.
@@ -96,7 +98,7 @@ type Ticket struct {
 // that resale without consent is prohibited.
 func (t *Ticket) Validate() error {
 	if !t.ResaleWithoutConsentProhibited {
-		return errors.New("a ticket must state that resale without consent is prohibited")
+		return apperr.New(codes.InvalidArgument, "a ticket must state that resale without consent is prohibited")
 	}
 	return nil
 }
@@ -196,8 +198,8 @@ type TicketRepository interface {
 	// # Possible errors
 	//
 	//  - NotFound: no ticket has the id.
-	//  - PermissionDenied (cause [ErrScannerNotUsable]): the Scanner is
-	//    Revoked or does not exist; nothing changed.
+	//  - PermissionDenied: the Scanner is Revoked or does not exist;
+	//    nothing changed. No other failure has this code.
 	//  - Unavailable: the announcement could not be recorded; nothing
 	//    changes.
 	//  - Internal: database failure.

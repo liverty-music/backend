@@ -182,7 +182,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		if err != nil {
 			// Refusals decided so far are still recorded.
 			uc.appendRejections(ctx, rejections)
-			if errors.Is(err, entity.ErrScannerNotUsable) {
+			if errors.Is(err, apperr.ErrPermissionDenied) {
 				return nil, scannerRefused(errScannerRefused)
 			}
 			return nil, apperr.Wrap(err, codes.Unavailable, "failed to admit a ticket; scan again")

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/pannpers/go-apperr/apperr"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,8 +44,8 @@ func TestParseSingleStepJSON_Invalid(t *testing.T) {
 	t.Parallel()
 
 	_, err := gemini.ParseSingleStepJSON(`{"series": [`)
-	assert.ErrorIs(t, err, gemini.ErrInvalidJSON)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
 
 	_, err = gemini.ParseSingleStepJSON(`{"series": "not an array"}`)
-	assert.ErrorIs(t, err, gemini.ErrInvalidJSON)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
 }

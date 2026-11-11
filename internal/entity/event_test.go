@@ -289,7 +289,7 @@ func TestEvent_PerAccountLimit(t *testing.T) {
 			if tt.valid {
 				assert.NoError(t, ev.ValidatePerAccountLimit())
 			} else {
-				assert.Error(t, ev.ValidatePerAccountLimit())
+				assert.ErrorIs(t, ev.ValidatePerAccountLimit(), apperr.ErrInvalidArgument)
 			}
 		})
 	}

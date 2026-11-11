@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // LotteryEntryID is the opaque identifier for a single LotteryEntry.
@@ -134,17 +136,17 @@ func NewLotteryEntry(order *Order, saleID TicketSaleID) *LotteryEntry {
 }
 
 // ValidateLotteryEntrySale reports whether an entry can belong to sale for
-// stock: a Lottery sale that names the stock's event. The entity layer
-// returns stdlib errors; callers wrap them with an apperr code.
+// stock: a Lottery sale that names the stock's event. It fails with
+// FailedPrecondition, which callers return as it is.
 func ValidateLotteryEntrySale(sale *TicketSale, stock *TicketStock) error {
 	if sale == nil {
-		return errors.New("a lottery entry belongs to a ticket sale")
+		return apperr.New(codes.FailedPrecondition, "a lottery entry belongs to a ticket sale")
 	}
 	if sale.Method != TicketSaleMethodLottery {
-		return errors.New("a lottery entry belongs to a lottery sale")
+		return apperr.New(codes.FailedPrecondition, "a lottery entry belongs to a lottery sale")
 	}
 	if !sale.NamesEvent(stock.EventID) {
-		return errors.New("a lottery entry's sale must name the event of its ticket stock")
+		return apperr.New(codes.FailedPrecondition, "a lottery entry's sale must name the event of its ticket stock")
 	}
 	return nil
 }

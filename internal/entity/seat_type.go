@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"unicode/utf8"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // SeatTypeID is the opaque identifier for a single SeatType.
@@ -50,14 +52,14 @@ func NewSeatType(seriesID, name string, price int64) *SeatType {
 }
 
 // Validate reports whether the name is 1 to 50 characters and the price is 1
-// to 1,000,000 yen. The entity layer returns stdlib errors; callers wrap them
-// with an apperr code.
+// to 1,000,000 yen. It fails with InvalidArgument, which callers return as it
+// is.
 func (s *SeatType) Validate() error {
 	if n := utf8.RuneCountInString(s.Name); n < 1 || n > SeatTypeMaxNameLength {
-		return errors.New("seat type name must be 1 to 50 characters")
+		return apperr.New(codes.InvalidArgument, "seat type name must be 1 to 50 characters")
 	}
 	if s.Price < SeatTypeMinPrice || s.Price > SeatTypeMaxPrice {
-		return errors.New("price must be 1 to 1,000,000 yen")
+		return apperr.New(codes.InvalidArgument, "price must be 1 to 1,000,000 yen")
 	}
 	return nil
 }

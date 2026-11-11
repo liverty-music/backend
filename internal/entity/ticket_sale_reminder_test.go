@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -104,7 +106,7 @@ func TestTicketSaleSearch_Validate(t *testing.T) {
 		t.Parallel()
 		search := &entity.TicketSaleSearch{SeriesID: "series-1", SearchedTime: now.Add(time.Hour)}
 
-		assert.Error(t, search.Validate(now))
+		assert.ErrorIs(t, search.Validate(now), apperr.ErrInvalidArgument)
 	})
 
 	t.Run("searched now", func(t *testing.T) {

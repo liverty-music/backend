@@ -2,9 +2,11 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // OrderID is the opaque identifier for a single Order: one fan's application
@@ -259,11 +261,11 @@ func NewPendingOrder(userID UserID, stock *TicketStock, count int, referralCode 
 }
 
 // ValidateTicketCount reports whether count is at least 1 and at most the
-// per-account limit of the event. The entity layer returns stdlib errors;
-// callers wrap them with an apperr code.
+// per-account limit of the event. It fails with InvalidArgument, which callers
+// return as it is.
 func ValidateTicketCount(count int, event *Event) error {
 	if count < 1 || count > event.Limit() {
-		return fmt.Errorf("ticket count must be 1 to %d", event.Limit())
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("ticket count must be 1 to %d", event.Limit()))
 	}
 	return nil
 }
@@ -278,7 +280,7 @@ func (o *Order) ValidateSource() error {
 		}
 	}
 	if sources != 1 {
-		return errors.New("an order must come from exactly one of a lottery entry, a checkout and a resale entry")
+		return apperr.New(codes.InvalidArgument, "an order must come from exactly one of a lottery entry, a checkout and a resale entry")
 	}
 	return nil
 }

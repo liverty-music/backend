@@ -2,11 +2,13 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // UserID is the opaque identifier for a fan account, as referenced by the
@@ -31,16 +33,16 @@ const FullNameMaxLen = 200
 // ValidatePersonalDetails reports whether a full name and a phone number
 // follow the User's personal details rule: a full name, when given, is 1 to
 // 200 characters, and a phone number, when given, is in E.164 form. A nil
-// value is absent, which is valid. The entity layer returns stdlib errors;
-// callers wrap them with an apperr code.
+// value is absent, which is valid. It fails with InvalidArgument, which
+// callers return as it is.
 func ValidatePersonalDetails(fullName, phoneNumber *string) error {
 	if fullName != nil {
 		if n := utf8.RuneCountInString(*fullName); n < 1 || n > FullNameMaxLen {
-			return errors.New("full name must be 1 to 200 characters")
+			return apperr.New(codes.InvalidArgument, "full name must be 1 to 200 characters")
 		}
 	}
 	if phoneNumber != nil && !IsE164(*phoneNumber) {
-		return errors.New("phone number must be in E.164 form")
+		return apperr.New(codes.InvalidArgument, "phone number must be in E.164 form")
 	}
 	return nil
 }
@@ -67,22 +69,21 @@ func IsValidLanguageCode(s string) bool {
 	return languageCodeRe.MatchString(s)
 }
 
-// Validate checks that the Home has a valid CountryCode, Level1, and optional Level2.
-// It returns a non-nil error describing the first validation failure.
-// The entity layer returns stdlib errors; callers in the usecase layer are responsible
-// for wrapping them with the appropriate apperr code.
+// Validate checks that the Home has a valid CountryCode, Level1, and optional
+// Level2. It returns a non-nil error describing the first validation failure.
+// It fails with InvalidArgument, which callers return as it is.
 func (h *Home) Validate() error {
 	if !countryCodeRe.MatchString(h.CountryCode) {
-		return fmt.Errorf("country_code must be a valid ISO 3166-1 alpha-2 code (e.g., JP), got %q", h.CountryCode)
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("country_code must be a valid ISO 3166-1 alpha-2 code (e.g., JP), got %q", h.CountryCode))
 	}
 	if !iso31662Re.MatchString(h.Level1) {
-		return fmt.Errorf("level_1 must be a valid ISO 3166-2 code (e.g., JP-13), got %q", h.Level1)
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 must be a valid ISO 3166-2 code (e.g., JP-13), got %q", h.Level1))
 	}
 	if h.Level1[:2] != h.CountryCode {
-		return fmt.Errorf("level_1 prefix %q does not match country_code %q", h.Level1[:2], h.CountryCode)
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 prefix %q does not match country_code %q", h.Level1[:2], h.CountryCode))
 	}
 	if h.Level2 != nil && (len(*h.Level2) == 0 || len(*h.Level2) > 20) {
-		return fmt.Errorf("level_2 must be between 1 and 20 characters when provided, got length %d", len(*h.Level2))
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_2 must be between 1 and 20 characters when provided, got length %d", len(*h.Level2)))
 	}
 	return nil
 }
@@ -185,7 +186,7 @@ type NewUser struct {
 // verified claims, so its form is not checked again here.
 func (n *NewUser) ValidateEmail() error {
 	if utf8.RuneCountInString(n.Email) > EmailMaxLen {
-		return errors.New("email must be at most 165 characters")
+		return apperr.New(codes.InvalidArgument, "email must be at most 165 characters")
 	}
 	return nil
 }

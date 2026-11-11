@@ -377,7 +377,7 @@ func giveUpResoldShare(ctx context.Context, tx pgx.Tx, settlement *entity.Settle
 	attrs := slog.String("order_id", orderID)
 	id := string(settlement.ID)
 	if err := settlement.GiveUpResoldShare(k, m); err != nil {
-		return apperr.Wrap(err, codes.FailedPrecondition, "the original settlement cannot give up the resold share", attrs)
+		return err
 	}
 	if settlement.Status == entity.SettlementStatusReversed {
 		if _, err := tx.Exec(ctx, issuanceSetSettlementStatusQuery, id, int16(settlement.Status)); err != nil {

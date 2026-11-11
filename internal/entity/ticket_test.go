@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -72,6 +74,6 @@ func TestTicket_Validate(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/ticket "Resale flag cannot be false"
-	assert.Error(t, (&entity.Ticket{ResaleWithoutConsentProhibited: false}).Validate())
+	assert.ErrorIs(t, (&entity.Ticket{ResaleWithoutConsentProhibited: false}).Validate(), apperr.ErrInvalidArgument)
 	assert.NoError(t, (&entity.Ticket{ResaleWithoutConsentProhibited: true}).Validate())
 }

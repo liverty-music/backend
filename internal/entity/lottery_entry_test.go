@@ -3,6 +3,8 @@ package entity_test
 import (
 	"testing"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -40,13 +42,13 @@ func TestValidateLotteryEntrySale(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/lottery-entry "First-come sale"
 		sale := entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-1")
-		assert.Error(t, entity.ValidateLotteryEntrySale(sale, stock))
+		assert.ErrorIs(t, entity.ValidateLotteryEntrySale(sale, stock), apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("lottery sale of another event", func(t *testing.T) {
 		t.Parallel()
 		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-2")
-		assert.Error(t, entity.ValidateLotteryEntrySale(sale, stock))
+		assert.ErrorIs(t, entity.ValidateLotteryEntrySale(sale, stock), apperr.ErrFailedPrecondition)
 	})
 }
 

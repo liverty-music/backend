@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,7 +156,7 @@ func TestOfficialPageLinks(t *testing.T) {
 				"linktr.ee": htmlPage(anchors("http://linktr.ee/live/")),
 			},
 			args:    args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			wantErr: gemini.ErrOffSiteRedirect,
+			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
 			name: "redirect within the site is followed",
@@ -321,7 +322,7 @@ func TestNewOfficialPageClient_RefusesNonPublicAddresses(t *testing.T) {
 
 			got, err := gemini.OfficialPageLinks(context.Background(), gemini.NewOfficialPageClient(), tt.siteURL, gemini.ConcertSearchProfile)
 
-			assert.ErrorIs(t, err, gemini.ErrNonPublicAddress)
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			assert.Empty(t, got)
 		})
 	}

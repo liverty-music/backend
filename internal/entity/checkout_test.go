@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -61,7 +63,7 @@ func TestValidateCheckoutSale(t *testing.T) {
 			if tt.valid {
 				assert.NoError(t, err)
 			} else {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			}
 		})
 	}

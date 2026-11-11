@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -111,7 +113,7 @@ func TestTicketSale_Validate_Window(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			assert.Error(t, err)
+			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		})
 	}
 }
@@ -155,7 +157,7 @@ func TestTicketSale_Validate_Name(t *testing.T) {
 				assert.NoError(t, err)
 				return
 			}
-			assert.Error(t, err)
+			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		})
 	}
 }
@@ -370,7 +372,7 @@ func TestTicketSale_Validate_Kind(t *testing.T) {
 			if tt.valid {
 				assert.NoError(t, err)
 			} else {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			}
 		})
 	}
@@ -391,9 +393,9 @@ func TestTicketSale_CheckEventsOfSeries(t *testing.T) {
 	t.Run("event of another Series", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/ticket-sale "Event of another Series"
-		assert.Error(t, sale.CheckEventsOfSeries([]*entity.Event{
+		assert.ErrorIs(t, sale.CheckEventsOfSeries([]*entity.Event{
 			{ID: "event-1", SeriesID: "series-1"}, {ID: "event-2", SeriesID: "series-2"},
-		}))
+		}), apperr.ErrInvalidArgument)
 	})
 }
 
@@ -523,7 +525,7 @@ func TestTicketSale_Validate_ResultDate(t *testing.T) {
 			if tt.valid {
 				assert.NoError(t, err)
 			} else {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			}
 		})
 	}

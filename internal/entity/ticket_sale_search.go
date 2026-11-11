@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketSaleSearch records when a series was last searched for published
@@ -16,11 +19,11 @@ type TicketSaleSearch struct {
 	SearchedTime time.Time
 }
 
-// Validate checks that the searched time is not after now. It returns a stdlib
-// error; callers wrap it with the appropriate apperr code.
+// Validate checks that the searched time is not after now. It fails with
+// InvalidArgument, which callers return as it is.
 func (s *TicketSaleSearch) Validate(now time.Time) error {
 	if s.SearchedTime.After(now) {
-		return fmt.Errorf("searched time %s is in the future", s.SearchedTime.Format(time.RFC3339))
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("searched time %s is in the future", s.SearchedTime.Format(time.RFC3339)))
 	}
 	return nil
 }

@@ -181,7 +181,7 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, stoc
 		return nil, err
 	}
 	if err := entity.ValidateTicketCount(count, event); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	if err := uc.verificationGate(ctx, sale, userID); err != nil {
 		return nil, err
@@ -310,7 +310,7 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 		return "", apperr.New(codes.InvalidArgument, "the full name and phone number are required")
 	}
 	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
-		return "", apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return "", err
 	}
 	stock, err := uc.stockRepo.Get(ctx, checkout.Order.TicketStockID, now)
 	if err != nil {

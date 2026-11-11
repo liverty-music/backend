@@ -2,8 +2,10 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketStockID is the opaque identifier for a single TicketStock.
@@ -70,11 +72,11 @@ func NewTicketStock(eventID string, seatTypeID SeatTypeID, quantity int) *Ticket
 	}
 }
 
-// Validate reports whether the quantity is at least 1. The entity layer
-// returns stdlib errors; callers wrap them with an apperr code.
+// Validate reports whether the quantity is at least 1. It fails with
+// InvalidArgument, which callers return as it is.
 func (s *TicketStock) Validate() error {
 	if s.Quantity < 1 {
-		return errors.New("quantity must be at least 1")
+		return apperr.New(codes.InvalidArgument, "quantity must be at least 1")
 	}
 	return nil
 }

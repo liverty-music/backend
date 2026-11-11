@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,7 +28,7 @@ func TestTicketStock_Validate(t *testing.T) {
 	// @spec components/entity/ticket-stock "Empty stock"
 	t.Run("quantity of 0", func(t *testing.T) {
 		t.Parallel()
-		assert.Error(t, entity.NewTicketStock("event-1", "seat-type-1", 0).Validate())
+		assert.ErrorIs(t, entity.NewTicketStock("event-1", "seat-type-1", 0).Validate(), apperr.ErrInvalidArgument)
 	})
 }
 

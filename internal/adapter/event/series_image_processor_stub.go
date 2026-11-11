@@ -4,9 +4,10 @@ package event
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -30,9 +31,9 @@ func NewSeriesImageProcessor(logger *logging.Logger) entity.SeriesImageProcessor
 	return &StubSeriesImageProcessor{logger: logger}
 }
 
-// ProcessImage always returns entity.ErrUnsupportedImage when libvips is not
+// ProcessImage always fails with InvalidArgument when libvips is not
 // compiled in. SeriesImageUseCase.Process treats this as a permanent failure
 // and terminates processing without an error.
 func (s *StubSeriesImageProcessor) ProcessImage(_ context.Context, _ []byte) ([]byte, []byte, error) {
-	return nil, nil, fmt.Errorf("%w: libvips not compiled in; rebuild with -tags vips", entity.ErrUnsupportedImage)
+	return nil, nil, apperr.New(codes.InvalidArgument, "unsupported image: libvips not compiled in; rebuild with -tags vips")
 }

@@ -197,13 +197,13 @@ func (uc *resaleEntryUseCase) AuthorizeCard(ctx context.Context, stockID entity.
 		return nil, err
 	}
 	if err := entity.ValidateTicketCount(count, event); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	if fullName == "" || phoneNumber == "" {
 		return nil, apperr.New(codes.InvalidArgument, "full name and phone number are required")
 	}
 	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	deadline, ok := entity.ResaleDeadlineOf(event)
 	if !ok || !stock.IsResaleOpenAt(now, deadline) {

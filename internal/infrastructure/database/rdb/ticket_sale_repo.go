@@ -136,7 +136,7 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 		return nil, apperr.New(codes.InvalidArgument, "ticket sale must not be nil")
 	}
 	if err := sale.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid ticket sale")
+		return nil, err
 	}
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(sale.ID)), slog.String("series_id", sale.SeriesID)}
 
@@ -236,7 +236,7 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		return "", entity.UpsertOutcomeSkipped, nil
 	}
 	if err := found.Validate(); err != nil {
-		return "", entity.UpsertOutcomeSkipped, apperr.Wrap(err, codes.InvalidArgument, "invalid discovered sale", attrs...)
+		return "", entity.UpsertOutcomeSkipped, err
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -324,7 +324,7 @@ func (r *TicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSa
 		return nil, err
 	}
 	if err := current.ValidateWindow(saleStart, saleEnd); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid sale window", attrs...)
+		return nil, err
 	}
 	tag, err := r.db.Pool.Exec(ctx, ticketSaleSetWindowQuery, string(id), saleStart, saleEnd)
 	if err != nil {

@@ -117,7 +117,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 	}
 	switch {
 	case !scannerUsable:
-		return entity.AdmitResult{}, apperr.Wrap(entity.ErrScannerNotUsable, codes.PermissionDenied, "scanner not usable", attrs...)
+		return entity.AdmitResult{}, apperr.New(codes.PermissionDenied, "scanner not usable", attrs...)
 	case admittedAt.Valid:
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: admittedAt.Time}, nil
 	case entity.TicketStatus(status) == entity.TicketStatusVoided:

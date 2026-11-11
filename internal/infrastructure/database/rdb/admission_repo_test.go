@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -179,7 +180,7 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		_, err = repo.Admit(ctx, ticket, scanner.ID, nov20(18, 32))
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-		assert.ErrorIs(t, err, entity.ErrScannerNotUsable)
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)

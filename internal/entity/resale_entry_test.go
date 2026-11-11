@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -206,9 +207,9 @@ func TestResaleEntry_RevertWin(t *testing.T) {
 	t.Run("not a pending win", func(t *testing.T) {
 		t.Parallel()
 		e := entered(1, novJST(30, 0))
-		assert.ErrorIs(t, e.RevertWin(entity.ResaleEntryLostReasonCardNotCharged), entity.ErrResaleWinNotRevertible)
+		assert.ErrorIs(t, e.RevertWin(entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrFailedPrecondition)
 		e.State, e.Order.Status = entity.ResaleEntryStateWon, entity.OrderStatusPaid
-		assert.ErrorIs(t, e.RevertWin(entity.ResaleEntryLostReasonCardNotCharged), entity.ErrResaleWinNotRevertible)
+		assert.ErrorIs(t, e.RevertWin(entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrFailedPrecondition)
 	})
 }
 

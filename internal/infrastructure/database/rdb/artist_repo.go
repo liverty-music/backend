@@ -485,7 +485,7 @@ func (r *ArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.D
 // keeping the site's id.
 func (r *ArtistRepository) UpdateOfficialSiteURL(ctx context.Context, artistID, url string) error {
 	if err := entity.ValidateOfficialSiteURL(url); err != nil {
-		return apperr.Wrap(err, codes.InvalidArgument, "invalid official site url", slog.String("artist_id", artistID))
+		return err
 	}
 
 	tag, err := r.db.Pool.Exec(ctx, updateOfficialSiteURLQuery, artistID, url)

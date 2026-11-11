@@ -2,7 +2,6 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -102,11 +101,10 @@ func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDa
 }
 
 // ValidatePerAccountLimit reports whether the per-account limit, when set, is
-// 1 to 10. The entity layer returns stdlib errors; callers wrap them with an
-// apperr code.
+// 1 to 10. It fails with InvalidArgument, which callers return as it is.
 func (e *Event) ValidatePerAccountLimit() error {
 	if e.PerAccountLimit != nil && (*e.PerAccountLimit < 1 || *e.PerAccountLimit > EventMaxPerAccountLimit) {
-		return errors.New("per-account limit must be 1 to 10")
+		return apperr.New(codes.InvalidArgument, "per-account limit must be 1 to 10")
 	}
 	return nil
 }

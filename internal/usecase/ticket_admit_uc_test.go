@@ -559,7 +559,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.scanner.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.scanner.ID, now).
-			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrScannerNotUsable, codes.PermissionDenied, "revoked")).Once()
+			Return(entity.AdmitResult{}, apperr.New(codes.PermissionDenied, "revoked")).Once()
 
 		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)

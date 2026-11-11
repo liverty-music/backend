@@ -22,34 +22,40 @@ import (
 	"google.golang.org/genai"
 )
 
-var (
-	// errInvalidJSON is returned when the grounded call's response is not
-	// JSON of the singleStepResponseSchema shape. It is not retried: the model
-	// produced a structurally broken response and the same prompt is unlikely
-	// to fix it.
-	errInvalidJSON = errors.New("gemini returned invalid JSON")
+// errInvalidJSON returns the Internal error of a grounded call's response
+// that is not JSON of the singleStepResponseSchema shape. It is not retried:
+// the model produced a structurally broken response and the same prompt is
+// unlikely to fix it.
+func errInvalidJSON(cause error) error {
+	return apperr.Wrap(cause, codes.Internal, "gemini returned invalid JSON")
+}
 
-	// errNoCandidates is returned when the API answers successfully but with
-	// no candidate. It is not retried: the empty response is billed (tens to
-	// hundreds of thousands of tool-use tokens) and a repeat of the same
-	// request is likely to fail the same way. Failing the Search marks the
-	// Artist's ConcertSearch failed so the next daily run searches again.
-	errNoCandidates = errors.New("gemini returned no candidates")
+// errNoCandidates returns the Unavailable error of an API answer that
+// succeeded with no candidate. It is not retried: the empty response is billed
+// (tens to hundreds of thousands of tool-use tokens) and a repeat of the same
+// request is likely to fail the same way. Failing the Search marks the
+// Artist's ConcertSearch failed so the next daily run searches again.
+func errNoCandidates() error {
+	return apperr.New(codes.Unavailable, "gemini returned no candidates")
+}
 
-	// errTooManyToolCalls is returned when the model stops with
-	// TOO_MANY_TOOL_CALLS. It is not retried: the call has already run its
-	// search queries (40-70 in prod) and a repeat usually falls into the same
-	// search-only mode. Failing the Search marks the Artist's ConcertSearch failed
-	// so the next daily run searches again.
-	errTooManyToolCalls = errors.New("gemini stopped after too many tool calls")
+// errTooManyToolCalls returns the Unavailable error of a model that stopped
+// with TOO_MANY_TOOL_CALLS. It is not retried: the call has already run its
+// search queries (40-70 in prod) and a repeat usually falls into the same
+// search-only mode. Failing the Search marks the Artist's ConcertSearch failed
+// so the next daily run searches again.
+func errTooManyToolCalls() error {
+	return apperr.New(codes.Unavailable, "gemini stopped after too many tool calls")
+}
 
-	// errNoText is returned when the response ends normally (STOP) but carries
-	// no text. It is not retried: like errInvalidJSON it is a structurally
-	// broken response, since even a search that found no concerts answers
-	// with JSON text. Failing the Search keeps it from being recorded as
-	// "no concerts".
-	errNoText = errors.New("gemini response ended normally without text")
-)
+// errNoText returns the Internal error of a response that ends normally
+// (STOP) but carries no text. It is not retried: like errInvalidJSON it is a
+// structurally broken response, since even a search that found no concerts
+// answers with JSON text. Failing the Search keeps it from being recorded as
+// "no concerts".
+func errNoText() error {
+	return apperr.New(codes.Internal, "gemini response ended normally without text")
+}
 
 // Config holds the configuration for Gemini searcher.
 //
@@ -624,7 +630,7 @@ func (s *ConcertSearcher) executePass(
 				))
 			}
 			s.logger.Warn(ctx, "Gemini returned no candidates (permanent, not retrying)", append(attrs, respAttrs...)...)
-			return "", backoff.Permanent(errNoCandidates)
+			return "", backoff.Permanent(errNoCandidates())
 		}
 
 		candidate := resp.Candidates[0]
@@ -730,7 +736,7 @@ func (s *ConcertSearcher) executePass(
 			sawPermanent = true
 			s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
 				append(attrs, candidateAttrs...)...)
-			return "", backoff.Permanent(errTooManyToolCalls)
+			return "", backoff.Permanent(errTooManyToolCalls())
 		}
 
 		// The finish reason is checked before the text: an incomplete response
@@ -751,7 +757,7 @@ func (s *ConcertSearcher) executePass(
 			sawPermanent = true
 			s.logger.Warn(ctx, "candidate has no text parts (permanent, not retrying)",
 				append(attrs, candidateAttrs...)...)
-			return "", backoff.Permanent(errNoText)
+			return "", backoff.Permanent(errNoText())
 		}
 		record("")
 
@@ -1128,7 +1134,7 @@ func parseSingleStepJSON(raw string) ([]EventDraft, error) {
 	text = strings.TrimSuffix(text, "```")
 	var resp singleStepResponse
 	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &resp); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidJSON, err)
+		return nil, errInvalidJSON(err)
 	}
 	var drafts []EventDraft
 	for i, sr := range resp.Series {

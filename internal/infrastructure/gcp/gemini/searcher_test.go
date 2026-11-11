@@ -488,19 +488,19 @@ func TestConcertSearcher_Search_Errors(t *testing.T) {
 			name: "Response without a candidate",
 			response: `{"candidates": [], "promptFeedback": {"blockReason": "OTHER"},
 				"usageMetadata": {"promptTokenCount": 10, "toolUsePromptTokenCount": 120000, "totalTokenCount": 120010}}`,
-			wantErr:   []error{gemini.ErrNoCandidates, apperr.ErrUnavailable},
+			wantErr:   []error{apperr.ErrUnavailable},
 			wantCalls: 1,
 		},
 		{
 			name:      "truncated JSON is permanent",
 			response:  geminiResponse(`{"series": [{"title": "Test`, "STOP"),
-			wantErr:   []error{gemini.ErrInvalidJSON, apperr.ErrInternal},
+			wantErr:   []error{apperr.ErrInternal},
 			wantCalls: 1,
 		},
 		{
 			name:      "structural mismatch is permanent",
 			response:  geminiResponse(`{"series": "not an array"}`, "STOP"),
-			wantErr:   []error{gemini.ErrInvalidJSON, apperr.ErrInternal},
+			wantErr:   []error{apperr.ErrInternal},
 			wantCalls: 1,
 		},
 	}

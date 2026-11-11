@@ -269,7 +269,7 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 	sale := entity.NewTicketSale(in.SeriesID, in.Name, in.Method, in.SaleStart, in.SaleEnd, in.EventIDs...)
 	sale.VerificationRequirement = in.VerificationRequirement
 	if err := sale.Validate(); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 
 	events, err := authoredEvents(ctx, uc.seriesRepo, organizerID, in.SeriesID)
@@ -277,7 +277,7 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 		return nil, err
 	}
 	if err := sale.CheckEventsOfSeries(events); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	for _, id := range sale.EventIDs {
 		published, err := uc.eventState.IsEventPublished(ctx, id)
@@ -421,7 +421,7 @@ func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, 
 		return nil, apperr.New(codes.FailedPrecondition, "a lottery sale's window cannot change once it has opened")
 	}
 	if err := sale.ValidateWindow(saleStart, saleEnd); err != nil {
-		return nil, apperr.New(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
 	if err != nil {

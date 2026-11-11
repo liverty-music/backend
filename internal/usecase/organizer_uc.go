@@ -234,7 +234,7 @@ func (uc *organizerUseCase) Create(ctx context.Context, name, shortName, ownerEm
 	// owner email so the reconciler can complete provisioning after a failure.
 	org := entity.NewOrganizer(name, shortName, ownerEmail)
 	if err := org.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	created, err := uc.organizerRepo.Create(ctx, org)
 	if err != nil {

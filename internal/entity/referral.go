@@ -1,8 +1,10 @@
 package entity
 
 import (
-	"errors"
 	"regexp"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ReferralCode is the code a link to an event page carries in `?ref=`: 1 to
@@ -22,7 +24,7 @@ var referralCodePattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 // Validate reports whether c is a valid ReferralCode.
 func (c ReferralCode) Validate() error {
 	if !referralCodePattern.MatchString(string(c)) {
-		return errors.New("referral code must be 1 to 32 lowercase ASCII letters, digits or hyphens")
+		return apperr.New(codes.InvalidArgument, "referral code must be 1 to 32 lowercase ASCII letters, digits or hyphens")
 	}
 	return nil
 }

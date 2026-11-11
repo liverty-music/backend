@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,12 +66,12 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 		{
 			name:    "rejects a declared 10000x10000 image before full decode",
 			args:    args{data: fakePNGHeader(10000, 10000)},
-			wantErr: entity.ErrUnsupportedImage,
+			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
 			name:    "rejects corrupt data",
 			args:    args{data: []byte("not an image")},
-			wantErr: entity.ErrUnsupportedImage,
+			wantErr: apperr.ErrInvalidArgument,
 		},
 	}
 

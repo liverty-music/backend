@@ -408,11 +408,11 @@ func NewUserUseCase(
 // provider_user_id (idempotent).
 func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if err := params.ValidateEmail(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	if params.Home != nil {
 		if err := params.Home.Validate(); err != nil {
-			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+			return nil, err
 		}
 	}
 	// preferred_language is required and MUST match the ISO 639-1 pattern;
@@ -535,7 +535,7 @@ func (uc *userUseCase) SetPreferredLanguage(ctx context.Context, id, lang string
 // SetHome sets or changes the user's home area after validating the structured Home.
 func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	if err := home.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 
 	user, err := uc.userRepo.UpdateHome(ctx, id, home)
@@ -721,7 +721,7 @@ func (uc *userUseCase) Update(ctx context.Context, providerUserID string, fullNa
 		phone = phoneNumber
 	}
 	if err := entity.ValidatePersonalDetails(name, phone); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 	updated, err := uc.userRepo.UpdatePersonalDetails(ctx, user.ID, name, phone)
 	if err != nil {
