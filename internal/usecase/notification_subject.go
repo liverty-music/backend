@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -25,9 +26,12 @@ type SubjectDeps struct {
 	Now Clock
 }
 
-// errSubjectGone is what load returns when a record the subject names no
-// longer exists.
-var errSubjectGone = errors.New("subject no longer exists")
+// errSubjectGone is the NotFound, with the reason NOTIFICATION_SUBJECT_GONE,
+// that load returns when a record the subject names no longer exists. Loading
+// a subject reads several records, so NotFound alone does not say the subject
+// is gone.
+var errSubjectGone = apperr.New(codes.NotFound, "subject no longer exists",
+	apperr.WithReason("NOTIFICATION_SUBJECT_GONE"))
 
 // load reads the records n's subject names, with the fan's follows, time zone
 // and the current time, for [entity.Notification.Message].

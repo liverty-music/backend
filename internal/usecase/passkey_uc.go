@@ -18,9 +18,15 @@ import (
 // before UserService.Create stores the User.
 const passkeyAccountWait = 10 * time.Minute
 
-// ErrPasskeyAccountPending reports that an added passkey's identity has no
-// User yet; RunRecordChange looks again later.
-var ErrPasskeyAccountPending = errors.New("no user has the passkey's identity yet")
+// ErrPasskeyAccountPending matches, with errors.Is, the NotFound with the
+// reason PASSKEY_ACCOUNT_PENDING that RecordChange returns when an added
+// passkey's identity has no User yet; RunRecordChange looks again later.
+// RecordChange's other NotFounds do not match it.
+var ErrPasskeyAccountPending = apperr.New(codes.NotFound, "no user has the passkey's identity yet",
+	apperr.WithReason(reasonPasskeyAccountPending))
+
+// reasonPasskeyAccountPending is the reason of [ErrPasskeyAccountPending].
+const reasonPasskeyAccountPending = "PASSKEY_ACCOUNT_PENDING"
 
 // PasskeyUseCase keeps and reads the platform's Passkey records.
 type PasskeyUseCase interface {
@@ -55,8 +61,8 @@ type PasskeyUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - ErrPasskeyAccountPending (wrapping NotFound): no User has the
-	//    identity yet.
+	//  - NotFound with the reason of [ErrPasskeyAccountPending]: no User has
+	//    the identity yet.
 	//  - InvalidArgument: the change has no provider passkey id or an unknown
 	//    kind.
 	//  - Unavailable and other failures of the store, unchanged.
@@ -114,7 +120,7 @@ func (uc *passkeyUseCase) RecordChange(ctx context.Context, change entity.UserPa
 		if !errors.Is(err, apperr.ErrNotFound) {
 			return fmt.Errorf("get user by provider user ID %q for a passkey: %w", change.ProviderUserID, err)
 		}
-		return fmt.Errorf("%w: %w", ErrPasskeyAccountPending, err)
+		return apperr.Wrap(err, codes.NotFound, "no user has the passkey's identity yet", apperr.WithReason(reasonPasskeyAccountPending))
 	}
 
 	aaguid := change.AAGUID

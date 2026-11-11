@@ -2,15 +2,19 @@ package entity
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// ErrResaleListingCancelled is returned, wrapped with FailedPrecondition, by
-// [IssuanceRepository.Issue] when a listing allocated to the Won ResaleEntry it
-// issues was cancelled, because the Order of the fan who listed it was
-// refunded after the draw.
-var ErrResaleListingCancelled = errors.New("a resale listing allocated to the entry was cancelled")
+// ErrResaleListingCancelled is the FailedPrecondition, with the reason
+// RESALE_LISTING_CANCELLED, that [IssuanceRepository.Issue] returns when a
+// listing allocated to the Won ResaleEntry it issues was cancelled, because
+// the Order of the fan who listed it was refunded after the draw. Callers
+// tell it from the Issue's other FailedPreconditions with errors.Is.
+var ErrResaleListingCancelled = apperr.New(codes.FailedPrecondition,
+	"a resale listing allocated to the entry was cancelled", apperr.WithReason("RESALE_LISTING_CANCELLED"))
 
 // ResaleListingID is the opaque identifier for a single ResaleListing.
 // Server-generated (UUIDv7).

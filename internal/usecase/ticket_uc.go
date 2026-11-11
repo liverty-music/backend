@@ -77,7 +77,7 @@ type TicketUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - PermissionDenied: no Scanner holds the link token (cause
+	//  - PermissionDenied: no Scanner holds the link token (matches
 	//    [ErrUnknownScannerLinkToken]), the Scanner is Revoked (also when revoked
 	//    while the scan is decided), or the call is not proven by the bound
 	//    device. Nothing is admitted.
@@ -137,7 +137,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 	scanner, err := uc.scannerRepo.GetByLinkToken(ctx, in.LinkToken)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, scannerRefused(ErrUnknownScannerLinkToken)
+			return nil, unknownScannerLinkToken()
 		}
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		Signature: in.Signature,
 	}
 	if !scanner.IsUsable() || !scanner.Proves(call, in.Now) {
-		return nil, scannerRefused(errScannerRefused)
+		return nil, scannerRefused()
 	}
 	event, err := uc.eventRepo.Get(ctx, scanner.EventID)
 	if err != nil {
@@ -183,7 +183,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 			// Refusals decided so far are still recorded.
 			uc.appendRejections(ctx, rejections)
 			if errors.Is(err, apperr.ErrPermissionDenied) {
-				return nil, scannerRefused(errScannerRefused)
+				return nil, scannerRefused()
 			}
 			return nil, apperr.Wrap(err, codes.Unavailable, "failed to admit a ticket; scan again")
 		}

@@ -257,7 +257,7 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 // it with the order's pay time, voids their tickets and takes the share of the
 // resold tickets off the Held settlement of each original order, inside tx,
 // and returns the listings as Sold. When a listing allocated to it is
-// Cancelled it fails with [entity.ErrResaleListingCancelled]. It locks the
+// Cancelled it fails with the reason of [entity.ErrResaleListingCancelled]. It locks the
 // listed tickets first, as CommitRefund locks an Order's tickets, so of a
 // refund of the listing fan's Order and this sell the one that commits second
 // sees the other's result.

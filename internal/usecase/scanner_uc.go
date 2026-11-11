@@ -12,21 +12,29 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// ErrUnknownScannerLinkToken is the cause of the PermissionDenied returned
-// when no Scanner holds the call's link token. Callers see the same
-// PermissionDenied as for a revoked Scanner or an unproven call; the boundary
-// uses this cause only to throttle clients that guess link tokens.
-var ErrUnknownScannerLinkToken = errors.New("scanner refused")
+// ErrUnknownScannerLinkToken matches, with errors.Is, the PermissionDenied
+// with the reason SCANNER_LINK_TOKEN_UNKNOWN returned when no Scanner holds
+// the call's link token. Clients see the same PermissionDenied "scanner
+// refused" as for a revoked Scanner or an unproven call: the reason is not
+// sent to Connect clients. The boundary uses it only to throttle clients that
+// guess link tokens.
+var ErrUnknownScannerLinkToken = apperr.New(codes.PermissionDenied, "scanner refused",
+	apperr.WithReason(reasonScannerLinkTokenUnknown))
 
-// errScannerRefused is the cause of every other scanner refusal (revoked
-// Scanner, unproven call). Its text equals that of
-// [ErrUnknownScannerLinkToken] so the client cannot tell them apart.
-var errScannerRefused = errors.New("scanner refused")
+// reasonScannerLinkTokenUnknown is the reason of [ErrUnknownScannerLinkToken].
+const reasonScannerLinkTokenUnknown = "SCANNER_LINK_TOKEN_UNKNOWN"
 
 // scannerRefused returns the non-revealing PermissionDenied of a scanner
-// call.
-func scannerRefused(cause error) error {
-	return apperr.Wrap(cause, codes.PermissionDenied, "scanner refused")
+// call: a revoked Scanner or an unproven call.
+func scannerRefused() error {
+	return apperr.New(codes.PermissionDenied, "scanner refused")
+}
+
+// unknownScannerLinkToken returns the PermissionDenied of a call whose link
+// token no Scanner holds. A client cannot tell it from [scannerRefused]; only
+// its reason, which stays on the server, differs.
+func unknownScannerLinkToken() error {
+	return apperr.New(codes.PermissionDenied, "scanner refused", apperr.WithReason(reasonScannerLinkTokenUnknown))
 }
 
 // OpenScannerInput is one Open call from a scanner device.
@@ -100,7 +108,7 @@ type ScannerUseCase interface {
 	// # Possible errors
 	//
 	//  - InvalidArgument: the public key is not a valid P-256 key.
-	//  - PermissionDenied: no Scanner holds the link token (cause
+	//  - PermissionDenied: no Scanner holds the link token (matches
 	//    [ErrUnknownScannerLinkToken]), the call is not proven by the given
 	//    public key (nothing is bound), or the Scanner is Revoked. Not told
 	//    apart.
@@ -219,7 +227,7 @@ func (uc *scannerUseCase) Open(ctx context.Context, in OpenScannerInput) (*OpenS
 	scanner, err := uc.scanners.GetByLinkToken(ctx, in.LinkToken)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, scannerRefused(ErrUnknownScannerLinkToken)
+			return nil, unknownScannerLinkToken()
 		}
 		return nil, err
 	}
@@ -237,7 +245,7 @@ func (uc *scannerUseCase) Open(ctx context.Context, in OpenScannerInput) (*OpenS
 	// The call must be proven by the given key before anything is bound, so a
 	// Scanner is only ever bound to a key whose private half the device holds.
 	if !call.IsSignedBy(in.PublicKey, in.Now) {
-		return nil, scannerRefused(errScannerRefused)
+		return nil, scannerRefused()
 	}
 
 	outcome, bound, err := uc.scanners.BindDevice(ctx, scanner.ID, in.PublicKey, in.Now)
@@ -246,7 +254,7 @@ func (uc *scannerUseCase) Open(ctx context.Context, in OpenScannerInput) (*OpenS
 	}
 	switch outcome {
 	case entity.BindOutcomeRevoked:
-		return nil, scannerRefused(errScannerRefused)
+		return nil, scannerRefused()
 	case entity.BindOutcomeOtherDevice:
 		return nil, apperr.New(codes.FailedPrecondition, "the scanner is already in use on another device")
 	}
