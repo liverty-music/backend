@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,11 +12,14 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging/mocks"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/pkg/eventmsg"
 )
@@ -75,6 +79,17 @@ func recordedRows(t *testing.T, q interface {
 	return out
 }
 
+// protoEncoder returns an Encoder that passes through payloads that are
+// already Protobuf messages, as the tests announce them.
+func protoEncoder(t *testing.T) *mocks.MockEncoder {
+	t.Helper()
+	enc := mocks.NewMockEncoder(t)
+	enc.EXPECT().Encode(mock.Anything, mock.Anything).RunAndReturn(func(_ string, p any) (proto.Message, error) {
+		return p.(proto.Message), nil
+	}).Maybe()
+	return enc
+}
+
 func follow(user string) messaging.Announcement {
 	return messaging.Announcement{Payload: &entityv1.Follow{
 		UserId:   &entityv1.UserId{Value: user},
@@ -85,7 +100,7 @@ func follow(user string) messaging.Announcement {
 
 func TestOutbox_Record(t *testing.T) {
 	ctx := context.Background()
-	outbox := messaging.NewOutbox(watermill.NopLogger{})
+	outbox := messaging.NewOutbox(watermill.NopLogger{}, protoEncoder(t))
 
 	t.Run("one row per call with its id as ce_id", func(t *testing.T) {
 		subject := "TEST." + uuid.NewString()
@@ -129,6 +144,20 @@ func TestOutbox_Record(t *testing.T) {
 
 		assert.Equal(t, int64(1), counter.n.Load())
 		assert.Len(t, recordedRows(t, tx, subject), 3)
+	})
+
+	t.Run("a payload the encoder rejects is Internal and records nothing", func(t *testing.T) {
+		subject := "TEST." + uuid.NewString()
+		tx, err := connectTestDB(t, nil).Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		enc := mocks.NewMockEncoder(t)
+		enc.EXPECT().Encode(subject, "not an entity").Return(nil, errors.New("unknown type"))
+
+		err = messaging.NewOutbox(watermill.NopLogger{}, enc).Record(ctx, tx, subject, messaging.Announcement{Payload: "not an entity"})
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.Empty(t, recordedRows(t, tx, subject))
 	})
 
 	t.Run("nothing is recorded when the transaction rolls back", func(t *testing.T) {

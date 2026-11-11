@@ -8,29 +8,13 @@ import (
 	backendorganizationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/backend/organization/v1"
 	backenduserv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/backend/user/v1"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	rpcmocks "github.com/liverty-music/backend/internal/adapter/rpc/mocks"
-	"github.com/liverty-music/backend/internal/entity/mocks"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-// fakePasskeyLinks is an identity provider that issues one fixed link, or
-// fails with err.
-type fakePasskeyLinks struct {
-	err   error
-	calls []string
-}
-
-func (f *fakePasskeyLinks) IssuePasskeyRegistrationLink(_ context.Context, providerUserID string) (string, string, error) {
-	f.calls = append(f.calls, providerUserID)
-	if f.err != nil {
-		return "", "", f.err
-	}
-	return "fan@example.com", "https://liverty-music.app/passkey/register?code=one-time", nil
-}
 
 var backendUserID = &entityv1.User_ProviderUserId{Value: "zitadel-user-1"}
 
@@ -40,10 +24,10 @@ func TestBackendUserHandler(t *testing.T) {
 
 	t.Run("SendEmailVerification returns the address and the issued code", func(t *testing.T) {
 		t.Parallel()
-		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev := ucmocks.NewMockIdentityUserUseCase(t)
 		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "ABC123", nil).Once()
 
-		resp, err := rpc.NewBackendUserHandler(ev, nil, nil).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
+		resp, err := rpc.NewBackendUserHandler(ev).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		require.NoError(t, err)
 		assert.Equal(t, "fan@example.com", resp.GetEmail().GetValue())
@@ -52,20 +36,20 @@ func TestBackendUserHandler(t *testing.T) {
 
 	t.Run("SendEmailVerification keeps Unavailable", func(t *testing.T) {
 		t.Parallel()
-		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev := ucmocks.NewMockIdentityUserUseCase(t)
 		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("", "", apperr.New(codes.Unavailable, "down")).Once()
 
-		_, err := rpc.NewBackendUserHandler(ev, nil, nil).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
+		_, err := rpc.NewBackendUserHandler(ev).SendEmailVerification(ctx, &backenduserv1.SendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
 	t.Run("ResendEmailVerification returns the address and a fresh code", func(t *testing.T) {
 		t.Parallel()
-		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev := ucmocks.NewMockIdentityUserUseCase(t)
 		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "NEW456", nil).Once()
 
-		resp, err := rpc.NewBackendUserHandler(ev, nil, nil).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
+		resp, err := rpc.NewBackendUserHandler(ev).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		require.NoError(t, err)
 		assert.Equal(t, "NEW456", resp.GetCode().GetValue())
@@ -73,10 +57,10 @@ func TestBackendUserHandler(t *testing.T) {
 
 	t.Run("ResendEmailVerification keeps FailedPrecondition for a verified address", func(t *testing.T) {
 		t.Parallel()
-		ev := rpcmocks.NewMockEmailVerificationCodes(t)
+		ev := ucmocks.NewMockIdentityUserUseCase(t)
 		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("", "", apperr.New(codes.FailedPrecondition, "verified")).Once()
 
-		_, err := rpc.NewBackendUserHandler(ev, nil, nil).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
+		_, err := rpc.NewBackendUserHandler(ev).ResendEmailVerification(ctx, &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: backendUserID})
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -94,10 +78,10 @@ func TestBackendUserHandler(t *testing.T) {
 	for _, tt := range verifyCases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ev := rpcmocks.NewMockEmailVerificationCodes(t)
+			ev := ucmocks.NewMockIdentityUserUseCase(t)
 			ev.EXPECT().VerifyEmail(mock.Anything, "zitadel-user-1", "ABC123").Return(tt.err).Once()
 
-			_, err := rpc.NewBackendUserHandler(ev, nil, nil).VerifyEmail(ctx, &backenduserv1.VerifyEmailRequest{
+			_, err := rpc.NewBackendUserHandler(ev).VerifyEmail(ctx, &backenduserv1.VerifyEmailRequest{
 				ProviderUserId: backendUserID,
 				Code:           &entityv1.EmailVerificationCode{Value: "ABC123"},
 			})
@@ -112,22 +96,24 @@ func TestBackendUserHandler(t *testing.T) {
 
 	t.Run("IssuePasskeyRegistrationLink returns the verified address and the link", func(t *testing.T) {
 		t.Parallel()
-		links := &fakePasskeyLinks{}
+		links := ucmocks.NewMockIdentityUserUseCase(t)
+		links.EXPECT().IssuePasskeyRegistrationLink(mock.Anything, "zitadel-user-1").
+			Return("fan@example.com", "https://liverty-music.app/passkey/register?code=one-time", nil).Once()
 
-		resp, err := rpc.NewBackendUserHandler(nil, nil, links).IssuePasskeyRegistrationLink(ctx, &backenduserv1.IssuePasskeyRegistrationLinkRequest{ProviderUserId: backendUserID})
+		resp, err := rpc.NewBackendUserHandler(links).IssuePasskeyRegistrationLink(ctx, &backenduserv1.IssuePasskeyRegistrationLinkRequest{ProviderUserId: backendUserID})
 
 		require.NoError(t, err)
 		assert.Equal(t, "fan@example.com", resp.GetEmail().GetValue())
 		assert.Equal(t, "https://liverty-music.app/passkey/register?code=one-time", resp.GetLink().GetValue())
-		assert.Equal(t, []string{"zitadel-user-1"}, links.calls)
 	})
 
 	t.Run("IssuePasskeyRegistrationLink keeps NotFound and FailedPrecondition", func(t *testing.T) {
 		t.Parallel()
 		for _, want := range []*apperr.AppErr{apperr.ErrNotFound, apperr.ErrFailedPrecondition} {
-			links := &fakePasskeyLinks{err: apperr.New(want.Code, "refused")}
+			links := ucmocks.NewMockIdentityUserUseCase(t)
+			links.EXPECT().IssuePasskeyRegistrationLink(mock.Anything, "zitadel-user-1").Return("", "", apperr.New(want.Code, "refused")).Once()
 
-			_, err := rpc.NewBackendUserHandler(nil, nil, links).IssuePasskeyRegistrationLink(ctx, &backenduserv1.IssuePasskeyRegistrationLinkRequest{ProviderUserId: backendUserID})
+			_, err := rpc.NewBackendUserHandler(links).IssuePasskeyRegistrationLink(ctx, &backenduserv1.IssuePasskeyRegistrationLinkRequest{ProviderUserId: backendUserID})
 
 			assert.ErrorIs(t, err, want)
 		}
@@ -135,10 +121,10 @@ func TestBackendUserHandler(t *testing.T) {
 
 	t.Run("DeleteIdentity removes the identity", func(t *testing.T) {
 		t.Parallel()
-		ir := mocks.NewMockIdentityRemover(t)
+		ir := ucmocks.NewMockIdentityUserUseCase(t)
 		ir.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
 
-		_, err := rpc.NewBackendUserHandler(nil, ir, nil).DeleteIdentity(ctx, &backenduserv1.DeleteIdentityRequest{ProviderUserId: backendUserID})
+		_, err := rpc.NewBackendUserHandler(ir).DeleteIdentity(ctx, &backenduserv1.DeleteIdentityRequest{ProviderUserId: backendUserID})
 
 		assert.NoError(t, err)
 	})
@@ -152,7 +138,7 @@ func TestBackendOrganizationHandler(t *testing.T) {
 
 	t.Run("Create returns the new Organization's id", func(t *testing.T) {
 		t.Parallel()
-		orgs := mocks.NewMockOrganizationRepository(t)
+		orgs := ucmocks.NewMockIdentityOrganizationUseCase(t)
 		orgs.EXPECT().Create(mock.Anything, "xx-records").Return("org-1", nil).Once()
 
 		resp, err := rpc.NewBackendOrganizationHandler(orgs).Create(ctx, &backendorganizationv1.CreateRequest{ShortName: shortName})
@@ -163,7 +149,7 @@ func TestBackendOrganizationHandler(t *testing.T) {
 
 	t.Run("Create keeps AlreadyExists", func(t *testing.T) {
 		t.Parallel()
-		orgs := mocks.NewMockOrganizationRepository(t)
+		orgs := ucmocks.NewMockIdentityOrganizationUseCase(t)
 		orgs.EXPECT().Create(mock.Anything, "xx-records").Return("", apperr.New(codes.AlreadyExists, "taken")).Once()
 
 		_, err := rpc.NewBackendOrganizationHandler(orgs).Create(ctx, &backendorganizationv1.CreateRequest{ShortName: shortName})
@@ -173,7 +159,7 @@ func TestBackendOrganizationHandler(t *testing.T) {
 
 	t.Run("Get finds the Organization by its name and keeps NotFound", func(t *testing.T) {
 		t.Parallel()
-		orgs := mocks.NewMockOrganizationRepository(t)
+		orgs := ucmocks.NewMockIdentityOrganizationUseCase(t)
 		orgs.EXPECT().GetByName(mock.Anything, "xx-records").Return("org-1", nil).Once()
 		orgs.EXPECT().GetByName(mock.Anything, "yy-records").Return("", apperr.New(codes.NotFound, "none")).Once()
 		h := rpc.NewBackendOrganizationHandler(orgs)
@@ -188,7 +174,7 @@ func TestBackendOrganizationHandler(t *testing.T) {
 
 	t.Run("Provision passes the Organization, short name and owner email", func(t *testing.T) {
 		t.Parallel()
-		orgs := mocks.NewMockOrganizationRepository(t)
+		orgs := ucmocks.NewMockIdentityOrganizationUseCase(t)
 		orgs.EXPECT().Provision(mock.Anything, "org-1", "xx-records", "band@example.com").Return(nil).Once()
 
 		_, err := rpc.NewBackendOrganizationHandler(orgs).Provision(ctx, &backendorganizationv1.ProvisionRequest{
@@ -202,7 +188,7 @@ func TestBackendOrganizationHandler(t *testing.T) {
 
 	t.Run("DeactivateIdentities and Delete act on the Organization", func(t *testing.T) {
 		t.Parallel()
-		orgs := mocks.NewMockOrganizationRepository(t)
+		orgs := ucmocks.NewMockIdentityOrganizationUseCase(t)
 		orgs.EXPECT().DeactivateIdentities(mock.Anything, "org-1").Return(nil).Once()
 		orgs.EXPECT().Delete(mock.Anything, "org-1").Return(nil).Once()
 		h := rpc.NewBackendOrganizationHandler(orgs)

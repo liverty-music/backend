@@ -8,10 +8,7 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -234,13 +231,11 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	paid := *order
 	paid.Status = entity.OrderStatusPaid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, messaging.Announcement{Payload: pb.FromOrder(&paid)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, &paid); err != nil {
 		return err
 	}
 	for _, l := range sold {
-		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingSold, messaging.Announcement{
-			Payload: pb.FromResaleListing(&usecase.ResaleListingAt{Listing: l, Status: l.Status}),
-		}); err != nil {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingSold, l); err != nil {
 			return err
 		}
 	}

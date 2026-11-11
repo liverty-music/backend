@@ -67,7 +67,6 @@ packages:
       WalletPublicKeyRepository: {}
   github.com/liverty-music/backend/internal/adapter/rpc:
     interfaces:
-      EmailVerificationCodes: {}
       FreshSignInVerifier: {}
   github.com/liverty-music/backend/internal/adapter/pb:
     interfaces:
@@ -84,6 +83,9 @@ packages:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator: {}
+  github.com/liverty-music/backend/internal/infrastructure/messaging:
+    interfaces:
+      Encoder: {}
   github.com/liverty-music/backend/internal/usecase:
     interfaces:
       AnalyticsClient: {}
@@ -95,22 +97,26 @@ packages:
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}
       ConcertUseCase: {}
+      EmailVerificationCodes: {}
       EventPublishStatePort: {}
       FeatureFlagEvaluator: {}
       Flow: {}
       FollowUseCase: {}
+      IdentityOrganizationUseCase: {}
+      IdentityUserUseCase: {}
       IdentityVerificationUseCase: {}
       IdentityVerifier: {}
       ImageStorer: {}
       LotteryEntryUseCase: {}
-      ResaleEntryUseCase: {}
       NotificationUseCase: {}
       OfficialSiteUseCase: {}
       OrderUseCase: {}
       OrganizerMetrics: {}
       OrganizerUseCase: {}
+      PasskeyRegistrationLinkIssuer: {}
       PasskeyUseCase: {}
       PushSubscriptionUseCase: {}
+      ResaleEntryUseCase: {}
       ResaleListingUseCase: {}
       ScannerUseCase: {}
       SeatTypeUseCase: {}

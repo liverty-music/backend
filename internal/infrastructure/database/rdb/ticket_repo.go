@@ -6,9 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -161,7 +159,7 @@ func (r *TicketRepository) admitAndAnnounce(ctx context.Context, ticketID entity
 	if len(tickets) != 1 {
 		return false, apperr.New(codes.Internal, "admitted ticket not found", attrs...)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketAdmitted, messaging.Announcement{Payload: pb.FromTicket(tickets[0])}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketAdmitted, tickets[0]); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

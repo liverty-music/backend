@@ -15,19 +15,19 @@ import (
 // fan lists their notifications and marks one read.
 type NotificationHandler struct {
 	notificationUC usecase.NotificationUseCase
-	userRepo       entity.UserRepository
+	userUC         usecase.UserUseCase
 	logger         *logging.Logger
 }
 
 // NewNotificationHandler creates a new notification RPC service handler.
 func NewNotificationHandler(
 	notificationUC usecase.NotificationUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *NotificationHandler {
 	return &NotificationHandler{
 		notificationUC: notificationUC,
-		userRepo:       userRepo,
+		userUC:         userUC,
 		logger:         logger,
 	}
 }
@@ -74,5 +74,5 @@ func (h *NotificationHandler) resolveCaller(ctx context.Context) (*entity.User, 
 	}
 	// notifications.user_id references users.id (internal UUID), not the
 	// identity-provider provider_user_id, so resolve the internal record first.
-	return h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	return h.userUC.ResolveCaller(ctx, providerUserID)
 }

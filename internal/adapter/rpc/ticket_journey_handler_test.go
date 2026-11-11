@@ -11,7 +11,6 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
@@ -35,7 +34,7 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *ticketjourneyv1.SetStatusRequest
-		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -47,8 +46,8 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				EventId: &entityv1.EventId{Value: eventID},
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
-			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{
 					ID:             "user-uuid-1",
 					ProviderUserID: "ext-user-1",
 				}, nil)
@@ -64,7 +63,7 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				EventId: &entityv1.EventId{Value: eventID},
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
-			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -76,8 +75,8 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				EventId: &entityv1.EventId{Value: eventID},
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
-			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
+			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -92,7 +91,7 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockTicketJourneyUseCase(t)
-			ur := entitymocks.NewMockUserRepository(t)
+			ur := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, ur)
 			h := handler.NewTicketJourneyHandler(uc, ur, logger)
 
@@ -120,7 +119,7 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *ticketjourneyv1.DeleteRequest
-		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -128,8 +127,8 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			name: "success",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req:  &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
-			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{
 					ID:             "user-uuid-1",
 					ProviderUserID: "ext-user-1",
 				}, nil)
@@ -141,7 +140,7 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
 			req:      &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
-			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
@@ -149,8 +148,8 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req:  &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
-			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
+			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -165,7 +164,7 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockTicketJourneyUseCase(t)
-			ur := entitymocks.NewMockUserRepository(t)
+			ur := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, ur)
 			h := handler.NewTicketJourneyHandler(uc, ur, logger)
 
@@ -190,7 +189,7 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository)
+		setup    func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase)
 		wantCode connect.Code
 		wantErr  bool
 	}{
@@ -198,8 +197,8 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 			// @spec components/adapter/fan/api/rpc/ticket-journey "The caller has no journeys"
 			name: "success - returns empty list when no journeys exist",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
-			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(&entity.User{
 					ID:             "user-uuid-1",
 					ProviderUserID: "ext-user-1",
 				}, nil)
@@ -210,15 +209,15 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 		{
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
-			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *entitymocks.MockUserRepository) {},
+			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *ucmocks.MockUserUseCase) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
 		{
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
-			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
+			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) {
+				ur.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, ""))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -233,7 +232,7 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 			require.NoError(t, err)
 
 			uc := ucmocks.NewMockTicketJourneyUseCase(t)
-			ur := entitymocks.NewMockUserRepository(t)
+			ur := ucmocks.NewMockUserUseCase(t)
 			tt.setup(uc, ur)
 			h := handler.NewTicketJourneyHandler(uc, ur, logger)
 
@@ -257,7 +256,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 
 	const eventID = "019a0000-0000-7000-8000-0000000000e1"
 
-	newClient := func(t *testing.T, uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) ticketjourneyv1connect.TicketJourneyServiceClient {
+	newClient := func(t *testing.T, uc *ucmocks.MockTicketJourneyUseCase, ur *ucmocks.MockUserUseCase) ticketjourneyv1connect.TicketJourneyServiceClient {
 		t.Helper()
 		logger, err := logging.New()
 		require.NoError(t, err)
@@ -272,7 +271,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing or malformed event id"
 		// The mocks fail the test if anything is recorded.
-		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), ucmocks.NewMockUserUseCase(t))
 		for _, id := range []*entityv1.EventId{nil, {Value: "not-a-uuid"}} {
 			_, err := client.SetStatus(withFanToken(&ticketjourneyv1.SetStatusRequest{
 				EventId: id,
@@ -285,7 +284,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 	t.Run("SetStatus with a missing or unknown status", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing or unknown status"
-		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), ucmocks.NewMockUserUseCase(t))
 		for _, status := range []entityv1.TicketJourneyStatus{entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_UNSPECIFIED, 99} {
 			_, err := client.SetStatus(withFanToken(&ticketjourneyv1.SetStatusRequest{
 				EventId: &entityv1.EventId{Value: eventID},
@@ -299,8 +298,8 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Event does not exist"
 		uc := ucmocks.NewMockTicketJourneyUseCase(t)
-		ur := entitymocks.NewMockUserRepository(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		ur := ucmocks.NewMockUserUseCase(t)
+		ur.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
 		uc.EXPECT().SetStatus(mock.Anything, testCallerUserID, eventID, entity.TicketJourneyStatusTracking).
 			Return(apperr.New(codes.FailedPrecondition, "event does not exist")).Once()
 		logger, err := logging.New()
@@ -318,7 +317,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing event id"
 		// The mocks fail the test if anything is recorded.
-		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), ucmocks.NewMockUserUseCase(t))
 		for _, id := range []*entityv1.EventId{nil, {Value: "not-a-uuid"}} {
 			_, err := client.InferTracking(withFanToken(&ticketjourneyv1.InferTrackingRequest{EventId: id}))
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -330,8 +329,8 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Tracking started"
 		// @spec components/adapter/fan/api/rpc/ticket-journey "The journey belongs to the caller"
 		uc := ucmocks.NewMockTicketJourneyUseCase(t)
-		ur := entitymocks.NewMockUserRepository(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		ur := ucmocks.NewMockUserUseCase(t)
+		ur.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
 		uc.EXPECT().InferTracking(mock.Anything, testCallerUserID, eventID).Return(true, nil).Once()
 		client := newClient(t, uc, ur)
 
@@ -344,8 +343,8 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 	t.Run("InferTracking for an event that does not exist", func(t *testing.T) {
 		t.Parallel()
 		uc := ucmocks.NewMockTicketJourneyUseCase(t)
-		ur := entitymocks.NewMockUserRepository(t)
-		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		ur := ucmocks.NewMockUserUseCase(t)
+		ur.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
 		uc.EXPECT().InferTracking(mock.Anything, testCallerUserID, eventID).
 			Return(false, apperr.New(codes.FailedPrecondition, "event does not exist")).Once()
 		logger, err := logging.New()
@@ -360,7 +359,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 	t.Run("InferTracking not signed in", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Not signed in"
-		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), ucmocks.NewMockUserUseCase(t))
 
 		_, err := client.InferTracking(context.Background(), &ticketjourneyv1.InferTrackingRequest{EventId: &entityv1.EventId{Value: eventID}})
 
@@ -370,7 +369,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 	t.Run("Delete with a missing or malformed event id", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Missing or malformed event id"
-		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), entitymocks.NewMockUserRepository(t))
+		client := newClient(t, ucmocks.NewMockTicketJourneyUseCase(t), ucmocks.NewMockUserUseCase(t))
 		for _, id := range []*entityv1.EventId{nil, {Value: "not-a-uuid"}} {
 			_, err := client.Delete(withFanToken(&ticketjourneyv1.DeleteRequest{EventId: id}))
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

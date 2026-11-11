@@ -17,7 +17,6 @@ import (
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
@@ -37,7 +36,7 @@ func newConcertBoundaryClient(t *testing.T, concertUC *mocks.MockConcertUseCase)
 
 	logger, err := logging.New()
 	require.NoError(t, err)
-	h := rpc.NewConcertHandler(concertUC, entitymocks.NewMockUserRepository(t), cdnURLs(t), logger)
+	h := rpc.NewConcertHandler(concertUC, mocks.NewMockUserUseCase(t), cdnURLs(t), logger)
 
 	server := connect.NewServer(validate.NewServerInterceptor())
 	concertv1connect.RegisterConcertServiceHandler(server, h)

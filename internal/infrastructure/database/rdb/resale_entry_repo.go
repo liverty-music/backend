@@ -11,9 +11,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // ResaleEntryRepository implements [entity.ResaleEntryRepository] for
@@ -398,7 +396,7 @@ func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketS
 			return err
 		}
 		for _, e := range changed {
-			if err := announce(ctx, r.outbox, tx, resaleEntryDrawnSubject(e.State), messaging.Announcement{Payload: pb.FromResaleEntry(e, nil)}); err != nil {
+			if err := announce(ctx, r.outbox, tx, resaleEntryDrawnSubject(e.State), e); err != nil {
 				return err
 			}
 		}
@@ -489,7 +487,7 @@ func (r *ResaleEntryRepository) Withdraw(ctx context.Context, id entity.ResaleEn
 		return nil, toAppErr(err, "failed to void the resale entry's order", attrs)
 	}
 	entry.Order.Status = entity.OrderStatusVoid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryWithdrawn, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryWithdrawn, entry); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -538,7 +536,7 @@ func (r *ResaleEntryRepository) RevertWin(ctx context.Context, id entity.ResaleE
 	if _, err := tx.Exec(ctx, resaleEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
 		return toAppErr(err, "failed to void the resale entry's order", attrs)
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryLost, messaging.Announcement{Payload: pb.FromResaleEntry(entry, nil)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectResaleEntryLost, entry); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

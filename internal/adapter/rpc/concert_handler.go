@@ -14,7 +14,7 @@ import (
 // ConcertHandler implements the ConcertService Connect interface.
 type ConcertHandler struct {
 	concertUseCase  usecase.ConcertUseCase
-	userRepo        entity.UserRepository
+	userUC          usecase.UserUseCase
 	seriesImageURLs pb.SeriesImageURLs
 	logger          *logging.Logger
 }
@@ -23,13 +23,13 @@ type ConcertHandler struct {
 // the cover image URLs of the first-party Series every response returns.
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	seriesImageURLs pb.SeriesImageURLs,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
 		concertUseCase:  concertUseCase,
-		userRepo:        userRepo,
+		userUC:          userUC,
 		seriesImageURLs: seriesImageURLs,
 		logger:          logger,
 	}
@@ -89,7 +89,7 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *concertv1.ListFo
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

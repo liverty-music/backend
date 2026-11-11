@@ -7,9 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -144,7 +142,7 @@ func (r *TicketJourneyRepository) Upsert(ctx context.Context, journey *entity.Ti
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, messaging.Announcement{Payload: pb.FromTicketJourney(journey)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, journey); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -190,7 +188,7 @@ func (r *TicketJourneyRepository) UpsertIfReplaceable(ctx context.Context, journ
 	if err != nil || !stored {
 		return false, err
 	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, messaging.Announcement{Payload: pb.FromTicketJourney(journey)}); err != nil {
+	if err := announce(ctx, r.outbox, tx, entity.SubjectTicketJourneyStatusChanged, journey); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -690,16 +690,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			artistconnect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
 		func(s *connect.Server) {
-			followconnect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(followUC, userRepo, logger))
+			followconnect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(followUC, userUC, logger))
 		},
 		func(s *connect.Server) {
-			pushsubscriptionconnect.RegisterPushSubscriptionServiceHandler(s, rpc.NewPushSubscriptionHandler(pushSubscriptionUC, userRepo, logger))
+			pushsubscriptionconnect.RegisterPushSubscriptionServiceHandler(s, rpc.NewPushSubscriptionHandler(pushSubscriptionUC, userUC, logger))
 		},
 		func(s *connect.Server) {
-			notificationconnect.RegisterNotificationServiceHandler(s, rpc.NewNotificationHandler(notificationUC, userRepo, logger))
+			notificationconnect.RegisterNotificationServiceHandler(s, rpc.NewNotificationHandler(notificationUC, userUC, logger))
 		},
 		func(s *connect.Server) {
-			ticketjourneyconnect.RegisterTicketJourneyServiceHandler(s, rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger))
+			ticketjourneyconnect.RegisterTicketJourneyServiceHandler(s, rpc.NewTicketJourneyHandler(ticketJourneyUC, userUC, logger))
 		},
 		func(s *connect.Server) {
 			ticketconnect.RegisterTicketServiceHandler(s, rpc.NewTicketHandler(ticketUC, userUC, logger))
@@ -712,7 +712,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		// Fan-facing WalletPublicKeyService: Register, Get (signed-in fan only).
 		func(s *connect.Server) {
-			walletpublickeyconnect.RegisterWalletPublicKeyServiceHandler(s, rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userRepo, logger))
+			walletpublickeyconnect.RegisterWalletPublicKeyServiceHandler(s, rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userUC, logger))
 		},
 		func(s *connect.Server) {
 			identityverificationconnect.RegisterIdentityVerificationServiceHandler(s, rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger))
@@ -746,7 +746,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	)
 
 	handlers = append(handlers, func(s *connect.Server) {
-		concertconnect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, seriesImageURLBuilder, logger))
+		concertconnect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userUC, seriesImageURLBuilder, logger))
 	})
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{

@@ -10,7 +10,6 @@ import (
 	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
@@ -22,10 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newWalletPublicKeyHandler(t *testing.T) (*handler.WalletPublicKeyHandler, *ucmocks.MockWalletPublicKeyUseCase, *entitymocks.MockUserRepository) {
+func newWalletPublicKeyHandler(t *testing.T) (*handler.WalletPublicKeyHandler, *ucmocks.MockWalletPublicKeyUseCase, *ucmocks.MockUserUseCase) {
 	t.Helper()
 	wallet := ucmocks.NewMockWalletPublicKeyUseCase(t)
-	users := entitymocks.NewMockUserRepository(t)
+	users := ucmocks.NewMockUserUseCase(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return handler.NewWalletPublicKeyHandler(wallet, users, logger), wallet, users
@@ -41,7 +40,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		h, wallet, users := newWalletPublicKeyHandler(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		registered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
+		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), key, mock.AnythingOfType("time.Time")).
 			Return(&usecase.RegisterWalletPublicKeyResult{
 				Key:              &entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered},
@@ -79,7 +78,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, _, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(nil, apperr.New(codes.NotFound, "no user"))
+		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(nil, apperr.New(codes.NotFound, "no user"))
 		_, err := h.Register(ctx, &walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
 		})
@@ -90,7 +89,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, wallet, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
+		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), mock.Anything, mock.Anything).
 			Return(nil, apperr.New(codes.InvalidArgument, "not a P-256 point"))
 		_, err := h.Register(ctx, &walletpublickeyv1.RegisterRequest{
@@ -110,7 +109,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		h, wallet, users := newWalletPublicKeyHandler(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		registered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
+		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).
 			Return(&entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered}, nil)
 
@@ -132,7 +131,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, wallet, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
+		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).Return(nil, apperr.New(codes.NotFound, "no key"))
 
 		_, err := h.Get(ctx, &walletpublickeyv1.GetRequest{})

@@ -11,7 +11,6 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
@@ -65,14 +64,14 @@ func cdnURLs(t *testing.T) *pbmocks.MockSeriesImageURLs {
 	return urls
 }
 
-func newEventPageHandler(t *testing.T) (*rpc.ConcertHandler, *mocks.MockConcertUseCase, *entitymocks.MockUserRepository) {
+func newEventPageHandler(t *testing.T) (*rpc.ConcertHandler, *mocks.MockConcertUseCase, *mocks.MockUserUseCase) {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	concertUC := mocks.NewMockConcertUseCase(t)
-	userRepo := entitymocks.NewMockUserRepository(t)
-	h := rpc.NewConcertHandler(concertUC, userRepo, cdnURLs(t), logger)
-	return h, concertUC, userRepo
+	userUC := mocks.NewMockUserUseCase(t)
+	h := rpc.NewConcertHandler(concertUC, userUC, cdnURLs(t), logger)
+	return h, concertUC, userUC
 }
 
 func TestConcertHandler_Get(t *testing.T) {
@@ -220,10 +219,10 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, concertUC, userRepo := newEventPageHandler(t)
+			h, concertUC, userUC := newEventPageHandler(t)
 			ctx := authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "ext-user-1"})
 			user := &entity.User{ID: internalUserID}
-			userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+			userUC.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(user, nil).Once()
 			concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
@@ -244,10 +243,10 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 	// @spec components/adapter/fan/api/rpc/concert "Tour in one list"
 	t.Parallel()
-	h, concertUC, userRepo := newEventPageHandler(t)
+	h, concertUC, userUC := newEventPageHandler(t)
 	ctx := authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "ext-user-1"})
 	user := &entity.User{ID: "internal-user-uuid-1"}
-	userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+	userUC.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(user, nil).Once()
 	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
 	c1 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e1", day(20))
 	c2 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e2", day(21))

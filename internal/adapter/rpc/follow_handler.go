@@ -7,7 +7,6 @@ import (
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -15,19 +14,19 @@ import (
 // FollowHandler implements the FollowService Connect interface.
 type FollowHandler struct {
 	followUseCase usecase.FollowUseCase
-	userRepo      entity.UserRepository
+	userUC        usecase.UserUseCase
 	logger        *logging.Logger
 }
 
 // NewFollowHandler creates a new instance of the follow RPC service handler.
 func NewFollowHandler(
 	followUseCase usecase.FollowUseCase,
-	userRepo entity.UserRepository,
+	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *FollowHandler {
 	return &FollowHandler{
 		followUseCase: followUseCase,
-		userRepo:      userRepo,
+		userUC:        userUC,
 		logger:        logger,
 	}
 }
@@ -39,7 +38,7 @@ func (h *FollowHandler) Follow(ctx context.Context, req *rpc.FollowRequest) (*rp
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +58,7 @@ func (h *FollowHandler) Unfollow(ctx context.Context, req *rpc.UnfollowRequest) 
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +78,7 @@ func (h *FollowHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.List
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +100,7 @@ func (h *FollowHandler) SetHype(ctx context.Context, req *rpc.SetHypeRequest) (*
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

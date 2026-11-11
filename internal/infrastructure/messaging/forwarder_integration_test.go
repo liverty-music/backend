@@ -95,7 +95,7 @@ func recordAndCommit(t *testing.T, pool *pgxpool.Pool, subject string) {
 	ctx := context.Background()
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	require.NoError(t, messaging.NewOutbox(watermill.NopLogger{}).Record(ctx, tx, subject, follow("u1")))
+	require.NoError(t, messaging.NewOutbox(watermill.NopLogger{}, protoEncoder(t)).Record(ctx, tx, subject, follow("u1")))
 	require.NoError(t, tx.Commit(ctx))
 }
 
