@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -46,7 +46,7 @@ func (h *ResaleListingRefundedConsumer) Handle(msg *message.Message) error {
 		slog.String("resale_listing_id", data.ResaleListingID))
 	if err := h.notificationUC.SendResaleSold(msg.Context(), data); err != nil {
 		if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {
-			return messaging.RedeliverLater(msg, err, soldEmailRetryDelay)
+			return eventmsg.RedeliverLater(msg, err, soldEmailRetryDelay)
 		}
 		return fmt.Errorf("send resale sold email for listing %s: %w", data.ResaleListingID, err)
 	}

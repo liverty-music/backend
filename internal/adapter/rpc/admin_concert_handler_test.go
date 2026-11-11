@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
+	pbmocks "github.com/liverty-music/backend/internal/adapter/pb/mocks"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"connectrpc.com/connect/v2"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -22,7 +23,7 @@ import (
 
 // adminCtx returns a context carrying admin role claims.
 func adminCtx() context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{
+	return authctx.WithClaims(context.Background(), &authctx.Claims{
 		Sub:   "admin-sub-123",
 		Roles: []string{"admin"},
 	})
@@ -39,7 +40,7 @@ func newAdminConcertHandler(
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewAdminConcertHandler(adminUC, pb.NewSeriesImageURLBuilder(""), logger)
+	return handler.NewAdminConcertHandler(adminUC, pbmocks.NewMockSeriesImageURLs(t), logger)
 }
 
 // ---------- List ----------

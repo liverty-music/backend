@@ -7,7 +7,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // announcementID returns the id of the announcement msg carries: its
@@ -23,7 +23,7 @@ func announcementID(msg *message.Message) string {
 // parseArtistCreated reads an ARTIST.created announcement: the new Artist.
 func parseArtistCreated(msg *message.Message) (artistCreated, error) {
 	var artist entityv1.Artist
-	if err := messaging.ParseProtobufData(msg, &artist); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &artist); err != nil {
 		return artistCreated{}, err
 	}
 	data := artistCreated{
@@ -40,7 +40,7 @@ func parseArtistCreated(msg *message.Message) (artistCreated, error) {
 // parseFollowCreated reads a FOLLOW.created announcement: the new Follow.
 func parseFollowCreated(msg *message.Message) (followCreated, error) {
 	var follow entityv1.Follow
-	if err := messaging.ParseProtobufData(msg, &follow); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &follow); err != nil {
 		return followCreated{}, err
 	}
 	data := followCreated{UserID: follow.GetUserId().GetValue(), ArtistID: follow.GetArtistId().GetValue()}
@@ -54,7 +54,7 @@ func parseFollowCreated(msg *message.Message) (followCreated, error) {
 // new TicketSale.
 func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscoveredData, error) {
 	var sale entityv1.TicketSale
-	if err := messaging.ParseProtobufData(msg, &sale); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &sale); err != nil {
 		return entity.TicketSaleDiscoveredData{}, err
 	}
 	data := entity.TicketSaleDiscoveredData{
@@ -73,7 +73,7 @@ func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscovere
 // announcement: the refunded ResaleListing.
 func parseResaleListingRefunded(msg *message.Message) (entity.ResaleListingRefundedData, error) {
 	var listing entityv1.ResaleListing
-	if err := messaging.ParseProtobufData(msg, &listing); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &listing); err != nil {
 		return entity.ResaleListingRefundedData{}, err
 	}
 	data := entity.ResaleListingRefundedData{

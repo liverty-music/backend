@@ -113,7 +113,7 @@ func NewConnectServer(
 	//   [5] recoverInterceptor        — defer recover(). Returns *connect.Error on panic. Has trace
 	//                                   context from [1]. Inside [3] so access log still fires.
 	//   [6] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
-	//                                        and writes auth.claimsKey for handlers.
+	//                                        and writes the authctx claims for handlers.
 	//   [6b] extraInterceptors             — Optional per-server layers (e.g. the admin server's
 	//                                        REQUIRE-ADMIN authorization). Run after the claims bridge
 	//                                        so they see bridged claims, before validation.

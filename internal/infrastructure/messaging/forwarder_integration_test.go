@@ -18,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // startOutboxJetStream starts an embedded NATS server with JetStream and a
@@ -127,7 +128,7 @@ func TestForwarder(t *testing.T) {
 		require.Eventually(t, func() bool { return outboxRows(t, pool) == 0 }, 10*time.Second, 50*time.Millisecond)
 		msg, err := js.GetLastMsg("TEST", "TEST.followed")
 		require.NoError(t, err)
-		assert.Equal(t, messaging.ContentTypeProtobuf, msg.Header.Get("ce_datacontenttype"))
+		assert.Equal(t, eventmsg.ContentTypeProtobuf, msg.Header.Get("ce_datacontenttype"))
 		assert.Equal(t, msg.Header.Get("ce_id"), msg.Header.Get(nats.MsgIdHdr))
 	})
 

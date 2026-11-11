@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect/v2"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -37,7 +37,7 @@ func newOrganizerScannerHandler(t *testing.T) (*handler.OrganizerScannerHandler,
 func TestOrganizerScannerHandler(t *testing.T) {
 	t.Parallel()
 
-	ctx := auth.WithCallerOrgID(context.Background(), "zorg-1")
+	ctx := authctx.WithCallerOrgID(context.Background(), "zorg-1")
 
 	t.Run("member creates a scanner", func(t *testing.T) {
 		t.Parallel()

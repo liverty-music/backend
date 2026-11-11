@@ -10,8 +10,8 @@ import (
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +20,7 @@ import (
 )
 
 func authedCtx(providerUserID string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: providerUserID})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: providerUserID})
 }
 
 const (

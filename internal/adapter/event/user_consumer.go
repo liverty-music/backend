@@ -6,8 +6,8 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -42,7 +42,7 @@ func (h *UserConsumer) Handle(msg *message.Message) error {
 // parseUserCreated returns the new User of a USER.created announcement.
 func parseUserCreated(msg *message.Message) (string, error) {
 	var user entityv1.User
-	if err := messaging.ParseProtobufData(msg, &user); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &user); err != nil {
 		return "", err
 	}
 	if user.GetId().GetValue() == "" {

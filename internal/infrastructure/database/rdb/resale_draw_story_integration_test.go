@@ -15,10 +15,10 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // The story tests of stories/resell-a-ticket that buy a listing run the whole
@@ -150,7 +150,7 @@ func (s *resaleStory) followUp() {
 		for _, msg := range announcedMessages(s.t, s.db, mark, entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed,
 			entity.SubjectResaleEntryLost, entity.SubjectResaleEntryWithdrawn) {
 			require.NoError(s.t, s.changed.HandleStartWorkflow(msg))
-			if subject := messaging.CloudEventType(msg); subject == entity.SubjectResaleEntryLapsed || subject == entity.SubjectResaleEntryLost {
+			if subject := eventmsg.CloudEventType(msg); subject == entity.SubjectResaleEntryLapsed || subject == entity.SubjectResaleEntryLost {
 				require.NoError(s.t, s.changed.HandleSendResaleEntryEnded(msg))
 			}
 			var e entityv1.ResaleEntry

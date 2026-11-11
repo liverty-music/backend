@@ -6,6 +6,7 @@
 package webhook
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -29,15 +30,24 @@ import (
 // `append_claims` entry. Machine users (no `user.human.email`) are passed
 // through with an empty `append_claims` so token issuance still succeeds.
 type PreAccessTokenHandler struct {
-	validator *auth.WebhookValidator
+	validator TokenValidator
 	logger    *logging.Logger
+}
+
+// TokenValidator verifies the JWT body of a Zitadel Actions v2 webhook
+// call and returns its claims.
+type TokenValidator interface {
+	// ValidateWebhookToken verifies the signature and expiry of tokenString
+	// and returns the parsed token. It returns an error for a token that is
+	// not signed by the identity provider or has expired.
+	ValidateWebhookToken(ctx context.Context, tokenString string) (jwt.Token, error)
 }
 
 // NewPreAccessTokenHandler constructs a handler bound to the given validator.
 // The validator's `expectedAudience` MUST be the webhook-specific audience
 // registered on the Zitadel Target (e.g.
 // `urn:liverty-music:webhook:pre-access-token`).
-func NewPreAccessTokenHandler(validator *auth.WebhookValidator, logger *logging.Logger) *PreAccessTokenHandler {
+func NewPreAccessTokenHandler(validator TokenValidator, logger *logging.Logger) *PreAccessTokenHandler {
 	return &PreAccessTokenHandler{validator: validator, logger: logger}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,16 +19,16 @@ const orgID = "org-abc-456"
 
 // buildClaims is a helper that creates Claims with the given overrides applied
 // on top of a valid happy-path baseline.
-type claimsOption func(*auth.Claims)
+type claimsOption func(*authctx.Claims)
 
 func withAudiences(auds ...string) claimsOption {
-	return func(c *auth.Claims) { c.Audiences = auds }
+	return func(c *authctx.Claims) { c.Audiences = auds }
 }
 func withLoginScopeOrgID(id string) claimsOption {
-	return func(c *auth.Claims) { c.LoginScopeOrgID = id }
+	return func(c *authctx.Claims) { c.LoginScopeOrgID = id }
 }
 func withRoleOrgIDs(ids ...string) claimsOption {
-	return func(c *auth.Claims) {
+	return func(c *authctx.Claims) {
 		m := make(map[string]struct{}, len(ids))
 		for _, id := range ids {
 			m[id] = struct{}{}
@@ -36,8 +37,8 @@ func withRoleOrgIDs(ids ...string) claimsOption {
 	}
 }
 
-func happyClaims(opts ...claimsOption) *auth.Claims {
-	c := &auth.Claims{
+func happyClaims(opts ...claimsOption) *authctx.Claims {
+	c := &authctx.Claims{
 		Sub:             "user-sub",
 		Email:           "op@example.com",
 		Audiences:       []string{projectID},
@@ -51,15 +52,15 @@ func happyClaims(opts ...claimsOption) *auth.Claims {
 }
 
 // contextWithClaims injects Claims as if the ClaimsBridgeInterceptor ran.
-func contextWithClaims(claims *auth.Claims) context.Context {
-	return auth.WithClaims(context.Background(), claims)
+func contextWithClaims(claims *authctx.Claims) context.Context {
+	return authctx.WithClaims(context.Background(), claims)
 }
 
 func TestOrgScopedInterceptor(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		claims    *auth.Claims // nil = no claims in context
+		claims    *authctx.Claims // nil = no claims in context
 		projectID string
 	}
 	tests := []struct {
@@ -181,7 +182,7 @@ func TestOrgScopedInterceptor(t *testing.T) {
 
 				var capturedCallerOrgID string
 				next := connect.ServerFunc(func(innerCtx context.Context, _ connect.Spec, _ connect.ServerStream) error {
-					capturedCallerOrgID, _ = auth.GetCallerOrgID(innerCtx)
+					capturedCallerOrgID, _ = authctx.GetCallerOrgID(innerCtx)
 					return nil
 				})
 
@@ -232,7 +233,7 @@ func TestOrgScopedInterceptor_PublicProcedures(t *testing.T) {
 				var hasCallerOrgID bool
 				next := connect.ServerFunc(func(innerCtx context.Context, _ connect.Spec, _ connect.ServerStream) error {
 					nextCalled = true
-					_, hasCallerOrgID = auth.GetCallerOrgID(innerCtx)
+					_, hasCallerOrgID = authctx.GetCallerOrgID(innerCtx)
 					return nil
 				})
 
@@ -248,30 +249,4 @@ func TestOrgScopedInterceptor_PublicProcedures(t *testing.T) {
 			})
 		}
 	}
-}
-
-// TestGetCallerOrgID verifies that WithCallerOrgID / GetCallerOrgID round-trip correctly.
-func TestGetCallerOrgID(t *testing.T) {
-	t.Parallel()
-
-	t.Run("return org id when set", func(t *testing.T) {
-		t.Parallel()
-		ctx := auth.WithCallerOrgID(context.Background(), "my-org")
-		id, ok := auth.GetCallerOrgID(ctx)
-		assert.True(t, ok)
-		assert.Equal(t, "my-org", id)
-	})
-
-	t.Run("return false when not set", func(t *testing.T) {
-		t.Parallel()
-		_, ok := auth.GetCallerOrgID(context.Background())
-		assert.False(t, ok)
-	})
-
-	t.Run("return false when set to empty string", func(t *testing.T) {
-		t.Parallel()
-		ctx := auth.WithCallerOrgID(context.Background(), "")
-		_, ok := auth.GetCallerOrgID(ctx)
-		assert.False(t, ok)
-	})
 }

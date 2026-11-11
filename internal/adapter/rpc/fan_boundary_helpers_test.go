@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -29,7 +30,7 @@ func newFanBoundaryServer(t *testing.T, mount func(*connect.Server)) *httptest.S
 
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, fanTestToken).
-		Return(&auth.Claims{Sub: testCallerExtID}, nil).Maybe()
+		Return(&authctx.Claims{Sub: testCallerExtID}, nil).Maybe()
 
 	server := connect.NewServer(auth.NewClaimsBridgeInterceptor(), validate.NewServerInterceptor())
 	mount(server)

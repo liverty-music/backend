@@ -1,40 +1,18 @@
 package pb
 
 import (
-	"strings"
-
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
 	"github.com/liverty-music/backend/internal/entity"
-	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 )
 
-// SeriesImageURLBuilder composes public CDN URLs for organizer series image
-// variants (thumb/large). The CDN base is sourced from the
-// CDN_BASE_URL environment variable via config
-// (config.ServerConfig.CDNBaseURL) and injected here at DI wiring
-// time (see internal/di/provider.go), so this adapter — not the entity
-// package — owns the environment read.
-type SeriesImageURLBuilder struct {
-	cdnBase string
-}
-
-// NewSeriesImageURLBuilder creates a SeriesImageURLBuilder for the given CDN base URL.
-// Trailing slashes are trimmed so composed URLs never contain a double slash.
-func NewSeriesImageURLBuilder(cdnBase string) *SeriesImageURLBuilder {
-	return &SeriesImageURLBuilder{cdnBase: strings.TrimRight(cdnBase, "/")}
-}
-
-// VariantURL composes the public CDN URL for one variant of a series image
-// image: {cdnBase}/{VariantObjectKey}. Returns "" when no CDN base is
-// configured, so callers never emit a malformed relative URL.
-//
-// variant must be one of "thumb" or "large".
-func (b *SeriesImageURLBuilder) VariantURL(organizerID, seriesImageID, variant string) string {
-	if b == nil || b.cdnBase == "" {
-		return ""
-	}
-	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, seriesImageID, variant)
+// SeriesImageURLs composes the public CDN URLs of series image variants.
+// The object storage package implements it, because only it knows the object
+// key a variant is stored under; it is wired in internal/di.
+type SeriesImageURLs interface {
+	// VariantURL returns the public URL of one variant ("thumb" or "large")
+	// of a series image, or "" when no CDN base is configured.
+	VariantURL(organizerID, seriesImageID, variant string) string
 }
 
 // FromSeriesImage maps a series image to Protobuf with its id and Organizer,
@@ -53,12 +31,12 @@ func FromSeriesImage(img *entity.SeriesImage) *entityv1.SeriesImage {
 // seriesImageProto builds the entityv1.SeriesImage message for a series' cover image.
 // Returns nil when the series has no cover image or when the CDN base is
 // unset, so callers never emit a proto with empty URL fields.
-func (b *SeriesImageURLBuilder) seriesImageProto(s *entity.Series) *entityv1.SeriesImage {
+func seriesImageProto(urls SeriesImageURLs, s *entity.Series) *entityv1.SeriesImage {
 	if s.CoverImage == nil {
 		return nil
 	}
-	thumbURL := b.VariantURL(s.CoverImage.OrganizerID, s.CoverImage.ID, "thumb")
-	largeURL := b.VariantURL(s.CoverImage.OrganizerID, s.CoverImage.ID, "large")
+	thumbURL := urls.VariantURL(s.CoverImage.OrganizerID, s.CoverImage.ID, "thumb")
+	largeURL := urls.VariantURL(s.CoverImage.OrganizerID, s.CoverImage.ID, "large")
 	if thumbURL == "" || largeURL == "" {
 		// CDN base not configured — omit rather than emit broken URLs.
 		return nil
@@ -71,14 +49,14 @@ func (b *SeriesImageURLBuilder) seriesImageProto(s *entity.Series) *entityv1.Ser
 	}
 }
 
-// FromSeries maps a domain Series like [FromSeries] and additionally
-// sets its cover image with CDN URLs when the Series has one.
-func (b *SeriesImageURLBuilder) FromSeries(s *entity.Series) *entityv1.Series {
+// FromSeriesWithCoverImage maps a domain Series like [FromSeries] and
+// additionally sets its cover image with CDN URLs when the Series has one.
+func FromSeriesWithCoverImage(urls SeriesImageURLs, s *entity.Series) *entityv1.Series {
 	proto := FromSeries(s)
 	if proto == nil {
 		return nil
 	}
-	if m := b.seriesImageProto(s); m != nil {
+	if m := seriesImageProto(urls, s); m != nil {
 		proto.CoverImage = m
 	}
 	return proto
@@ -86,7 +64,7 @@ func (b *SeriesImageURLBuilder) FromSeries(s *entity.Series) *entityv1.Series {
 
 // ReferencedSeries returns every Series the concerts refer to, once each, in
 // the order the concerts first refer to them, each with its cover image.
-func (b *SeriesImageURLBuilder) ReferencedSeries(concerts []*entity.Concert) []*entityv1.Series {
+func ReferencedSeries(urls SeriesImageURLs, concerts []*entity.Concert) []*entityv1.Series {
 	seen := make(map[string]bool)
 	out := make([]*entityv1.Series, 0)
 	for _, c := range concerts {
@@ -94,7 +72,7 @@ func (b *SeriesImageURLBuilder) ReferencedSeries(concerts []*entity.Concert) []*
 			continue
 		}
 		seen[c.Series.ID] = true
-		out = append(out, b.FromSeries(c.Series))
+		out = append(out, FromSeriesWithCoverImage(urls, c.Series))
 	}
 	return out
 }

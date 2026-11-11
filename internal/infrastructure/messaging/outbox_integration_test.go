@@ -17,6 +17,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/testutil"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // insertCounter counts the INSERT statements a connection sends to the
@@ -107,7 +108,7 @@ func TestOutbox_Record(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uuid.Version(7), id.Version())
 		assert.Equal(t, subject, first.Metadata["ce_type"])
-		assert.Equal(t, messaging.ContentTypeProtobuf, first.Metadata["ce_datacontenttype"])
+		assert.Equal(t, eventmsg.ContentTypeProtobuf, first.Metadata["ce_datacontenttype"])
 		assert.Equal(t, "a", first.Metadata["ce_subject"])
 		assert.NotContains(t, rows[1].Metadata, "ce_subject")
 		assert.NotEqual(t, first.UUID, rows[1].UUID)

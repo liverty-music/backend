@@ -13,8 +13,8 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // ResaleEntryConsumer handles RESALE_ENTRY.won, RESALE_ENTRY.lapsed,
@@ -55,7 +55,7 @@ var resaleEntryStates = map[string]entity.ResaleEntryState{
 // parse reads a RESALE_ENTRY announcement: the entry as it is after the
 // change, in the state its subject names.
 func (h *ResaleEntryConsumer) parse(msg *message.Message) (*entity.ResaleEntry, error) {
-	subject := messaging.CloudEventType(msg)
+	subject := eventmsg.CloudEventType(msg)
 	state, ok := resaleEntryStates[subject]
 	if !ok {
 		err := fmt.Errorf("not a resale entry event: %q", subject)
@@ -63,7 +63,7 @@ func (h *ResaleEntryConsumer) parse(msg *message.Message) (*entity.ResaleEntry, 
 		return nil, err
 	}
 	var e entityv1.ResaleEntry
-	if err := messaging.ParseProtobufData(msg, &e); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &e); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse "+subject+" event", err)
 		return nil, fmt.Errorf("parse %s event: %w", subject, err)
 	}
@@ -105,7 +105,7 @@ func (h *ResaleEntryConsumer) HandleSendResaleEntryEnded(msg *message.Message) e
 	}
 	if err := h.notificationUC.SendResaleEntryEnded(msg.Context(), entry.ID); err != nil {
 		if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {
-			return messaging.RedeliverLater(msg, err, endedEmailRetryDelay)
+			return eventmsg.RedeliverLater(msg, err, endedEmailRetryDelay)
 		}
 		return fmt.Errorf("send the ended notice of resale entry %s: %w", entry.ID, err)
 	}
@@ -129,7 +129,7 @@ func NewResaleListingSoldConsumer(resaleListingUC usecase.ResaleListingUseCase, 
 // HandleStartRefund starts the refund workflow of the sold listing.
 func (h *ResaleListingSoldConsumer) HandleStartRefund(msg *message.Message) error {
 	var l entityv1.ResaleListing
-	if err := messaging.ParseProtobufData(msg, &l); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &l); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse RESALE_LISTING.sold event", err)
 		return fmt.Errorf("parse RESALE_LISTING.sold event: %w", err)
 	}

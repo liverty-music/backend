@@ -2,13 +2,17 @@ package rdb_test
 
 import (
 	"context"
-	"github.com/liverty-music/backend/internal/infrastructure/payment"
-	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
+	"github.com/liverty-music/backend/pkg/eventmsg"
+
+	"uuid"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,12 +21,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"uuid"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
 	"github.com/liverty-music/backend/internal/usecase"
 )
@@ -495,7 +497,7 @@ func (s *lotteryStory) startFollowUps() int {
 		var e entityv1.LotteryEntry
 		require.NoError(s.t, proto.Unmarshal(msg.Payload, &e))
 		orderID := entity.OrderID(e.GetOrderId().GetValue())
-		switch messaging.CloudEventType(msg) {
+		switch eventmsg.CloudEventType(msg) {
 		case entity.SubjectLotteryEntryWon:
 			s.followUps = append(s.followUps, usecase.IssueWorkflowID(orderID))
 		case entity.SubjectLotteryEntryLost:

@@ -9,8 +9,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -50,14 +50,14 @@ const (
 // ClaimsBridgeInterceptor and OrgScopedInterceptor: claims are set and the
 // caller's Zitadel org id is stored by WithCallerOrgID.
 func orgCtx(providerOrganizerID string) context.Context {
-	ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "op-sub"})
-	return auth.WithCallerOrgID(ctx, providerOrganizerID)
+	ctx := authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "op-sub"})
+	return authctx.WithCallerOrgID(ctx, providerOrganizerID)
 }
 
 // noOrgCtx returns a context with claims but without the caller-org id —
 // simulates a misconfigured or missing OrgScopedInterceptor.
 func noOrgCtx() context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: "op-sub"})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "op-sub"})
 }
 
 // ── entity helpers ────────────────────────────────────────────────────────────

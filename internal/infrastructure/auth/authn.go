@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect/v2"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // NewAuthFunc creates an authn.AuthFunc that validates JWT bearer tokens
@@ -41,9 +42,8 @@ func NewAuthFunc(validator TokenValidator, publicProcedures map[string]bool) aut
 }
 
 // NewClaimsBridgeInterceptor returns a server interceptor that reads
-// authn.GetInfo and injects *Claims into the context via WithClaims,
-// preserving backward compatibility with handlers that use
-// GetUserID/GetClaims.
+// authn.GetInfo and injects the *authctx.Claims into the context via
+// authctx.WithClaims, where handlers read them with authctx.GetClaims.
 //
 // It applies to every RPC type (unary and streaming), as the v1
 // interceptor did through its WrapUnary and WrapStreamingHandler methods.
@@ -58,8 +58,8 @@ func NewClaimsBridgeInterceptor() connect.ServerInterceptor {
 // bridgeClaims extracts *Claims from authn.GetInfo and adds it to the context.
 func bridgeClaims(ctx context.Context) context.Context {
 	if info := authn.GetInfo(ctx); info != nil {
-		if claims, ok := info.(*Claims); ok {
-			return WithClaims(ctx, claims)
+		if claims, ok := info.(*authctx.Claims); ok {
+			return authctx.WithClaims(ctx, claims)
 		}
 	}
 	return ctx

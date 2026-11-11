@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -78,5 +79,5 @@ func (s *unaryTestStream) Send(msg any) error {
 
 // nonAdminCtx returns a context of a signed-in caller without the admin role.
 func nonAdminCtx() context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: "fan-sub-1"})
+	return authctx.WithClaims(context.Background(), &authctx.Claims{Sub: "fan-sub-1"})
 }

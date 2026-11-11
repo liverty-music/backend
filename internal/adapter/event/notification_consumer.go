@@ -7,8 +7,8 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -58,10 +58,10 @@ func (h *NotificationConsumer) Handle(msg *message.Message) error {
 // announcement id.
 func parseConcertCreated(msg *message.Message) (usecase.ConcertCreatedData, error) {
 	var list entityv1.ConcertList
-	if err := messaging.ParseProtobufData(msg, &list); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &list); err != nil {
 		return usecase.ConcertCreatedData{}, err
 	}
-	data := usecase.ConcertCreatedData{ArtistID: messaging.CloudEventSubject(msg), RequestID: announcementID(msg)}
+	data := usecase.ConcertCreatedData{ArtistID: eventmsg.CloudEventSubject(msg), RequestID: announcementID(msg)}
 	for _, c := range list.GetConcerts() {
 		data.ConcertIDs = append(data.ConcertIDs, c.GetEvent().GetId().GetValue())
 	}

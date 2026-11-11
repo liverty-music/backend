@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
+	pbmocks "github.com/liverty-music/backend/internal/adapter/pb/mocks"
+
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
@@ -89,12 +90,23 @@ type fixture struct {
 	server  *httptest.Server
 }
 
+// cdnURLs returns SeriesImageURLs that compose "<cdnBaseURL>/<organizer>/<image>/<variant>".
+func cdnURLs(t *testing.T) *pbmocks.MockSeriesImageURLs {
+	t.Helper()
+	urls := pbmocks.NewMockSeriesImageURLs(t)
+	urls.EXPECT().VariantURL(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(organizerID, seriesImageID, variant string) string {
+			return cdnBaseURL + "/" + organizerID + "/" + seriesImageID + "/" + variant
+		}).Maybe()
+	return urls
+}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	uc := mocks.NewMockConcertUseCase(t)
-	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, pb.NewSeriesImageURLBuilder(cdnBaseURL)), logger)
+	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, cdnURLs(t)), logger)
 	mux := http.NewServeMux()
 	mux.Handle(linkpreview.Pattern, h)
 	srv := httptest.NewServer(mux)
@@ -148,7 +160,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 	assert.Equal(t,
 		"2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都） 全2公演 11/20(金)・11/21(土) Two nights at Shibuya WWW.",
 		metaContent(t, body, "og:description"))
-	assert.Equal(t, cdnBaseURL+"/cdn/"+organizerID+"/"+seriesImageID+"/large.webp", metaContent(t, body, "og:image"))
+	assert.Equal(t, cdnBaseURL+"/"+organizerID+"/"+seriesImageID+"/large", metaContent(t, body, "og:image"))
 	assert.Equal(t, siteBaseURL+"/events/"+eventID, metaContent(t, body, "og:url"))
 	assert.Equal(t, "website", metaContent(t, body, "og:type"))
 	assert.Equal(t, "Liverty Music", metaContent(t, body, "og:site_name"))

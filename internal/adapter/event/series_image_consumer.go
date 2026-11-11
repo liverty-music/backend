@@ -8,8 +8,8 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -62,10 +62,10 @@ func (h *SeriesImageConsumer) Handle(msg *message.Message) error {
 // recorded by SeriesImage.Create.
 func parseSeriesImageUploaded(msg *message.Message) (seriesImageID, seriesID string, err error) {
 	var img entityv1.SeriesImage
-	if err := messaging.ParseProtobufData(msg, &img); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &img); err != nil {
 		return "", "", err
 	}
-	seriesImageID, seriesID = img.GetId().GetValue(), messaging.CloudEventSubject(msg)
+	seriesImageID, seriesID = img.GetId().GetValue(), eventmsg.CloudEventSubject(msg)
 	if seriesImageID == "" || seriesID == "" {
 		return "", "", errors.New("the request names no SeriesImage or no Series")
 	}

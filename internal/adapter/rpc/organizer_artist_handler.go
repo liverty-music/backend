@@ -7,8 +7,8 @@ import (
 	organizerartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/artist/v1"
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -44,7 +44,7 @@ func (h *OrganizerArtistHandler) List(
 	ctx context.Context,
 	_ *organizerartistv1.ListRequest,
 ) (*organizerartistv1.ListResponse, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		// Defence-in-depth: the interceptor should have populated this; if it
 		// did not, we must not proceed.

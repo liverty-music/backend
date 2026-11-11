@@ -19,6 +19,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	"github.com/liverty-music/backend/internal/usecase"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -61,9 +62,9 @@ func newTestAdminOrderServer(t *testing.T, orderUC usecase.OrderUseCase, refundU
 	require.NoError(t, err)
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, adminOrderToken).
-		Return(&auth.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
+		Return(&authctx.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
 	validator.EXPECT().ValidateToken(mock.Anything, adminViewerToken).
-		Return(&auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
+		Return(&authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
 	t.Cleanup(func() { _ = rateLimiter.Close() })

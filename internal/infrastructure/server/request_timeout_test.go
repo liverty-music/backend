@@ -13,14 +13,15 @@ import (
 	followv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -49,7 +50,7 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 		}).Maybe()
 
 	validator := authmocks.NewMockTokenValidator(t)
-	validator.EXPECT().ValidateToken(mock.Anything, "fan-token").Return(&auth.Claims{Sub: "ext-user-1"}, nil).Maybe()
+	validator.EXPECT().ValidateToken(mock.Anything, "fan-token").Return(&authctx.Claims{Sub: "ext-user-1"}, nil).Maybe()
 	userRepo := entitymocks.NewMockUserRepository(t)
 	userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").
 		RunAndReturn(func(ctx context.Context, _ string) (*entity.User, error) {
@@ -59,7 +60,7 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
-			concertv1connect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, pb.NewSeriesImageURLBuilder(""), logger))
+			concertv1connect.RegisterConcertServiceHandler(s, rpc.NewConcertHandler(concertUC, userRepo, storage.NewSeriesImageURLBuilder(""), logger))
 		},
 		func(s *connect.Server) {
 			followv1connect.RegisterFollowServiceHandler(s, rpc.NewFollowHandler(usecasemocks.NewMockFollowUseCase(t), userRepo, logger))

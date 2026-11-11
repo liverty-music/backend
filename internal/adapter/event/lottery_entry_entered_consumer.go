@@ -9,8 +9,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -38,7 +38,7 @@ func NewLotteryEntryEnteredConsumer(
 // event of its TicketStock read by id.
 func (h *LotteryEntryEnteredConsumer) decode(msg *message.Message) (entity.LotteryEntryEnteredData, error) {
 	var order entityv1.Order
-	if err := messaging.ParseProtobufData(msg, &order); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &order); err != nil {
 		return entity.LotteryEntryEnteredData{}, err
 	}
 	data := entity.LotteryEntryEnteredData{

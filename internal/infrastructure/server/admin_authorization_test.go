@@ -13,14 +13,15 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 			artistv1connect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
 		},
 		func(s *connect.Server) {
-			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, pb.NewSeriesImageURLBuilder(""), logger))
+			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, storage.NewSeriesImageURLBuilder(""), logger))
 		},
 	}
 
@@ -95,8 +96,8 @@ func TestAdminServer_Authorization(t *testing.T) {
 		adminToken    = "admin-token"
 		nonAdminToken = "non-admin-token"
 	)
-	adminClaims := &auth.Claims{Sub: "admin-user", Roles: []string{"admin"}}
-	nonAdminClaims := &auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}
+	adminClaims := &authctx.Claims{Sub: "admin-user", Roles: []string{"admin"}}
+	nonAdminClaims := &authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}
 
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, adminToken).Return(adminClaims, nil).Maybe()
@@ -190,8 +191,8 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 
 	const adminToken = "admin-token"
 	const nonAdminToken = "non-admin-token"
-	adminClaims := &auth.Claims{Sub: "admin-user", Roles: []string{"admin"}}
-	nonAdminClaims := &auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}
+	adminClaims := &authctx.Claims{Sub: "admin-user", Roles: []string{"admin"}}
+	nonAdminClaims := &authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}
 
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, adminToken).Return(adminClaims, nil).Maybe()

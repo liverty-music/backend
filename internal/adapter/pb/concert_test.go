@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	pbmocks "github.com/liverty-music/backend/internal/adapter/pb/mocks"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"github.com/liverty-music/backend/internal/adapter/pb"
@@ -138,7 +140,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 			concert("event-3", "series-2", "Tour Two", b),
 		}
 
-		series := pb.NewSeriesImageURLBuilder("").ReferencedSeries(concerts)
+		series := pb.ReferencedSeries(pbmocks.NewMockSeriesImageURLs(t), concerts)
 		artists := pb.ReferencedArtists(concerts)
 
 		require.Len(t, series, 2)
@@ -155,7 +157,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 		c := concert("event-1", "series-1", "ARENA TOUR 2026", a)
 
 		proto := pb.FromConcert(c)
-		series := pb.NewSeriesImageURLBuilder("").ReferencedSeries([]*entity.Concert{c})
+		series := pb.ReferencedSeries(pbmocks.NewMockSeriesImageURLs(t), []*entity.Concert{c})
 
 		require.Len(t, series, 1)
 		assert.Equal(t, proto.GetEvent().GetSeriesId().GetValue(), series[0].GetId().GetValue())
@@ -164,7 +166,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 
 	t.Run("return empty lists for no concerts", func(t *testing.T) {
 		t.Parallel()
-		assert.Empty(t, pb.NewSeriesImageURLBuilder("").ReferencedSeries(nil))
+		assert.Empty(t, pb.ReferencedSeries(pbmocks.NewMockSeriesImageURLs(t), nil))
 		assert.Empty(t, pb.ReferencedArtists(nil))
 	})
 }

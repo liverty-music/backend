@@ -8,8 +8,8 @@ import (
 	seriesimagev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series_image/v1"
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // Compile-time assertion that OrganizerSeriesImageHandler satisfies the generated interface.
@@ -34,7 +34,7 @@ func NewOrganizerSeriesImageHandler(
 // resolveCallerOrganizer reads the identity provider's organization id from
 // context and returns the caller's active Organizer.
 func (h *OrganizerSeriesImageHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/protobuf/proto"
@@ -25,10 +26,6 @@ const OutboxTopic = "events_outbox"
 // outboxChunkSize bounds the rows of one INSERT: PostgreSQL takes at most
 // 65,535 parameters and each row uses three.
 const outboxChunkSize = 5000
-
-// ContentTypeProtobuf is the ce_datacontenttype of an announcement whose
-// payload is a binary protobuf message.
-const ContentTypeProtobuf = "application/protobuf"
 
 // Announcement is one message to record: the entity after the change, and
 // the CloudEvents subject (ce_subject) when the receiver needs the entity the
@@ -110,7 +107,7 @@ func (o *Outbox) newMessage(ctx context.Context, subject string, a Announcement)
 	msg.Metadata.Set("ce_id", id.String())
 	msg.Metadata.Set("ce_type", subject)
 	msg.Metadata.Set("ce_time", o.now().UTC().Format(time.RFC3339Nano))
-	msg.Metadata.Set("ce_datacontenttype", ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	if a.Subject != "" {
 		msg.Metadata.Set("ce_subject", a.Subject)
 	}

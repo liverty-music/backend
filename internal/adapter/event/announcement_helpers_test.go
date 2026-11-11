@@ -5,10 +5,9 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 )
 
 // makeAnnouncementMsg builds an announcement as the outbox records it: the
@@ -21,7 +20,7 @@ func makeAnnouncementMsg(t *testing.T, id, about string, payload proto.Message) 
 	msg := message.NewMessage(id, raw)
 	msg.Metadata.Set("ce_id", id)
 	msg.Metadata.Set("ce_time", time.Date(2026, 10, 31, 3, 0, 0, 0, time.UTC).Format(time.RFC3339Nano))
-	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	if about != "" {
 		msg.Metadata.Set("ce_subject", about)
 	}
@@ -32,6 +31,6 @@ func makeAnnouncementMsg(t *testing.T, id, about string, payload proto.Message) 
 func malformedMsg() *message.Message {
 	msg := message.NewMessage("malformed-1", []byte("not protobuf"))
 	msg.Metadata.Set("ce_id", "malformed-1")
-	msg.Metadata.Set("ce_datacontenttype", messaging.ContentTypeProtobuf)
+	msg.Metadata.Set("ce_datacontenttype", eventmsg.ContentTypeProtobuf)
 	return msg
 }

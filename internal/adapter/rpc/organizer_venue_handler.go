@@ -8,8 +8,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 )
 
 // Compile-time assertion that OrganizerVenueHandler satisfies the generated interface.
@@ -33,7 +33,7 @@ func NewOrganizerVenueHandler(
 // resolveCallerOrganizer reads the identity provider's organization id from
 // context and returns the caller's active Organizer.
 func (h *OrganizerVenueHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}

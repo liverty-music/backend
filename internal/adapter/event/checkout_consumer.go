@@ -8,8 +8,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -33,7 +33,7 @@ func NewCheckoutConsumer(checkoutUC usecase.CheckoutUseCase, logger *logging.Log
 // Checkout.
 func (h *CheckoutConsumer) HandleStartWorkflow(msg *message.Message) error {
 	var c entityv1.Checkout
-	if err := messaging.ParseProtobufData(msg, &c); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &c); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse a checkout announcement", err)
 		return fmt.Errorf("parse a checkout announcement: %w", err)
 	}

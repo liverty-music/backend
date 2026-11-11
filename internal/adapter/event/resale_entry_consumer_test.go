@@ -15,9 +15,9 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 )
 
 // makeResaleEntryMsg builds a RESALE_ENTRY announcement id of entry-1, whose
@@ -116,7 +116,7 @@ func TestResaleEntryConsumer_HandleSendResaleEntryEnded(t *testing.T) {
 
 		err := consumer.HandleSendResaleEntryEnded(makeResaleEntryMsg(t, "announcement-1", entity.SubjectResaleEntryLost, 0))
 
-		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+		assert.True(t, eventmsg.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
 	})
 }
 
@@ -131,7 +131,7 @@ func TestResaleEntryConsumer_HandleSendResaleEntryEnded_Errors(t *testing.T) {
 
 		err := consumer.HandleSendResaleEntryEnded(makeResaleEntryMsg(t, "announcement-1", entity.SubjectResaleEntryLapsed, 0))
 
-		assert.True(t, messaging.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+		assert.True(t, eventmsg.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
 	})
 
 	t.Run("any other error is returned as it is", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestResaleEntryConsumer_HandleSendResaleEntryEnded_Errors(t *testing.T) {
 		err := consumer.HandleSendResaleEntryEnded(makeResaleEntryMsg(t, "announcement-1", entity.SubjectResaleEntryLost, 0))
 
 		require.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.False(t, messaging.IsRedeliverLater(err), "only an unavailable or timed out mail service is waited for")
+		assert.False(t, eventmsg.IsRedeliverLater(err), "only an unavailable or timed out mail service is waited for")
 	})
 }
 

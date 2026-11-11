@@ -10,8 +10,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -46,7 +46,7 @@ func NewLotteryEntryResultConsumer(orderUC usecase.OrderUseCase, notificationUC 
 // entry as it is after the draw or the change, in the state its subject
 // names.
 func (h *LotteryEntryResultConsumer) parse(msg *message.Message) (*entity.LotteryEntry, error) {
-	subject := messaging.CloudEventType(msg)
+	subject := eventmsg.CloudEventType(msg)
 	var state entity.LotteryEntryState
 	switch subject {
 	case entity.SubjectLotteryEntryWon:
@@ -59,7 +59,7 @@ func (h *LotteryEntryResultConsumer) parse(msg *message.Message) (*entity.Lotter
 		return nil, err
 	}
 	var e entityv1.LotteryEntry
-	if err := messaging.ParseProtobufData(msg, &e); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &e); err != nil {
 		h.logger.Error(msg.Context(), "failed to parse "+subject+" event", err)
 		return nil, fmt.Errorf("parse %s event: %w", subject, err)
 	}
@@ -101,7 +101,7 @@ func (h *LotteryEntryResultConsumer) HandleSendLotteryLoss(msg *message.Message)
 	}
 	if err := h.notificationUC.SendLotteryLoss(msg.Context(), entry.ID); err != nil {
 		if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {
-			return messaging.RedeliverLater(msg, err, lossEmailRetryDelay)
+			return eventmsg.RedeliverLater(msg, err, lossEmailRetryDelay)
 		}
 		return fmt.Errorf("send the loss notice of lottery entry %s: %w", entry.ID, err)
 	}

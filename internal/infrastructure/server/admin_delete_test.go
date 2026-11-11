@@ -21,6 +21,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -56,9 +57,9 @@ func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrgani
 
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, deleteAdminToken).
-		Return(&auth.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
+		Return(&authctx.Claims{Sub: "admin-user", Roles: []string{"admin"}}, nil).Maybe()
 	validator.EXPECT().ValidateToken(mock.Anything, deleteNonAdminToken).
-		Return(&auth.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
+		Return(&authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
 	t.Cleanup(func() { _ = rateLimiter.Close() })

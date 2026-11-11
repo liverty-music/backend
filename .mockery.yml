@@ -69,6 +69,12 @@ packages:
     interfaces:
       EmailVerificationCodes: {}
       FreshSignInVerifier: {}
+  github.com/liverty-music/backend/internal/adapter/pb:
+    interfaces:
+      SeriesImageURLs: {}
+  github.com/liverty-music/backend/internal/adapter/webhook:
+    interfaces:
+      TokenValidator: {}
   github.com/liverty-music/backend/internal/infrastructure/mail:
     interfaces:
       EmailVerificationCodeIssuer: {}

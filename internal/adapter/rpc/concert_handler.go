@@ -13,10 +13,10 @@ import (
 
 // ConcertHandler implements the ConcertService Connect interface.
 type ConcertHandler struct {
-	concertUseCase        usecase.ConcertUseCase
-	userRepo              entity.UserRepository
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder
-	logger                *logging.Logger
+	concertUseCase  usecase.ConcertUseCase
+	userRepo        entity.UserRepository
+	seriesImageURLs pb.SeriesImageURLs
+	logger          *logging.Logger
 }
 
 // NewConcertHandler creates a new concert handler. imageURLBuilder composes
@@ -24,14 +24,14 @@ type ConcertHandler struct {
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
 	userRepo entity.UserRepository,
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
+	seriesImageURLs pb.SeriesImageURLs,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
-		concertUseCase:        concertUseCase,
-		userRepo:              userRepo,
-		seriesImageURLBuilder: seriesImageURLBuilder,
-		logger:                logger,
+		concertUseCase:  concertUseCase,
+		userRepo:        userRepo,
+		seriesImageURLs: seriesImageURLs,
+		logger:          logger,
 	}
 }
 
@@ -45,7 +45,7 @@ func (h *ConcertHandler) Get(ctx context.Context, req *concertv1.GetRequest) (*c
 
 	return &concertv1.GetResponse{
 		Concert: pb.FromConcert(concert),
-		Series:  h.seriesImageURLBuilder.ReferencedSeries([]*entity.Concert{concert}),
+		Series:  pb.ReferencedSeries(h.seriesImageURLs, []*entity.Concert{concert}),
 		Artists: pb.ReferencedArtists([]*entity.Concert{concert}),
 	}, nil
 }
@@ -60,7 +60,7 @@ func (h *ConcertHandler) ListBySeries(ctx context.Context, req *concertv1.ListBy
 
 	return &concertv1.ListBySeriesResponse{
 		Concerts: pb.FromConcerts(concerts),
-		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:   pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
@@ -75,7 +75,7 @@ func (h *ConcertHandler) ListByArtist(ctx context.Context, req *concertv1.ListBy
 
 	return &concertv1.ListByArtistResponse{
 		Concerts: pb.FromConcerts(concerts),
-		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:   pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
@@ -107,7 +107,7 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *concertv1.ListFo
 	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListFollowedResponse{
 		Groups:  pb.FromProximityGroups(groups),
-		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:  pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }
@@ -132,7 +132,7 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *concertv1.ListB
 	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListByArtistsResponse{
 		Groups:  pb.FromProximityGroups(groups),
-		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:  pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }
@@ -153,7 +153,7 @@ func (h *ConcertHandler) ListByLocation(ctx context.Context, req *concertv1.List
 	concerts := pb.ConcertsOfGroups(groups)
 	return &concertv1.ListByLocationResponse{
 		Groups:  pb.FromProximityGroups(groups),
-		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:  pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists: pb.ReferencedArtists(concerts),
 	}, nil
 }

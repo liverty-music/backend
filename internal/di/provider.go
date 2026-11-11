@@ -48,7 +48,6 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/grpchealth/v2"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
-	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
@@ -401,10 +400,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
 	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, nil, logger)
-	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
-	// organizer-facing ConcertService pb. The CDN base is sourced from
-	// config (CDN_BASE_URL) rather than read directly by entity.
-	seriesImageURLBuilder := pb.NewSeriesImageURLBuilder(cfg.CDNBaseURL)
+	// The series-image URL builder composes the CDN URLs of Series cover
+	// images for the handlers (pb.SeriesImageURLs). The CDN base is sourced
+	// from config (CDN_BASE_URL).
+	seriesImageURLBuilder := gcsstorage.NewSeriesImageURLBuilder(cfg.CDNBaseURL)
 
 	// Card authorizations: use the real Stripe adapters when a
 	// secret key is configured, otherwise no-ops that return Unavailable so local

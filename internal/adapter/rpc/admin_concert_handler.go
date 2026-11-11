@@ -21,9 +21,9 @@ var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 // RequireRoleInterceptor (admin role), not by per-method checks here; the handler
 // is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type AdminConcertHandler struct {
-	concertUseCase        usecase.ConcertUseCase
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder
-	logger                *logging.Logger
+	concertUseCase  usecase.ConcertUseCase
+	seriesImageURLs pb.SeriesImageURLs
+	logger          *logging.Logger
 }
 
 // NewAdminConcertHandler creates a new admin concert handler. imageURLBuilder
@@ -31,13 +31,13 @@ type AdminConcertHandler struct {
 // same fields as on the fan concert service.
 func NewAdminConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
+	seriesImageURLs pb.SeriesImageURLs,
 	logger *logging.Logger,
 ) *AdminConcertHandler {
 	return &AdminConcertHandler{
-		concertUseCase:        concertUseCase,
-		seriesImageURLBuilder: seriesImageURLBuilder,
-		logger:                logger,
+		concertUseCase:  concertUseCase,
+		seriesImageURLs: seriesImageURLs,
+		logger:          logger,
 	}
 }
 
@@ -55,7 +55,7 @@ func (h *AdminConcertHandler) List(
 
 	return &adminconcertv1.ListResponse{
 		Concerts: pb.FromConcerts(concerts),
-		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:   pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }
@@ -74,7 +74,7 @@ func (h *AdminConcertHandler) ListByArtist(
 
 	return &adminconcertv1.ListByArtistResponse{
 		Concerts: pb.FromConcerts(concerts),
-		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
+		Series:   pb.ReferencedSeries(h.seriesImageURLs, concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
 }

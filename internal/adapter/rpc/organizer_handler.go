@@ -8,8 +8,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -77,7 +77,7 @@ func (h *OrganizerHandler) SendSignInLinks(
 // resolve the linked Organizer and enforce its lifecycle status. It returns
 // the active Organizer or the usecase's error.
 func (h *OrganizerHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		// Defence-in-depth: the interceptor should have populated this; if it
 		// did not, we must not proceed.

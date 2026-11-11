@@ -10,8 +10,8 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/eventmsg"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -56,7 +56,7 @@ func (h *OrderPaidConsumer) parse(msg *message.Message) (entity.OrderPaidData, e
 
 func (h *OrderPaidConsumer) decode(msg *message.Message) (entity.OrderPaidData, error) {
 	var order entityv1.Order
-	if err := messaging.ParseProtobufData(msg, &order); err != nil {
+	if err := eventmsg.ParseProtobufData(msg, &order); err != nil {
 		return entity.OrderPaidData{}, err
 	}
 	data := entity.OrderPaidData{

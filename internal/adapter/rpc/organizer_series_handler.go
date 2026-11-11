@@ -9,8 +9,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -23,24 +23,24 @@ var _ organizerseriesv1connect.SeriesServiceHandler = (*OrganizerSeriesHandler)(
 // caller's organizer, enforces ownership, and delegates to the Series use case.
 // No business logic lives here.
 type OrganizerSeriesHandler struct {
-	seriesUC              usecase.SeriesUseCase
-	organizerUC           usecase.OrganizerUseCase
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder
-	logger                *logging.Logger
+	seriesUC        usecase.SeriesUseCase
+	organizerUC     usecase.OrganizerUseCase
+	seriesImageURLs pb.SeriesImageURLs
+	logger          *logging.Logger
 }
 
 // NewOrganizerSeriesHandler creates a new OrganizerSeriesHandler.
 func NewOrganizerSeriesHandler(
 	seriesUC usecase.SeriesUseCase,
 	organizerUC usecase.OrganizerUseCase,
-	seriesImageURLBuilder *pb.SeriesImageURLBuilder,
+	seriesImageURLs pb.SeriesImageURLs,
 	logger *logging.Logger,
 ) *OrganizerSeriesHandler {
 	return &OrganizerSeriesHandler{
-		seriesUC:              seriesUC,
-		organizerUC:           organizerUC,
-		seriesImageURLBuilder: seriesImageURLBuilder,
-		logger:                logger,
+		seriesUC:        seriesUC,
+		organizerUC:     organizerUC,
+		seriesImageURLs: seriesImageURLs,
+		logger:          logger,
 	}
 }
 
@@ -49,7 +49,7 @@ func NewOrganizerSeriesHandler(
 // looks up the Organizer and enforces its lifecycle status. Returns the
 // active Organizer or the usecase's error.
 func (h *OrganizerSeriesHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
-	callerOrgID, ok := auth.GetCallerOrgID(ctx)
+	callerOrgID, ok := authctx.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, "permission denied")
 	}
@@ -142,7 +142,7 @@ func (h *OrganizerSeriesHandler) Create(
 	}
 
 	return &organizerseriesv1.CreateResponse{
-		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Series:   pb.FromSeriesWithCoverImage(h.seriesImageURLs, series),
 		Concerts: pb.FromConcerts(concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
@@ -166,7 +166,7 @@ func (h *OrganizerSeriesHandler) Update(
 	}
 
 	return &organizerseriesv1.UpdateResponse{
-		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Series:   pb.FromSeriesWithCoverImage(h.seriesImageURLs, series),
 		Concerts: pb.FromConcerts(concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
@@ -189,7 +189,7 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	return &organizerseriesv1.PublishResponse{
-		Series:   h.seriesImageURLBuilder.FromSeries(series),
+		Series:   pb.FromSeriesWithCoverImage(h.seriesImageURLs, series),
 		Concerts: pb.FromConcerts(concerts),
 		Artists:  pb.ReferencedArtists(concerts),
 	}, nil
@@ -278,7 +278,7 @@ func (h *OrganizerSeriesHandler) List(
 
 	series := make([]*entityv1.Series, 0, len(allSeries))
 	for _, s := range allSeries {
-		series = append(series, h.seriesImageURLBuilder.FromSeries(s))
+		series = append(series, pb.FromSeriesWithCoverImage(h.seriesImageURLs, s))
 	}
 
 	return &organizerseriesv1.ListResponse{
