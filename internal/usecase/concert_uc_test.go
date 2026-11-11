@@ -76,29 +76,58 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	type args struct {
-		artistID string
-	}
+	lastMonth := time.Now().AddDate(0, -1, 0)
+	nextMonth := time.Now().AddDate(0, 1, 0)
+	past := &entity.Concert{ID: "c-past", LocalDate: lastMonth, Series: &entity.Series{Title: "Last Month"}, Artists: []*entity.Artist{{ID: "a1"}}}
+	future := &entity.Concert{ID: "c-future", LocalDate: nextMonth, Series: &entity.Series{Title: "Next Month"}, Artists: []*entity.Artist{{ID: "a1"}}}
 
 	tests := []struct {
-		name    string
-		args    args
-		setup   func(t *testing.T, d *concertTestDeps)
-		want    int
-		wantErr error
+		name     string
+		artistID string
+		setup    func(d *concertTestDeps)
+		want     []string
+		wantErr  error
 	}{
 		{
-			name: "success",
-			args: args{artistID: "a1"},
-			setup: func(t *testing.T, d *concertTestDeps) {
-				t.Helper()
-				concerts := []*entity.Concert{
-					{ID: "c1", Series: &entity.Series{Title: "Concert 1"}, Artists: []*entity.Artist{{ID: "a1"}}},
-				}
-				d.concertRepo.EXPECT().ListByArtist(ctx, "a1").Return(concerts, nil).Once()
+			// @spec components/usecase/concert/list-by-artist "Past concerts included"
+			name:     "return last month's and next month's concerts, last month's first",
+			artistID: "a1",
+			setup: func(d *concertTestDeps) {
+				// Concert.ListByArtist lists every date, oldest first, with no
+				// date cut; the usecase passes it through.
+				d.concertRepo.EXPECT().ListByArtist(ctx, "a1").Return([]*entity.Concert{past, future}, nil).Once()
 			},
-			want:    1,
-			wantErr: nil,
+			want: []string{"c-past", "c-future"},
+		},
+		{
+			// @spec components/usecase/concert/list-by-artist "No concerts"
+			name:     "return an empty list for an artist with no concert",
+			artistID: "a1",
+			setup: func(d *concertTestDeps) {
+				d.concertRepo.EXPECT().ListByArtist(ctx, "a1").Return(nil, nil).Once()
+			},
+			want: nil,
+		},
+		{
+			// @spec components/usecase/concert/list-by-artist "Unknown artist"
+			name:     "return an empty list, not NotFound, for an artist id no artist has",
+			artistID: "artist-unknown",
+			setup: func(d *concertTestDeps) {
+				// Concert.ListByArtist yields an empty list for an unknown
+				// Artist (entity/concert/list-by-artist).
+				d.concertRepo.EXPECT().ListByArtist(ctx, "artist-unknown").Return(nil, nil).Once()
+			},
+			want: nil,
+		},
+		{
+			// @spec components/usecase/concert/list-by-artist "Missing artist"
+			name:     "fail with InvalidArgument when no artist id is given",
+			artistID: "",
+			setup: func(d *concertTestDeps) {
+				d.concertRepo.EXPECT().ListByArtist(ctx, "").
+					Return(nil, apperr.New(codes.InvalidArgument, "artist id must not be empty")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
 		},
 	}
 
@@ -106,19 +135,24 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := newConcertTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
+			tt.setup(d)
 
-			got, err := d.uc.ListByArtist(ctx, tt.args.artistID)
+			got, err := d.uc.ListByArtist(ctx, tt.artistID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
-
-			assert.NoError(t, err)
-			assert.Len(t, got, tt.want)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(got))
+			for _, c := range got {
+				ids = append(ids, c.ID)
+			}
+			if tt.want == nil {
+				assert.Empty(t, got)
+			} else {
+				assert.Equal(t, tt.want, ids)
+			}
 		})
 	}
 }
