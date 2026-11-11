@@ -286,7 +286,9 @@ func TestPostmarkOrderMailer_TestServerToken(t *testing.T) {
 	sender := mail.NewPostmarkOrderMailer(orders, "POSTMARK_API_TEST",
 		"noreply@mail.dev.liverty-music.app", "outbound", func() time.Time { return sentAt }, logger)
 
-	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "test@blackhole.postmarkapp.com", msg))
+	// Not a black hole address: the client skips those without a request.
+	// The test token delivers nothing whatever the address.
+	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg))
 
 	got, _ := orders.Get(context.Background(), "order-1")
 	assert.NotNil(t, got.ConfirmationSendTime)
