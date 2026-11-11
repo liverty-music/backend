@@ -181,6 +181,7 @@ type concertUseCase struct {
 	// discoveryWindow is how long after a successful discovery the external
 	// search is skipped, since announcements arrive in batches then go quiet.
 	discoveryWindow time.Duration
+	clock           Clock
 	logger          *logging.Logger
 }
 
@@ -215,6 +216,7 @@ func NewConcertUseCase(
 	analytics AnalyticsClient,
 	searchCacheTTL time.Duration,
 	discoveryWindow time.Duration,
+	clock Clock,
 	logger *logging.Logger,
 ) *concertUseCase {
 	return &concertUseCase{
@@ -233,6 +235,7 @@ func NewConcertUseCase(
 		analytics:            analytics,
 		searchCacheTTL:       searchCacheTTL,
 		discoveryWindow:      discoveryWindow,
+		clock:                clock,
 		logger:               logger,
 	}
 }
@@ -450,7 +453,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, fmt.Errorf("failed to get concert search: %w", err)
 	}
 	if concertSearch != nil {
-		now := time.Now()
+		now := uc.clock()
 		if concertSearch.IsFresh(now, uc.searchCacheTTL) {
 			uc.logger.Debug(ctx, "skipping external search, recently searched",
 				slog.String("artist_id", artistID),
@@ -556,7 +559,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 		if err != nil {
 			props["error_code"] = errorCode(err)
 		}
-		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, props)
+		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, uc.clock(), props)
 	}()
 	defer func() {
 		switch {
@@ -607,7 +610,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 	// One instant for the whole run: the search leaves out events dated
 	// before the current date at their Venue at now, and the concerts it is
 	// compared against are the upcoming ones at the same instant.
-	now := time.Now()
+	now := uc.clock()
 
 	// Get existing upcoming concerts for deduplication.
 	existing, err := uc.concertRepo.ListUpcomingByArtist(ctx, artistID, now)

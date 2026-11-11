@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {

@@ -51,13 +51,15 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 		events:     ucmocks.NewMockEventPublishStatePort(t),
 		starts:     map[string]*time.Time{},
 	}
-	eventStart := &stubEventStartTimeRepo{getFn: func(_ context.Context, id string) (*time.Time, error) {
-		if s, ok := f.starts[id]; ok {
-			return s, nil
-		}
-		s := saleTime(11, 20, 19, 0)
-		return &s, nil
-	}}
+	// Every event starts at 2026-11-20 19:00 unless f.starts says otherwise.
+	eventStart := ucmocks.NewMockEventStartTimeRepository(t)
+	eventStart.EXPECT().GetEventStartTime(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, id string) (*time.Time, error) {
+			if s, ok := f.starts[id]; ok {
+				return s, nil
+			}
+			return new(saleTime(11, 20, 19, 0)), nil
+		}).Maybe()
 	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.stocks, f.entries, f.orders, f.series, f.organizers, f.eventRepo, f.events, eventStart, fixedClock(now))
 	return f
 }

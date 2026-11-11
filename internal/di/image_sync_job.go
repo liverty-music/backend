@@ -65,7 +65,7 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
 
 	// Use Cases
-	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
+	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, time.Now, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

@@ -98,7 +98,7 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 		ticketSaleSearchRepo,
 		journeyRepo,
 		searcher,
-		analyticsClient,
+		analyticsClient, time.Now,
 		logger,
 	)
 

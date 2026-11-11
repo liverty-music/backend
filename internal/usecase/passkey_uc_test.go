@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -23,27 +24,17 @@ const (
 type passkeyTestDeps struct {
 	passkeys  *entitymocks.MockPasskeyRepository
 	users     *entitymocks.MockUserRepository
-	workflows *passkeyWorkflows
+	workflows *ucmocks.MockWorkflows
 	now       time.Time
 	uc        usecase.PasskeyUseCase
 }
 
-// passkeyWorkflows records the workflows started and awaited; Await returns
-// awaitErr.
-type passkeyWorkflows struct {
-	recordingWorkflows
-	awaited  []string
-	awaitErr error
-	// onAwait, when set, runs before Await returns.
-	onAwait func()
-}
-
-func (w *passkeyWorkflows) Await(_ context.Context, id string, _ time.Duration, _ any) error {
-	w.awaited = append(w.awaited, id)
-	if w.onAwait != nil {
-		w.onAwait()
-	}
-	return w.awaitErr
+// expectAwaitAddition makes d's workflows expect one Await on the run that
+// records the addition of passkey token-1, returning err.
+func (d *passkeyTestDeps) expectAwaitAddition(err error) *ucmocks.MockWorkflows_Await_Call {
+	call := d.workflows.EXPECT().Await(mock.Anything, usecase.ExportedRecordPasskeyChangeID("token-1", entity.PasskeyChangeAdded), mock.Anything, mock.Anything)
+	call.Once()
+	return call.Return(err)
 }
 
 // waitingFlow runs steps inline and moves the clock by each wait.
@@ -66,7 +57,7 @@ func newPasskeyTestDeps(t *testing.T, elapsed time.Duration) *passkeyTestDeps {
 	d := &passkeyTestDeps{
 		passkeys:  entitymocks.NewMockPasskeyRepository(t),
 		users:     entitymocks.NewMockUserRepository(t),
-		workflows: &passkeyWorkflows{},
+		workflows: ucmocks.NewMockWorkflows(t),
 		now:       passkeyChangeTime.Add(elapsed),
 	}
 	d.uc = usecase.NewPasskeyUseCase(d.passkeys, d.users, d.workflows, func() time.Time { return d.now }, newTestLogger(t))
@@ -206,7 +197,9 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
 		var order []string
-		d.workflows.onAwait = func() { order = append(order, "await") }
+		d.expectAwaitAddition(nil).Run(func(context.Context, string, time.Duration, any) {
+			order = append(order, "await")
+		})
 		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").RunAndReturn(func(context.Context, string) error {
 			order = append(order, "delete")
 			return nil
@@ -218,13 +211,12 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"await", "delete"}, order)
-		assert.Equal(t, []string{usecase.ExportedRecordPasskeyChangeID("token-1", entity.PasskeyChangeAdded)}, d.workflows.awaited)
 	})
 
 	t.Run("a removal whose addition was never seen removes at once", func(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
-		d.workflows.awaitErr = apperr.New(codes.NotFound, "no such workflow")
+		d.expectAwaitAddition(apperr.New(codes.NotFound, "no such workflow"))
 		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
 
 		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
@@ -235,7 +227,7 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 	t.Run("a removal tries again while the addition has not ended", func(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
-		d.workflows.awaitErr = apperr.New(codes.DeadlineExceeded, "still running")
+		d.expectAwaitAddition(apperr.New(codes.DeadlineExceeded, "still running"))
 
 		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
 
@@ -245,7 +237,7 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 	t.Run("a removal whose addition was cancelled removes at once", func(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
-		d.workflows.awaitErr = apperr.New(codes.Canceled, "the addition was cancelled")
+		d.expectAwaitAddition(apperr.New(codes.Canceled, "the addition was cancelled"))
 		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
 
 		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
@@ -264,7 +256,7 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 			{"conflicting run", func() context.Context { return ctx }, apperr.New(codes.Aborted, "another execution owns the workflow")},
 		} {
 			d := newPasskeyTestDeps(t, time.Second)
-			d.workflows.awaitErr = tc.err
+			d.expectAwaitAddition(tc.err)
 
 			_, err := d.uc.RunRecordChange(tc.ctx(), &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
 
@@ -282,10 +274,15 @@ func TestPasskeyUseCase_StartRecordChange(t *testing.T) {
 		t.Parallel()
 		d := newPasskeyTestDeps(t, time.Second)
 
+		starts := captureStarts(d.workflows)
+
 		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
 		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
 
-		assert.Equal(t, 1, d.workflows.runs())
+		// Both starts carry one id, so the workflow runtime runs one workflow.
+		started := starts()
+		require.Len(t, started, 2)
+		assert.Equal(t, started[0].id, started[1].id)
 	})
 
 	t.Run("the addition and the removal of a passkey are separate runs", func(t *testing.T) {
@@ -294,10 +291,14 @@ func TestPasskeyUseCase_StartRecordChange(t *testing.T) {
 		removed := addedChange()
 		removed.Kind = "removed"
 
+		starts := captureStarts(d.workflows)
+
 		require.NoError(t, d.uc.StartRecordChange(ctx, addedChange()))
 		require.NoError(t, d.uc.StartRecordChange(ctx, removed))
 
-		assert.Equal(t, 2, d.workflows.runs())
+		started := starts()
+		require.Len(t, started, 2)
+		assert.NotEqual(t, started[0].id, started[1].id)
 	})
 }
 

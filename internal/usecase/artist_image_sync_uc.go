@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -24,6 +23,7 @@ type ArtistImageSyncUseCase interface {
 type artistImageSyncUseCase struct {
 	artistRepo    entity.ArtistRepository
 	imageResolver entity.ArtistImageResolver
+	clock         Clock
 	logger        *logging.Logger
 }
 
@@ -34,11 +34,13 @@ var _ ArtistImageSyncUseCase = (*artistImageSyncUseCase)(nil)
 func NewArtistImageSyncUseCase(
 	artistRepo entity.ArtistRepository,
 	imageResolver entity.ArtistImageResolver,
+	clock Clock,
 	logger *logging.Logger,
 ) ArtistImageSyncUseCase {
 	return &artistImageSyncUseCase{
 		artistRepo:    artistRepo,
 		imageResolver: imageResolver,
+		clock:         clock,
 		logger:        logger,
 	}
 }
@@ -61,7 +63,7 @@ func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID,
 		return fmt.Errorf("resolve images for artist %s: %w", artistID, err)
 	}
 
-	now := time.Now()
+	now := uc.clock()
 	if err := uc.artistRepo.UpdateFanart(ctx, artistID, fanart, now); err != nil {
 		return fmt.Errorf("update fanart for artist %s: %w", artistID, err)
 	}

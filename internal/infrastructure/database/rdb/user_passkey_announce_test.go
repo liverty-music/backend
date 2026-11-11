@@ -5,23 +5,25 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/zitadel/zitadel-go/v3/pkg/actions"
-	"net/http"
-	"net/http/httptest"
 )
 
 // newUniqueUser returns a NewUser with a provider user id and email of its
@@ -275,7 +277,7 @@ func TestLoginEvents_OlderNoticeArrivesLate(t *testing.T) {
 	repo := rdb.NewUserRepository(db, testOutbox)
 	u, err := repo.Create(ctx, newUniqueUser())
 	require.NoError(t, err)
-	users := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, logger)
+	users := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, logger)
 	const signingKey = "login-events-story-key"
 	handler := webhook.NewLoginEventHandler(signingKey, users, logger)
 	jst := time.FixedZone("JST", 9*60*60)

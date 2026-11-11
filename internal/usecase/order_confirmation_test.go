@@ -16,14 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// stubConcerts is a ConcertsByIDsReader returning a fixed concert.
-type stubConcerts struct{ concert *entity.Concert }
-
-func (s stubConcerts) ListByIDs(context.Context, []string) ([]*entity.Concert, error) {
-	if s.concert == nil {
-		return nil, nil
-	}
-	return []*entity.Concert{s.concert}, nil
+// concertReader returns a ConcertsByIDsReader that reads concert for any ids.
+func concertReader(t *testing.T, concert *entity.Concert) *ucmocks.MockConcertsByIDsReader {
+	t.Helper()
+	concerts := ucmocks.NewMockConcertsByIDsReader(t)
+	concerts.EXPECT().ListByIDs(mock.Anything, mock.Anything).Return([]*entity.Concert{concert}, nil).Maybe()
+	return concerts
 }
 
 // confirmationFixture holds the mocks of SendOrderConfirmation under test.
@@ -60,14 +58,15 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 	}
 	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.publisher, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
+			Now:            time.Now,
 			Orders:         f.orders,
 			Users:          f.users,
-			Concerts:       stubConcerts{concert: concert},
-			EventOrganizer: &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil }},
+			Concerts:       concertReader(t, concert),
+			EventOrganizer: eventOrganizer(t, "org-1"),
 			Organizers:     f.organizers,
 			Mailer:         f.mailer,
 			TimeZone:       tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", BusinessDetails: &entity.BusinessDetails{
 		LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", BusinessAddress: "東京都渋谷区1-2-3",
 		BusinessPhoneNumber: "+81312345678", ContactEmail: "contact@example.com",

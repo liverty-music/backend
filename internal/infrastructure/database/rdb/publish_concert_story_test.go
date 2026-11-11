@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"uuid"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -12,7 +14,6 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"uuid"
 )
 
 // Story test for stories/publish-an-organizer-concert. It runs the real
@@ -61,7 +62,7 @@ func newPublishStory(t *testing.T, db *rdb.Database) *publishStory {
 	s.series = usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, testOutbox), venueRepo, nil, organizerRepo,
 		rdb.NewTicketSaleRepository(db, testOutbox), nil, usecase.StorageBuckets{}, logger, time.Now)
 	s.concerts = usecase.NewConcertUseCase(nil, concertRepo, venueRepo, seriesRepo, organizerRepo,
-		nil, nil, nil, nil, nil, &storyWorkflows{}, nil, nil, 0, 0, logger)
+		nil, nil, nil, nil, nil, &storyWorkflows{}, nil, nil, 0, 0, time.Now, logger)
 	return s
 }
 

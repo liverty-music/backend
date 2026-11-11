@@ -52,6 +52,7 @@ type ticketSaleDiscoveryUseCase struct {
 	journeyRepo    entity.TicketJourneyRepository
 	searcher       entity.TicketSaleSearcher
 	analytics      AnalyticsClient
+	clock          Clock
 	logger         *logging.Logger
 }
 
@@ -68,6 +69,7 @@ func NewTicketSaleDiscoveryUseCase(
 	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.TicketSaleSearcher,
 	analytics AnalyticsClient,
+	clock Clock,
 	logger *logging.Logger,
 ) TicketSaleDiscoveryUseCase {
 	return &ticketSaleDiscoveryUseCase{
@@ -78,6 +80,7 @@ func NewTicketSaleDiscoveryUseCase(
 		journeyRepo:    journeyRepo,
 		searcher:       searcher,
 		analytics:      analytics,
+		clock:          clock,
 		logger:         logger,
 	}
 }
@@ -106,7 +109,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: starting for artist", attrs...)
 
-	now := time.Now()
+	now := uc.clock()
 	concerts, err := uc.concertRepo.ListUpcomingByArtist(ctx, artist.ID, now)
 	if err != nil {
 		return 0, err
@@ -144,7 +147,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		return 0, nil
 	}
 
-	searchedTime := time.Now()
+	searchedTime := uc.clock()
 	found, err := uc.searcher.SearchPublishedSales(ctx, &entity.PublishedSaleSearchInput{
 		ArtistID:        artist.ID,
 		ArtistName:      artist.Name,
@@ -299,5 +302,5 @@ func (uc *ticketSaleDiscoveryUseCase) reportSearch(ctx context.Context, artistID
 		props["outcome"] = ticketSaleSearchOutcomeFailed
 		props["error_code"] = errorCode(searchErr)
 	}
-	sendSystemSignal(ctx, uc.analytics, uc.logger, EventTicketSaleSearchCompleted, props)
+	sendSystemSignal(ctx, uc.analytics, uc.logger, EventTicketSaleSearchCompleted, uc.clock(), props)
 }

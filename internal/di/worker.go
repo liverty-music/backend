@@ -118,6 +118,7 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		orderMailer = mail.NewPostmarkOrderMailer(orderRepo, pm.ServerToken, pm.FromAddress, pm.MessageStream, time.Now, logger)
 	}
 	subjects := usecase.SubjectDeps{
+		Now:           time.Now,
 		Users:         rdb.NewUserRepository(db, outbox),
 		Follows:       rdb.NewFollowRepository(db, outbox),
 		Artists:       rdb.NewArtistRepository(db, outbox),
@@ -133,6 +134,7 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact),
 		nil, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
+			Now:      time.Now,
 			Orders:   orderRepo,
 			Users:    subjects.Users,
 			Concerts: subjects.Concerts,
@@ -170,7 +172,7 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		usecase.PasskeyMailers{
 			RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger),
 			ChangeEmails:      changeEmails,
-		}, logger)
+		}, time.Now, logger)
 	workflow.Register(rt, usecase.WorkflowReissueEmailVerification, users.RunReissueEmailVerification)
 	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
 	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
@@ -211,7 +213,7 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		rdb.NewSeriesRepository(db, outbox),
 		rdb.NewSuppressedConcertRepository(db),
 		placeSearcher,
-		analyticsClient,
+		analyticsClient, time.Now,
 		logger,
 	)
 	workflow.Register(rt, usecase.WorkflowCreateFromDiscovered, concerts.RunCreateFromDiscovered)

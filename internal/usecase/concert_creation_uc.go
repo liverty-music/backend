@@ -46,6 +46,7 @@ type concertCreationUseCase struct {
 	suppressedConcertRepo entity.SuppressedConcertRepository
 	placeSearcher         entity.VenuePlaceSearcher
 	analytics             AnalyticsClient
+	clock                 Clock
 	logger                *logging.Logger
 }
 
@@ -63,6 +64,7 @@ func NewConcertCreationUseCase(
 	suppressedConcertRepo entity.SuppressedConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
 	analytics AnalyticsClient,
+	clock Clock,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
 	if placeSearcher == nil {
@@ -76,6 +78,7 @@ func NewConcertCreationUseCase(
 		suppressedConcertRepo: suppressedConcertRepo,
 		placeSearcher:         placeSearcher,
 		analytics:             analytics,
+		clock:                 clock,
 		logger:                logger,
 	}
 }
@@ -134,7 +137,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		if err != nil {
 			outcome = ingestOutcomeFailed
 		}
-		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, AnalyticsProperties{
+		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, uc.clock(), AnalyticsProperties{
 			"artist_id":        data.ArtistID,
 			"outcome":          outcome,
 			"published_count":  tally.published,

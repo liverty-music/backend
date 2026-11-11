@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -22,7 +23,7 @@ func TestIdentityVerificationRepository_CreateAndGet(t *testing.T) {
 	repo := rdb.NewIdentityVerificationRepository(db)
 
 	userID := seedUser(t, db, "vi-user", "vi-user@example.com", "ext-vi-1")
-	vi := entity.NewIdentityVerification(userID, "ps-key-1", entity.VerificationMethodJPKI)
+	vi := entity.NewIdentityVerification(userID, "ps-key-1", entity.VerificationMethodJPKI, time.Now())
 
 	created, err := repo.Create(ctx, vi)
 	require.NoError(t, err)
@@ -59,11 +60,11 @@ func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
 	user2 := seedUser(t, db, "person-a2", "a2@example.com", "ext-a2")
 	const sharedKey = "ps-shared-person"
 
-	first, err := repo.Create(ctx, entity.NewIdentityVerification(user1, sharedKey, entity.VerificationMethodJPKI))
+	first, err := repo.Create(ctx, entity.NewIdentityVerification(user1, sharedKey, entity.VerificationMethodJPKI, time.Now()))
 	require.NoError(t, err)
 
 	// Second ACTIVE row with the SAME person key on a DIFFERENT account → rejected.
-	_, err = repo.Create(ctx, entity.NewIdentityVerification(user2, sharedKey, entity.VerificationMethodJPKI))
+	_, err = repo.Create(ctx, entity.NewIdentityVerification(user2, sharedKey, entity.VerificationMethodJPKI, time.Now()))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrAlreadyExists,
 		"a second ACTIVE identity verification for the same provider_user_id must be rejected (1 person = 1 account)")
@@ -71,7 +72,7 @@ func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
 	// Downgrade the first to NEEDS_REVERIFICATION → the partial index no longer
 	// guards the key, so a fresh ACTIVE row for the second account now succeeds.
 	require.NoError(t, repo.UpdateStatus(ctx, first.ID, entity.VerificationStatusNeedsReverification))
-	_, err = repo.Create(ctx, entity.NewIdentityVerification(user2, sharedKey, entity.VerificationMethodJPKI))
+	_, err = repo.Create(ctx, entity.NewIdentityVerification(user2, sharedKey, entity.VerificationMethodJPKI, time.Now()))
 	require.NoError(t, err,
 		"the partial unique index guards only ACTIVE rows; a non-active row must not block re-verification")
 
@@ -92,7 +93,7 @@ func TestIdentityVerificationRepository_CreateMissingUser(t *testing.T) {
 	repo := rdb.NewIdentityVerificationRepository(db)
 
 	// A syntactically valid but non-existent user id.
-	orphan := entity.NewIdentityVerification(entity.NewID(), "ps-orphan", entity.VerificationMethodJPKI)
+	orphan := entity.NewIdentityVerification(entity.NewID(), "ps-orphan", entity.VerificationMethodJPKI, time.Now())
 
 	_, err := repo.Create(ctx, orphan)
 	require.Error(t, err)
@@ -133,7 +134,7 @@ func TestIdentityVerificationRepository_UpdateStatusAndDelete(t *testing.T) {
 	repo := rdb.NewIdentityVerificationRepository(db)
 
 	userID := seedUser(t, db, "vi-mut", "vi-mut@example.com", "ext-vi-mut")
-	created, err := repo.Create(ctx, entity.NewIdentityVerification(userID, "ps-mut", entity.VerificationMethodJPKI))
+	created, err := repo.Create(ctx, entity.NewIdentityVerification(userID, "ps-mut", entity.VerificationMethodJPKI, time.Now()))
 	require.NoError(t, err)
 
 	require.NoError(t, repo.UpdateStatus(ctx, created.ID, entity.VerificationStatusNeedsReverification))

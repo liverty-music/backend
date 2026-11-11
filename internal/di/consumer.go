@@ -168,6 +168,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, infratelemetry.NewBusinessMetrics(), logger,
 		usecase.OrderConfirmationDeps{
+			Now:               time.Now,
 			Orders:            orderRepo,
 			Users:             userRepo,
 			Concerts:          concertRepo,
@@ -186,6 +187,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo},
 		usecase.SubjectDeps{
+			Now:           time.Now,
 			Users:         userRepo,
 			Follows:       followRepo,
 			Artists:       artistRepo,
@@ -209,7 +211,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// repository, the catalog and the clock; the chart lookups and their cache
 	// belong to the API server.
 	artistUC := usecase.NewArtistUseCase(artistRepo, nil, nil, musicbrainzClient, nil, time.Now, logger)
-	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
+	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, time.Now, logger)
 
 	// ConcertUseCase: needed here (not just by the RPC server) so the
 	// search-first-followed-artist consumer can call
@@ -249,7 +251,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		infratelemetry.NewBusinessMetrics(),
 		analyticsClient,
 		cfg.GCP.SearchCacheTTL(),
-		cfg.GCP.SearchDiscoveryWindow(),
+		cfg.GCP.SearchDiscoveryWindow(), time.Now,
 		logger,
 	)
 
@@ -266,7 +268,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// The consumer's UserUseCase starts the verification and passkey change
 	// emails, which the workflow worker sends; it never deletes users.
 	userUC := usecase.NewUserUseCase(userRepo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil,
-		usecase.PasskeyMailers{}, logger)
+		usecase.PasskeyMailers{}, time.Now, logger)
 
 	// Event Consumers
 	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)

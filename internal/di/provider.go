@@ -324,10 +324,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Checkouts:      checkoutRepo,
 		Orders:         orderRepo,
 		Now:            time.Now,
-	}, workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, logger)
+	}, workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
 	passkeyUC := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), userRepo, workflows, time.Now, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, artistCache, time.Now, logger)
 	organizationRepo := provideOrganizationRepository(cfg, logger)
 	// GCS image storer for organizer series images. Local dev has no GCP credentials,
@@ -348,7 +348,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, signInLinkSender, artistRepo, organizationRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer,
 		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
-		businessMetrics, logger)
+		businessMetrics, time.Now, logger)
 	// Run the provisioning reconciler only on the workload that provisions
 	// organizers (the isolated admin workload); it completes any organizer left
 	// in the provisioning state after a partial failure.
@@ -395,7 +395,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		pocketSignVerifier = infrapocketsign.NewStubVerifier()
 		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
 	}
-	identityVerificationUC := usecase.NewIdentityVerificationUseCase(identityVerificationRepo, userRepo, pocketSignVerifier, logger)
+	identityVerificationUC := usecase.NewIdentityVerificationUseCase(identityVerificationRepo, userRepo, pocketSignVerifier, time.Now, logger)
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
@@ -575,9 +575,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	notificationRepo := rdb.NewNotificationRepository(db)
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, businessMetrics, logger, usecase.OrderConfirmationDeps{},
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, workflows, businessMetrics, logger, usecase.OrderConfirmationDeps{Now: time.Now},
 		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo},
 		usecase.SubjectDeps{
+			Now:           time.Now,
 			Users:         userRepo,
 			Follows:       followRepo,
 			Artists:       artistRepo,

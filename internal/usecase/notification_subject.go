@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 
@@ -22,6 +21,8 @@ type SubjectDeps struct {
 	TicketSales   entity.TicketSaleRepository
 	Entries       entity.LotteryEntryRepository
 	ResaleEntries entity.ResaleEntryRepository
+	// Now is the clock (time.Now in production).
+	Now Clock
 }
 
 // errSubjectGone is what load returns when a record the subject names no
@@ -34,7 +35,7 @@ func (d SubjectDeps) load(ctx context.Context, n *entity.Notification, user *ent
 	s := &entity.LoadedSubject{
 		Follows:  follows,
 		TimeZone: entity.TimeZoneOf(user.TimeZone),
-		Now:      time.Now(),
+		Now:      d.Now(),
 	}
 	if err := d.loadRecords(ctx, n, s); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {

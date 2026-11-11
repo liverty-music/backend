@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -37,7 +36,7 @@ func (uc *notificationUseCase) SendResaleEntryEnded(ctx context.Context, entryID
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := d.Now()
 	stock, err := d.Stocks.Get(ctx, entry.Order.TicketStockID, now)
 	if err != nil {
 		return err

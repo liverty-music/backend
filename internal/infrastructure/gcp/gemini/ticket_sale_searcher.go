@@ -531,7 +531,7 @@ func validatePublishedSale(
 		SaleStartTime: start,
 		SaleEndTime:   end,
 	}
-	if err := c.Validate(); err != nil {
+	if err := c.Validate(time.Now()); err != nil {
 		return nil, err.Error(), ""
 	}
 

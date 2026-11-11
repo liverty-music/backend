@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
 // ticketStockFixture holds the mocks of a TicketStockUseCase under test.
@@ -22,7 +23,7 @@ type ticketStockFixture struct {
 	seatTypes      *entitymocks.MockSeatTypeRepository
 	events         *entitymocks.MockEventRepository
 	series         *entitymocks.MockSeriesRepository
-	eventOrganizer *stubEventOrganizerRepo
+	eventOrganizer *ucmocks.MockEventOrganizerRepository
 	uc             usecase.TicketStockUseCase
 }
 
@@ -31,17 +32,14 @@ var stockNow = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 func newTicketStockFixture(t *testing.T, owner string) *ticketStockFixture {
 	t.Helper()
 	f := &ticketStockFixture{
-		stocks:    entitymocks.NewMockTicketStockRepository(t),
-		seatTypes: entitymocks.NewMockSeatTypeRepository(t),
-		events:    entitymocks.NewMockEventRepository(t),
-		series:    entitymocks.NewMockSeriesRepository(t),
-		eventOrganizer: &stubEventOrganizerRepo{getOrganizerIDFn: func(_ context.Context, eventID string) (string, error) {
-			if eventID != "event-1" {
-				return "", apperr.ErrNotFound
-			}
-			return owner, nil
-		}},
+		stocks:         entitymocks.NewMockTicketStockRepository(t),
+		seatTypes:      entitymocks.NewMockSeatTypeRepository(t),
+		events:         entitymocks.NewMockEventRepository(t),
+		series:         entitymocks.NewMockSeriesRepository(t),
+		eventOrganizer: ucmocks.NewMockEventOrganizerRepository(t),
 	}
+	f.eventOrganizer.EXPECT().GetOrganizerID(mock.Anything, "event-1").Return(owner, nil).Maybe()
+	f.eventOrganizer.EXPECT().GetOrganizerID(mock.Anything, mock.Anything).Return("", apperr.ErrNotFound).Maybe()
 	f.uc = usecase.NewTicketStockUseCase(f.stocks, f.seatTypes, f.events, f.series, f.eventOrganizer, fixedClock(stockNow))
 	return f
 }

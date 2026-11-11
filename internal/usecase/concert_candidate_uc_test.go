@@ -5,116 +5,45 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// --- test doubles for admin UC ---
-
-// fakeRejectedConcertRepo is an in-memory append-only log repo.
-type fakeRejectedConcertRepo struct {
-	entries []*entity.RejectedConcert
-}
-
-func (r *fakeRejectedConcertRepo) Append(_ context.Context, log *entity.RejectedConcert) error {
-	r.entries = append(r.entries, log)
-	return nil
-}
-
-// fakeArtistRepo is a minimal artist repository for admin UC tests.
-type fakeArtistRepo struct {
-	artists map[string]*entity.Artist
-}
-
-func newFakeArtistRepo(artists ...*entity.Artist) *fakeArtistRepo {
-	r := &fakeArtistRepo{artists: make(map[string]*entity.Artist)}
-	for _, a := range artists {
-		r.artists[a.ID] = a
-	}
-	return r
-}
-
-func (r *fakeArtistRepo) Get(_ context.Context, id string) (*entity.Artist, error) {
-	if a, ok := r.artists[id]; ok {
-		return a, nil
-	}
-	return nil, apperr.New(codes.NotFound, "artist not found")
-}
-
-func (r *fakeArtistRepo) GetOfficialSite(_ context.Context, _ string) (*entity.OfficialSite, error) {
-	return nil, apperr.New(codes.NotFound, "official site not found")
-}
-
-func (r *fakeArtistRepo) List(_ context.Context) ([]*entity.Artist, error) { return nil, nil }
-func (r *fakeArtistRepo) Create(_ context.Context, _ ...*entity.Artist) ([]*entity.Artist, error) {
-	return nil, nil
-}
-func (r *fakeArtistRepo) GetByMBID(_ context.Context, _ string) (*entity.Artist, error) {
-	return nil, apperr.New(codes.NotFound, "not found")
-}
-func (r *fakeArtistRepo) ListByMBIDs(_ context.Context, _ []string) ([]*entity.Artist, error) {
-	return nil, nil
-}
-func (r *fakeArtistRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Artist, error) {
-	return nil, nil
-}
-func (r *fakeArtistRepo) UpdateName(_ context.Context, _, _ string) error { return nil }
-func (r *fakeArtistRepo) CreateOfficialSite(_ context.Context, _ *entity.OfficialSite) error {
-	return nil
-}
-func (r *fakeArtistRepo) UpdateFanart(_ context.Context, _ string, _ *entity.Fanart, _ time.Time) error {
-	return nil
-}
-func (r *fakeArtistRepo) ListStaleOrMissingFanart(_ context.Context, _ time.Duration, _ int) ([]*entity.Artist, error) {
-	return nil, nil
-}
-func (r *fakeArtistRepo) ListStaleOfficialSite(_ context.Context, _ time.Duration, _ int) ([]*entity.Artist, error) {
-	return nil, nil
-}
-func (r *fakeArtistRepo) UpdateOfficialSiteURL(_ context.Context, _, _ string) error {
-	return nil
-}
-func (r *fakeArtistRepo) MarkOfficialSiteChecked(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-func (r *fakeArtistRepo) UpdateActivityEnded(_ context.Context, _ string, _ bool) error {
-	return nil
-}
-func (r *fakeArtistRepo) ListRefreshDue(_ context.Context, _, _ int) ([]*entity.Artist, error) {
-	return nil, nil
-}
-
-// approvalTestDeps bundles dependencies for ConcertCandidateUseCase tests.
+// approvalTestDeps bundles the mocks of a ConcertCandidateUseCase. Its
+// expectation helpers record what the usecase passes to the mocks, so a test
+// can assert on what was stored; a call no test expects fails the test.
 type approvalTestDeps struct {
-	candidateRepo   *fakeConcertCandidateRepo
-	rejectedConcert *fakeRejectedConcertRepo
-	venueRepo       *fakeVenueRepo
-	seriesRepo      *fakeSeriesRepo
-	concertRepo     *fakeConcertRepo
-	artistRepo      *fakeArtistRepo
-	publisher       interface {
-		Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error)
-	}
-	concerts usecase.ConcertUseCase
-	uc       usecase.ConcertCandidateUseCase
+	artist          *entity.Artist
+	candidateRepo   *entitymocks.MockConcertCandidateRepository
+	rejectedConcert *entitymocks.MockRejectedConcertRepository
+	venueRepo       *entitymocks.MockVenueRepository
+	seriesRepo      *entitymocks.MockSeriesRepository
+	concertRepo     *entitymocks.MockConcertRepository
+	artistRepo      *entitymocks.MockArtistRepository
+	uc              usecase.ConcertCandidateUseCase
+
+	createdVenues   []*entity.Venue
+	createdConcerts []*entity.Concert
+	rejections      []*entity.RejectedConcert
 }
 
 func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps {
 	t.Helper()
-	pub := newGoChannelPub(t)
 	d := &approvalTestDeps{
-		candidateRepo:   &fakeConcertCandidateRepo{},
-		rejectedConcert: &fakeRejectedConcertRepo{},
-		venueRepo:       newFakeVenueRepo(),
-		seriesRepo:      &fakeSeriesRepo{},
-		concertRepo:     &fakeConcertRepo{},
-		artistRepo:      newFakeArtistRepo(artist),
-		publisher:       pub,
+		artist:          artist,
+		candidateRepo:   entitymocks.NewMockConcertCandidateRepository(t),
+		rejectedConcert: entitymocks.NewMockRejectedConcertRepository(t),
+		venueRepo:       entitymocks.NewMockVenueRepository(t),
+		seriesRepo:      entitymocks.NewMockSeriesRepository(t),
+		concertRepo:     entitymocks.NewMockConcertRepository(t),
+		artistRepo:      entitymocks.NewMockArtistRepository(t),
 	}
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
 	// concertSearchRepo, concertSearcher, centroidResolver, and metrics.
@@ -129,43 +58,82 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		d.rejectedConcert,
 		nil, // concertSearcher — not used by admin methods
 		nil, // centroidResolver — not used by admin methods
-		&recordingWorkflows{},
+		ucmocks.NewMockWorkflows(t),
 		noopMetrics{},
-		nil, // analytics — not used by admin methods
-		0,   // searchCacheTTL — not used by admin methods
-		0,   // discoveryWindow — not used by admin methods
+		nil,         // analytics — not used by admin methods
+		0,           // searchCacheTTL — not used by admin methods
+		0, time.Now, // discoveryWindow — not used by admin methods
 		newTestLogger(t),
 	)
-	d.concerts = concerts
 	d.uc = usecase.NewConcertCandidateUseCase(concerts)
-
-	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
 
-// seedCandidate inserts a concert candidate into the fake repo and returns it.
-// The concert candidate always carries a SeriesID referencing a pre-existing series
-// (created at discovery time), matching the new model where Approve never mints
-// a series. The parent series is also seeded into seriesRepo.byID so that
-// conflict-detection helpers that call seriesRepo.Get can resolve the title.
+// pending expects sc to be read once by its id.
+func (d *approvalTestDeps) pending(sc *entity.ConcertCandidate) {
+	d.candidateRepo.EXPECT().GetByID(mock.Anything, sc.ID).Return(sc, nil).Once()
+}
+
+// gone expects the concert candidate id to be read once and not found.
+func (d *approvalTestDeps) gone(id string) {
+	d.candidateRepo.EXPECT().GetByID(mock.Anything, id).Return(nil, notFound("concert candidate")).Once()
+}
+
+// deletes expects the concert candidate id to be deleted once.
+func (d *approvalTestDeps) deletes(id string) {
+	d.candidateRepo.EXPECT().Delete(mock.Anything, id).Return(nil).Once()
+}
+
+// createsVenue expects the venue of placeID, stored under neither that place
+// id nor (listedName, adminArea), to be created, and records it.
+func (d *approvalTestDeps) createsVenue(placeID, listedName string, adminArea *string) {
+	d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(nil, notFound("venue")).Once()
+	d.venueRepo.EXPECT().GetByListedName(mock.Anything, listedName, adminArea).Return(nil, notFound("venue")).Once()
+	d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
+			d.createdVenues = append(d.createdVenues, v)
+			return v.ID, nil
+		}).Once()
+}
+
+// slotFree expects the lookup at the resolved venue and date to find no
+// stored Event.
+func (d *approvalTestDeps) slotFree() {
+	d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+}
+
+// inserts expects one concert to be created and records it.
+func (d *approvalTestDeps) inserts() {
+	d.concertRepo.EXPECT().Create(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
+			d.createdConcerts = append(d.createdConcerts, concerts...)
+			return []string{concerts[0].ID}, nil
+		}).Once()
+}
+
+// logsRejection expects the Artist to be read and one rejection to be
+// appended to the log, and records it.
+func (d *approvalTestDeps) logsRejection() {
+	d.artistRepo.EXPECT().Get(mock.Anything, d.artist.ID).Return(d.artist, nil).Once()
+	d.rejectedConcert.EXPECT().Append(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, log *entity.RejectedConcert) error {
+			d.rejections = append(d.rejections, log)
+			return nil
+		}).Once()
+}
+
+// seedCandidate returns a pending concert candidate whose place resolves to
+// no stored venue. The concert candidate always carries a SeriesID referencing
+// a pre-existing series (created at discovery time), matching the model where
+// Approve never mints a series.
 func seedCandidate(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
 	placeID := "place-abc"
 	venueName := "Venue ABC Canonical"
 	sourceURL := "https://example.com/show"
-	const candidateSeriesID = "series-candidate-001"
-	// Seed the pre-existing series row so Get resolves correctly.
-	if d.seriesRepo.byID == nil {
-		d.seriesRepo.byID = make(map[string]*entity.Series)
-	}
-	d.seriesRepo.byID[candidateSeriesID] = &entity.Series{
-		ID:    candidateSeriesID,
-		Title: "Approval Test Concert",
-		Type:  entity.SeriesTypeSingle,
-	}
 	sc := &entity.ConcertCandidate{
 		ID:                "candidate-001",
 		ArtistID:          artistID,
-		SeriesID:          candidateSeriesID,
+		SeriesID:          "series-candidate-001",
 		Title:             "Approval Test Concert",
 		LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 		ListedVenueName:   "Venue ABC",
@@ -173,7 +141,7 @@ func seedCandidate(d *approvalTestDeps, artistID string) *entity.ConcertCandidat
 		ResolvedPlaceID:   &placeID,
 		ResolvedVenueName: &venueName,
 	}
-	d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+	d.pending(sc)
 	return sc
 }
 
@@ -187,29 +155,26 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedCandidate(d, artist.ID)
+		d.createsVenue("place-abc", "Venue ABC", nil)
+		d.slotFree()
+		d.inserts()
+		// Approve NEVER mints a series (no Series.Create is expected) — the series
+		// row already exists (created at discovery time, referenced via
+		// ConcertCandidate.SeriesID).
+		d.deletes(sc.ID)
 
-		ctx := context.Background()
-
-		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Concert was created.
-		assert.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, artist.ID, d.concertRepo.created[0].ArtistIDs()[0])
-
-		// Approve NEVER mints a series — the series row already exists (created at
-		// discovery time, referenced via ConcertCandidate.SeriesID).
-		assert.Empty(t, d.seriesRepo.created,
-			"Approve must not create a new series; the series was minted at discovery time")
-		assert.Equal(t, sc.SeriesID, d.concertRepo.created[0].SeriesID,
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, artist.ID, d.createdConcerts[0].ArtistIDs()[0])
+		assert.Equal(t, sc.SeriesID, d.createdConcerts[0].SeriesID,
 			"approved concert must be inserted under the concert candidate's existing series ID")
 
 		// Venue was created from resolved fields.
-		assert.Len(t, d.venueRepo.created, 1)
-		assert.Equal(t, "Venue ABC Canonical", d.venueRepo.created[0].Name)
-
-		// Concert candidate was deleted.
-		assert.Empty(t, d.candidateRepo.upserted)
+		require.Len(t, d.createdVenues, 1)
+		assert.Equal(t, "Venue ABC Canonical", d.createdVenues[0].Name)
 	})
 
 	t.Run("keep the concert candidate when the concert cannot be added", func(t *testing.T) {
@@ -217,48 +182,48 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		// @spec components/usecase/concert-candidate/approve "Concert cannot be added"
 		d := newApprovalTestDeps(t, artist)
 		sc := seedCandidate(d, artist.ID)
-		d.concertRepo.createErr = apperr.New(codes.Unavailable, "failed to record the announcement")
+		d.createsVenue("place-abc", "Venue ABC", nil)
+		d.slotFree()
+		d.concertRepo.EXPECT().Create(mock.Anything, mock.Anything).
+			Return(nil, apperr.New(codes.Unavailable, "failed to record the announcement")).Once()
 
+		// The concert candidate is kept: no Delete is expected.
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.NotEmpty(t, d.candidateRepo.upserted, "the concert candidate is kept")
 	})
 
 	t.Run("approve is idempotent when concert candidate is already gone", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		// Do NOT seed — concert candidate does not exist.
+		d.gone("candidate-nonexistent")
 
+		// No concerts or venues are created: no Create is expected.
 		_, err := d.uc.Approve(context.Background(), "candidate-nonexistent", usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
-
-		// No concerts or venues created.
-		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.venueRepo.created)
 	})
 
 	t.Run("approve reuses an existing venue by place_id", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		// Pre-seed a venue with the same place_id.
+		sc := seedCandidate(d, artist.ID)
+		// A venue with the same place_id is stored, so it is reused, not
+		// re-created (no Venue.Create is expected).
 		existingPlaceID := "place-abc"
-		existingVenue := &entity.Venue{
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, existingPlaceID).Return(&entity.Venue{
 			ID:            "venue-existing",
 			Name:          "Venue ABC Canonical",
 			GooglePlaceID: &existingPlaceID,
-		}
-		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
-
-		sc := seedCandidate(d, artist.ID)
+		}, nil).Once()
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
 
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
-		// Venue was reused, not re-created.
-		assert.Empty(t, d.venueRepo.created)
-		require.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
 	})
 
 	t.Run("approve resolves an existing venue by listed name when place_id differs", func(t *testing.T) {
@@ -267,16 +232,20 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		// Existing venue already carries a place_id (P1) — Google Places resolved a
 		// DIFFERENT place_id (P2) for the same physical venue on this discovery.
 		existingPlaceID := "place-P1"
-		existingVenue := &entity.Venue{
+		differentPlaceID := "place-P2"
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, differentPlaceID).Return(nil, notFound("venue")).Once()
+		// A non-NULL place_id is never overwritten: no BackfillPlaceID is
+		// expected, and the venue is reused, not re-created.
+		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
 			ID:              "venue-existing",
 			Name:            "Venue ABC Canonical",
 			AdminArea:       new("JP-27"),
 			GooglePlaceID:   &existingPlaceID,
 			ListedVenueName: new("Venue ABC"),
-		}
-		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+		}, nil).Once()
+		d.slotFree()
+		d.inserts()
 
-		differentPlaceID := "place-P2"
 		venueName := "Venue ABC Canonical"
 		sc := &entity.ConcertCandidate{
 			ID:                "candidate-diff-placeid",
@@ -289,33 +258,34 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 			ResolvedVenueName: &venueName,
 			ResolvedAdminArea: new("JP-27"),
 		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		d.pending(sc)
+		d.deletes(sc.ID)
 
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
-		// Venue was reused via the listed-name fallback, not re-created.
-		assert.Empty(t, d.venueRepo.created)
-		require.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
-		// A non-NULL place_id is never overwritten by the backfill.
-		require.NotNil(t, existingVenue.GooglePlaceID)
-		assert.Equal(t, "place-P1", *existingVenue.GooglePlaceID)
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
 	})
 
 	t.Run("approve backfills a NULL place_id on the resolved venue", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
+		resolvedPlaceID := "place-P2"
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, resolvedPlaceID).Return(nil, notFound("venue")).Once()
 		// Existing venue was created before Places resolution — its place_id is NULL.
-		existingVenue := &entity.Venue{
+		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
 			ID:              "venue-existing",
 			Name:            "Venue ABC Canonical",
 			AdminArea:       new("JP-27"),
 			ListedVenueName: new("Venue ABC"),
-		}
-		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+		}, nil).Once()
+		// The venue is reused (no Venue.Create is expected), and its NULL
+		// place_id is backfilled from the concert candidate.
+		d.venueRepo.EXPECT().BackfillPlaceID(mock.Anything, "venue-existing", "place-P2").Return(nil).Once()
+		d.slotFree()
+		d.inserts()
 
-		resolvedPlaceID := "place-P2"
 		venueName := "Venue ABC Canonical"
 		sc := &entity.ConcertCandidate{
 			ID:                "candidate-backfill",
@@ -328,32 +298,31 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 			ResolvedVenueName: &venueName,
 			ResolvedAdminArea: new("JP-27"),
 		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		d.pending(sc)
+		d.deletes(sc.ID)
 
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
-
-		// Venue reused, and its NULL place_id was backfilled from the concert candidate.
-		assert.Empty(t, d.venueRepo.created)
-		require.NotNil(t, existingVenue.GooglePlaceID)
-		assert.Equal(t, "place-P2", *existingVenue.GooglePlaceID)
 	})
 
 	t.Run("approve uses the resolved admin_area symmetrically for the listed-name lookup", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		// Existing venue lives under the RESOLVED admin_area (JP-27).
-		existingVenue := &entity.Venue{
+		// Existing venue lives under the RESOLVED admin_area (JP-27): the lookup
+		// MUST use the resolved value to find it, and the venue is reused, not
+		// re-created under the raw one (no Venue.Create is expected).
+		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
 			ID:              "venue-existing",
 			Name:            "Venue ABC Canonical",
 			AdminArea:       new("JP-27"),
 			ListedVenueName: new("Venue ABC"),
-		}
-		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+		}, nil).Once()
+		d.slotFree()
+		d.inserts()
 
 		// Concert candidate's raw admin_area (JP-99) disagrees with the resolved one
-		// (JP-27); the lookup MUST use the resolved value to find the venue. No
-		// place_id is set so resolution goes straight to the listed-name lookup.
+		// (JP-27). No place_id is set so resolution goes straight to the
+		// listed-name lookup.
 		venueName := "Venue ABC Canonical"
 		sc := &entity.ConcertCandidate{
 			ID:                "candidate-admin-symmetry",
@@ -365,50 +334,47 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 			ResolvedVenueName: &venueName,
 			ResolvedAdminArea: new("JP-27"),
 		}
-		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+		d.pending(sc)
+		d.deletes(sc.ID)
 
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
-		// Reused via the resolved admin_area, not re-created under the raw one.
-		assert.Empty(t, d.venueRepo.created)
-		require.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
 	})
 }
 
-// seedConflict wires a concert candidate that duplicates an already-published event
-// at the same (venue, date, start time): the venue is pre-seeded so it resolves
-// to a known id, and an existing known-start event plus its series are seeded.
+// seedConflict wires a pending concert candidate that duplicates an
+// already-published event at the same (venue, date, start time): its listed
+// name resolves to the stored venue-1, where a known-start event of series-1
+// is stored.
 func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
-	d.venueRepo.venues["Venue One"] = &entity.Venue{
+	d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", (*string)(nil)).Return(&entity.Venue{
 		ID:              "venue-1",
 		Name:            "Venue One",
 		ListedVenueName: new("Venue ABC"),
-	}
+	}, nil).Once()
+	day := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2026, 8, 1, 19, 0, 0, 0, time.UTC)
-	d.concertRepo.existing = map[string][]*entity.Event{
-		"venue-1|2026-08-01": {{
+	d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-1"}, []time.Time{day}).
+		Return([]*entity.Event{{
 			ID:              "event-1",
 			SeriesID:        "series-1",
 			VenueID:         "venue-1",
-			LocalDate:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			LocalDate:       day,
 			StartTime:       &start,
 			ListedVenueName: new("Old Listed Name"),
-		}},
-	}
-	d.seriesRepo.byID = map[string]*entity.Series{
-		"series-1": {ID: "series-1", Title: "Existing Title"},
-	}
+		}}, nil).Once()
 	sc := &entity.ConcertCandidate{
 		ID:              "candidate-dup",
 		ArtistID:        artistID,
 		Title:           "Candidate Title",
-		LocalDate:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		LocalDate:       day,
 		ListedVenueName: "Venue ABC",
 		StartTime:       &start,
 	}
-	d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
+	d.pending(sc)
 	return sc
 }
 
@@ -421,7 +387,11 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
+		d.seriesRepo.EXPECT().Get(mock.Anything, "series-1").Return(&entity.Series{ID: "series-1", Title: "Existing Title"}, nil).Once()
+		d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
 
+		// No mutation: no Delete, Create, Append or UpdateEventListedVenueName is
+		// expected, so the concert candidate is preserved.
 		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "reviewer-1")
 		require.NoError(t, err)
 
@@ -432,66 +402,62 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		require.NotNil(t, result.Conflict.ConcertCandidate)
 		assert.Equal(t, "candidate-dup", result.Conflict.ConcertCandidate.ID)
 		require.NotNil(t, result.Conflict.ConcertCandidatePerformer)
-
-		// No mutation: concert candidate preserved, nothing created/logged/updated.
-		assert.Len(t, d.candidateRepo.upserted, 1)
-		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.rejectedConcert.entries)
-		assert.Empty(t, d.concertRepo.updatedListedNames)
 	})
 
 	t.Run("KEEP_EXISTING logs the concert candidate and clears it, leaving the event unchanged", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
+		d.logsRejection()
+		d.deletes(sc.ID)
 
+		// The event is untouched: no Create or UpdateEventListedVenueName is expected.
 		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
 
-		// Concert candidate logged (with the reviewer) and cleared; event untouched.
-		require.Len(t, d.rejectedConcert.entries, 1)
-		assert.Contains(t, d.rejectedConcert.entries[0].Reason, "duplicate")
-		require.NotNil(t, d.rejectedConcert.entries[0].ReviewedBy)
-		assert.Equal(t, "reviewer-1", *d.rejectedConcert.entries[0].ReviewedBy)
-		assert.Empty(t, d.candidateRepo.upserted)
-		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.concertRepo.updatedListedNames)
+		// Concert candidate logged with the reviewer.
+		require.Len(t, d.rejections, 1)
+		assert.Contains(t, d.rejections[0].Reason, "duplicate")
+		require.NotNil(t, d.rejections[0].ReviewedBy)
+		assert.Equal(t, "reviewer-1", *d.rejections[0].ReviewedBy)
 	})
 
 	t.Run("ADOPT_CANDIDATE overwrites the display fields and clears the concert candidate", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
+		// Existing event's listed name overwritten from the concert candidate;
+		// start/open filled via COALESCE; concert candidate cleared; nothing
+		// logged or newly created (no Append or Create is expected).
+		d.concertRepo.EXPECT().UpdateEventListedVenueName(mock.Anything, "event-1", "Venue ABC").Return(nil).Once()
+		d.concertRepo.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, mock.Anything, mock.Anything).Return(nil).Once()
+		d.deletes(sc.ID)
 
 		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
-
-		// Existing event's listed name overwritten from the concert candidate; start/open
-		// filled via COALESCE; concert candidate cleared; nothing logged or newly created.
-		assert.Equal(t, "Venue ABC", d.concertRepo.updatedListedNames["event-1"])
-		assert.Contains(t, d.concertRepo.filledIDs, "event-1")
-		assert.Empty(t, d.candidateRepo.upserted)
-		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.rejectedConcert.entries)
 	})
 
 	t.Run("second reconcile call is idempotent once the concert candidate is gone", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
+		d.logsRejection()
+		d.deletes(sc.ID)
+		// The second read finds the concert candidate already cleared.
+		d.gone(sc.ID)
 
 		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
 		require.NoError(t, err)
 
-		// Second call: concert candidate already cleared → non-conflict success.
+		// Second call: concert candidate already cleared → non-conflict success,
+		// with no event mutation (no UpdateEventListedVenueName is expected).
 		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
-		// No second log entry, no event mutation.
-		assert.Len(t, d.rejectedConcert.entries, 1)
-		assert.Empty(t, d.concertRepo.updatedListedNames)
+		// No second log entry.
+		assert.Len(t, d.rejections, 1)
 	})
 }
 
@@ -504,45 +470,47 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedCandidate(d, artist.ID)
+		d.logsRejection()
+		d.deletes(sc.ID)
+		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()
 
 		err := d.uc.Reject(context.Background(), sc.ID, "wrong artist", "reviewer@example.com")
 		require.NoError(t, err)
 
 		// Rejection log has one entry.
-		require.Len(t, d.rejectedConcert.entries, 1)
-		logEntry := d.rejectedConcert.entries[0]
+		require.Len(t, d.rejections, 1)
+		logEntry := d.rejections[0]
 		assert.Equal(t, artist.ID, logEntry.ArtistID)
 		assert.Equal(t, artist.Name, logEntry.ArtistName)
 		assert.Equal(t, sc.Title, logEntry.Title)
 		assert.Equal(t, "wrong artist", logEntry.Reason)
 		require.NotNil(t, logEntry.ReviewedBy)
 		assert.Equal(t, "reviewer@example.com", *logEntry.ReviewedBy)
-
-		// Concert candidate was deleted.
-		assert.Empty(t, d.candidateRepo.upserted)
 	})
 
 	t.Run("reject is idempotent when concert candidate is already gone", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		// Do NOT seed.
+		d.gone("candidate-nonexistent")
 
+		// No log entry is created for a row that was not found: no Append is
+		// expected.
 		err := d.uc.Reject(context.Background(), "candidate-nonexistent", "reason", "reviewer")
 		require.NoError(t, err)
-
-		// No log entry created for a row that was not found.
-		assert.Empty(t, d.rejectedConcert.entries)
 	})
 
 	t.Run("reject with empty reviewed_by sets ReviewedBy to nil in the log", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 		sc := seedCandidate(d, artist.ID)
+		d.logsRejection()
+		d.deletes(sc.ID)
+		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()
 
 		err := d.uc.Reject(context.Background(), sc.ID, "bad data", "")
 		require.NoError(t, err)
 
-		require.Len(t, d.rejectedConcert.entries, 1)
-		assert.Nil(t, d.rejectedConcert.entries[0].ReviewedBy)
+		require.Len(t, d.rejections, 1)
+		assert.Nil(t, d.rejections[0].ReviewedBy)
 	})
 }

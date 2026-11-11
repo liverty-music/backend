@@ -72,7 +72,7 @@ func newCheckoutOrderFixture(t *testing.T, now time.Time, req ...entity.Verifica
 	f.uc = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             f.issuance,
 		OrderRepo:                f.orders,
-		EventOrganizerRepo:       &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil }},
+		EventOrganizerRepo:       eventOrganizer(t, "org-1"),
 		OrganizerRepo:            f.organizers,
 		IdentityVerificationRepo: f.identityVerifications,
 		CheckoutRepo:             f.checkouts,

@@ -45,9 +45,10 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), ucmocks.NewMockWorkflows(t), noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
-			Orders: f.orders, Users: f.users, Concerts: stubConcerts{concert: concert},
+			Now:    time.Now,
+			Orders: f.orders, Users: f.users, Concerts: concertReader(t, concert),
 			ResaleListings: f.listings, ResaleMailer: f.mailer, TimeZone: tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	soldAt := time.Date(2026, 11, 13, 18, 20, 0, 0, tsJST)
 	f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(&entity.ResaleListing{
 		ID: "l-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Price: 5000,

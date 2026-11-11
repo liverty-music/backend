@@ -68,7 +68,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 		ticketJourneyRepo,
 		userRepo,
 		workflows,
-		cfg.GCP.SalesReminderScanWindow(),
+		cfg.GCP.SalesReminderScanWindow(), time.Now,
 		logger,
 	)
 

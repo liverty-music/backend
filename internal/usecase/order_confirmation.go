@@ -51,6 +51,8 @@ type OrderConfirmationDeps struct {
 	Tickets entity.TicketRepository
 	// TimeZone renders the concert and payment times (Asia/Tokyo).
 	TimeZone *time.Location
+	// Now is the clock (time.Now in production).
+	Now Clock
 }
 
 // orderConfirmationContent is everything the confirmation copy shows.

@@ -348,6 +348,7 @@ type userUseCase struct {
 	emailCodes      entity.EmailCodeVerifier
 	identityRemover entity.IdentityRemover
 	passkeyMailers  PasskeyMailers
+	clock           Clock
 	logger          *logging.Logger
 
 	// verifyEmailLimiter bounds the email verification attempts for one User
@@ -386,6 +387,7 @@ func NewUserUseCase(
 	emailCodes entity.EmailCodeVerifier,
 	identityRemover entity.IdentityRemover,
 	passkeyMailers PasskeyMailers,
+	clock Clock,
 	logger *logging.Logger,
 ) UserUseCase {
 	return &userUseCase{
@@ -396,9 +398,10 @@ func NewUserUseCase(
 		emailCodes:             emailCodes,
 		identityRemover:        identityRemover,
 		passkeyMailers:         passkeyMailers,
+		clock:                  clock,
 		logger:                 logger,
-		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, time.Now),
-		verifyEmailLimiter:     newSlidingWindowLimiter(verifyEmailLimit, verifyEmailWindow, time.Now),
+		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, clock),
+		verifyEmailLimiter:     newSlidingWindowLimiter(verifyEmailLimit, verifyEmailWindow, clock),
 		background:             func(task func()) { go task() },
 		resendLog:              make(map[string][]time.Time),
 	}
@@ -821,7 +824,7 @@ func (uc *userUseCase) VerifyEmail(ctx context.Context, userID, code string) err
 // limit (resendRateLimit requests per rolling resendRateWindow), recording
 // this attempt when it allows it. Returns false when the caller must wait.
 func (uc *userUseCase) allowResend(providerUserID string) bool {
-	now := time.Now()
+	now := uc.clock()
 	cutoff := now.Add(-resendRateWindow)
 
 	uc.resendMu.Lock()

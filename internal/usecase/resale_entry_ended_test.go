@@ -27,6 +27,9 @@ type endedFixture struct {
 	uc       usecase.NotificationUseCase
 }
 
+// endedNow is the time the ended-message tests' clock reads.
+var endedNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+
 // newEndedFixture builds the use case for a concert starting at start.
 func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 	t.Helper()
@@ -43,13 +46,14 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
+			Now:               func() time.Time { return endedNow },
 			Users:             f.users,
-			Concerts:          stubConcerts{concert: concert},
+			Concerts:          concertReader(t, concert),
 			Stocks:            f.stocks,
 			ResaleEntries:     f.entries,
 			ResaleEntryMailer: f.mailer,
 			TimeZone:          tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: func() time.Time { return endedNow }})
 	return f
 }
 
@@ -61,7 +65,7 @@ func (f *endedFixture) ended(state entity.ResaleEntryState, reason entity.Resale
 		Order: &entity.Order{ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid},
 	}, nil)
 	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: f.language}, nil).Maybe()
-	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(&entity.TicketStock{
+	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), endedNow).Return(&entity.TicketStock{
 		ID: "stock-1", EventID: "event-1", SeatType: &entity.SeatType{Name: "S席", Price: 5000},
 	}, nil).Maybe()
 }
@@ -94,6 +98,7 @@ func (f *endedFixture) expectPush(typ entity.NotificationType) *usecase.DeliverR
 func (f *endedFixture) pushedFor(t *testing.T, req usecase.DeliverRequest, start time.Time, reason entity.ResaleEntryLostReason, language string) *entity.NotificationPayload {
 	t.Helper()
 	r := newSubjectFixture(t)
+	r.now = func() time.Time { return endedNow }
 	r.fanReadable(renderedFan("fan-1", language))
 	r.resaleEntryReadable(&entity.ResaleEntry{ID: "entry-1", OrderID: "order-1", LostReason: reason}, "event-1")
 	concert := renderedConcert("event-1")
@@ -105,8 +110,8 @@ func (f *endedFixture) pushedFor(t *testing.T, req usecase.DeliverRequest, start
 func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	open := time.Now().Add(72 * time.Hour)
-	closed := time.Now().Add(-time.Hour)
+	open := endedNow.Add(72 * time.Hour)
+	closed := endedNow.Add(-time.Hour)
 
 	t.Run("lapsed entry", func(t *testing.T) {
 		t.Parallel()

@@ -29,21 +29,23 @@ packages:
       IssuanceRepository: {}
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
-      ResaleEntryRepository: {}
-      ResaleEntryEndedEmailSender: {}
       NotificationRepository: {}
       OfficialSiteResolver: {}
       OrderMailer: {}
       OrderRepository: {}
       OrganizationRepository: {}
       OrganizerRepository: {}
-      PasskeyRepository: {}
       PasskeyChangeEmailSender: {}
       PasskeyRegistrationLinkSender: {}
+      PasskeyRepository: {}
+      PayoutAccountRepository: {}
       PushNotificationSender: {}
       PushSubscriptionRepository: {}
+      RefundRepository: {}
       RejectedConcertRepository: {}
       RejectedScanRepository: {}
+      ResaleEntryEndedEmailSender: {}
+      ResaleEntryRepository: {}
       ResaleListingRepository: {}
       ResaleListingSoldEmailSender: {}
       ScannerRepository: {}
@@ -63,6 +65,7 @@ packages:
       TicketStockRepository: {}
       UserRepository: {}
       VenueMapCatalog: {}
+      VenuePlaceSearcher: {}
       VenueRepository: {}
       WalletPublicKeyRepository: {}
   github.com/liverty-music/backend/internal/adapter/rpc:
@@ -97,8 +100,11 @@ packages:
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}
       ConcertUseCase: {}
+      ConcertsByIDsReader: {}
       EmailVerificationCodes: {}
+      EventOrganizerRepository: {}
       EventPublishStatePort: {}
+      EventStartTimeRepository: {}
       FeatureFlagEvaluator: {}
       Flow: {}
       FollowUseCase: {}
@@ -110,11 +116,13 @@ packages:
       LotteryEntryUseCase: {}
       NotificationUseCase: {}
       OfficialSiteUseCase: {}
+      OrderRefunder: {}
       OrderUseCase: {}
       OrganizerMetrics: {}
       OrganizerUseCase: {}
       PasskeyRegistrationLinkIssuer: {}
       PasskeyUseCase: {}
+      ProcessedWebhookEventRepository: {}
       PushSubscriptionUseCase: {}
       ResaleEntryUseCase: {}
       ResaleListingUseCase: {}

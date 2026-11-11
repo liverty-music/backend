@@ -26,6 +26,9 @@ type lossFixture struct {
 	uc        usecase.NotificationUseCase
 }
 
+// lossNow is the time the loss tests' clock reads.
+var lossNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+
 func newLossFixture(t *testing.T) *lossFixture {
 	t.Helper()
 	f := &lossFixture{
@@ -43,14 +46,15 @@ func newLossFixture(t *testing.T) *lossFixture {
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, noopMetrics{}, newTestLogger(t),
 		usecase.OrderConfirmationDeps{
+			Now:        func() time.Time { return lossNow },
 			Orders:     f.orders,
 			Users:      f.users,
-			Concerts:   stubConcerts{concert: concert},
+			Concerts:   concertReader(t, concert),
 			Entries:    f.entries,
 			Stocks:     f.stocks,
 			LossMailer: f.mailer,
 			TimeZone:   tsJST,
-		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{})
+		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: func() time.Time { return lossNow }})
 	return f
 }
 
@@ -64,7 +68,7 @@ func (f *lossFixture) lost(reason entity.LotteryEntryLostReason, language string
 		ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid,
 	}, nil).Maybe()
 	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: language}, nil).Maybe()
-	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), mock.Anything).Return(&entity.TicketStock{
+	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), lossNow).Return(&entity.TicketStock{
 		ID: "stock-1", EventID: "event-1", SeatType: &entity.SeatType{Name: "S席", Price: 8000},
 	}, nil).Maybe()
 }

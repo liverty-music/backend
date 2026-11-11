@@ -2,143 +2,75 @@ package usecase_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Self-contained stubs (same rationale as issuance_uc_test.go: mockery v2.53.6
-// cannot load internal/entity; function-field stubs verify business logic).
-// ─────────────────────────────────────────────────────────────────────────────
-
-type stubSettlementRepo struct {
-	entity.SettlementRepository
-	getFn          func(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error)
-	getByOrderIDFn func(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error)
-	listHeldFn     func(ctx context.Context) ([]*entity.Settlement, error)
-	markReleasedFn func(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit) error
+// settlementFixture holds the mocks of a SettlementUseCase under test.
+type settlementFixture struct {
+	settlements *entitymocks.MockSettlementRepository
+	orders      *entitymocks.MockOrderRepository
+	accounts    *entitymocks.MockPayoutAccountRepository
+	starts      *ucmocks.MockEventStartTimeRepository
+	uc          usecase.SettlementUseCase
 }
 
-func (s *stubSettlementRepo) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
+func newSettlementFixture(t *testing.T, disputeBuffer time.Duration, now func() time.Time) *settlementFixture {
+	t.Helper()
+	f := &settlementFixture{
+		settlements: entitymocks.NewMockSettlementRepository(t),
+		orders:      entitymocks.NewMockOrderRepository(t),
+		accounts:    entitymocks.NewMockPayoutAccountRepository(t),
+		starts:      ucmocks.NewMockEventStartTimeRepository(t),
 	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-func (s *stubSettlementRepo) GetByOrderID(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
-	if s.getByOrderIDFn != nil {
-		return s.getByOrderIDFn(ctx, orderID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-func (s *stubSettlementRepo) ListHeld(ctx context.Context) ([]*entity.Settlement, error) {
-	if s.listHeldFn != nil {
-		return s.listHeldFn(ctx)
-	}
-	return nil, nil
-}
-func (s *stubSettlementRepo) MarkReleased(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit) error {
-	if s.markReleasedFn != nil {
-		return s.markReleasedFn(ctx, id, providerChargeID, releasedAt, splits)
-	}
-	return nil
+	f.uc = usecase.NewSettlementUseCase(f.settlements, f.orders, f.accounts, f.starts, disputeBuffer, now, newTestLogger(t))
+	return f
 }
 
-type stubPayoutAccountRepo struct {
-	entity.PayoutAccountRepository
-	getByOrganizerIDFn func(ctx context.Context, organizerID string) (*entity.PayoutAccount, error)
-	upsertFn           func(ctx context.Context, a *entity.PayoutAccount) error
-	updateStatusFn     func(ctx context.Context, organizerID string, status entity.PayoutOnboardingStatus) error
+// held makes s the only Held Settlement and order the Order it is for, on
+// every run.
+func (f *settlementFixture) held(s *entity.Settlement, order *entity.Order) {
+	f.settlements.EXPECT().ListHeld(mock.Anything).Return([]*entity.Settlement{s}, nil)
+	f.orders.EXPECT().Get(mock.Anything, s.OrderID).Return(order, nil)
 }
 
-func (s *stubPayoutAccountRepo) GetByOrganizerID(ctx context.Context, organizerID string) (*entity.PayoutAccount, error) {
-	if s.getByOrganizerIDFn != nil {
-		return s.getByOrganizerIDFn(ctx, organizerID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-func (s *stubPayoutAccountRepo) Upsert(ctx context.Context, a *entity.PayoutAccount) error {
-	if s.upsertFn != nil {
-		return s.upsertFn(ctx, a)
-	}
-	return nil
-}
-func (s *stubPayoutAccountRepo) UpdateStatus(ctx context.Context, organizerID string, status entity.PayoutOnboardingStatus) error {
-	if s.updateStatusFn != nil {
-		return s.updateStatusFn(ctx, organizerID, status)
-	}
-	return nil
+// startsAt makes the start time of eventID start on every run.
+func (f *settlementFixture) startsAt(eventID string, start *time.Time) {
+	f.starts.EXPECT().GetEventStartTime(mock.Anything, eventID).Return(start, nil)
 }
 
-type stubEventStartTimeRepo struct {
-	getFn func(ctx context.Context, eventID string) (*time.Time, error)
+// account makes the Organizer's payout account a, whose status the payment
+// provider reports as fresh.
+func (f *settlementFixture) account(a *entity.PayoutAccount, fresh entity.PayoutOnboardingStatus) {
+	f.accounts.EXPECT().GetByOrganizerID(mock.Anything, a.OrganizerID).Return(a, nil)
+	f.accounts.EXPECT().GetStatus(mock.Anything, a.ProviderAccountID).Return(fresh, nil)
 }
 
-func (s *stubEventStartTimeRepo) GetEventStartTime(ctx context.Context, eventID string) (*time.Time, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, eventID)
-	}
-	return nil, nil
+// paysOut expects the charge of providerPaymentID to be resolved to
+// providerChargeID and one payout to be created as providerPayoutID, once.
+func (f *settlementFixture) paysOut(providerPaymentID, providerChargeID, providerPayoutID string) {
+	f.orders.EXPECT().GetProviderChargeID(mock.Anything, providerPaymentID).Return(providerChargeID, nil).Once()
+	f.settlements.EXPECT().CreatePayout(mock.Anything, mock.Anything).Return(providerPayoutID, nil).Once()
 }
 
-type stubPaymentProvider struct {
-	resolveProviderChargeIDFn func(ctx context.Context, providerPaymentID string) (string, error)
-	createTransferFn          func(ctx context.Context, params entity.PayoutParams) (string, error)
-	createPayoutAccountFn     func(ctx context.Context, organizerID string) (string, error)
-	getAccountStatusFn        func(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error)
-	createOnboardingLinkFn    func(ctx context.Context, providerAccountID, returnURL string) (string, error)
-	createRefundFn            func(ctx context.Context, params entity.RefundParams) (string, error)
-	reverseTransferFn         func(ctx context.Context, params entity.ReversePayoutParams) (string, error)
-}
-
-func (s *stubPaymentProvider) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
-	if s.resolveProviderChargeIDFn != nil {
-		return s.resolveProviderChargeIDFn(ctx, providerPaymentID)
-	}
-	return "ch_test", nil
-}
-func (s *stubPaymentProvider) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
-	if s.createTransferFn != nil {
-		return s.createTransferFn(ctx, params)
-	}
-	return "tr_test", nil
-}
-func (s *stubPaymentProvider) Create(ctx context.Context, organizerID string, _ string) (string, error) {
-	if s.createPayoutAccountFn != nil {
-		return s.createPayoutAccountFn(ctx, organizerID)
-	}
-	return "acct_test", nil
-}
-func (s *stubPaymentProvider) GetStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error) {
-	if s.getAccountStatusFn != nil {
-		return s.getAccountStatusFn(ctx, providerAccountID)
-	}
-	return entity.PayoutOnboardingStatusActive, nil
-}
-func (s *stubPaymentProvider) CreateOnboardingLink(ctx context.Context, providerAccountID, returnURL string) (string, error) {
-	if s.createOnboardingLinkFn != nil {
-		return s.createOnboardingLinkFn(ctx, providerAccountID, returnURL)
-	}
-	return "https://connect.stripe.com/onboarding/test", nil
-}
-func (s *stubPaymentProvider) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
-	if s.createRefundFn != nil {
-		return s.createRefundFn(ctx, params)
-	}
-	return "re_test", nil
-}
-func (s *stubPaymentProvider) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
-	if s.reverseTransferFn != nil {
-		return s.reverseTransferFn(ctx, params)
-	}
-	return "trr_test", nil
+// assertNotPaidOut asserts that no payout was created and no Settlement was
+// marked Released.
+func (f *settlementFixture) assertNotPaidOut(t *testing.T) {
+	t.Helper()
+	f.settlements.AssertNotCalled(t, "CreatePayout", mock.Anything, mock.Anything)
+	f.settlements.AssertNotCalled(t, "MarkReleased", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,44 +213,24 @@ func TestSettlementUseCase_ReleaseDueSettlements_SplitsEngine(t *testing.T) {
 				Status:      entity.SettlementStatusHeld,
 			}
 
-			markReleasedCalled := false
-
-			uc := usecase.NewSettlementUseCase(
-				withSettlementPayouts(&stubSettlementRepo{
-					listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-						return []*entity.Settlement{settlement}, nil
-					},
-					markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
-						markReleasedCalled = true
-						return nil
-					},
-				}, &stubPaymentProvider{}),
-				withOrderPayments(&stubOrderRepo{
-					getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
-						return baseOrder, nil
-					},
-				}, &stubPaymentProvider{}),
-				withPayoutAccountProvider(&stubPayoutAccountRepo{
-					getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-						return &entity.PayoutAccount{
-							OrganizerID:       orgID,
-							ProviderAccountID: providerAccountID,
-							Status:            entity.PayoutOnboardingStatusActive,
-						}, nil
-					},
-				}, &stubPaymentProvider{}),
-				&stubEventStartTimeRepo{
-					getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
-				},
-				30*24*time.Hour,
-				func() time.Time { return time.Now() },
-				newTestLogger(t),
-			)
+			f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
+			f.held(settlement, baseOrder)
+			f.startsAt(eventID, pastStart)
+			f.account(&entity.PayoutAccount{
+				OrganizerID:       orgID,
+				ProviderAccountID: providerAccountID,
+				Status:            entity.PayoutOnboardingStatusActive,
+			}, entity.PayoutOnboardingStatusActive)
+			if tc.wantMarkReleased {
+				f.paysOut(providerPaymentID, "ch_test", "tr_test")
+				f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, "ch_test", mock.Anything, mock.Anything).Return(nil).Once()
+			}
 
 			// Sweep always returns nil (per-settlement errors are logged+skipped).
-			require.NoError(t, uc.ReleaseDueSettlements(ctx))
-			assert.Equal(t, tc.wantMarkReleased, markReleasedCalled,
-				"MarkReleased call mismatch")
+			require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
+			if !tc.wantMarkReleased {
+				f.assertNotPaidOut(t)
+			}
 		})
 	}
 }
@@ -354,89 +266,34 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 		Status:      entity.SettlementStatusHeld,
 	}
 
-	var (
-		gotProviderChargeID string
-		gotProviderPayoutID string
-		markCalled          bool
-	)
+	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
+	f.held(settlement, &entity.Order{
+		ID: orderID, Amount: 10000, Currency: "JPY",
+		Payment: entity.Payment{ProviderPaymentID: providerPaymentID},
+	})
+	f.startsAt(eventID, pastStart)
+	f.account(&entity.PayoutAccount{
+		OrganizerID: orgID, ProviderAccountID: providerAccountID,
+		Status: entity.PayoutOnboardingStatusActive,
+	}, entity.PayoutOnboardingStatusActive)
+	f.orders.EXPECT().GetProviderChargeID(mock.Anything, providerPaymentID).Return(providerChargeID, nil).Once()
+	f.settlements.EXPECT().CreatePayout(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, p entity.PayoutParams) (string, error) {
+			assert.Equal(t, providerChargeID, p.ProviderChargeID)
+			assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
+			assert.Equal(t, int64(9000), p.Amount)
+			return providerPayoutID, nil
+		}).Once()
+	var releasedSplits []entity.SettlementSplit
+	f.settlements.EXPECT().MarkReleased(mock.Anything, settleID, providerChargeID, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, splits []entity.SettlementSplit) error {
+			releasedSplits = splits
+			return nil
+		}).Once()
 
-	uc := usecase.NewSettlementUseCase(
-		withSettlementPayouts(&stubSettlementRepo{
-			listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-				return []*entity.Settlement{settlement}, nil
-			},
-			markReleasedFn: func(_ context.Context, id entity.SettlementID, providerChargeID string, _ time.Time, splits []entity.SettlementSplit) error {
-				assert.Equal(t, settleID, id)
-				gotProviderChargeID = providerChargeID
-				if len(splits) > 0 {
-					gotProviderPayoutID = splits[0].ProviderPayoutID
-				}
-				markCalled = true
-				return nil
-			},
-		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
-			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, providerChargeID, p.ProviderChargeID)
-				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
-				assert.Equal(t, int64(9000), p.Amount)
-				return providerPayoutID, nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		withOrderPayments(&stubOrderRepo{
-			getFn: func(_ context.Context, id entity.OrderID) (*entity.Order, error) {
-				require.Equal(t, orderID, id)
-				return &entity.Order{
-					ID: orderID, Amount: 10000, Currency: "JPY",
-					Payment: entity.Payment{ProviderPaymentID: providerPaymentID},
-				}, nil
-			},
-		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
-			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, providerChargeID, p.ProviderChargeID)
-				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
-				assert.Equal(t, int64(9000), p.Amount)
-				return providerPayoutID, nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		withPayoutAccountProvider(&stubPayoutAccountRepo{
-			getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-				return &entity.PayoutAccount{
-					OrganizerID: orgID, ProviderAccountID: providerAccountID,
-					Status: entity.PayoutOnboardingStatusActive,
-				}, nil
-			},
-		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
-			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, providerChargeID, p.ProviderChargeID)
-				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
-				assert.Equal(t, int64(9000), p.Amount)
-				return providerPayoutID, nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		&stubEventStartTimeRepo{
-			getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
-		},
-		30*24*time.Hour,
-		func() time.Time { return time.Now() },
-		newTestLogger(t),
-	)
-
-	require.NoError(t, uc.ReleaseDueSettlements(ctx))
-	assert.True(t, markCalled, "MarkReleased must be called")
-	assert.Equal(t, providerChargeID, gotProviderChargeID)
-	assert.Equal(t, providerPayoutID, gotProviderPayoutID)
+	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
+	require.Len(t, releasedSplits, 1)
+	assert.Equal(t, providerPayoutID, releasedSplits[0].ProviderPayoutID)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,68 +314,19 @@ func TestSettlementUseCase_ReleaseDueSettlements_OrganizerNotActive_PayoutWithhe
 		Status: entity.SettlementStatusHeld,
 	}
 
-	transferCalled := false
-	markCalled := false
+	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
+	f.held(settlement, &entity.Order{ID: "order-pending", Amount: 10000, Currency: "JPY",
+		Payment: entity.Payment{ProviderPaymentID: "pi_pending"}})
+	f.startsAt("event-pending", pastStart)
+	f.account(&entity.PayoutAccount{
+		OrganizerID: "org-pending", ProviderAccountID: "acct_pending",
+		Status: entity.PayoutOnboardingStatusPending,
+	}, entity.PayoutOnboardingStatusPending)
 
-	uc := usecase.NewSettlementUseCase(
-		withSettlementPayouts(&stubSettlementRepo{
-			listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-				return []*entity.Settlement{settlement}, nil
-			},
-			markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
-				markCalled = true
-				return nil
-			},
-		}, &stubPaymentProvider{
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusPending, nil
-			},
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		withOrderPayments(&stubOrderRepo{
-			getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
-				return &entity.Order{ID: "order-pending", Amount: 10000, Currency: "JPY",
-					Payment: entity.Payment{ProviderPaymentID: "pi_pending"}}, nil
-			},
-		}, &stubPaymentProvider{
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusPending, nil
-			},
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		withPayoutAccountProvider(&stubPayoutAccountRepo{
-			getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-				return &entity.PayoutAccount{
-					OrganizerID: "org-pending", ProviderAccountID: "acct_pending",
-					Status: entity.PayoutOnboardingStatusPending,
-				}, nil
-			},
-		}, &stubPaymentProvider{
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusPending, nil
-			},
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		&stubEventStartTimeRepo{
-			getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
-		},
-		30*24*time.Hour,
-		func() time.Time { return time.Now() },
-		newTestLogger(t),
-	)
-
-	require.NoError(t, uc.ReleaseDueSettlements(ctx))
-	assert.False(t, transferCalled, "Transfer must NOT be created when account is Pending")
-	assert.False(t, markCalled, "MarkReleased must NOT be called when payout is withheld")
+	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
+	// Transfer must NOT be created and MarkReleased must NOT be called when
+	// the account is Pending.
+	f.assertNotPaidOut(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -539,59 +347,15 @@ func TestSettlementUseCase_ReleaseDueSettlements_GateNotPassed_NoTransfer(t *tes
 		Status: entity.SettlementStatusHeld,
 	}
 
-	transferCalled := false
-	markCalled := false
+	f := newSettlementFixture(t, 7*24*time.Hour, time.Now)
+	f.held(settlement, &entity.Order{ID: "order-future", Amount: 10000, Currency: "JPY",
+		Payment: entity.Payment{ProviderPaymentID: "pi_future"}})
+	f.startsAt("event-future", futureStart)
 
-	uc := usecase.NewSettlementUseCase(
-		withSettlementPayouts(&stubSettlementRepo{
-			listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-				return []*entity.Settlement{settlement}, nil
-			},
-			markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
-				markCalled = true
-				return nil
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		withOrderPayments(&stubOrderRepo{
-			getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
-				return &entity.Order{ID: "order-future", Amount: 10000, Currency: "JPY",
-					Payment: entity.Payment{ProviderPaymentID: "pi_future"}}, nil
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		withPayoutAccountProvider(&stubPayoutAccountRepo{
-			getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-				return &entity.PayoutAccount{
-					OrganizerID: "org-future", ProviderAccountID: "acct_future",
-					Status: entity.PayoutOnboardingStatusActive,
-				}, nil
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCalled = true
-				return "tr_should_not_happen", nil
-			},
-		}),
-		&stubEventStartTimeRepo{
-			getFn: func(_ context.Context, _ string) (*time.Time, error) { return futureStart, nil },
-		},
-		7*24*time.Hour,
-		func() time.Time { return time.Now() },
-		newTestLogger(t),
-	)
-
-	require.NoError(t, uc.ReleaseDueSettlements(ctx))
-	assert.False(t, transferCalled, "Transfer must NOT be created before gate passes")
-	assert.False(t, markCalled, "MarkReleased must NOT be called before gate passes")
+	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
+	// Transfer must NOT be created and MarkReleased must NOT be called before
+	// the gate passes.
+	f.assertNotPaidOut(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -644,68 +408,30 @@ func TestSettlementUseCase_ReleaseDueSettlements_ReleaseGate(t *testing.T) {
 				Status: entity.SettlementStatusHeld,
 			}
 
-			run := 0
+			f := newSettlementFixture(t, buffer, func() time.Time { return now })
+			f.held(settlement, &entity.Order{ID: "order-gate", Amount: 10000, Currency: "JPY",
+				Payment: entity.Payment{ProviderPaymentID: "pi_gate"}})
+			// Each run reads the start time again, in order.
+			for _, start := range tc.startTimes {
+				f.starts.EXPECT().GetEventStartTime(mock.Anything, "event-gate").Return(start, nil).Once()
+			}
 			released := false
-
-			uc := usecase.NewSettlementUseCase(
-				withSettlementPayouts(&stubSettlementRepo{
-					listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-						return []*entity.Settlement{settlement}, nil
-					},
-					markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
+			if slices.Contains(tc.wantReleased, true) {
+				f.account(&entity.PayoutAccount{
+					OrganizerID: "org-gate", ProviderAccountID: "acct_gate",
+					Status: entity.PayoutOnboardingStatusActive,
+				}, entity.PayoutOnboardingStatusActive)
+				f.paysOut("pi_gate", "ch_gate", "tr_gate")
+				f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, "ch_gate", now, mock.Anything).
+					RunAndReturn(func(context.Context, entity.SettlementID, string, time.Time, []entity.SettlementSplit) error {
 						released = true
 						return nil
-					},
-				}, &stubPaymentProvider{
-					resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_gate", nil },
-					createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-						return "tr_gate", nil
-					},
-					getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-						return entity.PayoutOnboardingStatusActive, nil
-					},
-				}),
-				withOrderPayments(&stubOrderRepo{
-					getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
-						return &entity.Order{ID: "order-gate", Amount: 10000, Currency: "JPY",
-							Payment: entity.Payment{ProviderPaymentID: "pi_gate"}}, nil
-					},
-				}, &stubPaymentProvider{
-					resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_gate", nil },
-					createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-						return "tr_gate", nil
-					},
-					getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-						return entity.PayoutOnboardingStatusActive, nil
-					},
-				}),
-				withPayoutAccountProvider(&stubPayoutAccountRepo{
-					getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-						return &entity.PayoutAccount{
-							OrganizerID: "org-gate", ProviderAccountID: "acct_gate",
-							Status: entity.PayoutOnboardingStatusActive,
-						}, nil
-					},
-				}, &stubPaymentProvider{
-					resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_gate", nil },
-					createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-						return "tr_gate", nil
-					},
-					getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-						return entity.PayoutOnboardingStatusActive, nil
-					},
-				}),
-				&stubEventStartTimeRepo{
-					getFn: func(_ context.Context, _ string) (*time.Time, error) { return tc.startTimes[run], nil },
-				},
-				buffer,
-				func() time.Time { return now },
-				newTestLogger(t),
-			)
+					}).Once()
+			}
 
-			for ; run < len(tc.startTimes); run++ {
+			for run := range tc.startTimes {
 				released = false
-				require.NoError(t, uc.ReleaseDueSettlements(context.Background()))
+				require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
 				assert.Equal(t, tc.wantReleased[run], released, "run %d", run+1)
 			}
 		})
@@ -731,67 +457,21 @@ func TestSettlementUseCase_ReleaseDueSettlements_IdempotentRerun_NoDoubleTransfe
 		Status: entity.SettlementStatusHeld,
 	}
 
-	transferCallCount := 0
-
-	uc := usecase.NewSettlementUseCase(
-		withSettlementPayouts(&stubSettlementRepo{
-			listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
-				return []*entity.Settlement{settlement}, nil
-			},
-			// Simulate another sweep pod that already released this settlement.
-			markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
-				return apperr.New(codes.FailedPrecondition, "settlement already released")
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCallCount++
-				return "tr_idem", nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		withOrderPayments(&stubOrderRepo{
-			getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
-				return &entity.Order{ID: "order-idem", Amount: 10000, Currency: "JPY",
-					Payment: entity.Payment{ProviderPaymentID: "pi_idem"}}, nil
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCallCount++
-				return "tr_idem", nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		withPayoutAccountProvider(&stubPayoutAccountRepo{
-			getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
-				return &entity.PayoutAccount{
-					OrganizerID: "org-idem", ProviderAccountID: "acct_idem",
-					Status: entity.PayoutOnboardingStatusActive,
-				}, nil
-			},
-		}, &stubPaymentProvider{
-			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
-				transferCallCount++
-				return "tr_idem", nil
-			},
-			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
-				return entity.PayoutOnboardingStatusActive, nil
-			},
-		}),
-		&stubEventStartTimeRepo{
-			getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
-		},
-		30*24*time.Hour,
-		func() time.Time { return time.Now() },
-		newTestLogger(t),
-	)
+	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
+	f.held(settlement, &entity.Order{ID: "order-idem", Amount: 10000, Currency: "JPY",
+		Payment: entity.Payment{ProviderPaymentID: "pi_idem"}})
+	f.startsAt("event-idem", pastStart)
+	f.account(&entity.PayoutAccount{
+		OrganizerID: "org-idem", ProviderAccountID: "acct_idem",
+		Status: entity.PayoutOnboardingStatusActive,
+	}, entity.PayoutOnboardingStatusActive)
+	// Transfer is called (before MarkReleased) but the Stripe idempotency key
+	// ensures no double charge at the provider level: exactly once per tick.
+	f.paysOut("pi_idem", "ch_test", "tr_idem")
+	// Simulate another sweep pod that already released this settlement.
+	f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, mock.Anything, mock.Anything, mock.Anything).
+		Return(apperr.New(codes.FailedPrecondition, "settlement already released")).Once()
 
 	// Must not return an error even though MarkReleased signalled FailedPrecondition.
-	require.NoError(t, uc.ReleaseDueSettlements(ctx))
-	// Transfer is called (before MarkReleased) but the Stripe idempotency key
-	// ensures no double charge at the provider level. We verify at most 1 call.
-	assert.LessOrEqual(t, transferCallCount, 1, "Transfer must be called at most once per sweep tick")
+	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
 }

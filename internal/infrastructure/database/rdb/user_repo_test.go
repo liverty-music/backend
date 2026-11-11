@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -384,7 +385,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		artistID := seedArtist(t, db, "del-artist", entity.NewID())
 		_, err = db.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, user.ID, artistID)
 		require.NoError(t, err)
-		_, err = rdb.NewIdentityVerificationRepository(db).Create(ctx, entity.NewIdentityVerification(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
+		_, err = rdb.NewIdentityVerificationRepository(db).Create(ctx, entity.NewIdentityVerification(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI, time.Now()))
 		require.NoError(t, err)
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
