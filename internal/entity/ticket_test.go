@@ -8,6 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTicket_IsAdmissible(t *testing.T) {
@@ -101,4 +102,36 @@ func TestTicket_BelongsTo(t *testing.T) {
 	ticket := &entity.Ticket{UserID: "user-1"}
 	assert.True(t, ticket.BelongsTo("user-1"))
 	assert.False(t, ticket.BelongsTo("user-2"))
+}
+
+func TestTicket_AdmitOutcome(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 11, 20, 18, 32, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		ticket  *entity.Ticket
+		usable  bool
+		want    entity.AdmitResult
+		wantErr error
+	}{
+		{"scanner revoked", &entity.Ticket{Status: entity.TicketStatusIssued}, false, entity.AdmitResult{}, apperr.ErrPermissionDenied},
+		{"scanner revoked, whatever the ticket", &entity.Ticket{Status: entity.TicketStatusVoided, AdmitTime: &at}, false, entity.AdmitResult{}, apperr.ErrPermissionDenied},
+		{"already admitted", &entity.Ticket{Status: entity.TicketStatusIssued, AdmitTime: &at}, true, entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: at}, nil},
+		{"admitted, then voided: still already admitted", &entity.Ticket{Status: entity.TicketStatusVoided, AdmitTime: &at}, true, entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: at}, nil},
+		{"voided", &entity.Ticket{Status: entity.TicketStatusVoided}, true, entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil},
+		{"admissible but not admitted", &entity.Ticket{Status: entity.TicketStatusIssued}, true, entity.AdmitResult{}, apperr.ErrInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := tt.ticket.AdmitOutcome(tt.usable)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

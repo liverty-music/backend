@@ -74,6 +74,50 @@ const (
 	AdmissionCodeExpired
 )
 
+// CheckEvent reports why a verified code is refused for the event it is
+// scanned at: OtherEvent when it names another event, Unspecified when it
+// does not.
+func (c *AdmissionCode) CheckEvent(eventID string) RejectedScanReason {
+	if c.EventID != eventID {
+		return RejectedScanReasonOtherEvent
+	}
+	return RejectedScanReasonUnspecified
+}
+
+// CheckHeld reports why a verified code for the scanned event is refused
+// given the Tickets its user holds for that event: Forged when it presents a
+// Ticket the user does not hold (another account's, or the user's own for
+// another event), since the tickets screen only ever presents the user's own
+// Tickets of one event and a Ticket's user never changes, so such a code was
+// built outside the app. Unspecified when every presented Ticket is held.
+func (c *AdmissionCode) CheckHeld(held []*Ticket) RejectedScanReason {
+	heldIDs := make(map[TicketID]struct{}, len(held))
+	for _, t := range held {
+		heldIDs[t.ID] = struct{}{}
+	}
+	for _, id := range c.TicketIDs {
+		if _, ok := heldIDs[id]; !ok {
+			return RejectedScanReasonForged
+		}
+	}
+	return RejectedScanReasonUnspecified
+}
+
+// WholeRejections returns the RejectedScans of a scan the reason rejects as a
+// whole at the Scanner of the event: one without a Ticket for Forged, since a
+// forged code proves nothing about the Tickets it lists, and one per
+// presented Ticket for any other reason, since the signature verified.
+func (c *AdmissionCode) WholeRejections(eventID string, scannerID ScannerID, reason RejectedScanReason, now time.Time) []*RejectedScan {
+	if reason == RejectedScanReasonForged {
+		return []*RejectedScan{NewRejectedScan(eventID, scannerID, "", reason, now)}
+	}
+	scans := make([]*RejectedScan, 0, len(c.TicketIDs))
+	for _, id := range c.TicketIDs {
+		scans = append(scans, NewRejectedScan(eventID, scannerID, id, reason, now))
+	}
+	return scans
+}
+
 // errInvalidAdmissionCode returns the InvalidArgument error of a code that
 // breaks the rules of [AdmissionCode.Validate].
 func errInvalidAdmissionCode() error {

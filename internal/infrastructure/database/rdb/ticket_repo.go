@@ -115,18 +115,8 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 	if err := r.db.Pool.QueryRow(ctx, ticketAdmitStateQuery, string(ticketID), string(scannerID)).Scan(&status, &admittedAt, &scannerUsable); err != nil {
 		return entity.AdmitResult{}, toAppErr(err, "failed to read ticket admission state", attrs...)
 	}
-	switch {
-	case !scannerUsable:
-		return entity.AdmitResult{}, apperr.New(codes.PermissionDenied, "scanner not usable", attrs...)
-	case admittedAt.Valid:
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: admittedAt.Time}, nil
-	case entity.TicketStatus(status) == entity.TicketStatusVoided:
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil
-	default:
-		// Unreachable: an Issued, unadmitted ticket through a usable Scanner is
-		// always admitted by ticketAdmitQuery.
-		return entity.AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted", attrs...)
-	}
+	ticket := &entity.Ticket{ID: ticketID, Status: entity.TicketStatus(status), AdmitTime: optionalTime(admittedAt)}
+	return ticket.AdmitOutcome(scannerUsable)
 }
 
 // admitAndAnnounce runs ticketAdmitQuery and, when it admitted the ticket,

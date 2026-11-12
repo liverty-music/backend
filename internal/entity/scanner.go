@@ -110,6 +110,31 @@ func (s *Scanner) IsUsable() bool {
 	return s.Status == ScannerStatusUnused || s.Status == ScannerStatusInUse
 }
 
+// BindOutcome decides what binding the device that holds key to the Scanner
+// comes to, from its status: an Unused Scanner is bound (the repository stores
+// the key), an InUse one is Bound again by the same key and OtherDevice for
+// another, and a Revoked one stays Revoked.
+func (s *Scanner) BindOutcome(key PublicKey) BindOutcome {
+	switch s.Status {
+	case ScannerStatusUnused:
+		return BindOutcomeBound
+	case ScannerStatusInUse:
+		if s.BoundPublicKey.Equal(key) {
+			return BindOutcomeBound
+		}
+		return BindOutcomeOtherDevice
+	}
+	return BindOutcomeRevoked
+}
+
+// RedactLinkToken clears the link token unless the Scanner is Unused: the
+// token is shown to the Organizer only until a device has opened the link.
+func (s *Scanner) RedactLinkToken() {
+	if s.Status != ScannerStatusUnused {
+		s.LinkToken = ""
+	}
+}
+
 // ScannerCall is one signed call from a [Scanner]'s device.
 type ScannerCall struct {
 	// Procedure is the full Connect procedure path, e.g.

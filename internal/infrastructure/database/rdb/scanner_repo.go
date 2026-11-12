@@ -159,22 +159,12 @@ func (r *ScannerRepository) BindDevice(ctx context.Context, id entity.ScannerID,
 		return 0, nil, toAppErr(err, "failed to get scanner for bind", attrs...)
 	}
 
-	var outcome entity.BindOutcome
-	switch scanner.Status {
-	case entity.ScannerStatusUnused:
+	outcome := scanner.BindOutcome(key)
+	if outcome == entity.BindOutcomeBound && scanner.Status == entity.ScannerStatusUnused {
 		scanner, err = scanScanner(tx.QueryRow(ctx, scannerBindQuery, string(id), []byte(key), boundTime))
 		if err != nil {
 			return 0, nil, toAppErr(err, "failed to bind scanner", attrs...)
 		}
-		outcome = entity.BindOutcomeBound
-	case entity.ScannerStatusInUse:
-		if scanner.BoundPublicKey.Equal(key) {
-			outcome = entity.BindOutcomeBound
-		} else {
-			outcome = entity.BindOutcomeOtherDevice
-		}
-	default:
-		outcome = entity.BindOutcomeRevoked
 	}
 
 	if err := tx.Commit(ctx); err != nil {

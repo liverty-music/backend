@@ -293,3 +293,44 @@ func TestAdmissionCode_Verify(t *testing.T) {
 		assert.Equal(t, entity.AdmissionCodeForged, code.Verify(nil, at(18, 30, 5)))
 	})
 }
+
+func TestAdmissionCode_CheckEventAndHeld(t *testing.T) {
+	t.Parallel()
+
+	code := &entity.AdmissionCode{UserID: "user-1", EventID: "event-1", TicketIDs: []entity.TicketID{"t-1", "t-2"}}
+	held := func(ids ...entity.TicketID) []*entity.Ticket {
+		out := make([]*entity.Ticket, len(ids))
+		for i, id := range ids {
+			out[i] = &entity.Ticket{ID: id}
+		}
+		return out
+	}
+
+	assert.Equal(t, entity.RejectedScanReasonUnspecified, code.CheckEvent("event-1"))
+	assert.Equal(t, entity.RejectedScanReasonOtherEvent, code.CheckEvent("event-2"))
+
+	assert.Equal(t, entity.RejectedScanReasonUnspecified, code.CheckHeld(held("t-1", "t-2", "t-3")), "every presented ticket is held")
+	assert.Equal(t, entity.RejectedScanReasonForged, code.CheckHeld(held("t-1")), "one presented ticket is not the user's")
+	assert.Equal(t, entity.RejectedScanReasonForged, code.CheckHeld(nil))
+}
+
+func TestAdmissionCode_WholeRejections(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 20, 18, 0, 0, 0, time.UTC)
+	code := &entity.AdmissionCode{TicketIDs: []entity.TicketID{"t-1", "t-2"}}
+
+	forged := code.WholeRejections("event-1", "scanner-1", entity.RejectedScanReasonForged, now)
+	require.Len(t, forged, 1, "a forged code proves nothing about its tickets: one scan without a ticket")
+	assert.Empty(t, forged[0].TicketID)
+	assert.Equal(t, entity.RejectedScanReasonForged, forged[0].Reason)
+
+	for _, reason := range []entity.RejectedScanReason{entity.RejectedScanReasonExpired, entity.RejectedScanReasonOtherEvent} {
+		scans := code.WholeRejections("event-1", "scanner-1", reason, now)
+		require.Len(t, scans, 2, "reason %d", reason)
+		assert.Equal(t, entity.TicketID("t-1"), scans[0].TicketID)
+		assert.Equal(t, entity.TicketID("t-2"), scans[1].TicketID)
+		assert.Equal(t, entity.ScannerID("scanner-1"), scans[0].ScannerID)
+		assert.NoError(t, scans[0].Validate())
+	}
+}

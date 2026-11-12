@@ -161,6 +161,24 @@ func (t *Ticket) IsAdmissible() bool {
 	return t.Status == TicketStatusIssued && t.AdmitTime == nil
 }
 
+// AdmitOutcome decides the outcome of an admission that admitted nothing, from
+// the ticket and whether the Scanner is usable, as read after the attempt: an
+// unusable Scanner is PermissionDenied; a ticket with an admit time was
+// AlreadyAdmitted, at that time; a Voided one is Voided. An Issued, unadmitted
+// ticket through a usable Scanner is always admitted, so reaching here with
+// one is an Internal error.
+func (t *Ticket) AdmitOutcome(scannerUsable bool) (AdmitResult, error) {
+	switch {
+	case !scannerUsable:
+		return AdmitResult{}, apperr.New(codes.PermissionDenied, "scanner not usable")
+	case t.AdmitTime != nil:
+		return AdmitResult{Outcome: AdmitOutcomeAlreadyAdmitted, AdmitTime: *t.AdmitTime}, nil
+	case t.Status == TicketStatusVoided:
+		return AdmitResult{Outcome: AdmitOutcomeVoided}, nil
+	}
+	return AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted")
+}
+
 // AdmitOutcome is the outcome of [TicketRepository.Admit].
 type AdmitOutcome int
 

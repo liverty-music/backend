@@ -166,7 +166,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		return nil, err
 	}
 	if reason != entity.RejectedScanReasonUnspecified {
-		uc.appendRejections(ctx, wholeScanRejections(scanner, code, reason, in.Now))
+		uc.appendRejections(ctx, code.WholeRejections(scanner.EventID, scanner.ID, reason, in.Now))
 		return &AdmitResult{RejectedScanReason: reason}, nil
 	}
 
@@ -227,37 +227,14 @@ func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, no
 	case entity.AdmissionCodeExpired:
 		return code, entity.RejectedScanReasonExpired, nil
 	}
-	if code.EventID != eventID {
-		return code, entity.RejectedScanReasonOtherEvent, nil
+	if reason := code.CheckEvent(eventID); reason != entity.RejectedScanReasonUnspecified {
+		return code, reason, nil
 	}
 	held, err := uc.ticketRepo.ListByUserAndEvent(ctx, code.UserID, eventID)
 	if err != nil {
 		return nil, entity.RejectedScanReasonUnspecified, err
 	}
-	heldIDs := make(map[entity.TicketID]struct{}, len(held))
-	for _, t := range held {
-		heldIDs[t.ID] = struct{}{}
-	}
-	for _, id := range code.TicketIDs {
-		if _, ok := heldIDs[id]; !ok {
-			return code, entity.RejectedScanReasonForged, nil
-		}
-	}
-	return code, entity.RejectedScanReasonUnspecified, nil
-}
-
-// wholeScanRejections returns the RejectedScans of a scan rejected as a
-// whole: one without a ticket for Forged, one per presented ticket for
-// Expired and OtherEvent (the signature verified, so the tickets are known).
-func wholeScanRejections(scanner *entity.Scanner, code *entity.AdmissionCode, reason entity.RejectedScanReason, now time.Time) []*entity.RejectedScan {
-	if reason == entity.RejectedScanReasonForged {
-		return []*entity.RejectedScan{entity.NewRejectedScan(scanner.EventID, scanner.ID, "", reason, now)}
-	}
-	scans := make([]*entity.RejectedScan, 0, len(code.TicketIDs))
-	for _, id := range code.TicketIDs {
-		scans = append(scans, entity.NewRejectedScan(scanner.EventID, scanner.ID, id, reason, now))
-	}
-	return scans
+	return code, code.CheckHeld(held), nil
 }
 
 // alreadyAdmitted builds the AlreadyAdmitted rejection with the earlier
