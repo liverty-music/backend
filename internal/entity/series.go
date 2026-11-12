@@ -141,6 +141,13 @@ func (s *Series) IsFirstParty() bool {
 	return s.OrganizerID != nil
 }
 
+// IsSearchable reports whether a search for ticket sales covers the Series: a
+// first-party Series is not searched, since it sells only through its
+// Organizer's own TicketSales.
+func (s *Series) IsSearchable() bool {
+	return !s.IsFirstParty()
+}
+
 // ValidateDraft reports whether a draft Series can be saved with eventCount
 // events: it needs a title and at least one event. It fails with
 // InvalidArgument.

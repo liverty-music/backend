@@ -205,7 +205,7 @@ func (uc *checkoutUseCase) Start(ctx context.Context, userID entity.UserID, stoc
 // most one.
 func openFirstComeSale(sales []*entity.TicketSale, now time.Time) *entity.TicketSale {
 	for _, sale := range sales {
-		if sale.Method == entity.TicketSaleMethodFirstCome && sale.IsOpenAt(now) {
+		if sale.IsOpenFirstComeAt(now) {
 			return sale
 		}
 	}

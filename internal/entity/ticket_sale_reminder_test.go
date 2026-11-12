@@ -8,6 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReminderStage_IsValid(t *testing.T) {
@@ -115,4 +116,116 @@ func TestTicketSaleSearch_Validate(t *testing.T) {
 
 		assert.NoError(t, search.Validate(now))
 	})
+}
+
+func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
+	t.Parallel()
+
+	jst := time.FixedZone("JST", 9*60*60)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, jst)
+	ref := &entity.SalesSeriesRef{
+		SeriesID: "s-1", Title: "Tour",
+		EventDates: []time.Time{time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 5, 0, 0, 0, 0, time.UTC), {}},
+	}
+	good := func() *entity.DiscoveredTicketSale {
+		return &entity.DiscoveredTicketSale{
+			SeriesID: "s-1", Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
+			SaleStartTime: time.Date(2026, 10, 5, 16, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 10, 22, 23, 59, 0, 0, jst),
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*entity.DiscoveredTicketSale)
+		want   string
+	}{
+		{"valid", func(*entity.DiscoveredTicketSale) {}, ""},
+		{"already started", func(d *entity.DiscoveredTicketSale) { d.SaleStartTime = now }, "already started"},
+		{"no name", func(d *entity.DiscoveredTicketSale) { d.Name = "" }, "no name"},
+		{"no end time", func(d *entity.DiscoveredTicketSale) { d.SaleEndTime = time.Time{} }, "no apply_end_time"},
+		{"ends before it starts", func(d *entity.DiscoveredTicketSale) { d.SaleEndTime = d.SaleStartTime.Add(-time.Hour) }, "sale end must be after the sale start"},
+		{"starts at the start of the day after the last event", func(d *entity.DiscoveredTicketSale) {
+			d.SaleStartTime = time.Date(2026, 12, 21, 0, 0, 0, 0, jst)
+			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
+		}, ""},
+		{"starts after the day following the last event begins", func(d *entity.DiscoveredTicketSale) {
+			d.SaleStartTime = time.Date(2026, 12, 21, 0, 1, 0, 0, jst)
+			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
+		}, "apply_start_time after the series' last event"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := good()
+			tt.mutate(d)
+			got := d.FoundReason(now, ref)
+			if tt.want == "" {
+				assert.Empty(t, got)
+				return
+			}
+			assert.Contains(t, got, tt.want)
+		})
+	}
+
+	t.Run("a series without event dates has no last event", func(t *testing.T) {
+		t.Parallel()
+		d := good()
+		d.SaleStartTime = time.Date(2027, 6, 1, 9, 0, 0, 0, jst)
+		d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
+		assert.Empty(t, d.FoundReason(now, &entity.SalesSeriesRef{SeriesID: "s-1"}))
+	})
+
+	t.Run("event period", func(t *testing.T) {
+		t.Parallel()
+		first, last, ok := ref.EventPeriod()
+		require.True(t, ok)
+		assert.Equal(t, 5, first.Day())
+		assert.Equal(t, 20, last.Day())
+		_, _, ok = (&entity.SalesSeriesRef{}).EventPeriod()
+		assert.False(t, ok)
+	})
+}
+
+func TestTicketSale_ReminderAudience(t *testing.T) {
+	t.Parallel()
+
+	discovered := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1")
+	found := nov(1, 0, 0)
+	discovered.DiscoveredTime = &found
+	organizer := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1", "e-2")
+
+	assert.Equal(t, entity.ReminderAudience{SeriesID: "series-1"}, discovered.ReminderAudience(), "every fan tracking the series")
+	assert.Equal(t, entity.ReminderAudience{EventIDs: []string{"e-1", "e-2"}}, organizer.ReminderAudience(), "only the fans tracking an event the sale names")
+}
+
+func TestReminderOutcome(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		delivered, noSub bool
+		want             entity.ReminderOutcome
+		wantSent         bool
+		wantName         string
+	}{
+		{"delivered", true, false, entity.ReminderOutcomeDelivered, true, "delivered"},
+		{"no subscription counts as sent", false, true, entity.ReminderOutcomeNoSubscription, true, "no_subscription"},
+		{"failed is left unsent", false, false, entity.ReminderOutcomeFailed, false, "failed"},
+	}
+	for _, tt := range tests {
+		got := entity.NewReminderOutcome(tt.delivered, tt.noSub)
+		assert.Equal(t, tt.want, got, tt.name)
+		assert.Equal(t, tt.wantSent, got.IsSent(), tt.name)
+		assert.Equal(t, tt.wantName, got.String(), tt.name)
+	}
+
+	assert.True(t, entity.ReminderCanBeSent("event-1"))
+	assert.False(t, entity.ReminderCanBeSent(""), "a request without a linked event is skipped")
+}
+
+func TestSeries_IsSearchable(t *testing.T) {
+	t.Parallel()
+	org := "org-1"
+	assert.True(t, (&entity.Series{}).IsSearchable(), "a discovered series is searched")
+	assert.False(t, (&entity.Series{OrganizerID: &org}).IsSearchable(), "a first-party series is never searched")
 }
