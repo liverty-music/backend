@@ -139,7 +139,6 @@ func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
 		mutate func(*entity.DiscoveredTicketSale)
 		want   string
 	}{
-		// @spec components/entity/ticket-sale-search "Found sale kept"
 		{"valid", func(*entity.DiscoveredTicketSale) {}, ""},
 		{"already started", func(d *entity.DiscoveredTicketSale) { d.SaleStartTime = now }, "already started"},
 		{"no name", func(d *entity.DiscoveredTicketSale) { d.Name = "" }, "no name"},

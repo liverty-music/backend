@@ -576,7 +576,6 @@ func TestTicketSale_CheckCreate(t *testing.T) {
 		mutate  func(*entity.TicketSaleCreateSnapshot)
 		wantErr error
 	}{
-		// @spec components/entity/ticket-sale "Create"
 		{"valid", lottery, func(*entity.TicketSaleCreateSnapshot) {}, nil},
 		{"event of another series", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.SeriesEvents[0].SeriesID = "series-2" }, apperr.ErrInvalidArgument},
 		{"event not published", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(false, &start, true) }, apperr.ErrFailedPrecondition},
