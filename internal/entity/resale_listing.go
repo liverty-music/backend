@@ -186,8 +186,8 @@ func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 	return l.Status
 }
 
-// NeedsRefund reports whether the buyer's refund of a Sold listing is still to
-// be made: it is Sold and has no refund recorded. A listing that is not Sold
+// NeedsRefund reports whether the refund of a Sold listing is still to be
+// made: it is Sold and has no refund recorded. A listing that is not Sold
 // has nothing to refund and fails with FailedPrecondition.
 func (l *ResaleListing) NeedsRefund() (bool, error) {
 	if l.Status != ResaleListingStatusSold {
