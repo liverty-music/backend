@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -205,6 +206,28 @@ func (e *Event) HasEventPage(series *Series) bool {
 		return false
 	}
 	return e.HasPublishState(PublishStatePublished) || e.HasPublishState(PublishStateCancelled)
+}
+
+// NamesVenue reports whether an edit that names the Venue by venueName, and by
+// placeID when it has one, names the event's stored Venue. The venue counts as
+// unchanged when the entered name equals the event's listed venue name and
+// the place id, when given and when the Venue has one, equals the Venue's; a
+// date published before venues were picked (no place id) is therefore
+// corrected without one.
+func (e *Event) NamesVenue(venueName string, placeID *string) bool {
+	if e.ListedVenueName == nil || strings.TrimSpace(*e.ListedVenueName) != strings.TrimSpace(venueName) {
+		return false
+	}
+	if placeID == nil || e.Venue == nil || e.Venue.GooglePlaceID == nil {
+		return true
+	}
+	return *placeID == *e.Venue.GooglePlaceID
+}
+
+// HasStartTime reports whether the event's start time is t, where an unknown
+// start time equals only another unknown one.
+func (e *Event) HasStartTime(t *time.Time) bool {
+	return sameOptionalTime(e.StartTime, t)
 }
 
 // CheckChange returns FailedPrecondition when next would change what the

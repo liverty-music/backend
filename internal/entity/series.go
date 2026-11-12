@@ -141,6 +141,19 @@ func (s *Series) IsFirstParty() bool {
 	return s.OrganizerID != nil
 }
 
+// ValidateDraft reports whether a draft Series can be saved with eventCount
+// events: it needs a title and at least one event. It fails with
+// InvalidArgument.
+func (s *Series) ValidateDraft(eventCount int) error {
+	if s.Title == "" {
+		return apperr.New(codes.InvalidArgument, "title is required")
+	}
+	if eventCount == 0 {
+		return apperr.New(codes.InvalidArgument, "at least one event is required")
+	}
+	return nil
+}
+
 // IsPublic reports whether the series' visibility is PUBLIC.
 func (s *Series) IsPublic() bool {
 	return s.Visibility != nil && *s.Visibility == SeriesVisibilityPublic
@@ -463,4 +476,36 @@ type SeriesRepository interface {
 	//
 	//  - NotFound: If no series with the given ID exists.
 	ReplaceCoverImage(ctx context.Context, seriesID string, newSeriesImage *SeriesImage) (oldSeriesImageID string, err error)
+}
+
+// EventsToPublish returns the named events among events, each of which must be
+// DRAFT, or every DRAFT event when none is named. It fails with
+// FailedPrecondition when there is none, or a named one is not a DRAFT event
+// of the concert.
+func EventsToPublish(events []*Event, eventIDs []string) ([]*Event, error) {
+	if len(eventIDs) == 0 {
+		var drafts []*Event
+		for _, e := range events {
+			if e.HasPublishState(PublishStateDraft) {
+				drafts = append(drafts, e)
+			}
+		}
+		if len(drafts) == 0 {
+			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: the concert has no draft date")
+		}
+		return drafts, nil
+	}
+	byID := make(map[string]*Event, len(events))
+	for _, e := range events {
+		byID[e.ID] = e
+	}
+	named := make([]*Event, 0, len(eventIDs))
+	for _, id := range eventIDs {
+		e := byID[id]
+		if e == nil || !e.HasPublishState(PublishStateDraft) {
+			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: a named date is not a draft of the concert")
+		}
+		named = append(named, e)
+	}
+	return named, nil
 }

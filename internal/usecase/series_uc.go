@@ -321,11 +321,8 @@ func (uc *seriesUseCase) Create(
 	eventInputs []*DraftEventInput,
 	performerArtistIDs []string,
 ) (*entity.Series, []*entity.Concert, error) {
-	if draft.Title == "" {
-		return nil, nil, apperr.New(codes.InvalidArgument, "title is required")
-	}
-	if len(eventInputs) == 0 {
-		return nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
+	if err := draft.ValidateDraft(len(eventInputs)); err != nil {
+		return nil, nil, err
 	}
 
 	// Performer ownership check.
@@ -392,11 +389,8 @@ func (uc *seriesUseCase) Update(
 	}
 
 	// Basic validation.
-	if draft.Title == "" {
-		return nil, nil, apperr.New(codes.InvalidArgument, "title is required")
-	}
-	if len(eventInputs) == 0 {
-		return nil, nil, apperr.New(codes.InvalidArgument, "at least one event is required")
+	if err := draft.ValidateDraft(len(eventInputs)); err != nil {
+		return nil, nil, err
 	}
 	stored := make(map[string]*entity.Event, len(storedEvents))
 	for _, e := range storedEvents {
@@ -492,12 +486,12 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 	if inp.PerAccountLimit != nil {
 		next.PerAccountLimit = inp.PerAccountLimit
 	}
-	if !sameVenue(current, inp) {
+	if !current.NamesVenue(inp.VenueName, inp.PlaceID) {
 		next.VenueID = ""
 	}
 
 	onSale := false
-	if current.HasPublishState(entity.PublishStatePublished) && !sameInstant(current.StartTime, inp.StartTime) {
+	if current.HasPublishState(entity.PublishStatePublished) && !current.HasStartTime(inp.StartTime) {
 		sales, err := uc.ticketSaleRepo.ListByEvent(ctx, current.ID)
 		if err != nil {
 			return nil, fmt.Errorf("list ticket sales of event %s: %w", current.ID, err)
@@ -508,26 +502,6 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 		return nil, err
 	}
 	return &next, nil
-}
-
-// sameVenue reports whether the input names the event's stored venue.
-func sameVenue(current *entity.Event, inp *DraftEventInput) bool {
-	if current.ListedVenueName == nil || strings.TrimSpace(*current.ListedVenueName) != strings.TrimSpace(inp.VenueName) {
-		return false
-	}
-	if inp.PlaceID == nil || current.Venue == nil || current.Venue.GooglePlaceID == nil {
-		return true
-	}
-	return *inp.PlaceID == *current.Venue.GooglePlaceID
-}
-
-// sameInstant reports whether two optional instants are equal, where two
-// unknown instants are equal.
-func sameInstant(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return a.Equal(*b)
 }
 
 // Publish publishes the named DRAFT events of a series, or all of them.
@@ -547,7 +521,7 @@ func (uc *seriesUseCase) Publish(
 		return nil, nil, err
 	}
 
-	targets, err := eventsToPublish(entity.EventsOf(concerts), eventIDs)
+	targets, err := entity.EventsToPublish(entity.EventsOf(concerts), eventIDs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -585,36 +559,6 @@ func (uc *seriesUseCase) Publish(
 	}
 
 	return published, publishedConcerts, nil
-}
-
-// eventsToPublish returns the named events, each of which must be DRAFT, or
-// every DRAFT event when none is named; FailedPrecondition when there is none.
-func eventsToPublish(events []*entity.Event, eventIDs []string) ([]*entity.Event, error) {
-	if len(eventIDs) == 0 {
-		var drafts []*entity.Event
-		for _, e := range events {
-			if e.HasPublishState(entity.PublishStateDraft) {
-				drafts = append(drafts, e)
-			}
-		}
-		if len(drafts) == 0 {
-			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: the concert has no draft date")
-		}
-		return drafts, nil
-	}
-	byID := make(map[string]*entity.Event, len(events))
-	for _, e := range events {
-		byID[e.ID] = e
-	}
-	named := make([]*entity.Event, 0, len(eventIDs))
-	for _, id := range eventIDs {
-		e := byID[id]
-		if e == nil || !e.HasPublishState(entity.PublishStateDraft) {
-			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: a named date is not a draft of the concert")
-		}
-		named = append(named, e)
-	}
-	return named, nil
 }
 
 // Cancel cancels the named events of a series, or all PUBLISHED and DRAFT ones.

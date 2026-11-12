@@ -150,3 +150,73 @@ func TestPlanCancel(t *testing.T) {
 	_, err = entity.PlanCancel(stored, []string{"published", "missing"})
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "not an event of the series")
 }
+
+func TestSeries_ValidateDraft(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, (&entity.Series{Title: "Tour"}).ValidateDraft(1))
+	assert.ErrorIs(t, (&entity.Series{}).ValidateDraft(1), apperr.ErrInvalidArgument, "a title is required")
+	assert.ErrorIs(t, (&entity.Series{Title: "Tour"}).ValidateDraft(0), apperr.ErrInvalidArgument, "at least one event is required")
+}
+
+func TestEventsToPublish(t *testing.T) {
+	t.Parallel()
+
+	draft1, draft2 := storedEvent("d1", entity.PublishStateDraft, nil), storedEvent("d2", entity.PublishStateDraft, nil)
+	published := storedEvent("p", entity.PublishStatePublished, nil)
+	events := []*entity.Event{draft1, published, draft2}
+
+	got, err := entity.EventsToPublish(events, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []*entity.Event{draft1, draft2}, got, "every DRAFT event when none is named")
+
+	got, err = entity.EventsToPublish(events, []string{"d2"})
+	require.NoError(t, err)
+	assert.Equal(t, []*entity.Event{draft2}, got)
+
+	_, err = entity.EventsToPublish([]*entity.Event{published}, nil)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "no draft date")
+	_, err = entity.EventsToPublish(events, []string{"p"})
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "a named date is not a draft")
+	_, err = entity.EventsToPublish(events, []string{"missing"})
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+}
+
+func TestEvent_NamesVenueAndStartTime(t *testing.T) {
+	t.Parallel()
+
+	name, place, otherPlace := "Zepp Tokyo", "place-1", "place-2"
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	e := &entity.Event{ListedVenueName: &name, Venue: &entity.Venue{GooglePlaceID: &place}, StartTime: &start}
+
+	assert.True(t, e.NamesVenue("Zepp Tokyo", nil))
+	assert.True(t, e.NamesVenue("  Zepp Tokyo ", &place), "surrounding space does not matter")
+	assert.False(t, e.NamesVenue("Zepp Osaka", nil))
+	assert.False(t, e.NamesVenue("Zepp Tokyo", &otherPlace), "another place id is another venue")
+	assert.True(t, (&entity.Event{ListedVenueName: &name}).NamesVenue("Zepp Tokyo", &otherPlace), "a venue without a place id accepts any")
+	assert.False(t, (&entity.Event{}).NamesVenue("Zepp Tokyo", nil), "no listed venue name")
+
+	same := start
+	assert.True(t, e.HasStartTime(&same))
+	assert.False(t, e.HasStartTime(nil))
+	assert.True(t, (&entity.Event{}).HasStartTime(nil), "unknown equals unknown")
+}
+
+func TestEventRemovalBlockers(t *testing.T) {
+	t.Parallel()
+
+	for status, want := range map[entity.OrderStatus]bool{
+		entity.OrderStatusPaid: true, entity.OrderStatusPending: true, entity.OrderStatusRefunded: false, entity.OrderStatusVoid: false,
+	} {
+		assert.Equal(t, want, (&entity.Order{Status: status}).BlocksEventRemoval(), status.String())
+	}
+	for status, want := range map[entity.SettlementStatus]bool{
+		entity.SettlementStatusHeld: true, entity.SettlementStatusReleased: true, entity.SettlementStatusReversed: false,
+	} {
+		assert.Equal(t, want, (&entity.Settlement{Status: status}).BlocksEventRemoval(), status.String())
+	}
+
+	assert.NoError(t, entity.EventRemovalBlockers{}.Check())
+	for _, b := range []entity.EventRemovalBlockers{{PaidOrder: true}, {UnreversedSettlement: true}, {PurchaseInProgress: true}} {
+		assert.ErrorIs(t, b.Check(), apperr.ErrFailedPrecondition)
+	}
+}
