@@ -8,6 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOrder_ValidateSource(t *testing.T) {
@@ -146,4 +147,65 @@ func TestOrder_CanBecomeVoid(t *testing.T) {
 		// @spec components/entity/order "Paid order"
 		assert.False(t, (&entity.Order{Status: entity.OrderStatusPaid}).CanBecomeVoid())
 	})
+}
+
+var orderStatuses = []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid}
+
+func TestOrder_IsPaid(t *testing.T) {
+	t.Parallel()
+	want := map[entity.OrderStatus]bool{
+		entity.OrderStatusPending: false, entity.OrderStatusPaid: true, entity.OrderStatusRefunded: true, entity.OrderStatusVoid: false,
+	}
+	for _, status := range orderStatuses {
+		assert.Equal(t, want[status], (&entity.Order{Status: status}).IsPaid(), status.String())
+	}
+}
+
+func TestOrder_IssuanceOutcome(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		status  entity.OrderStatus
+		wantErr error
+	}{
+		{entity.OrderStatusPending, nil},
+		{entity.OrderStatusPaid, apperr.ErrAlreadyExists},
+		{entity.OrderStatusRefunded, apperr.ErrAlreadyExists},
+		{entity.OrderStatusVoid, apperr.ErrFailedPrecondition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status.String(), func(t *testing.T) {
+			t.Parallel()
+			err := (&entity.Order{Status: tt.status}).IssuanceOutcome()
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestOrder_CheckChargeable(t *testing.T) {
+	t.Parallel()
+	for _, status := range orderStatuses {
+		err := (&entity.Order{Status: status}).CheckChargeable()
+		if status == entity.OrderStatusPending {
+			assert.NoError(t, err)
+			continue
+		}
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, status.String())
+	}
+}
+
+func TestOrder_MarkPaid(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	o := &entity.Order{ID: "order-1", Status: entity.OrderStatusPending}
+
+	o.MarkPaid(&entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"}, now)
+
+	assert.Equal(t, entity.OrderStatusPaid, o.Status)
+	require.NotNil(t, o.PayTime)
+	assert.Equal(t, now, *o.PayTime)
+	assert.Equal(t, entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"}, o.Payment)
 }

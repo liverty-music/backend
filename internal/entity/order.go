@@ -3,6 +3,7 @@ package entity
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -289,6 +290,49 @@ func (o *Order) ValidateSource() error {
 // authorization, the provider payment ID and the pay time.
 func (o *Order) CanBePaid() bool {
 	return o.CardAuthorizationID != "" && o.Payment.ProviderPaymentID != "" && o.PayTime != nil
+}
+
+// IsPaid reports whether the Order was made Paid, also when it was refunded
+// since.
+func (o *Order) IsPaid() bool {
+	return o.Status == OrderStatusPaid || o.Status == OrderStatusRefunded
+}
+
+// MarkPaid makes the Order Paid at now with the captured payment's details.
+// The caller stores the Issued Tickets of [NewIssuedTicket] with it.
+func (o *Order) MarkPaid(captured *CapturedPayment, now time.Time) {
+	o.Payment = Payment{
+		Provider:          captured.Provider,
+		ProviderPaymentID: captured.ProviderPaymentID,
+		CardBrand:         captured.CardBrand,
+		CardLast4:         captured.CardLast4,
+	}
+	o.Status = OrderStatusPaid
+	o.PayTime = &now
+}
+
+// IssuanceOutcome reports whether the Order can be issued in its status: nil
+// for a Pending Order, AlreadyExists for a Paid or Refunded one (the caller
+// re-reads it instead of issuing twice) and FailedPrecondition for a Void one.
+func (o *Order) IssuanceOutcome() error {
+	switch {
+	case o.IsPaid():
+		return apperr.New(codes.AlreadyExists, "the order is already paid")
+	case o.Status == OrderStatusVoid:
+		return apperr.New(codes.FailedPrecondition, "the order is void")
+	}
+	return nil
+}
+
+// CheckChargeable reports whether the Order is one whose card authorization
+// may be charged: only a Pending Order is. It fails with FailedPrecondition
+// for any other status.
+func (o *Order) CheckChargeable() error {
+	if o.Status != OrderStatusPending {
+		return apperr.New(codes.FailedPrecondition, "the entry's Order is not Pending; nothing is charged",
+			slog.String("order_status", o.Status.String()))
+	}
+	return nil
 }
 
 // CanBecomeVoid reports whether the Order may become Void: only a Pending

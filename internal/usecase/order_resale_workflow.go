@@ -65,7 +65,7 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 			return resaleCapture{}, err
 		}
 		if !published {
-			return uc.resaleCaptureOfCancelledConcert(ctx, plan.CardAuthorizationID)
+			return uc.resaleCaptureOfCancelledConcert(ctx, plan.CardAuthorizationID, published)
 		}
 		if !uc.clock().Before(plan.StartTime) {
 			return resaleCapture{TooLate: true}, nil
@@ -128,12 +128,12 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 // of the step may have captured the card authorization with its outcome
 // unknown, so the payment provider is asked first; a captured one is issued
 // as charged, and the cancellation refund of the fan's own Order covers it.
-func (uc *orderUseCase) resaleCaptureOfCancelledConcert(ctx context.Context, cardAuthorizationID string) (resaleCapture, error) {
+func (uc *orderUseCase) resaleCaptureOfCancelledConcert(ctx context.Context, cardAuthorizationID string, published bool) (resaleCapture, error) {
 	authorization, err := uc.cardAuthorizations.Get(ctx, cardAuthorizationID)
 	if err != nil {
 		return resaleCapture{}, err
 	}
-	if authorization.Status == entity.CardAuthorizationStatusCaptured {
+	if authorization.CountsAsCharged(published) {
 		return resaleCapture{Charged: true}, nil
 	}
 	return resaleCapture{ConcertCancelled: true}, nil
@@ -208,15 +208,11 @@ func (uc *orderUseCase) planResaleIssue(ctx context.Context, entryID entity.Resa
 		return resaleIssuePlan{}, err
 	}
 	order := entry.Order
-	if isPaid(order) {
+	if order.IsPaid() {
 		return resaleIssuePlan{OrderID: order.ID, Paid: true}, nil
 	}
-	if entry.State != entity.ResaleEntryStateWon {
-		return resaleIssuePlan{}, apperr.New(codes.FailedPrecondition, "resale entry is not Won; nothing is charged", attrs)
-	}
-	if order.Status != entity.OrderStatusPending {
-		return resaleIssuePlan{}, apperr.New(codes.FailedPrecondition, "the entry's Order is not Pending; nothing is charged",
-			attrs, slog.String("order_status", order.Status.String()))
+	if err := entry.CheckChargeable(); err != nil {
+		return resaleIssuePlan{}, err
 	}
 	stock, err := uc.stockRepo.Get(ctx, order.TicketStockID, uc.clock())
 	if err != nil {

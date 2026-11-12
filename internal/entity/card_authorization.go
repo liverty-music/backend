@@ -57,6 +57,15 @@ type CardAuthorization struct {
 	ExpireTime *time.Time
 }
 
+// CountsAsCharged reports whether the card authorization is to be treated as
+// charged although the concert is no longer published: a captured one is,
+// because an earlier try of the capture may have charged it with its outcome
+// unknown, and the cancellation refund reaches its Paid Order. While the
+// concert is published, nothing is charged by this rule.
+func (a *CardAuthorization) CountsAsCharged(eventPublished bool) bool {
+	return !eventPublished && a.Status == CardAuthorizationStatusCaptured
+}
+
 // ChargeableAt reports whether the card authorization can still be charged at
 // t: it is Authorized and t is before its expiry time. One without an expiry
 // time cannot be charged.

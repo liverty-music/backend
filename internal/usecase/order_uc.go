@@ -294,7 +294,7 @@ func (uc *orderUseCase) GetWithSettlement(ctx context.Context, orderID entity.Or
 	if err != nil {
 		return nil, nil, err
 	}
-	if !isPaid(order) {
+	if !order.IsPaid() {
 		// A Pending or Void Order was never paid and has no Settlement.
 		return order, nil, nil
 	}

@@ -77,3 +77,21 @@ func TestTicket_Validate(t *testing.T) {
 	assert.ErrorIs(t, (&entity.Ticket{ResaleWithoutConsentProhibited: false}).Validate(), apperr.ErrInvalidArgument)
 	assert.NoError(t, (&entity.Ticket{ResaleWithoutConsentProhibited: true}).Validate())
 }
+
+func TestNewIssuedTicket(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	order := &entity.Order{ID: "order-1", UserID: "user-1"}
+
+	ticket := entity.NewIssuedTicket(order, "event-1", "iv-1", now)
+
+	assert.NotEmpty(t, ticket.ID)
+	assert.Equal(t, order.ID, ticket.OrderID)
+	assert.Equal(t, order.UserID, ticket.UserID)
+	assert.Equal(t, "event-1", ticket.EventID)
+	assert.Equal(t, "iv-1", ticket.IdentityVerificationID)
+	assert.Equal(t, entity.TicketStatusIssued, ticket.Status)
+	assert.Equal(t, now, ticket.IssueTime)
+	assert.NoError(t, ticket.Validate(), "every issued ticket is a covered ticket")
+	assert.NotEqual(t, ticket.ID, entity.NewIssuedTicket(order, "event-1", "", now).ID)
+}

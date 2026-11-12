@@ -150,6 +150,15 @@ func NewResaleEntry(order *Order, now time.Time) *ResaleEntry {
 	return e
 }
 
+// CheckChargeable reports whether the entry's Order may be charged: the entry
+// is Won and its Order Pending. It fails with FailedPrecondition otherwise.
+func (e *ResaleEntry) CheckChargeable() error {
+	if e.State != ResaleEntryStateWon {
+		return apperr.New(codes.FailedPrecondition, "resale entry is not Won; nothing is charged")
+	}
+	return e.Order.CheckChargeable()
+}
+
 // IsWithdrawable reports whether the fan may withdraw the entry: only while
 // it is Entered.
 func (e *ResaleEntry) IsWithdrawable() bool {

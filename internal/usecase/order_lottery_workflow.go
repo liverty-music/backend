@@ -246,7 +246,7 @@ func (uc *orderUseCase) captureEntry(ctx context.Context, f Flow, plan issuePlan
 			if err != nil {
 				return entryCapture{}, err
 			}
-			if authorization.Status == entity.CardAuthorizationStatusCaptured {
+			if authorization.CountsAsCharged(published) {
 				return entryCapture{Charged: true}, nil
 			}
 			return entryCapture{ConcertCancelled: true}, nil
@@ -289,7 +289,7 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 		if err != nil {
 			return issued{}, err
 		}
-		if isPaid(order) {
+		if order.IsPaid() {
 			return issued{}, nil
 		}
 		captured := &entity.CapturedPayment{Provider: facets.Provider, CardBrand: facets.CardBrand, CardLast4: facets.CardLast4,
@@ -320,7 +320,6 @@ func (uc *orderUseCase) issueCaptured(ctx context.Context, f Flow, plan issuePla
 // planIssue reads the Won entry, its Pending Order, the Order's stock, the
 // entry's sale, the event's Organizer and the IdentityVerification binding.
 func (uc *orderUseCase) planIssue(ctx context.Context, entryID entity.LotteryEntryID) (issuePlan, error) {
-	attrs := slog.String("lottery_entry_id", string(entryID))
 	entry, err := uc.entryRepo.Get(ctx, entryID)
 	if err != nil {
 		return issuePlan{}, err
@@ -329,15 +328,12 @@ func (uc *orderUseCase) planIssue(ctx context.Context, entryID entity.LotteryEnt
 	if err != nil {
 		return issuePlan{}, err
 	}
-	if isPaid(order) {
+	if order.IsPaid() {
 		return issuePlan{OrderID: order.ID, Paid: true}, nil
 	}
-	if entry.State != entity.LotteryEntryStateWon {
-		return issuePlan{}, apperr.New(codes.FailedPrecondition, "lottery entry is not Won; nothing is charged", attrs)
-	}
-	if order.Status != entity.OrderStatusPending {
-		return issuePlan{}, apperr.New(codes.FailedPrecondition, "the entry's Order is not Pending; nothing is charged",
-			attrs, slog.String("order_status", order.Status.String()))
+	entry.Order = order
+	if err := entry.CheckChargeable(); err != nil {
+		return issuePlan{}, err
 	}
 	return uc.planOrder(ctx, order, entry.TicketSaleID)
 }

@@ -265,3 +265,18 @@ func TestResaleListing_IsFreeForDrawAt(t *testing.T) {
 		assert.False(t, l.IsFreeForDrawAt(deadline.Add(time.Minute), deadline))
 	})
 }
+
+func TestResaleEntry_CheckChargeable(t *testing.T) {
+	t.Parallel()
+	for _, state := range []entity.ResaleEntryState{entity.ResaleEntryStateEntered, entity.ResaleEntryStateWon, entity.ResaleEntryStateLost} {
+		for _, status := range []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusVoid} {
+			e := &entity.ResaleEntry{State: state, Order: &entity.Order{Status: status}}
+			err := e.CheckChargeable()
+			if state == entity.ResaleEntryStateWon && status == entity.OrderStatusPending {
+				assert.NoError(t, err)
+				continue
+			}
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, state.String()+"/"+status.String())
+		}
+	}
+}

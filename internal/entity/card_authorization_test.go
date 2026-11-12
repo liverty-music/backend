@@ -149,3 +149,24 @@ func TestCardAuthorization_ChargeableAt(t *testing.T) {
 		assert.False(t, unknown.ChargeableAt(at))
 	})
 }
+
+func TestCardAuthorization_CountsAsCharged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		status    entity.CardAuthorizationStatus
+		published bool
+		want      bool
+	}{
+		{"captured and the concert stopped", entity.CardAuthorizationStatusCaptured, false, true},
+		{"authorized and the concert stopped", entity.CardAuthorizationStatusAuthorized, false, false},
+		{"captured while the concert is published", entity.CardAuthorizationStatusCaptured, true, false},
+		{"authorized while the concert is published", entity.CardAuthorizationStatusAuthorized, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, (&entity.CardAuthorization{Status: tt.status}).CountsAsCharged(tt.published))
+		})
+	}
+}
