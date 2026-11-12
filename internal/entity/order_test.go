@@ -299,3 +299,30 @@ func TestOrder_RefundPlan(t *testing.T) {
 	assert.Equal(t, entity.Transition[entity.TicketStatus]{From: []entity.TicketStatus{entity.TicketStatusIssued}, To: entity.TicketStatusVoided}, plan.Tickets, "a resold ticket stays")
 	assert.Equal(t, entity.Transition[entity.ResaleListingStatus]{From: []entity.ResaleListingStatus{entity.ResaleListingStatusListed}, To: entity.ResaleListingStatusCancelled}, plan.Listings, "a sold listing stays")
 }
+
+func TestOrder_Source(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		order *entity.Order
+		want  entity.OrderSource
+	}{
+		{"lottery entry", &entity.Order{LotteryEntryID: "le-1"}, entity.OrderSourceLotteryEntry},
+		{"checkout", &entity.Order{CheckoutID: "co-1"}, entity.OrderSourceCheckout},
+		{"resale entry", &entity.Order{ResaleEntryID: "re-1"}, entity.OrderSourceResaleEntry},
+		{"none", &entity.Order{}, entity.OrderSourceUnspecified},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.order.Source())
+		})
+	}
+
+	// The announcement of a paid Order names the same source from its ids.
+	assert.Equal(t, entity.OrderSourceResaleEntry, entity.OrderPaidData{ResaleEntryID: "re-1"}.Source())
+	assert.Equal(t, "resale_entry", entity.OrderSourceResaleEntry.String())
+	assert.Equal(t, "lottery_entry", entity.OrderSourceLotteryEntry.String())
+	assert.Equal(t, "checkout", entity.OrderSourceCheckout.String())
+}

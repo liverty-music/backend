@@ -264,17 +264,18 @@ func orderPaidFact(data entity.OrderPaidData) fact {
 		"amount":       data.Amount,
 		"currency":     data.Currency,
 	}
-	switch {
-	case data.LotteryEntryID != "":
-		props["source"] = "lottery_entry"
+	source := data.Source()
+	switch source {
+	case entity.OrderSourceLotteryEntry:
 		props["lottery_entry_id"] = data.LotteryEntryID
-	case data.CheckoutID != "":
-		props["source"] = "checkout"
+	case entity.OrderSourceCheckout:
 		props["checkout_id"] = data.CheckoutID
-	case data.ResaleEntryID != "":
-		props["source"] = "resale_entry"
+	case entity.OrderSourceResaleEntry:
 		props["resale_entry_id"] = data.ResaleEntryID
+	default:
+		return fact{distinctID: data.UserID, at: data.PayTime, props: props}
 	}
+	props["source"] = source.String()
 	return fact{distinctID: data.UserID, at: data.PayTime, props: props}
 }
 

@@ -271,6 +271,53 @@ func ValidateTicketCount(count int, event *Event) error {
 	return nil
 }
 
+// OrderSource is what an Order was applied for through: exactly one of a
+// LotteryEntry, a Checkout and a ResaleEntry ([Order.ValidateSource]).
+type OrderSource int8
+
+const (
+	// OrderSourceUnspecified means the Order names no source.
+	OrderSourceUnspecified OrderSource = iota
+	// OrderSourceLotteryEntry means the Order belongs to a LotteryEntry.
+	OrderSourceLotteryEntry
+	// OrderSourceCheckout means the Order belongs to a Checkout.
+	OrderSourceCheckout
+	// OrderSourceResaleEntry means the Order belongs to a ResaleEntry.
+	OrderSourceResaleEntry
+)
+
+// String returns the lowercase source name, as analytics events carry it.
+func (s OrderSource) String() string {
+	switch s {
+	case OrderSourceLotteryEntry:
+		return "lottery_entry"
+	case OrderSourceCheckout:
+		return "checkout"
+	case OrderSourceResaleEntry:
+		return "resale_entry"
+	default:
+		return "unspecified"
+	}
+}
+
+// orderSourceOf names the source of an Order from the ids it carries.
+func orderSourceOf(lotteryEntryID, checkoutID, resaleEntryID string) OrderSource {
+	switch {
+	case lotteryEntryID != "":
+		return OrderSourceLotteryEntry
+	case checkoutID != "":
+		return OrderSourceCheckout
+	case resaleEntryID != "":
+		return OrderSourceResaleEntry
+	}
+	return OrderSourceUnspecified
+}
+
+// Source reports what the Order was applied for through.
+func (o *Order) Source() OrderSource {
+	return orderSourceOf(string(o.LotteryEntryID), string(o.CheckoutID), string(o.ResaleEntryID))
+}
+
 // ValidateSource reports whether the Order is applied for through exactly one
 // source: a LotteryEntry, a Checkout or a ResaleEntry.
 func (o *Order) ValidateSource() error {

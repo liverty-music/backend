@@ -49,10 +49,10 @@ func FromOrder(order *entity.Order) *entityv1.Order {
 	}
 	// The source is exactly one of the checkout, the resale entry and the
 	// lottery entry ([entity.Order.ValidateSource]).
-	switch {
-	case order.CheckoutID != "":
+	switch order.Source() {
+	case entity.OrderSourceCheckout:
 		pb.Source = &entityv1.Order_CheckoutId{CheckoutId: &entityv1.CheckoutId{Value: string(order.CheckoutID)}}
-	case order.ResaleEntryID != "":
+	case entity.OrderSourceResaleEntry:
 		pb.Source = &entityv1.Order_ResaleEntryId{ResaleEntryId: &entityv1.ResaleEntryId{Value: string(order.ResaleEntryID)}}
 	default:
 		pb.Source = &entityv1.Order_LotteryEntryId{LotteryEntryId: &entityv1.LotteryEntryId{Value: string(order.LotteryEntryID)}}
