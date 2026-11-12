@@ -215,7 +215,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(db, testOutbox),
 		rdb.NewFollowRepository(db, testOutbox), entryRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
-	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(db), s.orderRepo, nil, cardAuthorizations, logger)
+	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(db), s.orderRepo, nil, cardAuthorizations, s.lottery, nil, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	require.NoError(t, err)
 	s.notifications = usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),

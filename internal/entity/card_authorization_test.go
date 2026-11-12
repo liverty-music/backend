@@ -170,3 +170,14 @@ func TestCardAuthorization_CountsAsCharged(t *testing.T) {
 		})
 	}
 }
+
+func TestCardAuthorizationPurpose_Name(t *testing.T) {
+	t.Parallel()
+	for _, p := range []entity.CardAuthorizationPurpose{entity.CardAuthorizationPurposeCheckout, entity.CardAuthorizationPurposeLotteryEntry, entity.CardAuthorizationPurposeResaleEntry} {
+		assert.NotEmpty(t, p.String())
+		assert.Equal(t, p, entity.ParseCardAuthorizationPurpose(p.String()), "the name reads back as the purpose")
+	}
+	assert.Empty(t, entity.CardAuthorizationPurposeUnspecified.String())
+	assert.Equal(t, entity.CardAuthorizationPurposeUnspecified, entity.ParseCardAuthorizationPurpose(""))
+	assert.Equal(t, entity.CardAuthorizationPurposeUnspecified, entity.ParseCardAuthorizationPurpose("refund"))
+}

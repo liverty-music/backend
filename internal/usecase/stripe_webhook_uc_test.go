@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -21,6 +22,9 @@ type webhookFixture struct {
 	processed *ucmocks.MockProcessedWebhookEventRepository
 	orders    *entitymocks.MockOrderRepository
 	refunds   *ucmocks.MockOrderRefunder
+	cards     *entitymocks.MockCardAuthorizationRepository
+	lottery   *ucmocks.MockLotteryEntryUseCase
+	resale    *ucmocks.MockResaleEntryUseCase
 	svc       usecase.StripeWebhookService
 }
 
@@ -30,8 +34,11 @@ func newWebhookFixture(t *testing.T) *webhookFixture {
 		processed: ucmocks.NewMockProcessedWebhookEventRepository(t),
 		orders:    entitymocks.NewMockOrderRepository(t),
 		refunds:   ucmocks.NewMockOrderRefunder(t),
+		cards:     entitymocks.NewMockCardAuthorizationRepository(t),
+		lottery:   ucmocks.NewMockLotteryEntryUseCase(t),
+		resale:    ucmocks.NewMockResaleEntryUseCase(t),
 	}
-	f.svc = usecase.NewStripeWebhookService(f.processed, f.orders, f.refunds, nil, newTestLogger(t))
+	f.svc = usecase.NewStripeWebhookService(f.processed, f.orders, f.refunds, f.cards, f.lottery, f.resale, newTestLogger(t))
 	return f
 }
 
@@ -342,5 +349,106 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 		require.NoError(t, f.svc.HandleEvent(context.Background(), event))
 
 		f.processed.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything)
+	})
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A card authorization became Authorized: made into the entry it pays for
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestStripeWebhook_CardAuthorizationAuthorized(t *testing.T) {
+	t.Parallel()
+
+	const (
+		piID = "pi_authorized"
+		caID = "019a0000-0000-7000-8000-000000000001"
+	)
+	event := func(eventID string) usecase.StripeWebhookEvent {
+		return usecase.StripeWebhookEvent{ProviderEventID: eventID, Type: usecase.StripeEventPaymentIntentAmountCapturableUpdated, ProviderPaymentID: piID}
+	}
+	card := func(purpose entity.CardAuthorizationPurpose) *entity.CardAuthorization {
+		return &entity.CardAuthorization{ID: caID, ProviderID: piID, Status: entity.CardAuthorizationStatusAuthorized,
+			Purchase: entity.CardAuthorizationPurchase{Purpose: purpose}}
+	}
+	noUser := (*entity.UserID)(nil)
+
+	t.Run("lottery entry, browser closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Fan closed the browser"
+		f := newWebhookFixture(t)
+		f.firstDelivery("evt_1")
+		f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(card(entity.CardAuthorizationPurposeLotteryEntry), nil)
+		f.lottery.EXPECT().Confirm(mock.Anything, caID, noUser).Return(&entity.LotteryEntry{ID: "entry-1"}, nil).Once()
+
+		require.NoError(t, f.svc.HandleEvent(context.Background(), event("evt_1")))
+	})
+
+	t.Run("resale entry, browser closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Resale application, browser closed"
+		f := newWebhookFixture(t)
+		f.firstDelivery("evt_2")
+		f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(card(entity.CardAuthorizationPurposeResaleEntry), nil)
+		f.resale.EXPECT().Confirm(mock.Anything, caID, noUser).
+			Return(&usecase.ResaleEntryView{Entry: &entity.ResaleEntry{ID: "resale-1"}}, nil).Once()
+
+		require.NoError(t, f.svc.HandleEvent(context.Background(), event("evt_2")))
+	})
+
+	t.Run("checkout or unknown purpose acknowledged", func(t *testing.T) {
+		t.Parallel()
+		for _, purpose := range []entity.CardAuthorizationPurpose{entity.CardAuthorizationPurposeCheckout, entity.CardAuthorizationPurposeUnspecified} {
+			f := newWebhookFixture(t)
+			f.firstDelivery("evt_3")
+			f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(card(purpose), nil)
+
+			require.NoError(t, f.svc.HandleEvent(context.Background(), event("evt_3")), purpose.String())
+		}
+	})
+
+	t.Run("card authorization the platform did not open", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Card authorization the platform did not open"
+		f := newWebhookFixture(t)
+		f.firstDelivery("evt_4")
+		f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(nil, apperr.New(codes.NotFound, "unknown"))
+
+		require.NoError(t, f.svc.HandleEvent(context.Background(), event("evt_4")))
+	})
+
+	t.Run("notice without a PaymentIntent id skipped", func(t *testing.T) {
+		t.Parallel()
+		f := newWebhookFixture(t)
+		f.firstDelivery("evt_5")
+
+		require.NoError(t, f.svc.HandleEvent(context.Background(), usecase.StripeWebhookEvent{
+			ProviderEventID: "evt_5", Type: usecase.StripeEventPaymentIntentAmountCapturableUpdated,
+		}))
+	})
+
+	t.Run("rejection acknowledged", func(t *testing.T) {
+		t.Parallel()
+		for _, code := range []codes.Code{codes.PermissionDenied, codes.FailedPrecondition, codes.InvalidArgument, codes.AlreadyExists} {
+			f := newWebhookFixture(t)
+			f.firstDelivery("evt_6")
+			f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(card(entity.CardAuthorizationPurposeLotteryEntry), nil)
+			f.lottery.EXPECT().Confirm(mock.Anything, caID, noUser).Return(nil, apperr.New(code, "rejected")).Once()
+
+			require.NoError(t, f.svc.HandleEvent(context.Background(), event("evt_6")), code.String())
+		}
+	})
+
+	t.Run("payment provider unreachable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Payment provider unreachable"
+		f := newWebhookFixture(t)
+		// The notice is not recorded as processed: no MarkProcessed.
+		f.processed.EXPECT().IsProcessed(mock.Anything, "evt_7").Return(false, nil).Once()
+		f.cards.EXPECT().GetByProviderCardAuthorizationID(mock.Anything, piID).Return(card(entity.CardAuthorizationPurposeLotteryEntry), nil)
+		f.lottery.EXPECT().Confirm(mock.Anything, caID, noUser).Return(nil, apperr.New(codes.Unavailable, "stripe unreachable")).Once()
+
+		err := f.svc.HandleEvent(context.Background(), event("evt_7"))
+
+		assert.ErrorIs(t, err, apperr.ErrInternal, "the provider delivers the notice again")
 	})
 }

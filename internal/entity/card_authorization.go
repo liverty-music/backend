@@ -91,6 +91,34 @@ const (
 	CardAuthorizationPurposeResaleEntry
 )
 
+// String returns the purpose name a payment provider's metadata carries:
+// "checkout", "lottery_entry" or "resale_entry"; empty for an unspecified
+// purpose.
+func (p CardAuthorizationPurpose) String() string {
+	switch p {
+	case CardAuthorizationPurposeCheckout:
+		return "checkout"
+	case CardAuthorizationPurposeLotteryEntry:
+		return "lottery_entry"
+	case CardAuthorizationPurposeResaleEntry:
+		return "resale_entry"
+	default:
+		return ""
+	}
+}
+
+// ParseCardAuthorizationPurpose is the inverse of [CardAuthorizationPurpose.String]:
+// the purpose a name denotes, or the unspecified purpose for any other
+// text, as for a card authorization the platform did not open for a purchase.
+func ParseCardAuthorizationPurpose(name string) CardAuthorizationPurpose {
+	for _, p := range []CardAuthorizationPurpose{CardAuthorizationPurposeCheckout, CardAuthorizationPurposeLotteryEntry, CardAuthorizationPurposeResaleEntry} {
+		if p.String() == name {
+			return p
+		}
+	}
+	return CardAuthorizationPurposeUnspecified
+}
+
 // CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
 // Checkout, or a lottery entry of a fan in a Lottery TicketSale for a ticket
 // count of a TicketStock, with the stock's event. It carries what the lottery

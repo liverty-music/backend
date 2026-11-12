@@ -13,10 +13,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v87"
 	stripewh "github.com/stripe/stripe-go/v87/webhook"
 
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,29 +21,12 @@ import (
 // the handler depends on.
 type stripeWebhookUseCase interface {
 	HandleEvent(ctx context.Context, event usecase.StripeWebhookEvent) error
-	ApplyOnce(ctx context.Context, providerEventID string, eventType usecase.StripeEventType, apply func(ctx context.Context) error) error
-	GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error)
-}
-
-// lotteryEntryConfirmer is the subset of [usecase.LotteryEntryUseCase] that
-// the handler depends on.
-type lotteryEntryConfirmer interface {
-	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*entity.LotteryEntry, error)
-}
-
-// resaleEntryConfirmer is the subset of [usecase.ResaleEntryUseCase] that the
-// handler depends on.
-type resaleEntryConfirmer interface {
-	Confirm(ctx context.Context, cardAuthorizationID string, caller *entity.UserID) (*usecase.ResaleEntryView, error)
 }
 
 // StripeWebhookHandler serves `POST /stripe-webhook`. It verifies the
 // Stripe-Signature header against the configured webhook signing secret (using
 // the Stripe SDK's webhook.ConstructEvent) and then dispatches the parsed event
-// to [usecase.StripeWebhookService]. A notice that a card authorization became
-// Authorized (payment_intent.amount_capturable_updated) goes straight to
-// [usecase.LotteryEntryUseCase.Confirm] without a calling fan, applied at most
-// once through [usecase.StripeWebhookService.ApplyOnce].
+// to [usecase.StripeWebhookService], which decides what each event means.
 //
 // # Public endpoint provisioning
 //
@@ -67,11 +47,9 @@ type resaleEntryConfirmer interface {
 // (Stripe's default). Requests with an invalid signature or expired timestamps
 // are rejected 401. The signing secret is never logged.
 type StripeWebhookHandler struct {
-	signingSecret  string
-	webhookSvc     stripeWebhookUseCase
-	lotteryEntries lotteryEntryConfirmer
-	resaleEntries  resaleEntryConfirmer
-	logger         *logging.Logger
+	signingSecret string
+	webhookSvc    stripeWebhookUseCase
+	logger        *logging.Logger
 }
 
 // NewStripeWebhookHandler constructs a handler for Stripe webhook events.
@@ -83,16 +61,12 @@ type StripeWebhookHandler struct {
 func NewStripeWebhookHandler(
 	signingSecret string,
 	webhookSvc stripeWebhookUseCase,
-	lotteryEntries lotteryEntryConfirmer,
-	resaleEntries resaleEntryConfirmer,
 	logger *logging.Logger,
 ) *StripeWebhookHandler {
 	return &StripeWebhookHandler{
-		signingSecret:  signingSecret,
-		webhookSvc:     webhookSvc,
-		lotteryEntries: lotteryEntries,
-		resaleEntries:  resaleEntries,
-		logger:         logger,
+		signingSecret: signingSecret,
+		webhookSvc:    webhookSvc,
+		logger:        logger,
 	}
 }
 
@@ -157,14 +131,7 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		ReceivedAt:        time.Now().UTC(),
 	}
 
-	var dispatchErr error
-	if parsed.Type == usecase.StripeEventPaymentIntentAmountCapturableUpdated {
-		dispatchErr = h.webhookSvc.ApplyOnce(ctx, parsed.ProviderEventID, parsed.Type, func(ctx context.Context) error {
-			return h.confirmEntry(ctx, parsed)
-		})
-	} else {
-		dispatchErr = h.webhookSvc.HandleEvent(ctx, parsed)
-	}
+	dispatchErr := h.webhookSvc.HandleEvent(ctx, parsed)
 	if err := dispatchErr; err != nil {
 		h.logger.Error(ctx, "stripe webhook: dispatch error", err,
 			slog.String("event_id", event.ID),
@@ -178,61 +145,6 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("{}")); err != nil && !errors.Is(err, http.ErrHandlerTimeout) {
 		h.logger.Error(ctx, "stripe webhook: failed to write response", err)
-	}
-}
-
-// confirmEntry finds the card authorization the payment provider reports
-// Authorized by the payment provider's ID and, when it pays for a lottery or
-// resale entry, runs LotteryEntryUseCase.Confirm or ResaleEntryUseCase.Confirm
-// for it without a calling fan. A
-// card authorization the platform did not open (NotFound) or that pays for a
-// Checkout is acknowledged without effect, and so is a rejection by Confirm
-// (PermissionDenied, FailedPrecondition, InvalidArgument, AlreadyExists):
-// Confirm has already released what it rejected. Any other failure is
-// returned as Internal so the provider delivers the notice again.
-func (h *StripeWebhookHandler) confirmEntry(ctx context.Context, event usecase.StripeWebhookEvent) error {
-	if event.ProviderPaymentID == "" {
-		h.logger.Warn(ctx, "stripe webhook: amount_capturable_updated without a PaymentIntent id; skipped",
-			slog.String("event_id", event.ProviderEventID))
-		return nil
-	}
-	ca, err := h.webhookSvc.GetCardAuthorization(ctx, event.ProviderPaymentID)
-	switch {
-	case errors.Is(err, apperr.ErrNotFound):
-		h.logger.Info(ctx, "stripe webhook: card authorization the platform did not open; acknowledged",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("provider_payment_id", event.ProviderPaymentID))
-		return nil
-	case err != nil:
-		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to find the card authorization",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("provider_payment_id", event.ProviderPaymentID))
-	}
-	switch {
-	case ca.Purchase.IsLotteryEntry():
-		_, err = h.lotteryEntries.Confirm(ctx, ca.ID, nil)
-	case ca.Purchase.IsResaleEntry():
-		_, err = h.resaleEntries.Confirm(ctx, ca.ID, nil)
-	default:
-		return nil
-	}
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, apperr.ErrPermissionDenied),
-		errors.Is(err, apperr.ErrFailedPrecondition),
-		errors.Is(err, apperr.ErrInvalidArgument),
-		errors.Is(err, apperr.ErrAlreadyExists):
-		h.logger.Info(ctx, "stripe webhook: card authorization not made into an entry; acknowledged",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("provider_payment_id", event.ProviderPaymentID),
-			slog.Any("error", err),
-		)
-		return nil
-	default:
-		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to confirm the entry",
-			slog.String("event_id", event.ProviderEventID),
-			slog.String("provider_payment_id", event.ProviderPaymentID))
 	}
 }
 
