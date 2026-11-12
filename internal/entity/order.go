@@ -475,6 +475,56 @@ func (o *Order) RefundPlan() RefundPlan {
 	}
 }
 
+// OrderSourceState is the state of the entity an Order was applied for
+// through, as the ticket counts read it: the Checkout, the LotteryEntry or the
+// ResaleEntry that names the Order; the others are nil.
+type OrderSourceState struct {
+	Checkout     *Checkout
+	LotteryEntry *LotteryEntry
+	ResaleEntry  *ResaleEntry
+}
+
+// CountsTowardLimitAt reports whether the Order's tickets count against the
+// fan's per-account limit of the event at now: a Paid Order (by the Tickets it
+// still has Issued), or a Pending one that still holds or may receive tickets,
+// which is a Checkout holding at now or Committed, or a LotteryEntry or
+// ResaleEntry that is Entered or Won. A Refunded or Void Order counts none.
+// The held-tickets query counts exactly the Orders this accepts.
+func (o *Order) CountsTowardLimitAt(now time.Time, src OrderSourceState) bool {
+	switch o.Status {
+	case OrderStatusPaid:
+		return true
+	case OrderStatusPending:
+		c, le, re := src.Checkout, src.LotteryEntry, src.ResaleEntry
+		return (c != nil && (c.IsHoldingAt(now) || c.Status == CheckoutStatusCommitted)) ||
+			(le != nil && (le.State == LotteryEntryStateEntered || le.State == LotteryEntryStateWon)) ||
+			(re != nil && (re.State == ResaleEntryStateEntered || re.State == ResaleEntryStateWon))
+	}
+	return false
+}
+
+// IsSold reports whether the Order's tickets count in its TicketStock's sold
+// count: a Paid or Refunded Order bought through a Checkout or a
+// LotteryEntry, or a Pending one whose Checkout is Committed or whose
+// LotteryEntry is Won. A ResaleEntry's Order takes its tickets from listings,
+// not from the stock, and is never sold from it.
+func (o *Order) IsSold(src OrderSourceState) bool {
+	c, le := src.Checkout, src.LotteryEntry
+	switch o.Status {
+	case OrderStatusPaid, OrderStatusRefunded:
+		return c != nil || le != nil
+	case OrderStatusPending:
+		return (c != nil && c.Status == CheckoutStatusCommitted) || (le != nil && le.State == LotteryEntryStateWon)
+	}
+	return false
+}
+
+// IsHeldAt reports whether the Order's tickets count in its TicketStock's held
+// count at now: a Pending Order whose Checkout is holding.
+func (o *Order) IsHeldAt(now time.Time, src OrderSourceState) bool {
+	return o.Status == OrderStatusPending && src.Checkout != nil && src.Checkout.IsHoldingAt(now)
+}
+
 // CanBecomeVoid reports whether the Order may become Void: only a Pending
 // Order may, when its source ends without it ever being paid.
 func (o *Order) CanBecomeVoid() bool {

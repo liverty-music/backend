@@ -87,6 +87,16 @@ func (s *TicketStock) Remaining() int {
 	return max(s.Quantity-s.SoldCount-s.HeldCount, 0)
 }
 
+// RemainingWithout returns the tickets left when freeing count held tickets,
+// as for a fan's own holding Checkout that a new one replaces: [TicketStock.Remaining]
+// with the held count lowered by count. A stock already over its quantity
+// frees nothing.
+func (s *TicketStock) RemainingWithout(count int) int {
+	freed := *s
+	freed.HeldCount -= count
+	return freed.Remaining()
+}
+
 // State returns where the stock stands with its sold and held counts:
 // SoldOut when the sold count equals the quantity, AllHeld when no ticket
 // remains but some are held, Available otherwise.

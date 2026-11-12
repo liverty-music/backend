@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -163,6 +164,167 @@ func (r *Checkout) CanBecome(next CheckoutStatus) bool {
 	default:
 		return false
 	}
+}
+
+// HoldingCheckoutOf returns the Checkout among checkouts that holds the stock
+// at now, which a new start resumes or replaces, or nil when none does.
+func HoldingCheckoutOf(checkouts []*Checkout, stockID TicketStockID, now time.Time) *Checkout {
+	for _, c := range checkouts {
+		if c.Order.TicketStockID == stockID && c.IsHoldingAt(now) {
+			return c
+		}
+	}
+	return nil
+}
+
+// CheckoutStep is the workflow a Checkout announcement starts.
+type CheckoutStep int8
+
+const (
+	// CheckoutStepNone means the Checkout's status starts nothing.
+	CheckoutStepNone CheckoutStep = iota
+	// CheckoutStepExpire means a Held Checkout starts its expiry, which ends
+	// the hold at its expiry time.
+	CheckoutStepExpire
+	// CheckoutStepReleaseCardAuthorization means an Expired or Released
+	// Checkout gives its card authorization back.
+	CheckoutStepReleaseCardAuthorization
+)
+
+// NextStep returns the workflow the Checkout's status starts.
+func (r *Checkout) NextStep() CheckoutStep {
+	switch r.Status {
+	case CheckoutStatusHeld:
+		return CheckoutStepExpire
+	case CheckoutStatusExpired, CheckoutStatusReleased:
+		return CheckoutStepReleaseCardAuthorization
+	}
+	return CheckoutStepNone
+}
+
+// CheckPlace reports what placing the Checkout needs: checks is true for a Held
+// one, whose hold, concert, card authorization and verification are checked
+// before the issue starts; a Committed one was placed before, and its issue is
+// waited for. It fails with FailedPrecondition for one that has ended.
+func (r *Checkout) CheckPlace() (checks bool, err error) {
+	switch r.Status {
+	case CheckoutStatusHeld:
+		return true, nil
+	case CheckoutStatusCommitted:
+		return false, nil
+	}
+	return false, apperr.New(codes.FailedPrecondition, "the checkout has ended",
+		slog.String("checkout_id", string(r.ID)), slog.String("status", r.Status.String()))
+}
+
+// CommitOutcome returns what [CheckoutRepository.Commit] reports for the
+// Checkout as read, when that is already decided: Committed for a Committed or
+// Completed one, NotHeld for an Expired or Released one. decided is false for a
+// Held one, which the commit has to try.
+func (r *Checkout) CommitOutcome() (outcome CommitOutcome, decided bool) {
+	switch r.Status {
+	case CheckoutStatusCommitted, CheckoutStatusCompleted:
+		return CommitOutcomeCommitted, true
+	case CheckoutStatusHeld:
+		return 0, false
+	default:
+		return CommitOutcomeNotHeld, true
+	}
+}
+
+// CheckNotCharged fails with FailedPrecondition for a charged Checkout, which
+// is never reverted.
+func (r *Checkout) CheckNotCharged() error {
+	if r.IsCharged() {
+		return apperr.New(codes.FailedPrecondition, "a charged checkout cannot be reverted",
+			slog.String("checkout_id", string(r.ID)))
+	}
+	return nil
+}
+
+// CheckRevert reports whether a commit can be given back: revert is true for a
+// Committed Checkout that was not charged. Any other status has nothing to
+// revert (revert false, no error), except that a charged Committed Checkout
+// fails with FailedPrecondition ([Checkout.CheckNotCharged]).
+func (r *Checkout) CheckRevert() (revert bool, err error) {
+	if r.Status != CheckoutStatusCommitted {
+		return false, nil
+	}
+	if err := r.CheckNotCharged(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CheckCaptureRecorded reports, for a Checkout whose capture time could not be
+// stored, whether that is as it should be: nil when it was charged already
+// (the capture time is set once), FailedPrecondition when it is not
+// Committed.
+func (r *Checkout) CheckCaptureRecorded() error {
+	if r.IsCharged() {
+		return nil
+	}
+	return apperr.New(codes.FailedPrecondition, "checkout is not Committed", slog.String("checkout_id", string(r.ID)))
+}
+
+// CheckoutEnd is one Held Checkout a new Checkout of the same fan replaces,
+// with the change that ends it.
+type CheckoutEnd struct {
+	// Checkout is the Held Checkout, as read.
+	Checkout *Checkout
+	// Transition moves it from Held to Released when it is still holding, to
+	// Expired when its hold lapsed.
+	Transition Transition[CheckoutStatus]
+}
+
+// Subject is the announcement subject of the end: CHECKOUT.released or
+// CHECKOUT.expired.
+func (e CheckoutEnd) Subject() string {
+	if e.Transition.To == CheckoutStatusReleased {
+		return SubjectCheckoutReleased
+	}
+	return SubjectCheckoutExpired
+}
+
+// CheckoutStart is what starting a Checkout does with the fan's Held
+// Checkouts of the stock at now.
+type CheckoutStart struct {
+	// Reuse is the holding Checkout of the same sale and ticket count, which
+	// starting again returns as it is; nil when a new one is created.
+	Reuse *Checkout
+	// Replaced is the holding Checkout whose tickets count as free for the new
+	// one; nil when none is holding.
+	Replaced *Checkout
+	// Ends are the Held Checkouts the new one replaces, holding or lapsed.
+	Ends []CheckoutEnd
+}
+
+// PlanCheckoutStart decides, from the fan's Held Checkouts of a stock, whether
+// starting a Checkout of the sale for count tickets reuses the holding one or
+// replaces them: every Held Checkout is ended, Released while holding at now
+// and Expired when lapsed, and the holding one's tickets count as free.
+func PlanCheckoutStart(held []*Checkout, saleID TicketSaleID, count int, now time.Time) CheckoutStart {
+	var plan CheckoutStart
+	for _, c := range held {
+		if c.IsHoldingAt(now) {
+			plan.Replaced = c
+		}
+	}
+	if plan.Replaced != nil && plan.Replaced.TicketSaleID == saleID && plan.Replaced.Order.TicketCount == count {
+		plan.Reuse = plan.Replaced
+		return plan
+	}
+	for _, c := range held {
+		next := CheckoutStatusExpired
+		if c.IsHoldingAt(now) {
+			next = CheckoutStatusReleased
+		}
+		plan.Ends = append(plan.Ends, CheckoutEnd{
+			Checkout:   c,
+			Transition: Transition[CheckoutStatus]{From: []CheckoutStatus{CheckoutStatusHeld}, To: next},
+		})
+	}
+	return plan
 }
 
 // CommitOutcome is what [CheckoutRepository.Commit] reports.

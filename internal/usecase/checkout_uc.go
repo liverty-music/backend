@@ -217,15 +217,15 @@ func openFirstComeSale(sales []*entity.TicketSale, now time.Time) *entity.Ticket
 // has not yet taken its winners' tickets from the stock (design D6).
 func (uc *checkoutUseCase) checkLotteriesDrawn(ctx context.Context, sales []*entity.TicketSale, stock *entity.TicketStock, now time.Time) error {
 	for _, sale := range sales {
-		if sale.Method != entity.TicketSaleMethodLottery || sale.IsNotYetOverAt(now) {
+		if !sale.IsLotteryClosedAt(now) {
 			continue
 		}
 		undrawn, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, sale.ID, stock.ID)
 		if err != nil {
 			return err
 		}
-		if len(undrawn) > 0 {
-			return apperr.New(codes.FailedPrecondition, "a closed lottery of the event is not drawn yet")
+		if err := sale.CheckDrawnFor(len(undrawn)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -239,11 +239,9 @@ func (uc *checkoutUseCase) holdingOrderID(ctx context.Context, userID entity.Use
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range checkouts {
-		if c.Order.TicketStockID == stockID && c.IsHoldingAt(now) {
-			id := c.OrderID
-			return &id, nil
-		}
+	if c := entity.HoldingCheckoutOf(checkouts, stockID, now); c != nil {
+		id := c.OrderID
+		return &id, nil
 	}
 	return nil, nil
 }
@@ -348,14 +346,14 @@ func (uc *checkoutUseCase) Expire(ctx context.Context, f Flow, in ExpireRequest)
 // StartCheckoutWorkflow implements [CheckoutUseCase].
 func (uc *checkoutUseCase) StartCheckoutWorkflow(ctx context.Context, checkout *entity.Checkout) error {
 	now := uc.clock()
-	switch checkout.Status {
-	case entity.CheckoutStatusHeld:
+	switch checkout.NextStep() {
+	case entity.CheckoutStepExpire:
 		// A late announcement starts the expiry at once.
 		delay := max(checkout.HoldExpireTime.Sub(now), 0)
 		return uc.workflows.Start(ctx, WorkflowExpireCheckout, ExpireWorkflowID(checkout.ID),
 			ExpireRequest{CheckoutID: checkout.ID, HoldExpireTime: checkout.HoldExpireTime},
 			WithDelay(delay), WithDeadline(now.Add(delay+expireWorkflowDeadline)))
-	case entity.CheckoutStatusExpired, entity.CheckoutStatusReleased:
+	case entity.CheckoutStepReleaseCardAuthorization:
 		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(checkout.OrderID), checkout.OrderID,
 			WithQueue(PaymentQueue), WithDeadline(now.Add(paymentWorkflowDeadline)))
 	default:

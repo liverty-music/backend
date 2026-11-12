@@ -530,3 +530,24 @@ func TestTicketSale_Validate_ResultDate(t *testing.T) {
 		})
 	}
 }
+
+func TestTicketSale_IsLotteryClosedAt(t *testing.T) {
+	t.Parallel()
+
+	start, end := nov(1, 10, 0), nov(10, 10, 0)
+	lottery := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, start, end, "event-1")
+	firstCome := entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, start, end, "event-1")
+
+	assert.False(t, lottery.IsLotteryClosedAt(end.Add(-time.Second)), "open")
+	assert.True(t, lottery.IsLotteryClosedAt(end), "closed at the end time")
+	assert.True(t, lottery.IsLotteryClosedAt(end.Add(time.Hour)))
+	assert.False(t, firstCome.IsLotteryClosedAt(end.Add(time.Hour)), "a first-come sale is no lottery")
+}
+
+func TestTicketSale_CheckDrawnFor(t *testing.T) {
+	t.Parallel()
+
+	sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1")
+	assert.NoError(t, sale.CheckDrawnFor(0), "no Entered entry is left for the stock")
+	assert.ErrorIs(t, sale.CheckDrawnFor(1), apperr.ErrFailedPrecondition)
+}

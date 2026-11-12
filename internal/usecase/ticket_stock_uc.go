@@ -111,27 +111,17 @@ func (uc *ticketStockUseCase) Create(ctx context.Context, organizerID, eventID s
 	if err != nil {
 		return nil, err
 	}
-	if !containsSeatType(seatTypes, seatTypeID) {
+	if !entity.HasSeatType(seatTypes, seatTypeID) {
 		return nil, apperr.New(codes.InvalidArgument, "the seat type is not one of the series' seat types")
 	}
 	stock := entity.NewTicketStock(eventID, seatTypeID, quantity)
 	if err := stock.Validate(); err != nil {
 		return nil, err
 	}
-	if event.HasPublishState(entity.PublishStateCancelled) {
-		return nil, apperr.New(codes.FailedPrecondition, "a cancelled event cannot be stocked")
+	if err := event.CanBeStocked(); err != nil {
+		return nil, err
 	}
 	return uc.stockRepo.Create(ctx, stock)
-}
-
-// containsSeatType reports whether id is among seatTypes.
-func containsSeatType(seatTypes []*entity.SeatType, id entity.SeatTypeID) bool {
-	for _, s := range seatTypes {
-		if s.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 // Delete implements [TicketStockUseCase].

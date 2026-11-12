@@ -179,27 +179,19 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 	if err != nil {
 		return nil, toAppErr(err, "failed to read the user's held checkout", attrs...)
 	}
-	var holding *entity.Checkout
-	for _, c := range held {
-		if c.IsHoldingAt(now) {
-			holding = c
-		}
-	}
-	if holding != nil && holding.TicketSaleID == saleID && holding.Order.TicketCount == count {
-		return holding, nil
+	plan := entity.PlanCheckoutStart(held, saleID, count, now)
+	if plan.Reuse != nil {
+		return plan.Reuse, nil
 	}
 
-	// The user's own holding checkout counts as free: it is replaced. The
-	// count is taken off the stockHeld count before the remaining count is
-	// computed, so a stock already over its quantity frees nothing.
-	stockHeld := stock.HeldCount
+	// The user's own holding checkout counts as free: it is replaced.
 	var except *entity.OrderID
-	if holding != nil {
-		stockHeld -= holding.Order.TicketCount
-		except = &holding.OrderID
+	freed := 0
+	if plan.Replaced != nil {
+		except = &plan.Replaced.OrderID
+		freed = plan.Replaced.Order.TicketCount
 	}
-	free := stock.Quantity - stock.SoldCount - stockHeld
-	if free < count {
+	if stock.RemainingWithout(freed) < count {
 		return nil, apperr.New(codes.ResourceExhausted, "not enough tickets remain", attrs...)
 	}
 	event, err := eventLimit(ctx, tx, stock.EventID)
@@ -214,24 +206,17 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
 	}
 
-	for _, c := range held {
-		next := entity.CheckoutStatusExpired
-		if c.IsHoldingAt(now) {
-			next = entity.CheckoutStatusReleased
-		}
-		if _, err := tx.Exec(ctx, checkoutEndHeldQuery, string(c.ID), int16(next)); err != nil {
-			return nil, toAppErr(err, "failed to end the replaced checkout", attrs...)
+	for _, end := range plan.Ends {
+		c := end.Checkout
+		if err := applyTransition(ctx, tx, "checkouts", "status", string(c.ID), end.Transition, ""); err != nil {
+			return nil, err
 		}
 		if _, err := tx.Exec(ctx, orderVoidQuery, string(c.OrderID)); err != nil {
 			return nil, toAppErr(err, "failed to void the replaced checkout's order", attrs...)
 		}
 		ended := *c
-		ended.Status = next
-		subject := entity.SubjectCheckoutExpired
-		if next == entity.CheckoutStatusReleased {
-			subject = entity.SubjectCheckoutReleased
-		}
-		if err := announce(ctx, r.outbox, tx, subject, &ended); err != nil {
+		ended.Status = end.Transition.To
+		if err := announce(ctx, r.outbox, tx, end.Subject(), &ended); err != nil {
 			return nil, err
 		}
 	}
@@ -305,11 +290,8 @@ func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, n
 	if err != nil {
 		return 0, err
 	}
-	if current.Status == entity.CheckoutStatusCommitted || current.Status == entity.CheckoutStatusCompleted {
-		return entity.CommitOutcomeCommitted, nil
-	}
-	if current.Status != entity.CheckoutStatusHeld {
-		return entity.CommitOutcomeNotHeld, nil
+	if outcome, decided := current.CommitOutcome(); decided {
+		return outcome, nil
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -334,8 +316,8 @@ func (r *CheckoutRepository) Commit(ctx context.Context, id entity.CheckoutID, n
 		if err != nil {
 			return 0, err
 		}
-		if after.Status == entity.CheckoutStatusCommitted || after.Status == entity.CheckoutStatusCompleted {
-			return entity.CommitOutcomeCommitted, nil
+		if outcome, decided := after.CommitOutcome(); decided {
+			return outcome, nil
 		}
 		return entity.CommitOutcomeNotHeld, nil
 	}
@@ -401,11 +383,8 @@ func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.Checkou
 	if err != nil {
 		return err
 	}
-	if current.Status != entity.CheckoutStatusCommitted {
-		return nil
-	}
-	if current.IsCharged() {
-		return apperr.New(codes.FailedPrecondition, "a charged checkout cannot be reverted", attrs)
+	if revert, err := current.CheckRevert(); err != nil || !revert {
+		return err
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -429,10 +408,7 @@ func (r *CheckoutRepository) RevertCommit(ctx context.Context, id entity.Checkou
 		if err != nil {
 			return err
 		}
-		if after.IsCharged() {
-			return apperr.New(codes.FailedPrecondition, "a charged checkout cannot be reverted", attrs)
-		}
-		return nil
+		return after.CheckNotCharged()
 	}
 	if _, err := tx.Exec(ctx, orderVoidQuery, orderID); err != nil {
 		return toAppErr(err, "failed to void the reverted checkout's order", attrs)
@@ -463,10 +439,7 @@ func (r *CheckoutRepository) RecordCapture(ctx context.Context, id entity.Checko
 	if err != nil {
 		return err
 	}
-	if current.IsCharged() {
-		return nil
-	}
-	return apperr.New(codes.FailedPrecondition, "checkout is not Committed", slog.String("checkout_id", string(id)))
+	return current.CheckCaptureRecorded()
 }
 
 // ListByUser returns every checkout of the user, newest first.
