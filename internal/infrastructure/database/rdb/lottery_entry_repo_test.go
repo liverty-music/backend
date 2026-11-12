@@ -1133,3 +1133,28 @@ func failOrderUpdate(t *testing.T, db *rdb.Database, id entity.OrderID) {
 		require.NoError(t, err)
 	})
 }
+
+// TestLotteryEntryRepository_StatsParity checks that the stats query counts
+// exactly what entity.NewLotteryEntryStats counts for the sale's entries of
+// the stock, in every state, and leaves out the entries of another stock.
+func TestLotteryEntryRepository_StatsParity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewLotteryEntryRepository(db, testOutbox)
+	saleID, a, b := seedLotteryOfTwoStocks(t, db, 100, 100)
+
+	var ofA []*entity.LotteryEntry
+	for i, state := range []entity.LotteryEntryState{
+		entity.LotteryEntryStateEntered, entity.LotteryEntryStateEntered, entity.LotteryEntryStateWon,
+		entity.LotteryEntryStateWon, entity.LotteryEntryStateLost, entity.LotteryEntryStateLost,
+	} {
+		ofA = append(ofA, insertLotteryEntry(t, db, a, saleID, newUserID(t, db), i%3+1, state))
+	}
+	insertLotteryEntry(t, db, b, saleID, newUserID(t, db), 4, entity.LotteryEntryStateWon)
+
+	got, err := repo.GetStatsByTicketSaleAndTicketStock(context.Background(), saleID, a.ID)
+
+	require.NoError(t, err)
+	assert.Equal(t, entity.NewLotteryEntryStats(ofA), got)
+	assert.Equal(t, 6, got.EntryCount, "the entries of another stock are not counted")
+}

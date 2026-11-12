@@ -159,3 +159,76 @@ func TestLotteryEntry_CheckChargeable(t *testing.T) {
 		}
 	}
 }
+
+func TestLotteryOutcomes(t *testing.T) {
+	t.Parallel()
+
+	entered := []entity.LotteryEntryState{entity.LotteryEntryStateEntered}
+	pending := []entity.OrderStatus{entity.OrderStatusPending}
+
+	t.Run("selected by the draw", func(t *testing.T) {
+		t.Parallel()
+		o := entity.DrawWonOutcome()
+		assert.Equal(t, entity.Transition[entity.LotteryEntryState]{From: entered, To: entity.LotteryEntryStateWon}, o.Entry)
+		assert.Equal(t, entity.LotteryEntryLostReasonUnspecified, o.LostReason)
+		assert.False(t, o.Order.Changed(), "the Order stays Pending until it is charged")
+	})
+
+	t.Run("not selected by the draw", func(t *testing.T) {
+		t.Parallel()
+		o := entity.DrawLostOutcome()
+		assert.Equal(t, entity.Transition[entity.LotteryEntryState]{From: entered, To: entity.LotteryEntryStateLost}, o.Entry)
+		assert.Equal(t, entity.LotteryEntryLostReasonNotDrawn, o.LostReason)
+		assert.Equal(t, entity.Transition[entity.OrderStatus]{From: pending, To: entity.OrderStatusVoid}, o.Order)
+	})
+
+	t.Run("concert cancelled", func(t *testing.T) {
+		t.Parallel()
+		o := entity.ConcertCancelledOutcome()
+		assert.Equal(t, entity.Transition[entity.LotteryEntryState]{From: entered, To: entity.LotteryEntryStateLost}, o.Entry)
+		assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, o.LostReason)
+		assert.Equal(t, entity.Transition[entity.OrderStatus]{From: pending, To: entity.OrderStatusVoid}, o.Order)
+	})
+}
+
+func TestLotteryEntry_NextStep(t *testing.T) {
+	t.Parallel()
+	for state, want := range map[entity.LotteryEntryState]entity.LotteryEntryStep{
+		entity.LotteryEntryStateEntered: entity.LotteryEntryStepNone,
+		entity.LotteryEntryStateWon:     entity.LotteryEntryStepIssue,
+		entity.LotteryEntryStateLost:    entity.LotteryEntryStepReleaseCardAuthorization,
+	} {
+		assert.Equal(t, want, (&entity.LotteryEntry{State: state}).NextStep(), state.String())
+	}
+}
+
+func TestNewLotteryEntryStats(t *testing.T) {
+	t.Parallel()
+
+	entry := func(state entity.LotteryEntryState, tickets int) *entity.LotteryEntry {
+		return &entity.LotteryEntry{State: state, Order: &entity.Order{TicketCount: tickets}}
+	}
+	got := entity.NewLotteryEntryStats([]*entity.LotteryEntry{
+		entry(entity.LotteryEntryStateEntered, 1),
+		entry(entity.LotteryEntryStateWon, 2),
+		entry(entity.LotteryEntryStateWon, 3),
+		entry(entity.LotteryEntryStateLost, 4),
+	})
+
+	assert.Equal(t, entity.LotteryEntryStats{EntryCount: 4, TicketCount: 10, WonEntryCount: 2, WonTicketCount: 5, LostEntryCount: 1}, got)
+	assert.Equal(t, entity.LotteryEntryStats{}, entity.NewLotteryEntryStats(nil))
+}
+
+func TestHasEntryForStocks(t *testing.T) {
+	t.Parallel()
+
+	stocks := []*entity.TicketStock{{ID: "stock-a"}, {ID: "stock-b"}}
+	entryOf := func(stockID entity.TicketStockID, state entity.LotteryEntryState) *entity.LotteryEntry {
+		return &entity.LotteryEntry{State: state, Order: &entity.Order{TicketStockID: stockID}}
+	}
+
+	assert.True(t, entity.HasEntryForStocks([]*entity.LotteryEntry{entryOf("stock-b", entity.LotteryEntryStateEntered)}, stocks), "an entry for another stock of the event counts")
+	assert.True(t, entity.HasEntryForStocks([]*entity.LotteryEntry{entryOf("stock-a", entity.LotteryEntryStateLost)}, stocks), "in any state")
+	assert.False(t, entity.HasEntryForStocks([]*entity.LotteryEntry{entryOf("stock-other-event", entity.LotteryEntryStateEntered)}, stocks), "an entry for a stock of another event does not")
+	assert.False(t, entity.HasEntryForStocks(nil, stocks))
+}

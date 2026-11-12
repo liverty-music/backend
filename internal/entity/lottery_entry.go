@@ -167,6 +167,68 @@ func (e *LotteryEntry) RevertWin(reason LotteryEntryLostReason) (Transition[Lott
 		nil
 }
 
+// LotteryOutcome is what the end of an Entered LotteryEntry changes: the
+// entry's move, the lost reason it gets, and, for a Lost entry, its Order's
+// move to Void. The repository applies each by compare-and-set.
+type LotteryOutcome struct {
+	// Entry moves the Entered entry to Won or Lost.
+	Entry Transition[LotteryEntryState]
+	// LostReason is why the entry lost; unspecified for Won.
+	LostReason LotteryEntryLostReason
+	// Order voids the Pending Order of a Lost entry; zero for Won, whose Order
+	// stays Pending until it is charged.
+	Order Transition[OrderStatus]
+}
+
+// DrawWonOutcome is the outcome of an entry the draw selects.
+func DrawWonOutcome() LotteryOutcome {
+	return LotteryOutcome{Entry: Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateEntered}, To: LotteryEntryStateWon}}
+}
+
+// DrawLostOutcome is the outcome of an entry the draw does not select: Lost
+// with the reason not drawn, its Order Void.
+func DrawLostOutcome() LotteryOutcome {
+	return lostOutcome(LotteryEntryLostReasonNotDrawn)
+}
+
+// ConcertCancelledOutcome is the outcome of an Entered entry whose event was
+// cancelled: Lost with the reason concert cancelled, its Order Void.
+func ConcertCancelledOutcome() LotteryOutcome {
+	return lostOutcome(LotteryEntryLostReasonConcertCancelled)
+}
+
+func lostOutcome(reason LotteryEntryLostReason) LotteryOutcome {
+	return LotteryOutcome{
+		Entry:      Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateEntered}, To: LotteryEntryStateLost},
+		LostReason: reason,
+		Order:      Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid},
+	}
+}
+
+// LotteryEntryStep is the work that follows an entry's draw result.
+type LotteryEntryStep int8
+
+const (
+	// LotteryEntryStepNone means the entry's state starts nothing.
+	LotteryEntryStepNone LotteryEntryStep = iota
+	// LotteryEntryStepIssue means a Won entry's Order is charged and issued.
+	LotteryEntryStepIssue
+	// LotteryEntryStepReleaseCardAuthorization means a Lost entry's card
+	// authorization is given back.
+	LotteryEntryStepReleaseCardAuthorization
+)
+
+// NextStep returns the work that follows the entry's state.
+func (e *LotteryEntry) NextStep() LotteryEntryStep {
+	switch e.State {
+	case LotteryEntryStateWon:
+		return LotteryEntryStepIssue
+	case LotteryEntryStateLost:
+		return LotteryEntryStepReleaseCardAuthorization
+	}
+	return LotteryEntryStepNone
+}
+
 // CheckChargeable reports whether the entry's Order may be charged: the entry
 // is Won and its Order Pending. It fails with FailedPrecondition otherwise.
 func (e *LotteryEntry) CheckChargeable() error {
@@ -210,6 +272,46 @@ type LotteryEntryStats struct {
 
 	// LostEntryCount is the number of Lost entries.
 	LostEntryCount int
+}
+
+// IsWon reports whether the entry is Won.
+func (e *LotteryEntry) IsWon() bool { return e.State == LotteryEntryStateWon }
+
+// IsLost reports whether the entry is Lost, whatever the lost reason.
+func (e *LotteryEntry) IsLost() bool { return e.State == LotteryEntryStateLost }
+
+// NewLotteryEntryStats counts entries, which are one sale's entries for one
+// TicketStock with their Orders: every entry, the tickets they asked for, and
+// the Won and Lost ones. The stats query counts exactly what this does.
+func NewLotteryEntryStats(entries []*LotteryEntry) LotteryEntryStats {
+	var s LotteryEntryStats
+	for _, e := range entries {
+		s.EntryCount++
+		s.TicketCount += e.Order.TicketCount
+		if e.IsWon() {
+			s.WonEntryCount++
+			s.WonTicketCount += e.Order.TicketCount
+		}
+		if e.IsLost() {
+			s.LostEntryCount++
+		}
+	}
+	return s
+}
+
+// HasEntryForStocks reports whether the fan already has an entry among entries,
+// in any state, for one of stocks: a fan enters a sale at most once for each
+// event, whichever of the event's stocks it is for. entries are the fan's
+// entries in one sale and stocks the stocks of one event.
+func HasEntryForStocks(entries []*LotteryEntry, stocks []*TicketStock) bool {
+	for _, e := range entries {
+		for _, s := range stocks {
+			if e.Order.TicketStockID == s.ID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // StockDrawOrder is one TicketStock's Entered entries of a sale in their

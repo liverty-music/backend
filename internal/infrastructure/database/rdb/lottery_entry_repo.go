@@ -103,17 +103,19 @@ const (
 		WHERE le.ticket_sale_id = $1 AND le.id = ANY($2::uuid[]) AND le.state = 1
 	`
 	// lotteryEntrySetOutcomeQuery sets the state of every entry in $1 that is
-	// still Entered to $3 with the matching draw position of $2 and lost
-	// reason of $4 (NULL for winners), and returns the ids and orders of the
-	// entries it changed.
+	// in one of the states $5 to $3 with the matching draw position of $2 and
+	// lost reason of $4 (NULL for winners), and returns the ids and orders of
+	// the entries it changed.
 	lotteryEntrySetOutcomeQuery = `
 		UPDATE lottery_entries AS le
 		SET state = $3, draw_position = u.position, lost_reason = u.lost_reason
 		FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bigint[]) AS position, unnest($4::smallint[]) AS lost_reason) AS u
-		WHERE le.id = u.id AND le.state = 1
+		WHERE le.id = u.id AND le.state = ANY($5::smallint[])
 		RETURNING le.id, le.order_id
 	`
-	lotteryEntryVoidOrdersQuery = `UPDATE orders SET status = 5 WHERE id = ANY($1::uuid[]) AND status = 4`
+	// lotteryEntryVoidOrdersQuery moves the orders $1 that are in one of the
+	// states $3 to $2.
+	lotteryEntryVoidOrdersQuery = `UPDATE orders SET status = $2 WHERE id = ANY($1::uuid[]) AND status = ANY($3::smallint[])`
 	// lotteryEntryStockQuery reads the stock of the entry's Order; no row when
 	// no entry has the id.
 	lotteryEntryStockQuery = `SELECT o.ticket_stock_id FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE le.id = $1`
@@ -122,14 +124,15 @@ const (
 	// lotteryEntryLockStocksOfEventQuery locks every stock of the event $1 in
 	// id order, the order PersistDrawOutcome and RevertWin lock stocks in.
 	lotteryEntryLockStocksOfEventQuery = `SELECT id FROM ticket_stocks WHERE event_id = $1 ORDER BY id FOR UPDATE`
-	// lotteryEntryEndEnteredQuery makes every Entered entry whose Order is of
-	// one of the stocks $1 Lost with the lost reason $2, and returns the ids,
-	// orders and sales of the entries it changed.
+	// lotteryEntryEndEnteredQuery moves every entry in one of the states $4
+	// whose Order is of one of the stocks $1 to the state $3 with the lost
+	// reason $2, and returns the ids, orders and sales of the entries it
+	// changed.
 	lotteryEntryEndEnteredQuery = `
 		UPDATE lottery_entries AS le
-		SET state = 3, lost_reason = $2
+		SET state = $3, lost_reason = $2
 		FROM orders o
-		WHERE o.id = le.order_id AND o.ticket_stock_id = ANY($1::uuid[]) AND le.state = 1
+		WHERE o.id = le.order_id AND o.ticket_stock_id = ANY($1::uuid[]) AND le.state = ANY($4::smallint[])
 		RETURNING le.id, le.order_id, le.ticket_sale_id
 	`
 	// lotteryEntryMarkLossEmailSentQuery sets the loss email send time once
@@ -433,10 +436,10 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID 
 		}
 	}
 
-	if err := r.recordOutcome(ctx, tx, saleID, winners, entity.LotteryEntryStateWon, entity.LotteryEntryLostReasonUnspecified); err != nil {
+	if err := r.recordOutcome(ctx, tx, saleID, winners, entity.DrawWonOutcome()); err != nil {
 		return err
 	}
-	if err := r.recordOutcome(ctx, tx, saleID, losers, entity.LotteryEntryStateLost, entity.LotteryEntryLostReasonNotDrawn); err != nil {
+	if err := r.recordOutcome(ctx, tx, saleID, losers, entity.DrawLostOutcome()); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -455,10 +458,11 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID 
 // recordOutcome sets the drawn entries that are still Entered to state with
 // their draw positions, and the lost reason for Lost, announces each one it
 // changed and, for Lost, voids their Orders, on tx.
-func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, drawn []drawnRow, state entity.LotteryEntryState, reason entity.LotteryEntryLostReason) error {
+func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, drawn []drawnRow, outcome entity.LotteryOutcome) error {
 	if len(drawn) == 0 {
 		return nil
 	}
+	state, reason := outcome.Entry.To, outcome.LostReason
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(saleID)), slog.String("state", state.String()), slog.Int("entry_count", len(drawn))}
 	ids, positions, reasons := make([]string, len(drawn)), make([]int64, len(drawn)), make([]*int16, len(drawn))
 	byID := make(map[string]int, len(drawn))
@@ -470,7 +474,7 @@ func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, s
 		}
 		byID[string(d.id)] = d.position
 	}
-	rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(state), reasons)
+	rows, err := tx.Query(ctx, lotteryEntrySetOutcomeQuery, ids, positions, int16(state), reasons, statesOf(outcome.Entry.From))
 	if err != nil {
 		return toAppErr(err, "failed to record the draw outcome", attrs...)
 	}
@@ -490,14 +494,14 @@ func (r *LotteryEntryRepository) recordOutcome(ctx context.Context, tx pgx.Tx, s
 	}); err != nil {
 		return err
 	}
-	if state != entity.LotteryEntryStateLost {
+	if !outcome.Order.Changed() {
 		return nil
 	}
 	lostOrders := make([]string, len(changed))
 	for i, c := range changed {
 		lostOrders[i] = c.OrderID
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, lostOrders); err != nil {
+	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, lostOrders, int16(outcome.Order.To), statesOf(outcome.Order.From)); err != nil {
 		return toAppErr(err, "failed to void the losers' orders", attrs...)
 	}
 	return nil
@@ -597,8 +601,8 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 	if len(stocks) == 0 {
 		return nil
 	}
-	reason := entity.LotteryEntryLostReasonConcertCancelled
-	rows, err = tx.Query(ctx, lotteryEntryEndEnteredQuery, stocks, int16(reason))
+	outcome := entity.ConcertCancelledOutcome()
+	rows, err = tx.Query(ctx, lotteryEntryEndEnteredQuery, stocks, int16(outcome.LostReason), int16(outcome.Entry.To), statesOf(outcome.Entry.From))
 	if err != nil {
 		return toAppErr(err, "failed to end the event's lottery entries", attrs...)
 	}
@@ -613,7 +617,7 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 	for i, e := range ended {
 		orders[i] = e.OrderID
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, orders); err != nil {
+	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, orders, int16(outcome.Order.To), statesOf(outcome.Order.From)); err != nil {
 		return toAppErr(err, "failed to void the ended entries' orders", attrs...)
 	}
 	for start := 0; start < len(ended); start += drawAnnouncementChunk {
@@ -624,8 +628,8 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 				ID:           entity.LotteryEntryID(e.ID),
 				OrderID:      entity.OrderID(e.OrderID),
 				TicketSaleID: entity.TicketSaleID(e.TicketSaleID),
-				State:        entity.LotteryEntryStateLost,
-				LostReason:   reason,
+				State:        outcome.Entry.To,
+				LostReason:   outcome.LostReason,
 			})
 		}
 		if err := announceAll(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, chunk); err != nil {

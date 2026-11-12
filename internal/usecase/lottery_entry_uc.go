@@ -297,16 +297,7 @@ func (uc *lotteryEntryUseCase) hasEntryForEvent(ctx context.Context, saleID enti
 	if err != nil {
 		return false, err
 	}
-	ofEvent := make(map[entity.TicketStockID]struct{}, len(stocks))
-	for _, s := range stocks {
-		ofEvent[s.ID] = struct{}{}
-	}
-	for _, e := range entries {
-		if _, ok := ofEvent[e.Order.TicketStockID]; ok {
-			return true, nil
-		}
-	}
-	return false, nil
+	return entity.HasEntryForStocks(entries, stocks), nil
 }
 
 // checkVerification fails with FailedPrecondition when the sale requires

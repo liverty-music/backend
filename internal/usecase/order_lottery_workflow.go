@@ -116,10 +116,10 @@ type capturedFacets struct {
 //   - Errors of starting the workflow, unchanged.
 func (uc *orderUseCase) StartDrawnEntryWorkflow(ctx context.Context, entry *entity.LotteryEntry) error {
 	opts := []StartOption{WithQueue(PaymentQueue), WithDeadline(uc.clock().Add(paymentWorkflowDeadline))}
-	switch entry.State {
-	case entity.LotteryEntryStateWon:
+	switch entry.NextStep() {
+	case entity.LotteryEntryStepIssue:
 		return uc.workflows.Start(ctx, WorkflowIssue, IssueWorkflowID(entry.OrderID), IssueRequest{LotteryEntryID: entry.ID}, opts...)
-	case entity.LotteryEntryStateLost:
+	case entity.LotteryEntryStepReleaseCardAuthorization:
 		return uc.workflows.Start(ctx, WorkflowReleaseCardAuthorization, ReleaseWorkflowID(entry.OrderID), entry.OrderID, opts...)
 	default:
 		return nil
