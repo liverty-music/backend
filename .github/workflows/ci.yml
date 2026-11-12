@@ -60,8 +60,10 @@ jobs:
               - 'go.sum'
               - 'k8s/atlas/base/migrations/**'
               - '.github/workflows/**'
+            # Only the vips-tagged files: the rest of the package is tested by
+            # Test, and the scheduled run tests everything with vips.
             series_image:
-              - 'internal/adapter/event/**'
+              - 'internal/adapter/event/series_image*'
               - 'cmd/consumer/series-image-consumer/**'
               - 'go.mod'
               - 'go.sum'
@@ -98,10 +100,12 @@ jobs:
       # Renovate does not manage; fail when they are on different schema builds.
       - name: Check schema SDK modules share one schema commit
         run: scripts/check-schema-sdk-commit.sh
+      # The Go build cache gives golangci-lint and go vet the compiled packages
+      # of the dependencies; without it `make lint` compiled them on every run.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
       # `make lint` installs the golangci-lint version pinned in the Makefile,
       # the same binary local runs and the pre-commit hook use.
       - name: Run make lint
