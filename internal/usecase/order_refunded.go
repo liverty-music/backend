@@ -93,10 +93,7 @@ func (uc *notificationUseCase) readRefundNotice(ctx context.Context, orderID ent
 
 	// The refund Voided every Ticket, so the number refunded comes from the
 	// amount, not from the Tickets.
-	content := refundContent{order: order, concert: concerts[0], refunded: int64(order.TicketCount)}
-	if price := pricePerTicket(order); price > 0 {
-		content.refunded = refund.Amount / price
-	}
+	content := refundContent{order: order, concert: concerts[0], refunded: order.RefundedTicketCount()}
 	content.resold = int64(order.TicketCount) - content.refunded
 
 	email := content.email(emailLanguage(user.PreferredLanguage))

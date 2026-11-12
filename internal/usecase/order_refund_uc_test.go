@@ -487,7 +487,6 @@ func TestOrderUseCase_Refund_NonStripeProvider_FailedPrecondition(t *testing.T) 
 	f := newRefundFixture(t)
 	f.reads(komojuOrder)
 	f.cancelledEvent(komojuOrder.ID)
-	f.heldSettlement(komojuOrder.ID)
 
 	_, err := f.uc.Refund(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -517,7 +516,6 @@ func TestOrderUseCase_Refund_EmptyProviderPaymentID_FailedPrecondition(t *testin
 	f := newRefundFixture(t)
 	f.reads(badOrder)
 	f.cancelledEvent(badOrder.ID)
-	f.heldSettlement(badOrder.ID)
 
 	_, err := f.uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)

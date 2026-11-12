@@ -168,14 +168,6 @@ func (uc *notificationUseCase) readCancellationNotice(ctx context.Context, order
 	}, nil
 }
 
-// pricePerTicket is the Order's amount divided by its ticket count.
-func pricePerTicket(o *entity.Order) int64 {
-	if o.TicketCount <= 0 {
-		return o.Amount
-	}
-	return o.Amount / int64(o.TicketCount)
-}
-
 // concertTitle is the concert's series title, or empty.
 func (c cancellationContent) concertTitle() string {
 	return orderConfirmationContent{concert: c.concert}.concertTitle()
@@ -186,7 +178,7 @@ func (c cancellationContent) email(lang string) entity.OrderEmail {
 	date := c.concert.LocalDate
 	venue := orderConfirmationContent{concert: c.concert}.venueName()
 	card := strings.ToUpper(c.order.Payment.CardBrand)
-	refund := pricePerTicket(c.order) * c.issued
+	refund := c.order.UnitPrice() * c.issued
 	var b strings.Builder
 	if lang == "en" {
 		fmt.Fprintf(&b, "We are sorry to tell you that the following concert has been cancelled.\n\n")

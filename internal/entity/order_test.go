@@ -209,3 +209,93 @@ func TestOrder_MarkPaid(t *testing.T) {
 	assert.Equal(t, now, *o.PayTime)
 	assert.Equal(t, entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"}, o.Payment)
 }
+
+func TestOrder_CheckRefundable(t *testing.T) {
+	t.Parallel()
+
+	cancelledState, publishedState := entity.PublishStateCancelled, entity.PublishStatePublished
+	cancelled := &entity.Event{PublishState: &cancelledState}
+	published := &entity.Event{PublishState: &publishedState}
+	stripe := entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1"}
+	tests := []struct {
+		name    string
+		status  entity.OrderStatus
+		payment entity.Payment
+		reason  entity.RefundReason
+		event   *entity.Event
+		wantErr bool
+	}{
+		{"paid, cancellation, cancelled event", entity.OrderStatusPaid, stripe, entity.RefundReasonCancellation, cancelled, false},
+		{"paid, cancellation, published event", entity.OrderStatusPaid, stripe, entity.RefundReasonCancellation, published, true},
+		{"paid, cancellation, no event", entity.OrderStatusPaid, stripe, entity.RefundReasonCancellation, nil, true},
+		{"paid, dispute, whatever the event", entity.OrderStatusPaid, stripe, entity.RefundReasonDispute, nil, false},
+		{"paid, dispute without a provider payment", entity.OrderStatusPaid, entity.Payment{}, entity.RefundReasonDispute, nil, false},
+		{"paid, non-Stripe provider", entity.OrderStatusPaid, entity.Payment{Provider: entity.PaymentProviderKOMOJU, ProviderPaymentID: "pi_1"}, entity.RefundReasonCancellation, cancelled, true},
+		{"paid, no provider payment ID", entity.OrderStatusPaid, entity.Payment{Provider: entity.PaymentProviderStripe}, entity.RefundReasonCancellation, cancelled, true},
+		{"pending", entity.OrderStatusPending, stripe, entity.RefundReasonDispute, nil, true},
+		{"void", entity.OrderStatusVoid, stripe, entity.RefundReasonDispute, nil, true},
+		{"refunded", entity.OrderStatusRefunded, stripe, entity.RefundReasonDispute, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := (&entity.Order{ID: "o", Status: tt.status, Payment: tt.payment}).CheckRefundable(tt.reason, tt.event)
+			if tt.wantErr {
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestOrder_RefundableAmount(t *testing.T) {
+	t.Parallel()
+
+	order := &entity.Order{ID: "o", Amount: 12000, TicketCount: 3}
+	ticket := func(orderID entity.OrderID, status entity.TicketStatus) *entity.Ticket {
+		return &entity.Ticket{OrderID: orderID, Status: status}
+	}
+	tests := []struct {
+		name    string
+		tickets []*entity.Ticket
+		want    int64
+	}{
+		{"none resold", []*entity.Ticket{ticket("o", entity.TicketStatusIssued), ticket("o", entity.TicketStatusIssued), ticket("o", entity.TicketStatusIssued)}, 12000},
+		{"one resold", []*entity.Ticket{ticket("o", entity.TicketStatusIssued), ticket("o", entity.TicketStatusIssued), ticket("o", entity.TicketStatusVoided)}, 8000},
+		{"every ticket resold", []*entity.Ticket{ticket("o", entity.TicketStatusVoided), ticket("o", entity.TicketStatusVoided), ticket("o", entity.TicketStatusVoided)}, 0},
+		{"a ticket of another order is ignored", []*entity.Ticket{ticket("o", entity.TicketStatusIssued), ticket("other", entity.TicketStatusIssued)}, 12000},
+		{"no tickets", nil, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, order.RefundableAmount(tt.tickets))
+		})
+	}
+}
+
+func TestOrder_UnitPriceAndRefundedTicketCount(t *testing.T) {
+	t.Parallel()
+
+	order := &entity.Order{Amount: 12000, TicketCount: 3}
+	assert.Equal(t, int64(4000), order.UnitPrice())
+	assert.Equal(t, int64(0), order.RefundedTicketCount(), "no refund")
+	order.Refund = &entity.OrderRefund{Amount: 8000}
+	assert.Equal(t, int64(2), order.RefundedTicketCount())
+	order.Refund.Amount = 0
+	assert.Equal(t, int64(0), order.RefundedTicketCount())
+	assert.Equal(t, int64(12000), (&entity.Order{Amount: 12000}).UnitPrice(), "an Order without a count")
+	free := &entity.Order{TicketCount: 2, Refund: &entity.OrderRefund{}}
+	assert.Equal(t, int64(2), free.RefundedTicketCount(), "a free Order counts every ticket")
+}
+
+func TestOrder_RefundPlan(t *testing.T) {
+	t.Parallel()
+
+	plan := (&entity.Order{}).RefundPlan()
+
+	assert.Equal(t, entity.Transition[entity.OrderStatus]{From: []entity.OrderStatus{entity.OrderStatusPaid}, To: entity.OrderStatusRefunded}, plan.Order)
+	assert.Equal(t, entity.Transition[entity.TicketStatus]{From: []entity.TicketStatus{entity.TicketStatusIssued}, To: entity.TicketStatusVoided}, plan.Tickets, "a resold ticket stays")
+	assert.Equal(t, entity.Transition[entity.ResaleListingStatus]{From: []entity.ResaleListingStatus{entity.ResaleListingStatusListed}, To: entity.ResaleListingStatusCancelled}, plan.Listings, "a sold listing stays")
+}
