@@ -273,6 +273,146 @@ func (s *TicketSale) CheckDrawnFor(entered int) error {
 	return nil
 }
 
+// CheckEndsBeforeStarts checks the sale's end time against the start times of
+// the events it names. A Lottery sale must end before every start, and a
+// FirstCome sale no later than every start. It fails with FailedPrecondition.
+func (s *TicketSale) CheckEndsBeforeStarts(starts []time.Time) error {
+	for _, start := range starts {
+		if s.Method == TicketSaleMethodLottery && !s.SaleEndTime.Before(start) {
+			return apperr.New(codes.FailedPrecondition, "a lottery sale must end before every event starts")
+		}
+		if s.Method == TicketSaleMethodFirstCome && s.SaleEndTime.After(start) {
+			return apperr.New(codes.FailedPrecondition, "a first-come sale must end no later than every event's start")
+		}
+	}
+	return nil
+}
+
+// IsOpenFirstComeAt reports whether the sale is a FirstCome sale whose window
+// is open at t. Sales of one event never overlap, so at most one is.
+func (s *TicketSale) IsOpenFirstComeAt(t time.Time) bool {
+	return s.Method == TicketSaleMethodFirstCome && s.IsOpenAt(t)
+}
+
+// TicketSaleEventFacts is what a TicketSale's creation reads about one event
+// the sale names.
+type TicketSaleEventFacts struct {
+	// Published is true when the event is PUBLISHED.
+	Published bool
+	// StartTime is the event's start time; nil when unknown.
+	StartTime *time.Time
+	// HasStock is true when the event has at least one TicketStock.
+	HasStock bool
+}
+
+// TicketSaleCreateSnapshot is what is read to decide whether a TicketSale can
+// be created.
+type TicketSaleCreateSnapshot struct {
+	// SeriesEvents are the events of the Organizer's Series.
+	SeriesEvents []*Event
+	// EventFacts are the facts about each event the sale names, by id.
+	EventFacts map[string]TicketSaleEventFacts
+	// OrganizerHasBusinessDetails is true when the Organizer's business
+	// details are complete.
+	OrganizerHasBusinessDetails bool
+	// OtherSales are the stored sales of the events the sale names; the
+	// sale's own stored window is not compared.
+	OtherSales []*TicketSale
+}
+
+// CheckCreate decides, in this order, whether the sale can be created from
+// snapshot: every event is an event of its Series (InvalidArgument), then,
+// failing with FailedPrecondition: every event is published, every event has a
+// start time, every event has a ticket stock, the end time fits the starts
+// ([TicketSale.CheckEndsBeforeStarts]), the Organizer's business details are
+// complete, and the window overlaps no other sale of an event.
+func (s *TicketSale) CheckCreate(snapshot TicketSaleCreateSnapshot) error {
+	if err := s.CheckEventsOfSeries(snapshot.SeriesEvents); err != nil {
+		return err
+	}
+	for _, id := range s.EventIDs {
+		if !snapshot.EventFacts[id].Published {
+			return apperr.New(codes.FailedPrecondition, "an event of the sale is not published")
+		}
+	}
+	known := make([]*time.Time, len(s.EventIDs))
+	for i, id := range s.EventIDs {
+		known[i] = snapshot.EventFacts[id].StartTime
+	}
+	starts, err := RequireStartTimes(known)
+	if err != nil {
+		return err
+	}
+	for _, id := range s.EventIDs {
+		if !snapshot.EventFacts[id].HasStock {
+			return apperr.New(codes.FailedPrecondition, "an event of the sale has no ticket stock")
+		}
+	}
+	if err := s.CheckEndsBeforeStarts(starts); err != nil {
+		return err
+	}
+	if !snapshot.OrganizerHasBusinessDetails {
+		return apperr.New(codes.FailedPrecondition, "the organizer has no complete business details")
+	}
+	return s.CheckNoOverlap(snapshot.OtherSales)
+}
+
+// RequireStartTimes returns the start times of the events a sale names, each
+// of which must be known. It fails with FailedPrecondition when one is not.
+func RequireStartTimes(starts []*time.Time) ([]time.Time, error) {
+	out := make([]time.Time, 0, len(starts))
+	for _, start := range starts {
+		if start == nil {
+			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale has no start time")
+		}
+		out = append(out, *start)
+	}
+	return out, nil
+}
+
+// CheckNoOverlap fails with FailedPrecondition when the sale's window overlaps
+// the window of any of others, the other sales of its events. The sale's own
+// stored window is not compared.
+func (s *TicketSale) CheckNoOverlap(others []*TicketSale) error {
+	for _, other := range others {
+		if other.ID != s.ID && s.Overlaps(other) {
+			return apperr.New(codes.FailedPrecondition, "the window overlaps another sale of an event")
+		}
+	}
+	return nil
+}
+
+// IsSameDiscoveredSale reports whether the discovered sale d is the stored
+// discovered sale s found again: the same Series and method, and a start on the
+// same day in Japan time. A later discovery of the same sale (the page's times
+// corrected) is matched to it by this identity, not by id.
+func (s *TicketSale) IsSameDiscoveredSale(d *DiscoveredTicketSale) bool {
+	return s.IsDiscovered() && s.SeriesID == d.SeriesID && s.Method == d.Method &&
+		JapanDate(s.SaleStartTime).Equal(JapanDate(d.SaleStartTime))
+}
+
+// MergeDiscovered returns the sale as it is stored after the discovered sale d
+// of the same identity ([TicketSale.IsSameDiscoveredSale]) is merged into it:
+// it keeps its id, Series, method and discovered time and takes the new name
+// and times. It takes the new result date when there is one; otherwise it
+// keeps the stored one while it is no earlier than the Japan-time day of the
+// new end time, and clears it once a later end time makes it impossible.
+func (s *TicketSale) MergeDiscovered(d *DiscoveredTicketSale) *TicketSale {
+	merged := *s
+	merged.Name = d.Name
+	merged.SaleStartTime = d.SaleStartTime
+	merged.SaleEndTime = d.SaleEndTime
+	switch {
+	case d.ResultDate != nil:
+		merged.ResultDate = d.ResultDate
+	case s.ResultDate != nil && IsResultDateOnOrAfterEnd(*s.ResultDate, d.SaleEndTime):
+		merged.ResultDate = s.ResultDate
+	default:
+		merged.ResultDate = nil
+	}
+	return &merged
+}
+
 // IsOpenAt reports whether the window is open at t: at or after the start
 // and before the end.
 func (s *TicketSale) IsOpenAt(t time.Time) bool {

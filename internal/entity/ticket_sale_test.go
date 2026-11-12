@@ -551,3 +551,83 @@ func TestTicketSale_CheckDrawnFor(t *testing.T) {
 	assert.NoError(t, sale.CheckDrawnFor(0), "no Entered entry is left for the stock")
 	assert.ErrorIs(t, sale.CheckDrawnFor(1), apperr.ErrFailedPrecondition)
 }
+
+func TestTicketSale_CheckCreate(t *testing.T) {
+	t.Parallel()
+
+	start := nov(20, 19, 0)
+	facts := func(published bool, start *time.Time, stock bool) entity.TicketSaleEventFacts {
+		return entity.TicketSaleEventFacts{Published: published, StartTime: start, HasStock: stock}
+	}
+	good := func() entity.TicketSaleCreateSnapshot {
+		return entity.TicketSaleCreateSnapshot{
+			SeriesEvents:                []*entity.Event{{ID: "event-1", SeriesID: "series-1"}},
+			EventFacts:                  map[string]entity.TicketSaleEventFacts{"event-1": facts(true, &start, true)},
+			OrganizerHasBusinessDetails: true,
+		}
+	}
+	lottery := func() *entity.TicketSale {
+		return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(11, 10, 0), "event-1")
+	}
+
+	tests := []struct {
+		name    string
+		sale    func() *entity.TicketSale
+		mutate  func(*entity.TicketSaleCreateSnapshot)
+		wantErr error
+	}{
+		// @spec components/entity/ticket-sale "Create"
+		{"valid", lottery, func(*entity.TicketSaleCreateSnapshot) {}, nil},
+		{"event of another series", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.SeriesEvents[0].SeriesID = "series-2" }, apperr.ErrInvalidArgument},
+		{"event not published", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(false, &start, true) }, apperr.ErrFailedPrecondition},
+		{"start time not announced", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(true, nil, true) }, apperr.ErrFailedPrecondition},
+		{"event without a stock", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(true, &start, false) }, apperr.ErrFailedPrecondition},
+		{"lottery ending at the start", func() *entity.TicketSale {
+			return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), start, "event-1")
+		}, func(*entity.TicketSaleCreateSnapshot) {}, apperr.ErrFailedPrecondition},
+		{"first-come ending at the start", func() *entity.TicketSale {
+			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), start, "event-1")
+		}, func(*entity.TicketSaleCreateSnapshot) {}, nil},
+		{"first-come ending after the start", func() *entity.TicketSale {
+			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), start.Add(time.Minute), "event-1")
+		}, func(*entity.TicketSaleCreateSnapshot) {}, apperr.ErrFailedPrecondition},
+		{"business details missing", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.OrganizerHasBusinessDetails = false }, apperr.ErrFailedPrecondition},
+		{"window overlaps another sale", lottery, func(s *entity.TicketSaleCreateSnapshot) {
+			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, nov(5, 10, 0), nov(15, 10, 0), "event-1")}
+		}, apperr.ErrFailedPrecondition},
+		{"back-to-back with another sale", lottery, func(s *entity.TicketSaleCreateSnapshot) {
+			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, nov(11, 10, 0), nov(15, 10, 0), "event-1")}
+		}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot := good()
+			tt.mutate(&snapshot)
+			err := tt.sale().CheckCreate(snapshot)
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+
+	t.Run("the sale's own stored window is not compared", func(t *testing.T) {
+		t.Parallel()
+		sale := lottery()
+		snapshot := good()
+		snapshot.OtherSales = []*entity.TicketSale{sale}
+		assert.NoError(t, sale.CheckCreate(snapshot))
+	})
+}
+
+func TestTicketSale_IsOpenFirstComeAt(t *testing.T) {
+	t.Parallel()
+
+	firstCome := entity.NewTicketSale("s", "n", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(10, 10, 0), "e")
+	lottery := entity.NewTicketSale("s", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "e")
+	assert.True(t, firstCome.IsOpenFirstComeAt(nov(5, 0, 0)))
+	assert.False(t, firstCome.IsOpenFirstComeAt(nov(10, 10, 0)), "closed at the end time")
+	assert.False(t, lottery.IsOpenFirstComeAt(nov(5, 0, 0)), "a lottery sale is not first-come")
+}

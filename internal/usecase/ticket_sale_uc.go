@@ -209,53 +209,75 @@ func authoredEvents(ctx context.Context, seriesRepo entity.SeriesRepository, org
 	return entity.EventsOf(concerts), nil
 }
 
-// eventStartTimes reads the start time of each event, failing with
-// FailedPrecondition when one has none.
+// eventStartTimes reads the start time of each event; each must be known
+// ([entity.RequireStartTimes]).
 func (uc *ticketSaleUseCase) eventStartTimes(ctx context.Context, eventIDs []string) ([]time.Time, error) {
-	starts := make([]time.Time, 0, len(eventIDs))
-	for _, id := range eventIDs {
+	known := make([]*time.Time, len(eventIDs))
+	for i, id := range eventIDs {
 		start, err := uc.eventStart.GetEventStartTime(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if start == nil {
-			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale has no start time")
-		}
-		starts = append(starts, *start)
+		known[i] = start
 	}
-	return starts, nil
+	return entity.RequireStartTimes(known)
 }
 
-// checkEndBeforeEvents fails with FailedPrecondition when a Lottery sale does
-// not end before every event start, or a FirstCome sale ends after any.
-func checkEndBeforeEvents(method entity.TicketSaleMethod, end time.Time, starts []time.Time) error {
-	for _, start := range starts {
-		if method == entity.TicketSaleMethodLottery && !end.Before(start) {
-			return apperr.New(codes.FailedPrecondition, "a lottery sale must end before every event starts")
-		}
-		if method == entity.TicketSaleMethodFirstCome && end.After(start) {
-			return apperr.New(codes.FailedPrecondition, "a first-come sale must end no later than every event's start")
-		}
-	}
-	return nil
-}
-
-// checkNoOverlap fails with FailedPrecondition when sale's window overlaps
-// the window of another sale of any of its events. The sale's own stored
-// window is not compared.
-func (uc *ticketSaleUseCase) checkNoOverlap(ctx context.Context, sale *entity.TicketSale) error {
+// otherSalesOf reads the stored sales of the events sale names, to check its
+// window against.
+func (uc *ticketSaleUseCase) otherSalesOf(ctx context.Context, sale *entity.TicketSale) ([]*entity.TicketSale, error) {
+	var others []*entity.TicketSale
 	for _, eventID := range sale.EventIDs {
-		others, err := uc.saleRepo.ListByEvent(ctx, eventID)
+		sales, err := uc.saleRepo.ListByEvent(ctx, eventID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		for _, other := range others {
-			if other.ID != sale.ID && sale.Overlaps(other) {
-				return apperr.New(codes.FailedPrecondition, "the window overlaps another sale of an event")
-			}
-		}
+		others = append(others, sales...)
 	}
-	return nil
+	return others, nil
+}
+
+// createSnapshot reads what [entity.TicketSale.CheckCreate] decides from: the
+// facts about each event the sale names (published, start time, ticket stock),
+// the Organizer's business details and the other sales of those events. Events
+// that are not among the Series' own are left out; the check refuses the sale
+// for them first.
+func (uc *ticketSaleUseCase) createSnapshot(ctx context.Context, organizerID string, sale *entity.TicketSale, events []*entity.Event) (entity.TicketSaleCreateSnapshot, error) {
+	own := make(map[string]bool, len(events))
+	for _, e := range events {
+		own[e.ID] = true
+	}
+	snapshot := entity.TicketSaleCreateSnapshot{SeriesEvents: events, EventFacts: map[string]entity.TicketSaleEventFacts{}}
+	now := uc.clock()
+	for _, id := range sale.EventIDs {
+		if !own[id] {
+			continue
+		}
+		published, err := uc.eventState.IsEventPublished(ctx, id)
+		if err != nil {
+			return snapshot, err
+		}
+		start, err := uc.eventStart.GetEventStartTime(ctx, id)
+		if err != nil {
+			return snapshot, err
+		}
+		stocks, err := uc.stockRepo.ListByEvent(ctx, id, now)
+		if err != nil {
+			return snapshot, err
+		}
+		others, err := uc.saleRepo.ListByEvent(ctx, id)
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot.EventFacts[id] = entity.TicketSaleEventFacts{Published: published, StartTime: start, HasStock: len(stocks) > 0}
+		snapshot.OtherSales = append(snapshot.OtherSales, others...)
+	}
+	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.OrganizerHasBusinessDetails = organizer.HasCompleteBusinessDetails()
+	return snapshot, nil
 }
 
 // Create implements [TicketSaleUseCase].
@@ -276,45 +298,11 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 	if err != nil {
 		return nil, err
 	}
-	if err := sale.CheckEventsOfSeries(events); err != nil {
-		return nil, err
-	}
-	for _, id := range sale.EventIDs {
-		published, err := uc.eventState.IsEventPublished(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if !published {
-			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale is not published")
-		}
-	}
-	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
+	snapshot, err := uc.createSnapshot(ctx, organizerID, sale, events)
 	if err != nil {
 		return nil, err
 	}
-	now := uc.clock()
-	for _, id := range sale.EventIDs {
-		stocks, err := uc.stockRepo.ListByEvent(ctx, id, now)
-		if err != nil {
-			return nil, err
-		}
-		if len(stocks) == 0 {
-			return nil, apperr.New(codes.FailedPrecondition, "an event of the sale has no ticket stock")
-		}
-	}
-	if err := checkEndBeforeEvents(sale.Method, sale.SaleEndTime, starts); err != nil {
-		return nil, err
-	}
-
-	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
-	if err != nil {
-		return nil, err
-	}
-	if !organizer.HasCompleteBusinessDetails() {
-		return nil, apperr.New(codes.FailedPrecondition, "the organizer has no complete business details")
-	}
-
-	if err := uc.checkNoOverlap(ctx, sale); err != nil {
+	if err := sale.CheckCreate(snapshot); err != nil {
 		return nil, err
 	}
 	return uc.saleRepo.Create(ctx, sale)
@@ -422,16 +410,20 @@ func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, 
 	if err := sale.ValidateWindow(saleStart, saleEnd); err != nil {
 		return nil, err
 	}
+	moved := *sale
+	moved.SaleStartTime, moved.SaleEndTime = saleStart, saleEnd
 	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkEndBeforeEvents(sale.Method, saleEnd, starts); err != nil {
+	if err := moved.CheckEndsBeforeStarts(starts); err != nil {
 		return nil, err
 	}
-	moved := *sale
-	moved.SaleStartTime, moved.SaleEndTime = saleStart, saleEnd
-	if err := uc.checkNoOverlap(ctx, &moved); err != nil {
+	others, err := uc.otherSalesOf(ctx, &moved)
+	if err != nil {
+		return nil, err
+	}
+	if err := moved.CheckNoOverlap(others); err != nil {
 		return nil, err
 	}
 	return uc.saleRepo.SetWindow(ctx, saleID, saleStart, saleEnd)

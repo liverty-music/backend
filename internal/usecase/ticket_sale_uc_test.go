@@ -180,6 +180,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Event of another series"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		in := lotteryInput()
 		in.EventIDs = append(in.EventIDs, "event-of-other-series")
@@ -193,8 +195,12 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Event not published"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.seriesOwnedBy("org-1", "event-1")
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(false, nil)
+		// The facts of the check are read before it runs.
+		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{tsStock("event-1", 150, 0, 0)}, nil).Maybe()
 
 		_, err := f.uc.Create(ctx, "org-1", lotteryInput())
 
@@ -205,6 +211,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Start time not yet announced"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		f.starts["event-1"] = nil
 
@@ -217,6 +225,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Sale ends after the event starts"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		in := lotteryInput()
 		in.SaleStart = saleTime(11, 10, 20, 0)
@@ -231,6 +241,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 	t.Run("lottery ending at the event start", func(t *testing.T) {
 		t.Parallel()
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		in := lotteryInput()
 		in.SaleStart = saleTime(11, 10, 19, 0)
@@ -246,6 +258,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "First-come sale ends after the show starts"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		in := firstComeInput()
 		end := saleTime(11, 20, 19, 30)
@@ -299,6 +313,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Business details missing"
 		f := newTicketSaleFixture(t, now)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		f.organizer(false)
 
@@ -311,6 +326,7 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Lottery without business details"
 		f := newTicketSaleFixture(t, now)
+		f.otherSales("event-1")
 		f.ownSeries("event-1")
 		f.organizer(false)
 
@@ -391,6 +407,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "No end time"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		in := firstComeInput()
 		in.SaleEnd = time.Time{}
 
@@ -404,6 +422,8 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket-sale/create "Event without a ticket stock"
 		f := newTicketSaleFixture(t, now)
+		f.organizer(true)
+		f.otherSales("event-1")
 		f.seriesOwnedBy("org-1", "event-1")
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{}, nil)
