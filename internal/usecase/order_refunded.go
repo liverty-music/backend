@@ -96,7 +96,7 @@ func (uc *notificationUseCase) readRefundNotice(ctx context.Context, orderID ent
 	content := refundContent{order: order, concert: concerts[0], refunded: order.RefundedTicketCount()}
 	content.resold = int64(order.TicketCount) - content.refunded
 
-	email := content.email(emailLanguage(user.PreferredLanguage))
+	email := content.email(user.EmailLanguage())
 	return orderNoticeMessage{
 		Send:     true,
 		UserID:   user.ID,

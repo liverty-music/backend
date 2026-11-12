@@ -24,11 +24,13 @@ type IdentityVerifierResult struct {
 	Method entity.VerificationMethod
 }
 
-// IdentityVerifierRecheckResult is the outcome of a 現況確認 (liveness) re-check.
+// IdentityVerifierRecheckResult is the outcome of a 現況確認 (liveness) re-check:
+// what the provider reports about the certificate. Whether that means the
+// account must verify again is the entity's to decide
+// ([entity.IdentityVerification.NeedsReverification]).
 type IdentityVerifierRecheckResult struct {
-	// NeedsReverification is true when the Pocket Sign 現況確認 reports the
-	// certificate is revoked, 基本4情報 changed, or expired.
-	NeedsReverification bool
+	// CertificateState is the state the provider reports for the certificate.
+	CertificateState entity.CertificateState
 }
 
 // IdentityVerifier is the interface the identity verification use case uses to interact
@@ -220,16 +222,15 @@ func (uc *identityVerificationUseCase) Create(
 		return nil, err
 	}
 
-	if existing != nil {
-		if existing.UserID != userID {
-			return nil, apperr.New(codes.AlreadyExists,
-				"this person is already verified on another account; "+
-					"if you believe this is an error, please contact support to resolve the conflict")
-		}
+	supersede, err := entity.CheckDedupe(userID, existing)
+	if err != nil {
+		return nil, err
+	}
+	if supersede.Changed() {
 		// Renewal path (same user, same provider_user_id): deactivate the old
 		// record before creating the new one so the partial unique index
 		// constraint is not violated. The new row is inserted in ACTIVE status.
-		if err := uc.identityVerificationRepo.UpdateStatus(ctx, existing.ID, entity.VerificationStatusNeedsReverification); err != nil {
+		if err := uc.identityVerificationRepo.UpdateStatus(ctx, existing.ID, supersede.To); err != nil {
 			return nil, err
 		}
 	}
@@ -265,7 +266,15 @@ func (uc *identityVerificationUseCase) Recheck(ctx context.Context, userID strin
 		return nil, err
 	}
 
-	if recheckResult.NeedsReverification {
+	if recheckResult.CertificateState.IsIndeterminate() {
+		// Not a confirmed bad state, so nothing is flagged: a transient lookup
+		// failure must not force a spurious re-verification.
+		uc.logger.Warn(ctx, "identity verification re-check returned an indeterminate certificate state; not flagging re-verification",
+			slog.String("user_id", userID),
+			slog.Int("certificate_state", int(recheckResult.CertificateState)),
+		)
+	}
+	if identityVerification.NeedsReverification(recheckResult.CertificateState) {
 		if err := uc.identityVerificationRepo.UpdateStatus(ctx, identityVerification.ID, entity.VerificationStatusNeedsReverification); err != nil {
 			return nil, err
 		}

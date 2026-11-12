@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -282,4 +283,34 @@ func TestNewUser_ValidateEmail(t *testing.T) {
 
 	assert.NoError(t, (&entity.NewUser{Email: email(165)}).ValidateEmail())
 	assert.ErrorIs(t, (&entity.NewUser{Email: email(166)}).ValidateEmail(), apperr.ErrInvalidArgument)
+}
+
+func TestHome_ResolveCentroid(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []string{"JP-01", "JP-13", "JP-47"} {
+		c, ok := (&entity.Home{CountryCode: "JP", Level1: code}).ResolveCentroid()
+		assert.True(t, ok, code)
+		assert.NotZero(t, c.Latitude, code)
+		assert.NotZero(t, c.Longitude, code)
+	}
+	tokyo, _ := (&entity.Home{Level1: "JP-13"}).ResolveCentroid()
+	assert.InDelta(t, 35.6894, tokyo.Latitude, 0.01)
+	assert.InDelta(t, 139.6917, tokyo.Longitude, 0.01)
+
+	for _, code := range []string{"US-NY", "", "XX-99"} {
+		_, ok := (&entity.Home{Level1: code}).ResolveCentroid()
+		assert.False(t, ok, "no centroid for %q", code)
+	}
+	for i := 1; i <= 47; i++ {
+		_, ok := (&entity.Home{Level1: fmt.Sprintf("JP-%02d", i)}).ResolveCentroid()
+		assert.True(t, ok, "every prefecture has one: JP-%02d", i)
+	}
+}
+
+func TestUser_EmailLanguage(t *testing.T) {
+	t.Parallel()
+	for lang, want := range map[string]string{"en": "en", "ja": "ja", "": "ja", "fr": "ja", "EN": "ja"} {
+		assert.Equal(t, want, (&entity.User{PreferredLanguage: lang}).EmailLanguage(), "preferred %q", lang)
+	}
 }

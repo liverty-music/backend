@@ -58,7 +58,7 @@ func NewSettlementRepository(settlements *rdb.SettlementRepository, payouts Sett
 // operations.
 type PayoutAccountProvider interface {
 	// Create is [entity.PayoutAccountRepository.Create].
-	Create(ctx context.Context, organizerID string, contactEmail string) (string, error)
+	Create(ctx context.Context, organizerID string, contactEmail string, terms entity.PayoutAccountTerms) (string, error)
 	// GetStatus is [entity.PayoutAccountRepository.GetStatus].
 	GetStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error)
 	// CreateOnboardingLink is [entity.PayoutAccountRepository.CreateOnboardingLink].

@@ -125,7 +125,7 @@ func (uc *payoutAccountUseCase) StartOnboarding(ctx context.Context, organizerID
 // The provider's idempotency key makes a retry after a storage failure reuse
 // the same provider account.
 func (uc *payoutAccountUseCase) openAccount(ctx context.Context, organizerID string, contactEmail string) (*entity.PayoutAccount, error) {
-	providerAccountID, err := uc.payoutAccountRepo.Create(ctx, organizerID, contactEmail)
+	providerAccountID, err := uc.payoutAccountRepo.Create(ctx, organizerID, contactEmail, entity.DefaultPayoutAccountTerms())
 	if err != nil {
 		return nil, err
 	}

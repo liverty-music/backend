@@ -56,7 +56,7 @@ func (uc *notificationUseCase) SendResaleEntryEnded(ctx context.Context, entryID
 		reason:   entry.LostReason,
 	}
 	content.resaleOpen = stock.IsResaleOpenAt(now, &concerts[0].Event)
-	if err := d.ResaleEntryMailer.SendEndedEmail(ctx, entry.ID, user.Email, content.email(emailLanguage(user.PreferredLanguage))); err != nil {
+	if err := d.ResaleEntryMailer.SendEndedEmail(ctx, entry.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
 		return err
 	}
 

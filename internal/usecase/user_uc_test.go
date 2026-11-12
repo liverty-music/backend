@@ -1859,3 +1859,36 @@ func (f *countingFlow) Recv(context.Context, string, time.Duration) ([]byte, boo
 	f.waits++
 	return nil, false, nil
 }
+
+// TestUserUseCase_HomeCentroid checks that the usecase gives the repository a
+// Home carrying the centroid of its level-1 area, and none for an area without
+// one: the repository stores the position it is given.
+func TestUserUseCase_HomeCentroid(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("SetHome sets the centroid of a supported area", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		home := &entity.Home{CountryCode: "JP", Level1: "JP-27"}
+		d.repo.EXPECT().UpdateHome(ctx, "user-1", mock.MatchedBy(func(h *entity.Home) bool {
+			return h.Centroid != nil && h.Level1 == "JP-27" && h.Centroid.Latitude > 34 && h.Centroid.Latitude < 35
+		})).Return(&entity.User{ID: "user-1"}, nil).Once()
+
+		_, err := d.uc.SetHome(ctx, "user-1", home)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("SetHome sets none for an area without one", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().UpdateHome(ctx, "user-1", mock.MatchedBy(func(h *entity.Home) bool {
+			return h.Centroid == nil
+		})).Return(&entity.User{ID: "user-1"}, nil).Once()
+
+		_, err := d.uc.SetHome(ctx, "user-1", &entity.Home{CountryCode: "US", Level1: "US-CA"})
+
+		require.NoError(t, err)
+	})
+}

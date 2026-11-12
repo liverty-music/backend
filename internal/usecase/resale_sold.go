@@ -46,7 +46,7 @@ func (uc *notificationUseCase) SendResaleSold(ctx context.Context, refunded enti
 		order: order, concert: concerts[0], tz: d.TimeZone,
 		listing: listing,
 	}
-	return d.ResaleMailer.SendSoldEmail(ctx, listing.ID, user.Email, content.email(emailLanguage(user.PreferredLanguage)))
+	return d.ResaleMailer.SendSoldEmail(ctx, listing.ID, user.Email, content.email(user.EmailLanguage()))
 }
 
 // resaleSoldContent is everything the sold email shows.

@@ -394,8 +394,8 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 }
 
 // Recheck calls UserService.CheckUserStatus to perform 現況確認 for the given
-// Pocket Sign user id. NeedsReverification is true when the certificate is
-// REVOKED or EXPIRED (not for UNKNOWN/UNSPECIFIED — indeterminate stays false).
+// Pocket Sign user id.
+// It reports the certificate state it found, mapped to the entity's.
 //
 // Possible errors:
 //   - Unavailable: Pocket Sign API unreachable, authentication failed, or
@@ -413,38 +413,33 @@ func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*us
 		return nil, mapConnectError(err, "pocket sign recheck")
 	}
 
-	// Only a CONFIRMED bad state (revoked / expired) flags the identity for
-	// re-verification. STATE_UNKNOWN (not revoked, but the validity window
-	// could not be confirmed via CRL) and STATE_UNSPECIFIED (unset/zero — a
-	// possible vendor hiccup) are INDETERMINATE, not confirmed-bad: flagging
-	// them would force a spurious re-verification of an otherwise-valid user for a
-	// transient lookup failure. Leave those as not-needing-reverification
-	// and log.
+	// The client reports the certificate state it found; the entity decides
+	// what it means for the account (a confirmed revoked or expired state needs
+	// re-verification, an indeterminate one does not).
 	state := resp.GetCertificateState()
-	var needsReverification bool
-	switch state {
-	case verifyv2.Certificate_STATE_REVOKED, verifyv2.Certificate_STATE_EXPIRED:
-		needsReverification = true
-	case verifyv2.Certificate_STATE_GOOD:
-		needsReverification = false
-	default:
-		// STATE_UNKNOWN / STATE_UNSPECIFIED — indeterminate.
-		needsReverification = false
-		c.logger.Warn(ctx, "pocket sign recheck returned indeterminate state; not flagging reverification",
-			slog.String("pocket_sign_user_id", pocketSignUserID),
-			slog.String("certificate_state", state.String()),
-		)
-	}
-
+	certificateState := certificateStateOf(state)
 	c.logger.Info(ctx, "pocket sign recheck completed",
 		slog.String("pocket_sign_user_id", pocketSignUserID),
 		slog.String("certificate_state", state.String()),
-		slog.Bool("needs_reverification", needsReverification),
 	)
 
-	return &usecase.IdentityVerifierRecheckResult{
-		NeedsReverification: needsReverification,
-	}, nil
+	return &usecase.IdentityVerifierRecheckResult{CertificateState: certificateState}, nil
+}
+
+// certificateStateOf maps Pocket Sign's certificate state to the entity's.
+func certificateStateOf(state verifyv2.Certificate_State) entity.CertificateState {
+	switch state {
+	case verifyv2.Certificate_STATE_GOOD:
+		return entity.CertificateStateGood
+	case verifyv2.Certificate_STATE_REVOKED:
+		return entity.CertificateStateRevoked
+	case verifyv2.Certificate_STATE_EXPIRED:
+		return entity.CertificateStateExpired
+	case verifyv2.Certificate_STATE_UNKNOWN:
+		return entity.CertificateStateUnknown
+	default:
+		return entity.CertificateStateUnspecified
+	}
 }
 
 // methodFromCertType maps a Pocket Sign Certificate_Type to our entity's

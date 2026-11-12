@@ -348,7 +348,7 @@ func TestIdentityVerificationUseCase_Recheck(t *testing.T) {
 			setup: func(d *identityVerificationTestDeps) {
 				identityVerification := sampleIdentityVerification(identityVerificationID, userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(identityVerification, nil)
-				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{NeedsReverification: false}, nil)
+				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{CertificateState: entity.CertificateStateGood}, nil)
 			},
 			wantStatus: entity.VerificationStatusActive,
 		},
@@ -357,7 +357,7 @@ func TestIdentityVerificationUseCase_Recheck(t *testing.T) {
 			setup: func(d *identityVerificationTestDeps) {
 				identityVerification := sampleIdentityVerification(identityVerificationID, userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(identityVerification, nil)
-				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{NeedsReverification: true}, nil)
+				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{CertificateState: entity.CertificateStateRevoked}, nil)
 				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, identityVerificationID, entity.VerificationStatusNeedsReverification).Return(nil)
 			},
 			wantStatus: entity.VerificationStatusNeedsReverification,

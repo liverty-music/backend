@@ -54,7 +54,7 @@ func (s *PostmarkPasskeyChangeSender) SendPasskeyChangeEmail(ctx context.Context
 	if !change.Kind.IsValid() {
 		return apperr.New(codes.InvalidArgument, "unknown kind of passkey change", attrs...)
 	}
-	subject, body := s.passkeyChangeEmail(emailLanguage(user.PreferredLanguage), change)
+	subject, body := s.passkeyChangeEmail(user.EmailLanguage(), change)
 	if err := s.post(ctx, user.Email, subject, body, passkeyChangeTag,
 		map[string]string{"user_id": user.ID, "kind": string(change.Kind)}, attrs...); err != nil {
 		return apperr.Wrap(err, codes.Unavailable, "passkey change email cannot be sent", attrs...)

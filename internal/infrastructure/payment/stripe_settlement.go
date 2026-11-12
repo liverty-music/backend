@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -13,21 +14,19 @@ import (
 	stripe "github.com/stripe/stripe-go/v87"
 )
 
-// Accounts v2 recipient provisioning constants. See StripePayoutAccounts.Create for
-// why each value is what it is.
+// Accounts v2 recipient provisioning constants: Stripe's own vocabulary. The
+// terms of the account (country, currency, locale, MCC, who collects fees and
+// losses) are the platform's and come as [entity.PayoutAccountTerms].
 const (
 	// recipientDashboardNone gives the recipient no Stripe Dashboard access;
 	// the platform manages the account.
 	recipientDashboardNone = "none"
-	// recipientLocaleJA is the onboarding/communication locale for JP Organizers.
-	recipientLocaleJA = "ja-JP"
-	// recipientCountryJP is the only Organizer country the MVP settles to.
-	recipientCountryJP = "JP"
-	// recipientMCCTicketing is "theatrical producers / ticket agencies". A JP
-	// recipient's stripe_transfers capability does not activate without an MCC.
-	recipientMCCTicketing = "7922"
+	// recipientDashboardExpress gives the recipient the Express Dashboard.
+	recipientDashboardExpress = "express"
 	// collectorApplication makes the platform responsible for fees and losses.
 	collectorApplication = "application"
+	// collectorStripe leaves the responsibility with Stripe.
+	collectorStripe = "stripe"
 	// metadataKeyOrganizerID ties the Stripe account back to our Organizer.
 	metadataKeyOrganizerID = "organizer_id"
 )
@@ -198,7 +197,7 @@ func (p *StripeSettlementPayouts) CreatePayout(ctx context.Context, params entit
 //
 // The idempotency key is derived from the organizer id so a retried
 // provisioning call cannot create a second account for the same Organizer.
-func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, contactEmail string) (string, error) {
+func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, contactEmail string, terms entity.PayoutAccountTerms) (string, error) {
 	if organizerID == "" {
 		return "", apperr.New(codes.InvalidArgument, "organizer id must not be empty")
 	}
@@ -208,17 +207,17 @@ func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, c
 
 	params := &stripe.V2CoreAccountCreateParams{
 		ContactEmail: stripe.String(contactEmail),
-		Dashboard:    stripe.String(recipientDashboardNone),
+		Dashboard:    stripe.String(dashboardOf(terms)),
 		Defaults: &stripe.V2CoreAccountCreateDefaultsParams{
-			Currency: stripe.String(string(stripe.CurrencyJPY)),
-			Locales:  []*string{stripe.String(recipientLocaleJA)},
+			Currency: stripe.String(strings.ToLower(terms.CurrencyCode)),
+			Locales:  []*string{stripe.String(terms.Locale)},
 			Responsibilities: &stripe.V2CoreAccountCreateDefaultsResponsibilitiesParams{
-				FeesCollector:   stripe.String(collectorApplication),
-				LossesCollector: stripe.String(collectorApplication),
+				FeesCollector:   stripe.String(collectorOf(terms.PlatformCollectsFees)),
+				LossesCollector: stripe.String(collectorOf(terms.PlatformAbsorbsLosses)),
 			},
 		},
 		Identity: &stripe.V2CoreAccountCreateIdentityParams{
-			Country: stripe.String(recipientCountryJP),
+			Country: stripe.String(terms.CountryCode),
 		},
 		Configuration: &stripe.V2CoreAccountCreateConfigurationParams{
 			Recipient: &stripe.V2CoreAccountCreateConfigurationRecipientParams{
@@ -231,7 +230,7 @@ func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, c
 				},
 			},
 			Merchant: &stripe.V2CoreAccountCreateConfigurationMerchantParams{
-				MCC: stripe.String(recipientMCCTicketing),
+				MCC: stripe.String(terms.MerchantCategoryCode),
 			},
 		},
 		Metadata: map[string]string{metadataKeyOrganizerID: organizerID},
@@ -295,18 +294,35 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	if acct == nil {
 		return entity.PayoutOnboardingStatusUnspecified
 	}
-	if acct.Capabilities == nil {
-		return entity.PayoutOnboardingStatusPending
+	capability := entity.TransfersCapabilityUnrequested
+	if acct.Capabilities != nil {
+		switch acct.Capabilities.Transfers {
+		case stripe.AccountCapabilityStatusActive:
+			capability = entity.TransfersCapabilityActive
+		case stripe.AccountCapabilityStatusInactive:
+			capability = entity.TransfersCapabilityInactive
+		default:
+			// "pending" or empty: requested but not yet active.
+			capability = entity.TransfersCapabilityPending
+		}
 	}
-	switch acct.Capabilities.Transfers {
-	case stripe.AccountCapabilityStatusActive:
-		return entity.PayoutOnboardingStatusActive
-	case stripe.AccountCapabilityStatusInactive:
-		return entity.PayoutOnboardingStatusRestricted
-	default:
-		// "pending" or empty — capability requested but not yet active.
-		return entity.PayoutOnboardingStatusPending
+	return entity.NewPayoutOnboardingStatus(capability)
+}
+
+// dashboardOf maps the terms' dashboard access to Stripe's dashboard type.
+func dashboardOf(terms entity.PayoutAccountTerms) string {
+	if terms.ProviderDashboard {
+		return recipientDashboardExpress
 	}
+	return recipientDashboardNone
+}
+
+// collectorOf maps who is responsible for fees or losses to Stripe's collector.
+func collectorOf(platform bool) string {
+	if platform {
+		return collectorApplication
+	}
+	return collectorStripe
 }
 
 // CreateRefund implements [entity.OrderRepository].

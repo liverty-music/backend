@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -363,9 +362,9 @@ type userUseCase struct {
 	// synchronously.
 	background func(task func())
 
-	// resendMu protects resendLog for concurrent access.
-	resendMu  sync.Mutex
-	resendLog map[string][]time.Time
+	// resendLimiter bounds the verification-email resends one identity
+	// provider user may request.
+	resendLimiter *slidingWindowLimiter
 }
 
 // Compile-time interface compliance check
@@ -403,7 +402,7 @@ func NewUserUseCase(
 		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, clock),
 		verifyEmailLimiter:     newSlidingWindowLimiter(verifyEmailLimit, verifyEmailWindow, clock),
 		background:             func(task func()) { go task() },
-		resendLog:              make(map[string][]time.Time),
+		resendLimiter:          newSlidingWindowLimiter(resendRateLimit, resendRateWindow, clock),
 	}
 }
 
@@ -417,6 +416,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		if err := params.Home.Validate(); err != nil {
 			return nil, err
 		}
+		withCentroid(params.Home)
 	}
 	// preferred_language is required and MUST match the ISO 639-1 pattern;
 	// otherwise a value like "EN" or "english" would round-trip into the
@@ -535,11 +535,21 @@ func (uc *userUseCase) SetPreferredLanguage(ctx context.Context, id, lang string
 	return user, nil
 }
 
+// withCentroid sets the Home's position to the centroid of its level-1 area,
+// when the lookup table has one. The repository stores the position it is
+// given.
+func withCentroid(home *entity.Home) {
+	if c, ok := home.ResolveCentroid(); ok {
+		home.Centroid = &c
+	}
+}
+
 // SetHome sets or changes the user's home area after validating the structured Home.
 func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	if err := home.Validate(); err != nil {
 		return nil, err
 	}
+	withCentroid(home)
 
 	user, err := uc.userRepo.UpdateHome(ctx, id, home)
 	if err != nil {
@@ -747,7 +757,7 @@ func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUser
 		return err
 	}
 
-	if !uc.allowResend(user.ProviderUserID) {
+	if !uc.resendLimiter.allow(user.ProviderUserID) {
 		return apperr.New(codes.ResourceExhausted, "resend rate limit exceeded")
 	}
 
@@ -818,38 +828,6 @@ func (uc *userUseCase) VerifyEmail(ctx context.Context, userID, code string) err
 	}
 	uc.logger.Info(ctx, "email verified", attrs)
 	return nil
-}
-
-// allowResend reports whether providerUserID has not exceeded the resend rate
-// limit (resendRateLimit requests per rolling resendRateWindow), recording
-// this attempt when it allows it. Returns false when the caller must wait.
-func (uc *userUseCase) allowResend(providerUserID string) bool {
-	now := uc.clock()
-	cutoff := now.Add(-resendRateWindow)
-
-	uc.resendMu.Lock()
-	defer uc.resendMu.Unlock()
-
-	// Filter out expired entries.
-	var recent []time.Time
-	for _, t := range uc.resendLog[providerUserID] {
-		if t.After(cutoff) {
-			recent = append(recent, t)
-		}
-	}
-
-	// Reclaim memory for users with no recent activity.
-	if len(recent) == 0 {
-		delete(uc.resendLog, providerUserID)
-	}
-
-	if len(recent) >= resendRateLimit {
-		uc.resendLog[providerUserID] = recent
-		return false
-	}
-
-	uc.resendLog[providerUserID] = append(recent, now)
-	return true
 }
 
 // RequestPasskeyRecovery implements [UserUseCase]. The per-address check runs

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
-	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -265,15 +264,9 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	var home *entity.Home
 	if params.Home != nil {
 		home = entity.NewHome(params.Home.CountryCode, params.Home.Level1, params.Home.Level2)
-		var centroidLat, centroidLng *float64
-		if c, ok := infrageo.ResolveCentroid(params.Home.Level1); ok {
-			centroidLat = &c.Latitude
-			centroidLng = &c.Longitude
-			home.Centroid = &entity.Coordinates{
-				Latitude:  c.Latitude,
-				Longitude: c.Longitude,
-			}
-		}
+		// The position is the one the caller computed; it is stored as given.
+		home.Centroid = params.Home.Centroid
+		centroidLat, centroidLng := centroidColumns(params.Home.Centroid)
 
 		var homeID string
 		err = tx.QueryRow(ctx, insertHomeQuery,
@@ -500,11 +493,8 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
 	}
 
-	var centroidLat, centroidLng *float64
-	if c, ok := infrageo.ResolveCentroid(home.Level1); ok {
-		centroidLat = &c.Latitude
-		centroidLng = &c.Longitude
-	}
+	// The position is the one the caller computed; it is stored as given.
+	centroidLat, centroidLng := centroidColumns(home.Centroid)
 
 	if current.Home != nil {
 		// Update the existing home record.
@@ -604,4 +594,13 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// centroidColumns returns the latitude and longitude columns of a Home's
+// position: both nil when it has none.
+func centroidColumns(c *entity.Coordinates) (lat, lng *float64) {
+	if c == nil {
+		return nil, nil
+	}
+	return &c.Latitude, &c.Longitude
 }

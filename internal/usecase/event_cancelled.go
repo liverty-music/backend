@@ -158,7 +158,7 @@ func (uc *notificationUseCase) readCancellationNotice(ctx context.Context, order
 		return orderNoticeMessage{}, nil
 	}
 
-	email := content.email(emailLanguage(user.PreferredLanguage))
+	email := content.email(user.EmailLanguage())
 	return orderNoticeMessage{
 		Send:     true,
 		UserID:   user.ID,

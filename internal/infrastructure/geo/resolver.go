@@ -28,7 +28,7 @@ func (r *CentroidResolverImpl) ResolveCentroid(home *entity.Home) (lat, lng floa
 	if home == nil {
 		return 0, 0, apperr.New(codes.InvalidArgument, "a home is required to resolve its centroid")
 	}
-	c, ok := ResolveCentroid(home.Level1)
+	c, ok := home.ResolveCentroid()
 	if !ok {
 		return 0, 0, apperr.New(codes.NotFound, "no centroid is known for the home's level-1 code",
 			slog.String("level_1", home.Level1))

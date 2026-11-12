@@ -30,14 +30,13 @@ const (
 		RETURNING id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
 	`
 
-	// getIdentityVerificationByUserIDQuery returns the most recent row for the user,
-	// preferring ACTIVE rows (status=1) over NEEDS_REVERIFICATION (status=2).
-	getIdentityVerificationByUserIDQuery = `
+	// listIdentityVerificationsByUserIDQuery returns every row of the user; which
+	// one is current is the entity's to decide
+	// ([entity.CurrentIdentityVerification]).
+	listIdentityVerificationsByUserIDQuery = `
 		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
 		FROM identity_verifications
 		WHERE user_id = $1
-		ORDER BY status ASC, verify_at DESC
-		LIMIT 1
 	`
 
 	// getIdentityVerificationByProviderUserIDQuery returns the single ACTIVE row
@@ -115,16 +114,32 @@ func (r *IdentityVerificationRepository) Create(ctx context.Context, vi *entity.
 	return created, nil
 }
 
-// GetByUserID returns the most recent IdentityVerification for the user, preferring
-// ACTIVE rows. Returns NotFound when no record exists.
+// GetByUserID returns the current IdentityVerification of the user
+// ([entity.CurrentIdentityVerification]). Returns NotFound when no record
+// exists.
 func (r *IdentityVerificationRepository) GetByUserID(ctx context.Context, userID string) (*entity.IdentityVerification, error) {
-	row := r.db.Pool.QueryRow(ctx, getIdentityVerificationByUserIDQuery, userID)
-	vi, err := scanIdentityVerification(row.Scan)
+	attrs := slog.String("user_id", userID)
+	rows, err := r.db.Pool.Query(ctx, listIdentityVerificationsByUserIDQuery, userID)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get identity verification by user_id",
-			slog.String("user_id", userID))
+		return nil, toAppErr(err, "failed to list identity verifications by user_id", attrs)
 	}
-	return vi, nil
+	defer rows.Close()
+	var records []*entity.IdentityVerification
+	for rows.Next() {
+		vi, err := scanIdentityVerification(rows.Scan)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan identity verification", attrs)
+		}
+		records = append(records, vi)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to list identity verifications by user_id", attrs)
+	}
+	current := entity.CurrentIdentityVerification(records)
+	if current == nil {
+		return nil, apperr.New(codes.NotFound, "no identity verification for the user", attrs)
+	}
+	return current, nil
 }
 
 // GetByProviderUserID returns the ACTIVE IdentityVerification keyed on the Pocket

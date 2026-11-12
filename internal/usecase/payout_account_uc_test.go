@@ -104,7 +104,7 @@ func (f *payoutAccountFixture) storedAccount(a entity.PayoutAccount) {
 // opensAccount expects the account to be opened at the provider with the
 // owner email as acct_first, and stored as pending.
 func (f *payoutAccountFixture) opensAccount() {
-	f.accounts.EXPECT().Create(mock.Anything, payoutTestOrgID, payoutTestOwnerEmail).Return("acct_first", nil).Once()
+	f.accounts.EXPECT().Create(mock.Anything, payoutTestOrgID, payoutTestOwnerEmail, entity.DefaultPayoutAccountTerms()).Return("acct_first", nil).Once()
 	f.accounts.EXPECT().Upsert(mock.Anything, new(storedPayoutAccount("acct_first", entity.PayoutOnboardingStatusPending))).Return(nil).Once()
 }
 
@@ -224,7 +224,7 @@ func TestPayoutAccountUseCase_StartOnboarding(t *testing.T) {
 		f.noAccount()
 		// No Upsert or CreateOnboardingLink is expected: nothing is stored and
 		// no link is created.
-		f.accounts.EXPECT().Create(mock.Anything, payoutTestOrgID, payoutTestOwnerEmail).
+		f.accounts.EXPECT().Create(mock.Anything, payoutTestOrgID, payoutTestOwnerEmail, entity.DefaultPayoutAccountTerms()).
 			Return("", apperr.New(codes.Unavailable, "payment provider unreachable")).Once()
 
 		url, err := f.uc.StartOnboarding(context.Background(), payoutTestOrgID)

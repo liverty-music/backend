@@ -568,8 +568,8 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	if err != nil {
 		return err
 	}
-	if org.Status != entity.OrganizerStatusDeactivated {
-		return apperr.New(codes.FailedPrecondition, "organizer is not deactivated", slog.String("organizer_id", organizerID))
+	if err := org.CheckDeactivated(); err != nil {
+		return err
 	}
 	if err := uc.organizerRepo.Delete(ctx, organizerID, true); err != nil {
 		return err

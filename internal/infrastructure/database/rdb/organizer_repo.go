@@ -311,7 +311,7 @@ func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string
 	if tag.RowsAffected() == 0 {
 		return false, nil
 	}
-	if from == entity.OrganizerStatusProvisioning && to == entity.OrganizerStatusActive {
+	if entity.AnnouncesActivation(from, to) {
 		o, err := scanOrganizer(tx.QueryRow(ctx, getOrganizerQuery, id).Scan)
 		if err != nil {
 			return false, toAppErr(err, "failed to read the activated organizer", attrs...)
@@ -488,8 +488,9 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 	if err := tx.QueryRow(ctx, lockOrganizerStatusQuery, id).Scan(&status); err != nil {
 		return toAppErr(err, "failed to lock organizer", slog.String("id", id))
 	}
-	if entity.OrganizerStatus(status) != entity.OrganizerStatusDeactivated {
-		return apperr.New(codes.FailedPrecondition, "organizer is not deactivated", slog.String("id", id))
+	locked := &entity.Organizer{ID: id, Status: entity.OrganizerStatus(status)}
+	if err := locked.CheckDeactivated(); err != nil {
+		return err
 	}
 
 	eventIDs, err := collectIDs(ctx, tx, selectOrganizerEventIDsQuery, id)
@@ -503,8 +504,8 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 	if err := tx.QueryRow(ctx, organizerHasPayoutAccountQuery, id).Scan(&payoutAccount); err != nil {
 		return toAppErr(err, "failed to check organizer payout account", slog.String("id", id))
 	}
-	if payoutAccount {
-		return apperr.New(codes.FailedPrecondition, "the organizer has a payout account", slog.String("id", id))
+	if err := locked.CheckNoPayoutAccount(payoutAccount); err != nil {
+		return err
 	}
 	if dryRun {
 		return nil
