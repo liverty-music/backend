@@ -127,9 +127,6 @@ const (
 	lotteryEntryStockQuery = `SELECT o.ticket_stock_id FROM lottery_entries le JOIN orders o ON o.id = le.order_id WHERE le.id = $1`
 	// lotteryEntryLockForRevertQuery locks the entry and its Order.
 	lotteryEntryLockForRevertQuery = lotteryEntrySelect + ` WHERE le.id = $1 FOR UPDATE OF le, o`
-	// lotteryEntryRevertWinQuery makes the Won entry Lost with the lost reason
-	// $2, keeping its draw position.
-	lotteryEntryRevertWinQuery = `UPDATE lottery_entries SET state = 3, lost_reason = $2 WHERE id = $1 AND state = 2`
 	// lotteryEntryLockStocksOfEventQuery locks every stock of the event $1 in
 	// id order, the order PersistDrawOutcome and RevertWin lock stocks in.
 	lotteryEntryLockStocksOfEventQuery = `SELECT id FROM ticket_stocks WHERE event_id = $1 ORDER BY id FOR UPDATE`
@@ -143,8 +140,6 @@ const (
 		WHERE o.id = le.order_id AND o.ticket_stock_id = ANY($1::uuid[]) AND le.state = 1
 		RETURNING le.id, le.order_id, le.ticket_sale_id
 	`
-	// lotteryEntryVoidOrderQuery makes the Pending Order Void.
-	lotteryEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
 	// lotteryEntryMarkLossEmailSentQuery sets the loss email send time once
 	// and returns the row while the entry exists.
 	lotteryEntryMarkLossEmailSentQuery = `
@@ -542,25 +537,20 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 	if err != nil {
 		return toAppErr(err, "failed to lock the entry", attrs...)
 	}
-	switch {
-	case entry.State == entity.LotteryEntryStateLost:
+	entryChange, orderChange, err := entry.RevertWin(reason)
+	if err != nil {
+		return err
+	}
+	if !entryChange.Changed() {
+		// Already Lost: nothing changes and nothing is announced again.
 		return nil
-	case entry.State != entity.LotteryEntryStateWon:
-		return apperr.New(codes.FailedPrecondition, "only a Won entry's win can be reverted",
-			append(attrs, slog.String("state", entry.State.String()))...)
-	case entry.Order.Status != entity.OrderStatusPending:
-		return apperr.New(codes.FailedPrecondition, "the win is already issued",
-			append(attrs, slog.String("order_status", entry.Order.Status.String()))...)
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryRevertWinQuery, string(id), int16(reason)); err != nil {
-		return toAppErr(err, "failed to revert the win", attrs...)
+	if err := applyTransition(ctx, tx, "lottery_entries", "state", string(id), entryChange, "lost_reason = $4", int16(reason)); err != nil {
+		return err
 	}
-	if _, err := tx.Exec(ctx, lotteryEntryVoidOrderQuery, string(entry.OrderID)); err != nil {
-		return toAppErr(err, "failed to void the entry's order", attrs...)
+	if err := applyTransition(ctx, tx, "orders", "status", string(entry.OrderID), orderChange, ""); err != nil {
+		return err
 	}
-	entry.State = entity.LotteryEntryStateLost
-	entry.LostReason = reason
-	entry.Order.Status = entity.OrderStatusVoid
 	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryLost, entry); err != nil {
 		return err
 	}

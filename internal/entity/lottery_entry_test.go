@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewLotteryEntry(t *testing.T) {
@@ -60,4 +61,86 @@ func TestLotteryEntryState_Values(t *testing.T) {
 	assert.EqualValues(t, 1, entity.LotteryEntryStateEntered)
 	assert.EqualValues(t, 2, entity.LotteryEntryStateWon)
 	assert.EqualValues(t, 3, entity.LotteryEntryStateLost)
+}
+
+func TestLotteryEntry_RevertWin(t *testing.T) {
+	t.Parallel()
+
+	pos := 3
+	wonWith := func(status entity.OrderStatus) *entity.LotteryEntry {
+		return &entity.LotteryEntry{State: entity.LotteryEntryStateWon, DrawPosition: &pos, Order: &entity.Order{Status: status}}
+	}
+
+	t.Run("win reverted", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry/revert-win "Win reverted"
+		e := wonWith(entity.OrderStatusPending)
+		entry, order, err := e.RevertWin(entity.LotteryEntryLostReasonCardNotCharged)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.Transition[entity.LotteryEntryState]{From: []entity.LotteryEntryState{entity.LotteryEntryStateWon}, To: entity.LotteryEntryStateLost}, entry)
+		assert.Equal(t, entity.Transition[entity.OrderStatus]{From: []entity.OrderStatus{entity.OrderStatusPending}, To: entity.OrderStatusVoid}, order)
+		assert.Equal(t, entity.LotteryEntryStateLost, e.State)
+		assert.Equal(t, entity.LotteryEntryLostReasonCardNotCharged, e.LostReason)
+		assert.Equal(t, entity.OrderStatusVoid, e.Order.Status)
+		require.NotNil(t, e.DrawPosition)
+		assert.Equal(t, 3, *e.DrawPosition, "the draw position is kept")
+	})
+
+	t.Run("win reverted for a cancelled concert", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry/revert-win "Win reverted for a cancelled concert"
+		e := wonWith(entity.OrderStatusPending)
+		_, _, err := e.RevertWin(entity.LotteryEntryLostReasonConcertCancelled)
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.LotteryEntryStateLost, e.State)
+		assert.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, e.LostReason)
+	})
+
+	t.Run("already reverted", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry/revert-win "Already reverted"
+		e := &entity.LotteryEntry{State: entity.LotteryEntryStateLost, LostReason: entity.LotteryEntryLostReasonCardNotCharged, Order: &entity.Order{Status: entity.OrderStatusVoid}}
+		entry, order, err := e.RevertWin(entity.LotteryEntryLostReasonConcertCancelled)
+
+		require.NoError(t, err)
+		assert.False(t, entry.Changed())
+		assert.False(t, order.Changed())
+		assert.Equal(t, entity.LotteryEntryLostReasonCardNotCharged, e.LostReason, "the first reason is kept")
+	})
+
+	t.Run("win already issued", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry/revert-win "Win already issued"
+		for _, status := range []entity.OrderStatus{entity.OrderStatusPaid, entity.OrderStatusRefunded} {
+			e := wonWith(status)
+			entry, order, err := e.RevertWin(entity.LotteryEntryLostReasonCardNotCharged)
+
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, status.String())
+			assert.False(t, entry.Changed())
+			assert.False(t, order.Changed())
+			assert.Equal(t, entity.LotteryEntryStateWon, e.State)
+			assert.Equal(t, status, e.Order.Status)
+		}
+	})
+
+	t.Run("not drawn", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/lottery-entry/revert-win "Not drawn"
+		e := &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, Order: &entity.Order{Status: entity.OrderStatusPending}}
+		entry, order, err := e.RevertWin(entity.LotteryEntryLostReasonCardNotCharged)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.False(t, entry.Changed())
+		assert.False(t, order.Changed())
+		assert.Equal(t, entity.LotteryEntryStateEntered, e.State)
+	})
+
+	t.Run("an entry without its order is refused", func(t *testing.T) {
+		t.Parallel()
+		e := &entity.LotteryEntry{State: entity.LotteryEntryStateWon}
+		_, _, err := e.RevertWin(entity.LotteryEntryLostReasonCardNotCharged)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
 }
