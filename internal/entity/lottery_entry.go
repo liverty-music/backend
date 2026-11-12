@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -133,6 +134,37 @@ func NewLotteryEntry(order *Order, saleID TicketSaleID) *LotteryEntry {
 	}
 	order.LotteryEntryID = e.ID
 	return e
+}
+
+// RevertWin decides what reverting a win changes: a Won entry whose Order is
+// Pending becomes Lost with reason and its Order Void. It returns the entry's
+// and the Order's transitions for the repository to compare-and-set, and
+// leaves e as it is after the change, ready to announce. An entry already
+// Lost changes nothing: both transitions are zero and the error is nil. It
+// fails with FailedPrecondition for an Entered entry, and for a Won entry
+// whose Order is not Pending (already issued).
+func (e *LotteryEntry) RevertWin(reason LotteryEntryLostReason) (Transition[LotteryEntryState], Transition[OrderStatus], error) {
+	var none1 Transition[LotteryEntryState]
+	var none2 Transition[OrderStatus]
+	switch {
+	case e.State == LotteryEntryStateLost:
+		return none1, none2, nil
+	case e.State != LotteryEntryStateWon:
+		return none1, none2, apperr.New(codes.FailedPrecondition, "only a Won entry's win can be reverted",
+			slog.String("state", e.State.String()))
+	case e.Order == nil || e.Order.Status != OrderStatusPending:
+		status := OrderStatusUnspecified
+		if e.Order != nil {
+			status = e.Order.Status
+		}
+		return none1, none2, apperr.New(codes.FailedPrecondition, "the win is already issued",
+			slog.String("order_status", status.String()))
+	}
+	e.State, e.LostReason = LotteryEntryStateLost, reason
+	e.Order.Status = OrderStatusVoid
+	return Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateWon}, To: LotteryEntryStateLost},
+		Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid},
+		nil
 }
 
 // ValidateLotteryEntrySale reports whether an entry can belong to sale for

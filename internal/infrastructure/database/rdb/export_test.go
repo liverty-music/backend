@@ -1,5 +1,7 @@
 package rdb
 
+import "github.com/liverty-music/backend/internal/entity"
+
 // WaitForDatabase exposes waitForDatabase for testing with a fake clock.
 var WaitForDatabase = waitForDatabase
 
@@ -12,3 +14,6 @@ var (
 	LockAndCheckEventRemoval = lockAndCheckEventRemoval
 	RemoveEvents             = removeEvents
 )
+
+// ApplyTransitionOfLotteryEntry exposes applyTransition for the entry state.
+var ApplyTransitionOfLotteryEntry = applyTransition[entity.LotteryEntryState]
