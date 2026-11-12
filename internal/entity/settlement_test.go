@@ -144,18 +144,17 @@ func TestSettlement_GiveUpResoldShare(t *testing.T) {
 func TestSettlement_ReleasePlan(t *testing.T) {
 	t.Parallel()
 
-	const charge = int64(10000)
+	const charge = int64(16000)
 	tests := []struct {
 		name    string
 		splits  []entity.SettlementSplit
 		wantErr bool
 	}{
-		// @spec components/entity/settlement "Single Organizer split"
-		{"single organizer split within the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 9000}}, false},
+		{"single organizer split within the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 15200}}, false},
 		{"split exactly equal to the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: charge}}, false},
 		// @spec components/entity/settlement "Splits exceed the order"
 		{"sum of splits exceeds the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: charge + 1}}, true},
-		{"several splits exceed the charge together", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 6000}, {PayeeOrganizerID: "org-2", Amount: 6000}}, true},
+		{"several splits exceed the charge together", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 9000}, {PayeeOrganizerID: "org-2", Amount: 9000}}, true},
 		// @spec components/entity/settlement "No split"
 		{"no splits", nil, true},
 		// @spec components/entity/settlement "Non-positive split"
@@ -178,6 +177,20 @@ func TestSettlement_ReleasePlan(t *testing.T) {
 			assert.Equal(t, tt.splits, plan.Splits)
 		})
 	}
+
+	t.Run("the platform fee is what the splits leave of the charge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/settlement "Single Organizer split"
+		order := &entity.Order{ID: "order-1", Amount: charge}
+		s := entity.NewHeldSettlement(order, "org-1", "event-1", 500, time.Now())
+
+		plan, err := s.ReleasePlan(charge)
+
+		require.NoError(t, err)
+		require.Len(t, plan.Splits, 1)
+		assert.Equal(t, int64(15200), plan.Splits[0].Amount)
+		assert.Equal(t, int64(800), charge-plan.Splits[0].Amount, "the platform fee")
+	})
 }
 
 func TestSettlement_Status(t *testing.T) {
