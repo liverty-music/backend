@@ -64,37 +64,42 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 		if err != nil {
 			return resaleCapture{}, err
 		}
-		if !published {
-			return uc.resaleCaptureOfCancelledConcert(ctx, plan.CardAuthorizationID, published)
+		gate := entity.ResaleChargeGateAt(published, uc.clock(), plan.StartTime)
+		charged := false
+		switch gate {
+		case entity.ResaleChargeGateConcertStopped:
+			// An earlier try may have captured the card authorization with its
+			// outcome unknown, so the payment provider is asked first.
+			authorization, err := uc.cardAuthorizations.Get(ctx, plan.CardAuthorizationID)
+			if err != nil {
+				return resaleCapture{}, err
+			}
+			charged = authorization.CountsAsCharged(published)
+		case entity.ResaleChargeGateOpen:
+			err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
+			if err != nil && !errors.Is(err, apperr.ErrFailedPrecondition) {
+				return resaleCapture{}, err
+			}
+			charged = err == nil
 		}
-		if !uc.clock().Before(plan.StartTime) {
-			return resaleCapture{TooLate: true}, nil
-		}
-		err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
-		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			return resaleCapture{}, nil
-		}
-		return resaleCapture{Charged: err == nil}, err
+		return resaleCaptureOf(entity.ResaleChargeOutcomeAt(gate, charged)), nil
 	})
 	if err != nil {
 		return IssueResult{}, err
 	}
-	switch {
-	case outcome.Charged:
+	result := outcome.chargeOutcome()
+	switch result {
+	case entity.ResaleChargeOutcomeCharged:
 		return uc.issueChargedResaleEntry(ctx, f, entryID, plan.issuePlan)
-	case outcome.ConcertCancelled:
-		if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonConcertCancelled); err != nil {
+	case entity.ResaleChargeOutcomeConcertCancelled, entity.ResaleChargeOutcomeCardNotCharged:
+		if err := uc.revertResaleWin(ctx, f, entryID, result.LostReason()); err != nil {
 			return IssueResult{}, err
 		}
-		uc.logger.Info(ctx, "resale win reverted: the concert was cancelled before the charge", attrs,
-			slog.String("order_id", string(plan.OrderID)))
-		return IssueResult{OrderID: plan.OrderID}, nil
-	case !outcome.TooLate:
-		if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonCardNotCharged); err != nil {
-			return IssueResult{}, err
+		message := "resale win reverted: the card could not be charged"
+		if result == entity.ResaleChargeOutcomeConcertCancelled {
+			message = "resale win reverted: the concert was cancelled before the charge"
 		}
-		uc.logger.Info(ctx, "resale win reverted: the card could not be charged", attrs,
-			slog.String("order_id", string(plan.OrderID)))
+		uc.logger.Info(ctx, message, attrs, slog.String("order_id", string(plan.OrderID)))
 		return IssueResult{OrderID: plan.OrderID}, nil
 	}
 
@@ -115,7 +120,7 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 		// The card was charged after all: the fan gets the tickets they paid for.
 		return uc.issueChargedResaleEntry(ctx, f, entryID, plan.issuePlan)
 	}
-	if err := uc.revertResaleWin(ctx, f, entryID, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow); err != nil {
+	if err := uc.revertResaleWin(ctx, f, entryID, result.LostReason()); err != nil {
 		return IssueResult{}, err
 	}
 	uc.logger.Info(ctx, "resale win reverted: the payment was not completed before the show", attrs,
@@ -123,20 +128,26 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	return IssueResult{OrderID: plan.OrderID}, nil
 }
 
-// resaleCaptureOfCancelledConcert is the capture step's outcome for a Won
-// entry whose event is no longer PUBLISHED: nothing is charged. An earlier try
-// of the step may have captured the card authorization with its outcome
-// unknown, so the payment provider is asked first; a captured one is issued
-// as charged, and the cancellation refund of the fan's own Order covers it.
-func (uc *orderUseCase) resaleCaptureOfCancelledConcert(ctx context.Context, cardAuthorizationID string, published bool) (resaleCapture, error) {
-	authorization, err := uc.cardAuthorizations.Get(ctx, cardAuthorizationID)
-	if err != nil {
-		return resaleCapture{}, err
+// resaleCaptureOf records outcome as the capture step's result.
+func resaleCaptureOf(outcome entity.ResaleChargeOutcome) resaleCapture {
+	return resaleCapture{
+		Charged:          outcome == entity.ResaleChargeOutcomeCharged,
+		TooLate:          outcome == entity.ResaleChargeOutcomeShowBegan,
+		ConcertCancelled: outcome == entity.ResaleChargeOutcomeConcertCancelled,
 	}
-	if authorization.CountsAsCharged(published) {
-		return resaleCapture{Charged: true}, nil
+}
+
+// chargeOutcome is the entity outcome the capture step recorded.
+func (c resaleCapture) chargeOutcome() entity.ResaleChargeOutcome {
+	switch {
+	case c.Charged:
+		return entity.ResaleChargeOutcomeCharged
+	case c.TooLate:
+		return entity.ResaleChargeOutcomeShowBegan
+	case c.ConcertCancelled:
+		return entity.ResaleChargeOutcomeConcertCancelled
 	}
-	return resaleCapture{ConcertCancelled: true}, nil
+	return entity.ResaleChargeOutcomeCardNotCharged
 }
 
 // issueChargedResaleEntry issues the charged Order of a Won resale entry.
