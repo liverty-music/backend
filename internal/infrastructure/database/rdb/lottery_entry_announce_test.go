@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/pannpers/go-apperr/apperr"
@@ -30,7 +31,7 @@ func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
 		userID := newUserID(t, db)
 		mark := outboxMark(t, db)
 
-		got, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
+		got, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil), time.Now())
 
 		require.NoError(t, err)
 		announced := enteredOf(t, mark, userID)
@@ -46,13 +47,13 @@ func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
 		f := openLotteryStock(t, db)
 		userID := newUserID(t, db)
 		entry := newEntry(db, f, f.SaleID, userID, 2, nil)
-		_, err := repo.Create(ctx, entry)
+		_, err := repo.Create(ctx, entry, time.Now())
 		require.NoError(t, err)
 		mark := outboxMark(t, db)
 
 		again := newEntry(db, f, f.SaleID, userID, 2, nil)
 		again.Order.CardAuthorizationID = entry.Order.CardAuthorizationID
-		_, err = repo.Create(ctx, again)
+		_, err = repo.Create(ctx, again, time.Now())
 
 		require.NoError(t, err)
 		assert.Empty(t, enteredOf(t, mark, userID))
@@ -63,7 +64,7 @@ func TestLotteryEntryRepository_CreateAnnounces(t *testing.T) {
 		f := openLotteryStock(t, db)
 		userID := newUserID(t, db)
 
-		_, err := rdb.NewLotteryEntryRepository(db, failingOutbox{}).Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
+		_, err := rdb.NewLotteryEntryRepository(db, failingOutbox{}).Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Zero(t, countOrdersOfUser(t, db, userID), "no entry or Order is stored")

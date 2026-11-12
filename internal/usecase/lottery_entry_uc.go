@@ -297,16 +297,7 @@ func (uc *lotteryEntryUseCase) hasEntryForEvent(ctx context.Context, saleID enti
 	if err != nil {
 		return false, err
 	}
-	ofEvent := make(map[entity.TicketStockID]struct{}, len(stocks))
-	for _, s := range stocks {
-		ofEvent[s.ID] = struct{}{}
-	}
-	for _, e := range entries {
-		if _, ok := ofEvent[e.Order.TicketStockID]; ok {
-			return true, nil
-		}
-	}
-	return false, nil
+	return entity.HasEntryForStocks(entries, stocks), nil
 }
 
 // checkVerification fails with FailedPrecondition when the sale requires
@@ -403,7 +394,7 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 
 	order := entity.NewPendingOrder(purchase.UserID, stock, purchase.TicketCount, purchase.ReferralCode, entity.OrderPaymentProvider)
 	order.CardAuthorizationID = cardAuthorizationID
-	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID))
+	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID), now)
 	if err != nil {
 		switch {
 		case errors.Is(err, apperr.ErrAlreadyExists):

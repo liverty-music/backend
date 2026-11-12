@@ -129,7 +129,7 @@ func (uc *lotteryEntryUseCase) Draw(ctx context.Context, f Flow, saleID entity.T
 	}
 
 	if _, err := Step(ctx, f, "persist outcome", func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, uc.entryRepo.PersistDrawOutcome(ctx, saleID, orders)
+		return struct{}{}, uc.entryRepo.PersistDrawOutcome(ctx, saleID, orders, uc.clock())
 	}); err != nil {
 		return 0, err
 	}

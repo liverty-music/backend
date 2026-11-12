@@ -167,6 +167,68 @@ func (e *LotteryEntry) RevertWin(reason LotteryEntryLostReason) (Transition[Lott
 		nil
 }
 
+// LotteryOutcome is what the end of an Entered LotteryEntry changes: the
+// entry's move, the lost reason it gets, and, for a Lost entry, its Order's
+// move to Void. The repository applies each by compare-and-set.
+type LotteryOutcome struct {
+	// Entry moves the Entered entry to Won or Lost.
+	Entry Transition[LotteryEntryState]
+	// LostReason is why the entry lost; unspecified for Won.
+	LostReason LotteryEntryLostReason
+	// Order voids the Pending Order of a Lost entry; zero for Won, whose Order
+	// stays Pending until it is charged.
+	Order Transition[OrderStatus]
+}
+
+// DrawWonOutcome is the outcome of an entry the draw selects.
+func DrawWonOutcome() LotteryOutcome {
+	return LotteryOutcome{Entry: Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateEntered}, To: LotteryEntryStateWon}}
+}
+
+// DrawLostOutcome is the outcome of an entry the draw does not select: Lost
+// with the reason not drawn, its Order Void.
+func DrawLostOutcome() LotteryOutcome {
+	return lostOutcome(LotteryEntryLostReasonNotDrawn)
+}
+
+// ConcertCancelledOutcome is the outcome of an Entered entry whose event was
+// cancelled: Lost with the reason concert cancelled, its Order Void.
+func ConcertCancelledOutcome() LotteryOutcome {
+	return lostOutcome(LotteryEntryLostReasonConcertCancelled)
+}
+
+func lostOutcome(reason LotteryEntryLostReason) LotteryOutcome {
+	return LotteryOutcome{
+		Entry:      Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateEntered}, To: LotteryEntryStateLost},
+		LostReason: reason,
+		Order:      Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid},
+	}
+}
+
+// LotteryEntryStep is the work that follows an entry's draw result.
+type LotteryEntryStep int8
+
+const (
+	// LotteryEntryStepNone means the entry's state starts nothing.
+	LotteryEntryStepNone LotteryEntryStep = iota
+	// LotteryEntryStepIssue means a Won entry's Order is charged and issued.
+	LotteryEntryStepIssue
+	// LotteryEntryStepReleaseCardAuthorization means a Lost entry's card
+	// authorization is given back.
+	LotteryEntryStepReleaseCardAuthorization
+)
+
+// NextStep returns the work that follows the entry's state.
+func (e *LotteryEntry) NextStep() LotteryEntryStep {
+	switch e.State {
+	case LotteryEntryStateWon:
+		return LotteryEntryStepIssue
+	case LotteryEntryStateLost:
+		return LotteryEntryStepReleaseCardAuthorization
+	}
+	return LotteryEntryStepNone
+}
+
 // CheckChargeable reports whether the entry's Order may be charged: the entry
 // is Won and its Order Pending. It fails with FailedPrecondition otherwise.
 func (e *LotteryEntry) CheckChargeable() error {
@@ -210,6 +272,46 @@ type LotteryEntryStats struct {
 
 	// LostEntryCount is the number of Lost entries.
 	LostEntryCount int
+}
+
+// IsWon reports whether the entry is Won.
+func (e *LotteryEntry) IsWon() bool { return e.State == LotteryEntryStateWon }
+
+// IsLost reports whether the entry is Lost, whatever the lost reason.
+func (e *LotteryEntry) IsLost() bool { return e.State == LotteryEntryStateLost }
+
+// NewLotteryEntryStats counts entries, which are one sale's entries for one
+// TicketStock with their Orders: every entry, the tickets they asked for, and
+// the Won and Lost ones. The stats query counts exactly what this does.
+func NewLotteryEntryStats(entries []*LotteryEntry) LotteryEntryStats {
+	var s LotteryEntryStats
+	for _, e := range entries {
+		s.EntryCount++
+		s.TicketCount += e.Order.TicketCount
+		if e.IsWon() {
+			s.WonEntryCount++
+			s.WonTicketCount += e.Order.TicketCount
+		}
+		if e.IsLost() {
+			s.LostEntryCount++
+		}
+	}
+	return s
+}
+
+// HasEntryForStocks reports whether the fan already has an entry among entries,
+// in any state, for one of stocks: a fan enters a sale at most once for each
+// event, whichever of the event's stocks it is for. entries are the fan's
+// entries in one sale and stocks the stocks of one event.
+func HasEntryForStocks(entries []*LotteryEntry, stocks []*TicketStock) bool {
+	for _, e := range entries {
+		for _, s := range stocks {
+			if e.Order.TicketStockID == s.ID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // StockDrawOrder is one TicketStock's Entered entries of a sale in their
@@ -266,7 +368,8 @@ type LotteryEntryRepository interface {
 	// and returns that Order's entry, also after the sale's end time. It locks
 	// the user's users row first, so checking and storing are one indivisible
 	// step with every other creation of an Order by the user, and no entry is
-	// stored once the sale's end time has passed by the database clock.
+	// stored once the sale's end time has passed by the database clock. now is
+	// the caller's time, at which the stock's held tickets are counted.
 	//
 	// # Possible errors
 	//
@@ -289,7 +392,7 @@ type LotteryEntryRepository interface {
 	// LOTTERY_ENTRY.entered with the new entry's Pending Order, which
 	// names the entry, the user and the TicketStock, together with the entry.
 	// Nothing when it returns an existing entry or fails.
-	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
+	Create(ctx context.Context, entry *LotteryEntry, now time.Time) (*LotteryEntry, error)
 
 	// Get returns the entry with the given id, in any state.
 	//
@@ -352,8 +455,9 @@ type LotteryEntryRepository interface {
 	// once ([AdmitInDrawOrder]): an entry whose ticket count fits the
 	// remaining count is Won and deducts its whole count, every other entry is
 	// Lost with the lost reason not drawn and its Order Void, each with its
-	// draw position. A given entry that is no longer Entered is left unchanged
-	// and deducts nothing, so recording the same draw again changes nothing,
+	// draw position. now is the caller's time, at which the stock's held
+	// tickets are counted. A given entry that is no longer Entered is left
+	// unchanged and deducts nothing, so recording the same draw again changes nothing,
 	// including any entry made Lost since. On failure nothing is recorded.
 	//
 	// # Possible errors
@@ -369,7 +473,7 @@ type LotteryEntryRepository interface {
 	// LOTTERY_ENTRY.won once per entry it sets Won and LOTTERY_ENTRY.lost once
 	// per entry it sets Lost, as it is after the draw, together with the
 	// outcome. Nothing for an entry left unchanged.
-	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder) error
+	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder, now time.Time) error
 
 	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
 	// reason, [LotteryEntryLostReasonCardNotCharged] or

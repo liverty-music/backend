@@ -49,8 +49,8 @@ func (_m *MockLotteryEntryRepository) EXPECT() *MockLotteryEntryRepository_Expec
 }
 
 // Create provides a mock function for the type MockLotteryEntryRepository
-func (_mock *MockLotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
-	ret := _mock.Called(ctx, entry)
+func (_mock *MockLotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry, now time.Time) (*entity.LotteryEntry, error) {
+	ret := _mock.Called(ctx, entry, now)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -58,18 +58,18 @@ func (_mock *MockLotteryEntryRepository) Create(ctx context.Context, entry *enti
 
 	var r0 *entity.LotteryEntry
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry) (*entity.LotteryEntry, error)); ok {
-		return returnFunc(ctx, entry)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry, time.Time) (*entity.LotteryEntry, error)); ok {
+		return returnFunc(ctx, entry, now)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry) *entity.LotteryEntry); ok {
-		r0 = returnFunc(ctx, entry)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry, time.Time) *entity.LotteryEntry); ok {
+		r0 = returnFunc(ctx, entry, now)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.LotteryEntry)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.LotteryEntry) error); ok {
-		r1 = returnFunc(ctx, entry)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.LotteryEntry, time.Time) error); ok {
+		r1 = returnFunc(ctx, entry, now)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -84,11 +84,12 @@ type MockLotteryEntryRepository_Create_Call struct {
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
 //   - entry *entity.LotteryEntry
-func (_e *MockLotteryEntryRepository_Expecter) Create(ctx any, entry any) *MockLotteryEntryRepository_Create_Call {
-	return &MockLotteryEntryRepository_Create_Call{Call: _e.mock.On("Create", ctx, entry)}
+//   - now time.Time
+func (_e *MockLotteryEntryRepository_Expecter) Create(ctx any, entry any, now any) *MockLotteryEntryRepository_Create_Call {
+	return &MockLotteryEntryRepository_Create_Call{Call: _e.mock.On("Create", ctx, entry, now)}
 }
 
-func (_c *MockLotteryEntryRepository_Create_Call) Run(run func(ctx context.Context, entry *entity.LotteryEntry)) *MockLotteryEntryRepository_Create_Call {
+func (_c *MockLotteryEntryRepository_Create_Call) Run(run func(ctx context.Context, entry *entity.LotteryEntry, now time.Time)) *MockLotteryEntryRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -98,9 +99,14 @@ func (_c *MockLotteryEntryRepository_Create_Call) Run(run func(ctx context.Conte
 		if args[1] != nil {
 			arg1 = args[1].(*entity.LotteryEntry)
 		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -111,7 +117,7 @@ func (_c *MockLotteryEntryRepository_Create_Call) Return(lotteryEntry *entity.Lo
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_Create_Call) RunAndReturn(run func(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error)) *MockLotteryEntryRepository_Create_Call {
+func (_c *MockLotteryEntryRepository_Create_Call) RunAndReturn(run func(ctx context.Context, entry *entity.LotteryEntry, now time.Time) (*entity.LotteryEntry, error)) *MockLotteryEntryRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -661,16 +667,16 @@ func (_c *MockLotteryEntryRepository_MarkLossEmailSent_Call) RunAndReturn(run fu
 }
 
 // PersistDrawOutcome provides a mock function for the type MockLotteryEntryRepository
-func (_mock *MockLotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error {
-	ret := _mock.Called(ctx, saleID, orders)
+func (_mock *MockLotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder, now time.Time) error {
+	ret := _mock.Called(ctx, saleID, orders, now)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PersistDrawOutcome")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, []entity.StockDrawOrder) error); ok {
-		r0 = returnFunc(ctx, saleID, orders)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, []entity.StockDrawOrder, time.Time) error); ok {
+		r0 = returnFunc(ctx, saleID, orders, now)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -686,11 +692,12 @@ type MockLotteryEntryRepository_PersistDrawOutcome_Call struct {
 //   - ctx context.Context
 //   - saleID entity.TicketSaleID
 //   - orders []entity.StockDrawOrder
-func (_e *MockLotteryEntryRepository_Expecter) PersistDrawOutcome(ctx any, saleID any, orders any) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
-	return &MockLotteryEntryRepository_PersistDrawOutcome_Call{Call: _e.mock.On("PersistDrawOutcome", ctx, saleID, orders)}
+//   - now time.Time
+func (_e *MockLotteryEntryRepository_Expecter) PersistDrawOutcome(ctx any, saleID any, orders any, now any) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+	return &MockLotteryEntryRepository_PersistDrawOutcome_Call{Call: _e.mock.On("PersistDrawOutcome", ctx, saleID, orders, now)}
 }
 
-func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder)) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder, now time.Time)) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -704,10 +711,15 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Run(run func(ctx c
 		if args[2] != nil {
 			arg2 = args[2].([]entity.StockDrawOrder)
 		}
+		var arg3 time.Time
+		if args[3] != nil {
+			arg3 = args[3].(time.Time)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -718,7 +730,7 @@ func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) Return(err error) 
 	return _c
 }
 
-func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
+func (_c *MockLotteryEntryRepository_PersistDrawOutcome_Call) RunAndReturn(run func(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder, now time.Time) error) *MockLotteryEntryRepository_PersistDrawOutcome_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -157,7 +157,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		code := entity.ReferralCode("member-a")
 		entry := newEntry(db, f, f.SaleID, newUserID(t, db), 2, &code)
 
-		got, err := repo.Create(ctx, entry)
+		got, err := repo.Create(ctx, entry, time.Now())
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateEntered, got.State)
@@ -185,7 +185,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 			first := insertLotteryEntry(t, db, f, f.SaleID, userID, 2, state)
 
 			for _, stock := range []*stockFixture{f, other} {
-				_, err := repo.Create(ctx, newEntry(db, stock, f.SaleID, userID, 1, nil))
+				_, err := repo.Create(ctx, newEntry(db, stock, f.SaleID, userID, 1, nil), time.Now())
 
 				assert.ErrorIs(t, err, apperr.ErrAlreadyExists, state.String())
 			}
@@ -205,7 +205,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		errs := make([]error, 2)
 		for i := range errs {
 			wg.Go(func() {
-				_, errs[i] = repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
+				_, errs[i] = repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil), time.Now())
 			})
 		}
 		wg.Wait()
@@ -234,7 +234,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		userID := newUserID(t, db)
 		insertLotteryEntry(t, db, a, saleID, userID, 2, entity.LotteryEntryStateEntered)
 
-		got, err := repo.Create(ctx, newEntry(db, b, saleID, userID, 2, nil))
+		got, err := repo.Create(ctx, newEntry(db, b, saleID, userID, 2, nil), time.Now())
 
 		require.NoError(t, err)
 		assert.Equal(t, b.ID, got.Order.TicketStockID)
@@ -250,7 +250,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		f := openLotteryStock(t, db)
 		userID := newUserID(t, db)
 		entry := newEntry(db, f, f.SaleID, userID, 2, nil)
-		first, err := repo.Create(ctx, entry)
+		first, err := repo.Create(ctx, entry, time.Now())
 		require.NoError(t, err)
 		stored, err := repo.Get(ctx, first.ID)
 		require.NoError(t, err)
@@ -263,13 +263,13 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		}
 
 		// Before the end time: the same entry, nothing else stored.
-		got, err := repo.Create(ctx, again(f, entry.Order.CardAuthorizationID))
+		got, err := repo.Create(ctx, again(f, entry.Order.CardAuthorizationID), time.Now())
 		require.NoError(t, err)
 		assert.Equal(t, stored, got)
 
 		// After the end time: still the same entry.
 		setSaleEndByDatabaseClock(t, db, f.SaleID, -time.Minute)
-		late, err := repo.Create(ctx, again(f, entry.Order.CardAuthorizationID))
+		late, err := repo.Create(ctx, again(f, entry.Order.CardAuthorizationID), time.Now())
 		require.NoError(t, err)
 		assert.Equal(t, stored, late)
 		assert.Equal(t, 1, countOrdersOfUser(t, db, userID))
@@ -282,7 +282,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		errs := make([]error, 2)
 		for i := range results {
 			wg.Go(func() {
-				results[i], errs[i] = repo.Create(ctx, again(other, cardAuthorizationID))
+				results[i], errs[i] = repo.Create(ctx, again(other, cardAuthorizationID), time.Now())
 			})
 		}
 		wg.Wait()
@@ -304,7 +304,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		winner := newUserID(t, db)
 		seedIssuedTicketsOf(t, db, presale, string(winner), 4)
 
-		_, err := repo.Create(ctx, newEntry(db, presale, general, winner, 1, nil))
+		_, err := repo.Create(ctx, newEntry(db, presale, general, winner, 1, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		all, err := repo.ListByTicketSaleAndUser(ctx, general, winner)
@@ -315,7 +315,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		// A presale winner of 2 tickets may still enter for 2.
 		below := newUserID(t, db)
 		seedIssuedTicketsOf(t, db, presale, string(below), 2)
-		_, err = repo.Create(ctx, newEntry(db, presale, general, below, 2, nil))
+		_, err = repo.Create(ctx, newEntry(db, presale, general, below, 2, nil), time.Now())
 		assert.NoError(t, err)
 	})
 
@@ -327,10 +327,10 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		userID := newUserID(t, db)
 		insertLotteryEntry(t, db, presale, presale.SaleID, userID, 3, entity.LotteryEntryStateEntered)
 
-		_, err := repo.Create(ctx, newEntry(db, presale, general, userID, 2, nil))
+		_, err := repo.Create(ctx, newEntry(db, presale, general, userID, 2, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		_, err = repo.Create(ctx, newEntry(db, presale, general, userID, 1, nil))
+		_, err = repo.Create(ctx, newEntry(db, presale, general, userID, 1, nil), time.Now())
 		assert.NoError(t, err)
 	})
 
@@ -338,7 +338,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		f := openLotteryStock(t, db)
 		userID := newUserID(t, db)
 
-		_, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, f.Limit+1, nil))
+		_, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, f.Limit+1, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Zero(t, countOrdersOfUser(t, db, userID))
@@ -352,7 +352,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		userID := newUserID(t, db)
 		seedIssuedTicketsOf(t, db, sSeat, string(userID), 2)
 
-		_, err := repo.Create(ctx, newEntry(db, aSeat, aSeat.SaleID, userID, 1, nil))
+		_, err := repo.Create(ctx, newEntry(db, aSeat, aSeat.SaleID, userID, 1, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		all, err := repo.ListByTicketSaleAndUser(ctx, aSeat.SaleID, userID)
@@ -360,7 +360,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		assert.Empty(t, all, "nothing is stored")
 
 		// The same seat type in the same sale is accepted.
-		_, err = repo.Create(ctx, newEntry(db, sSeat, aSeat.SaleID, userID, 2, nil))
+		_, err = repo.Create(ctx, newEntry(db, sSeat, aSeat.SaleID, userID, 2, nil), time.Now())
 		assert.NoError(t, err)
 	})
 
@@ -370,7 +370,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		setSaleEndByDatabaseClock(t, db, f.SaleID, -time.Second)
 		userID := newUserID(t, db)
 
-		_, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil))
+		_, err := repo.Create(ctx, newEntry(db, f, f.SaleID, userID, 2, nil), time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		all, err := repo.ListByTicketSaleAndUser(ctx, f.SaleID, userID)
@@ -387,7 +387,7 @@ func TestLotteryEntryRepository_Create(t *testing.T) {
 		userID := newUserID(t, db)
 		entry := newEntry(db, &unknown, f.SaleID, userID, 2, nil)
 
-		_, err := repo.Create(ctx, entry)
+		_, err := repo.Create(ctx, entry, time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		_, err = repo.GetByCardAuthorizationID(ctx, entry.Order.CardAuthorizationID)
@@ -661,7 +661,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		winB := insertLotteryEntry(t, db, b, saleID, newUserID(t, db), 1, entity.LotteryEntryStateEntered)
 		require.False(t, drawn(t, saleID))
 
-		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, winA, loseA), drawOrder(b, loseB, winB)})
+		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, winA, loseA), drawOrder(b, loseB, winB)}, time.Now())
 
 		require.NoError(t, err)
 		for _, tc := range []struct {
@@ -696,7 +696,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		// The last write fails: voiding the loser's Order is refused.
 		failOrderUpdate(t, db, lost.OrderID)
 
-		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, won), drawOrder(b, lost)})
+		err := repo.PersistDrawOutcome(ctx, saleID, []entity.StockDrawOrder{drawOrder(a, won), drawOrder(b, lost)}, time.Now())
 
 		require.Error(t, err)
 		assert.Equal(t, won, get(t, won.ID))
@@ -708,7 +708,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
 		e := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 
-		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()), []entity.StockDrawOrder{drawOrder(f, e)})
+		err := repo.PersistDrawOutcome(ctx, entity.TicketSaleID(entity.NewID()), []entity.StockDrawOrder{drawOrder(f, e)}, time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 		assert.Equal(t, e, get(t, e.ID))
@@ -719,7 +719,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
 		bystander := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, nil))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, nil, time.Now()))
 
 		assert.Equal(t, bystander, get(t, bystander.ID))
 	})
@@ -730,14 +730,14 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		won := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		order := []entity.StockDrawOrder{drawOrder(f, won, lost)}
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order, time.Now()))
 		// The winner is made Lost since, which frees its 2 tickets.
 		require.NoError(t, repo.RevertWin(ctx, won.ID, entity.LotteryEntryLostReasonCardNotCharged))
 		wonBefore, lostBefore := get(t, won.ID), get(t, lost.ID)
 
 		// The same order again, and one that would put the loser first.
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, lost, won)}))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order, time.Now()))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, lost, won)}, time.Now()))
 
 		assert.Equal(t, wonBefore, get(t, won.ID))
 		assert.Equal(t, lostBefore, get(t, lost.ID))
@@ -762,7 +762,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, entity.CommitOutcomeCommitted, outcome)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order, time.Now()))
 
 		assert.Equal(t, entity.LotteryEntryStateWon, get(t, first.ID).State)
 		assert.Equal(t, entity.LotteryEntryStateLost, get(t, second.ID).State)
@@ -772,7 +772,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 	})
 
 	t.Run("empty sale id", func(t *testing.T) {
-		err := repo.PersistDrawOutcome(ctx, "", nil)
+		err := repo.PersistDrawOutcome(ctx, "", nil, time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
@@ -795,7 +795,7 @@ func TestLotteryEntryRepository_RevertWin(t *testing.T) {
 			order = append(order, insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 3, entity.LotteryEntryStateEntered))
 		}
 		won := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, append(order, won)...)}))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, append(order, won)...)}, time.Now()))
 		got, err := repo.Get(ctx, won.ID)
 		require.NoError(t, err)
 		require.Equal(t, entity.LotteryEntryStateWon, got.State)
@@ -1132,4 +1132,29 @@ func failOrderUpdate(t *testing.T, db *rdb.Database, id entity.OrderID) {
 		_, err = db.Pool.Exec(ctx, `DROP FUNCTION IF EXISTS test_fail_order_update()`)
 		require.NoError(t, err)
 	})
+}
+
+// TestLotteryEntryRepository_StatsParity checks that the stats query counts
+// exactly what entity.NewLotteryEntryStats counts for the sale's entries of
+// the stock, in every state, and leaves out the entries of another stock.
+func TestLotteryEntryRepository_StatsParity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewLotteryEntryRepository(db, testOutbox)
+	saleID, a, b := seedLotteryOfTwoStocks(t, db, 100, 100)
+
+	var ofA []*entity.LotteryEntry
+	for i, state := range []entity.LotteryEntryState{
+		entity.LotteryEntryStateEntered, entity.LotteryEntryStateEntered, entity.LotteryEntryStateWon,
+		entity.LotteryEntryStateWon, entity.LotteryEntryStateLost, entity.LotteryEntryStateLost,
+	} {
+		ofA = append(ofA, insertLotteryEntry(t, db, a, saleID, newUserID(t, db), i%3+1, state))
+	}
+	insertLotteryEntry(t, db, b, saleID, newUserID(t, db), 4, entity.LotteryEntryStateWon)
+
+	got, err := repo.GetStatsByTicketSaleAndTicketStock(context.Background(), saleID, a.ID)
+
+	require.NoError(t, err)
+	assert.Equal(t, entity.NewLotteryEntryStats(ofA), got)
+	assert.Equal(t, 6, got.EntryCount, "the entries of another stock are not counted")
 }
