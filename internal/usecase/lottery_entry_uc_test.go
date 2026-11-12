@@ -436,9 +436,11 @@ func TestLotteryEntryUseCase_Confirm(t *testing.T) {
 			return e.TicketSaleID == "sale-l" && e.State == entity.LotteryEntryStateEntered &&
 				o.UserID == fan && o.TicketStockID == "stock-1" && o.TicketCount == 2 && o.Amount == 16000 &&
 				o.CardAuthorizationID == "pi_1" && o.Status == entity.OrderStatusPending && o.LotteryEntryID == e.ID
-		}))
+		}), mock.Anything)
 	}
-	echo := func(_ context.Context, e *entity.LotteryEntry) (*entity.LotteryEntry, error) { return e, nil }
+	echo := func(_ context.Context, e *entity.LotteryEntry, _ time.Time) (*entity.LotteryEntry, error) {
+		return e, nil
+	}
 
 	t.Run("fan confirms", func(t *testing.T) {
 		t.Parallel()

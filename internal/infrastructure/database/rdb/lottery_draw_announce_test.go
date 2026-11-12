@@ -42,7 +42,7 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 		lost := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		mark := outboxMark(t, db)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)}))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)}, time.Now()))
 
 		gotWon := drawnOf(t, mark, entity.SubjectLotteryEntryWon, f.SaleID)
 		require.Len(t, gotWon, 1, "the Won entry is announced as won")
@@ -63,10 +63,10 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 		won := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		order := []entity.StockDrawOrder{drawOrder(f, won, lost)}
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order, time.Now()))
 		mark := outboxMark(t, db)
 
-		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order))
+		require.NoError(t, repo.PersistDrawOutcome(ctx, f.SaleID, order, time.Now()))
 
 		assert.Empty(t, drawnOf(t, mark, entity.SubjectLotteryEntryWon, f.SaleID))
 		assert.Empty(t, drawnOf(t, mark, entity.SubjectLotteryEntryLost, f.SaleID))
@@ -78,7 +78,7 @@ func TestLotteryEntryRepository_PersistDrawOutcomeAnnounces(t *testing.T) {
 		won := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 		lost := insertLotteryEntry(t, db, f, f.SaleID, newUserID(t, db), 2, entity.LotteryEntryStateEntered)
 
-		err := rdb.NewLotteryEntryRepository(db, failingOutbox{}).PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)})
+		err := rdb.NewLotteryEntryRepository(db, failingOutbox{}).PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{drawOrder(f, won, lost)}, time.Now())
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		for _, e := range []*entity.LotteryEntry{won, lost} {
@@ -161,7 +161,7 @@ func TestLotteryEntryRepository_PersistDrawOutcomeLargeDraw(t *testing.T) {
 			}
 		}
 	}()
-	err = repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{order})
+	err = repo.PersistDrawOutcome(ctx, f.SaleID, []entity.StockDrawOrder{order}, time.Now())
 	close(stop)
 	<-sampled
 

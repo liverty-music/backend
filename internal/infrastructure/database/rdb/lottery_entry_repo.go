@@ -55,14 +55,6 @@ const (
 	// authorization: a transaction-scoped advisory lock keyed on its id,
 	// released at commit or rollback.
 	lotteryEntryCreateLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('lottery-entry-card-authorization:' || $1, 0))`
-	// lotteryEntrySaleOfStockQuery reads, for the Lottery sale $1 and the
-	// stock $2, whether the sale names the stock's event; no row when either
-	// does not exist or the sale is not a Lottery.
-	lotteryEntrySaleOfStockQuery = `
-		SELECT EXISTS (SELECT 1 FROM ticket_sale_events tse WHERE tse.ticket_sale_id = ts.id AND tse.event_id = s.event_id)
-		FROM ticket_sales ts, ticket_stocks s
-		WHERE ts.id = $1 AND s.id = $2 AND ts.method = 2
-	`
 	// lotteryEntryOfUserForEventQuery reports whether the user ($2) has an
 	// entry in the sale ($1) for a stock of the event ($3).
 	lotteryEntryOfUserForEventQuery = `
@@ -158,7 +150,7 @@ const (
 // LOTTERY_ENTRY.entered with the Pending Order (which names the entry,
 // the user and the TicketStock), in the transaction that stores the entry.
 // Nothing when it returns an existing entry or fails.
-func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry) (*entity.LotteryEntry, error) {
+func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.LotteryEntry, now time.Time) (*entity.LotteryEntry, error) {
 	order := entry.Order
 	attrs := []slog.Attr{
 		slog.String("ticket_sale_id", string(entry.TicketSaleID)),
@@ -196,19 +188,22 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 		return nil, toAppErr(err, "failed to read the entry of the card authorization", attrs...)
 	}
 
-	var namesEvent bool
-	if err := tx.QueryRow(ctx, lotteryEntrySaleOfStockQuery, string(entry.TicketSaleID), string(order.TicketStockID)).Scan(&namesEvent); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.New(codes.FailedPrecondition, "the lottery sale or the ticket stock does not exist", attrs...)
-		}
+	sale, err := getTicketSale(ctx, tx, entry.TicketSaleID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, toAppErr(err, "failed to read the entry's sale", attrs...)
 	}
-	if !namesEvent {
-		return nil, apperr.New(codes.FailedPrecondition, "the sale does not name the stock's event", attrs...)
+	if errors.Is(err, pgx.ErrNoRows) {
+		sale = nil
 	}
-	stock, err := getTicketStock(ctx, tx, order.TicketStockID, time.Now())
+	stock, err := getTicketStock(ctx, tx, order.TicketStockID, now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.New(codes.FailedPrecondition, "the lottery sale or the ticket stock does not exist", attrs...)
+	}
 	if err != nil {
 		return nil, toAppErr(err, "failed to read the entry's stock", attrs...)
+	}
+	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
+		return nil, err
 	}
 	var entered bool
 	if err := tx.QueryRow(ctx, lotteryEntryOfUserForEventQuery, string(entry.TicketSaleID), string(order.UserID), stock.EventID).Scan(&entered); err != nil {
@@ -221,7 +216,7 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	if err != nil {
 		return nil, toAppErr(err, "failed to read the event's per-account limit", attrs...)
 	}
-	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, time.Now())
+	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, now)
 	if err != nil {
 		return nil, toAppErr(err, "failed to count the user's tickets", attrs...)
 	}
@@ -368,7 +363,7 @@ type drawnRow struct {
 // per entry it sets Lost, with the entry as it is after the draw, in the
 // transaction of the outcome, inserted in chunks. Nothing for an entry it
 // leaves unchanged.
-func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder) error {
+func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID entity.TicketSaleID, orders []entity.StockDrawOrder, now time.Time) error {
 	if saleID == "" {
 		return apperr.New(codes.InvalidArgument, "ticket sale ID must not be empty")
 	}
@@ -401,7 +396,7 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID 
 		if len(o.Entries) == 0 {
 			continue
 		}
-		stock, err := lockTicketStock(ctx, tx, o.TicketStockID, time.Now())
+		stock, err := lockTicketStock(ctx, tx, o.TicketStockID, now)
 		if err != nil {
 			return toAppErr(err, "failed to lock the drawn stock", append(attrs, slog.String("ticket_stock_id", string(o.TicketStockID)))...)
 		}
@@ -530,7 +525,7 @@ func (r *LotteryEntryRepository) RevertWin(ctx context.Context, id entity.Lotter
 		return toAppErr(err, "failed to read the entry's stock", attrs...)
 	}
 	// The stock's sold count changes, so its row lock comes first (design D5).
-	if _, err := lockTicketStock(ctx, tx, entity.TicketStockID(stockID), time.Now()); err != nil {
+	if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
 		return toAppErr(err, "failed to lock the entry's stock", attrs...)
 	}
 	entry, err := scanLotteryEntry(tx.QueryRow(ctx, lotteryEntryLockForRevertQuery, string(id)))

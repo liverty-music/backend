@@ -403,7 +403,7 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 
 	order := entity.NewPendingOrder(purchase.UserID, stock, purchase.TicketCount, purchase.ReferralCode, entity.OrderPaymentProvider)
 	order.CardAuthorizationID = cardAuthorizationID
-	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID))
+	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID), now)
 	if err != nil {
 		switch {
 		case errors.Is(err, apperr.ErrAlreadyExists):

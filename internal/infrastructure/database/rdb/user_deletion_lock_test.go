@@ -51,7 +51,7 @@ func TestUserRepository_SerializeDeletion(t *testing.T) {
 				return func() error {
 						order := entity.NewPendingOrder(userID, stock, 1, nil, entity.OrderPaymentProvider)
 						order.CardAuthorizationID = newCardAuthorizationID(db)
-						_, err := repo.Create(ctx, entity.NewLotteryEntry(order, f.SaleID))
+						_, err := repo.Create(ctx, entity.NewLotteryEntry(order, f.SaleID), time.Now())
 						return err
 					}, func() int {
 						return countUserRows(db, ctx, t, `SELECT count(*) FROM orders WHERE user_id = $1`, string(userID))

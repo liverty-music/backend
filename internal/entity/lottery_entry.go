@@ -266,7 +266,8 @@ type LotteryEntryRepository interface {
 	// and returns that Order's entry, also after the sale's end time. It locks
 	// the user's users row first, so checking and storing are one indivisible
 	// step with every other creation of an Order by the user, and no entry is
-	// stored once the sale's end time has passed by the database clock.
+	// stored once the sale's end time has passed by the database clock. now is
+	// the caller's time, at which the stock's held tickets are counted.
 	//
 	// # Possible errors
 	//
@@ -289,7 +290,7 @@ type LotteryEntryRepository interface {
 	// LOTTERY_ENTRY.entered with the new entry's Pending Order, which
 	// names the entry, the user and the TicketStock, together with the entry.
 	// Nothing when it returns an existing entry or fails.
-	Create(ctx context.Context, entry *LotteryEntry) (*LotteryEntry, error)
+	Create(ctx context.Context, entry *LotteryEntry, now time.Time) (*LotteryEntry, error)
 
 	// Get returns the entry with the given id, in any state.
 	//
@@ -352,8 +353,9 @@ type LotteryEntryRepository interface {
 	// once ([AdmitInDrawOrder]): an entry whose ticket count fits the
 	// remaining count is Won and deducts its whole count, every other entry is
 	// Lost with the lost reason not drawn and its Order Void, each with its
-	// draw position. A given entry that is no longer Entered is left unchanged
-	// and deducts nothing, so recording the same draw again changes nothing,
+	// draw position. now is the caller's time, at which the stock's held
+	// tickets are counted. A given entry that is no longer Entered is left
+	// unchanged and deducts nothing, so recording the same draw again changes nothing,
 	// including any entry made Lost since. On failure nothing is recorded.
 	//
 	// # Possible errors
@@ -369,7 +371,7 @@ type LotteryEntryRepository interface {
 	// LOTTERY_ENTRY.won once per entry it sets Won and LOTTERY_ENTRY.lost once
 	// per entry it sets Lost, as it is after the draw, together with the
 	// outcome. Nothing for an entry left unchanged.
-	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder) error
+	PersistDrawOutcome(ctx context.Context, saleID TicketSaleID, orders []StockDrawOrder, now time.Time) error
 
 	// RevertWin makes a Won entry whose Order is Pending Lost with the lost
 	// reason, [LotteryEntryLostReasonCardNotCharged] or

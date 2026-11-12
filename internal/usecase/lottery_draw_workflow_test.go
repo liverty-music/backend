@@ -4,6 +4,7 @@ import (
 	"context"
 	mrand "math/rand/v2"
 	"testing"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -45,8 +46,8 @@ func (f *lotteryFixture) closedSaleWith(id entity.TicketSaleID, stocks ...drawSt
 
 // recordsOutcome captures the draw orders Draw records for the sale.
 func (f *lotteryFixture) recordsOutcome(saleID entity.TicketSaleID, out *[]entity.StockDrawOrder) {
-	f.entries.EXPECT().PersistDrawOutcome(mock.Anything, saleID, mock.Anything).RunAndReturn(
-		func(_ context.Context, _ entity.TicketSaleID, orders []entity.StockDrawOrder) error {
+	f.entries.EXPECT().PersistDrawOutcome(mock.Anything, saleID, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ entity.TicketSaleID, orders []entity.StockDrawOrder, _ time.Time) error {
 			*out = orders
 			return nil
 		})
