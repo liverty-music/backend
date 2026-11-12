@@ -68,3 +68,12 @@ func TestSeatType_AmountFor(t *testing.T) {
 
 	assert.Equal(t, int64(16000), entity.NewSeatType("series-1", "S席", 8000).AmountFor(2))
 }
+
+func TestHasSeatType(t *testing.T) {
+	t.Parallel()
+
+	seatTypes := []*entity.SeatType{{ID: "s-1"}, {ID: "s-2"}}
+	assert.True(t, entity.HasSeatType(seatTypes, "s-2"))
+	assert.False(t, entity.HasSeatType(seatTypes, "s-3"), "a seat type of another Series")
+	assert.False(t, entity.HasSeatType(nil, "s-1"))
+}

@@ -130,6 +130,15 @@ func (e *Event) Fits(held HeldTickets, seatTypeID SeatTypeID, count int) bool {
 	return held.Count+count <= e.Limit()
 }
 
+// CanBeStocked reports whether the event can be given a TicketStock: a
+// cancelled event cannot. It fails with FailedPrecondition.
+func (e *Event) CanBeStocked() error {
+	if e.HasPublishState(PublishStateCancelled) {
+		return apperr.New(codes.FailedPrecondition, "a cancelled event cannot be stocked")
+	}
+	return nil
+}
+
 // HasPublishState reports whether the event is in the given publish state. An
 // Event of a discovered series has no publish state, so it is in none.
 func (e *Event) HasPublishState(state PublishState) bool {

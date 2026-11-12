@@ -112,3 +112,15 @@ type SeatTypeRepository interface {
 	//  - Internal: database failure.
 	ListBySeries(ctx context.Context, seriesID string) ([]*SeatType, error)
 }
+
+// HasSeatType reports whether the seat type id is among seatTypes, the seat
+// types of a Series. A TicketStock of an event is of one of its Series' seat
+// types.
+func HasSeatType(seatTypes []*SeatType, id SeatTypeID) bool {
+	for _, s := range seatTypes {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}

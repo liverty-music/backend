@@ -345,3 +345,29 @@ func TestEvent_Fits(t *testing.T) {
 		})
 	}
 }
+
+func TestEvent_CanBeStocked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		state   *entity.PublishState
+		wantErr bool
+	}{
+		{"draft", new(entity.PublishStateDraft), false},
+		{"published", new(entity.PublishStatePublished), false},
+		{"discovered, without a publish state", nil, false},
+		{"cancelled", new(entity.PublishStateCancelled), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := (&entity.Event{PublishState: tt.state}).CanBeStocked()
+			if tt.wantErr {
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

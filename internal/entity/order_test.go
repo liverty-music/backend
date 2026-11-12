@@ -326,3 +326,50 @@ func TestOrder_Source(t *testing.T) {
 	assert.Equal(t, "lottery_entry", entity.OrderSourceLotteryEntry.String())
 	assert.Equal(t, "checkout", entity.OrderSourceCheckout.String())
 }
+
+func TestOrder_TicketCountPredicates(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	co := func(status entity.CheckoutStatus, expire time.Time) entity.OrderSourceState {
+		return entity.OrderSourceState{Checkout: &entity.Checkout{Status: status, HoldExpireTime: expire}}
+	}
+	le := func(state entity.LotteryEntryState) entity.OrderSourceState {
+		return entity.OrderSourceState{LotteryEntry: &entity.LotteryEntry{State: state}}
+	}
+	re := func(state entity.ResaleEntryState) entity.OrderSourceState {
+		return entity.OrderSourceState{ResaleEntry: &entity.ResaleEntry{State: state}}
+	}
+	holding, lapsed := now.Add(time.Minute), now.Add(-time.Minute)
+
+	tests := []struct {
+		name                string
+		status              entity.OrderStatus
+		src                 entity.OrderSourceState
+		limit, sold, heldAt bool
+	}{
+		{"paid checkout", entity.OrderStatusPaid, co(entity.CheckoutStatusCompleted, lapsed), true, true, false},
+		{"paid lottery entry", entity.OrderStatusPaid, le(entity.LotteryEntryStateWon), true, true, false},
+		{"paid resale entry", entity.OrderStatusPaid, re(entity.ResaleEntryStateWon), true, false, false},
+		{"refunded checkout", entity.OrderStatusRefunded, co(entity.CheckoutStatusCompleted, lapsed), false, true, false},
+		{"pending, holding checkout", entity.OrderStatusPending, co(entity.CheckoutStatusHeld, holding), true, false, true},
+		{"pending, lapsed checkout", entity.OrderStatusPending, co(entity.CheckoutStatusHeld, lapsed), false, false, false},
+		{"pending, committed checkout", entity.OrderStatusPending, co(entity.CheckoutStatusCommitted, lapsed), true, true, false},
+		{"pending, entered lottery entry", entity.OrderStatusPending, le(entity.LotteryEntryStateEntered), true, false, false},
+		{"pending, won lottery entry", entity.OrderStatusPending, le(entity.LotteryEntryStateWon), true, true, false},
+		{"pending, lost lottery entry", entity.OrderStatusPending, le(entity.LotteryEntryStateLost), false, false, false},
+		{"pending, entered resale entry", entity.OrderStatusPending, re(entity.ResaleEntryStateEntered), true, false, false},
+		{"pending, won resale entry", entity.OrderStatusPending, re(entity.ResaleEntryStateWon), true, false, false},
+		{"pending, lapsed resale entry", entity.OrderStatusPending, re(entity.ResaleEntryStateLapsed), false, false, false},
+		{"void", entity.OrderStatusVoid, le(entity.LotteryEntryStateLost), false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			o := &entity.Order{Status: tt.status}
+			assert.Equal(t, tt.limit, o.CountsTowardLimitAt(now, tt.src), "counts toward the limit")
+			assert.Equal(t, tt.sold, o.IsSold(tt.src), "sold")
+			assert.Equal(t, tt.heldAt, o.IsHeldAt(now, tt.src), "held")
+		})
+	}
+}
