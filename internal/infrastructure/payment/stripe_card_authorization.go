@@ -101,14 +101,10 @@ func newStripeCardAuthorizationProvider(secretKey, apiURL string, policy CardAut
 	}
 }
 
-// purchaseResaleEntry is the metadata value of purchase for an official
-// resale entry, which, unlike a lottery entry, names no TicketSale.
-const purchaseResaleEntry = "resale_entry"
-
 // PaymentIntent metadata keys that carry the purchase a card authorization
 // pays for.
 const (
-	metadataPurchase      = "purchase"
+	metadataPurpose       = "purpose"
 	metadataCheckoutID    = "checkout_id"
 	metadataUserID        = "user_id"
 	metadataTicketSaleID  = "ticket_sale_id"
@@ -151,9 +147,7 @@ func (p *StripeCardAuthorizationProvider) Create(ctx context.Context, purchase e
 			params.AddMetadata(key, value)
 		}
 	}
-	if purchase.IsResaleEntry() {
-		addMetadata(metadataPurchase, purchaseResaleEntry)
-	}
+	addMetadata(metadataPurpose, purchase.Purpose.String())
 	if purchase.Purpose == entity.CardAuthorizationPurposeCheckout {
 		addMetadata(metadataCheckoutID, string(purchase.CheckoutID))
 	}
@@ -314,9 +308,8 @@ func cardAuthorization(pi *stripe.PaymentIntent) *entity.CardAuthorization {
 }
 
 // purchaseFromMetadata maps a PaymentIntent's metadata back to the purchase it
-// pays for: a Checkout when checkout_id is present, a lottery entry when the
-// fan and the TicketSale are, and an unspecified purchase otherwise (a
-// PaymentIntent the platform did not open for a purchase).
+// pays for, with the purpose Create wrote. A PaymentIntent without it (one the
+// platform did not open for a purchase) has an unspecified purpose.
 func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPurchase {
 	purchase := entity.CardAuthorizationPurchase{
 		CheckoutID:    entity.CheckoutID(metadata[metadataCheckoutID]),
@@ -334,14 +327,7 @@ func purchaseFromMetadata(metadata map[string]string) entity.CardAuthorizationPu
 		c := entity.ReferralCode(code)
 		purchase.ReferralCode = &c
 	}
-	switch {
-	case metadata[metadataPurchase] == purchaseResaleEntry && purchase.UserID != "" && purchase.TicketStockID != "":
-		purchase.Purpose = entity.CardAuthorizationPurposeResaleEntry
-	case purchase.CheckoutID != "":
-		purchase.Purpose = entity.CardAuthorizationPurposeCheckout
-	case purchase.UserID != "" && purchase.TicketSaleID != "":
-		purchase.Purpose = entity.CardAuthorizationPurposeLotteryEntry
-	}
+	purchase.Purpose = entity.ParseCardAuthorizationPurpose(metadata[metadataPurpose])
 	return purchase
 }
 

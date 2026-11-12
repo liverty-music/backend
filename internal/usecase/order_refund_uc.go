@@ -44,18 +44,16 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		return order, nil
 	}
 
-	// Only Paid orders may be refunded: Pending and Void orders have no captured payment.
-	if order.Status != entity.OrderStatusPaid {
-		return nil, apperr.New(codes.FailedPrecondition,
-			"order is not in a refundable state (must be paid)")
-	}
-
-	// A cancellation (中止) refund is only for a cancelled Event; checked before
-	// any money moves. A dispute is accepted whatever the Event's state.
-	if reason == RefundReasonCancellation {
-		if err := uc.requireCancelledEvent(ctx, orderID); err != nil {
+	// A cancellation (中止) refund is only for a cancelled Event, checked
+	// before any money moves; a dispute is accepted whatever the Event's state.
+	var event *entity.Event
+	if order.Status == entity.OrderStatusPaid && reason == RefundReasonCancellation {
+		if event, err = uc.eventOfOrder(ctx, orderID); err != nil {
 			return nil, err
 		}
+	}
+	if err := order.CheckRefundable(reason, event); err != nil {
+		return nil, err
 	}
 
 	// -- load the settlement: Order.Issue stored it with the Paid Order, so a
@@ -70,7 +68,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	}
 	// A settlement given up because every ticket was resold has nothing left
 	// to claw back or reverse.
-	if settlement != nil && settlement.Status == entity.SettlementStatusReversed {
+	if settlement != nil && settlement.IsReversed() {
 		settlement = nil
 	}
 
@@ -107,16 +105,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// dispute, whose money the card issuer already returned.
 	var refundAmount int64
 	if reason != RefundReasonDispute {
-		// Guard: non-Stripe orders or missing pi_ cannot be refunded via Stripe.
-		if order.Payment.Provider != entity.PaymentProviderStripe {
-			return nil, apperr.New(codes.FailedPrecondition,
-				"refund via Stripe is only supported for Stripe-backed orders")
-		}
-		if order.Payment.ProviderPaymentID == "" {
-			return nil, apperr.New(codes.FailedPrecondition,
-				"order has no provider payment ID; cannot resolve charge for refund")
-		}
-		refundAmount, err = uc.unresoldAmount(ctx, order)
+		refundAmount, err = uc.refundableAmount(ctx, order)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +134,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// but we still flip the settlement to Reversed in the DB commit to prevent
 	// the payout sweeper from later releasing it (TOCTOU fix).
 	var reversedSplits []entity.SettlementSplit
-	if settlement != nil && settlement.Status == entity.SettlementStatusReleased {
+	if settlement != nil && settlement.HasPaidOut() {
 		reversedSplits, err = uc.reverseSplits(ctx, settlement)
 		if err != nil {
 			return nil, err
@@ -211,28 +200,15 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	return uc.orderRepo.Get(ctx, orderID)
 }
 
-// unresoldAmount returns the price of the Order's Tickets that are still
-// Issued: the Order's amount divided by its number of Tickets, times the
-// number still Issued. It is 0 when every Ticket was resold (or voided).
-func (uc *orderUseCase) unresoldAmount(ctx context.Context, order *entity.Order) (int64, error) {
+// refundableAmount returns the price of the Order's Tickets that are still
+// Issued ([entity.Order.RefundableAmount]), 0 when every Ticket was resold or
+// voided.
+func (uc *orderUseCase) refundableAmount(ctx context.Context, order *entity.Order) (int64, error) {
 	tickets, err := uc.ticketRepo.ListByUser(ctx, order.UserID)
 	if err != nil {
 		return 0, err
 	}
-	var total, issued int64
-	for _, t := range tickets {
-		if t.OrderID != order.ID {
-			continue
-		}
-		total++
-		if t.Status == entity.TicketStatusIssued {
-			issued++
-		}
-	}
-	if issued == 0 {
-		return 0, nil
-	}
-	return order.Amount / total * issued, nil
+	return order.RefundableAmount(tickets), nil
 }
 
 // resolveProviderChargeID returns the charge ref. Prefers the value already stored on
@@ -278,23 +254,11 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 	return result, nil
 }
 
-// requireCancelledEvent fails with FailedPrecondition unless the Event the
-// Order is for is CANCELLED.
-func (uc *orderUseCase) requireCancelledEvent(ctx context.Context, orderID entity.OrderID) error {
+// eventOfOrder reads the Event the Order is for.
+func (uc *orderUseCase) eventOfOrder(ctx context.Context, orderID entity.OrderID) (*entity.Event, error) {
 	eventID, err := uc.orderRepo.GetEventID(ctx, orderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	event, err := uc.eventRepo.Get(ctx, eventID)
-	if err != nil {
-		return err
-	}
-	if !event.HasPublishState(entity.PublishStateCancelled) {
-		return apperr.New(codes.FailedPrecondition,
-			"a cancellation refund needs the order's event to be cancelled",
-			slog.String("order_id", string(orderID)),
-			slog.String("event_id", eventID),
-		)
-	}
-	return nil
+	return uc.eventRepo.Get(ctx, eventID)
 }

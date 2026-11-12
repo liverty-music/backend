@@ -131,108 +131,30 @@ func TestIsReleaseEligible(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Splits engine (tested via ReleaseDueSettlements)
+// Invalid splits: the entity refuses the release, the sweep skips it
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestSettlementUseCase_ReleaseDueSettlements_SplitsEngine(t *testing.T) {
+func TestSettlementUseCase_ReleaseDueSettlements_InvalidSplitsAreSkipped(t *testing.T) {
 	t.Parallel()
 
 	const (
-		chargeAmount      = int64(10000)
 		orgID             = "org-1"
 		eventID           = "event-1"
-		providerPaymentID = "pi_test"
 		providerAccountID = "acct_test"
 	)
-
 	pastStartVal := time.Now().Add(-30 * 24 * time.Hour)
-	pastStart := &pastStartVal
+	order := &entity.Order{ID: "order-1", Amount: 10000, Currency: "JPY", Payment: entity.Payment{ProviderPaymentID: "pi_test"}}
+	// The rules of a valid split are the entity's (TestSettlement_ReleasePlan).
+	settlement := &entity.Settlement{ID: "settle-1", OrderID: order.ID, OrganizerID: orgID, EventID: eventID, Status: entity.SettlementStatusHeld}
 
-	baseOrder := &entity.Order{
-		ID:       "order-1",
-		Amount:   chargeAmount,
-		Currency: "JPY",
-		Payment:  entity.Payment{ProviderPaymentID: providerPaymentID},
-	}
+	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
+	f.held(settlement, order)
+	f.startsAt(eventID, &pastStartVal)
+	f.account(&entity.PayoutAccount{OrganizerID: orgID, ProviderAccountID: providerAccountID, Status: entity.PayoutOnboardingStatusActive}, entity.PayoutOnboardingStatusActive)
 
-	tests := []struct {
-		name             string
-		splits           []entity.SettlementSplit
-		wantMarkReleased bool
-	}{
-		{
-			// @spec components/entity/settlement "Single Organizer split"
-			name: "single organizer split within charge — MVP happy path",
-			splits: []entity.SettlementSplit{
-				{PayeeOrganizerID: orgID, Amount: 9000},
-			},
-			wantMarkReleased: true,
-		},
-		{
-			name: "split exactly equal to charge amount is allowed",
-			splits: []entity.SettlementSplit{
-				{PayeeOrganizerID: orgID, Amount: chargeAmount},
-			},
-			wantMarkReleased: true,
-		},
-		{
-			// @spec components/entity/settlement "Splits exceed the order"
-			name: "sum of splits exceeds charge — skipped (logged, not returned)",
-			splits: []entity.SettlementSplit{
-				{PayeeOrganizerID: orgID, Amount: chargeAmount + 1},
-			},
-			wantMarkReleased: false,
-		},
-		{
-			// @spec components/entity/settlement "No split"
-			name:             "no splits — skipped",
-			splits:           nil,
-			wantMarkReleased: false,
-		},
-		{
-			// @spec components/entity/settlement "Non-positive split"
-			name: "split with zero amount — skipped",
-			splits: []entity.SettlementSplit{
-				{PayeeOrganizerID: orgID, Amount: 0},
-			},
-			wantMarkReleased: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-
-			settlement := &entity.Settlement{
-				ID:          "settle-1",
-				OrderID:     baseOrder.ID,
-				OrganizerID: orgID,
-				EventID:     eventID,
-				Splits:      tc.splits,
-				Status:      entity.SettlementStatusHeld,
-			}
-
-			f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
-			f.held(settlement, baseOrder)
-			f.startsAt(eventID, pastStart)
-			f.account(&entity.PayoutAccount{
-				OrganizerID:       orgID,
-				ProviderAccountID: providerAccountID,
-				Status:            entity.PayoutOnboardingStatusActive,
-			}, entity.PayoutOnboardingStatusActive)
-			if tc.wantMarkReleased {
-				f.paysOut(providerPaymentID, "ch_test", "tr_test")
-				f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, "ch_test", mock.Anything, mock.Anything).Return(nil).Once()
-			}
-
-			// Sweep always returns nil (per-settlement errors are logged+skipped).
-			require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
-			if !tc.wantMarkReleased {
-				f.assertNotPaidOut(t)
-			}
-		})
-	}
+	// The sweep returns nil: a per-settlement error is logged and skipped.
+	require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
+	f.assertNotPaidOut(t)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

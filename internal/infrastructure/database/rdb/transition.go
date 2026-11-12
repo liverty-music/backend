@@ -32,10 +32,7 @@ func applyTransition[S stateNumber](ctx context.Context, tx pgx.Tx, table, colum
 	if !t.Changed() {
 		return nil
 	}
-	from := make([]int16, len(t.From))
-	for i, s := range t.From {
-		from[i] = int16(s)
-	}
+	from := statesOf(t.From)
 	set := column + " = $2"
 	if extraSet != "" {
 		set += ", " + extraSet
@@ -50,4 +47,13 @@ func applyTransition[S stateNumber](ctx context.Context, tx pgx.Tx, table, colum
 			slog.String("table", table), slog.String("id", id), slog.Int("to", int(t.To)))
 	}
 	return nil
+}
+
+// statesOf returns the stored numbers of states, for an `= ANY($n)` guard.
+func statesOf[S stateNumber](states []S) []int16 {
+	numbers := make([]int16, len(states))
+	for i, s := range states {
+		numbers[i] = int16(s)
+	}
+	return numbers
 }

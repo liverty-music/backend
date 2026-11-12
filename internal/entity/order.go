@@ -3,6 +3,7 @@ package entity
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -270,6 +271,53 @@ func ValidateTicketCount(count int, event *Event) error {
 	return nil
 }
 
+// OrderSource is what an Order was applied for through: exactly one of a
+// LotteryEntry, a Checkout and a ResaleEntry ([Order.ValidateSource]).
+type OrderSource int8
+
+const (
+	// OrderSourceUnspecified means the Order names no source.
+	OrderSourceUnspecified OrderSource = iota
+	// OrderSourceLotteryEntry means the Order belongs to a LotteryEntry.
+	OrderSourceLotteryEntry
+	// OrderSourceCheckout means the Order belongs to a Checkout.
+	OrderSourceCheckout
+	// OrderSourceResaleEntry means the Order belongs to a ResaleEntry.
+	OrderSourceResaleEntry
+)
+
+// String returns the lowercase source name, as analytics events carry it.
+func (s OrderSource) String() string {
+	switch s {
+	case OrderSourceLotteryEntry:
+		return "lottery_entry"
+	case OrderSourceCheckout:
+		return "checkout"
+	case OrderSourceResaleEntry:
+		return "resale_entry"
+	default:
+		return "unspecified"
+	}
+}
+
+// orderSourceOf names the source of an Order from the ids it carries.
+func orderSourceOf(lotteryEntryID, checkoutID, resaleEntryID string) OrderSource {
+	switch {
+	case lotteryEntryID != "":
+		return OrderSourceLotteryEntry
+	case checkoutID != "":
+		return OrderSourceCheckout
+	case resaleEntryID != "":
+		return OrderSourceResaleEntry
+	}
+	return OrderSourceUnspecified
+}
+
+// Source reports what the Order was applied for through.
+func (o *Order) Source() OrderSource {
+	return orderSourceOf(string(o.LotteryEntryID), string(o.CheckoutID), string(o.ResaleEntryID))
+}
+
 // ValidateSource reports whether the Order is applied for through exactly one
 // source: a LotteryEntry, a Checkout or a ResaleEntry.
 func (o *Order) ValidateSource() error {
@@ -289,6 +337,142 @@ func (o *Order) ValidateSource() error {
 // authorization, the provider payment ID and the pay time.
 func (o *Order) CanBePaid() bool {
 	return o.CardAuthorizationID != "" && o.Payment.ProviderPaymentID != "" && o.PayTime != nil
+}
+
+// IsPaid reports whether the Order was made Paid, also when it was refunded
+// since.
+func (o *Order) IsPaid() bool {
+	return o.Status == OrderStatusPaid || o.Status == OrderStatusRefunded
+}
+
+// MarkPaid makes the Order Paid at now with the captured payment's details.
+// The caller stores the Issued Tickets of [NewIssuedTicket] with it.
+func (o *Order) MarkPaid(captured *CapturedPayment, now time.Time) {
+	o.Payment = Payment{
+		Provider:          captured.Provider,
+		ProviderPaymentID: captured.ProviderPaymentID,
+		CardBrand:         captured.CardBrand,
+		CardLast4:         captured.CardLast4,
+	}
+	o.Status = OrderStatusPaid
+	o.PayTime = &now
+}
+
+// IssuanceOutcome reports whether the Order can be issued in its status: nil
+// for a Pending Order, AlreadyExists for a Paid or Refunded one (the caller
+// re-reads it instead of issuing twice) and FailedPrecondition for a Void one.
+func (o *Order) IssuanceOutcome() error {
+	switch {
+	case o.IsPaid():
+		return apperr.New(codes.AlreadyExists, "the order is already paid")
+	case o.Status == OrderStatusVoid:
+		return apperr.New(codes.FailedPrecondition, "the order is void")
+	}
+	return nil
+}
+
+// CheckChargeable reports whether the Order is one whose card authorization
+// may be charged: only a Pending Order is. It fails with FailedPrecondition
+// for any other status.
+func (o *Order) CheckChargeable() error {
+	if o.Status != OrderStatusPending {
+		return apperr.New(codes.FailedPrecondition, "the entry's Order is not Pending; nothing is charged",
+			slog.String("order_status", o.Status.String()))
+	}
+	return nil
+}
+
+// UnitPrice is the price of one Ticket of the Order: its amount divided by
+// its ticket count, or the whole amount for an Order without a count.
+func (o *Order) UnitPrice() int64 {
+	if o.TicketCount <= 0 {
+		return o.Amount
+	}
+	return o.Amount / int64(o.TicketCount)
+}
+
+// RefundableAmount is the price of the Order's Tickets that are still Issued
+// among tickets: the Order's amount divided by the number of its Tickets,
+// times the number still Issued. A Ticket resold or Voided was already
+// refunded or never paid, and a Ticket of another Order is ignored. It is 0
+// when none is left.
+func (o *Order) RefundableAmount(tickets []*Ticket) int64 {
+	var total, issued int64
+	for _, t := range tickets {
+		if t.OrderID != o.ID {
+			continue
+		}
+		total++
+		if t.Status == TicketStatusIssued {
+			issued++
+		}
+	}
+	if issued == 0 {
+		return 0
+	}
+	return o.Amount / total * issued
+}
+
+// RefundedTicketCount is how many Tickets a Refunded Order's refund paid
+// for: its refund amount divided by [Order.UnitPrice], or all of them for a
+// price of 0. It is 0 for an Order without a refund.
+func (o *Order) RefundedTicketCount() int64 {
+	if o.Refund == nil {
+		return 0
+	}
+	if price := o.UnitPrice(); price > 0 {
+		return o.Refund.Amount / price
+	}
+	return int64(o.TicketCount)
+}
+
+// CheckRefundable reports whether the Order may be refunded for reason: it is
+// Paid (a Pending or Void Order has no captured payment); a Cancellation
+// refund is for an Order of a cancelled event, which the caller passes (nil
+// for any other reason); and, unless the reason is a Dispute, whose money the
+// card issuer already returned, the payment is a Stripe payment with its
+// provider payment ID. It fails with FailedPrecondition otherwise. An Order
+// already Refunded is the caller's idempotent replay, not refundable again.
+func (o *Order) CheckRefundable(reason RefundReason, event *Event) error {
+	attrs := slog.String("order_id", string(o.ID))
+	if o.Status != OrderStatusPaid {
+		return apperr.New(codes.FailedPrecondition, "order is not in a refundable state (must be paid)", attrs)
+	}
+	if reason == RefundReasonCancellation && (event == nil || !event.HasPublishState(PublishStateCancelled)) {
+		return apperr.New(codes.FailedPrecondition, "a cancellation refund needs the order's event to be cancelled", attrs)
+	}
+	if reason == RefundReasonDispute {
+		return nil
+	}
+	if o.Payment.Provider != PaymentProviderStripe {
+		return apperr.New(codes.FailedPrecondition, "refund via Stripe is only supported for Stripe-backed orders", attrs)
+	}
+	if o.Payment.ProviderPaymentID == "" {
+		return apperr.New(codes.FailedPrecondition, "order has no provider payment ID; cannot resolve charge for refund", attrs)
+	}
+	return nil
+}
+
+// RefundPlan is what refunding an Order changes, each as the transition the
+// repository compare-and-sets.
+type RefundPlan struct {
+	// Order makes the Paid Order Refunded.
+	Order Transition[OrderStatus]
+	// Tickets voids the Order's Issued Tickets; one already Voided by a resale
+	// stays as it is.
+	Tickets Transition[TicketStatus]
+	// Listings cancels the Listed resale listings of the Order's Tickets; a
+	// Sold one stays as it is.
+	Listings Transition[ResaleListingStatus]
+}
+
+// RefundPlan returns the changes refunding a Paid Order makes.
+func (o *Order) RefundPlan() RefundPlan {
+	return RefundPlan{
+		Order:    Transition[OrderStatus]{From: []OrderStatus{OrderStatusPaid}, To: OrderStatusRefunded},
+		Tickets:  Transition[TicketStatus]{From: []TicketStatus{TicketStatusIssued}, To: TicketStatusVoided},
+		Listings: Transition[ResaleListingStatus]{From: []ResaleListingStatus{ResaleListingStatusListed}, To: ResaleListingStatusCancelled},
+	}
 }
 
 // CanBecomeVoid reports whether the Order may become Void: only a Pending

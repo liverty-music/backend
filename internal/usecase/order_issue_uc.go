@@ -36,26 +36,10 @@ type EventOrganizerRepository interface {
 func (uc *orderUseCase) issueWith(ctx context.Context, order *entity.Order, eventID, organizerID string, platformFeeRateBps int, identityVerificationID string, captured *entity.CapturedPayment) (*entity.Order, error) {
 	now := uc.clock()
 	paid := *order
-	paid.Payment = entity.Payment{
-		Provider:          captured.Provider,
-		ProviderPaymentID: captured.ProviderPaymentID,
-		CardBrand:         captured.CardBrand,
-		CardLast4:         captured.CardLast4,
-	}
-	paid.Status = entity.OrderStatusPaid
-	paid.PayTime = &now
+	paid.MarkPaid(captured, now)
 	tickets := make([]*entity.Ticket, 0, order.TicketCount)
 	for range order.TicketCount {
-		tickets = append(tickets, &entity.Ticket{
-			ID:                             entity.TicketID(entity.NewID()),
-			OrderID:                        order.ID,
-			UserID:                         order.UserID,
-			EventID:                        eventID,
-			IdentityVerificationID:         identityVerificationID,
-			ResaleWithoutConsentProhibited: true,
-			Status:                         entity.TicketStatusIssued,
-			IssueTime:                      now,
-		})
+		tickets = append(tickets, entity.NewIssuedTicket(order, eventID, identityVerificationID, now))
 	}
 	settlement := entity.NewHeldSettlement(&paid, organizerID, eventID, platformFeeRateBps, now)
 
@@ -74,12 +58,6 @@ func (uc *orderUseCase) issueWith(ctx context.Context, order *entity.Order, even
 		slog.Int("platform_fee_rate_bps", platformFeeRateBps),
 	)
 	return &paid, nil
-}
-
-// isPaid reports whether the Order was already made Paid, also when it was
-// refunded since.
-func isPaid(order *entity.Order) bool {
-	return order.Status == entity.OrderStatusPaid || order.Status == entity.OrderStatusRefunded
 }
 
 // identityVerificationBinding returns the id of the IdentityVerification the Tickets of a sale are bound to:
@@ -122,7 +100,7 @@ func (uc *orderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID,
 	if order.UserID != userID {
 		return nil, apperr.New(codes.PermissionDenied, "checkout is not the caller's", attrs)
 	}
-	if isPaid(order) {
+	if order.IsPaid() {
 		return order, nil
 	}
 
@@ -279,7 +257,7 @@ func (uc *orderUseCase) planCheckoutIssue(ctx context.Context, checkoutID entity
 	if err != nil {
 		return issuePlan{}, err
 	}
-	if isPaid(order) {
+	if order.IsPaid() {
 		return issuePlan{OrderID: order.ID, Paid: true}, nil
 	}
 	return uc.planOrder(ctx, order, checkout.TicketSaleID)

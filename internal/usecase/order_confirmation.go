@@ -101,7 +101,7 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 		organizer:  organizer,
 		count:      paid.TicketCount,
 		tz:         d.TimeZone,
-		lotteryWin: order.LotteryEntryID != "",
+		lotteryWin: order.Source() == entity.OrderSourceLotteryEntry,
 	}
 	lang := emailLanguage(user.PreferredLanguage)
 	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(lang)); err != nil {
@@ -109,10 +109,11 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 	}
 
 	// An Order of a Checkout is not pushed: the fan has just paid on screen.
-	typ := entity.NotificationTypeLotteryWin
-	switch {
-	case order.LotteryEntryID != "":
-	case order.ResaleEntryID != "":
+	var typ entity.NotificationType
+	switch order.Source() {
+	case entity.OrderSourceLotteryEntry:
+		typ = entity.NotificationTypeLotteryWin
+	case entity.OrderSourceResaleEntry:
 		typ = entity.NotificationTypeResaleWin
 	default:
 		return nil

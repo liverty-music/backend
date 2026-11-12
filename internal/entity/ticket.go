@@ -94,6 +94,22 @@ type Ticket struct {
 	AdmitTime *time.Time
 }
 
+// NewIssuedTicket returns an Issued Ticket of order for eventID at now, with
+// a generated UUIDv7 id, bound to identityVerificationID (empty when the sale
+// does not require verification).
+func NewIssuedTicket(order *Order, eventID, identityVerificationID string, now time.Time) *Ticket {
+	return &Ticket{
+		ID:                             TicketID(NewID()),
+		OrderID:                        order.ID,
+		UserID:                         order.UserID,
+		EventID:                        eventID,
+		IdentityVerificationID:         identityVerificationID,
+		ResaleWithoutConsentProhibited: true,
+		Status:                         TicketStatusIssued,
+		IssueTime:                      now,
+	}
+}
+
 // Validate reports whether the ticket is a covered ticket: its face states
 // that resale without consent is prohibited.
 func (t *Ticket) Validate() error {

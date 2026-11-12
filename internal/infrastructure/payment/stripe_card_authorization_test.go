@@ -171,6 +171,7 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 		assert.Equal(t, "6000", stub.createForm.Get("amount"))
 		assert.Equal(t, "jpy", stub.createForm.Get("currency"))
 		assert.Equal(t, "manual", stub.createForm.Get("capture_method"), "nothing is charged until capture")
+		assert.Equal(t, "checkout", stub.createForm.Get("metadata[purpose]"))
 		assert.Equal(t, "checkout-1", stub.createForm.Get("metadata[checkout_id]"))
 		assert.Equal(t, "user-1", stub.createForm.Get("metadata[user_id]"))
 		assert.Equal(t, "stock-1", stub.createForm.Get("metadata[ticket_stock_id]"))
@@ -231,6 +232,7 @@ func TestStripeCardAuthorizationProvider_Create(t *testing.T) {
 			assert.Equal(t, "stock-1", form.Get("metadata[ticket_stock_id]"))
 			assert.Equal(t, "event-1", form.Get("metadata[event_id]"))
 			assert.Equal(t, "member-a", form.Get("metadata[referral_code]"))
+			assert.Equal(t, "lottery_entry", form.Get("metadata[purpose]"))
 			assert.Empty(t, form.Get("metadata[checkout_id]"))
 		}
 	})
@@ -281,7 +283,7 @@ func TestStripeCardAuthorizationProvider_Get(t *testing.T) {
 		// @spec components/entity/card-authorization/get "Authorized card authorization"
 		body := paymentIntentBody("requires_capture", 16000, "jpy", "visa")
 		body["metadata"] = map[string]any{
-			"user_id": "user-1", "ticket_sale_id": "sale-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1", "referral_code": "member-a",
+			"purpose": "lottery_entry", "user_id": "user-1", "ticket_sale_id": "sale-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1", "referral_code": "member-a",
 		}
 		stub := &stripeStub{retrieve: ok(body)}
 		repo := newStubRepo(t, stub, payment.LotteryCardAuthorizationPolicy)
@@ -334,7 +336,7 @@ func TestStripeCardAuthorizationProvider_Get(t *testing.T) {
 		t.Parallel()
 		body := paymentIntentBody("requires_capture", 6000, "jpy", "visa")
 		body["metadata"] = map[string]any{
-			"checkout_id": "checkout-1", "user_id": "user-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1",
+			"purpose": "checkout", "checkout_id": "checkout-1", "user_id": "user-1", "ticket_stock_id": "stock-1", "ticket_count": "2", "event_id": "event-1",
 		}
 		repo := newStubRepo(t, &stripeStub{retrieve: ok(body)}, payment.CheckoutCardAuthorizationPolicy)
 
@@ -563,7 +565,7 @@ func TestStripeCardAuthorizationProvider_ResaleEntry(t *testing.T) {
 		assert.Equal(t, entity.CardAuthorizationStatusPending, got.Status)
 		assert.Equal(t, "10000", stub.createForm.Get("amount"))
 		assert.Equal(t, "manual", stub.createForm.Get("capture_method"), "nothing is charged")
-		assert.Equal(t, "resale_entry", stub.createForm.Get("metadata[purchase]"))
+		assert.Equal(t, "resale_entry", stub.createForm.Get("metadata[purpose]"))
 		assert.Equal(t, "user-1", stub.createForm.Get("metadata[user_id]"))
 		assert.Equal(t, "stock-1", stub.createForm.Get("metadata[ticket_stock_id]"))
 		assert.Equal(t, "2", stub.createForm.Get("metadata[ticket_count]"))
@@ -574,7 +576,7 @@ func TestStripeCardAuthorizationProvider_ResaleEntry(t *testing.T) {
 	t.Run("read back as a resale entry", func(t *testing.T) {
 		t.Parallel()
 		body := paymentIntentBody("requires_capture", 10000, "jpy", "amex")
-		body["metadata"] = map[string]any{"purchase": "resale_entry", "user_id": "user-1", "ticket_stock_id": "stock-1", "event_id": "event-1", "ticket_count": "2"}
+		body["metadata"] = map[string]any{"purpose": "resale_entry", "user_id": "user-1", "ticket_stock_id": "stock-1", "event_id": "event-1", "ticket_count": "2"}
 		body["latest_charge"].(map[string]any)["payment_method_details"].(map[string]any)["card"].(map[string]any)["capture_before"] = 1795000000
 		repo := newStubRepo(t, &stripeStub{retrieve: ok(body)}, payment.LotteryCardAuthorizationPolicy)
 

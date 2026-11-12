@@ -37,10 +37,8 @@ const (
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 	// StripeEventPaymentIntentAmountCapturableUpdated fires when a card
 	// authorization becomes Authorized: the fan completed card authentication.
-	// The webhook adapter finds the card authorization with
-	// [StripeWebhookService.GetCardAuthorization] and routes it to its entry's
-	// Confirm through
-	// [StripeWebhookService.ApplyOnce], not to HandleEvent.
+	// HandleEvent finds the card authorization and routes it to the Confirm of
+	// the entry it pays for, with no calling fan.
 	StripeEventPaymentIntentAmountCapturableUpdated StripeEventType = "payment_intent.amount_capturable_updated"
 )
 
@@ -85,37 +83,25 @@ type StripeWebhookService interface {
 	// HandleEvent processes one Stripe webhook event. The caller must have
 	// already verified the Stripe-Signature header (via
 	// stripe/webhook.ConstructEvent) before calling this method. HandleEvent
-	// persists an idempotency record and dispatches based on event type.
-	// Unknown event types are accepted (200 OK) and logged at INFO level;
-	// they are NOT errors.
+	// applies the event at most once (a provider event id already recorded as
+	// processed is skipped, and the id is recorded after the event is applied,
+	// so a failed one is applied again on redelivery) and dispatches based on
+	// event type. Unknown event types are accepted (200 OK) and logged at INFO
+	// level; they are NOT errors.
+	//
+	// A card authorization that became Authorized
+	// (payment_intent.amount_capturable_updated) is made into the entry it pays
+	// for by its purpose: a lottery entry with LotteryEntryUseCase.Confirm, a
+	// resale entry with ResaleEntryUseCase.Confirm. One the platform did not
+	// open (NotFound), one that pays for a Checkout or has no known purpose,
+	// and one Confirm rejects (PermissionDenied, FailedPrecondition,
+	// InvalidArgument, AlreadyExists; Confirm has already released what it
+	// rejected) are acknowledged without effect.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database or payment-provider failure during dispatch.
 	HandleEvent(ctx context.Context, event StripeWebhookEvent) error
-
-	// ApplyOnce runs apply for the provider event at most once: it skips a
-	// provider event id already recorded as processed, and records it after
-	// apply succeeds. A failed apply is not recorded, so a redelivery runs it
-	// again. It lets the webhook adapter route a notice to another usecase
-	// with the same at-most-once handling as HandleEvent.
-	//
-	// # Possible errors
-	//
-	//  - The error of apply, unchanged.
-	//  - Internal: reading or recording the processed event failed.
-	ApplyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error
-
-	// GetCardAuthorization returns the card authorization a provider notice
-	// names by the payment provider's ID, with its own id and the purchase it
-	// pays for (CardAuthorization.GetByProviderCardAuthorizationID).
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the platform did not open a card authorization with the ID.
-	//  - InvalidArgument: it is not in yen.
-	//  - Unavailable: the payment provider cannot be reached.
-	GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error)
 }
 
 // stripeWebhookService implements [StripeWebhookService].
@@ -131,6 +117,8 @@ type stripeWebhookService struct {
 	orderRepo          entity.OrderRepository
 	refunder           OrderRefunder
 	cardAuthorizations entity.CardAuthorizationRepository
+	lotteryEntries     LotteryEntryUseCase
+	resaleEntries      ResaleEntryUseCase
 	logger             *logging.Logger
 }
 
@@ -144,6 +132,8 @@ func NewStripeWebhookService(
 	orderRepo entity.OrderRepository,
 	refunder OrderRefunder,
 	cardAuthorizations entity.CardAuthorizationRepository,
+	lotteryEntries LotteryEntryUseCase,
+	resaleEntries ResaleEntryUseCase,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
@@ -151,13 +141,10 @@ func NewStripeWebhookService(
 		orderRepo:          orderRepo,
 		refunder:           refunder,
 		cardAuthorizations: cardAuthorizations,
+		lotteryEntries:     lotteryEntries,
+		resaleEntries:      resaleEntries,
 		logger:             logger,
 	}
-}
-
-// GetCardAuthorization implements [StripeWebhookService].
-func (s *stripeWebhookService) GetCardAuthorization(ctx context.Context, providerCardAuthorizationID string) (*entity.CardAuthorization, error) {
-	return s.cardAuthorizations.GetByProviderCardAuthorizationID(ctx, providerCardAuthorizationID)
 }
 
 // HandleEvent implements [StripeWebhookService].
@@ -166,13 +153,15 @@ func (s *stripeWebhookService) HandleEvent(ctx context.Context, event StripeWebh
 	// HandleEvent from a worker. The current synchronous model is safe but
 	// couples Stripe's 30-second response timeout to our processing latency.
 	// The idempotency check stays as-is; the queue handles back-pressure.
-	return s.ApplyOnce(ctx, event.ProviderEventID, event.Type, func(ctx context.Context) error {
+	return s.applyOnce(ctx, event.ProviderEventID, event.Type, func(ctx context.Context) error {
 		return s.dispatch(ctx, event)
 	})
 }
 
-// ApplyOnce implements [StripeWebhookService].
-func (s *stripeWebhookService) ApplyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error {
+// applyOnce runs apply for the provider event at most once: it skips a
+// provider event id already recorded as processed, and records it after apply
+// succeeds. A failed apply is not recorded, so a redelivery runs it again.
+func (s *stripeWebhookService) applyOnce(ctx context.Context, providerEventID string, eventType StripeEventType, apply func(ctx context.Context) error) error {
 	// -- idempotency fast-path: skip duplicate deliveries immediately. --
 	already, err := s.processedRepo.IsProcessed(ctx, providerEventID)
 	if err != nil {
@@ -215,6 +204,8 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 	switch event.Type {
 	case StripeEventChargeDisputeCreated:
 		return s.handleDisputeCreated(ctx, event)
+	case StripeEventPaymentIntentAmountCapturableUpdated:
+		return s.confirmEntry(ctx, event)
 	case StripeEventPaymentIntentSucceeded:
 		// The capture is the response to the platform's own call, made inside
 		// OrderUseCase.Issue, and Order.Issue announced the Order when Issue
@@ -323,4 +314,55 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 		slog.String("provider_payment_id", event.ProviderPaymentID),
 	)
 	return nil
+}
+
+// confirmEntry finds the card authorization the payment provider reports
+// Authorized by the payment provider's ID and makes it into the entry it pays
+// for, by its purpose, without a calling fan. See [StripeWebhookService.HandleEvent]
+// for what is acknowledged without effect. Any other failure is returned as
+// Internal so the provider delivers the notice again.
+func (s *stripeWebhookService) confirmEntry(ctx context.Context, event StripeWebhookEvent) error {
+	if event.ProviderPaymentID == "" {
+		s.logger.Warn(ctx, "stripe webhook: amount_capturable_updated without a PaymentIntent id; skipped",
+			slog.String("event_id", event.ProviderEventID))
+		return nil
+	}
+	ca, err := s.cardAuthorizations.GetByProviderCardAuthorizationID(ctx, event.ProviderPaymentID)
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		s.logger.Info(ctx, "stripe webhook: card authorization the platform did not open; acknowledged",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
+		return nil
+	case err != nil:
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to find the card authorization",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
+	}
+	switch {
+	case ca.Purchase.IsLotteryEntry():
+		_, err = s.lotteryEntries.Confirm(ctx, ca.ID, nil)
+	case ca.Purchase.IsResaleEntry():
+		_, err = s.resaleEntries.Confirm(ctx, ca.ID, nil)
+	default:
+		return nil
+	}
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, apperr.ErrPermissionDenied),
+		errors.Is(err, apperr.ErrFailedPrecondition),
+		errors.Is(err, apperr.ErrInvalidArgument),
+		errors.Is(err, apperr.ErrAlreadyExists):
+		s.logger.Info(ctx, "stripe webhook: card authorization not made into an entry; acknowledged",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID),
+			slog.Any("error", err),
+		)
+		return nil
+	default:
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to confirm the entry",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("provider_payment_id", event.ProviderPaymentID))
+	}
 }

@@ -150,6 +150,15 @@ func NewResaleEntry(order *Order, now time.Time) *ResaleEntry {
 	return e
 }
 
+// CheckChargeable reports whether the entry's Order may be charged: the entry
+// is Won and its Order Pending. It fails with FailedPrecondition otherwise.
+func (e *ResaleEntry) CheckChargeable() error {
+	if e.State != ResaleEntryStateWon {
+		return apperr.New(codes.FailedPrecondition, "resale entry is not Won; nothing is charged")
+	}
+	return e.Order.CheckChargeable()
+}
+
 // IsWithdrawable reports whether the fan may withdraw the entry: only while
 // it is Entered.
 func (e *ResaleEntry) IsWithdrawable() bool {
@@ -172,6 +181,84 @@ func (e *ResaleEntry) RevertWin(reason ResaleEntryLostReason) error {
 	e.State, e.LostReason = ResaleEntryStateLost, reason
 	e.Order.Status = OrderStatusVoid
 	return nil
+}
+
+// ResaleChargeGate is whether a Won ResaleEntry's card authorization may be
+// charged yet, decided from the event before each try.
+type ResaleChargeGate int8
+
+const (
+	// ResaleChargeGateOpen means the concert is published and the show has not
+	// begun: the card authorization is charged.
+	ResaleChargeGateOpen ResaleChargeGate = iota
+	// ResaleChargeGateConcertStopped means the event is no longer published:
+	// nothing is charged, except that an earlier try may have charged the card
+	// authorization with its outcome unknown ([CardAuthorization.CountsAsCharged]).
+	ResaleChargeGateConcertStopped
+	// ResaleChargeGateShowBegan means the event's start time has come: no
+	// charge is tried any more.
+	ResaleChargeGateShowBegan
+)
+
+// ResaleChargeGateAt decides whether a Won entry's card authorization may be
+// charged at now for an event starting at start. A concert no longer
+// published stops the charge before the clock does.
+func ResaleChargeGateAt(published bool, now, start time.Time) ResaleChargeGate {
+	switch {
+	case !published:
+		return ResaleChargeGateConcertStopped
+	case !now.Before(start):
+		return ResaleChargeGateShowBegan
+	}
+	return ResaleChargeGateOpen
+}
+
+// ResaleChargeOutcome is how the charge of a Won ResaleEntry ended.
+type ResaleChargeOutcome int8
+
+const (
+	// ResaleChargeOutcomeCharged means the card authorization was charged: the
+	// Order is issued.
+	ResaleChargeOutcomeCharged ResaleChargeOutcome = iota
+	// ResaleChargeOutcomeConcertCancelled means the concert stopped before any
+	// charge.
+	ResaleChargeOutcomeConcertCancelled
+	// ResaleChargeOutcomeCardNotCharged means the card authorization can no
+	// longer be charged.
+	ResaleChargeOutcomeCardNotCharged
+	// ResaleChargeOutcomeShowBegan means the show began without a successful
+	// charge; the entry is Lost only once the payment provider confirms
+	// nothing was charged.
+	ResaleChargeOutcomeShowBegan
+)
+
+// ResaleChargeOutcomeAt returns how the charge ended at gate: charged tells
+// whether the card authorization was charged (for a stopped concert, whether
+// it counts as charged). A show that began leaves the charge open.
+func ResaleChargeOutcomeAt(gate ResaleChargeGate, charged bool) ResaleChargeOutcome {
+	switch {
+	case gate == ResaleChargeGateShowBegan:
+		return ResaleChargeOutcomeShowBegan
+	case charged:
+		return ResaleChargeOutcomeCharged
+	case gate == ResaleChargeGateConcertStopped:
+		return ResaleChargeOutcomeConcertCancelled
+	}
+	return ResaleChargeOutcomeCardNotCharged
+}
+
+// LostReason is why the entry becomes Lost for the outcome; unspecified for a
+// charged one.
+func (o ResaleChargeOutcome) LostReason() ResaleEntryLostReason {
+	switch o {
+	case ResaleChargeOutcomeConcertCancelled:
+		return ResaleEntryLostReasonConcertCancelled
+	case ResaleChargeOutcomeCardNotCharged:
+		return ResaleEntryLostReasonCardNotCharged
+	case ResaleChargeOutcomeShowBegan:
+		return ResaleEntryLostReasonPaymentNotCompletedBeforeShow
+	}
+	return ResaleEntryLostReasonUnspecified
 }
 
 // ResaleDrawHour is the hour, Japan time, of the daily resale draw.

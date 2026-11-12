@@ -170,11 +170,8 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	if err := tx.QueryRow(ctx, issuanceLockOrderQuery, string(order.ID)).Scan(&status); err != nil {
 		return toAppErr(err, "failed to lock the order", attrs...)
 	}
-	switch entity.OrderStatus(status) {
-	case entity.OrderStatusPaid, entity.OrderStatusRefunded:
-		return apperr.New(codes.AlreadyExists, "the order is already paid", attrs...)
-	case entity.OrderStatusVoid:
-		return apperr.New(codes.FailedPrecondition, "the order is void", attrs...)
+	if err := (&entity.Order{Status: entity.OrderStatus(status)}).IssuanceOutcome(); err != nil {
+		return err
 	}
 
 	// A checkout is completed first, so an uncharged one stores nothing.
@@ -379,7 +376,7 @@ func giveUpResoldShare(ctx context.Context, tx pgx.Tx, settlement *entity.Settle
 	if err := settlement.GiveUpResoldShare(k, m); err != nil {
 		return err
 	}
-	if settlement.Status == entity.SettlementStatusReversed {
+	if settlement.IsReversed() {
 		if _, err := tx.Exec(ctx, issuanceSetSettlementStatusQuery, id, int16(settlement.Status)); err != nil {
 			return toAppErr(err, "failed to reverse the original settlement", attrs)
 		}

@@ -144,3 +144,18 @@ func TestLotteryEntry_RevertWin(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 }
+
+func TestLotteryEntry_CheckChargeable(t *testing.T) {
+	t.Parallel()
+	for _, state := range []entity.LotteryEntryState{entity.LotteryEntryStateEntered, entity.LotteryEntryStateWon, entity.LotteryEntryStateLost} {
+		for _, status := range []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusVoid} {
+			e := &entity.LotteryEntry{State: state, Order: &entity.Order{Status: status}}
+			err := e.CheckChargeable()
+			if state == entity.LotteryEntryStateWon && status == entity.OrderStatusPending {
+				assert.NoError(t, err)
+				continue
+			}
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, state.String()+"/"+status.String())
+		}
+	}
+}

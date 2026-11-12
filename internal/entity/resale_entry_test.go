@@ -265,3 +265,67 @@ func TestResaleListing_IsFreeForDrawAt(t *testing.T) {
 		assert.False(t, l.IsFreeForDrawAt(deadline.Add(time.Minute), deadline))
 	})
 }
+
+func TestResaleEntry_CheckChargeable(t *testing.T) {
+	t.Parallel()
+	for _, state := range []entity.ResaleEntryState{entity.ResaleEntryStateEntered, entity.ResaleEntryStateWon, entity.ResaleEntryStateLost} {
+		for _, status := range []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusVoid} {
+			e := &entity.ResaleEntry{State: state, Order: &entity.Order{Status: status}}
+			err := e.CheckChargeable()
+			if state == entity.ResaleEntryStateWon && status == entity.OrderStatusPending {
+				assert.NoError(t, err)
+				continue
+			}
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, state.String()+"/"+status.String())
+		}
+	}
+}
+
+func TestResaleCharge(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	before, after := start.Add(-time.Minute), start.Add(time.Minute)
+
+	t.Run("gate", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name      string
+			published bool
+			now       time.Time
+			want      entity.ResaleChargeGate
+		}{
+			{"published before the start", true, before, entity.ResaleChargeGateOpen},
+			{"published at the start", true, start, entity.ResaleChargeGateShowBegan},
+			{"published after the start", true, after, entity.ResaleChargeGateShowBegan},
+			{"stopped before the start", false, before, entity.ResaleChargeGateConcertStopped},
+			{"stopped after the start: the concert comes first", false, after, entity.ResaleChargeGateConcertStopped},
+		}
+		for _, tt := range tests {
+			assert.Equal(t, tt.want, entity.ResaleChargeGateAt(tt.published, tt.now, start), tt.name)
+		}
+	})
+
+	t.Run("outcome and lost reason", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name       string
+			gate       entity.ResaleChargeGate
+			charged    bool
+			wantResult entity.ResaleChargeOutcome
+			wantReason entity.ResaleEntryLostReason
+		}{
+			{"charged while open", entity.ResaleChargeGateOpen, true, entity.ResaleChargeOutcomeCharged, entity.ResaleEntryLostReasonUnspecified},
+			{"card cannot be charged", entity.ResaleChargeGateOpen, false, entity.ResaleChargeOutcomeCardNotCharged, entity.ResaleEntryLostReasonCardNotCharged},
+			{"stopped, already captured", entity.ResaleChargeGateConcertStopped, true, entity.ResaleChargeOutcomeCharged, entity.ResaleEntryLostReasonUnspecified},
+			{"stopped, nothing charged", entity.ResaleChargeGateConcertStopped, false, entity.ResaleChargeOutcomeConcertCancelled, entity.ResaleEntryLostReasonConcertCancelled},
+			{"show began", entity.ResaleChargeGateShowBegan, false, entity.ResaleChargeOutcomeShowBegan, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow},
+			{"show began, whatever the charge says", entity.ResaleChargeGateShowBegan, true, entity.ResaleChargeOutcomeShowBegan, entity.ResaleEntryLostReasonPaymentNotCompletedBeforeShow},
+		}
+		for _, tt := range tests {
+			got := entity.ResaleChargeOutcomeAt(tt.gate, tt.charged)
+			assert.Equal(t, tt.wantResult, got, tt.name)
+			assert.Equal(t, tt.wantReason, got.LostReason(), tt.name)
+		}
+	})
+}

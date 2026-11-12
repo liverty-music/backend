@@ -53,24 +53,27 @@ const lockTicketsByOrderTxQuery = `
 	SELECT id FROM tickets WHERE order_id = $1 ORDER BY id FOR UPDATE
 `
 
-// voidTicketsByOrderTxQuery voids the order's Issued tickets; one already
-// Voided by a resale stays as it is.
+// voidTicketsByOrderTxQuery moves the order's tickets that are in one of the
+// states $3 to $2 (the refund plan voids the Issued ones); one already Voided
+// by a resale stays as it is.
 const voidTicketsByOrderTxQuery = `
-	UPDATE tickets SET status = $2 WHERE order_id = $1 AND status = 1
+	UPDATE tickets SET status = $2 WHERE order_id = $1 AND status = ANY($3::smallint[])
 `
 
-// cancelListingsByOrderTxQuery ends the Listed resale listings of the order's
-// tickets; a Sold listing stays as it is.
+// cancelListingsByOrderTxQuery moves the resale listings of the order's
+// tickets that are in one of the states $3 to $2 (the refund plan cancels the
+// Listed ones); a Sold listing stays as it is.
 const cancelListingsByOrderTxQuery = `
-	UPDATE resale_listings SET status = 4
-	WHERE status = 1 AND ticket_id IN (SELECT id FROM tickets WHERE order_id = $1)
+	UPDATE resale_listings SET status = $2
+	WHERE status = ANY($3::smallint[]) AND ticket_id IN (SELECT id FROM tickets WHERE order_id = $1)
 `
 
-// refundOrderTxQuery makes the Paid order Refunded. The status guard takes
-// the order's row lock, so of two concurrent calls only one changes a row,
-// stores the refund and announces it.
+// refundOrderTxQuery moves the order from one of the states $3 to $2 (the
+// refund plan makes the Paid order Refunded). The status guard takes the
+// order's row lock, so of two concurrent calls only one changes a row, stores
+// the refund and announces it.
 const refundOrderTxQuery = `
-	UPDATE orders SET status = 2 WHERE id = $1 AND status = 1
+	UPDATE orders SET status = $2 WHERE id = $1 AND status = ANY($3::smallint[])
 `
 
 // orderStatusTxQuery reads the status of the order refundOrderTxQuery did not
@@ -119,17 +122,21 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// The entity decides what a refund changes; the statements below apply
+	// each change only to rows in the states it names.
+	plan := (&entity.Order{ID: commit.OrderID}).RefundPlan()
+
 	// 1. Lock the order's tickets, void the Issued ones and cancel their
 	// Listed listings; a resold ticket's Sold listing is untouched.
 	if _, err := tx.Exec(ctx, lockTicketsByOrderTxQuery, string(commit.OrderID)); err != nil {
 		return toAppErr(err, "failed to lock tickets in refund tx", attrs)
 	}
 	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
-		string(commit.OrderID), int16(entity.TicketStatusVoided),
+		string(commit.OrderID), int16(plan.Tickets.To), statesOf(plan.Tickets.From),
 	); err != nil {
 		return toAppErr(err, "failed to void tickets in refund tx", attrs)
 	}
-	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID)); err != nil {
+	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID), int16(plan.Listings.To), statesOf(plan.Listings.From)); err != nil {
 		return toAppErr(err, "failed to cancel resale listings in refund tx", attrs)
 	}
 
@@ -163,7 +170,7 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	}
 
 	// 4. Make the Paid order Refunded, store its refund and announce it.
-	tag, err := tx.Exec(ctx, refundOrderTxQuery, string(commit.OrderID))
+	tag, err := tx.Exec(ctx, refundOrderTxQuery, string(commit.OrderID), int16(plan.Order.To), statesOf(plan.Order.From))
 	if err != nil {
 		return toAppErr(err, "failed to update order status in refund tx", attrs)
 	}

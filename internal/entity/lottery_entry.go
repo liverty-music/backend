@@ -167,6 +167,15 @@ func (e *LotteryEntry) RevertWin(reason LotteryEntryLostReason) (Transition[Lott
 		nil
 }
 
+// CheckChargeable reports whether the entry's Order may be charged: the entry
+// is Won and its Order Pending. It fails with FailedPrecondition otherwise.
+func (e *LotteryEntry) CheckChargeable() error {
+	if e.State != LotteryEntryStateWon {
+		return apperr.New(codes.FailedPrecondition, "lottery entry is not Won; nothing is charged")
+	}
+	return e.Order.CheckChargeable()
+}
+
 // ValidateLotteryEntrySale reports whether an entry can belong to sale for
 // stock: a Lottery sale that names the stock's event. It fails with
 // FailedPrecondition, which callers return as it is.

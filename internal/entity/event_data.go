@@ -216,6 +216,12 @@ type OrderPaidData struct {
 	PayTime time.Time
 }
 
+// Source reports what the paid Order was applied for through, from the ids
+// the announcement carries.
+func (d OrderPaidData) Source() OrderSource {
+	return orderSourceOf(d.LotteryEntryID, d.CheckoutID, d.ResaleEntryID)
+}
+
 // ResaleListingRefundedData is what the receiver of an
 // RESALE_LISTING.refunded announcement reads from the refunded
 // ResaleListing: ids only; the rest is read by id.

@@ -57,6 +57,15 @@ type CardAuthorization struct {
 	ExpireTime *time.Time
 }
 
+// CountsAsCharged reports whether the card authorization is to be treated as
+// charged although the concert is no longer published: a captured one is,
+// because an earlier try of the capture may have charged it with its outcome
+// unknown, and the cancellation refund reaches its Paid Order. While the
+// concert is published, nothing is charged by this rule.
+func (a *CardAuthorization) CountsAsCharged(eventPublished bool) bool {
+	return !eventPublished && a.Status == CardAuthorizationStatusCaptured
+}
+
 // ChargeableAt reports whether the card authorization can still be charged at
 // t: it is Authorized and t is before its expiry time. One without an expiry
 // time cannot be charged.
@@ -81,6 +90,34 @@ const (
 	// which is made from it at Confirm.
 	CardAuthorizationPurposeResaleEntry
 )
+
+// String returns the purpose name a payment provider's metadata carries:
+// "checkout", "lottery_entry" or "resale_entry"; empty for an unspecified
+// purpose.
+func (p CardAuthorizationPurpose) String() string {
+	switch p {
+	case CardAuthorizationPurposeCheckout:
+		return "checkout"
+	case CardAuthorizationPurposeLotteryEntry:
+		return "lottery_entry"
+	case CardAuthorizationPurposeResaleEntry:
+		return "resale_entry"
+	default:
+		return ""
+	}
+}
+
+// ParseCardAuthorizationPurpose is the inverse of [CardAuthorizationPurpose.String]:
+// the purpose a name denotes, or the unspecified purpose for any other
+// text, as for a card authorization the platform did not open for a purchase.
+func ParseCardAuthorizationPurpose(name string) CardAuthorizationPurpose {
+	for _, p := range []CardAuthorizationPurpose{CardAuthorizationPurposeCheckout, CardAuthorizationPurposeLotteryEntry, CardAuthorizationPurposeResaleEntry} {
+		if p.String() == name {
+			return p
+		}
+	}
+	return CardAuthorizationPurposeUnspecified
+}
 
 // CardAuthorizationPurchase is the purchase a CardAuthorization pays for: a
 // Checkout, or a lottery entry of a fan in a Lottery TicketSale for a ticket

@@ -531,6 +531,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		orderRepo,
 		orderUC,
 		lotteryCardAuthorizations,
+		lotteryEntryUC,
+		resaleEntryUC,
 		logger,
 	)
 
@@ -910,8 +912,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	stripeWebhookHandler := webhook.NewStripeWebhookHandler(
 		cfg.Stripe.WebhookSigningSecret,
 		stripeWebhookSvc,
-		lotteryEntryUC,
-		resaleEntryUC,
 		logger,
 	)
 

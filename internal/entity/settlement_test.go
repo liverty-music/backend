@@ -140,3 +140,69 @@ func TestSettlement_GiveUpResoldShare(t *testing.T) {
 		assert.ErrorIs(t, held(9500).GiveUpResoldShare(3, 2), apperr.ErrFailedPrecondition)
 	})
 }
+
+func TestSettlement_ReleasePlan(t *testing.T) {
+	t.Parallel()
+
+	const charge = int64(16000)
+	tests := []struct {
+		name    string
+		splits  []entity.SettlementSplit
+		wantErr bool
+	}{
+		{"single organizer split within the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 15200}}, false},
+		{"split exactly equal to the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: charge}}, false},
+		// @spec components/entity/settlement "Splits exceed the order"
+		{"sum of splits exceeds the charge", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: charge + 1}}, true},
+		{"several splits exceed the charge together", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 9000}, {PayeeOrganizerID: "org-2", Amount: 9000}}, true},
+		// @spec components/entity/settlement "No split"
+		{"no splits", nil, true},
+		// @spec components/entity/settlement "Non-positive split"
+		{"split with zero amount", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 0}}, true},
+		{"split below zero", []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: -1}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &entity.Settlement{Splits: tt.splits}
+
+			plan, err := s.ReleasePlan(charge)
+
+			if tt.wantErr {
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+				assert.Empty(t, plan.Splits)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.splits, plan.Splits)
+		})
+	}
+
+	t.Run("the platform fee is what the splits leave of the charge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/settlement "Single Organizer split"
+		order := &entity.Order{ID: "order-1", Amount: charge}
+		s := entity.NewHeldSettlement(order, "org-1", "event-1", 500, time.Now())
+
+		plan, err := s.ReleasePlan(charge)
+
+		require.NoError(t, err)
+		require.Len(t, plan.Splits, 1)
+		assert.Equal(t, int64(15200), plan.Splits[0].Amount)
+		assert.Equal(t, int64(800), charge-plan.Splits[0].Amount, "the platform fee")
+	})
+}
+
+func TestSettlement_Status(t *testing.T) {
+	t.Parallel()
+
+	for status, want := range map[entity.SettlementStatus][2]bool{
+		entity.SettlementStatusHeld:     {false, false},
+		entity.SettlementStatusReleased: {false, true},
+		entity.SettlementStatusReversed: {true, false},
+	} {
+		s := &entity.Settlement{Status: status}
+		assert.Equal(t, want[0], s.IsReversed(), status.String())
+		assert.Equal(t, want[1], s.HasPaidOut(), status.String())
+	}
+}
