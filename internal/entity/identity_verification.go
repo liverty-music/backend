@@ -3,6 +3,9 @@ package entity
 import (
 	"context"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // VerificationMethod records how a person proved their identity.
@@ -98,6 +101,81 @@ func NewIdentityVerification(userID, providerUserID string, method VerificationM
 		VerifyTime:     verifyTime.UTC(),
 		Status:         VerificationStatusActive,
 	}
+}
+
+// CertificateState is what a 現況確認 (liveness re-check) reports about the
+// certificate a verification was made from. It is the verification provider's
+// answer, mapped; what it means for the account is the entity's to decide
+// ([IdentityVerification.NeedsReverification]).
+type CertificateState int8
+
+const (
+	// CertificateStateUnspecified is an unset state, a possible provider hiccup.
+	CertificateStateUnspecified CertificateState = iota
+	// CertificateStateGood means the certificate is valid.
+	CertificateStateGood
+	// CertificateStateRevoked means the certificate was revoked.
+	CertificateStateRevoked
+	// CertificateStateExpired means the certificate expired.
+	CertificateStateExpired
+	// CertificateStateUnknown means the certificate is not revoked but its
+	// validity window could not be confirmed, as with a failed CRL lookup.
+	CertificateStateUnknown
+)
+
+// IsIndeterminate reports whether the state does not tell whether the
+// certificate is good: Unknown and Unspecified.
+func (s CertificateState) IsIndeterminate() bool {
+	return s == CertificateStateUnknown || s == CertificateStateUnspecified
+}
+
+// NeedsReverification reports whether a re-check that found the certificate in
+// state means the account must verify again: only a confirmed bad state, revoked
+// or expired, does. An indeterminate state does not: flagging it would force a
+// spurious re-verification of an otherwise valid person for a transient lookup
+// failure.
+func (v *IdentityVerification) NeedsReverification(state CertificateState) bool {
+	return state == CertificateStateRevoked || state == CertificateStateExpired
+}
+
+// CurrentIdentityVerification returns the verification that is current among a
+// user's records: the most recently verified Active one, or, when none is
+// Active, the most recently verified of the others. It returns nil when there
+// are none.
+func CurrentIdentityVerification(records []*IdentityVerification) *IdentityVerification {
+	var current *IdentityVerification
+	for _, r := range records {
+		switch {
+		case current == nil:
+			current = r
+		case (r.Status == VerificationStatusActive) != (current.Status == VerificationStatusActive):
+			if r.Status == VerificationStatusActive {
+				current = r
+			}
+		case r.VerifyTime.After(current.VerifyTime):
+			current = r
+		}
+	}
+	return current
+}
+
+// CheckDedupe decides what a new verification of userID does with existing, the
+// ACTIVE verification already bound to the same person (nil when there is
+// none): at most one verified account per person. A person verified on
+// another account fails with AlreadyExists. The same account's own earlier
+// record (renewal) is moved to NeedsReverification before the new one is
+// created, so the partial unique index on the person key is not violated; the
+// returned transition is zero when there is nothing to move.
+func CheckDedupe(userID string, existing *IdentityVerification) (Transition[VerificationStatus], error) {
+	if existing == nil {
+		return Transition[VerificationStatus]{}, nil
+	}
+	if existing.UserID != userID {
+		return Transition[VerificationStatus]{}, apperr.New(codes.AlreadyExists,
+			"this person is already verified on another account; "+
+				"if you believe this is an error, please contact support to resolve the conflict")
+	}
+	return Transition[VerificationStatus]{From: []VerificationStatus{VerificationStatusActive}, To: VerificationStatusNeedsReverification}, nil
 }
 
 // IdentityVerificationRepository defines the persistence contract for [IdentityVerification] records.

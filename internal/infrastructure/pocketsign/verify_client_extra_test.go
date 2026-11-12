@@ -6,6 +6,7 @@ package pocketsign_test
 
 import (
 	"context"
+	"github.com/liverty-music/backend/internal/entity"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -479,13 +480,13 @@ func TestStampClient_StartVerify_EmptyResponseField_ReturnsInternal(t *testing.T
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Recheck with Certificate_STATE_UNSPECIFIED — indeterminate, NeedsReverification==false
+// Recheck with Certificate_STATE_UNSPECIFIED — reported as the Unspecified state
 // ─────────────────────────────────────────────────────────────────────────────
 
-// TestStampClient_Recheck_StateUnspecified_IsNotNeedsReverification pins the
-// contract that STATE_UNSPECIFIED (the proto zero value / a vendor hiccup) is
-// treated as INDETERMINATE, not confirmed-bad, so NeedsReverification stays false.
-func TestStampClient_Recheck_StateUnspecified_IsNotNeedsReverification(t *testing.T) {
+// TestStampClient_Recheck_StateUnspecified pins that STATE_UNSPECIFIED (the
+// proto zero value / a vendor hiccup) is reported as the Unspecified state; the
+// entity treats it as indeterminate, not confirmed-bad.
+func TestStampClient_Recheck_StateUnspecified(t *testing.T) {
 	t.Parallel()
 
 	userSvc := &fakeUserService{
@@ -498,8 +499,8 @@ func TestStampClient_Recheck_StateUnspecified_IsNotNeedsReverification(t *testin
 
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.False(t, got.NeedsReverification,
-		"STATE_UNSPECIFIED must be indeterminate (NeedsReverification==false), not confirmed-bad")
+	assert.Equal(t, entity.CertificateStateUnspecified, got.CertificateState)
+	assert.True(t, got.CertificateState.IsIndeterminate())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

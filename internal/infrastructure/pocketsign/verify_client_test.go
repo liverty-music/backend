@@ -2,6 +2,7 @@ package pocketsign_test
 
 import (
 	"context"
+	"github.com/liverty-music/backend/internal/entity"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -463,36 +464,36 @@ func TestStampClient_Recheck(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		args             struct{ pocketSignUserID string }
-		fakeSvcResp      *verifyv2.CheckUserStatusResponse
-		fakeSvcErr       *connect.Error
-		wantNeedsRecheck bool
-		wantErr          error
+		name        string
+		args        struct{ pocketSignUserID string }
+		fakeSvcResp *verifyv2.CheckUserStatusResponse
+		fakeSvcErr  *connect.Error
+		wantState   entity.CertificateState
+		wantErr     error
 	}{
 		{
-			name:             "return NeedsReverification=false when certificate state is GOOD",
-			args:             struct{ pocketSignUserID string }{pocketSignUserID: "user-good"},
-			fakeSvcResp:      buildCheckStatusResponse(verifyv2.Certificate_STATE_GOOD),
-			wantNeedsRecheck: false,
+			name:        "return the Good state when the certificate state is GOOD",
+			args:        struct{ pocketSignUserID string }{pocketSignUserID: "user-good"},
+			fakeSvcResp: buildCheckStatusResponse(verifyv2.Certificate_STATE_GOOD),
+			wantState:   entity.CertificateStateGood,
 		},
 		{
-			name:             "return NeedsReverification=true when certificate state is REVOKED",
-			args:             struct{ pocketSignUserID string }{pocketSignUserID: "user-revoked"},
-			fakeSvcResp:      buildCheckStatusResponse(verifyv2.Certificate_STATE_REVOKED),
-			wantNeedsRecheck: true,
+			name:        "return the Revoked state when the certificate state is REVOKED",
+			args:        struct{ pocketSignUserID string }{pocketSignUserID: "user-revoked"},
+			fakeSvcResp: buildCheckStatusResponse(verifyv2.Certificate_STATE_REVOKED),
+			wantState:   entity.CertificateStateRevoked,
 		},
 		{
-			name:             "return NeedsReverification=true when certificate state is EXPIRED",
-			args:             struct{ pocketSignUserID string }{pocketSignUserID: "user-expired"},
-			fakeSvcResp:      buildCheckStatusResponse(verifyv2.Certificate_STATE_EXPIRED),
-			wantNeedsRecheck: true,
+			name:        "return the Expired state when the certificate state is EXPIRED",
+			args:        struct{ pocketSignUserID string }{pocketSignUserID: "user-expired"},
+			fakeSvcResp: buildCheckStatusResponse(verifyv2.Certificate_STATE_EXPIRED),
+			wantState:   entity.CertificateStateExpired,
 		},
 		{
-			name:             "return NeedsReverification=false when certificate state is UNKNOWN (indeterminate, not confirmed-bad)",
-			args:             struct{ pocketSignUserID string }{pocketSignUserID: "user-unknown"},
-			fakeSvcResp:      buildCheckStatusResponse(verifyv2.Certificate_STATE_UNKNOWN),
-			wantNeedsRecheck: false,
+			name:        "return the Unknown state when the certificate state is UNKNOWN",
+			args:        struct{ pocketSignUserID string }{pocketSignUserID: "user-unknown"},
+			fakeSvcResp: buildCheckStatusResponse(verifyv2.Certificate_STATE_UNKNOWN),
+			wantState:   entity.CertificateStateUnknown,
 		},
 		{
 			name:       "return Unauthenticated when vendor returns Unauthenticated (shared api.FromStatus: 401)",
@@ -540,7 +541,7 @@ func TestStampClient_Recheck(t *testing.T) {
 
 			assert.NoError(t, err)
 			require.NotNil(t, got)
-			assert.Equal(t, tt.wantNeedsRecheck, got.NeedsReverification)
+			assert.Equal(t, tt.wantState, got.CertificateState)
 		})
 	}
 }
