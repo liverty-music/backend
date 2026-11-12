@@ -163,10 +163,11 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	}
 
 	// -- splits engine: validate splits and build the Transfer work list. --
-	splits, err := buildSplits(s, order.Amount)
+	plan, err := s.ReleasePlan(order.Amount)
 	if err != nil {
 		return err
 	}
+	splits := plan.Splits
 
 	// -- resolve the provider payment ID to its charge ID. --
 	providerChargeID, err := uc.orderRepo.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
@@ -222,34 +223,4 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		slog.Int("split_count", len(releasedSplits)),
 	)...)
 	return nil
-}
-
-// buildSplits validates the settlement's splits and returns the work list for
-// Transfer creation. The splits engine enforces:
-//  1. At least one split must be present.
-//  2. Every split amount must be positive.
-//  3. The sum of all split amounts must not exceed the Order's captured charge.
-//
-// MVP: exactly one split (the Organizer). The model is extensible to N payees.
-func buildSplits(s *entity.Settlement, chargeAmount int64) ([]entity.SettlementSplit, error) {
-	if len(s.Splits) == 0 {
-		return nil, apperr.New(codes.InvalidArgument,
-			"settlement has no splits; cannot release without a payee")
-	}
-
-	var total int64
-	for _, split := range s.Splits {
-		if split.Amount <= 0 {
-			return nil, apperr.New(codes.InvalidArgument,
-				"settlement split amount must be positive")
-		}
-		total += split.Amount
-	}
-
-	if total > chargeAmount {
-		return nil, apperr.New(codes.InvalidArgument,
-			"sum of settlement splits exceeds the captured charge amount")
-	}
-
-	return s.Splits, nil
 }

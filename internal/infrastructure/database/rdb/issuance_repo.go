@@ -376,7 +376,7 @@ func giveUpResoldShare(ctx context.Context, tx pgx.Tx, settlement *entity.Settle
 	if err := settlement.GiveUpResoldShare(k, m); err != nil {
 		return err
 	}
-	if settlement.Status == entity.SettlementStatusReversed {
+	if settlement.IsReversed() {
 		if _, err := tx.Exec(ctx, issuanceSetSettlementStatusQuery, id, int16(settlement.Status)); err != nil {
 			return toAppErr(err, "failed to reverse the original settlement", attrs)
 		}

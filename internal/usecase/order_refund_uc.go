@@ -68,7 +68,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	}
 	// A settlement given up because every ticket was resold has nothing left
 	// to claw back or reverse.
-	if settlement != nil && settlement.Status == entity.SettlementStatusReversed {
+	if settlement != nil && settlement.IsReversed() {
 		settlement = nil
 	}
 
@@ -134,7 +134,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// but we still flip the settlement to Reversed in the DB commit to prevent
 	// the payout sweeper from later releasing it (TOCTOU fix).
 	var reversedSplits []entity.SettlementSplit
-	if settlement != nil && settlement.Status == entity.SettlementStatusReleased {
+	if settlement != nil && settlement.HasPaidOut() {
 		reversedSplits, err = uc.reverseSplits(ctx, settlement)
 		if err != nil {
 			return nil, err

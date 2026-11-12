@@ -154,6 +154,56 @@ func (s *Settlement) GiveUpResoldShare(k, m int) error {
 	return nil
 }
 
+// IsReversed reports whether the Settlement was given up or clawed back, so
+// it has nothing left to pay out or reverse.
+func (s *Settlement) IsReversed() bool {
+	return s.Status == SettlementStatusReversed
+}
+
+// HasPaidOut reports whether the payout was released, so a refund has
+// transfers to reverse.
+func (s *Settlement) HasPaidOut() bool {
+	return s.Status == SettlementStatusReleased
+}
+
+// ValidateSplits reports whether the Settlement can be released against the
+// Order's captured charge: at least one split, every amount positive, and
+// their sum not above chargeAmount. It fails with InvalidArgument.
+//
+// MVP: exactly one split (the Organizer); the model allows N payees.
+func (s *Settlement) ValidateSplits(chargeAmount int64) error {
+	if len(s.Splits) == 0 {
+		return apperr.New(codes.InvalidArgument, "settlement has no splits; cannot release without a payee")
+	}
+	var total int64
+	for _, split := range s.Splits {
+		if split.Amount <= 0 {
+			return apperr.New(codes.InvalidArgument, "settlement split amount must be positive")
+		}
+		total += split.Amount
+	}
+	if total > chargeAmount {
+		return apperr.New(codes.InvalidArgument, "sum of settlement splits exceeds the captured charge amount")
+	}
+	return nil
+}
+
+// ReleasePlan is what releasing a Settlement pays: the splits to transfer, one
+// Transfer each.
+type ReleasePlan struct {
+	// Splits are the payee shares to transfer.
+	Splits []SettlementSplit
+}
+
+// ReleasePlan validates the Settlement against the Order's captured charge
+// and returns the transfers to create for its release.
+func (s *Settlement) ReleasePlan(chargeAmount int64) (ReleasePlan, error) {
+	if err := s.ValidateSplits(chargeAmount); err != nil {
+		return ReleasePlan{}, err
+	}
+	return ReleasePlan{Splits: s.Splits}, nil
+}
+
 // SettlementRepository defines the persistence contract for Settlement records.
 // The row is created by [IssuanceRepository.Issue], not by this interface —
 // SettlementRepository only reads and updates settlements after issuance.
