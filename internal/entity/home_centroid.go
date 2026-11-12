@@ -1,20 +1,17 @@
-package geo
+package entity
 
-// Coordinates represents a WGS 84 geographic coordinate used internally by the geo package.
-type Coordinates struct {
-	Latitude  float64
-	Longitude float64
-}
-
-// ResolveCentroid returns the geographic centroid for an ISO 3166-2 subdivision code.
-// Returns the centroid and true if found, or zero value and false otherwise.
-func ResolveCentroid(code string) (Coordinates, bool) {
-	c, ok := centroids[code]
+// ResolveCentroid returns the approximate geographic centroid of the Home's
+// level-1 area (its ISO 3166-2 subdivision code), and false when the lookup
+// table has none for it, as for a country the product does not support yet.
+// A Home stores the centroid it was made with; the usecase that writes a Home
+// sets it from here, and the repository stores what it is given.
+func (h *Home) ResolveCentroid() (Coordinates, bool) {
+	c, ok := homeCentroids[h.Level1]
 	return c, ok
 }
 
-// centroids maps ISO 3166-2 codes to approximate geographic centroids.
-var centroids = map[string]Coordinates{
+// homeCentroids maps ISO 3166-2 codes to approximate geographic centroids.
+var homeCentroids = map[string]Coordinates{
 	"JP-01": {Latitude: 43.0642, Longitude: 141.3469}, // Hokkaido
 	"JP-02": {Latitude: 40.8244, Longitude: 140.7400}, // Aomori
 	"JP-03": {Latitude: 39.7036, Longitude: 141.1527}, // Iwate

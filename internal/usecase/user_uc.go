@@ -417,6 +417,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		if err := params.Home.Validate(); err != nil {
 			return nil, err
 		}
+		withCentroid(params.Home)
 	}
 	// preferred_language is required and MUST match the ISO 639-1 pattern;
 	// otherwise a value like "EN" or "english" would round-trip into the
@@ -535,11 +536,21 @@ func (uc *userUseCase) SetPreferredLanguage(ctx context.Context, id, lang string
 	return user, nil
 }
 
+// withCentroid sets the Home's position to the centroid of its level-1 area,
+// when the lookup table has one. The repository stores the position it is
+// given.
+func withCentroid(home *entity.Home) {
+	if c, ok := home.ResolveCentroid(); ok {
+		home.Centroid = &c
+	}
+}
+
 // SetHome sets or changes the user's home area after validating the structured Home.
 func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	if err := home.Validate(); err != nil {
 		return nil, err
 	}
+	withCentroid(home)
 
 	user, err := uc.userRepo.UpdateHome(ctx, id, home)
 	if err != nil {

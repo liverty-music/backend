@@ -542,12 +542,16 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
-	t.Run("supported JP code resolves centroid on Create and persists through Get", func(t *testing.T) {
+	// The repository stores the position it is given; computing it is the
+	// usecase's (entity.Home.ResolveCentroid).
+	t.Run("a given position is stored on Create and persists through Get", func(t *testing.T) {
 		cleanTables(t, db)
-		user, err := repo.Create(ctx, newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1"))
+		params := newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1")
+		params.Home.Centroid = &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917}
+		user, err := repo.Create(ctx, params)
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
-		require.NotNil(t, user.Home.Centroid, "Centroid should be resolved for JP-13")
+		require.NotNil(t, user.Home.Centroid)
 		assert.InDelta(t, 35.6894, user.Home.Centroid.Latitude, 0.01)
 		assert.InDelta(t, 139.6917, user.Home.Centroid.Longitude, 0.01)
 
@@ -560,33 +564,34 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 		assert.InDelta(t, 139.6917, got.Home.Centroid.Longitude, 0.01)
 	})
 
-	t.Run("supported JP code resolves centroid on UpdateHome", func(t *testing.T) {
+	t.Run("a given position is stored on UpdateHome", func(t *testing.T) {
 		cleanTables(t, db)
 		user, err := repo.Create(ctx, newTestUser("ext-crt-2", "crt2@example.com", "CRT2"))
 		require.NoError(t, err)
 
 		updated, err := repo.UpdateHome(ctx, user.ID, &entity.Home{
 			CountryCode: "JP",
-			Level1:      "JP-27", // Osaka
+			Level1:      "JP-27",
+			Centroid:    &entity.Coordinates{Latitude: 34.6863, Longitude: 135.5200},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, updated.Home)
-		require.NotNil(t, updated.Home.Centroid, "Centroid should be resolved for JP-27")
+		require.NotNil(t, updated.Home.Centroid)
 		assert.InDelta(t, 34.6863, updated.Home.Centroid.Latitude, 0.01)
 		assert.InDelta(t, 135.5200, updated.Home.Centroid.Longitude, 0.01)
 	})
 
-	t.Run("unsupported country code results in nil Centroid", func(t *testing.T) {
+	t.Run("no position is stored when none is given", func(t *testing.T) {
 		cleanTables(t, db)
 		u := newTestUser("ext-crt-3", "crt3@example.com", "CRT3")
 		u.Home = &entity.Home{
-			CountryCode: "US",
-			Level1:      "US-NY",
+			CountryCode: "JP",
+			Level1:      "JP-13",
 		}
 		user, err := repo.Create(ctx, u)
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
-		assert.Nil(t, user.Home.Centroid, "Centroid should be nil for unsupported country")
+		assert.Nil(t, user.Home.Centroid, "the repository does not look a position up")
 
 		// Verify nil Centroid persists through Get
 		got, err := repo.Get(ctx, user.ID)
