@@ -654,13 +654,13 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 	if len(pendingKeys) > 0 {
 		pendingSet := make(map[string]bool, len(pendingKeys))
 		for _, k := range pendingKeys {
-			pendingSet[k.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(k.ListedVenueName)] = true
+			pendingSet[entity.DateVenueKey(k.LocalDate, k.ListedVenueName)] = true
 		}
 		kept := newSeries[:0]
 		for _, s := range newSeries {
 			evs := s.Events[:0]
 			for _, ev := range s.Events {
-				if pendingSet[ev.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(ev.ListedVenueName)] {
+				if pendingSet[entity.DateVenueKey(ev.LocalDate, ev.ListedVenueName)] {
 					continue
 				}
 				evs = append(evs, ev)

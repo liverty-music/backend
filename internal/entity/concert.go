@@ -117,6 +117,55 @@ type DiscoveredEvent struct {
 	OpenTime time.Time `json:"open_time,omitzero"`
 }
 
+// DiscoveredEventKey is what makes two discovered events of one search the same
+// show: the same date, the same venue ([VenueRepeatKey]) and the same start
+// time. See [DiscoveredEvent.RepeatKey].
+type DiscoveredEventKey struct {
+	LocalDate string
+	Venue     string
+	// StartTime is the start time in Unix seconds, 0 when it is unknown.
+	StartTime int64
+}
+
+// RepeatKey returns the key under which a search drops the repeats of an
+// event: its local date, its venue as [VenueRepeatKey] gives it and its start
+// time. The start time is part of it so that two shows on the same date at
+// the same venue (a 1st and a 2nd stage) stay distinct events. Two events that
+// share the date and venue and both lack a start time are one: the search
+// dedups conservatively when the disambiguator is missing, which loses two
+// genuinely distinct shows announced before their start times are published.
+func (e *DiscoveredEvent) RepeatKey() DiscoveredEventKey {
+	key := DiscoveredEventKey{LocalDate: e.LocalDate.Format("2006-01-02"), Venue: VenueRepeatKey(e.ListedVenueName)}
+	if !e.StartTime.IsZero() {
+		key.StartTime = e.StartTime.Unix()
+	}
+	return key
+}
+
+// HasPassedAt reports whether the event's local date is before the current
+// date at its Venue at t ([CurrentDateAtVenue]): the whole event day still
+// counts as upcoming, and at 23:30 UTC the Venue is already on the next day.
+func (e *DiscoveredEvent) HasPassedAt(t time.Time) bool {
+	return e.LocalDate.Before(CurrentDateAtVenue(t))
+}
+
+// ClassifyType sets the series' type from its venues, following the SeriesType
+// definitions: TOUR when its events are at two or more venues (compared by
+// [VenueRepeatKey], ignoring venues not yet announced), SINGLE otherwise, a
+// one-off show or several days at one venue.
+func (s *DiscoveredSeries) ClassifyType() {
+	venues := make(map[string]struct{}, len(s.Events))
+	for _, ev := range s.Events {
+		if v := VenueRepeatKey(ev.ListedVenueName); v != "" {
+			venues[v] = struct{}{}
+		}
+	}
+	s.Type = SeriesTypeSingle
+	if len(venues) >= 2 {
+		s.Type = SeriesTypeTour
+	}
+}
+
 // ToConcertUnderSeries builds a persist-ready Concert for this event under an
 // already-existing series identified by seriesID. Unlike
 // [DiscoveredSeries.ToConcert] it embeds no Series shell: the series row already
@@ -273,18 +322,14 @@ func StartKey(t *time.Time) string {
 //
 // Returns nil if no new events remain in any series after filtering.
 func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*DiscoveredSeries {
-	type vdKey struct {
-		date  string
-		venue string
-	}
 	// seen maps (date, venue) → the set of StartKey values already recorded
 	// there, with "" representing an unknown-start row. The asymmetric rule
 	// reads off this one map: an unknown-start entry is redundant iff anything
 	// is recorded (len>0); a known-start entry is redundant only iff that exact
 	// StartKey is recorded (the "" sentinel never matches a known start, so an
 	// unknown-start row never absorbs a known start the creation path must fill).
-	seen := make(map[vdKey]map[string]bool)
-	mark := func(k vdKey, start string) {
+	seen := make(map[string]map[string]bool)
+	mark := func(k, start string) {
 		if seen[k] == nil {
 			seen[k] = make(map[string]bool)
 		}
@@ -299,7 +344,7 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 		if ex.ListedVenueName == nil {
 			continue
 		}
-		mark(vdKey{date: ex.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(*ex.ListedVenueName)}, StartKey(ex.StartTime))
+		mark(DateVenueKey(ex.LocalDate, *ex.ListedVenueName), StartKey(ex.StartTime))
 	}
 
 	var result []*DiscoveredSeries
@@ -321,7 +366,7 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 			if ev.ListedVenueName == "" {
 				continue
 			}
-			k := vdKey{date: ev.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(ev.ListedVenueName)}
+			k := DateVenueKey(ev.LocalDate, ev.ListedVenueName)
 			start := StartKey(NullableTime(ev.StartTime))
 			var dup bool
 			if start == "" {

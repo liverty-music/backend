@@ -535,7 +535,7 @@ func resolveSeriesForGroup(
 	want := make(map[string]bool, len(events))
 	for _, ev := range events {
 		dates = append(dates, ev.LocalDate)
-		want[groupVenueDateKey(ev.LocalDate, ev.ListedVenueName)] = true
+		want[entity.DateVenueKey(ev.LocalDate, ev.ListedVenueName)] = true
 	}
 
 	existing, err = concertRepo.FindEventsByArtistAndDate(ctx, artistID, dates)
@@ -546,7 +546,7 @@ func resolveSeriesForGroup(
 		if e.SeriesID == "" || e.ListedVenueName == nil {
 			continue
 		}
-		if !want[groupVenueDateKey(e.LocalDate, *e.ListedVenueName)] {
+		if !want[entity.DateVenueKey(e.LocalDate, *e.ListedVenueName)] {
 			continue
 		}
 		if seriesID == "" || e.SeriesID < seriesID {
@@ -559,24 +559,17 @@ func resolveSeriesForGroup(
 	return entity.NewID(), false, existing, nil
 }
 
-// groupVenueDateKey is the (local date, normalized listed venue) key used to
-// match a discovered event against an existing event for series adoption.
-func groupVenueDateKey(d time.Time, listedVenueName string) string {
-	return d.Format("2006-01-02") + "|" + entity.NormalizeVenueName(listedVenueName)
-}
-
 // eventsAtSameVenue returns the subset of candidate events whose listed venue
 // name matches listedVenueName under NormalizeVenueName. Used by the discovery
 // re-discovery fast-path to decide whether an event can skip the Places API
 // (the artist already plays this venue on this date).
 func eventsAtSameVenue(cands []*entity.Event, listedVenueName string) []*entity.Event {
-	target := entity.NormalizeVenueName(listedVenueName)
 	var out []*entity.Event
 	for _, ev := range cands {
 		if ev.ListedVenueName == nil {
 			continue
 		}
-		if entity.NormalizeVenueName(*ev.ListedVenueName) == target {
+		if entity.SameListedVenue(*ev.ListedVenueName, listedVenueName) {
 			out = append(out, ev)
 		}
 	}
