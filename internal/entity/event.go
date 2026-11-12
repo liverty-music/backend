@@ -187,6 +187,14 @@ func (e *Event) CanTransitionTo(next PublishState) bool {
 	}
 }
 
+// IsInCatalog reports whether the event is a concert of the catalog: any event
+// that is not DRAFT, discovered ones included. A DRAFT event is not a concert,
+// holds no slot and is never matched, merged, filled or removed by a Concert
+// operation.
+func (e *Event) IsInCatalog() bool {
+	return !e.HasPublishState(PublishStateDraft)
+}
+
 // IsPubliclyVisible reports whether the event appears on fan-facing public and
 // follower surfaces. An Event of a discovered series always does. An Event of a
 // first-party series does only when it is PUBLISHED and the series is PUBLIC.

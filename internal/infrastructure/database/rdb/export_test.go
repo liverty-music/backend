@@ -17,3 +17,10 @@ var (
 
 // ApplyTransitionOfLotteryEntry exposes applyTransition for the entry state.
 var ApplyTransitionOfLotteryEntry = applyTransition[entity.LotteryEntryState]
+
+// The publish-state SQL fragments, exposed for their parity tests.
+const (
+	FanVisibleCondition      = fanVisibleCondition
+	CatalogEventCondition    = catalogEventCondition
+	SeriesPublishStateColumn = seriesPublishStateColumn
+)
