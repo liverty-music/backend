@@ -110,6 +110,11 @@ func NewIssuedTicket(order *Order, eventID, identityVerificationID string, now t
 	}
 }
 
+// BelongsTo reports whether the ticket is bound to the user's account.
+func (t *Ticket) BelongsTo(userID UserID) bool {
+	return t.UserID == userID
+}
+
 // Validate reports whether the ticket is a covered ticket: its face states
 // that resale without consent is prohibited.
 func (t *Ticket) Validate() error {

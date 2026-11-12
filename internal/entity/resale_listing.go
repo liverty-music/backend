@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -183,6 +184,17 @@ func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 		return ResaleListingStatusExpired
 	}
 	return l.Status
+}
+
+// NeedsRefund reports whether the refund of a Sold listing is still to be
+// made: it is Sold and has no refund recorded. A listing that is not Sold
+// has nothing to refund and fails with FailedPrecondition.
+func (l *ResaleListing) NeedsRefund() (bool, error) {
+	if l.Status != ResaleListingStatusSold {
+		return false, apperr.New(codes.FailedPrecondition, "only a Sold listing is refunded",
+			slog.String("resale_listing_id", string(l.ID)), slog.String("order_id", string(l.OrderID)))
+	}
+	return l.RefundTime == nil, nil
 }
 
 // IsFreeForDrawAt reports whether a draw at t may allocate the listing: it is

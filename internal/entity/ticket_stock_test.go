@@ -8,6 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // stockOf returns a TicketStock with the given quantity, sold count and held
@@ -127,7 +128,12 @@ func TestTicketStock_State(t *testing.T) {
 func TestTicketStock_IsResaleOpenAt(t *testing.T) {
 	t.Parallel()
 
-	deadline := time.Date(2026, 12, 20, 15, 0, 0, 0, time.UTC)
+	// An event starting at 18:00 Japan time on the 20th has its resale
+	// deadline at noon that day, 12:00 Japan time (03:00 UTC).
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
+	event := &entity.Event{StartTime: &start}
+	deadline, ok := entity.ResaleDeadlineOf(event)
+	require.True(t, ok)
 	tests := []struct {
 		name  string
 		stock *entity.TicketStock
@@ -157,9 +163,21 @@ func TestTicketStock_IsResaleOpenAt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, tt.stock.IsResaleOpenAt(tt.at, deadline))
+			assert.Equal(t, tt.want, tt.stock.IsResaleOpenAt(tt.at, event))
 		})
 	}
+
+	t.Run("a cancelled event has no resale", func(t *testing.T) {
+		t.Parallel()
+		cancelled := entity.PublishStateCancelled
+		assert.False(t, stockOf(150, 150, 0).IsResaleOpenAt(deadline.Add(-24*time.Hour), &entity.Event{StartTime: &start, PublishState: &cancelled}))
+	})
+
+	t.Run("an event without a start time has no resale", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, stockOf(150, 150, 0).IsResaleOpenAt(deadline.Add(-24*time.Hour), &entity.Event{}))
+		assert.False(t, stockOf(150, 150, 0).IsResaleOpenAt(deadline.Add(-24*time.Hour), nil))
+	})
 
 	t.Run("a ticket that came back leaves the stock Available", func(t *testing.T) {
 		t.Parallel()

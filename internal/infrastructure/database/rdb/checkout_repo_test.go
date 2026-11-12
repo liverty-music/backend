@@ -498,7 +498,8 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 150, stock.SoldCount)
 		assert.Equal(t, entity.TicketStockStateSoldOut, stock.State())
-		assert.True(t, stock.IsResaleOpenAt(committedAt, committedAt.Add(24*time.Hour)))
+		resaleStart := committedAt.Add(14 * 24 * time.Hour)
+		assert.True(t, stock.IsResaleOpenAt(committedAt, &entity.Event{StartTime: &resaleStart}))
 	})
 
 	t.Run("release announces", func(t *testing.T) {

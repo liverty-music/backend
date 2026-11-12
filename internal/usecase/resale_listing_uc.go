@@ -130,7 +130,7 @@ func (uc *resaleListingUseCase) Create(ctx context.Context, userID entity.UserID
 	}
 	var ticket *entity.Ticket
 	for _, t := range tickets {
-		if t.ID == ticketID {
+		if t.ID == ticketID && t.BelongsTo(userID) {
 			ticket = t
 			break
 		}
@@ -158,11 +158,11 @@ func (uc *resaleListingUseCase) Create(ctx context.Context, userID entity.UserID
 	if !published {
 		return nil, apperr.New(codes.FailedPrecondition, "the concert is not published")
 	}
-	deadline, err := uc.deadline(ctx, ticket.EventID)
+	event, deadline, err := uc.eventAndDeadline(ctx, ticket.EventID)
 	if err != nil {
 		return nil, err
 	}
-	if !stock.IsResaleOpenAt(now, deadline) {
+	if !stock.IsResaleOpenAt(now, event) {
 		return nil, apperr.New(codes.FailedPrecondition, "the ticket stock's resale is not open")
 	}
 
@@ -236,12 +236,9 @@ func (uc *resaleListingUseCase) RefundSold(ctx context.Context, f Flow, listingI
 		if err != nil {
 			return struct{}{}, err
 		}
-		if l.Status != entity.ResaleListingStatusSold {
-			return struct{}{}, apperr.New(codes.FailedPrecondition, "only a Sold listing is refunded",
-				slog.String("resale_listing_id", string(listingID)), slog.String("order_id", string(l.OrderID)))
-		}
-		if l.RefundTime != nil {
-			return struct{}{}, nil
+		needs, err := l.NeedsRefund()
+		if err != nil || !needs {
+			return struct{}{}, err
 		}
 		// ResaleListing.RecordRefund announces the refund, which the sold
 		// email is sent from.
@@ -279,16 +276,23 @@ func (uc *resaleListingUseCase) refund(ctx context.Context, l *entity.ResaleList
 // deadline reads the event and returns its resale deadline. An event without
 // a start time has none: FailedPrecondition.
 func (uc *resaleListingUseCase) deadline(ctx context.Context, eventID string) (time.Time, error) {
+	_, deadline, err := uc.eventAndDeadline(ctx, eventID)
+	return deadline, err
+}
+
+// eventAndDeadline reads the event and returns it with its resale deadline.
+// An event without a start time has none: FailedPrecondition.
+func (uc *resaleListingUseCase) eventAndDeadline(ctx context.Context, eventID string) (*entity.Event, time.Time, error) {
 	event, err := uc.Events.Get(ctx, eventID)
 	if err != nil {
-		return time.Time{}, err
+		return nil, time.Time{}, err
 	}
 	deadline, ok := entity.ResaleDeadlineOf(event)
 	if !ok {
-		return time.Time{}, apperr.New(codes.FailedPrecondition, "the event has no start time, so it has no resale",
+		return nil, time.Time{}, apperr.New(codes.FailedPrecondition, "the event has no start time, so it has no resale",
 			slog.String("event_id", eventID))
 	}
-	return deadline, nil
+	return event, deadline, nil
 }
 
 // listingAt returns the listing with its deadline and its status at now.

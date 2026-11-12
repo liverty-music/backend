@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -328,4 +329,148 @@ func TestResaleCharge(t *testing.T) {
 			assert.Equal(t, tt.wantReason, got.LostReason(), tt.name)
 		}
 	})
+}
+
+func TestResaleEntry_CheckCreate(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC) // 18:00 JST; the deadline is noon JST
+	deadline := entity.ResaleDeadlineAt(start)
+	soldOut := &entity.TicketStock{ID: "stock-1", SeatTypeID: "seat-1", Quantity: 4, SoldCount: 4}
+	event := func(mutate func(*entity.Event)) *entity.Event {
+		e := &entity.Event{StartTime: &start}
+		if mutate != nil {
+			mutate(e)
+		}
+		return e
+	}
+	entry := func(at time.Time, count int) *entity.ResaleEntry {
+		return &entity.ResaleEntry{CreateTime: at, Order: &entity.Order{TicketCount: count}}
+	}
+	seat := entity.SeatTypeID("seat-1")
+	other := entity.SeatTypeID("seat-2")
+
+	tests := []struct {
+		name     string
+		entry    *entity.ResaleEntry
+		snapshot entity.ResaleCreateSnapshot
+		wantErr  error
+	}{
+		{"open", entry(deadline.Add(-time.Hour), 2), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil)}, nil},
+		{"event without a start time", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: &entity.Event{}}, apperr.ErrInternal},
+		{"at the deadline", entry(deadline, 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil)}, apperr.ErrFailedPrecondition},
+		{"stock not sold out", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: &entity.TicketStock{Quantity: 4, SoldCount: 3}, Event: event(nil)}, apperr.ErrFailedPrecondition},
+		{"cancelled event", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(func(e *entity.Event) {
+			state := entity.PublishStateCancelled
+			e.PublishState = &state
+		})}, apperr.ErrFailedPrecondition},
+		{"already entered", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil), EnteredForEvent: true}, apperr.ErrAlreadyExists},
+		{"over the limit", entry(deadline.Add(-time.Hour), 2), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil), Held: entity.HeldTickets{Count: 3, SeatTypeID: &seat}}, apperr.ErrFailedPrecondition},
+		{"another seat type held", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil), Held: entity.HeldTickets{Count: 1, SeatTypeID: &other}}, apperr.ErrFailedPrecondition},
+		{"fits what is held", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil), Held: entity.HeldTickets{Count: 3, SeatTypeID: &seat}}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.entry.CheckCreate(tt.snapshot)
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestResaleEntry_Drawn(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 12, 19, 3, 0, 0, 0, time.UTC)
+	entry := &entity.ResaleEntry{State: entity.ResaleEntryStateEntered, Order: &entity.Order{Status: entity.OrderStatusPending}}
+
+	won := entry.Drawn(entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, at)
+	assert.Equal(t, entity.ResaleEntryStateWon, won.State)
+	assert.Equal(t, entity.OrderStatusPending, won.Order.Status, "a Won entry's Order waits to be charged")
+
+	lost := entry.Drawn(entity.ResaleEntryStateLost, entity.ResaleEntryLostReasonNoTicketLeft, at)
+	assert.Equal(t, entity.ResaleEntryLostReasonNoTicketLeft, lost.LostReason)
+	assert.Equal(t, entity.OrderStatusVoid, lost.Order.Status)
+
+	lapsed := entry.Drawn(entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonNoTicketLeft, at)
+	assert.Equal(t, entity.ResaleEntryLostReasonUnspecified, lapsed.LostReason, "only a Lost entry has a reason")
+	assert.Equal(t, entity.OrderStatusVoid, lapsed.Order.Status)
+
+	for _, drawn := range []*entity.ResaleEntry{won, lost, lapsed} {
+		require.NotNil(t, drawn.DrawTime)
+		assert.Equal(t, at, *drawn.DrawTime)
+	}
+	assert.Equal(t, entity.ResaleEntryStateEntered, entry.State, "the entry itself is not changed")
+	assert.Equal(t, entity.OrderStatusPending, entry.Order.Status)
+}
+
+func TestResaleDrawDue(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC) // 18:00 JST
+	deadline := entity.ResaleDeadlineAt(start)
+	noon := time.Date(2026, 12, 18, 12, 0, 0, 0, time.FixedZone("JST", 9*3600))
+	tests := []struct {
+		name              string
+		at                time.Time
+		wantDue, wantLast bool
+		wantMissed        bool
+	}{
+		{"a daily draw at noon", noon, true, false, false},
+		{"between draws", noon.Add(time.Minute), false, false, false},
+		{"the last draw at the deadline", deadline, true, true, false},
+		{"past the deadline: the last draw was missed", deadline.Add(time.Minute), true, false, true},
+	}
+	for _, tt := range tests {
+		due, last, missed := entity.ResaleDrawDue(tt.at, start)
+		assert.Equal(t, tt.wantDue, due, tt.name)
+		assert.Equal(t, tt.wantLast, last, tt.name)
+		assert.Equal(t, tt.wantMissed, missed, tt.name)
+	}
+}
+
+func TestShuffleDrawOrder_Resale(t *testing.T) {
+	t.Parallel()
+
+	entries := []*entity.ResaleEntry{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	got := entity.ShuffleDrawOrder(entries, rand.New(rand.NewPCG(1, 2)))
+
+	assert.ElementsMatch(t, entries, got, "every entry takes part once")
+	assert.Equal(t, entity.ResaleEntryID("a"), entries[0].ID, "the input is left as it is")
+	assert.Equal(t, got, entity.ShuffleDrawOrder(entries, rand.New(rand.NewPCG(1, 2))), "the same seed gives the same order")
+}
+
+func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 12, 10, 0, 0, 0, 0, time.UTC)
+	wantNext, ok := entity.NextResaleDrawTime(now, start)
+	require.True(t, ok)
+
+	for state, want := range map[entity.ResaleEntryState]struct{ next, ended bool }{
+		entity.ResaleEntryStateEntered:   {true, false},
+		entity.ResaleEntryStateWon:       {false, false},
+		entity.ResaleEntryStateLost:      {false, true},
+		entity.ResaleEntryStateLapsed:    {false, true},
+		entity.ResaleEntryStateWithdrawn: {false, false},
+	} {
+		e := &entity.ResaleEntry{State: state}
+		next := e.NextDrawTime(now, &start)
+		if want.next {
+			require.NotNil(t, next, state.String())
+			assert.Equal(t, wantNext, *next, state.String())
+		} else {
+			assert.Nil(t, next, state.String())
+		}
+		assert.Equal(t, want.ended, e.NeedsEndedEmail(), state.String())
+	}
+
+	entered := &entity.ResaleEntry{State: entity.ResaleEntryStateEntered}
+	assert.Nil(t, entered.NextDrawTime(now, nil), "an event without a start time has no draw")
+	assert.Nil(t, entered.NextDrawTime(start, &start), "the last draw has passed")
 }

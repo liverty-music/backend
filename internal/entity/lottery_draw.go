@@ -103,9 +103,10 @@ func RunLotteryDraw(entries []DrawEntry, quantity int, rng *rand.Rand) DrawResul
 }
 
 // ShuffleDrawOrder returns entries in a uniformly random draw order, the
-// first step of [RunLotteryDraw]; an entry's draw position is its index in
-// the result. entries is left unmodified. The rng parameter must not be nil.
-func ShuffleDrawOrder(entries []DrawEntry, rng *rand.Rand) []DrawEntry {
+// first step of [RunLotteryDraw] and of a resale draw; an entry's draw
+// position is its index in the result. entries is left unmodified. The rng
+// parameter must not be nil.
+func ShuffleDrawOrder[T any](entries []T, rng *rand.Rand) []T {
 	ordered := slices.Clone(entries)
 	rng.Shuffle(len(ordered), func(i, j int) {
 		ordered[i], ordered[j] = ordered[j], ordered[i]

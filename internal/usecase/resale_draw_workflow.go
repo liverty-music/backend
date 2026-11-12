@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"log/slog"
-	mrand "math/rand/v2"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -49,7 +48,7 @@ func (uc *resaleEntryUseCase) DrawResale(ctx context.Context, f Flow, at time.Ti
 			}
 			// A stock listed here still has Entered entries, so one past its
 			// deadline missed its last draw and is drawn now.
-			if draw, _ := entity.ResaleDrawAt(at, *s.StartTime); draw || entity.ResaleLastDrawMissed(at, *s.StartTime) {
+			if due, _, _ := entity.ResaleDrawDue(at, *s.StartTime); due {
 				ids = append(ids, s.StockID)
 			}
 		}
@@ -82,9 +81,8 @@ func (uc *resaleEntryUseCase) DrawStock(ctx context.Context, f Flow, in ResaleSt
 		if event.StartTime == nil {
 			return resaleDrawCounts{}, nil
 		}
-		draw, last := entity.ResaleDrawAt(in.At, *event.StartTime)
-		missed := entity.ResaleLastDrawMissed(in.At, *event.StartTime)
-		if !draw && !missed {
+		due, last, missed := entity.ResaleDrawDue(in.At, *event.StartTime)
+		if !due {
 			return resaleDrawCounts{}, nil
 		}
 		published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
@@ -98,7 +96,7 @@ func (uc *resaleEntryUseCase) DrawStock(ctx context.Context, f Flow, in ResaleSt
 				// draw only ends the entries.
 				return entity.DrawResale(entries, nil, in.At, true, !published)
 			}
-			shuffled := shuffleResaleEntries(entries, rnd)
+			shuffled := entity.ShuffleDrawOrder(entries, rnd)
 			return entity.DrawResale(shuffled, free, in.At, last, !published)
 		})
 		if err != nil {
@@ -124,11 +122,4 @@ type resaleDrawCounts struct {
 	Won    int `json:"won"`
 	Lapsed int `json:"lapsed"`
 	Lost   int `json:"lost"`
-}
-
-// shuffleResaleEntries returns the entries in a random order.
-func shuffleResaleEntries(entries []*entity.ResaleEntry, rnd *mrand.Rand) []*entity.ResaleEntry {
-	out := append([]*entity.ResaleEntry(nil), entries...)
-	rnd.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
-	return out
 }

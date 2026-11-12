@@ -449,3 +449,91 @@ func TestResaleEntryRepository_Withdraw(t *testing.T) {
 		}
 	})
 }
+
+// TestResaleEntryRepository_FreeListingsParity checks that the query behind a
+// draw's free listings returns exactly the listings
+// entity.ResaleListing.IsFreeForDrawAt accepts, for every combination of the
+// listing's status and the state of the entry it is allocated to.
+func TestResaleEntryRepository_FreeListingsParity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	repo := rdb.NewResaleEntryRepository(db, testOutbox)
+	f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
+
+	// Expired is never stored: a Listed listing past its deadline reads as
+	// Expired, which a draw at its deadline or before does not meet.
+	statuses := []entity.ResaleListingStatus{
+		entity.ResaleListingStatusListed, entity.ResaleListingStatusSold,
+		entity.ResaleListingStatusWithdrawn, entity.ResaleListingStatusCancelled,
+	}
+	// The zero state stands for a listing allocated to no entry.
+	states := []entity.ResaleEntryState{
+		0, entity.ResaleEntryStateEntered, entity.ResaleEntryStateWon, entity.ResaleEntryStateLost,
+		entity.ResaleEntryStateLapsed, entity.ResaleEntryStateWithdrawn,
+	}
+	want := map[entity.ResaleListingID]bool{}
+	var accepted, all int
+	for _, status := range statuses {
+		for _, state := range states {
+			id := seedListing(t, db, f)
+			var entryID any
+			if state != 0 {
+				orderID := insertOrder(t, db, f, orderSeed{user: newUserID(t, db), status: entity.OrderStatusPending})
+				id2 := entity.NewID()
+				var drawAt, withdrawAt, lostReason any
+				switch state {
+				case entity.ResaleEntryStateWon, entity.ResaleEntryStateLost, entity.ResaleEntryStateLapsed:
+					drawAt = resaleApplyTime.Add(time.Hour)
+				case entity.ResaleEntryStateWithdrawn:
+					withdrawAt = resaleApplyTime.Add(time.Hour)
+				}
+				if state == entity.ResaleEntryStateLost {
+					lostReason = int16(entity.ResaleEntryLostReasonNoTicketLeft)
+				}
+				_, err := db.Pool.Exec(ctx, `INSERT INTO resale_entries (id, order_id, state, draw_at, withdraw_at, lost_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					id2, string(orderID), int16(state), drawAt, withdrawAt, lostReason, resaleApplyTime)
+				require.NoError(t, err)
+				entryID = id2
+			}
+			var soldAt, withdrawAt any
+			switch status {
+			case entity.ResaleListingStatusSold:
+				soldAt = resaleApplyTime.Add(time.Hour)
+			case entity.ResaleListingStatusWithdrawn:
+				withdrawAt = resaleApplyTime.Add(time.Hour)
+			}
+			_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = $2, resale_entry_id = $3, sold_at = $4, withdraw_at = $5 WHERE id = $1`,
+				string(id), int16(status), entryID, soldAt, withdrawAt)
+			require.NoError(t, err, "status %s, entry state %s", status, state)
+
+			listing := &entity.ResaleListing{Status: status, ResaleEntryState: state}
+			if state != 0 {
+				listing.ResaleEntryID = entity.ResaleEntryID("allocated")
+			}
+			want[id] = listing.IsFreeForDrawAt(resaleDrawTime, resaleDrawTime.Add(time.Hour))
+			all++
+			if want[id] {
+				accepted++
+			}
+		}
+	}
+
+	var free []entity.ResaleListingID
+	_, err := repo.DrawUnderLock(ctx, f.ID, resaleDrawTime, func(_ []*entity.ResaleEntry, listings []entity.ResaleListingID) entity.ResaleDrawOutcome {
+		free = listings
+		return entity.ResaleDrawOutcome{}
+	})
+	require.NoError(t, err)
+
+	got := map[entity.ResaleListingID]bool{}
+	for _, id := range free {
+		got[id] = true
+	}
+	for id, isFree := range want {
+		assert.Equal(t, isFree, got[id], "listing %s", id)
+	}
+	assert.Len(t, free, accepted)
+	assert.Equal(t, len(statuses)*len(states), all)
+	assert.Positive(t, accepted, "some combination is free")
+}
