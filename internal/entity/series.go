@@ -141,6 +141,19 @@ func (s *Series) IsFirstParty() bool {
 	return s.OrganizerID != nil
 }
 
+// ValidateDraft reports whether a draft Series can be saved with eventCount
+// events: it needs a title and at least one event. It fails with
+// InvalidArgument.
+func (s *Series) ValidateDraft(eventCount int) error {
+	if s.Title == "" {
+		return apperr.New(codes.InvalidArgument, "title is required")
+	}
+	if eventCount == 0 {
+		return apperr.New(codes.InvalidArgument, "at least one event is required")
+	}
+	return nil
+}
+
 // IsPublic reports whether the series' visibility is PUBLIC.
 func (s *Series) IsPublic() bool {
 	return s.Visibility != nil && *s.Visibility == SeriesVisibilityPublic
@@ -206,6 +219,28 @@ func (s *Series) HasAnyEventPage(events []*Event) bool {
 		}
 	}
 	return false
+}
+
+// IsValid reports whether t is one of the series types: TOUR, SINGLE or
+// FESTIVAL. Any other text is a value the binary does not know, as a Postgres
+// enum extension the binary is behind would give.
+func (t SeriesType) IsValid() bool {
+	switch t {
+	case SeriesTypeTour, SeriesTypeSingle, SeriesTypeFestival:
+		return true
+	}
+	return false
+}
+
+// MergeDiscovered returns the Series row that stays when a discovery stores
+// incoming under the same id: a discovered Series has a content-addressed id
+// (derived from what identifies it), so the same id is the same Series found
+// again, and the first writer's row is kept, title and source URL included.
+// The later one adds nothing (the co-headliner case: a second artist's
+// discovery derives the id the first one stored). The primary key keeps it so
+// in the database.
+func (s *Series) MergeDiscovered(_ *Series) *Series {
+	return s
 }
 
 // NewSeries creates a new Series with an auto-generated UUIDv7 ID.
@@ -463,4 +498,36 @@ type SeriesRepository interface {
 	//
 	//  - NotFound: If no series with the given ID exists.
 	ReplaceCoverImage(ctx context.Context, seriesID string, newSeriesImage *SeriesImage) (oldSeriesImageID string, err error)
+}
+
+// EventsToPublish returns the named events among events, each of which must be
+// DRAFT, or every DRAFT event when none is named. It fails with
+// FailedPrecondition when there is none, or a named one is not a DRAFT event
+// of the concert.
+func EventsToPublish(events []*Event, eventIDs []string) ([]*Event, error) {
+	if len(eventIDs) == 0 {
+		var drafts []*Event
+		for _, e := range events {
+			if e.HasPublishState(PublishStateDraft) {
+				drafts = append(drafts, e)
+			}
+		}
+		if len(drafts) == 0 {
+			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: the concert has no draft date")
+		}
+		return drafts, nil
+	}
+	byID := make(map[string]*Event, len(events))
+	for _, e := range events {
+		byID[e.ID] = e
+	}
+	named := make([]*Event, 0, len(eventIDs))
+	for _, id := range eventIDs {
+		e := byID[id]
+		if e == nil || !e.HasPublishState(PublishStateDraft) {
+			return nil, apperr.New(codes.FailedPrecondition, "cannot publish: a named date is not a draft of the concert")
+		}
+		named = append(named, e)
+	}
+	return named, nil
 }

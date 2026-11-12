@@ -400,3 +400,18 @@ func TestEvent_CheckScannerAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestEvent_IsInCatalog(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		state *entity.PublishState
+		want  bool
+	}{
+		"discovered": {nil, true},
+		"published":  {new(entity.PublishStatePublished), true},
+		"cancelled":  {new(entity.PublishStateCancelled), true},
+		"draft":      {new(entity.PublishStateDraft), false},
+	} {
+		assert.Equal(t, tt.want, (&entity.Event{PublishState: tt.state}).IsInCatalog(), name)
+	}
+}

@@ -467,24 +467,12 @@ func (uc *concertCandidateUseCase) appendRejectionLog(ctx context.Context, sc *e
 	return nil
 }
 
-// resolveVenueAdminArea derives the admin_area used for BOTH the
-// (listed_venue_name, admin_area) lookup and the venue insert, preferring the
-// Places-resolved value and falling back to the Gemini-extracted scraped value.
-// The lookup and insert MUST use the same derivation, else a miss-then-collide
-// asymmetry re-appears (lookup on the raw value, insert on the resolved value).
-func resolveVenueAdminArea(sc *entity.ConcertCandidate) *string {
-	if sc.ResolvedAdminArea != nil {
-		return sc.ResolvedAdminArea
-	}
-	return sc.AdminArea
-}
-
 // resolveOrCreateVenue is an idempotent get-or-create over the venues row,
 // place_id-authoritative: resolve by place_id, then by (listed_venue_name,
 // admin_area), and only create when neither matches. Returns the venues.id to
 // use for event insertion.
 func resolveOrCreateVenue(ctx context.Context, sc *entity.ConcertCandidate, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
-	adminArea := resolveVenueAdminArea(sc)
+	adminArea := sc.VenueAdminArea()
 
 	// Step 1: if the venue was resolved via Google Places at staging time, look
 	// up an existing venues row by place_id first.
@@ -507,7 +495,7 @@ func resolveOrCreateVenue(ctx context.Context, sc *entity.ConcertCandidate, venu
 	if err == nil {
 		// Backfill place_id when the found venue lacks one and the concert candidate
 		// carries a resolved value — never overwrite a non-NULL place_id.
-		if sc.ResolvedPlaceID != nil && existing.GooglePlaceID == nil {
+		if sc.ShouldBackfillPlaceID(existing) {
 			if err := venueRepo.BackfillPlaceID(ctx, existing.ID, *sc.ResolvedPlaceID); err != nil {
 				return "", fmt.Errorf("backfill venue place ID: %w", err)
 			}
@@ -526,28 +514,7 @@ func resolveOrCreateVenue(ctx context.Context, sc *entity.ConcertCandidate, venu
 // createVenueFromCandidate creates a new venues row from the denormalised fields
 // on the concert candidate row.
 func createVenueFromCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
-	id := entity.NewID()
-
-	// Use the canonical resolved name when available; fall back to the raw
-	// listed name for unresolved concerts.
-	name := sc.ListedVenueName
-	if sc.ResolvedVenueName != nil {
-		name = *sc.ResolvedVenueName
-	}
-
-	venue := &entity.Venue{
-		ID:              id,
-		Name:            name,
-		AdminArea:       resolveVenueAdminArea(sc),
-		GooglePlaceID:   sc.ResolvedPlaceID,
-		ListedVenueName: &sc.ListedVenueName,
-	}
-	if sc.ResolvedLatitude != nil && sc.ResolvedLongitude != nil {
-		venue.Coordinates = &entity.Coordinates{
-			Latitude:  *sc.ResolvedLatitude,
-			Longitude: *sc.ResolvedLongitude,
-		}
-	}
+	venue := sc.NewVenue()
 
 	// Create returns the surviving row id: the one we generated on a real insert,
 	// or an existing row's id when a concurrent create won the race.
@@ -558,7 +525,7 @@ func createVenueFromCandidate(ctx context.Context, sc *entity.ConcertCandidate, 
 
 	logger.Info(ctx, "created venue from concert candidate",
 		slog.String("venue_id", venueID),
-		slog.String("venue_name", name),
+		slog.String("venue_name", venue.Name),
 	)
 
 	return venueID, nil

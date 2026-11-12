@@ -3,6 +3,7 @@ package entity
 import (
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
@@ -116,4 +117,35 @@ func NormalizeVenueName(name string) string {
 		return ""
 	}
 	return s
+}
+
+// SameListedVenue reports whether two listed venue names name the same venue:
+// they are equal once each goes through [NormalizeVenueName]. A name that is
+// missing normalizes to "" and so equals another missing one.
+func SameListedVenue(a, b string) bool {
+	return NormalizeVenueName(a) == NormalizeVenueName(b)
+}
+
+// DateVenueKey is the key under which an event on date at the listed venue is
+// matched with another: the local date and the normalized listed venue name.
+// Every match of a discovered event against an existing, pending or other
+// discovered event on (date, venue) uses it.
+func DateVenueKey(date time.Time, listedVenueName string) string {
+	return date.Format("2006-01-02") + "|" + NormalizeVenueName(listedVenueName)
+}
+
+// venueMiddleDots are the middle-dot variants two notations of one venue name
+// differ in; NFKC has already folded the half-width ･ to ・.
+var venueMiddleDots = strings.NewReplacer("・", "", "·", "", "•", "", "‧", "", "∙", "", "⋅", "")
+
+// VenueRepeatKey returns the form in which two listed venue names are the same
+// venue for the events of one search: the normalization
+// ([NormalizeVenueName]) with whitespace, middle-dot variants and Latin letter
+// case ignored, so "渋谷CLUB QUATTRO" and "渋谷 CLUB QUATTRO", or "Zepp Haneda"
+// and "ZEPP HANEDA", give one key. No other rule makes two names the same. It
+// is "" for a venue not yet announced.
+func VenueRepeatKey(listedVenueName string) string {
+	s := strings.ToLower(NormalizeVenueName(listedVenueName))
+	s = venueMiddleDots.Replace(s)
+	return strings.Join(strings.Fields(s), "")
 }

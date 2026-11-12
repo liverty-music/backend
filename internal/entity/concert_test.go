@@ -862,3 +862,111 @@ func TestConcert_PublishStateAndVisibility(t *testing.T) {
 		assert.True(t, concertOf(public, entity.PublishStatePublished).IsVisibleToFans())
 	})
 }
+
+func TestVenueRepeatKeyAndSameListedVenue(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, entity.VenueRepeatKey("渋谷CLUB QUATTRO"), entity.VenueRepeatKey("渋谷 CLUB QUATTRO"), "whitespace is ignored")
+	assert.Equal(t, entity.VenueRepeatKey("Zepp Haneda"), entity.VenueRepeatKey("ZEPP HANEDA"), "Latin letter case is ignored")
+	assert.Equal(t, entity.VenueRepeatKey("東京文化会館・大ホール"), entity.VenueRepeatKey("東京文化会館･大ホール"), "middle dot variants are ignored")
+	assert.Equal(t, entity.VenueRepeatKey("大阪・フェスティバルホール"), entity.VenueRepeatKey("フェスティバルホール"), "it starts from NormalizeVenueName")
+	assert.NotEqual(t, entity.VenueRepeatKey("Zepp Haneda"), entity.VenueRepeatKey("Zepp Osaka"))
+	assert.Empty(t, entity.VenueRepeatKey("TBA"), "a venue not yet announced has no key")
+
+	assert.True(t, entity.SameListedVenue("大阪・フェスティバルホール", "フェスティバルホール"))
+	assert.False(t, entity.SameListedVenue("Zepp Haneda", "zepp haneda"), "the venue match itself keeps case, as the spec's exact name does")
+	assert.True(t, entity.SameListedVenue("TBA", ""), "two missing names are alike")
+
+	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, entity.DateVenueKey(day, "大阪・フェスティバルホール"), entity.DateVenueKey(day, "フェスティバルホール"))
+	assert.NotEqual(t, entity.DateVenueKey(day, "A"), entity.DateVenueKey(day.AddDate(0, 0, 1), "A"))
+}
+
+func TestDiscoveredEvent_RepeatKeyAndHasPassedAt(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	a := &entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: start}
+
+	assert.Equal(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "ZEPP  HANEDA", LocalDate: day, StartTime: start}).RepeatKey(), "the same show in another notation")
+	assert.NotEqual(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: start.Add(3 * time.Hour)}).RepeatKey(), "a 2nd stage is another event")
+	assert.Equal(t, (&entity.DiscoveredEvent{ListedVenueName: "A", LocalDate: day}).RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "A", LocalDate: day}).RepeatKey(), "two with no start time are one")
+	assert.NotEqual(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day}).RepeatKey(), "an unknown start time is no known one")
+
+	// 23:30 UTC on 11-30 is already 12-01 at the venue (Japan time).
+	at := time.Date(2026, 11, 30, 23, 30, 0, 0, time.UTC)
+	assert.False(t, a.HasPassedAt(at), "the event's day is the venue's current day")
+	assert.True(t, (&entity.DiscoveredEvent{LocalDate: time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)}).HasPassedAt(at), "the previous day has passed at the venue")
+}
+
+func TestDiscoveredSeries_ClassifyType(t *testing.T) {
+	t.Parallel()
+
+	ev := func(venue string) *entity.DiscoveredEvent { return &entity.DiscoveredEvent{ListedVenueName: venue} }
+	tests := []struct {
+		name   string
+		events []*entity.DiscoveredEvent
+		want   entity.SeriesType
+	}{
+		{"two venues", []*entity.DiscoveredEvent{ev("Zepp Haneda"), ev("Zepp Osaka")}, entity.SeriesTypeTour},
+		{"several days at one venue", []*entity.DiscoveredEvent{ev("Zepp Haneda"), ev("ZEPP HANEDA"), ev("Zepp  Haneda")}, entity.SeriesTypeSingle},
+		{"one venue and a venue not announced", []*entity.DiscoveredEvent{ev("Zepp Haneda"), ev("TBA")}, entity.SeriesTypeSingle},
+		{"one show", []*entity.DiscoveredEvent{ev("Zepp Haneda")}, entity.SeriesTypeSingle},
+		{"no event", nil, entity.SeriesTypeSingle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &entity.DiscoveredSeries{Type: entity.SeriesTypeTour, Events: tt.events}
+			s.ClassifyType()
+			assert.Equal(t, tt.want, s.Type)
+		})
+	}
+}
+
+func TestConcert_NaturalKeyAndDedup(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	concert := func(id, venue string, start *time.Time) *entity.Concert {
+		return &entity.Concert{ID: id, VenueID: venue, LocalDate: day, StartTime: start}
+	}
+	a, dupOfA := concert("a", "v1", &start), concert("dup", "v1", &start)
+	otherVenue, otherStage := concert("b", "v2", &start), concert("c", "v1", new(start.Add(3*time.Hour)))
+	unknown, unknownAgain := concert("u", "v1", nil), concert("u2", "v1", nil)
+
+	kept, dropped := entity.DedupByNaturalKey([]*entity.Concert{a, nil, dupOfA, otherVenue, otherStage, unknown, unknownAgain})
+
+	assert.Equal(t, []*entity.Concert{a, otherVenue, otherStage, unknown}, kept, "the first of each natural key stays; an unknown start keys as one")
+	assert.Equal(t, []*entity.Concert{dupOfA, unknownAgain}, dropped)
+	assert.NotEqual(t, a.NaturalKey(), unknown.NaturalKey(), "an unknown start time is no known one")
+}
+
+func TestNotifiableEventIDs(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, []string{"new", "cohead"}, entity.NotifiableEventIDs([]string{"new"}, []string{"new", "cohead"}),
+		"a new event is in both sets and is listed once; a co-headliner on an existing event only in the second")
+	assert.Empty(t, entity.NotifiableEventIDs(nil, nil), "a re-delivery has nothing to tell")
+	assert.Equal(t, []string{"a", "b"}, entity.NotifiableEventIDs([]string{"a", "b"}, nil))
+}
+
+func TestEvent_MergeDiscovered(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	openA, openB := start.Add(-time.Hour), start.Add(-2*time.Hour)
+
+	gotStart, gotOpen := (&entity.Event{StartTime: &start, OpenTime: &openA}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
+	assert.Equal(t, &start, gotStart)
+	assert.Equal(t, &openA, gotOpen, "a known open time is never replaced")
+
+	_, gotOpen = (&entity.Event{StartTime: &start}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
+	assert.Equal(t, &openB, gotOpen, "an unknown open time is filled")
+
+	gotStart, gotOpen = (&entity.Event{}).MergeDiscovered(&entity.Event{})
+	assert.Nil(t, gotStart)
+	assert.Nil(t, gotOpen)
+}

@@ -297,10 +297,7 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 		if s.Type == "" {
 			return nil, apperr.New(codes.InvalidArgument, "series type must not be empty")
 		}
-		switch s.Type {
-		case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
-			// valid
-		default:
+		if !s.Type.IsValid() {
 			return nil, apperr.New(codes.InvalidArgument, "series type is not a recognised value: "+string(s.Type))
 		}
 		ids[i] = s.ID
@@ -383,8 +380,8 @@ func (r *SeriesRepository) Get(ctx context.Context, id string) (*entity.Series, 
 // boundary. Same logic as scanConcertRow in concert_repo.go — kept here
 // so Get / ListByIDs share the fail-fast contract.
 func assignSeriesType(s *entity.Series, raw, seriesID string) error {
-	switch entity.SeriesType(raw) {
-	case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+	switch {
+	case entity.SeriesType(raw).IsValid():
 		s.Type = entity.SeriesType(raw)
 		return nil
 	default:

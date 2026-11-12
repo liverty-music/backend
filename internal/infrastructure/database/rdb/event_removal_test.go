@@ -193,3 +193,44 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		assert.True(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
 	})
 }
+
+// TestEventRemovalBlockersParity checks that the query behind the removal
+// check refuses exactly the events entity.EventRemovalBlockers says it should,
+// for every combination of an Order's status and its Settlement's status:
+// Order.BlocksEventRemoval and Settlement.BlocksEventRemoval.
+func TestEventRemovalBlockersParity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	orderStatuses := []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid}
+	settlementStatuses := []entity.SettlementStatus{entity.SettlementStatusHeld, entity.SettlementStatusReleased, entity.SettlementStatusReversed}
+	for _, orderStatus := range orderStatuses {
+		for _, settlementStatus := range settlementStatuses {
+			o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+			seedPurchase(t, db, o, orderStatus, settlementStatus, false)
+			order := &entity.Order{Status: orderStatus}
+			settlement := &entity.Settlement{Status: settlementStatus}
+			want := order.BlocksEventRemoval() || settlement.BlocksEventRemoval()
+
+			tx, err := db.Pool.Begin(ctx)
+			require.NoError(t, err)
+			err = rdb.LockAndCheckEventRemoval(ctx, tx, []string{o.eventID})
+			require.NoError(t, tx.Rollback(ctx))
+
+			if want {
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "order %s, settlement %s", orderStatus, settlementStatus)
+			} else {
+				assert.NoError(t, err, "order %s, settlement %s", orderStatus, settlementStatus)
+			}
+		}
+	}
+
+	t.Run("an event with no purchase is removable", func(t *testing.T) {
+		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
+		tx, err := db.Pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		assert.NoError(t, rdb.LockAndCheckEventRemoval(ctx, tx, []string{o.eventID}))
+	})
+}

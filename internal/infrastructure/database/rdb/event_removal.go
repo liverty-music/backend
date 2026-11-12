@@ -6,8 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // eventOrderIDsSubquery selects the ids of every Order of a TicketStock of the
@@ -139,22 +137,14 @@ func lockAndCheckEventRemoval(ctx context.Context, tx pgx.Tx, eventIDs []string)
 			return toAppErr(err, "failed to lock the events' purchase records")
 		}
 	}
-	var paidOrder, unreversedSettlement, purchaseInProgress bool
+	var blockers entity.EventRemovalBlockers
 	if err := tx.QueryRow(ctx, eventRemovalBlockersQuery, eventIDs,
 		int16(entity.OrderStatusPaid), int16(entity.SettlementStatusReversed),
 		int16(entity.OrderStatusPending),
-	).Scan(&paidOrder, &unreversedSettlement, &purchaseInProgress); err != nil {
+	).Scan(&blockers.PaidOrder, &blockers.UnreversedSettlement, &blockers.PurchaseInProgress); err != nil {
 		return toAppErr(err, "failed to check event removal blockers")
 	}
-	switch {
-	case paidOrder:
-		return apperr.New(codes.FailedPrecondition, "an event has a paid order")
-	case unreversedSettlement:
-		return apperr.New(codes.FailedPrecondition, "an event has a settlement that is not reversed")
-	case purchaseInProgress:
-		return apperr.New(codes.FailedPrecondition, "an event has a purchase in progress")
-	}
-	return nil
+	return blockers.Check()
 }
 
 // removeEvents removes the events and every record that depends only on them,

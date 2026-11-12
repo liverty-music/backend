@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
@@ -212,21 +211,12 @@ func setPerformers(ctx context.Context, tx pgx.Tx, eventID string, performerIDs 
 	return nil
 }
 
-// slotHolder is the event that holds a slot, with its series' organizer (nil
-// for a discovered series).
-type slotHolder struct {
-	EventID     string
-	SeriesID    string
-	State       *entity.PublishState
-	OrganizerID *string
-}
-
 // checkSlot returns the event that holds the slot, or nil when the slot is
 // free. exceptID is the event being placed, which never holds its own slot. A
 // suppressed slot does not matter here: suppression keeps only discovery away.
-func checkSlot(ctx context.Context, tx pgx.Tx, e *entity.Event, exceptID string) (*slotHolder, error) {
+func checkSlot(ctx context.Context, tx pgx.Tx, e *entity.Event, exceptID string) (*entity.SlotHolder, error) {
 	var (
-		h           slotHolder
+		h           entity.SlotHolder
 		state       sql.NullString
 		organizerID sql.NullString
 	)
@@ -292,11 +282,9 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 	if err != nil {
 		return err
 	}
-	for _, e := range events {
-		if e.ID != "" && stored[e.ID] == nil {
-			return apperr.New(codes.FailedPrecondition, "a given event is not an event of the series",
-				slog.String("series_id", series.ID), slog.String("event_id", e.ID))
-		}
+	plan, err := entity.PlanSeriesUpdate(stored, events)
+	if err != nil {
+		return err
 	}
 
 	if _, err := tx.Exec(ctx, updateAuthoredSeriesQuery,
@@ -306,28 +294,25 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 		return toAppErr(err, "failed to update series", slog.String("series_id", series.ID))
 	}
 
-	given := make(map[string]bool, len(events))
-	for _, e := range events {
-		if e.ID == "" {
+	for _, edit := range plan.Edits {
+		e := edit.Given
+		switch edit.Kind {
+		case entity.EventEditAdd:
 			added := *e
 			added.ID = entity.NewID()
 			if err := insertDraftEvent(ctx, tx, series.ID, &added, performerArtistIDs); err != nil {
 				return err
 			}
 			continue
-		}
-		given[e.ID] = true
-		current := stored[e.ID]
-		switch {
-		case current.HasPublishState(entity.PublishStateDraft):
+		case entity.EventEditDraft:
 			if _, err := tx.Exec(ctx, updateDraftEventQuery,
 				e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, e.PerAccountLimit,
 			); err != nil {
 				return toAppErr(err, "failed to update draft event", slog.String("event_id", e.ID))
 			}
-		case current.HasPublishState(entity.PublishStatePublished):
-			if !sameTime(current.StartTime, e.StartTime) {
-				moved := *current
+		case entity.EventEditPublishedTimes:
+			if edit.MovesSlot {
+				moved := *edit.Stored
 				moved.StartTime = e.StartTime
 				if err := takeNewSlot(ctx, tx, &moved); err != nil {
 					return err
@@ -345,14 +330,8 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 		}
 	}
 
-	var removed []string
-	for id, e := range stored {
-		if !given[id] && e.HasPublishState(entity.PublishStateDraft) {
-			removed = append(removed, id)
-		}
-	}
-	if len(removed) > 0 {
-		if _, err := tx.Exec(ctx, deleteDraftEventsQuery, removed); err != nil {
+	if len(plan.Removed) > 0 {
+		if _, err := tx.Exec(ctx, deleteDraftEventsQuery, plan.Removed); err != nil {
 			return toAppErr(err, "failed to remove draft events", slog.String("series_id", series.ID))
 		}
 	}
@@ -372,21 +351,18 @@ func takeNewSlot(ctx context.Context, tx pgx.Tx, e *entity.Event) error {
 	if err != nil {
 		return err
 	}
-	if holder == nil {
-		return nil
+	merge, err := e.SlotMergePlan(holder)
+	if err != nil || merge == nil {
+		return err
 	}
-	if holder.OrganizerID != nil {
-		return apperr.New(codes.FailedPrecondition, "the new start time lands on an event of another first-party series",
-			slog.String("event_id", e.ID), slog.String("holder_event_id", holder.EventID))
+	if _, err := tx.Exec(ctx, moveTicketJourneysQuery, merge.EventID, e.ID); err != nil {
+		return toAppErr(err, "failed to move ticket journeys", slog.String("event_id", merge.EventID))
 	}
-	if _, err := tx.Exec(ctx, moveTicketJourneysQuery, holder.EventID, e.ID); err != nil {
-		return toAppErr(err, "failed to move ticket journeys", slog.String("event_id", holder.EventID))
+	if _, err := tx.Exec(ctx, copyPerformersQuery, merge.EventID, e.ID); err != nil {
+		return toAppErr(err, "failed to copy performers", slog.String("event_id", merge.EventID))
 	}
-	if _, err := tx.Exec(ctx, copyPerformersQuery, holder.EventID, e.ID); err != nil {
-		return toAppErr(err, "failed to copy performers", slog.String("event_id", holder.EventID))
-	}
-	if _, err := tx.Exec(ctx, deleteEventByIDQuery, holder.EventID); err != nil {
-		return toAppErr(err, "failed to remove the merged discovered event", slog.String("event_id", holder.EventID))
+	if _, err := tx.Exec(ctx, deleteEventByIDQuery, merge.EventID); err != nil {
+		return toAppErr(err, "failed to remove the merged discovered event", slog.String("event_id", merge.EventID))
 	}
 	return nil
 }
@@ -466,11 +442,8 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 	if err != nil {
 		return nil, err
 	}
-	for _, id := range eventIDs {
-		if e := stored[id]; e == nil || !e.HasPublishState(entity.PublishStateDraft) {
-			return nil, apperr.New(codes.FailedPrecondition, "a given event is not a DRAFT event of the series",
-				slog.String("series_id", seriesID), slog.String("event_id", id))
-		}
+	if err := entity.CheckPublishable(stored, eventIDs); err != nil {
+		return nil, err
 	}
 
 	var published []string
@@ -480,25 +453,18 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 		if err != nil {
 			return nil, err
 		}
-		switch {
-		case holder == nil:
+		claim, err := draft.ClaimSlotPlan(seriesID, holder)
+		if err != nil {
+			return nil, err
+		}
+		switch claim {
+		case entity.SlotClaimPublish:
 			if _, err := tx.Exec(ctx, publishEventQuery, draft.ID); err != nil {
 				return nil, toAppErr(err, "failed to publish event", slog.String("event_id", draft.ID))
 			}
 			published = append(published, draft.ID)
 			continue
-		case holder.State != nil && *holder.State == entity.PublishStateCancelled:
-			return nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by a cancelled event",
-				slog.String("event_id", draft.ID), slog.String("holder_event_id", holder.EventID))
-		case holder.SeriesID == seriesID:
-			// A PUBLISHED event of this series already holds the slot.
-		case holder.OrganizerID != nil:
-			// An event of another first-party series, of any organizer, is
-			// never moved: its sales, seat types and visibility stay with its
-			// series.
-			return nil, apperr.New(codes.FailedPrecondition, "the event's slot is held by another series' event",
-				slog.String("event_id", draft.ID), slog.String("holder_event_id", holder.EventID))
-		default:
+		case entity.SlotClaimDiscovered:
 			// Claim a discovered event, keeping its id (design D7).
 			if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID, draft.Limit()); err != nil {
 				return nil, toAppErr(err, "failed to claim event", slog.String("event_id", holder.EventID))
@@ -507,6 +473,8 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 				return nil, toAppErr(err, "failed to link performers to claimed event", slog.String("event_id", holder.EventID))
 			}
 		}
+		// A PUBLISHED event of this series already holds the slot, or the
+		// discovered one was claimed: the draft goes.
 		if _, err := tx.Exec(ctx, deleteEventByIDQuery, draft.ID); err != nil {
 			return nil, toAppErr(err, "failed to remove the draft of a held slot", slog.String("event_id", draft.ID))
 		}
@@ -603,22 +571,11 @@ func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, ev
 		return nil, err
 	}
 
-	var cancelled, removed []string
-	for _, id := range eventIDs {
-		e := stored[id]
-		switch {
-		case e == nil:
-			return nil, apperr.New(codes.FailedPrecondition, "a given event is not an event of the series",
-				slog.String("series_id", seriesID), slog.String("event_id", id))
-		case e.HasPublishState(entity.PublishStatePublished):
-			cancelled = append(cancelled, id)
-		case e.HasPublishState(entity.PublishStateDraft):
-			removed = append(removed, id)
-		default:
-			return nil, apperr.New(codes.FailedPrecondition, "a given event is already cancelled",
-				slog.String("series_id", seriesID), slog.String("event_id", id))
-		}
+	plan, err := entity.PlanCancel(stored, eventIDs)
+	if err != nil {
+		return nil, err
 	}
+	cancelled, removed := plan.Cancel, plan.Remove
 
 	if len(cancelled) > 0 {
 		if _, err := tx.Exec(ctx, cancelEventsQuery, cancelled); err != nil {
@@ -650,15 +607,6 @@ func (r *SeriesRepository) CancelEvents(ctx context.Context, seriesID string, ev
 		return nil, toAppErr(err, "failed to commit cancel transaction")
 	}
 	return cancelled, nil
-}
-
-// sameTime reports whether two optional instants are equal, where two unknown
-// instants are equal.
-func sameTime(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return a.Equal(*b)
 }
 
 // nullableString maps an empty string to NULL.
