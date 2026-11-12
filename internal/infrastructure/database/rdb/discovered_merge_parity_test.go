@@ -51,10 +51,8 @@ func TestDiscoveredMergeParity(t *testing.T) {
 				require.NoError(t, err)
 				concertOf := func(open *time.Time) *entity.Concert {
 					return &entity.Concert{
-						Event: entity.Event{
-							ID: entity.NewID(), SeriesID: seriesID.ID, VenueID: venueID,
-							LocalDate: date, StartTime: startTime, OpenTime: open,
-						},
+						ID: entity.NewID(), SeriesID: seriesID.ID, VenueID: venueID,
+						LocalDate: date, StartTime: startTime, OpenTime: open,
 						Artists: []*entity.Artist{{ID: artistID}},
 					}
 				}

@@ -931,7 +931,7 @@ func TestConcert_NaturalKeyAndDedup(t *testing.T) {
 	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
 	concert := func(id, venue string, start *time.Time) *entity.Concert {
-		return &entity.Concert{Event: entity.Event{ID: id, VenueID: venue, LocalDate: day, StartTime: start}}
+		return &entity.Concert{ID: id, VenueID: venue, LocalDate: day, StartTime: start}
 	}
 	a, dupOfA := concert("a", "v1", &start), concert("dup", "v1", &start)
 	otherVenue, otherStage := concert("b", "v2", &start), concert("c", "v1", new(start.Add(3*time.Hour)))
