@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -363,9 +362,9 @@ type userUseCase struct {
 	// synchronously.
 	background func(task func())
 
-	// resendMu protects resendLog for concurrent access.
-	resendMu  sync.Mutex
-	resendLog map[string][]time.Time
+	// resendLimiter bounds the verification-email resends one identity
+	// provider user may request.
+	resendLimiter *slidingWindowLimiter
 }
 
 // Compile-time interface compliance check
@@ -403,7 +402,7 @@ func NewUserUseCase(
 		passkeyRecoveryLimiter: newSlidingWindowLimiter(passkeyRecoveryLimit, passkeyRecoveryWindow, clock),
 		verifyEmailLimiter:     newSlidingWindowLimiter(verifyEmailLimit, verifyEmailWindow, clock),
 		background:             func(task func()) { go task() },
-		resendLog:              make(map[string][]time.Time),
+		resendLimiter:          newSlidingWindowLimiter(resendRateLimit, resendRateWindow, clock),
 	}
 }
 
@@ -758,7 +757,7 @@ func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUser
 		return err
 	}
 
-	if !uc.allowResend(user.ProviderUserID) {
+	if !uc.resendLimiter.allow(user.ProviderUserID) {
 		return apperr.New(codes.ResourceExhausted, "resend rate limit exceeded")
 	}
 
@@ -829,38 +828,6 @@ func (uc *userUseCase) VerifyEmail(ctx context.Context, userID, code string) err
 	}
 	uc.logger.Info(ctx, "email verified", attrs)
 	return nil
-}
-
-// allowResend reports whether providerUserID has not exceeded the resend rate
-// limit (resendRateLimit requests per rolling resendRateWindow), recording
-// this attempt when it allows it. Returns false when the caller must wait.
-func (uc *userUseCase) allowResend(providerUserID string) bool {
-	now := uc.clock()
-	cutoff := now.Add(-resendRateWindow)
-
-	uc.resendMu.Lock()
-	defer uc.resendMu.Unlock()
-
-	// Filter out expired entries.
-	var recent []time.Time
-	for _, t := range uc.resendLog[providerUserID] {
-		if t.After(cutoff) {
-			recent = append(recent, t)
-		}
-	}
-
-	// Reclaim memory for users with no recent activity.
-	if len(recent) == 0 {
-		delete(uc.resendLog, providerUserID)
-	}
-
-	if len(recent) >= resendRateLimit {
-		uc.resendLog[providerUserID] = recent
-		return false
-	}
-
-	uc.resendLog[providerUserID] = append(recent, now)
-	return true
 }
 
 // RequestPasskeyRecovery implements [UserUseCase]. The per-address check runs
