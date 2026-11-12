@@ -221,6 +221,28 @@ func (s *Series) HasAnyEventPage(events []*Event) bool {
 	return false
 }
 
+// IsValid reports whether t is one of the series types: TOUR, SINGLE or
+// FESTIVAL. Any other text is a value the binary does not know, as a Postgres
+// enum extension the binary is behind would give.
+func (t SeriesType) IsValid() bool {
+	switch t {
+	case SeriesTypeTour, SeriesTypeSingle, SeriesTypeFestival:
+		return true
+	}
+	return false
+}
+
+// MergeDiscovered returns the Series row that stays when a discovery stores
+// incoming under the same id: a discovered Series has a content-addressed id
+// (derived from what identifies it), so the same id is the same Series found
+// again, and the first writer's row is kept, title and source URL included.
+// The later one adds nothing (the co-headliner case: a second artist's
+// discovery derives the id the first one stored). The primary key keeps it so
+// in the database.
+func (s *Series) MergeDiscovered(_ *Series) *Series {
+	return s
+}
+
 // NewSeries creates a new Series with an auto-generated UUIDv7 ID.
 func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 	return &Series{

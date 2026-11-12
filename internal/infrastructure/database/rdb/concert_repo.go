@@ -406,8 +406,8 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 	// Connect server only validates inbound requests, so the bad value would
 	// reach the client as a structurally-valid-but-typeless concert. Failing
 	// fast here surfaces the version skew before the response is built.
-	switch entity.SeriesType(seriesT) {
-	case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+	switch {
+	case entity.SeriesType(seriesT).IsValid():
 		series.Type = entity.SeriesType(seriesT)
 	default:
 		return nil, apperr.New(codes.Internal,
@@ -885,25 +885,14 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	// cannot lose performer information. If a future caller batches concerts
 	// from multiple artists, it must merge duplicates' Performers into the kept
 	// entry before invoking Create; the Warn log surfaces if that happens.
-	var valid []*entity.Concert
-	seenKey := make(map[string]struct{}, len(concerts))
-	for _, c := range concerts {
-		if c == nil {
-			continue
-		}
-		start := entity.StartKey(c.StartTime)
-		key := c.VenueID + "|" + c.LocalDate.Format("2006-01-02") + "|" + start
-		if _, dup := seenKey[key]; dup {
-			r.db.logger.Warn(ctx, "Create: dropping duplicate concert with identical natural key from same batch",
-				slog.String("concert_id", c.ID),
-				slog.String("venue_id", c.VenueID),
-				slog.String("local_date", c.LocalDate.Format("2006-01-02")),
-				slog.String("start_at", start),
-			)
-			continue
-		}
-		seenKey[key] = struct{}{}
-		valid = append(valid, c)
+	valid, dropped := entity.DedupByNaturalKey(concerts)
+	for _, c := range dropped {
+		r.db.logger.Warn(ctx, "Create: dropping duplicate concert with identical natural key from same batch",
+			slog.String("concert_id", c.ID),
+			slog.String("venue_id", c.VenueID),
+			slog.String("local_date", c.LocalDate.Format("2006-01-02")),
+			slog.String("start_at", entity.StartKey(c.StartTime)),
+		)
 	}
 	if len(valid) == 0 {
 		return nil, nil
@@ -1048,26 +1037,9 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return nil, toAppErr(err, "failed to commit transaction")
 	}
 
-	// Union insertedIDs with linkedEventIDs and dedup. A brand-new event
-	// appears in both sets (insertConcertsQuery returned its UUID, AND the
-	// performer link RETURNING surfaced it). A co-headliner-on-existing-
-	// event case appears only in linkedEventIDs. A pure re-delivery (event
-	// AND link both pre-exist) appears in neither, which is correct — no
-	// new notification work to do.
-	notifiableIDs := make([]string, 0, len(insertedIDs)+len(linkedEventIDs))
-	seen := make(map[string]bool, len(insertedIDs)+len(linkedEventIDs))
-	for _, id := range insertedIDs {
-		if !seen[id] {
-			seen[id] = true
-			notifiableIDs = append(notifiableIDs, id)
-		}
-	}
-	for _, id := range linkedEventIDs {
-		if !seen[id] {
-			seen[id] = true
-			notifiableIDs = append(notifiableIDs, id)
-		}
-	}
+	// A brand-new event is in both sets, a co-headliner on an existing event
+	// only in linkedEventIDs, a pure re-delivery in neither.
+	notifiableIDs := entity.NotifiableEventIDs(insertedIDs, linkedEventIDs)
 
 	r.db.logger.Info(ctx, "concerts created",
 		slog.String("entityType", "concert"),

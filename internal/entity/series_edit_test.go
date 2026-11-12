@@ -220,3 +220,18 @@ func TestEventRemovalBlockers(t *testing.T) {
 		assert.ErrorIs(t, b.Check(), apperr.ErrFailedPrecondition)
 	}
 }
+
+func TestSeriesType_IsValidAndMergeDiscovered(t *testing.T) {
+	t.Parallel()
+
+	for _, ty := range []entity.SeriesType{entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival} {
+		assert.True(t, ty.IsValid(), string(ty))
+	}
+	for _, ty := range []entity.SeriesType{"", "RESIDENCY", "tour"} {
+		assert.False(t, ty.IsValid(), string(ty))
+	}
+
+	first := &entity.Series{ID: "s", Title: "first", SourceURL: "https://example.test/first"}
+	later := &entity.Series{ID: "s", Title: "later", SourceURL: "https://example.test/later"}
+	assert.Same(t, first, first.MergeDiscovered(later), "the first writer's row stays")
+}

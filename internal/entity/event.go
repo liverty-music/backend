@@ -187,6 +187,22 @@ func (e *Event) CanTransitionTo(next PublishState) bool {
 	}
 }
 
+// MergeDiscovered returns the start and open time an existing event keeps when
+// a discovery stores incoming, an event of the same natural key (the same
+// Venue, local date and start time): the existing row is preserved and only an
+// unknown start or open time is filled from incoming. A known time is never
+// replaced. The unique index on the natural key makes the conflict.
+func (e *Event) MergeDiscovered(incoming *Event) (start, open *time.Time) {
+	start, open = e.StartTime, e.OpenTime
+	if start == nil {
+		start = incoming.StartTime
+	}
+	if open == nil {
+		open = incoming.OpenTime
+	}
+	return start, open
+}
+
 // IsInCatalog reports whether the event is a concert of the catalog: any event
 // that is not DRAFT, discovered ones included. A DRAFT event is not a concert,
 // holds no slot and is never matched, merged, filled or removed by a Concert

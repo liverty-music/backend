@@ -292,6 +292,57 @@ func StartKey(t *time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// NaturalKey is the physical identity of an event: its Venue, local date and
+// start time, where an unknown start time keys as the empty string
+// (`(venue_id, local_event_date, start_at) NULLS NOT DISTINCT`; see
+// [StartKey]). Two events with the same key are the same show.
+func (c *Concert) NaturalKey() string {
+	return c.VenueID + "|" + c.LocalDate.Format("2006-01-02") + "|" + StartKey(c.StartTime)
+}
+
+// DedupByNaturalKey returns concerts without nil entries and without the
+// repeats of a natural key, keeping the first of each, and the repeats it
+// dropped. One statement cannot upsert two rows of one natural key
+// ("ON CONFLICT DO UPDATE command cannot affect row a second time"), which two
+// scraped entries for one physical venue under different listed names reach
+// once they resolve to the same Venue.
+func DedupByNaturalKey(concerts []*Concert) (kept, dropped []*Concert) {
+	seen := make(map[string]struct{}, len(concerts))
+	for _, c := range concerts {
+		if c == nil {
+			continue
+		}
+		key := c.NaturalKey()
+		if _, dup := seen[key]; dup {
+			dropped = append(dropped, c)
+			continue
+		}
+		seen[key] = struct{}{}
+		kept = append(kept, c)
+	}
+	return kept, dropped
+}
+
+// NotifiableEventIDs returns the events a concert creation has something new
+// to tell followers about: the events inserted, and the events a performer was
+// newly linked to, each once, in that order. A new event is in both sets; an
+// event an earlier run created and a co-headliner was newly attached to is only
+// in the second; a re-delivery, where the event and every link already exist,
+// is in neither.
+func NotifiableEventIDs(inserted, linked []string) []string {
+	out := make([]string, 0, len(inserted)+len(linked))
+	seen := make(map[string]bool, len(inserted)+len(linked))
+	for _, ids := range [][]string{inserted, linked} {
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
 // FilterNewSeries drops events that already conflict with existing concerts (or
 // duplicate another event within this same batch) from each discovered series,
 // then drops any series left with no events. It is a best-effort upstream filter

@@ -924,3 +924,49 @@ func TestDiscoveredSeries_ClassifyType(t *testing.T) {
 		})
 	}
 }
+
+func TestConcert_NaturalKeyAndDedup(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	concert := func(id, venue string, start *time.Time) *entity.Concert {
+		return &entity.Concert{Event: entity.Event{ID: id, VenueID: venue, LocalDate: day, StartTime: start}}
+	}
+	a, dupOfA := concert("a", "v1", &start), concert("dup", "v1", &start)
+	otherVenue, otherStage := concert("b", "v2", &start), concert("c", "v1", new(start.Add(3*time.Hour)))
+	unknown, unknownAgain := concert("u", "v1", nil), concert("u2", "v1", nil)
+
+	kept, dropped := entity.DedupByNaturalKey([]*entity.Concert{a, nil, dupOfA, otherVenue, otherStage, unknown, unknownAgain})
+
+	assert.Equal(t, []*entity.Concert{a, otherVenue, otherStage, unknown}, kept, "the first of each natural key stays; an unknown start keys as one")
+	assert.Equal(t, []*entity.Concert{dupOfA, unknownAgain}, dropped)
+	assert.NotEqual(t, a.NaturalKey(), unknown.NaturalKey(), "an unknown start time is no known one")
+}
+
+func TestNotifiableEventIDs(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, []string{"new", "cohead"}, entity.NotifiableEventIDs([]string{"new"}, []string{"new", "cohead"}),
+		"a new event is in both sets and is listed once; a co-headliner on an existing event only in the second")
+	assert.Empty(t, entity.NotifiableEventIDs(nil, nil), "a re-delivery has nothing to tell")
+	assert.Equal(t, []string{"a", "b"}, entity.NotifiableEventIDs([]string{"a", "b"}, nil))
+}
+
+func TestEvent_MergeDiscovered(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	openA, openB := start.Add(-time.Hour), start.Add(-2*time.Hour)
+
+	gotStart, gotOpen := (&entity.Event{StartTime: &start, OpenTime: &openA}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
+	assert.Equal(t, &start, gotStart)
+	assert.Equal(t, &openA, gotOpen, "a known open time is never replaced")
+
+	_, gotOpen = (&entity.Event{StartTime: &start}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
+	assert.Equal(t, &openB, gotOpen, "an unknown open time is filled")
+
+	gotStart, gotOpen = (&entity.Event{}).MergeDiscovered(&entity.Event{})
+	assert.Nil(t, gotStart)
+	assert.Nil(t, gotOpen)
+}
