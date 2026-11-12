@@ -204,7 +204,7 @@ func groupSalesSeries(concerts []*entity.Concert) []*entity.SalesSeriesRef {
 	var refs []*entity.SalesSeriesRef
 	bySeriesID := make(map[string]*entity.SalesSeriesRef)
 	for _, c := range concerts {
-		if c.SeriesID == "" || c.Series == nil || c.Series.IsFirstParty() {
+		if c.SeriesID == "" || c.Series == nil || !c.Series.IsSearchable() {
 			continue
 		}
 		ref, ok := bySeriesID[c.SeriesID]

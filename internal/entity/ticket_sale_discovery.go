@@ -47,6 +47,55 @@ func (d *DiscoveredTicketSale) Validate(now time.Time) error {
 	return d.TicketSale(now).Validate()
 }
 
+// FoundReason decides whether a sale a search found is kept, given the time
+// of the search and the series ref the search attributed it to, and returns
+// the reason it is dropped, or "" when it is kept. A sale is dropped when:
+//
+//   - its start time is not after now ("already started"): a sale already open
+//     cannot be announced as an upcoming one;
+//   - it has no name ("no name") or no end time ("no apply_end_time");
+//   - it breaks the TicketSale rules for a discovered sale ([TicketSale.Validate]),
+//     in which case the reason is that error's text;
+//   - it starts after the day following the series' last event ("apply_start_time
+//     after the series' last event"), when the series has events with dates.
+func (d *DiscoveredTicketSale) FoundReason(now time.Time, ref *SalesSeriesRef) string {
+	switch {
+	case !d.SaleStartTime.After(now):
+		return "already started"
+	case d.Name == "":
+		return "no name"
+	case d.SaleEndTime.IsZero():
+		return "no apply_end_time"
+	}
+	if err := d.Validate(now); err != nil {
+		return err.Error()
+	}
+	if _, last, ok := ref.EventPeriod(); ok && d.SaleStartTime.After(last.AddDate(0, 0, 1)) {
+		return "apply_start_time after the series' last event"
+	}
+	return ""
+}
+
+// EventPeriod returns the first and last dates of the series' events in Japan
+// time, and false when it has none with a date.
+func (r *SalesSeriesRef) EventPeriod() (first, last time.Time, ok bool) {
+	for _, d := range r.EventDates {
+		if d.IsZero() {
+			continue
+		}
+		local := d.In(japanTime)
+		day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, japanTime)
+		if !ok || day.Before(first) {
+			first = day
+		}
+		if !ok || day.After(last) {
+			last = day
+		}
+		ok = true
+	}
+	return first, last, ok
+}
+
 // UpsertOutcome tells whether UpsertDiscovered created a sale, updated a known
 // one or stored nothing. Only a created sale is announced.
 type UpsertOutcome int8

@@ -118,7 +118,7 @@ func (uc *ticketSaleReminderDeliveryUseCase) DeliverReminder(ctx context.Context
 	// A request without a linked event is a defensive skip — the scan always
 	// names one. Not a terminal delivery outcome because no send was attempted,
 	// and not an error (returning one would poison-loop the request).
-	if data.LinkEventID == "" {
+	if !entity.ReminderCanBeSent(data.LinkEventID) {
 		uc.logger.Warn(ctx, "ticket_sale_reminder_delivery: no linked event, skipping", attrs...)
 		return nil
 	}
@@ -138,27 +138,17 @@ func (uc *ticketSaleReminderDeliveryUseCase) DeliverReminder(ctx context.Context
 		return fmt.Errorf("ticket_sale_reminder_delivery: deliver: %w", err)
 	}
 
-	switch {
-	case outcome.Status == DeliveryStatusDelivered:
-		// At least one subscription accepted the push. Record sent so the next
-		// scan does not re-deliver, then log the terminal delivered outcome.
+	result := entity.NewReminderOutcome(outcome.Status == DeliveryStatusDelivered, outcome.FailureReason == NotificationFailureReasonNoSubscription)
+	if result.IsSent() {
+		// Delivered, or the fan has no push device and a retry would find none:
+		// record sent so the next scan does not request it again.
 		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, entity.TicketSaleID(data.TicketSaleID), stage); err != nil {
 			uc.logger.Error(ctx, "ticket_sale_reminder_delivery: RecordSent failed", err, attrs...)
 			// Non-fatal: next scan will re-check via ListSentStages / AlreadySent.
 		}
-		uc.logDeliveryOutcome(ctx, data, stage, "delivered")
-	case outcome.FailureReason == NotificationFailureReasonNoSubscription:
-		// The user has no push device to deliver to — nothing to retry. Record
-		// sent to suppress future re-delivery and log the no_subscription outcome.
-		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, entity.TicketSaleID(data.TicketSaleID), stage); err != nil {
-			uc.logger.Error(ctx, "ticket_sale_reminder_delivery: RecordSent failed", err, attrs...)
-		}
-		uc.logDeliveryOutcome(ctx, data, stage, "no_subscription")
-	default:
-		// Any other failure — a send failure or a subject that no longer
-		// exists. Leave the sent-log empty so the next scan requests it again
-		// while the stage is due, and log the failed outcome.
-		uc.logDeliveryOutcome(ctx, data, stage, "failed")
 	}
+	// A failed one leaves the sent-log empty so the next scan requests it
+	// again while the stage is due.
+	uc.logDeliveryOutcome(ctx, data, stage, result.String())
 	return nil
 }

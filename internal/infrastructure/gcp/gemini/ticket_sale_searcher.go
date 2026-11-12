@@ -386,30 +386,11 @@ func publishedSalesUserPrompt(
 	for _, id := range seriesIDs {
 		sr := series[id]
 		fmt.Fprintf(&b, "- id: %s\n  title: %s\n", sr.SeriesID, sr.Title)
-		if first, last, ok := eventPeriod(sr); ok {
+		if first, last, ok := sr.EventPeriod(); ok {
 			fmt.Fprintf(&b, "  event_period: %s to %s\n", first.Format(time.DateOnly), last.Format(time.DateOnly))
 		}
 	}
 	return b.String()
-}
-
-// eventPeriod returns the first and last event dates of a series in Japan time.
-func eventPeriod(sr *entity.SalesSeriesRef) (first, last time.Time, ok bool) {
-	for _, d := range sr.EventDates {
-		if d.IsZero() {
-			continue
-		}
-		local := d.In(jst)
-		day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, jst)
-		if !ok || day.Before(first) {
-			first = day
-		}
-		if !ok || day.After(last) {
-			last = day
-		}
-		ok = true
-	}
-	return first, last, ok
 }
 
 // readResponse logs the response metadata and returns the JSON text of the
@@ -508,35 +489,22 @@ func validatePublishedSale(
 	if err != nil {
 		return nil, "unparseable apply_start_time", ""
 	}
-	if !start.After(now) {
-		return nil, "already started", ""
-	}
-
-	name := strings.TrimSpace(p.Name)
-	if name == "" {
-		return nil, "no name", ""
-	}
-	if strings.TrimSpace(p.ApplyEndTime) == "" {
-		return nil, "no apply_end_time", ""
-	}
-	end, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ApplyEndTime))
-	if err != nil {
-		return nil, "unparseable apply_end_time", ""
+	var end time.Time
+	if raw := strings.TrimSpace(p.ApplyEndTime); raw != "" {
+		if end, err = time.Parse(time.RFC3339, raw); err != nil {
+			return nil, "unparseable apply_end_time", ""
+		}
 	}
 
 	c = &entity.DiscoveredTicketSale{
 		SeriesID:      p.SeriesID,
-		Name:          name,
+		Name:          strings.TrimSpace(p.Name),
 		Method:        method,
 		SaleStartTime: start,
 		SaleEndTime:   end,
 	}
-	if err := c.Validate(time.Now()); err != nil {
-		return nil, err.Error(), ""
-	}
-
-	if _, last, ok := eventPeriod(sr); ok && start.After(last.AddDate(0, 0, 1)) {
-		return nil, "apply_start_time after the series' last event", ""
+	if reason := c.FoundReason(now, sr); reason != "" {
+		return nil, reason, ""
 	}
 	c.ResultDate, resultDateReason = publishedResultDate(p.ResultDate, method, end)
 	return c, "", resultDateReason

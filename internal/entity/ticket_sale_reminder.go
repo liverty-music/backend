@@ -73,6 +73,82 @@ func (s ReminderStage) Anchor(sale *TicketSale) (anchor time.Time, ok bool) {
 	}
 }
 
+// ReminderAudience is whose reminders a sale is about: the fans tracking the
+// sale's Series, or the fans tracking the events the sale names.
+type ReminderAudience struct {
+	// SeriesID is the Series whose trackers are reminded; empty when EventIDs
+	// is the audience.
+	SeriesID string
+	// EventIDs are the events whose trackers are reminded; empty when SeriesID
+	// is the audience.
+	EventIDs []string
+}
+
+// ReminderAudience returns whom the sale's reminders go to: for a discovered
+// sale every fan tracking an event of its Series, since it covers the tour;
+// for an Organizer's sale only the fans tracking an event it names, because it
+// may cover only some events of the tour.
+func (s *TicketSale) ReminderAudience() ReminderAudience {
+	if s.IsDiscovered() {
+		return ReminderAudience{SeriesID: s.SeriesID}
+	}
+	return ReminderAudience{EventIDs: s.EventIDs}
+}
+
+// ReminderCanBeSent reports whether a reminder request can be sent: it names
+// the event the reminder links the fan to. The scan always names one, so a
+// request without it is skipped, neither sent nor failed.
+func ReminderCanBeSent(linkEventID string) bool {
+	return linkEventID != ""
+}
+
+// ReminderOutcome is how the delivery of one reminder ended.
+type ReminderOutcome int8
+
+const (
+	// ReminderOutcomeDelivered means at least one push subscription accepted
+	// the reminder.
+	ReminderOutcomeDelivered ReminderOutcome = iota + 1
+	// ReminderOutcomeNoSubscription means the fan has no push device to
+	// deliver to: there is nothing to retry.
+	ReminderOutcomeNoSubscription
+	// ReminderOutcomeFailed means the send failed, or its subject no longer
+	// exists.
+	ReminderOutcomeFailed
+)
+
+// NewReminderOutcome returns how a delivery ended, from whether a
+// subscription accepted it and whether the fan had no subscription.
+func NewReminderOutcome(delivered, noSubscription bool) ReminderOutcome {
+	switch {
+	case delivered:
+		return ReminderOutcomeDelivered
+	case noSubscription:
+		return ReminderOutcomeNoSubscription
+	}
+	return ReminderOutcomeFailed
+}
+
+// IsSent reports whether the reminder counts as sent, so the next scan does
+// not request it again: it was delivered, or the fan has no subscription (a
+// retry would find none). A failed one is left unsent, and the next scan
+// requests it again while its stage is due.
+func (o ReminderOutcome) IsSent() bool {
+	return o == ReminderOutcomeDelivered || o == ReminderOutcomeNoSubscription
+}
+
+// String returns the outcome as the delivery-reliability log names it:
+// "delivered", "no_subscription" or "failed".
+func (o ReminderOutcome) String() string {
+	switch o {
+	case ReminderOutcomeDelivered:
+		return "delivered"
+	case ReminderOutcomeNoSubscription:
+		return "no_subscription"
+	}
+	return "failed"
+}
+
 // TicketSaleReminderRepository persists the sent-log of ticket sale reminders.
 // It keeps one record per (user, ticket sale, stage).
 type TicketSaleReminderRepository interface {

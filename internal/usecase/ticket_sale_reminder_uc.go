@@ -124,10 +124,11 @@ var reminderStages = []entity.ReminderStage{
 // series, and for an Organizer's sale only the fans tracking an event it names,
 // because it may cover only some events of the tour.
 func (uc *ticketSaleReminderUseCase) listTrackers(ctx context.Context, sale *entity.TicketSale) ([]*entity.SeriesTracker, error) {
-	if sale.IsDiscovered() {
-		return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, sale.SeriesID)
+	audience := sale.ReminderAudience()
+	if audience.SeriesID != "" {
+		return uc.journeyRepo.ListUserIDsTrackingSeries(ctx, audience.SeriesID)
 	}
-	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, sale.EventIDs)
+	return uc.journeyRepo.ListUserIDsTrackingEvents(ctx, audience.EventIDs)
 }
 
 // processSale evaluates all reminder stages for one sale and returns the
