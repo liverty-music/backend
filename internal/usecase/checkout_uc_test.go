@@ -167,8 +167,11 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
-	t.Run("drawn presale does not block", func(t *testing.T) {
+	t.Run("a closed lottery with entries only for another stock does not block", func(t *testing.T) {
 		t.Parallel()
+		// The undrawn entries are read for this stock only (stock-1); the
+		// presale's Entered entries for another stock of the event are not
+		// counted, so this one is not blocked by them.
 		f := newCheckoutFixture(t, now)
 		presale := &entity.TicketSale{
 			ID: "sale-pre", SeriesID: "series-1", Name: "FC先行", Method: entity.TicketSaleMethodLottery,

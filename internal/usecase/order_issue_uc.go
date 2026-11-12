@@ -104,16 +104,14 @@ func (uc *orderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID,
 		return order, nil
 	}
 
-	switch checkout.Status {
-	case entity.CheckoutStatusHeld:
+	checks, err := checkout.CheckPlace()
+	if err != nil {
+		return nil, err
+	}
+	if checks {
 		if err := uc.checkPlaceable(ctx, checkout, order, now); err != nil {
 			return nil, err
 		}
-	case entity.CheckoutStatusCommitted:
-		// Placed before: wait for the same run.
-	default:
-		return nil, apperr.New(codes.FailedPrecondition, "the checkout has ended", attrs,
-			slog.String("status", checkout.Status.String()))
 	}
 
 	id := IssueWorkflowID(order.ID)

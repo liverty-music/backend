@@ -244,3 +244,54 @@ func TestTicketStock_RemainingWithout(t *testing.T) {
 	over := &entity.TicketStock{Quantity: 5, SoldCount: 5, HeldCount: 2}
 	assert.Equal(t, 0, over.RemainingWithout(1), "a stock over its quantity frees nothing")
 }
+
+func TestHoldingCheckoutOf(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	holding := heldCheckout("c1", "sale-1", 2, now.Add(time.Minute))
+	holding.Order.TicketStockID = "stock-1"
+	lapsed := heldCheckout("c2", "sale-1", 2, now.Add(-time.Minute))
+	lapsed.Order.TicketStockID = "stock-1"
+	other := heldCheckout("c3", "sale-1", 2, now.Add(time.Minute))
+	other.Order.TicketStockID = "stock-2"
+
+	assert.Same(t, holding, entity.HoldingCheckoutOf([]*entity.Checkout{lapsed, other, holding}, "stock-1", now))
+	assert.Nil(t, entity.HoldingCheckoutOf([]*entity.Checkout{lapsed, other}, "stock-1", now), "a lapsed one and one of another stock do not hold it")
+	assert.Nil(t, entity.HoldingCheckoutOf(nil, "stock-1", now))
+}
+
+func TestCheckout_NextStep(t *testing.T) {
+	t.Parallel()
+	for status, want := range map[entity.CheckoutStatus]entity.CheckoutStep{
+		entity.CheckoutStatusHeld:      entity.CheckoutStepExpire,
+		entity.CheckoutStatusExpired:   entity.CheckoutStepReleaseCardAuthorization,
+		entity.CheckoutStatusReleased:  entity.CheckoutStepReleaseCardAuthorization,
+		entity.CheckoutStatusCommitted: entity.CheckoutStepNone,
+		entity.CheckoutStatusCompleted: entity.CheckoutStepNone,
+	} {
+		assert.Equal(t, want, (&entity.Checkout{Status: status}).NextStep(), status.String())
+	}
+}
+
+func TestCheckout_CheckPlace(t *testing.T) {
+	t.Parallel()
+	for status, want := range map[entity.CheckoutStatus]struct {
+		checks  bool
+		wantErr bool
+	}{
+		entity.CheckoutStatusHeld:      {true, false},
+		entity.CheckoutStatusCommitted: {false, false},
+		entity.CheckoutStatusCompleted: {false, true},
+		entity.CheckoutStatusExpired:   {false, true},
+		entity.CheckoutStatusReleased:  {false, true},
+	} {
+		checks, err := (&entity.Checkout{Status: status}).CheckPlace()
+		assert.Equal(t, want.checks, checks, status.String())
+		if want.wantErr {
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, status.String())
+		} else {
+			assert.NoError(t, err, status.String())
+		}
+	}
+}

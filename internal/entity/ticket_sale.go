@@ -253,6 +253,26 @@ func (s *TicketSale) IsNotYetOverAt(t time.Time) bool {
 	return t.Before(s.SaleEndTime)
 }
 
+// IsLotteryClosedAt reports whether the sale is a Lottery whose window has
+// closed at t. Its Entered entries then wait for the draw, which takes the
+// winners' tickets from their stocks.
+func (s *TicketSale) IsLotteryClosedAt(t time.Time) bool {
+	return s.Method == TicketSaleMethodLottery && !s.IsNotYetOverAt(t)
+}
+
+// CheckDrawnFor reports whether the draw of a closed Lottery sale has taken
+// its winners' tickets from one stock: it has when entered, the number of the
+// sale's entries for that stock that are still Entered, is 0. It fails with
+// FailedPrecondition otherwise. A first-come checkout of the stock waits for
+// it, but not one of another stock of the event, whose entries are not
+// counted.
+func (s *TicketSale) CheckDrawnFor(entered int) error {
+	if entered > 0 {
+		return apperr.New(codes.FailedPrecondition, "a closed lottery of the event is not drawn yet")
+	}
+	return nil
+}
+
 // IsOpenAt reports whether the window is open at t: at or after the start
 // and before the end.
 func (s *TicketSale) IsOpenAt(t time.Time) bool {

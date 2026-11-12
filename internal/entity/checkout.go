@@ -166,6 +166,57 @@ func (r *Checkout) CanBecome(next CheckoutStatus) bool {
 	}
 }
 
+// HoldingCheckoutOf returns the Checkout among checkouts that holds the stock
+// at now, which a new start resumes or replaces, or nil when none does.
+func HoldingCheckoutOf(checkouts []*Checkout, stockID TicketStockID, now time.Time) *Checkout {
+	for _, c := range checkouts {
+		if c.Order.TicketStockID == stockID && c.IsHoldingAt(now) {
+			return c
+		}
+	}
+	return nil
+}
+
+// CheckoutStep is the workflow a Checkout announcement starts.
+type CheckoutStep int8
+
+const (
+	// CheckoutStepNone means the Checkout's status starts nothing.
+	CheckoutStepNone CheckoutStep = iota
+	// CheckoutStepExpire means a Held Checkout starts its expiry, which ends
+	// the hold at its expiry time.
+	CheckoutStepExpire
+	// CheckoutStepReleaseCardAuthorization means an Expired or Released
+	// Checkout gives its card authorization back.
+	CheckoutStepReleaseCardAuthorization
+)
+
+// NextStep returns the workflow the Checkout's status starts.
+func (r *Checkout) NextStep() CheckoutStep {
+	switch r.Status {
+	case CheckoutStatusHeld:
+		return CheckoutStepExpire
+	case CheckoutStatusExpired, CheckoutStatusReleased:
+		return CheckoutStepReleaseCardAuthorization
+	}
+	return CheckoutStepNone
+}
+
+// CheckPlace reports what placing the Checkout needs: checks is true for a Held
+// one, whose hold, concert, card authorization and verification are checked
+// before the issue starts; a Committed one was placed before, and its issue is
+// waited for. It fails with FailedPrecondition for one that has ended.
+func (r *Checkout) CheckPlace() (checks bool, err error) {
+	switch r.Status {
+	case CheckoutStatusHeld:
+		return true, nil
+	case CheckoutStatusCommitted:
+		return false, nil
+	}
+	return false, apperr.New(codes.FailedPrecondition, "the checkout has ended",
+		slog.String("checkout_id", string(r.ID)), slog.String("status", r.Status.String()))
+}
+
 // CommitOutcome returns what [CheckoutRepository.Commit] reports for the
 // Checkout as read, when that is already decided: Committed for a Committed or
 // Completed one, NotHeld for an Expired or Released one. decided is false for a
