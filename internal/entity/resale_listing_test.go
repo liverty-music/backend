@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"github.com/pannpers/go-apperr/apperr"
 	"testing"
 	"time"
 
@@ -156,4 +157,30 @@ func TestNewResaleListing(t *testing.T) {
 	assert.Equal(t, int64(5000), l.Price)
 	assert.Equal(t, entity.ResaleListingStatusListed, l.Status)
 	assert.True(t, l.CreateTime.Equal(at(12, 0, 0)))
+}
+
+func TestResaleListing_NeedsRefund(t *testing.T) {
+	t.Parallel()
+
+	refunded := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		l       *entity.ResaleListing
+		want    bool
+		wantErr bool
+	}{
+		{"sold, not refunded", &entity.ResaleListing{Status: entity.ResaleListingStatusSold}, true, false},
+		{"sold, refunded", &entity.ResaleListing{Status: entity.ResaleListingStatusSold, RefundTime: &refunded}, false, false},
+		{"listed", &entity.ResaleListing{Status: entity.ResaleListingStatusListed}, false, true},
+		{"cancelled", &entity.ResaleListing{Status: entity.ResaleListingStatusCancelled}, false, true},
+	}
+	for _, tt := range tests {
+		got, err := tt.l.NeedsRefund()
+		assert.Equal(t, tt.want, got, tt.name)
+		if tt.wantErr {
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, tt.name)
+		} else {
+			assert.NoError(t, err, tt.name)
+		}
+	}
 }

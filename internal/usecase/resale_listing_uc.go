@@ -130,7 +130,7 @@ func (uc *resaleListingUseCase) Create(ctx context.Context, userID entity.UserID
 	}
 	var ticket *entity.Ticket
 	for _, t := range tickets {
-		if t.ID == ticketID {
+		if t.ID == ticketID && t.BelongsTo(userID) {
 			ticket = t
 			break
 		}
@@ -236,12 +236,9 @@ func (uc *resaleListingUseCase) RefundSold(ctx context.Context, f Flow, listingI
 		if err != nil {
 			return struct{}{}, err
 		}
-		if l.Status != entity.ResaleListingStatusSold {
-			return struct{}{}, apperr.New(codes.FailedPrecondition, "only a Sold listing is refunded",
-				slog.String("resale_listing_id", string(listingID)), slog.String("order_id", string(l.OrderID)))
-		}
-		if l.RefundTime != nil {
-			return struct{}{}, nil
+		needs, err := l.NeedsRefund()
+		if err != nil || !needs {
+			return struct{}{}, err
 		}
 		// ResaleListing.RecordRefund announces the refund, which the sold
 		// email is sent from.

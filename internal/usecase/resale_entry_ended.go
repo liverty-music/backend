@@ -29,7 +29,7 @@ func (uc *notificationUseCase) SendResaleEntryEnded(ctx context.Context, entryID
 	if err != nil {
 		return err
 	}
-	if entry.State != entity.ResaleEntryStateLapsed && entry.State != entity.ResaleEntryStateLost {
+	if !entry.NeedsEndedEmail() {
 		return nil
 	}
 	user, err := d.Users.Get(ctx, string(entry.Order.UserID))

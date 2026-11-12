@@ -395,7 +395,7 @@ func (uc *resaleEntryUseCase) views(ctx context.Context, entries []*entity.Resal
 			stocks[stock.ID] = stock
 		}
 		view := &ResaleEntryView{Entry: e, Stock: stock}
-		if e.State == entity.ResaleEntryStateEntered {
+		if e.AwaitsDraw() {
 			start, ok := starts[stock.EventID]
 			if !ok {
 				event, err := uc.eventRepo.Get(ctx, stock.EventID)
@@ -405,11 +405,7 @@ func (uc *resaleEntryUseCase) views(ctx context.Context, entries []*entity.Resal
 				start = event.StartTime
 				starts[stock.EventID] = start
 			}
-			if start != nil {
-				if next, ok := entity.NextResaleDrawTime(now, *start); ok {
-					view.NextDrawTime = &next
-				}
-			}
+			view.NextDrawTime = e.NextDrawTime(now, start)
 		}
 		views = append(views, view)
 	}

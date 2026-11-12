@@ -222,6 +222,32 @@ func (e *ResaleEntry) CheckChargeable() error {
 	return e.Order.CheckChargeable()
 }
 
+// AwaitsDraw reports whether the entry still waits for a draw: it is Entered.
+func (e *ResaleEntry) AwaitsDraw() bool {
+	return e.State == ResaleEntryStateEntered
+}
+
+// NextDrawTime returns the next resale draw of the entry's event, which starts
+// at eventStart, after now: nil unless the entry awaits a draw, the event has
+// a start time and its last draw is still to come ([NextResaleDrawTime]).
+func (e *ResaleEntry) NextDrawTime(now time.Time, eventStart *time.Time) *time.Time {
+	if !e.AwaitsDraw() || eventStart == nil {
+		return nil
+	}
+	next, ok := NextResaleDrawTime(now, *eventStart)
+	if !ok {
+		return nil
+	}
+	return &next
+}
+
+// NeedsEndedEmail reports whether the entry's end is told to the fan by an
+// ended email: it is Lapsed or Lost. A Won or Withdrawn entry, or one still
+// Entered, is not.
+func (e *ResaleEntry) NeedsEndedEmail() bool {
+	return e.State == ResaleEntryStateLapsed || e.State == ResaleEntryStateLost
+}
+
 // IsWithdrawable reports whether the fan may withdraw the entry: only while
 // it is Entered.
 func (e *ResaleEntry) IsWithdrawable() bool {
@@ -356,6 +382,17 @@ func ResaleDrawAt(t, start time.Time) (draw, last bool) {
 // expired at the deadline.
 func ResaleLastDrawMissed(t, start time.Time) bool {
 	return t.After(ResaleDeadlineAt(start))
+}
+
+// ResaleDrawDue decides whether a resale draw of the event starting at start
+// runs at t: draw is true at a scheduled draw time ([ResaleDrawAt]), last when
+// that draw is the event's last, and missed when t is past the deadline, so
+// the last draw was missed ([ResaleLastDrawMissed]). due is draw or missed:
+// a stock that still has Entered entries past its deadline is drawn now.
+func ResaleDrawDue(t, start time.Time) (due, last, missed bool) {
+	draw, last := ResaleDrawAt(t, start)
+	missed = ResaleLastDrawMissed(t, start)
+	return draw || missed, last, missed
 }
 
 // NextResaleDrawTime returns the first resale draw of the event starting at

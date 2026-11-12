@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -405,4 +406,71 @@ func TestResaleEntry_Drawn(t *testing.T) {
 	}
 	assert.Equal(t, entity.ResaleEntryStateEntered, entry.State, "the entry itself is not changed")
 	assert.Equal(t, entity.OrderStatusPending, entry.Order.Status)
+}
+
+func TestResaleDrawDue(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC) // 18:00 JST
+	deadline := entity.ResaleDeadlineAt(start)
+	noon := time.Date(2026, 12, 18, 12, 0, 0, 0, time.FixedZone("JST", 9*3600))
+	tests := []struct {
+		name              string
+		at                time.Time
+		wantDue, wantLast bool
+		wantMissed        bool
+	}{
+		{"a daily draw at noon", noon, true, false, false},
+		{"between draws", noon.Add(time.Minute), false, false, false},
+		{"the last draw at the deadline", deadline, true, true, false},
+		{"past the deadline: the last draw was missed", deadline.Add(time.Minute), true, false, true},
+	}
+	for _, tt := range tests {
+		due, last, missed := entity.ResaleDrawDue(tt.at, start)
+		assert.Equal(t, tt.wantDue, due, tt.name)
+		assert.Equal(t, tt.wantLast, last, tt.name)
+		assert.Equal(t, tt.wantMissed, missed, tt.name)
+	}
+}
+
+func TestShuffleDrawOrder_Resale(t *testing.T) {
+	t.Parallel()
+
+	entries := []*entity.ResaleEntry{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	got := entity.ShuffleDrawOrder(entries, rand.New(rand.NewPCG(1, 2)))
+
+	assert.ElementsMatch(t, entries, got, "every entry takes part once")
+	assert.Equal(t, entity.ResaleEntryID("a"), entries[0].ID, "the input is left as it is")
+	assert.Equal(t, got, entity.ShuffleDrawOrder(entries, rand.New(rand.NewPCG(1, 2))), "the same seed gives the same order")
+}
+
+func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 12, 10, 0, 0, 0, 0, time.UTC)
+	wantNext, ok := entity.NextResaleDrawTime(now, start)
+	require.True(t, ok)
+
+	for state, want := range map[entity.ResaleEntryState]struct{ next, ended bool }{
+		entity.ResaleEntryStateEntered:   {true, false},
+		entity.ResaleEntryStateWon:       {false, false},
+		entity.ResaleEntryStateLost:      {false, true},
+		entity.ResaleEntryStateLapsed:    {false, true},
+		entity.ResaleEntryStateWithdrawn: {false, false},
+	} {
+		e := &entity.ResaleEntry{State: state}
+		next := e.NextDrawTime(now, &start)
+		if want.next {
+			require.NotNil(t, next, state.String())
+			assert.Equal(t, wantNext, *next, state.String())
+		} else {
+			assert.Nil(t, next, state.String())
+		}
+		assert.Equal(t, want.ended, e.NeedsEndedEmail(), state.String())
+	}
+
+	entered := &entity.ResaleEntry{State: entity.ResaleEntryStateEntered}
+	assert.Nil(t, entered.NextDrawTime(now, nil), "an event without a start time has no draw")
+	assert.Nil(t, entered.NextDrawTime(start, &start), "the last draw has passed")
 }

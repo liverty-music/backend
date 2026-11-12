@@ -95,3 +95,10 @@ func TestNewIssuedTicket(t *testing.T) {
 	assert.NoError(t, ticket.Validate(), "every issued ticket is a covered ticket")
 	assert.NotEqual(t, ticket.ID, entity.NewIssuedTicket(order, "event-1", "", now).ID)
 }
+
+func TestTicket_BelongsTo(t *testing.T) {
+	t.Parallel()
+	ticket := &entity.Ticket{UserID: "user-1"}
+	assert.True(t, ticket.BelongsTo("user-1"))
+	assert.False(t, ticket.BelongsTo("user-2"))
+}

@@ -29,7 +29,7 @@ func FromResaleEntry(e *entity.ResaleEntry, nextDraw *time.Time) *entityv1.Resal
 	if e.WithdrawTime != nil {
 		pb.WithdrawTime = timestamppb.New(*e.WithdrawTime)
 	}
-	if nextDraw != nil && e.State == entity.ResaleEntryStateEntered {
+	if nextDraw != nil {
 		pb.NextDrawTime = timestamppb.New(*nextDraw)
 	}
 	return pb
