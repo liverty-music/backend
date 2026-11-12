@@ -56,7 +56,7 @@ func (uc *notificationUseCase) SendLotteryLoss(ctx context.Context, entryID enti
 		count:    order.TicketCount,
 		reason:   entry.LostReason,
 	}
-	if err := d.LossMailer.SendLossEmail(ctx, entry.ID, user.Email, content.email(emailLanguage(user.PreferredLanguage))); err != nil {
+	if err := d.LossMailer.SendLossEmail(ctx, entry.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
 		return err
 	}
 

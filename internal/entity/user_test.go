@@ -307,3 +307,10 @@ func TestHome_ResolveCentroid(t *testing.T) {
 		assert.True(t, ok, "every prefecture has one: JP-%02d", i)
 	}
 }
+
+func TestUser_EmailLanguage(t *testing.T) {
+	t.Parallel()
+	for lang, want := range map[string]string{"en": "en", "ja": "ja", "": "ja", "fr": "ja", "EN": "ja"} {
+		assert.Equal(t, want, (&entity.User{PreferredLanguage: lang}).EmailLanguage(), "preferred %q", lang)
+	}
+}

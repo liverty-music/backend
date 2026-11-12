@@ -56,7 +56,7 @@ func (p *NoopSettlementPayouts) CreatePayout(ctx context.Context, params entity.
 }
 
 // Create returns Unavailable because no Stripe key is configured.
-func (p *NoopPayoutAccounts) Create(ctx context.Context, organizerID string, _ string) (string, error) {
+func (p *NoopPayoutAccounts) Create(ctx context.Context, organizerID string, _ string, _ entity.PayoutAccountTerms) (string, error) {
 	p.logger.Warn(ctx, "connected account creation skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("organizer_id", organizerID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")

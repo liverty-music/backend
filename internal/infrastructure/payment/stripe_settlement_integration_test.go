@@ -52,7 +52,7 @@ func TestStripePayoutAccounts_Create_Integration(t *testing.T) {
 
 	contactEmail := "it-organizer@pannpers.dev"
 
-	providerAccountID, err := port.Create(ctx, organizerID, contactEmail)
+	providerAccountID, err := port.Create(ctx, organizerID, contactEmail, entity.DefaultPayoutAccountTerms())
 	require.NoError(t, err, "create Accounts v2 recipient via the production adapter")
 	require.True(t, strings.HasPrefix(providerAccountID, "acct_"), "expected an acct_ reference, got %q", providerAccountID)
 	t.Logf("provisioned recipient account: %s (organizer %s)", providerAccountID, organizerID)

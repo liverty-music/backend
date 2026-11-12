@@ -203,6 +203,16 @@ func CreateUser(params *NewUser) *User {
 	}
 }
 
+// EmailLanguage is the language the emails to the user are written in: "en"
+// for a user who prefers English, otherwise Japanese ("ja"), including a user
+// with no preference.
+func (u *User) EmailLanguage() string {
+	if u.PreferredLanguage == "en" {
+		return "en"
+	}
+	return "ja"
+}
+
 // NewHome creates a new Home with an auto-generated UUIDv7 ID.
 func NewHome(countryCode, level1 string, level2 *string) *Home {
 	return &Home{

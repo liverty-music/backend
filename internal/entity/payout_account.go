@@ -74,6 +74,79 @@ type PayoutAccount struct {
 	Status PayoutOnboardingStatus
 }
 
+// PayoutAccountTerms are the terms a payout account is opened on at the payment
+// provider: where it settles, in what currency and language, what its owner
+// sells, who collects fees and absorbs losses, and whether its owner may use the
+// provider's own dashboard. They are the platform's policy, passed to the
+// provider; the provider client maps them to its own vocabulary.
+type PayoutAccountTerms struct {
+	// CountryCode is the ISO 3166-1 alpha-2 country the account settles in.
+	CountryCode string
+	// CurrencyCode is the ISO 4217 currency of its balance.
+	CurrencyCode string
+	// Locale is the language and region of its onboarding and communication.
+	Locale string
+	// MerchantCategoryCode is the MCC of what the owner sells. A JP
+	// recipient's transfers capability does not activate without one.
+	MerchantCategoryCode string
+	// ProviderDashboard is true when the owner may use the provider's own
+	// dashboard; the platform manages the account when it is false.
+	ProviderDashboard bool
+	// PlatformCollectsFees is true when the platform is responsible for the
+	// provider's fees on the account.
+	PlatformCollectsFees bool
+	// PlatformAbsorbsLosses is true when the platform absorbs negative
+	// balances (required for transfer reversals).
+	PlatformAbsorbsLosses bool
+}
+
+// DefaultPayoutAccountTerms returns the terms of an Organizer's payout
+// account: settled in Japan in yen, onboarded in Japanese, as a ticketing
+// business (MCC 7922, theatrical producers and ticket agencies), managed by
+// the platform without dashboard access, with the platform responsible for fees
+// and losses.
+func DefaultPayoutAccountTerms() PayoutAccountTerms {
+	return PayoutAccountTerms{
+		CountryCode:           "JP",
+		CurrencyCode:          "JPY",
+		Locale:                "ja-JP",
+		MerchantCategoryCode:  "7922",
+		ProviderDashboard:     false,
+		PlatformCollectsFees:  true,
+		PlatformAbsorbsLosses: true,
+	}
+}
+
+// TransfersCapability is the state of a payout account's transfers capability
+// at the payment provider, mapped from the provider's own states.
+type TransfersCapability int8
+
+const (
+	// TransfersCapabilityUnrequested is no state at all: the capability is not
+	// reported yet.
+	TransfersCapabilityUnrequested TransfersCapability = iota
+	// TransfersCapabilityPending means the capability is requested and its
+	// checks are in progress.
+	TransfersCapabilityPending
+	// TransfersCapabilityActive means the account can receive transfers.
+	TransfersCapabilityActive
+	// TransfersCapabilityInactive means the capability was disabled.
+	TransfersCapabilityInactive
+)
+
+// NewPayoutOnboardingStatus returns the Organizer's payout readiness a
+// transfers capability means: an active one is Active, a disabled one
+// Restricted, and any other (pending or not yet reported) Pending.
+func NewPayoutOnboardingStatus(c TransfersCapability) PayoutOnboardingStatus {
+	switch c {
+	case TransfersCapabilityActive:
+		return PayoutOnboardingStatusActive
+	case TransfersCapabilityInactive:
+		return PayoutOnboardingStatusRestricted
+	}
+	return PayoutOnboardingStatusPending
+}
+
 // PayoutAccountRepository defines the persistence contract for
 // PayoutAccount records. Interfaces are defined where consumed
 // (AGENTS.md rule).
@@ -112,7 +185,8 @@ type PayoutAccountRepository interface {
 	// configured with losses_collector = application so the platform absorbs
 	// negative balances. Returns the payment provider's ID for the account ("acct_...").
 	//
-	// contactEmail is the Organizer's business contact address. Stripe rejects
+	// terms are the terms the account is opened on
+	// ([DefaultPayoutAccountTerms]). contactEmail is the Organizer's business contact address. Stripe rejects
 	// a recipient configuration without one ("If configuration.recipient is
 	// supplied, the Account must have a contact email"), and it is the address
 	// Stripe uses to reach the account. Apart from it the request carries no
@@ -125,7 +199,7 @@ type PayoutAccountRepository interface {
 	//
 	//  - Unavailable: the payment provider is unreachable or platform Connect
 	//    is not yet enabled.
-	Create(ctx context.Context, organizerID string, contactEmail string) (providerAccountID string, err error)
+	Create(ctx context.Context, organizerID string, contactEmail string, terms PayoutAccountTerms) (providerAccountID string, err error)
 
 	// GetStatus retrieves the payout-onboarding status of the
 	// payout account identified by providerAccountID. It maps the provider's

@@ -103,7 +103,7 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 		tz:         d.TimeZone,
 		lotteryWin: order.Source() == entity.OrderSourceLotteryEntry,
 	}
-	lang := emailLanguage(user.PreferredLanguage)
+	lang := user.EmailLanguage()
 	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(lang)); err != nil {
 		return err
 	}
@@ -124,15 +124,6 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 		Type:    typ,
 		Subject: entity.NotificationSubject{OrderID: paid.OrderID},
 	})
-}
-
-// emailLanguage is the email's language: English for an English preference,
-// Japanese otherwise (including no preference).
-func emailLanguage(preferred string) string {
-	if preferred == "en" {
-		return "en"
-	}
-	return "ja"
 }
 
 // concertTitle is the concert's series title, or empty.

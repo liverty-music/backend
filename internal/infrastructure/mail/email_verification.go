@@ -97,7 +97,7 @@ func (s *PostmarkEmailVerificationSender) send(ctx context.Context, user *entity
 	query.Set("user", user.ID)
 	query.Set("code", code)
 	link := s.fanWebBaseURL + "/verify-email?" + query.Encode()
-	subject, body := emailVerificationEmail(emailLanguage(user.PreferredLanguage), link)
+	subject, body := emailVerificationEmail(user.EmailLanguage(), link)
 	if err := s.post(ctx, address, subject, body, emailVerificationTag,
 		map[string]string{"user_id": user.ID}, attrs); err != nil {
 		return apperr.Wrap(err, codes.Internal, "verification email cannot be sent", attrs)

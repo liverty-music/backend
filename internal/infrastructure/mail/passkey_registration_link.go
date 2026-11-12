@@ -61,7 +61,7 @@ func (s *PostmarkPasskeyRegistrationLinkSender) SendPasskeyRegistrationLink(ctx 
 	if err != nil {
 		return err
 	}
-	subject, body := passkeyRegistrationLinkEmail(emailLanguage(user.PreferredLanguage), link)
+	subject, body := passkeyRegistrationLinkEmail(user.EmailLanguage(), link)
 	if err := s.post(ctx, address, subject, body, passkeyRegistrationLinkTag,
 		map[string]string{"user_id": user.ID}, attrs); err != nil {
 		return apperr.Wrap(err, codes.Internal, "passkey registration link cannot be sent", attrs)
@@ -97,15 +97,6 @@ func passkeyRegistrationLinkEmail(lang, link string) (subject, body string) {
 	b.WriteString("お心当たりがない場合は、このメールを無視してください。リンクを開かない限り、アカウントは変更されません。\n\n")
 	b.WriteString("Liverty Music\n")
 	return "【Liverty Music】新しいパスキーの登録", b.String()
-}
-
-// emailLanguage returns the language an email is written in: "en" for a
-// user who prefers English, otherwise Japanese ("ja").
-func emailLanguage(preferred string) string {
-	if preferred == "en" {
-		return "en"
-	}
-	return "ja"
 }
 
 // NoopPasskeyRegistrationLinkSender is used when the consumer has no
