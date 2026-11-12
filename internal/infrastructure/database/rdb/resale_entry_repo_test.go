@@ -111,6 +111,32 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 		assert.Empty(t, entries, "nothing is stored")
 	})
 
+	t.Run("event without a start time is a broken invariant", func(t *testing.T) {
+		// A TicketSale cannot name an Event without a start time, so a fan
+		// cannot reach this: it is Internal, not "resale not open".
+		f := seedResaleStock(t, db, 4, 4)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = NULL WHERE id = $1`, f.EventID)
+		require.NoError(t, err)
+		fan := newUserID(t, db)
+
+		_, err = repo.Create(ctx, newResaleEntry(db, f, fan, 1))
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		entries, err := repo.ListByUser(ctx, fan)
+		require.NoError(t, err)
+		assert.Empty(t, entries, "nothing is stored")
+	})
+
+	t.Run("cancelled event", func(t *testing.T) {
+		f := seedResaleStock(t, db, 4, 4)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, f.EventID)
+		require.NoError(t, err)
+
+		_, err = repo.Create(ctx, newResaleEntry(db, f, newUserID(t, db), 1))
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
 	t.Run("after the resale deadline", func(t *testing.T) {
 		f := seedResaleStock(t, db, 2, 4)
 		e := newResaleEntry(db, f, newUserID(t, db), 1)

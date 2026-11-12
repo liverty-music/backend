@@ -121,10 +121,16 @@ func (s *TicketStock) IsLowStock() bool {
 }
 
 // IsResaleOpenAt reports whether the stock's official resale is open at time
-// at, given its event's resale deadline: the stock is SoldOut and at is before
-// the deadline.
-func (s *TicketStock) IsResaleOpenAt(at, deadline time.Time) bool {
-	return s.State() == TicketStockStateSoldOut && at.Before(deadline)
+// at for its event: the event is not cancelled and has a start time, the stock
+// is SoldOut and at is before the event's resale deadline
+// ([ResaleDeadlineOf]). Every place that offers or applies for official
+// resale asks it.
+func (s *TicketStock) IsResaleOpenAt(at time.Time, event *Event) bool {
+	if event == nil || event.HasPublishState(PublishStateCancelled) {
+		return false
+	}
+	deadline, ok := ResaleDeadlineOf(event)
+	return ok && s.State() == TicketStockStateSoldOut && at.Before(deadline)
 }
 
 // TicketStockRepository persists TicketStocks and reads their sold and held

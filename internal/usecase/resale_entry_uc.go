@@ -205,8 +205,7 @@ func (uc *resaleEntryUseCase) AuthorizeCard(ctx context.Context, stockID entity.
 	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
 		return nil, err
 	}
-	deadline, ok := entity.ResaleDeadlineOf(event)
-	if !ok || !stock.IsResaleOpenAt(now, deadline) {
+	if !stock.IsResaleOpenAt(now, event) {
 		return nil, apperr.New(codes.FailedPrecondition, "official resale of the stock is not open")
 	}
 	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)

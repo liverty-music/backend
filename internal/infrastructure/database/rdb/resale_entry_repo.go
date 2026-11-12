@@ -54,8 +54,9 @@ const (
 	// resaleEntryCreateLockQuery serializes every Create for one card
 	// authorization: a transaction-scoped advisory lock keyed on its id.
 	resaleEntryCreateLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('resale-entry-card-authorization:' || $1, 0))`
-	// resaleEntryEventStartQuery reads the start time of the event.
-	resaleEntryEventStartQuery = `SELECT start_at FROM events WHERE id = $1`
+	// resaleEntryEventQuery reads the start time, publish state and
+	// per-account limit of the event.
+	resaleEntryEventQuery = `SELECT start_at, publish_state, per_account_limit FROM events WHERE id = $1`
 	// resaleEntryEnteredForEventQuery reports whether the user ($1) has an
 	// Entered resale entry for a stock of the event ($2).
 	resaleEntryEnteredForEventQuery = `
@@ -181,31 +182,29 @@ func (r *ResaleEntryRepository) Create(ctx context.Context, entry *entity.Resale
 	if err != nil {
 		return nil, toAppErr(err, "failed to read the entry's stock", attrs...)
 	}
-	var startAt sql.NullTime
-	if err := tx.QueryRow(ctx, resaleEntryEventStartQuery, stock.EventID).Scan(&startAt); err != nil {
-		return nil, toAppErr(err, "failed to read the event's start time", attrs...)
+	var (
+		startAt      sql.NullTime
+		publishState sql.NullString
+		limit        sql.NullInt32
+	)
+	if err := tx.QueryRow(ctx, resaleEntryEventQuery, stock.EventID).Scan(&startAt, &publishState, &limit); err != nil {
+		return nil, toAppErr(err, "failed to read the stock's event", attrs...)
 	}
-	deadline, hasDeadline := entity.ResaleDeadlineOf(&entity.Event{StartTime: optionalTime(startAt)})
-	if !hasDeadline || !stock.IsResaleOpenAt(entry.CreateTime, deadline) {
-		return nil, apperr.New(codes.FailedPrecondition, "the stock's resale is not open", attrs...)
+	event := &entity.Event{ID: stock.EventID, StartTime: optionalTime(startAt), PerAccountLimit: optionalInt(limit)}
+	if publishState.Valid {
+		state := entity.PublishState(publishState.String)
+		event.PublishState = &state
 	}
 	var entered bool
 	if err := tx.QueryRow(ctx, resaleEntryEnteredForEventQuery, string(order.UserID), stock.EventID).Scan(&entered); err != nil {
 		return nil, toAppErr(err, "failed to read the user's resale entries", attrs...)
 	}
-	if entered {
-		return nil, apperr.New(codes.AlreadyExists, "the user already has an entered resale entry for the event", attrs...)
-	}
-	event, err := eventLimit(ctx, tx, stock.EventID)
-	if err != nil {
-		return nil, toAppErr(err, "failed to read the event's per-account limit", attrs...)
-	}
 	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, entry.CreateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to count the user's tickets", attrs...)
 	}
-	if !event.Fits(held, stock.SeatTypeID, order.TicketCount) {
-		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
+	if err := entry.CheckCreate(entity.ResaleCreateSnapshot{Stock: stock, Event: event, EnteredForEvent: entered, Held: held}); err != nil {
+		return nil, err
 	}
 
 	if err := insertPendingOrder(ctx, tx, order); err != nil {
@@ -370,7 +369,7 @@ func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketS
 			if allocated != len(ids) {
 				return apperr.New(codes.FailedPrecondition, "a listing is no longer free for a draw", attrs...)
 			}
-			changed = append(changed, drawn(win.Entry, entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, drawTime))
+			changed = append(changed, win.Entry.Drawn(entity.ResaleEntryStateWon, entity.ResaleEntryLostReasonUnspecified, drawTime))
 		}
 		end := func(entries []*entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason) error {
 			var lostReason any
@@ -385,7 +384,7 @@ func (r *ResaleEntryRepository) draw(ctx context.Context, stockID entity.TicketS
 					}
 					return toAppErr(err, "failed to end a resale entry", attrs...)
 				}
-				changed = append(changed, drawn(e, state, reason, drawTime))
+				changed = append(changed, e.Drawn(state, reason, drawTime))
 			}
 			return nil
 		}
@@ -543,22 +542,6 @@ func (r *ResaleEntryRepository) RevertWin(ctx context.Context, id entity.ResaleE
 		return toAppErr(err, "failed to commit the resale revert", attrs)
 	}
 	return nil
-}
-
-// drawn returns a copy of the entry as a draw at drawTime leaves it.
-func drawn(e *entity.ResaleEntry, state entity.ResaleEntryState, reason entity.ResaleEntryLostReason, drawTime time.Time) *entity.ResaleEntry {
-	copied := *e
-	copied.State = state
-	copied.DrawTime = &drawTime
-	if state == entity.ResaleEntryStateLost {
-		copied.LostReason = reason
-	}
-	if copied.Order != nil && state != entity.ResaleEntryStateWon {
-		order := *copied.Order
-		order.Status = entity.OrderStatusVoid
-		copied.Order = &order
-	}
-	return &copied
 }
 
 // list runs a resale entry query with one argument.

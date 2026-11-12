@@ -389,10 +389,9 @@ func (uc *ticketSaleUseCase) ListByEvent(ctx context.Context, eventID string) (*
 	if err != nil {
 		return nil, err
 	}
-	deadline, hasDeadline := entity.ResaleDeadlineOf(event)
 	views := make([]*TicketStockView, 0, len(stocks))
 	for _, stock := range stocks {
-		views = append(views, &TicketStockView{Stock: stock, ResaleOpen: hasDeadline && stock.IsResaleOpenAt(now, deadline)})
+		views = append(views, &TicketStockView{Stock: stock, ResaleOpen: stock.IsResaleOpenAt(now, event)})
 	}
 	limit := event.Limit()
 	return &EventSales{Sales: sales, Stocks: views, PerAccountLimit: &limit}, nil
