@@ -214,3 +214,36 @@ func TestOrganizer_PlatformFeeRate(t *testing.T) {
 	assert.NoError(t, entity.ValidatePlatformFeeRate(0))
 	assert.NoError(t, entity.ValidatePlatformFeeRate(3000))
 }
+
+func TestOrganizer_DeletionRules(t *testing.T) {
+	t.Parallel()
+
+	for status, want := range map[entity.OrganizerStatus]bool{
+		entity.OrganizerStatusProvisioning: false,
+		entity.OrganizerStatusActive:       false,
+		entity.OrganizerStatusDeactivated:  true,
+	} {
+		err := (&entity.Organizer{ID: "o-1", Status: status}).CheckDeactivated()
+		if want {
+			assert.NoError(t, err, "status %d", status)
+			continue
+		}
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "status %d", status)
+	}
+
+	o := &entity.Organizer{ID: "o-1"}
+	assert.NoError(t, o.CheckNoPayoutAccount(false))
+	assert.ErrorIs(t, o.CheckNoPayoutAccount(true), apperr.ErrFailedPrecondition)
+}
+
+func TestAnnouncesActivation(t *testing.T) {
+	t.Parallel()
+
+	statuses := []entity.OrganizerStatus{entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive, entity.OrganizerStatusDeactivated}
+	for _, from := range statuses {
+		for _, to := range statuses {
+			want := from == entity.OrganizerStatusProvisioning && to == entity.OrganizerStatusActive
+			assert.Equal(t, want, entity.AnnouncesActivation(from, to), "%d to %d", from, to)
+		}
+	}
+}

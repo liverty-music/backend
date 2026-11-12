@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"log/slog"
 	"net/mail"
 	"regexp"
 	"slices"
@@ -128,6 +129,33 @@ func (o *Organizer) Validate() error {
 	}
 	if err := ValidateEmail(o.OwnerEmail); err != nil {
 		return apperr.Wrap(err, codes.InvalidArgument, "owner email "+err.Error())
+	}
+	return nil
+}
+
+// AnnouncesActivation reports whether moving an Organizer from status from to
+// status to is announced as its activation (ORGANIZER.activated): only the
+// move from Provisioning to Active is, once its Organization is ready. Any
+// other change announces nothing.
+func AnnouncesActivation(from, to OrganizerStatus) bool {
+	return from == OrganizerStatusProvisioning && to == OrganizerStatusActive
+}
+
+// CheckDeactivated fails with FailedPrecondition unless the Organizer is
+// Deactivated: only a deactivated Organizer is deleted.
+func (o *Organizer) CheckDeactivated() error {
+	if o.Status != OrganizerStatusDeactivated {
+		return apperr.New(codes.FailedPrecondition, "organizer is not deactivated", slog.String("id", o.ID))
+	}
+	return nil
+}
+
+// CheckNoPayoutAccount fails with FailedPrecondition when the Organizer has a
+// payout account (hasPayoutAccount): its Organization's money records are kept
+// until the account is closed, so the Organizer is not deleted while it has one.
+func (o *Organizer) CheckNoPayoutAccount(hasPayoutAccount bool) error {
+	if hasPayoutAccount {
+		return apperr.New(codes.FailedPrecondition, "the organizer has a payout account", slog.String("id", o.ID))
 	}
 	return nil
 }
