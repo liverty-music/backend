@@ -117,3 +117,46 @@ type ConcertCandidateRepository interface {
 	// concerts before venue resolution occurs.
 	ListPendingDedupKeysByArtist(ctx context.Context, artistID string) ([]ConcertCandidateDedupKey, error)
 }
+
+// VenueAdminArea is the admin area used for both the lookup of the candidate's
+// Venue by (listed venue name, admin area) and its insert: the Places-resolved
+// one, else the one Gemini extracted. The lookup and the insert must use the
+// same derivation, or a miss-then-collide asymmetry appears (a lookup on the
+// raw value and an insert on the resolved one).
+func (c *ConcertCandidate) VenueAdminArea() *string {
+	if c.ResolvedAdminArea != nil {
+		return c.ResolvedAdminArea
+	}
+	return c.AdminArea
+}
+
+// ShouldBackfillPlaceID reports whether the place id the candidate carries is
+// to be stored on the existing Venue found by its listed name: the candidate
+// has a resolved place id and the Venue has none. A place id already stored is
+// never overwritten.
+func (c *ConcertCandidate) ShouldBackfillPlaceID(existing *Venue) bool {
+	return c.ResolvedPlaceID != nil && existing.GooglePlaceID == nil
+}
+
+// NewVenue returns a new Venue made from the candidate's resolved fields, with
+// a generated id. Its name is the canonical resolved name when there is one,
+// else the listed name; its coordinates are set only when both resolved
+// coordinates are.
+func (c *ConcertCandidate) NewVenue() *Venue {
+	name := c.ListedVenueName
+	if c.ResolvedVenueName != nil {
+		name = *c.ResolvedVenueName
+	}
+	listed := c.ListedVenueName
+	venue := &Venue{
+		ID:              NewID(),
+		Name:            name,
+		AdminArea:       c.VenueAdminArea(),
+		GooglePlaceID:   c.ResolvedPlaceID,
+		ListedVenueName: &listed,
+	}
+	if c.ResolvedLatitude != nil && c.ResolvedLongitude != nil {
+		venue.Coordinates = &Coordinates{Latitude: *c.ResolvedLatitude, Longitude: *c.ResolvedLongitude}
+	}
+	return venue
+}
