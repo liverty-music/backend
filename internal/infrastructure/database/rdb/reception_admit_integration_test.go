@@ -254,7 +254,7 @@ func TestScannerUseCase_Open_Integration(t *testing.T) {
 	scanner := seedScanner(t, db, eventID)
 	receptionDB := connectAsReceptionRole(t, db)
 	uc := usecase.NewScannerUseCase(rdb.NewScannerRepository(receptionDB), rdb.NewEventRepository(receptionDB),
-		rdb.NewEventOrganizerRepository(receptionDB), rdb.NewEventPublishStateRepository(receptionDB), logger)
+		rdb.NewEventOrganizerRepository(receptionDB), logger)
 
 	now := nov20(14, 10)
 	var (

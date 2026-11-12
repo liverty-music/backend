@@ -122,7 +122,6 @@ type scannerUseCase struct {
 	scanners       entity.ScannerRepository
 	events         entity.EventRepository
 	eventOrganizer EventOrganizerRepository
-	eventState     EventPublishStatePort
 	logger         *logging.Logger
 }
 
@@ -135,14 +134,12 @@ func NewScannerUseCase(
 	scanners entity.ScannerRepository,
 	events entity.EventRepository,
 	eventOrganizer EventOrganizerRepository,
-	eventState EventPublishStatePort,
 	logger *logging.Logger,
 ) ScannerUseCase {
 	return &scannerUseCase{
 		scanners:       scanners,
 		events:         events,
 		eventOrganizer: eventOrganizer,
-		eventState:     eventState,
 		logger:         logger,
 	}
 }
@@ -168,19 +165,12 @@ func (uc *scannerUseCase) Create(ctx context.Context, organizerID, eventID strin
 	if err := uc.assertOwnsEvent(ctx, organizerID, eventID); err != nil {
 		return nil, err
 	}
-	published, err := uc.eventState.IsEventPublished(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if !published {
-		return nil, apperr.New(codes.FailedPrecondition, "a scanner can be created only for a published event")
-	}
 	event, err := uc.events.Get(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
-	if event.StartTime == nil {
-		return nil, apperr.New(codes.FailedPrecondition, "a scanner can be created only for an event with a start time")
+	if err := event.CheckScannerAllowed(); err != nil {
+		return nil, err
 	}
 	return uc.scanners.Create(ctx, entity.NewScanner(eventID))
 }
@@ -195,9 +185,7 @@ func (uc *scannerUseCase) ListByEvent(ctx context.Context, organizerID, eventID 
 		return nil, err
 	}
 	for _, s := range scanners {
-		if s.Status != entity.ScannerStatusUnused {
-			s.LinkToken = ""
-		}
+		s.RedactLinkToken()
 	}
 	return scanners, nil
 }
@@ -218,7 +206,7 @@ func (uc *scannerUseCase) Revoke(ctx context.Context, organizerID string, scanne
 	if err != nil {
 		return nil, err
 	}
-	revoked.LinkToken = ""
+	revoked.RedactLinkToken()
 	return revoked, nil
 }
 
@@ -263,7 +251,7 @@ func (uc *scannerUseCase) Open(ctx context.Context, in OpenScannerInput) (*OpenS
 	if err != nil {
 		return nil, err
 	}
-	bound.LinkToken = ""
+	bound.RedactLinkToken()
 	result := &OpenScannerResult{Scanner: bound}
 	if window, ok := entity.AdmissionWindowOf(event); ok {
 		result.Window = &window

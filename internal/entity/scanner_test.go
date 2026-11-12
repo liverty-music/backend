@@ -232,3 +232,36 @@ func TestAdmissionWindowOf(t *testing.T) {
 		})
 	}
 }
+
+func TestScanner_BindOutcomeAndRedactLinkToken(t *testing.T) {
+	t.Parallel()
+
+	key := entity.PublicKey(append([]byte{0x04}, make([]byte, 64)...))
+	other := entity.PublicKey(append([]byte{0x04, 0x01}, make([]byte, 63)...))
+
+	tests := []struct {
+		name    string
+		scanner *entity.Scanner
+		key     entity.PublicKey
+		want    entity.BindOutcome
+	}{
+		{"unused: the device is bound", &entity.Scanner{Status: entity.ScannerStatusUnused}, key, entity.BindOutcomeBound},
+		{"in use by the same device", &entity.Scanner{Status: entity.ScannerStatusInUse, BoundPublicKey: key}, key, entity.BindOutcomeBound},
+		{"in use by another device", &entity.Scanner{Status: entity.ScannerStatusInUse, BoundPublicKey: key}, other, entity.BindOutcomeOtherDevice},
+		{"revoked", &entity.Scanner{Status: entity.ScannerStatusRevoked}, key, entity.BindOutcomeRevoked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.scanner.BindOutcome(tt.key))
+		})
+	}
+
+	for status, wantVisible := range map[entity.ScannerStatus]bool{
+		entity.ScannerStatusUnused: true, entity.ScannerStatusInUse: false, entity.ScannerStatusRevoked: false,
+	} {
+		s := &entity.Scanner{Status: status, LinkToken: "secret"}
+		s.RedactLinkToken()
+		assert.Equal(t, wantVisible, s.LinkToken != "", "link token of a scanner in status %d", status)
+	}
+}

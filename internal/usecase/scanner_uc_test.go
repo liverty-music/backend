@@ -23,32 +23,31 @@ const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 // owned by "org-owner", published, on 2026-11-20 opening 18:00 and starting
 // 19:00 (window 16:00 to 04:00 the next day).
 type scannerFixture struct {
-	uc         usecase.ScannerUseCase
-	scanners   *entitymocks.MockScannerRepository
-	events     *entitymocks.MockEventRepository
-	eventState *ucmocks.MockEventPublishStatePort
-	owner      *ucmocks.MockEventOrganizerRepository
-	event      *entity.Event
+	uc       usecase.ScannerUseCase
+	scanners *entitymocks.MockScannerRepository
+	events   *entitymocks.MockEventRepository
+	owner    *ucmocks.MockEventOrganizerRepository
+	event    *entity.Event
 }
 
 func newScannerFixture(t *testing.T) *scannerFixture {
 	t.Helper()
 	open, start := evening(18, 0, 0), evening(19, 0, 0)
 	f := &scannerFixture{
-		scanners:   entitymocks.NewMockScannerRepository(t),
-		events:     entitymocks.NewMockEventRepository(t),
-		eventState: ucmocks.NewMockEventPublishStatePort(t),
+		scanners: entitymocks.NewMockScannerRepository(t),
+		events:   entitymocks.NewMockEventRepository(t),
 		event: &entity.Event{
-			ID:        entity.NewID(),
-			LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-			OpenTime:  &open,
-			StartTime: &start,
+			ID:           entity.NewID(),
+			PublishState: new(entity.PublishStatePublished),
+			LocalDate:    time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
+			OpenTime:     &open,
+			StartTime:    &start,
 		},
 	}
 	f.owner = ucmocks.NewMockEventOrganizerRepository(t)
 	f.owner.EXPECT().GetOrganizerID(mock.Anything, f.event.ID).Return("org-owner", nil).Maybe()
 	f.owner.EXPECT().GetOrganizerID(mock.Anything, mock.Anything).Return("", apperr.New(codes.NotFound, "no event")).Maybe()
-	f.uc = usecase.NewScannerUseCase(f.scanners, f.events, f.owner, f.eventState, newTestLogger(t))
+	f.uc = usecase.NewScannerUseCase(f.scanners, f.events, f.owner, newTestLogger(t))
 	return f
 }
 
@@ -59,7 +58,6 @@ func TestScannerUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/scanner/create "Scanner created the day before"
 		f := newScannerFixture(t)
-		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(true, nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 		f.scanners.EXPECT().Create(mock.Anything, mock.MatchedBy(func(l *entity.Scanner) bool {
 			return l.EventID == f.event.ID && l.Status == entity.ScannerStatusUnused && l.LinkToken != ""
@@ -96,7 +94,8 @@ func TestScannerUseCase_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/scanner/create "Draft event"
 		f := newScannerFixture(t)
-		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(false, nil)
+		f.event.PublishState = new(entity.PublishStateDraft)
+		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 		_, err := f.uc.Create(context.Background(), "org-owner", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		f.scanners.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
@@ -107,7 +106,6 @@ func TestScannerUseCase_Create(t *testing.T) {
 		// @spec components/usecase/scanner/create "Event without a start time"
 		f := newScannerFixture(t)
 		f.event.StartTime = nil
-		f.eventState.EXPECT().IsEventPublished(mock.Anything, f.event.ID).Return(true, nil)
 		f.events.EXPECT().Get(mock.Anything, f.event.ID).Return(f.event, nil)
 		_, err := f.uc.Create(context.Background(), "org-owner", f.event.ID)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)

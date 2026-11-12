@@ -480,7 +480,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// ⑥ ticket wallet and venue admission (Scanners).
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
-	scannerUC := usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
+	scannerUC := usecase.NewScannerUseCase(scannerRepo, eventRepo, eventOrganizerRepo, logger)
 
 	// Orders: the fan's and the admin's reads, the placing of a fan's
 	// Checkout (its issue runs as a workflow in the workflow worker), and the

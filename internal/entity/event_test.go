@@ -371,3 +371,32 @@ func TestEvent_CanBeStocked(t *testing.T) {
 		})
 	}
 }
+
+func TestEvent_CheckScannerAllowed(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 11, 20, 19, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		state   *entity.PublishState
+		start   *time.Time
+		wantErr bool
+	}{
+		{"published with a start time", new(entity.PublishStatePublished), &start, false},
+		{"draft", new(entity.PublishStateDraft), &start, true},
+		{"cancelled", new(entity.PublishStateCancelled), &start, true},
+		{"discovered, without a publish state", nil, &start, true},
+		{"published without a start time", new(entity.PublishStatePublished), nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := (&entity.Event{PublishState: tt.state, StartTime: tt.start}).CheckScannerAllowed()
+			if tt.wantErr {
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

@@ -139,6 +139,19 @@ func (e *Event) CanBeStocked() error {
 	return nil
 }
 
+// CheckScannerAllowed reports whether a Scanner can be created for the event:
+// it is PUBLISHED and has a start time, which the admission window is counted
+// from. It fails with FailedPrecondition.
+func (e *Event) CheckScannerAllowed() error {
+	if !e.HasPublishState(PublishStatePublished) {
+		return apperr.New(codes.FailedPrecondition, "a scanner can be created only for a published event")
+	}
+	if e.StartTime == nil {
+		return apperr.New(codes.FailedPrecondition, "a scanner can be created only for an event with a start time")
+	}
+	return nil
+}
+
 // HasPublishState reports whether the event is in the given publish state. An
 // Event of a discovered series has no publish state, so it is in none.
 func (e *Event) HasPublishState(state PublishState) bool {
