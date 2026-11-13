@@ -62,7 +62,7 @@ require (
 	github.com/pannpers/go-logging v1.3.0
 	github.com/peterldowns/pgtestdb v0.1.1
 	github.com/peterldowns/pgtestdb/migrators/atlasmigrator v0.1.1
-	github.com/posthog/posthog-go v1.40.0
+	github.com/posthog/posthog-go v1.42.2
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.12.1
 	github.com/stripe/stripe-go/v87 v87.1.0
