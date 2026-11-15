@@ -218,9 +218,21 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 	t.Run("every sale ended", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/checkout/start "Every sale ended"
-		// @spec components/entity/checkout "No sale"
 		f := newCheckoutFixture(t, coSaleEnd.Add(time.Minute))
 		expectStartReads(f, coStock(150, 0, 0), coSale())
+
+		_, err := f.uc.Start(context.Background(), "fan-1", "stock-1", 2, nil)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("the event has no sale", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/checkout "No sale"
+		// No Checkout is started for an event no TicketSale names (the strict
+		// checkout repository mock fails on a GetOrCreateHeld).
+		f := newCheckoutFixture(t, now)
+		expectStartReads(f, coStock(150, 0, 0))
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "stock-1", 2, nil)
 
