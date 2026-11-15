@@ -12,7 +12,8 @@ import (
 )
 
 // toAppErr converts a database error into a structured application error.
-// It maps specific PostgreSQL error codes to appropriate apperr codes.
+// It maps specific PostgreSQL error codes to appropriate apperr codes
+// (pgErrorCodes).
 func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	if err == nil {
 		return nil
@@ -25,57 +26,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 
 	// Handle PostgreSQL specific errors
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		switch pgErr.Code {
-		// Constraint violations (Class 23)
-		case "23505": // unique_violation
-			return apperr.Wrap(err, codes.AlreadyExists, msg, attrs...)
-		case "23503": // foreign_key_violation
-			return apperr.Wrap(err, codes.FailedPrecondition, msg, attrs...)
-		case "23001": // restrict_violation (ON DELETE RESTRICT on a referenced row)
-			return apperr.Wrap(err, codes.FailedPrecondition, msg, attrs...)
-		case "23502": // not_null_violation
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "23514": // check_violation
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "23P01": // exclusion_violation
-			return apperr.Wrap(err, codes.FailedPrecondition, msg, attrs...)
-
-		// Data exceptions (Class 22)
-		case "22P02": // invalid_text_representation
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "22001": // string_data_right_truncation
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "22003": // numeric_value_out_of_range
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "22007": // invalid_datetime_format
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-		case "22012": // division_by_zero
-			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
-
-		// Transaction/concurrency errors (Class 40)
-		case "40001", "40P01": // serialization_failure, deadlock_detected
-			return apperr.Wrap(err, codes.Aborted, msg, attrs...)
-
-		// Lock wait bounded by lock_timeout (Class 55)
-		case "55P03": // lock_not_available
-			return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
-
-		// Connection errors (Class 08)
-		case "08000", "08003", "08006", "08001", "08004", "08007", "08P01":
-			// connection_exception, connection_does_not_exist, connection_failure,
-			// sqlclient_unable_to_establish_sqlconnection, sqlserver_rejected_establishment_of_sqlconnection,
-			// transaction_resolution_unknown, protocol_violation
-			return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
-
-		// Insufficient resources (Class 53)
-		case "53000", "53100", "53200", "53300", "53400":
-			// insufficient_resources, disk_full, out_of_memory, too_many_connections, configuration_limit_exceeded
-			return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
-
-		// Operator intervention (Class 57)
-		case "57000", "57014", "57P01", "57P02", "57P03":
-			// operator_intervention, query_canceled, admin_shutdown, crash_shutdown, cannot_connect_now
-			return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+		if code, known := pgErrorCodes[pgErr.Code]; known {
+			return apperr.Wrap(err, code, msg, attrs...)
 		}
 	}
 
@@ -84,6 +36,54 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	// Note: attrs are intentionally not included here — structured logging attributes
 	// are only meaningful when creating an AppErr for known error types above.
 	return fmt.Errorf("%s: %w", msg, err)
+}
+
+// pgErrorCodes maps the PostgreSQL error codes toAppErr knows to apperr codes.
+var pgErrorCodes = map[string]codes.Code{
+	// Constraint violations (Class 23)
+	"23505": codes.AlreadyExists,      // unique_violation
+	"23503": codes.FailedPrecondition, // foreign_key_violation
+	"23001": codes.FailedPrecondition, // restrict_violation (ON DELETE RESTRICT on a referenced row)
+	"23502": codes.InvalidArgument,    // not_null_violation
+	"23514": codes.InvalidArgument,    // check_violation
+	"23P01": codes.FailedPrecondition, // exclusion_violation
+
+	// Data exceptions (Class 22)
+	"22P02": codes.InvalidArgument, // invalid_text_representation
+	"22001": codes.InvalidArgument, // string_data_right_truncation
+	"22003": codes.InvalidArgument, // numeric_value_out_of_range
+	"22007": codes.InvalidArgument, // invalid_datetime_format
+	"22012": codes.InvalidArgument, // division_by_zero
+
+	// Transaction/concurrency errors (Class 40)
+	"40001": codes.Aborted, // serialization_failure
+	"40P01": codes.Aborted, // deadlock_detected
+
+	// Lock wait bounded by lock_timeout (Class 55)
+	"55P03": codes.Unavailable, // lock_not_available
+
+	// Connection errors (Class 08)
+	"08000": codes.Unavailable, // connection_exception
+	"08003": codes.Unavailable, // connection_does_not_exist
+	"08006": codes.Unavailable, // connection_failure
+	"08001": codes.Unavailable, // sqlclient_unable_to_establish_sqlconnection
+	"08004": codes.Unavailable, // sqlserver_rejected_establishment_of_sqlconnection
+	"08007": codes.Unavailable, // transaction_resolution_unknown
+	"08P01": codes.Unavailable, // protocol_violation
+
+	// Insufficient resources (Class 53)
+	"53000": codes.Unavailable, // insufficient_resources
+	"53100": codes.Unavailable, // disk_full
+	"53200": codes.Unavailable, // out_of_memory
+	"53300": codes.Unavailable, // too_many_connections
+	"53400": codes.Unavailable, // configuration_limit_exceeded
+
+	// Operator intervention (Class 57)
+	"57000": codes.Unavailable, // operator_intervention
+	"57014": codes.Unavailable, // query_canceled
+	"57P01": codes.Unavailable, // admin_shutdown
+	"57P02": codes.Unavailable, // crash_shutdown
+	"57P03": codes.Unavailable, // cannot_connect_now
 }
 
 // IsForeignKeyViolation returns true if the error is a PostgreSQL foreign key violation.

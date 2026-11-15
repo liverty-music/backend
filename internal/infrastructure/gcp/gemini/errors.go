@@ -35,30 +35,7 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 
 	// Handle Gemini API errors
 	if apiErr, ok := errors.AsType[genai.APIError](err); ok {
-		var code codes.Code
-		switch apiErr.Code {
-		case http.StatusBadRequest:
-			code = codes.InvalidArgument
-		case http.StatusUnauthorized:
-			code = codes.Unauthenticated
-		case http.StatusForbidden:
-			// A denial, not missing credentials (AIP-193), such as a spent
-			// project spend cap ("Spend cap breached", PERMISSION_DENIED).
-			code = codes.PermissionDenied
-		case http.StatusNotFound:
-			code = codes.NotFound
-		case http.StatusTooManyRequests:
-			code = codes.ResourceExhausted
-		case http.StatusServiceUnavailable:
-			code = codes.Unavailable
-		case http.StatusGatewayTimeout:
-			code = codes.DeadlineExceeded
-		case 499: // Client Closed Request (Nginx-origin; Gemini uses it for server-side cancellation)
-			code = codes.Canceled
-		default:
-			code = codes.Unknown
-		}
-		return apperr.Wrap(err, code, msg, attrs...)
+		return apperr.Wrap(err, apiErrorCode(apiErr.Code), msg, attrs...)
 	}
 
 	// Handle JSON errors (usually indicate model output mismatch or malformed response)
@@ -70,6 +47,31 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	}
 
 	return apperr.Wrap(err, codes.Unknown, msg, attrs...)
+}
+
+// apiErrorCodes maps the HTTP status of a Gemini API error to an apperr
+// code; any other status is Unknown.
+var apiErrorCodes = map[int]codes.Code{
+	http.StatusBadRequest:   codes.InvalidArgument,
+	http.StatusUnauthorized: codes.Unauthenticated,
+	// A denial, not missing credentials (AIP-193), such as a spent project
+	// spend cap ("Spend cap breached", PERMISSION_DENIED).
+	http.StatusForbidden:          codes.PermissionDenied,
+	http.StatusNotFound:           codes.NotFound,
+	http.StatusTooManyRequests:    codes.ResourceExhausted,
+	http.StatusServiceUnavailable: codes.Unavailable,
+	http.StatusGatewayTimeout:     codes.DeadlineExceeded,
+	// Client Closed Request (Nginx-origin; Gemini uses it for server-side
+	// cancellation).
+	499: codes.Canceled,
+}
+
+// apiErrorCode returns the apperr code of a Gemini API error's HTTP status.
+func apiErrorCode(status int) codes.Code {
+	if code, ok := apiErrorCodes[status]; ok {
+		return code
+	}
+	return codes.Unknown
 }
 
 // isRetryable reports whether err is a transient Gemini API error that
