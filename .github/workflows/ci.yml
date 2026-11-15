@@ -157,10 +157,40 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Test keeps its own Go caches instead of setup-go's `cache: true`. Lint
+      # used the same setup-go key and the first job to finish saved it, so
+      # the cache held Lint's builds, not the `-race` test builds: Test took
+      # 323 s when it restored the cache and 295 s when it did not. Compiling
+      # the tests clean takes 216 s and 67 s from a cache that holds them
+      # (4 CPUs, measured locally).
+      #
+      # Only the daily run on `main` saves. A pull request's cache is readable
+      # by no other pull request, and saving 560 MB per pull request filled the
+      # repository's 10 GB cache quota (9.76 GB on 2026-11-15), which evicts
+      # the caches that do help. Pull requests restore the newest `main` cache
+      # and compile only what they changed.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Find the Go cache directories
+        id: gocache
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Go caches
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          # The key never matches: the newest cache with the prefix is restored.
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-
 
       - name: Download dependencies
         run: go mod download
@@ -178,6 +208,15 @@ jobs:
         run: make test-integration GOTEST_FLAGS="-v -coverprofile=coverage.out -covermode=atomic"
         env:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+
+      - name: Save the Go caches
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
@@ -221,7 +260,8 @@ jobs:
   # Compiles and tests the libvips-tagged series image processor
   # (internal/adapter/event/*_vips*.go, `//go:build vips`) through the
   # Dockerfile's `test-series-image-consumer` stage instead of on the bare runner.
-  # That stage builds FROM build-series-image-consumer, so it reuses the identical
+  # That stage builds FROM vips-builder, the stage the production build also starts
+  # from, so it uses the identical
   # golang builder base + `apk add vips-dev gcc musl-dev pkgconfig` line as
   # the production series-image-consumer image (see Dockerfile) — this guarantees
   # the libvips version under test matches the libvips version that ships
@@ -253,7 +293,10 @@ jobs:
           target: test-series-image-consumer
           push: false
           cache-from: type=gha,scope=series-image-consumer-test
-          cache-to: type=gha,mode=max,scope=series-image-consumer-test
+          # Written by the daily run on main only. A pull request's cache is
+          # readable by no other pull request, and exporting it took 60 s of
+          # every run of this job.
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=series-image-consumer-test' || '' }}
 
   benchmark:
     needs: changes
