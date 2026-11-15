@@ -267,14 +267,6 @@ func TestValidatePersonalDetails(t *testing.T) {
 	}
 }
 
-func TestUser_HasPersonalDetails(t *testing.T) {
-	t.Parallel()
-
-	assert.True(t, (&entity.User{FullName: new("山田 花子"), PhoneNumber: new("+819012345678")}).HasPersonalDetails())
-	assert.False(t, (&entity.User{FullName: new("山田 花子")}).HasPersonalDetails())
-	assert.False(t, (&entity.User{}).HasPersonalDetails())
-}
-
 func TestNewUser_ValidateEmail(t *testing.T) {
 	t.Parallel()
 

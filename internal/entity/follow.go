@@ -151,14 +151,6 @@ func (s HypeSetBy) IsValid() bool {
 	}
 }
 
-// ShouldNotify reports whether a follower with hype level h should receive a
-// push notification for the given newly created concerts, given the follower's
-// home area. It is defined as "the hype-matched subset is non-empty" — see
-// [Hype.MatchingConcerts] for the per-tier predicate.
-func (h Hype) ShouldNotify(home *Home, concerts []*Concert) bool {
-	return len(h.MatchingConcerts(home, concerts)) > 0
-}
-
 // Follow represents the write model for a user-artist follow relationship.
 type Follow struct {
 	// UserID is the internal UUID of the follower.
