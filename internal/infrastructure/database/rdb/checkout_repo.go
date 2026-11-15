@@ -194,51 +194,75 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 	if stock.RemainingWithout(freed) < count {
 		return nil, apperr.New(codes.ResourceExhausted, "not enough tickets remain", attrs...)
 	}
-	event, err := eventLimit(ctx, tx, stock.EventID)
-	if err != nil {
-		return nil, toAppErr(err, "failed to read the event's per-account limit", attrs...)
-	}
-	tickets, err := getHeldForEvent(ctx, tx, userID, stock.EventID, except, now)
-	if err != nil {
-		return nil, toAppErr(err, "failed to count the user's tickets", attrs...)
-	}
-	if !event.Fits(tickets, stock.SeatTypeID, count) {
-		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
-	}
-
-	for _, end := range plan.Ends {
-		c := end.Checkout
-		if err := applyTransition(ctx, tx, "checkouts", "status", string(c.ID), end.Transition, ""); err != nil {
-			return nil, err
-		}
-		if _, err := tx.Exec(ctx, orderVoidQuery, string(c.OrderID)); err != nil {
-			return nil, toAppErr(err, "failed to void the replaced checkout's order", attrs...)
-		}
-		ended := *c
-		ended.Status = end.Transition.To
-		if err := announce(ctx, r.outbox, tx, end.Subject(), &ended); err != nil {
-			return nil, err
-		}
-	}
-
-	order := entity.NewPendingOrder(userID, stock, count, referralCode, entity.OrderPaymentProvider)
-	checkout := entity.NewCheckout(order, saleID, now)
-	if err := order.ValidateSource(); err != nil {
+	if err := checkApplicationFits(ctx, tx, userID, stock, count, except, now, attrs); err != nil {
 		return nil, err
 	}
-	if err := insertPendingOrder(ctx, tx, order); err != nil {
-		return nil, toAppErr(err, "failed to insert the checkout's order", attrs...)
+	if err := r.endReplaced(ctx, tx, plan.Ends, attrs); err != nil {
+		return nil, err
 	}
-	if _, err := tx.Exec(ctx, checkoutInsertQuery, string(checkout.ID), string(order.ID), string(saleID), checkout.HoldExpireTime); err != nil {
-		return nil, toAppErr(err, "failed to insert checkout", attrs...)
-	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectCheckoutHeld, checkout); err != nil {
+
+	checkout := entity.NewCheckout(entity.NewPendingOrder(userID, stock, count, referralCode, entity.OrderPaymentProvider), saleID, now)
+	if err := r.insertHeld(ctx, tx, checkout, attrs); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit checkout start", attrs...)
 	}
 	return checkout, nil
+}
+
+// insertHeld stores, in tx, the new Held checkout with its Pending Order and
+// announces CHECKOUT.held.
+func (r *CheckoutRepository) insertHeld(ctx context.Context, tx pgx.Tx, checkout *entity.Checkout, attrs []slog.Attr) error {
+	order := checkout.Order
+	if err := order.ValidateSource(); err != nil {
+		return err
+	}
+	if err := insertPendingOrder(ctx, tx, order); err != nil {
+		return toAppErr(err, "failed to insert the checkout's order", attrs...)
+	}
+	if _, err := tx.Exec(ctx, checkoutInsertQuery, string(checkout.ID), string(order.ID), string(checkout.TicketSaleID), checkout.HoldExpireTime); err != nil {
+		return toAppErr(err, "failed to insert checkout", attrs...)
+	}
+	return announce(ctx, r.outbox, tx, entity.SubjectCheckoutHeld, checkout)
+}
+
+// checkApplicationFits fails with FailedPrecondition when count tickets of the
+// stock would not fit the event's per-account limit or seat type, given what
+// the user holds for the event without the order except.
+func checkApplicationFits(ctx context.Context, tx pgx.Tx, userID entity.UserID, stock *entity.TicketStock, count int, except *entity.OrderID, now time.Time, attrs []slog.Attr) error {
+	event, err := eventLimit(ctx, tx, stock.EventID)
+	if err != nil {
+		return toAppErr(err, "failed to read the event's per-account limit", attrs...)
+	}
+	tickets, err := getHeldForEvent(ctx, tx, userID, stock.EventID, except, now)
+	if err != nil {
+		return toAppErr(err, "failed to count the user's tickets", attrs...)
+	}
+	if !event.Fits(tickets, stock.SeatTypeID, count) {
+		return apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
+	}
+	return nil
+}
+
+// endReplaced ends the checkouts a new start replaces: each becomes Expired or
+// Released, its order Void, and the change is announced.
+func (r *CheckoutRepository) endReplaced(ctx context.Context, tx pgx.Tx, ends []entity.CheckoutEnd, attrs []slog.Attr) error {
+	for _, end := range ends {
+		c := end.Checkout
+		if err := applyTransition(ctx, tx, "checkouts", "status", string(c.ID), end.Transition, ""); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, orderVoidQuery, string(c.OrderID)); err != nil {
+			return toAppErr(err, "failed to void the replaced checkout's order", attrs...)
+		}
+		ended := *c
+		ended.Status = end.Transition.To
+		if err := announce(ctx, r.outbox, tx, end.Subject(), &ended); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // heldOfUser locks and returns the user's Held checkouts of the stock.

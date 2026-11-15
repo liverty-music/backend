@@ -76,38 +76,7 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("count", len(artists)),
 	)
 
-	var totalAttempted int
-	var totalFailed int
-	var consecutiveErrors int
-	var circuitBroken bool
-
-	for _, artist := range artists {
-		if ctx.Err() != nil {
-			break
-		}
-
-		totalAttempted++
-
-		if err := app.ImageSyncUC.SyncArtistImage(ctx, artist.ID, artist.MBID); err != nil {
-			totalFailed++
-			consecutiveErrors++
-			app.Logger.Error(ctx, "failed to sync image for artist", err,
-				slog.String("artist_id", artist.ID),
-				slog.String("artist_name", artist.Name),
-			)
-
-			if consecutiveErrors >= maxConsecutiveErrors {
-				app.Logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
-					slog.Int("consecutive_errors", consecutiveErrors),
-				)
-				circuitBroken = true
-				break
-			}
-			continue
-		}
-
-		consecutiveErrors = 0
-	}
+	sync := syncImages(ctx, app, artists)
 
 	if cause := context.Cause(ctx); cause != nil {
 		app.Logger.Info(ctx, "job interrupted by signal",
@@ -116,11 +85,50 @@ func run(bootLogger *logging.Logger) error {
 	}
 
 	app.Logger.Info(ctx, "artist image sync job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
-		slog.Int("artists_attempted", totalAttempted),
-		slog.Int("artists_succeeded", totalAttempted-totalFailed),
-		slog.Int("failures", totalFailed),
-		slog.Bool("circuit_broken", circuitBroken),
+		slog.Int("artists_attempted", sync.attempted),
+		slog.Int("artists_succeeded", sync.attempted-sync.failed),
+		slog.Int("failures", sync.failed),
+		slog.Bool("circuit_broken", sync.circuitBroken),
 	)...)
 
 	return nil
+}
+
+// syncResult counts what one run of the job did.
+type syncResult struct {
+	attempted     int
+	failed        int
+	circuitBroken bool
+}
+
+// syncImages syncs the image of each artist until the context ends or
+// maxConsecutiveErrors syncs in a row fail (the circuit breaker).
+func syncImages(ctx context.Context, app *di.ImageSyncJobApp, artists []*entity.Artist) syncResult {
+	var res syncResult
+	var consecutiveErrors int
+	for _, artist := range artists {
+		if ctx.Err() != nil {
+			break
+		}
+		res.attempted++
+
+		if err := app.ImageSyncUC.SyncArtistImage(ctx, artist.ID, artist.MBID); err != nil {
+			res.failed++
+			consecutiveErrors++
+			app.Logger.Error(ctx, "failed to sync image for artist", err,
+				slog.String("artist_id", artist.ID),
+				slog.String("artist_name", artist.Name),
+			)
+			if consecutiveErrors >= maxConsecutiveErrors {
+				app.Logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
+					slog.Int("consecutive_errors", consecutiveErrors),
+				)
+				res.circuitBroken = true
+				break
+			}
+			continue
+		}
+		consecutiveErrors = 0
+	}
+	return res
 }

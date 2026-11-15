@@ -20,13 +20,11 @@ type Database struct {
 	dialer *cloudsqlconn.Dialer
 }
 
-// New creates a new database instance and waits, for up to startupBudget,
-// until the database answers a ping.
-func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger *logging.Logger) (*Database, error) {
-	dsn := dbCfg.GetDSN()
-
-	// Create pgxpool for direct pgx usage
-	poolConfig, err := pgxpool.ParseConfig(dsn)
+// poolConfigOf returns the pgxpool configuration of the database settings:
+// the connection limits and lifetimes that fit the DB's max_connections budget
+// and Cloud SQL's maintenance restarts.
+func poolConfigOf(dbCfg config.DatabaseConfig) (*pgxpool.Config, error) {
+	poolConfig, err := pgxpool.ParseConfig(dbCfg.GetDSN())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pgxpool config: %w", err)
 	}
@@ -54,6 +52,17 @@ func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger 
 	// HealthCheckPeriod: interval for validating idle connections.
 	// Detects stale connections from Cloud SQL restarts or network interruptions (PSC).
 	poolConfig.HealthCheckPeriod = time.Duration(dbCfg.HealthCheckPeriod) * time.Second
+
+	return poolConfig, nil
+}
+
+// New creates a new database instance and waits, for up to startupBudget,
+// until the database answers a ping.
+func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger *logging.Logger) (*Database, error) {
+	poolConfig, err := poolConfigOf(dbCfg)
+	if err != nil {
+		return nil, err
+	}
 
 	var dialer *cloudsqlconn.Dialer
 	if !isLocal {

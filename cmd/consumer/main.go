@@ -106,6 +106,14 @@ func run(bootLogger *logging.Logger) error {
 		close(errChan)
 	}()
 
+	return waitForRouter(ctx, app, errChan, &shutdownDeadline)
+}
+
+// waitForRouter blocks until the router stops or the process is told to stop.
+// On a signal it sets shutdownDeadline, the budget the router drain and the
+// shutdown phases share so that the total does not exceed the Kubernetes
+// termination budget, and waits for the router to finish.
+func waitForRouter(ctx context.Context, app *di.ConsumerApp, errChan <-chan error, shutdownDeadline *time.Time) error {
 	select {
 	case <-ctx.Done():
 		// Go 1.26: context.Cause returns the specific OS signal.
@@ -115,7 +123,7 @@ func run(bootLogger *logging.Logger) error {
 		)
 		// Set a shared deadline for Router drain + shutdown phases so
 		// the total does not exceed the K8s termination budget.
-		shutdownDeadline = time.Now().Add(app.ShutdownTimeout)
+		*shutdownDeadline = time.Now().Add(app.ShutdownTimeout)
 
 		// Wait for Router.Run() to fully complete before proceeding to
 		// shutdown phases. This ensures all in-flight message handlers

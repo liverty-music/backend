@@ -226,23 +226,12 @@ func (c *client) ListTop(ctx context.Context, country string, tag string, limit 
 	return artists, nil
 }
 
-func (c *client) get(ctx context.Context, params url.Values, result any) error {
-	params.Set("api_key", c.apiKey)
-	params.Set("format", "json")
-
-	u, _ := url.Parse(c.baseURL)
-	u.RawQuery = params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return apperr.Wrap(err, codes.Internal, "failed to create lastfm request")
-	}
-
-	method := params.Get("method")
-
-	// Retry wraps the throttle call (Pattern A) so that backoff waits
-	// do not block the throttle slot for other callers.
-	resp, err := backoff.Retry(ctx, func() (*http.Response, error) {
+// send sends the request through the throttler, retrying a retryable status
+// with exponential backoff. Retry wraps the throttle call so that backoff
+// waits do not block the throttle slot for other callers; method only labels
+// the log lines.
+func (c *client) send(ctx context.Context, req *http.Request, method string) (*http.Response, error) {
+	return backoff.Retry(ctx, func() (*http.Response, error) {
 		c.logger.Debug(ctx, "rate limiter backoff", slog.String("method", method))
 
 		var resp *http.Response
@@ -273,6 +262,23 @@ func (c *client) get(ctx context.Context, params url.Values, result any) error {
 		backoff.WithMaxTries(4),
 		backoff.WithMaxElapsedTime(0),
 	)
+}
+
+func (c *client) get(ctx context.Context, params url.Values, result any) error {
+	params.Set("api_key", c.apiKey)
+	params.Set("format", "json")
+
+	u, _ := url.Parse(c.baseURL)
+	u.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return apperr.Wrap(err, codes.Internal, "failed to create lastfm request")
+	}
+
+	method := params.Get("method")
+
+	resp, err := c.send(ctx, req, method)
 	if err != nil {
 		return api.FromHTTP(err, nil, "lastfm api request failed")
 	}

@@ -212,6 +212,56 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	return user, nil
 }
 
+// insertUserHome inserts the home record of a new user from the area the
+// caller gave, at the position the caller computed, and links it to the user.
+func insertUserHome(ctx context.Context, tx pgx.Tx, userID string, area *entity.Home) (*entity.Home, error) {
+	home := entity.NewHome(area.CountryCode, area.Level1, area.Level2)
+	home.Centroid = area.Centroid
+	centroidLat, centroidLng := centroidColumns(area.Centroid)
+
+	var homeID string
+	if err := tx.QueryRow(ctx, insertHomeQuery,
+		home.ID, home.CountryCode, home.Level1, home.Level2,
+		centroidLat, centroidLng,
+	).Scan(&homeID); err != nil {
+		return nil, toAppErr(err, "failed to create home", slog.String("user_id", userID))
+	}
+	home.ID = homeID
+
+	if _, err := tx.Exec(ctx, setUserHomeIDQuery, userID, homeID); err != nil {
+		return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", userID))
+	}
+	return home, nil
+}
+
+// writeUserHome stores the area as the user's home: it updates the home record
+// the user has (current), or inserts one and links it to the user. The
+// position is the one the caller computed; it is stored as given.
+func writeUserHome(ctx context.Context, tx pgx.Tx, userID string, current, area *entity.Home) error {
+	centroidLat, centroidLng := centroidColumns(area.Centroid)
+	if current != nil {
+		if _, err := tx.Exec(ctx, updateHomeQuery,
+			current.ID, area.CountryCode, area.Level1, area.Level2,
+			centroidLat, centroidLng,
+		); err != nil {
+			return toAppErr(err, "failed to update home", slog.String("user_id", userID))
+		}
+		return nil
+	}
+	newHome := entity.NewHome(area.CountryCode, area.Level1, area.Level2)
+	var homeID string
+	if err := tx.QueryRow(ctx, insertHomeQuery,
+		newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
+		centroidLat, centroidLng,
+	).Scan(&homeID); err != nil {
+		return toAppErr(err, "failed to insert home", slog.String("user_id", userID))
+	}
+	if _, err := tx.Exec(ctx, setUserHomeIDQuery, userID, homeID); err != nil {
+		return toAppErr(err, "failed to set user home_id", slog.String("user_id", userID))
+	}
+	return nil
+}
+
 // Create creates a new user in the database.
 // If params.Home is non-nil, the home record is inserted atomically.
 //
@@ -263,24 +313,8 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	var home *entity.Home
 	if params.Home != nil {
-		home = entity.NewHome(params.Home.CountryCode, params.Home.Level1, params.Home.Level2)
-		// The position is the one the caller computed; it is stored as given.
-		home.Centroid = params.Home.Centroid
-		centroidLat, centroidLng := centroidColumns(params.Home.Centroid)
-
-		var homeID string
-		err = tx.QueryRow(ctx, insertHomeQuery,
-			home.ID, home.CountryCode, home.Level1, home.Level2,
-			centroidLat, centroidLng,
-		).Scan(&homeID)
-		if err != nil {
-			return nil, toAppErr(err, "failed to create home", slog.String("user_id", user.ID))
-		}
-		home.ID = homeID
-
-		_, err = tx.Exec(ctx, setUserHomeIDQuery, user.ID, homeID)
-		if err != nil {
-			return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", user.ID))
+		if home, err = insertUserHome(ctx, tx, user.ID, params.Home); err != nil {
+			return nil, err
 		}
 	}
 
@@ -493,34 +527,8 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
 	}
 
-	// The position is the one the caller computed; it is stored as given.
-	centroidLat, centroidLng := centroidColumns(home.Centroid)
-
-	if current.Home != nil {
-		// Update the existing home record.
-		_, err = tx.Exec(ctx, updateHomeQuery,
-			current.Home.ID, home.CountryCode, home.Level1, home.Level2,
-			centroidLat, centroidLng,
-		)
-		if err != nil {
-			return nil, toAppErr(err, "failed to update home", slog.String("user_id", id))
-		}
-	} else {
-		// Insert a new home record and link it to the user.
-		newHome := entity.NewHome(home.CountryCode, home.Level1, home.Level2)
-		var homeID string
-		err = tx.QueryRow(ctx, insertHomeQuery,
-			newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
-			centroidLat, centroidLng,
-		).Scan(&homeID)
-		if err != nil {
-			return nil, toAppErr(err, "failed to insert home", slog.String("user_id", id))
-		}
-
-		_, err = tx.Exec(ctx, setUserHomeIDQuery, id, homeID)
-		if err != nil {
-			return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", id))
-		}
+	if err := writeUserHome(ctx, tx, id, current.Home, home); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

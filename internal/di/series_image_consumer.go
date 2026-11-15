@@ -6,9 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -29,6 +27,39 @@ type SeriesImageConsumerApp struct {
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 	Health          *messaging.ConsumerHealth
+}
+
+// provideImageStorer builds the GCS image storer, which reads originals and
+// writes variants: nil in local development, required in production. It stops
+// in the external phase of the shutdown.
+func provideImageStorer(ctx context.Context, local bool, logger *logging.Logger) (*gcsstorage.GCSStorer, error) {
+	if local {
+		return nil, nil
+	}
+	storer, err := gcsstorage.NewGCSStorer(ctx, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create GCS storer: %w", err)
+	}
+	shutdown.AddExternalPhase(storer)
+	return storer, nil
+}
+
+// provideSeriesImageUseCase builds the SeriesImageUseCase that
+// SeriesImageConsumer calls: it orchestrates SeriesImageUseCase.Process, and
+// the consumer only decodes the SERIES_IMAGE.uploaded message. The image
+// processor is a stub when libvips is absent; the production binary uses
+// -tags vips.
+func provideSeriesImageUseCase(ctx context.Context, local bool, db *rdb.Database, logger *logging.Logger) (usecase.SeriesImageUseCase, error) {
+	// Infrastructure - GCS image storer (nil in local dev; required in production
+	// for reading originals and writing variants).
+	imageStorer, err := provideImageStorer(ctx, local, logger)
+	if err != nil {
+		return nil, err
+	}
+	return usecase.NewSeriesImageUseCase(
+		rdb.NewSeriesRepository(db, newOutbox(logger)),
+		rdb.NewSeriesImageRepository(db, newOutbox(logger)),
+		imageStorer, event.NewSeriesImageProcessor(logger), logger), nil
 }
 
 // InitializeSeriesImageConsumerApp creates a SeriesImageConsumerApp with all dependencies wired.
@@ -58,73 +89,26 @@ func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumer
 		return nil, err
 	}
 
-	// Repositories
-	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
-
 	// Infrastructure - Messaging
-	wmLogger := watermill.NewSlogLogger(logger.Slog())
-	var goChannel *gochannel.GoChannel
-	if cfg.NATS.URL == "" {
-		goChannel = gochannel.NewGoChannel(gochannel.Config{
-			OutputChannelBuffer: 256,
-		}, wmLogger)
-	}
-
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
+	wmLogger, goChannel, publisher, err := provideMessaging(cfg.NATS, logger)
 	if err != nil {
-		return nil, fmt.Errorf("create messaging publisher: %w", err)
-	}
-
-	// Infrastructure - GCS image storer (nil in local dev; required in production
-	// for reading originals and writing variants).
-	var imageStorer *gcsstorage.GCSStorer
-	if !cfg.IsLocal() {
-		storer, err := gcsstorage.NewGCSStorer(ctx, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create GCS storer: %w", err)
-		}
-		imageStorer = storer
-		shutdown.AddExternalPhase(storer)
+		return nil, err
 	}
 
 	consumerHealth := messaging.NewConsumerHealth()
 
-	// Image processor (stub when libvips absent; production binary uses -tags vips).
-	processor := event.NewSeriesImageProcessor(logger)
-
-	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; SeriesImageConsumer only decodes the
-	// SERIES_IMAGE.uploaded message and calls it.
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), imageStorer, processor, logger)
-
-	// SeriesImageConsumer
-	seriesImageConsumer := event.NewSeriesImageConsumer(seriesImageUC, logger)
+	seriesImageUC, err := provideSeriesImageUseCase(ctx, cfg.IsLocal(), db, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	behaviorTable := []behaviorEntry{
-		{"process-series-image", on(entity.SubjectSeriesImageUploaded), seriesImageConsumer.Handle},
+		{"process-series-image", on(entity.SubjectSeriesImageUploaded), event.NewSeriesImageConsumer(seriesImageUC, logger).Handle},
 	}
 
-	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
+	router, err := provideRouter(ctx, behaviorTable, cfg.NATS, goChannel, wmLogger, publisher, consumerHealth, logger)
 	if err != nil {
-		return nil, fmt.Errorf("create messaging router: %w", err)
-	}
-
-	consumerHealth.SetRouterProbe(func() bool {
-		return !router.IsClosed()
-	})
-
-	if cfg.NATS.URL == "" {
-		addLocalHandlers(router, behaviorTable, goChannel)
-	} else {
-		// Open the long-lived shared *nats.Conn. NACK (the external operator)
-		// owns durable lifecycle — the app only binds to pre-existing durables.
-		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth, logger)
-		if err != nil {
-			return nil, fmt.Errorf("connect NATS: %w", err)
-		}
-		shutdown.AddExternalPhase(messaging.NATSConnCloser(sharedConn))
-		if err := addNATSHandlers(router, behaviorTable, sharedConn, wmLogger, consumerHealth); err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	shutdown.Init(logger)

@@ -158,17 +158,7 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(merged))
-	names := make([]string, 0, len(merged))
-	mbids := make([]string, 0, len(merged))
-	for _, a := range merged {
-		if a.ID == "" {
-			a.ID = entity.NewArtist(a.Name, a.MBID).ID
-		}
-		ids = append(ids, a.ID)
-		names = append(names, a.Name)
-		mbids = append(mbids, a.MBID)
-	}
+	ids, names, mbids := artistColumns(merged)
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -177,21 +167,9 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// RETURNING yields only the artists this call inserted: a known MBID,
-	// also one a concurrent call inserted first, hits ON CONFLICT.
-	inserted := map[string]bool{}
-	if len(ids) > 0 {
-		insRows, err := tx.Query(ctx, insertArtistsWithMBIDUnnestQuery, ids, names, mbids)
-		if err != nil {
-			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
-		}
-		newIDs, err := pgx.CollectRows(insRows, pgx.RowTo[string])
-		if err != nil {
-			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
-		}
-		for _, id := range newIDs {
-			inserted[id] = true
-		}
+	inserted, err := insertArtists(ctx, tx, ids, names, mbids)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch back all registered artists (new and pre-existing) by MBID.
@@ -221,7 +199,36 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		return nil, toAppErr(err, "failed to commit artist create transaction")
 	}
 
-	// Each given artist gets the registered artist of its MBID, in input order.
+	result := registeredInInputOrder(artists, byMBID)
+
+	r.db.logger.Info(ctx, "artists created",
+		slog.String("entityType", "artist"),
+		slog.Int("count", len(result)),
+	)
+
+	return result, nil
+}
+
+// artistColumns returns the ids, names and MBIDs of the artists as the
+// parallel columns of the bulk insert, giving an artist with no id a new one.
+func artistColumns(artists []*entity.Artist) (ids, names, mbids []string) {
+	ids = make([]string, 0, len(artists))
+	names = make([]string, 0, len(artists))
+	mbids = make([]string, 0, len(artists))
+	for _, a := range artists {
+		if a.ID == "" {
+			a.ID = entity.NewArtist(a.Name, a.MBID).ID
+		}
+		ids = append(ids, a.ID)
+		names = append(names, a.Name)
+		mbids = append(mbids, a.MBID)
+	}
+	return ids, names, mbids
+}
+
+// registeredInInputOrder gives each given artist (nil ones skipped) the
+// registered artist of its MBID, in input order.
+func registeredInInputOrder(artists []*entity.Artist, byMBID map[string]*entity.Artist) []*entity.Artist {
 	result := make([]*entity.Artist, 0, len(artists))
 	for _, a := range artists {
 		if a == nil {
@@ -231,13 +238,29 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 			result = append(result, reg)
 		}
 	}
+	return result
+}
 
-	r.db.logger.Info(ctx, "artists created",
-		slog.String("entityType", "artist"),
-		slog.Int("count", len(result)),
-	)
-
-	return result, nil
+// insertArtists bulk-inserts the artists and returns the ids this call
+// inserted: RETURNING yields only those, since a known MBID, also one a
+// concurrent call inserted first, hits ON CONFLICT.
+func insertArtists(ctx context.Context, tx pgx.Tx, ids, names, mbids []string) (map[string]bool, error) {
+	inserted := map[string]bool{}
+	if len(ids) == 0 {
+		return inserted, nil
+	}
+	insRows, err := tx.Query(ctx, insertArtistsWithMBIDUnnestQuery, ids, names, mbids)
+	if err != nil {
+		return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
+	}
+	newIDs, err := pgx.CollectRows(insRows, pgx.RowTo[string])
+	if err != nil {
+		return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(ids)))
+	}
+	for _, id := range newIDs {
+		inserted[id] = true
+	}
+	return inserted, nil
 }
 
 // ListByMBIDs retrieves artists matching the provided MusicBrainz IDs.

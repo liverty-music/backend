@@ -33,43 +33,66 @@ func NewAnnouncementEncoder() AnnouncementEncoder {
 //
 //   - Internal: payload is not a type that can be announced.
 func (AnnouncementEncoder) Encode(subject string, payload any) (proto.Message, error) {
+	if msg, ok := encodeCatalogue(payload); ok {
+		return msg, nil
+	}
+	if msg, ok := encodeCommerce(payload); ok {
+		return msg, nil
+	}
+	return nil, apperr.New(codes.Internal, "the payload cannot be announced",
+		slog.String("subject", subject), slog.String("type", fmt.Sprintf("%T", payload)))
+}
+
+// encodeCatalogue encodes the announced types of the catalogue and of the
+// accounts: artists, concerts, events, follows, organizers, passkeys, push
+// subscriptions, series images and users. ok is false for any other type.
+func encodeCatalogue(payload any) (msg proto.Message, ok bool) {
 	switch p := payload.(type) {
 	case *entity.Artist:
-		return FromArtist(p), nil
-	case *entity.Checkout:
-		return FromCheckout(p), nil
+		return FromArtist(p), true
 	case []*entity.Concert:
-		return &entityv1.ConcertList{Concerts: FromConcerts(p)}, nil
+		return &entityv1.ConcertList{Concerts: FromConcerts(p)}, true
 	case *entity.Event:
-		return FromEvent(p), nil
+		return FromEvent(p), true
 	case *entity.Follow:
-		return FromFollow(p), nil
-	case *entity.LotteryEntry:
-		return FromLotteryEntry(p), nil
-	case *entity.Order:
-		return FromOrder(p), nil
+		return FromFollow(p), true
 	case *entity.Organizer:
-		return FromOrganizer(p), nil
+		return FromOrganizer(p), true
 	case *entity.Passkey:
-		return FromPasskey(p), nil
+		return FromPasskey(p), true
 	case *entity.PushSubscription:
-		return FromPushSubscriptionForAnnouncement(p), nil
-	case *entity.ResaleEntry:
-		return FromResaleEntry(p, nil), nil
-	case *entity.ResaleListing:
-		return FromResaleListing(&usecase.ResaleListingAt{Listing: p, Status: p.Status}), nil
+		return FromPushSubscriptionForAnnouncement(p), true
 	case *entity.SeriesImage:
-		return FromSeriesImage(p), nil
-	case *entity.Ticket:
-		return FromTicket(p), nil
-	case *entity.TicketJourney:
-		return FromTicketJourney(p), nil
-	case *entity.TicketSale:
-		return FromTicketSale(p), nil
+		return FromSeriesImage(p), true
 	case *entity.User:
-		return FromUserForAnnouncement(p), nil
+		return FromUserForAnnouncement(p), true
 	default:
-		return nil, apperr.New(codes.Internal, "the payload cannot be announced",
-			slog.String("subject", subject), slog.String("type", fmt.Sprintf("%T", payload)))
+		return nil, false
+	}
+}
+
+// encodeCommerce encodes the announced types of ticketing and payment:
+// checkouts, lottery entries, orders, resale entries and listings, tickets,
+// ticket journeys and ticket sales. ok is false for any other type.
+func encodeCommerce(payload any) (msg proto.Message, ok bool) {
+	switch p := payload.(type) {
+	case *entity.Checkout:
+		return FromCheckout(p), true
+	case *entity.LotteryEntry:
+		return FromLotteryEntry(p), true
+	case *entity.Order:
+		return FromOrder(p), true
+	case *entity.ResaleEntry:
+		return FromResaleEntry(p, nil), true
+	case *entity.ResaleListing:
+		return FromResaleListing(&usecase.ResaleListingAt{Listing: p, Status: p.Status}), true
+	case *entity.Ticket:
+		return FromTicket(p), true
+	case *entity.TicketJourney:
+		return FromTicketJourney(p), true
+	case *entity.TicketSale:
+		return FromTicketSale(p), true
+	default:
+		return nil, false
 	}
 }

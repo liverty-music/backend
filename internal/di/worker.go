@@ -104,14 +104,26 @@ func InitializeWorkerApp(ctx context.Context) (*WorkerApp, error) {
 // registers each workflow by its stable name.
 func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) error {
 	outbox := newOutbox(logger)
-	// The cancellation and refund notices of an Order: read, email through
-	// Postmark (a no-op sender reporting Unavailable without a token), then
-	// Deliver. The worker refunds nothing, so the Order's payment provider
-	// part is the no-op.
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		return fmt.Errorf("load Asia/Tokyo time zone: %w", err)
 	}
+	registerNotificationWorkflows(rt, cfg, db, outbox, japanTime, logger)
+	if err := registerAccountWorkflows(ctx, rt, cfg, db, outbox, japanTime, logger); err != nil {
+		return err
+	}
+	if err := registerLotteryWorkflows(ctx, rt, cfg, db, outbox, logger); err != nil {
+		return err
+	}
+	return registerCreateFromDiscovered(ctx, rt, cfg, db, outbox, logger)
+}
+
+// registerNotificationWorkflows registers the delivery of a notification and
+// of a sales reminder, and the cancellation and refund notices of an Order:
+// read, email through Postmark (a no-op sender reporting Unavailable without
+// a token), then Deliver. The worker refunds nothing, so the Order's payment
+// provider part is the no-op.
+func registerNotificationWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, japanTime *time.Location, logger *logging.Logger) {
 	var orderMailer entity.OrderMailer = mail.NewNoopOrderMailer(logger)
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
 	if pm := cfg.Postmark; pm.ServerToken != "" {
@@ -156,10 +168,15 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		infratelemetry.NewBusinessMetrics(), logger,
 	)
 	workflow.Register(rt, usecase.WorkflowDeliverReminder, reminders.RunDeliverReminder)
+}
 
-	// The worker's UserUseCase sends the verification codes and the passkey
-	// recovery links the fan API requests, and the verification email of each
-	// new User and the change email of each announced Passkey; it starts nothing and never deletes users.
+// registerAccountWorkflows registers the workflows of a fan's account. The
+// worker's UserUseCase sends the verification codes and the passkey recovery
+// links the fan API requests, and the verification email of each new User and
+// the change email of each announced Passkey; it starts nothing and never
+// deletes users. The passkey use case records each passkey notice, whose
+// removal waits for the run of the same passkey's addition.
+func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, japanTime *time.Location, logger *logging.Logger) error {
 	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
 	if err != nil {
 		return err
@@ -178,22 +195,20 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
 	workflow.Register(rt, usecase.WorkflowSendVerification, users.RunSendVerification)
 
-	// Passkeys: the record of each passkey notice, whose removal waits for the
-	// run of the same passkey's addition.
 	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {
 		return err
 	}
 	passkeys := usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, outbox), rdb.NewUserRepository(db, outbox), workflows, time.Now, logger)
 	workflow.Register(rt, usecase.WorkflowRecordPasskeyChange, passkeys.RunRecordChange)
+	return nil
+}
 
-	if err := registerLotteryWorkflows(ctx, rt, cfg, db, outbox, logger); err != nil {
-		return err
-	}
-
-	// CreateFromDiscovered resolves venues with Google Maps and reports each
-	// batch to product analytics (when PostHog is configured). A local worker
-	// without a GCP project leaves the started batches waiting.
+// registerCreateFromDiscovered registers CreateFromDiscovered, which resolves
+// venues with Google Maps and reports each batch to product analytics (when
+// PostHog is configured). A local worker without a GCP project leaves the
+// started batches waiting.
+func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
 	if cfg.GCPProjectID == "" {
 		logger.Warn(ctx, "GCP_PROJECT_ID is not set; create-from-discovered is not run")
 		return nil
@@ -233,63 +248,91 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	} else {
 		logger.Warn(ctx, "STRIPE_SECRET_KEY is not set; lottery captures and releases fail with Unavailable")
 	}
-	cardAuthorizations := entity.CardAuthorizationRepository(rdb.NewCardAuthorizationRepository(db, provider))
-	saleRepo := rdb.NewTicketSaleRepository(db, outbox)
-	stockRepo := rdb.NewTicketStockRepository(db)
-	entryRepo := rdb.NewLotteryEntryRepository(db, outbox)
-	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), newPaymentProviders(cfg.StripeSecretKey, logger).orders)
-	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
+	w := lotteryWorkerRepos{
+		db:                 db,
+		outbox:             outbox,
+		logger:             logger,
+		cardAuthorizations: entity.CardAuthorizationRepository(rdb.NewCardAuthorizationRepository(db, provider)),
+		saleRepo:           rdb.NewTicketSaleRepository(db, outbox),
+		stockRepo:          rdb.NewTicketStockRepository(db),
+		entryRepo:          rdb.NewLotteryEntryRepository(db, outbox),
+		orderRepo:          repository.NewOrderRepository(rdb.NewOrderRepository(db), newPaymentProviders(cfg.StripeSecretKey, logger).orders),
+	}
+	w.registerDraws(rt)
+	if err := w.registerOrderWorkflows(rt); err != nil {
+		return err
+	}
+	w.registerCheckoutAndRefunds(rt)
+	return nil
+}
 
+// lotteryWorkerRepos are the repositories the lottery, resale and order
+// workflows of the worker share.
+type lotteryWorkerRepos struct {
+	db                 *rdb.Database
+	outbox             rdb.Announcer
+	logger             *logging.Logger
+	cardAuthorizations entity.CardAuthorizationRepository
+	saleRepo           entity.TicketSaleRepository
+	stockRepo          entity.TicketStockRepository
+	entryRepo          entity.LotteryEntryRepository
+	orderRepo          entity.OrderRepository
+}
+
+// registerDraws registers the lottery draw and its schedule, and the official
+// resale by lottery: draw-resale every minute starts the draw of each stock
+// due at that time (OpenSpec change resell-tickets-by-lottery).
+func (w lotteryWorkerRepos) registerDraws(rt *workflow.Runtime) {
 	lottery := usecase.NewLotteryEntryUseCase(usecase.LotteryEntryDeps{
-		SaleRepo:                 saleRepo,
-		StockRepo:                stockRepo,
-		EntryRepo:                entryRepo,
-		OrderRepo:                orderRepo,
-		EventRepo:                rdb.NewEventRepository(db),
-		EventState:               rdb.NewEventPublishStateRepository(db),
-		IdentityVerificationRepo: identityVerificationRepo,
-		UserRepo:                 rdb.NewUserRepository(db, outbox),
-		CardAuthorizations:       cardAuthorizations,
+		SaleRepo:                 w.saleRepo,
+		StockRepo:                w.stockRepo,
+		EntryRepo:                w.entryRepo,
+		OrderRepo:                w.orderRepo,
+		EventRepo:                rdb.NewEventRepository(w.db),
+		EventState:               rdb.NewEventPublishStateRepository(w.db),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(w.db),
+		UserRepo:                 rdb.NewUserRepository(w.db, w.outbox),
+		CardAuthorizations:       w.cardAuthorizations,
 		Clock:                    time.Now,
-		Logger:                   logger,
+		Logger:                   w.logger,
 	})
 	workflow.RegisterSchedule(rt, usecase.WorkflowDrawDueSales, usecase.DrawDueSalesSchedule, lottery.DrawDueSales)
 	workflow.Register(rt, usecase.WorkflowDraw, lottery.Draw)
 
-	// Official resale by lottery: draw-resale every minute starts the draw of
-	// each stock due at that time (OpenSpec change resell-tickets-by-lottery).
 	resale := usecase.NewResaleEntryUseCase(usecase.ResaleEntryDeps{
-		EntryRepo:  rdb.NewResaleEntryRepository(db, outbox),
-		StockRepo:  stockRepo,
-		EventRepo:  rdb.NewEventRepository(db),
-		EventState: rdb.NewEventPublishStateRepository(db),
+		EntryRepo:  rdb.NewResaleEntryRepository(w.db, w.outbox),
+		StockRepo:  w.stockRepo,
+		EventRepo:  rdb.NewEventRepository(w.db),
+		EventState: rdb.NewEventPublishStateRepository(w.db),
 		Clock:      time.Now,
-		Logger:     logger,
+		Logger:     w.logger,
 	})
 	workflow.RegisterSchedule(rt, usecase.WorkflowDrawResale, usecase.DrawResaleSchedule, resale.DrawResale)
 	workflow.Register(rt, usecase.WorkflowDrawResaleStock, resale.DrawStock)
+}
 
-	// The worker's OrderUseCase commits, charges and releases; it starts no
-	// workflow, places no order and runs no refund. A card authorization's
-	// policy only names the keys of its Create, so the lottery's repository
-	// also captures and releases a Checkout's.
-	checkoutRepo := rdb.NewCheckoutRepository(db, outbox)
+// registerOrderWorkflows registers the issue and release workflows of the
+// worker's OrderUseCase, which commits, charges and releases; it starts no
+// workflow, places no order and runs no refund. A card authorization's policy
+// only names the keys of its Create, so the lottery's repository also
+// captures and releases a Checkout's.
+func (w lotteryWorkerRepos) registerOrderWorkflows(rt *workflow.Runtime) error {
 	orders := usecase.NewOrderUseCase(usecase.OrderDeps{
-		IssuanceRepo:             rdb.NewIssuanceRepository(db, outbox),
-		OrderRepo:                orderRepo,
-		EntryRepo:                entryRepo,
-		ResaleEntryRepo:          rdb.NewResaleEntryRepository(db, outbox),
-		EventRepo:                rdb.NewEventRepository(db),
-		EventState:               rdb.NewEventPublishStateRepository(db),
-		CheckoutRepo:             checkoutRepo,
-		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(db),
-		OrganizerRepo:            rdb.NewOrganizerRepository(db, outbox),
-		IdentityVerificationRepo: identityVerificationRepo,
-		TicketSaleRepo:           saleRepo,
-		StockRepo:                stockRepo,
-		CardAuthorizations:       cardAuthorizations,
+		IssuanceRepo:             rdb.NewIssuanceRepository(w.db, w.outbox),
+		OrderRepo:                w.orderRepo,
+		EntryRepo:                w.entryRepo,
+		ResaleEntryRepo:          rdb.NewResaleEntryRepository(w.db, w.outbox),
+		EventRepo:                rdb.NewEventRepository(w.db),
+		EventState:               rdb.NewEventPublishStateRepository(w.db),
+		CheckoutRepo:             rdb.NewCheckoutRepository(w.db, w.outbox),
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(w.db),
+		OrganizerRepo:            rdb.NewOrganizerRepository(w.db, w.outbox),
+		IdentityVerificationRepo: rdb.NewIdentityVerificationRepository(w.db),
+		TicketSaleRepo:           w.saleRepo,
+		StockRepo:                w.stockRepo,
+		CardAuthorizations:       w.cardAuthorizations,
 		Clock:                    time.Now,
-		Logger:                   logger,
+		Logger:                   w.logger,
 	})
 	if err := rt.RegisterQueue(usecase.PaymentQueue, usecase.PaymentQueueConcurrency); err != nil {
 		return err
@@ -299,25 +342,27 @@ func registerLotteryWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	}
 	workflow.Register(rt, usecase.WorkflowIssue, orders.Issue)
 	workflow.Register(rt, usecase.WorkflowReleaseCardAuthorization, orders.ReleaseCardAuthorization)
+	return nil
+}
 
-	// A sold listing's refund runs in its own workflow, started from the
-	// sale's announcement (design D10).
+// registerCheckoutAndRefunds registers the refund of a sold listing, which
+// runs in its own workflow started from the sale's announcement (design D10),
+// and the worker's CheckoutUseCase, which only ends holds.
+func (w lotteryWorkerRepos) registerCheckoutAndRefunds(rt *workflow.Runtime) {
 	resaleListings := usecase.NewResaleListingUseCase(usecase.ResaleListingDeps{
-		Listings: rdb.NewResaleListingRepository(db, outbox),
-		Orders:   orderRepo,
+		Listings: rdb.NewResaleListingRepository(w.db, w.outbox),
+		Orders:   w.orderRepo,
 		Clock:    time.Now,
-		Logger:   logger,
+		Logger:   w.logger,
 	})
 	workflow.Register(rt, usecase.WorkflowRefundSold, resaleListings.RefundSold)
 
-	// The worker's CheckoutUseCase only ends holds.
 	checkouts := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo: checkoutRepo,
+		CheckoutRepo: rdb.NewCheckoutRepository(w.db, w.outbox),
 		Clock:        time.Now,
-		Logger:       logger,
+		Logger:       w.logger,
 	})
 	workflow.Register(rt, usecase.WorkflowExpireCheckout, checkouts.Expire)
-	return nil
 }
 
 // newOutboxForwarder builds the forwarder from the outbox to the NATS

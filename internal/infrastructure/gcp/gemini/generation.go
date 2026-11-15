@@ -77,6 +77,31 @@ func fillFromResponse(g *posthog.LLMGeneration, resp *genai.GenerateContentRespo
 	g.FinishReason = string(c.FinishReason)
 	g.FinishMessage = c.FinishMessage
 
+	g.WebSearchQueries = fillGrounding(g, c)
+	if um := c.URLContextMetadata; um != nil {
+		for _, m := range um.URLMetadata {
+			if m != nil {
+				g.URLContext = append(g.URLContext, posthog.URLContextResult{URL: m.RetrievedURL, Status: string(m.URLRetrievalStatus)})
+			}
+		}
+	}
+}
+
+// reportAll sends each generation to reporter, which may be nil.
+func reportAll(ctx context.Context, reporter GenerationReporter, gens []posthog.LLMGeneration) {
+	if reporter == nil {
+		return
+	}
+	for _, g := range gens {
+		reporter.ReportGeneration(ctx, g)
+	}
+}
+
+// fillGrounding copies the grounding source URLs of the candidate into g and
+// returns its web search queries: the grounding metadata's, or when it has none
+// (often so on Gemini 3 when the search runs during thinking) those of the
+// server-side tool-call parts.
+func fillGrounding(g *posthog.LLMGeneration, c *genai.Candidate) []string {
 	var toolQueries []string
 	if c.Content != nil {
 		for _, p := range c.Content.Parts {
@@ -97,22 +122,5 @@ func fillFromResponse(g *posthog.LLMGeneration, resp *genai.GenerateContentRespo
 	if len(queries) == 0 {
 		queries = toolQueries
 	}
-	g.WebSearchQueries = queries
-	if um := c.URLContextMetadata; um != nil {
-		for _, m := range um.URLMetadata {
-			if m != nil {
-				g.URLContext = append(g.URLContext, posthog.URLContextResult{URL: m.RetrievedURL, Status: string(m.URLRetrievalStatus)})
-			}
-		}
-	}
-}
-
-// reportAll sends each generation to reporter, which may be nil.
-func reportAll(ctx context.Context, reporter GenerationReporter, gens []posthog.LLMGeneration) {
-	if reporter == nil {
-		return
-	}
-	for _, g := range gens {
-		reporter.ReportGeneration(ctx, g)
-	}
+	return queries
 }

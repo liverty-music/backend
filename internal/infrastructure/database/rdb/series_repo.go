@@ -263,6 +263,45 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 	return &s, nil
 }
 
+// seriesColumns validates the series (nil ones skipped) and returns them as
+// the parallel columns of the bulk insert.
+func seriesColumns(series []*entity.Series) (ids, titles, types []string, sourceURLs []*string, err error) {
+	for _, s := range series {
+		if s == nil {
+			continue
+		}
+		if err := checkNewSeries(s); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		ids = append(ids, s.ID)
+		titles = append(titles, s.Title)
+		types = append(types, string(s.Type))
+		var sourceURL *string
+		if s.SourceURL != "" {
+			url := s.SourceURL
+			sourceURL = &url
+		}
+		sourceURLs = append(sourceURLs, sourceURL)
+	}
+	return ids, titles, types, sourceURLs, nil
+}
+
+// checkNewSeries checks that a series to insert has an id, a title and a
+// recognised type.
+func checkNewSeries(s *entity.Series) error {
+	switch {
+	case s.ID == "":
+		return apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	case s.Title == "":
+		return apperr.New(codes.InvalidArgument, "series title must not be empty")
+	case s.Type == "":
+		return apperr.New(codes.InvalidArgument, "series type must not be empty")
+	case !s.Type.IsValid():
+		return apperr.New(codes.InvalidArgument, "series type is not a recognised value: "+string(s.Type))
+	}
+	return nil
+}
+
 // Create persists one or more series rows. Nil elements are skipped silently.
 // Returns the IDs that were genuinely inserted (rows that hit ON CONFLICT DO
 // NOTHING are excluded from the result).
@@ -271,42 +310,13 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 		return nil, nil
 	}
 
-	var valid []*entity.Series
-	for _, s := range series {
-		if s != nil {
-			valid = append(valid, s)
-		}
+	ids, titles, types, sourceURLs, err := seriesColumns(series)
+	if err != nil {
+		return nil, err
 	}
-	if len(valid) == 0 {
+	n := len(ids)
+	if n == 0 {
 		return nil, nil
-	}
-
-	n := len(valid)
-	ids := make([]string, n)
-	titles := make([]string, n)
-	types := make([]string, n)
-	sourceURLs := make([]*string, n)
-
-	for i, s := range valid {
-		if s.ID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
-		}
-		if s.Title == "" {
-			return nil, apperr.New(codes.InvalidArgument, "series title must not be empty")
-		}
-		if s.Type == "" {
-			return nil, apperr.New(codes.InvalidArgument, "series type must not be empty")
-		}
-		if !s.Type.IsValid() {
-			return nil, apperr.New(codes.InvalidArgument, "series type is not a recognised value: "+string(s.Type))
-		}
-		ids[i] = s.ID
-		titles[i] = s.Title
-		types[i] = string(s.Type)
-		if s.SourceURL != "" {
-			url := s.SourceURL
-			sourceURLs[i] = &url
-		}
 	}
 
 	rows, err := r.db.Pool.Query(ctx, insertSeriesQuery, ids, titles, types, sourceURLs)

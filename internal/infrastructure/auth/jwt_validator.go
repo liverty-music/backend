@@ -127,6 +127,24 @@ func (v *JWTValidator) WithAcceptedIssuers(issuers []string) *JWTValidator {
 	return &cp
 }
 
+// optionalProfileClaims returns the name claim (optional, empty when absent)
+// and the email_verified claim of the token's private claims. The Zitadel
+// Action sets email_verified; it is false when the claim is absent
+// (fail-closed).
+func optionalProfileClaims(token jwt.Token) (name string, emailVerified bool) {
+	if nameVal, ok := token.Field("name"); ok {
+		if nameStr, ok := nameVal.(string); ok {
+			name = nameStr
+		}
+	}
+	if evVal, ok := token.Field("email_verified"); ok {
+		if evBool, ok := evVal.(bool); ok {
+			emailVerified = evBool
+		}
+	}
+	return name, emailVerified
+}
+
 // ValidateToken validates a JWT token and returns the claims.
 func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*authctx.Claims, error) {
 	keySet, err := v.jwks.keySet(ctx)
@@ -170,22 +188,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		return nil, fmt.Errorf("email claim is not a string")
 	}
 
-	// Extract name from private claims (optional - may be empty)
-	name := ""
-	if nameVal, ok := token.Field("name"); ok {
-		if nameStr, ok := nameVal.(string); ok {
-			name = nameStr
-		}
-	}
-
-	// Extract email_verified from private claims (set by a Zitadel Action).
-	// Defaults to false when the claim is absent (fail-closed).
-	emailVerified := false
-	if evVal, ok := token.Field("email_verified"); ok {
-		if evBool, ok := evVal.(bool); ok {
-			emailVerified = evBool
-		}
-	}
+	name, emailVerified := optionalProfileClaims(token)
 
 	// Extract Zitadel project role names from the token.
 	//

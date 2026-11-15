@@ -58,47 +58,7 @@ func run(bootLogger *logging.Logger) error {
 		return err
 	}
 
-	// Start all four Connect-RPC servers (fan, admin, organizer, reception) and the
-	// Zitadel webhook listener in separate goroutines. The webhook listener
-	// runs on a distinct port (default 9090) that is only exposed by the
-	// internal-only `server-webhook-svc` Service — not by the public Gateway.
-	errChan := make(chan error, 5)
-
-	go func() {
-		if err := app.Server.Start(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	// Admin Connect server — second listener in this binary on its own port,
-	// exposed only via the internal admin Service / `api.admin.{env}` route.
-	go func() {
-		if err := app.AdminServer.Start(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	// Organizer Connect server — third listener in this binary on its own port,
-	// exposed only via the organizer ingress / `api.organizer.{env}` route.
-	go func() {
-		if err := app.OrganizerServer.Start(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	// Reception Connect server — fourth listener in this binary on its own port,
-	// exposed only by the reception-api workload / `api.reception.{env}` route.
-	go func() {
-		if err := app.ReceptionServer.Start(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	go func() {
-		if err := app.WebhookServer.Start(); err != nil {
-			errChan <- err
-		}
-	}()
+	errChan := startServers(app)
 
 	// Wait for either context cancellation (signal) or server error
 	select {
@@ -114,4 +74,29 @@ func run(bootLogger *logging.Logger) error {
 		app.Logger.Error(ctx, "server failed to start", err)
 		return err
 	}
+}
+
+// starter is a server that serves until it fails or is stopped.
+type starter interface {
+	Start() error
+}
+
+// startServers starts all four Connect-RPC servers (fan, admin, organizer,
+// reception) and the Zitadel webhook listener, each in its own goroutine, and
+// returns the channel their startup or serving errors arrive on. The webhook
+// listener runs on a distinct port (default 9090) that is only exposed by the
+// internal-only `server-webhook-svc` Service, not by the public Gateway; the
+// admin, organizer and reception servers each have their own port and route
+// (`api.admin.{env}`, `api.organizer.{env}`, `api.reception.{env}`).
+func startServers(app *di.App) <-chan error {
+	servers := []starter{app.Server, app.AdminServer, app.OrganizerServer, app.ReceptionServer, app.WebhookServer}
+	errChan := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func() {
+			if err := srv.Start(); err != nil {
+				errChan <- err
+			}
+		}()
+	}
+	return errChan
 }

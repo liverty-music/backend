@@ -348,18 +348,11 @@ func (s *ConcertSearcher) SearchExt(
 	officialSite *entity.OfficialSite,
 	from time.Time,
 ) ([]*entity.DiscoveredSeries, *SearchMetadata, error) {
-	var officialSiteURL string
+	officialSiteURL := ""
 	if officialSite != nil {
 		officialSiteURL = officialSite.URL
 	}
-
-	attrs := []slog.Attr{
-		slog.String("artistID", artist.ID),
-		slog.String("model", s.config.Model),
-		slog.String("artist", artist.Name),
-		slog.String("official_site", officialSiteURL),
-		slog.String("from", from.Format("2006-01-02")),
-	}
+	attrs := s.searchAttrs(artist, officialSiteURL, from)
 	s.logger.Info(ctx, "start calling Gemini API to search concerts", attrs...)
 
 	md := &SearchMetadata{}
@@ -381,49 +374,12 @@ func (s *ConcertSearcher) SearchExt(
 	var gens []posthog.LLMGeneration
 	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
 
-	prompt, cfg := s.buildRequest(artist.Name, officialSiteURL, links, time.Now().UTC())
-	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs, base, &gens)
-	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
-		// Some pages break the Preview tool-invocation report after URL
-		// context reads them, and the request fails with 400 (backend #542).
-		// Re-send it once without the report.
-		s.logger.Warn(ctx, "grounded call rejected as invalid, retrying once without the tool-invocation report",
-			append(attrs, slog.String("error", err.Error()))...)
-		reduced := *cfg
-		reduced.ToolConfig = nil
-		first := pm
-		pm, rawText, transient, err = s.executePass(ctx, s.config.Model, prompt, &reduced,
-			append(slices.Clone(attrs), slog.Bool("tool_report_dropped", true)), base, &gens)
-		pm.RetryCount += first.RetryCount
-		pm.ToolReportDropped = true
-	}
+	pm, rawText, transient, err := s.groundedPass(ctx, artist.Name, officialSiteURL, links, attrs, base, &gens)
 	pm.LinkedPageURLs = links
 	md.Grounded = pm
-	if pm != nil {
-		urls := make([]string, 0, len(pm.URLContextRetrieved))
-		for _, u := range pm.URLContextRetrieved {
-			urls = append(urls, u.URL)
-		}
-		md.DiscoveredURLs = urls
-		md.DiscoveredURLCount = len(urls)
-	}
-	if err != nil {
-		s.logger.Warn(ctx, "grounded call failed permanently, aborting Search",
-			append(attrs, slog.String("error", err.Error()))...)
+	recordDiscoveredURLs(md, pm)
+	if err := checkGroundedPass(ctx, pm, transient, err, attrs, s.logger); err != nil {
 		return nil, md, err
-	}
-	if transient {
-		// Every attempt failed transiently: fail with Unavailable so the
-		// caller records the search as failed and searches again on the next
-		// run, instead of reading it as "no concerts".
-		pm.ExhaustedTransient = true
-		return nil, md, apperr.New(codes.Unavailable, "gemini concert search failed transiently on every attempt", attrs...)
-	}
-	// Each call runs detached from ctx so an in-flight request is not cut off
-	// mid-response. A call that succeeds after the caller's deadline or
-	// cancellation must still fail Search: the caller has given up on it.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, md, toAppErr(ctxErr, "caller's context ended during the gemini concert search", attrs...)
 	}
 
 	drafts, err := parseSingleStepJSON(rawText)
@@ -432,15 +388,7 @@ func (s *ConcertSearcher) SearchExt(
 	if err != nil {
 		md.InvalidJSON = true
 		last.ErrorKind = errorKindInvalidJSON
-		truncated := rawText
-		if len(truncated) > maxRawTextLogLen {
-			truncated = truncated[:maxRawTextLogLen]
-		}
-		return nil, md, toAppErr(err, "gemini returned invalid JSON",
-			append(attrs,
-				slog.String("raw_text_truncated", truncated),
-				slog.Int("raw_text_len", len(rawText)),
-			)...)
+		return nil, md, invalidJSONError(err, rawText, attrs)
 	}
 	if len(drafts) == 0 {
 		s.logger.Info(ctx, "grounded call returned 0 events", attrs...)
@@ -515,6 +463,97 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links
 	return prompt, cfg
 }
 
+// searchAttrs returns the log attributes that identify one concert search.
+func (s *ConcertSearcher) searchAttrs(artist *entity.Artist, officialSiteURL string, from time.Time) []slog.Attr {
+	return []slog.Attr{
+		slog.String("artistID", artist.ID),
+		slog.String("model", s.config.Model),
+		slog.String("artist", artist.Name),
+		slog.String("official_site", officialSiteURL),
+		slog.String("from", from.Format("2006-01-02")),
+	}
+}
+
+// checkGroundedPass returns the error the outcome of the grounded pass makes
+// of the search: its own permanent failure, Unavailable when every attempt
+// failed transiently (so the caller records the search as failed and searches
+// again on the next run, instead of reading it as "no concerts"), or the end of
+// the caller's context. Each call runs detached from ctx so an in-flight
+// request is not cut off mid-response; a call that succeeds after the caller's
+// deadline or cancellation must still fail the search: the caller has given up
+// on it.
+func checkGroundedPass(ctx context.Context, pm *PassMetadata, transient bool, err error, attrs []slog.Attr, logger *logging.Logger) error {
+	if err != nil {
+		logger.Warn(ctx, "grounded call failed permanently, aborting Search",
+			append(attrs, slog.String("error", err.Error()))...)
+		return err
+	}
+	if transient {
+		pm.ExhaustedTransient = true
+		return apperr.New(codes.Unavailable, "gemini concert search failed transiently on every attempt", attrs...)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return toAppErr(ctxErr, "caller's context ended during the gemini concert search", attrs...)
+	}
+	return nil
+}
+
+// groundedPass runs the grounded search call. When the call is rejected as an
+// invalid request, it re-sends it once without the tool-invocation report.
+func (s *ConcertSearcher) groundedPass(
+	ctx context.Context,
+	artistName, officialSiteURL string,
+	links []string,
+	attrs []slog.Attr,
+	base posthog.LLMGeneration,
+	gens *[]posthog.LLMGeneration,
+) (*PassMetadata, string, bool, error) {
+	prompt, cfg := s.buildRequest(artistName, officialSiteURL, links, time.Now().UTC())
+	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs, base, gens)
+	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
+		// Some pages break the Preview tool-invocation report after URL
+		// context reads them, and the request fails with 400 (backend #542).
+		// Re-send it once without the report.
+		s.logger.Warn(ctx, "grounded call rejected as invalid, retrying once without the tool-invocation report",
+			append(attrs, slog.String("error", err.Error()))...)
+		reduced := *cfg
+		reduced.ToolConfig = nil
+		first := pm
+		pm, rawText, transient, err = s.executePass(ctx, s.config.Model, prompt, &reduced,
+			append(slices.Clone(attrs), slog.Bool("tool_report_dropped", true)), base, gens)
+		pm.RetryCount += first.RetryCount
+		pm.ToolReportDropped = true
+	}
+	return pm, rawText, transient, err
+}
+
+// recordDiscoveredURLs sets the URLs the grounded pass retrieved on md.
+func recordDiscoveredURLs(md *SearchMetadata, pm *PassMetadata) {
+	if pm == nil {
+		return
+	}
+	urls := make([]string, 0, len(pm.URLContextRetrieved))
+	for _, u := range pm.URLContextRetrieved {
+		urls = append(urls, u.URL)
+	}
+	md.DiscoveredURLs = urls
+	md.DiscoveredURLCount = len(urls)
+}
+
+// invalidJSONError wraps err, the failure to parse rawText, with the start of
+// the text for the log.
+func invalidJSONError(err error, rawText string, attrs []slog.Attr) error {
+	truncated := rawText
+	if len(truncated) > maxRawTextLogLen {
+		truncated = truncated[:maxRawTextLogLen]
+	}
+	return toAppErr(err, "gemini returned invalid JSON",
+		append(attrs,
+			slog.String("raw_text_truncated", truncated),
+			slog.Int("raw_text_len", len(rawText)),
+		)...)
+}
+
 // executePass runs one Gemini call wrapped in exponential backoff
 // (3 attempts, 1s/2s/4s, 60s max). It captures all observable metadata
 // into a fresh PassMetadata. Returns:
@@ -545,251 +584,350 @@ func (s *ConcertSearcher) executePass(
 		MaxInterval:     60 * time.Second,
 	}
 
-	var (
-		lastWasFinish bool
-		sawPermanent  bool
-	)
+	var out passOutcome
 	rawText, err := backoff.Retry(ctx, func() (string, error) {
 		pm.RetryCount++
-		// Detach from the parent context for the duration of one Gemini call,
-		// then re-impose a per-attempt 120 s budget. Parent cancellation
-		// (handler timeout, SIGTERM on the CronJob) still stops `backoff.Retry`
-		// from scheduling another attempt — the outer `ctx` is what backoff
-		// monitors — so cancellation propagation is preserved at the retry
-		// level. We only protect the in-flight `GenerateContent` from mid-
-		// response cancellation, which would otherwise leave Gemini in an
-		// ambiguous state (URLContext fetch partially started, grounding
-		// chunks recorded but not delivered). Worst-case teardown is one
-		// stuck request × 120 s on top of the parent's deadline.
-		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
-		defer cancel()
-
-		start := time.Now()
-		resp, err := s.client.Models.GenerateContent(reqCtx, modelName, genai.Text(prompt), cfg)
-		gen := base
-		gen.Model = modelName
-		gen.Latency = time.Since(start)
-		gen.EndTime = start.Add(gen.Latency)
-		fillFromResponse(&gen, resp)
-		record := func(errorKind string) {
-			gen.ErrorKind = errorKind
-			*gens = append(*gens, gen)
-		}
-		if err != nil {
-			record(callErrorKind(ctx, err))
-			lastWasFinish = false
-			s.logger.Warn(ctx, "gemini model call failed",
-				append(attrs, slog.String("error", err.Error()))...)
-			if !isRetryable(err) {
-				sawPermanent = true
-				return "", backoff.Permanent(err)
-			}
-			return "", err
-		}
-
-		// Reset per-attempt accumulators BEFORE we read the new response.
-		// `pm` lives across retries; without this reset the grounding
-		// slices would accumulate URLs/URLRetrievals from every attempt
-		// (including the failed ones), producing inflated counts. Scalar
-		// fields are unconditionally overwritten below, but slice
-		// appends need an explicit reset.
-		pm.GroundingChunkURLs = nil
-		pm.URLContextRetrieved = nil
-		pm.WebSearchQueriesList = nil
-		pm.WebSearchQueries = 0
-		pm.RenderedParts = 0
-		pm.URLContextCalls, pm.URLContextSucceeded = 0, 0
-
-		if u := resp.UsageMetadata; u != nil {
-			pm.PromptTokens = u.PromptTokenCount
-			pm.CandidatesTokens = u.CandidatesTokenCount
-			pm.ThinkingTokens = u.ThoughtsTokenCount
-			pm.ToolUseTokens = u.ToolUsePromptTokenCount
-			pm.TotalTokens = u.TotalTokenCount
-		}
-
-		respAttrs := []slog.Attr{
-			slog.String("response_id", resp.ResponseID),
-			slog.Group("usage_metadata",
-				slog.Int("prompt", int(pm.PromptTokens)),
-				slog.Int("candidates", int(pm.CandidatesTokens)),
-				slog.Int("thinking", int(pm.ThinkingTokens)),
-				slog.Int("total", int(pm.TotalTokens)),
-				slog.Int("tool_use", int(pm.ToolUseTokens)),
-			),
-		}
-
-		if len(resp.Candidates) == 0 {
-			record(errorKindNoCandidates)
-			lastWasFinish = false
-			sawPermanent = true
-			if pf := resp.PromptFeedback; pf != nil {
-				respAttrs = append(respAttrs, slog.Group("prompt_feedback",
-					slog.String("block_reason", string(pf.BlockReason)),
-					slog.String("block_reason_message", pf.BlockReasonMessage),
-				))
-			}
-			s.logger.Warn(ctx, "Gemini returned no candidates (permanent, not retrying)", append(attrs, respAttrs...)...)
-			return "", backoff.Permanent(errNoCandidates())
-		}
-
-		candidate := resp.Candidates[0]
-		pm.FinishReason = string(candidate.FinishReason)
-		pm.FinishMessage = candidate.FinishMessage
-		pm.AvgLogprobs = candidate.AvgLogprobs
-
-		if g := candidate.GroundingMetadata; g != nil {
-			pm.WebSearchQueriesList = g.WebSearchQueries
-			pm.WebSearchQueries = len(g.WebSearchQueries)
-			for _, ch := range g.GroundingChunks {
-				if ch != nil && ch.Web != nil {
-					pm.GroundingChunkURLs = append(pm.GroundingChunkURLs, ch.Web.URI)
-				}
-			}
-			var renderedParts int
-			for _, sup := range g.GroundingSupports {
-				if sup == nil {
-					continue
-				}
-				renderedParts += len(sup.RenderedParts)
-			}
-			pm.RenderedParts = renderedParts
-		}
-
-		if candidate.URLContextMetadata != nil {
-			for _, um := range candidate.URLContextMetadata.URLMetadata {
-				if um == nil {
-					continue
-				}
-				pm.URLContextRetrieved = append(pm.URLContextRetrieved, URLRetrieval{
-					URL:    um.RetrievedURL,
-					Status: string(um.URLRetrievalStatus),
-				})
-			}
-		}
-
-		var textBuf strings.Builder
-		var totalParts, thoughtParts, textParts int
-		// toolQueries collects the Google Search queries from server-side
-		// tool-call parts (present only with IncludeServerSideToolInvocations).
-		var toolQueries []string
-		// Content can be nil when the response was filtered out (SAFETY,
-		// RECITATION, etc.). The FinishReason check below would surface the
-		// failure, but a nil-pointer dereference here would panic the goroutine
-		// before that guard runs. Treat nil Content as "no text" and let the
-		// FinishReason / empty-text branches handle the diagnostic.
-		if candidate.Content != nil {
-			pm.URLContextCalls, pm.URLContextSucceeded = urlContextCounts(candidate.Content.Parts)
-			for _, p := range candidate.Content.Parts {
-				if p == nil {
-					continue
-				}
-				totalParts++
-				if tc := p.ToolCall; tc != nil {
-					if tc.ToolType == genai.ToolTypeGoogleSearchWeb {
-						toolQueries = append(toolQueries, searchQueriesOf(tc.Args)...)
-					}
-					continue
-				}
-				if p.Thought {
-					thoughtParts++
-					continue
-				}
-				if p.Text == "" {
-					continue
-				}
-				textParts++
-				textBuf.WriteString(p.Text)
-			}
-		}
-		pm.PartsTotal = totalParts
-		pm.ThoughtParts = thoughtParts
-		pm.TextParts = textParts
-		if len(pm.WebSearchQueriesList) == 0 && len(toolQueries) > 0 {
-			// groundingMetadata is often absent on Gemini 3 when the search
-			// runs during thinking; fall back to the tool-call queries.
-			pm.WebSearchQueriesList = toolQueries
-			pm.WebSearchQueries = len(toolQueries)
-		}
-
-		candidateAttrs := append(respAttrs,
-			slog.String("finish_reason", pm.FinishReason),
-			slog.String("finish_message", pm.FinishMessage),
-			slog.Float64("avg_logprobs", pm.AvgLogprobs),
-			slog.Any("search_queries", pm.WebSearchQueriesList),
-			slog.Int("web_search_queries", pm.WebSearchQueries),
-			slog.Int("url_context_retrieved", len(pm.URLContextRetrieved)),
-			slog.Int("url_context_calls", pm.URLContextCalls),
-			slog.Int("url_context_succeeded", pm.URLContextSucceeded),
-		)
-		joined := textBuf.String()
-		pm.RawResponseText = joined
-		candidateAttrs = append(candidateAttrs,
-			slog.Int("parts_total", totalParts),
-			slog.Int("thought_parts", thoughtParts),
-			slog.Int("text_parts", textParts),
-		)
-
-		if candidate.FinishReason == genai.FinishReasonTooManyToolCalls {
-			record(errorKindTooManyToolCalls)
-			lastWasFinish = false
-			sawPermanent = true
-			s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
-				append(attrs, candidateAttrs...)...)
-			return "", backoff.Permanent(errTooManyToolCalls())
-		}
-
-		// The finish reason is checked before the text: an incomplete response
-		// often carries no text at all and must be retried, not read as
-		// "no concerts".
-		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
-			record(errorKindIncomplete)
-			lastWasFinish = true
-			finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
-			s.logger.Warn(ctx, "gemini response not completed normally, retrying",
-				append(attrs, candidateAttrs...)...)
-			return "", finishErr
-		}
-		lastWasFinish = false
-
-		if joined == "" {
-			record(errorKindNoText)
-			sawPermanent = true
-			s.logger.Warn(ctx, "candidate has no text parts (permanent, not retrying)",
-				append(attrs, candidateAttrs...)...)
-			return "", backoff.Permanent(errNoText())
-		}
-		record("")
-
-		s.logger.Info(ctx, "successfully received Gemini response",
-			append(attrs, candidateAttrs...)...)
-		return joined, nil
+		return s.attemptPass(ctx, modelName, prompt, cfg, attrs, base, gens, pm, &out)
 	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3))
 
 	if err != nil {
-		if sawPermanent {
-			return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+		return s.failedPass(ctx, pm, err, attrs, out)
+	}
+	return pm, rawText, false, nil
+}
+
+// passOutcome is what the attempts of one pass have shown so far: whether the
+// last one ended on a non-STOP finish reason, and whether one failed
+// permanently.
+type passOutcome struct {
+	lastWasFinish bool
+	sawPermanent  bool
+}
+
+// attemptPass makes one Gemini call of a pass and reads its response into pm,
+// which lives across the attempts. A permanent failure is returned wrapped in
+// [backoff.Permanent]; out records how the attempt ended.
+func (s *ConcertSearcher) attemptPass(
+	ctx context.Context,
+	modelName string,
+	prompt string,
+	cfg *genai.GenerateContentConfig,
+	attrs []slog.Attr,
+	base posthog.LLMGeneration,
+	gens *[]posthog.LLMGeneration,
+	pm *PassMetadata,
+	out *passOutcome,
+) (string, error) {
+	// Detach from the parent context for the duration of one Gemini call,
+	// then re-impose a per-attempt 120 s budget. Parent cancellation
+	// (handler timeout, SIGTERM on the CronJob) still stops `backoff.Retry`
+	// from scheduling another attempt — the outer `ctx` is what backoff
+	// monitors — so cancellation propagation is preserved at the retry
+	// level. We only protect the in-flight `GenerateContent` from mid-
+	// response cancellation, which would otherwise leave Gemini in an
+	// ambiguous state (URLContext fetch partially started, grounding
+	// chunks recorded but not delivered). Worst-case teardown is one
+	// stuck request × 120 s on top of the parent's deadline.
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := s.client.Models.GenerateContent(reqCtx, modelName, genai.Text(prompt), cfg)
+	gen := base
+	gen.Model = modelName
+	gen.Latency = time.Since(start)
+	gen.EndTime = start.Add(gen.Latency)
+	fillFromResponse(&gen, resp)
+	record := func(errorKind string) {
+		gen.ErrorKind = errorKind
+		*gens = append(*gens, gen)
+	}
+	if err != nil {
+		return "", s.callFailed(ctx, err, attrs, record, out)
+	}
+
+	// Reset per-attempt accumulators BEFORE we read the new response.
+	// `pm` lives across retries; without this reset the grounding
+	// slices would accumulate URLs/URLRetrievals from every attempt
+	// (including the failed ones), producing inflated counts. Scalar
+	// fields are unconditionally overwritten below, but slice
+	// appends need an explicit reset.
+	pm.GroundingChunkURLs = nil
+	pm.URLContextRetrieved = nil
+	pm.WebSearchQueriesList = nil
+	pm.WebSearchQueries = 0
+	pm.RenderedParts = 0
+	pm.URLContextCalls, pm.URLContextSucceeded = 0, 0
+
+	recordUsage(pm, resp)
+
+	respAttrs := usageAttrs(pm, resp)
+	if len(resp.Candidates) == 0 {
+		return "", s.noCandidates(ctx, resp, respAttrs, attrs, record, out)
+	}
+	candidate := resp.Candidates[0]
+	joined, candidateAttrs := recordCandidate(pm, candidate, respAttrs)
+
+	return s.judgeCandidate(ctx, candidate, joined, attrs, candidateAttrs, record, out)
+}
+
+// callFailed records a failed Gemini call and returns its error, wrapped in
+// [backoff.Permanent] when it is not retryable.
+func (s *ConcertSearcher) callFailed(ctx context.Context, err error, attrs []slog.Attr, record func(string), out *passOutcome) error {
+	record(callErrorKind(ctx, err))
+	out.lastWasFinish = false
+	s.logger.Warn(ctx, "gemini model call failed",
+		append(attrs, slog.String("error", err.Error()))...)
+	if !isRetryable(err) {
+		out.sawPermanent = true
+		return backoff.Permanent(err)
+	}
+	return err
+}
+
+// usageAttrs returns the log attributes of a response's id and token usage.
+func usageAttrs(pm *PassMetadata, resp *genai.GenerateContentResponse) []slog.Attr {
+	return []slog.Attr{
+		slog.String("response_id", resp.ResponseID),
+		slog.Group("usage_metadata",
+			slog.Int("prompt", int(pm.PromptTokens)),
+			slog.Int("candidates", int(pm.CandidatesTokens)),
+			slog.Int("thinking", int(pm.ThinkingTokens)),
+			slog.Int("total", int(pm.TotalTokens)),
+			slog.Int("tool_use", int(pm.ToolUseTokens)),
+		),
+	}
+}
+
+// noCandidates records a response with no candidate, which is a permanent
+// failure, and returns its error.
+func (s *ConcertSearcher) noCandidates(ctx context.Context, resp *genai.GenerateContentResponse, respAttrs, attrs []slog.Attr, record func(string), out *passOutcome) error {
+	record(errorKindNoCandidates)
+	out.lastWasFinish = false
+	out.sawPermanent = true
+	if pf := resp.PromptFeedback; pf != nil {
+		respAttrs = append(respAttrs, slog.Group("prompt_feedback",
+			slog.String("block_reason", string(pf.BlockReason)),
+			slog.String("block_reason_message", pf.BlockReasonMessage),
+		))
+	}
+	s.logger.Warn(ctx, "Gemini returned no candidates (permanent, not retrying)", append(attrs, respAttrs...)...)
+	return backoff.Permanent(errNoCandidates())
+}
+
+// judgeCandidate decides what the first candidate's finish reason and text
+// make of the attempt: too many tool calls and an empty text are permanent
+// failures, an incomplete response is retried, and a text is the result.
+func (s *ConcertSearcher) judgeCandidate(
+	ctx context.Context,
+	candidate *genai.Candidate,
+	joined string,
+	attrs, candidateAttrs []slog.Attr,
+	record func(string),
+	out *passOutcome,
+) (string, error) {
+	if candidate.FinishReason == genai.FinishReasonTooManyToolCalls {
+		record(errorKindTooManyToolCalls)
+		out.lastWasFinish = false
+		out.sawPermanent = true
+		s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
+			append(attrs, candidateAttrs...)...)
+		return "", backoff.Permanent(errTooManyToolCalls())
+	}
+
+	// The finish reason is checked before the text: an incomplete response
+	// often carries no text at all and must be retried, not read as
+	// "no concerts".
+	if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
+		record(errorKindIncomplete)
+		out.lastWasFinish = true
+		finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
+		s.logger.Warn(ctx, "gemini response not completed normally, retrying",
+			append(attrs, candidateAttrs...)...)
+		return "", finishErr
+	}
+	out.lastWasFinish = false
+
+	if joined == "" {
+		record(errorKindNoText)
+		out.sawPermanent = true
+		s.logger.Warn(ctx, "candidate has no text parts (permanent, not retrying)",
+			append(attrs, candidateAttrs...)...)
+		return "", backoff.Permanent(errNoText())
+	}
+	record("")
+
+	s.logger.Info(ctx, "successfully received Gemini response",
+		append(attrs, candidateAttrs...)...)
+	return joined, nil
+}
+
+// recordUsage copies the response's token counts into pm.
+func recordUsage(pm *PassMetadata, resp *genai.GenerateContentResponse) {
+	if u := resp.UsageMetadata; u != nil {
+		pm.PromptTokens = u.PromptTokenCount
+		pm.CandidatesTokens = u.CandidatesTokenCount
+		pm.ThinkingTokens = u.ThoughtsTokenCount
+		pm.ToolUseTokens = u.ToolUsePromptTokenCount
+		pm.TotalTokens = u.TotalTokenCount
+	}
+}
+
+// recordCandidate copies the first candidate's finish reason, grounding, URL
+// context and parts into pm, and returns its text with the log attributes that
+// describe it.
+func recordCandidate(pm *PassMetadata, candidate *genai.Candidate, respAttrs []slog.Attr) (string, []slog.Attr) {
+	pm.FinishReason = string(candidate.FinishReason)
+	pm.FinishMessage = candidate.FinishMessage
+	pm.AvgLogprobs = candidate.AvgLogprobs
+	recordGrounding(pm, candidate)
+
+	joined, toolQueries := recordParts(pm, candidate)
+	if len(pm.WebSearchQueriesList) == 0 && len(toolQueries) > 0 {
+		// groundingMetadata is often absent on Gemini 3 when the search
+		// runs during thinking; fall back to the tool-call queries.
+		pm.WebSearchQueriesList = toolQueries
+		pm.WebSearchQueries = len(toolQueries)
+	}
+	pm.RawResponseText = joined
+
+	candidateAttrs := append(respAttrs,
+		slog.String("finish_reason", pm.FinishReason),
+		slog.String("finish_message", pm.FinishMessage),
+		slog.Float64("avg_logprobs", pm.AvgLogprobs),
+		slog.Any("search_queries", pm.WebSearchQueriesList),
+		slog.Int("web_search_queries", pm.WebSearchQueries),
+		slog.Int("url_context_retrieved", len(pm.URLContextRetrieved)),
+		slog.Int("url_context_calls", pm.URLContextCalls),
+		slog.Int("url_context_succeeded", pm.URLContextSucceeded),
+		slog.Int("parts_total", pm.PartsTotal),
+		slog.Int("thought_parts", pm.ThoughtParts),
+		slog.Int("text_parts", pm.TextParts),
+	)
+	return joined, candidateAttrs
+}
+
+// recordGrounding copies the candidate's grounding and URL-context metadata
+// into pm.
+func recordGrounding(pm *PassMetadata, candidate *genai.Candidate) {
+	if g := candidate.GroundingMetadata; g != nil {
+		pm.WebSearchQueriesList = g.WebSearchQueries
+		pm.WebSearchQueries = len(g.WebSearchQueries)
+		for _, ch := range g.GroundingChunks {
+			if ch != nil && ch.Web != nil {
+				pm.GroundingChunkURLs = append(pm.GroundingChunkURLs, ch.Web.URI)
+			}
 		}
-		// Parent context cancellation (handler deadline, SIGTERM) is a
-		// caller-driven hard stop, not a remote transient failure — propagate
-		// it as a permanent error so SearchExt surfaces the cancellation
-		// up the stack rather than silently returning an empty result.
-		if ctx.Err() != nil {
-			return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+		var renderedParts int
+		for _, sup := range g.GroundingSupports {
+			if sup == nil {
+				continue
+			}
+			renderedParts += len(sup.RenderedParts)
 		}
-		if lastWasFinish {
-			s.logger.Warn(ctx, "executePass exhausted retries with non-STOP finish_reason",
-				append(attrs, slog.String("last_error", err.Error()))...)
-			return pm, "", true, nil
+		pm.RenderedParts = renderedParts
+	}
+
+	if candidate.URLContextMetadata != nil {
+		for _, um := range candidate.URLContextMetadata.URLMetadata {
+			if um == nil {
+				continue
+			}
+			pm.URLContextRetrieved = append(pm.URLContextRetrieved, URLRetrieval{
+				URL:    um.RetrievedURL,
+				Status: string(um.URLRetrievalStatus),
+			})
 		}
-		// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
-		// per-attempt RPC failed three times without ever reaching a
-		// permanent / non-STOP-FinishReason path. SearchExt fails with Unavailable.
-		s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
+	}
+}
+
+// recordParts counts the candidate's parts into pm and returns the joined
+// text and the Google Search queries of its server-side tool-call parts
+// (present only with IncludeServerSideToolInvocations).
+func recordParts(pm *PassMetadata, candidate *genai.Candidate) (string, []string) {
+	var textBuf strings.Builder
+	var totalParts, thoughtParts, textParts int
+	var toolQueries []string
+	// Content can be nil when the response was filtered out (SAFETY,
+	// RECITATION, etc.). The FinishReason check below would surface the
+	// failure, but a nil-pointer dereference here would panic the goroutine
+	// before that guard runs. Treat nil Content as "no text" and let the
+	// FinishReason / empty-text branches handle the diagnostic.
+	if candidate.Content != nil {
+		pm.URLContextCalls, pm.URLContextSucceeded = urlContextCounts(candidate.Content.Parts)
+		for _, p := range candidate.Content.Parts {
+			if p == nil {
+				continue
+			}
+			totalParts++
+			if tc := p.ToolCall; tc != nil {
+				if tc.ToolType == genai.ToolTypeGoogleSearchWeb {
+					toolQueries = append(toolQueries, searchQueriesOf(tc.Args)...)
+				}
+				continue
+			}
+			if p.Thought {
+				thoughtParts++
+				continue
+			}
+			if p.Text == "" {
+				continue
+			}
+			textParts++
+			textBuf.WriteString(p.Text)
+		}
+	}
+	pm.PartsTotal = totalParts
+	pm.ThoughtParts = thoughtParts
+	pm.TextParts = textParts
+	return textBuf.String(), toolQueries
+}
+
+// failedPass turns the error of an exhausted or permanently failed pass into
+// the result of executePass: a permanent error or a cancellation of the
+// caller is returned as an error; retries exhausted on a transient failure or
+// a non-STOP finish reason are reported as exhausted.
+func (s *ConcertSearcher) failedPass(ctx context.Context, pm *PassMetadata, err error, attrs []slog.Attr, out passOutcome) (*PassMetadata, string, bool, error) {
+	if out.sawPermanent {
+		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+	}
+	// Parent context cancellation (handler deadline, SIGTERM) is a
+	// caller-driven hard stop, not a remote transient failure — propagate
+	// it as a permanent error so SearchExt surfaces the cancellation
+	// up the stack rather than silently returning an empty result.
+	if ctx.Err() != nil {
+		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+	}
+	if out.lastWasFinish {
+		s.logger.Warn(ctx, "executePass exhausted retries with non-STOP finish_reason",
 			append(attrs, slog.String("last_error", err.Error()))...)
 		return pm, "", true, nil
 	}
-	return pm, rawText, false, nil
+	// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
+	// per-attempt RPC failed three times without ever reaching a
+	// permanent / non-STOP-FinishReason path. SearchExt fails with Unavailable.
+	s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
+		append(attrs, slog.String("last_error", err.Error()))...)
+	return pm, "", true, nil
+}
+
+// classifySeries classifies each series of the buckets, in order, by its
+// venues and returns them with the counts of tours, standalone series and
+// events.
+func classifySeries(buckets map[int]*entity.DiscoveredSeries, order []int) (discovered []*entity.DiscoveredSeries, tours, standalones, events int) {
+	discovered = make([]*entity.DiscoveredSeries, 0, len(order))
+	for _, k := range order {
+		ds := buckets[k]
+		ds.ClassifyType()
+		discovered = append(discovered, ds)
+		events += len(ds.Events)
+		if ds.Type == entity.SeriesTypeTour {
+			tours++
+		} else {
+			standalones++
+		}
+	}
+	return discovered, tours, standalones, events
 }
 
 // mergeDrafts turns the drafts into discovered series: it drops events dated
@@ -845,19 +983,7 @@ func (s *ConcertSearcher) mergeDrafts(
 		series.Events = append(series.Events, ev)
 	}
 
-	discovered := make([]*entity.DiscoveredSeries, 0, len(order))
-	var toursCount, standalonesCount, eventCount int
-	for _, k := range order {
-		ds := buckets[k]
-		ds.ClassifyType()
-		discovered = append(discovered, ds)
-		eventCount += len(ds.Events)
-		if ds.Type == entity.SeriesTypeTour {
-			toursCount++
-		} else {
-			standalonesCount++
-		}
-	}
+	discovered, toursCount, standalonesCount, eventCount := classifySeries(buckets, order)
 	if md != nil {
 		md.ToursCount = toursCount
 		md.StandalonesCount = standalonesCount

@@ -147,30 +147,8 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var (
-		status                 int16
-		checkoutID             sql.NullString
-		resaleEntryID, stockID string
-	)
-	// A won resale entry's stock is locked before its Order, as the draw and
-	// RevertWin lock the stock before the entry and its Order.
-	err = tx.QueryRow(ctx, issuanceResaleEntryQuery, string(order.ID)).Scan(&resaleEntryID, &stockID)
-	switch {
-	case err == nil:
-		if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
-			return toAppErr(err, "failed to lock the resale entry's stock", attrs...)
-		}
-	case !errors.Is(err, pgx.ErrNoRows):
-		return toAppErr(err, "failed to read the order's resale entry", attrs...)
-	}
-	err = tx.QueryRow(ctx, issuanceLockCheckoutQuery, string(order.ID)).Scan(&checkoutID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return toAppErr(err, "failed to lock the order's checkout", attrs...)
-	}
-	if err := tx.QueryRow(ctx, issuanceLockOrderQuery, string(order.ID)).Scan(&status); err != nil {
-		return toAppErr(err, "failed to lock the order", attrs...)
-	}
-	if err := (&entity.Order{Status: entity.OrderStatus(status)}).IssuanceOutcome(); err != nil {
+	checkoutID, resaleEntryID, err := lockIssuance(ctx, tx, order, attrs)
+	if err != nil {
 		return err
 	}
 
@@ -193,6 +171,72 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		}
 	}
 
+	if err := insertIssued(ctx, tx, order, tickets, settlement, attrs); err != nil {
+		return err
+	}
+
+	paid := *order
+	paid.Status = entity.OrderStatusPaid
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, &paid); err != nil {
+		return err
+	}
+	for _, l := range sold {
+		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingSold, l); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit issuance transaction", attrs...)
+	}
+
+	r.db.logger.Info(ctx, "issued order and tickets",
+		slog.String("entityType", "orders"),
+		slog.String("orderID", string(order.ID)),
+		slog.String("lotteryEntryID", string(order.LotteryEntryID)),
+		slog.String("checkoutID", checkoutID.String),
+		slog.Int("ticketCount", len(tickets)),
+	)
+	return nil
+}
+
+// lockIssuance locks, inside tx, what issuing the order touches and checks
+// that the order may be issued: a won resale entry's stock before the order, as
+// the draw and RevertWin lock the stock before the entry and its Order, then
+// the order's checkout and the order itself. It returns the order's checkout
+// id and resale entry id, when it has them.
+func lockIssuance(ctx context.Context, tx pgx.Tx, order *entity.Order, attrs []slog.Attr) (sql.NullString, string, error) {
+	var (
+		status                 int16
+		checkoutID             sql.NullString
+		resaleEntryID, stockID string
+	)
+	// A won resale entry's stock is locked before its Order, as the draw and
+	// RevertWin lock the stock before the entry and its Order.
+	err := tx.QueryRow(ctx, issuanceResaleEntryQuery, string(order.ID)).Scan(&resaleEntryID, &stockID)
+	switch {
+	case err == nil:
+		if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
+			return checkoutID, resaleEntryID, toAppErr(err, "failed to lock the resale entry's stock", attrs...)
+		}
+	case !errors.Is(err, pgx.ErrNoRows):
+		return checkoutID, resaleEntryID, toAppErr(err, "failed to read the order's resale entry", attrs...)
+	}
+	err = tx.QueryRow(ctx, issuanceLockCheckoutQuery, string(order.ID)).Scan(&checkoutID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return checkoutID, resaleEntryID, toAppErr(err, "failed to lock the order's checkout", attrs...)
+	}
+	if err := tx.QueryRow(ctx, issuanceLockOrderQuery, string(order.ID)).Scan(&status); err != nil {
+		return checkoutID, resaleEntryID, toAppErr(err, "failed to lock the order", attrs...)
+	}
+	if err := (&entity.Order{Status: entity.OrderStatus(status)}).IssuanceOutcome(); err != nil {
+		return checkoutID, resaleEntryID, err
+	}
+	return checkoutID, resaleEntryID, nil
+}
+
+// insertIssued makes the order paid, inserts its tickets and its settlement
+// with the splits, inside tx.
+func insertIssued(ctx context.Context, tx pgx.Tx, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement, attrs []slog.Attr) error {
 	if _, err := tx.Exec(ctx, issuancePayOrderQuery,
 		string(order.ID), int16(order.Payment.Provider), order.Payment.ProviderPaymentID, order.Payment.ProviderPaymentMethodID,
 		order.Payment.CardBrand, order.Payment.CardLast4, order.PayTime,
@@ -225,28 +269,6 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 				slog.String("payee_organizer_id", split.PayeeOrganizerID))
 		}
 	}
-
-	paid := *order
-	paid.Status = entity.OrderStatusPaid
-	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderPaid, &paid); err != nil {
-		return err
-	}
-	for _, l := range sold {
-		if err := announce(ctx, r.outbox, tx, entity.SubjectResaleListingSold, l); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit issuance transaction", attrs...)
-	}
-
-	r.db.logger.Info(ctx, "issued order and tickets",
-		slog.String("entityType", "orders"),
-		slog.String("orderID", string(order.ID)),
-		slog.String("lotteryEntryID", string(order.LotteryEntryID)),
-		slog.String("checkoutID", checkoutID.String),
-		slog.Int("ticketCount", len(tickets)),
-	)
 	return nil
 }
 
@@ -260,27 +282,52 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 // sees the other's result.
 func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *entity.Order) ([]*entity.ResaleListing, error) {
 	attrs := slog.String("resale_entry_id", entryID)
+	listingIDs, ticketIDs, resold, err := allocateListings(ctx, tx, entryID, order)
+	if err != nil {
+		return nil, err
+	}
+	if err := voidResoldTickets(ctx, tx, ticketIDs, resold, attrs); err != nil {
+		return nil, err
+	}
+	sold := make([]*entity.ResaleListing, 0, len(listingIDs))
+	for _, id := range listingIDs {
+		l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingGetQuery, id))
+		if err != nil {
+			return nil, toAppErr(err, "failed to read a sold listing", attrs)
+		}
+		sold = append(sold, l)
+	}
+	return sold, nil
+}
+
+// allocateListings locks the won resale entry and the listed tickets and sells
+// the listings allocated to it with the order's pay time. It returns the
+// listing ids, the resold ticket ids and, per original order, how many of its
+// tickets are resold now. It fails when the entry is not allocated a listing for
+// every ticket, with [entity.ErrResaleListingCancelled] when one of them was
+// cancelled.
+func allocateListings(ctx context.Context, tx pgx.Tx, entryID string, order *entity.Order) (listingIDs, ticketIDs []string, resold map[string]int, err error) {
+	attrs := slog.String("resale_entry_id", entryID)
 	var state int16
 	if err := tx.QueryRow(ctx, issuanceLockResaleEntryQuery, entryID).Scan(&state); err != nil {
-		return nil, toAppErr(err, "failed to lock the resale entry", attrs)
+		return nil, nil, nil, toAppErr(err, "failed to lock the resale entry", attrs)
 	}
 	if entity.ResaleEntryState(state) != entity.ResaleEntryStateWon {
-		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is not won", attrs)
+		return nil, nil, nil, apperr.New(codes.FailedPrecondition, "the resale entry is not won", attrs)
 	}
 	if _, err := tx.Exec(ctx, issuanceLockResoldTicketsQuery, entryID); err != nil {
-		return nil, toAppErr(err, "failed to lock resold tickets", attrs)
+		return nil, nil, nil, toAppErr(err, "failed to lock resold tickets", attrs)
 	}
 	rows, err := tx.Query(ctx, issuanceSellListingsQuery, entryID, order.PayTime)
 	if err != nil {
-		return nil, toAppErr(err, "failed to sell resale listings", attrs)
+		return nil, nil, nil, toAppErr(err, "failed to sell resale listings", attrs)
 	}
-	var listingIDs, ticketIDs []string
-	resold := map[string]int{} // original order id -> tickets resold now
+	resold = map[string]int{} // original order id -> tickets resold now
 	for rows.Next() {
 		var listingID, ticketID, orderID string
 		if err := rows.Scan(&listingID, &ticketID, &orderID); err != nil {
 			rows.Close()
-			return nil, toAppErr(err, "failed to scan a sold listing", attrs)
+			return nil, nil, nil, toAppErr(err, "failed to scan a sold listing", attrs)
 		}
 		listingIDs = append(listingIDs, listingID)
 		ticketIDs = append(ticketIDs, ticketID)
@@ -288,22 +335,29 @@ func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *e
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to sell resale listings", attrs)
+		return nil, nil, nil, toAppErr(err, "failed to sell resale listings", attrs)
 	}
 	if len(ticketIDs) != order.TicketCount {
 		// A refund of the listing fan's Order that committed first has
 		// cancelled the listing; the sell leaves it and reports it.
 		var cancelled bool
 		if err := tx.QueryRow(ctx, issuanceCancelledListingQuery, entryID).Scan(&cancelled); err != nil {
-			return nil, toAppErr(err, "failed to read the resale entry's cancelled listings", attrs)
+			return nil, nil, nil, toAppErr(err, "failed to read the resale entry's cancelled listings", attrs)
 		}
 		if cancelled {
-			return nil, apperr.Wrap(entity.ErrResaleListingCancelled, codes.FailedPrecondition, "a listing allocated to the resale entry was cancelled", attrs)
+			return nil, nil, nil, apperr.Wrap(entity.ErrResaleListingCancelled, codes.FailedPrecondition, "a listing allocated to the resale entry was cancelled", attrs)
 		}
-		return nil, apperr.New(codes.FailedPrecondition, "the resale entry is not allocated a listing for every ticket",
+		return nil, nil, nil, apperr.New(codes.FailedPrecondition, "the resale entry is not allocated a listing for every ticket",
 			attrs, slog.Int("ticket_count", order.TicketCount), slog.Int("listings", len(ticketIDs)))
 	}
+	return listingIDs, ticketIDs, resold, nil
+}
 
+// voidResoldTickets locks each original settlement in a fixed order, counts
+// the order's Issued tickets under that lock, voids the resold tickets and
+// takes the resold share off each Held settlement.
+func voidResoldTickets(ctx context.Context, tx pgx.Tx, ticketIDs []string, resold map[string]int, attrs slog.Attr) error {
+	var err error
 	// Lock each original settlement in a fixed order and count the order's
 	// Issued tickets under that lock, before this resale voids any of them.
 	orderIDs := make([]string, 0, len(resold))
@@ -315,33 +369,25 @@ func sellResaleListings(ctx context.Context, tx pgx.Tx, entryID string, order *e
 	issued := make([]int, len(orderIDs))
 	for i, id := range orderIDs {
 		if settlements[i], err = lockSettlement(ctx, tx, id); err != nil {
-			return nil, err
+			return err
 		}
 		if err := tx.QueryRow(ctx, issuanceIssuedTicketsQuery, id).Scan(&issued[i]); err != nil {
-			return nil, toAppErr(err, "failed to count the original order's tickets", slog.String("order_id", id))
+			return toAppErr(err, "failed to count the original order's tickets", slog.String("order_id", id))
 		}
 	}
 	tag, err := tx.Exec(ctx, issuanceVoidTicketsQuery, ticketIDs)
 	if err != nil {
-		return nil, toAppErr(err, "failed to void resold tickets", attrs)
+		return toAppErr(err, "failed to void resold tickets", attrs)
 	}
 	if int(tag.RowsAffected()) != len(ticketIDs) {
-		return nil, apperr.New(codes.FailedPrecondition, "a resold ticket is no longer Issued", attrs)
+		return apperr.New(codes.FailedPrecondition, "a resold ticket is no longer Issued", attrs)
 	}
 	for i, id := range orderIDs {
 		if err := giveUpResoldShare(ctx, tx, settlements[i], id, resold[id], issued[i]); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	sold := make([]*entity.ResaleListing, 0, len(listingIDs))
-	for _, id := range listingIDs {
-		l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingGetQuery, id))
-		if err != nil {
-			return nil, toAppErr(err, "failed to read a sold listing", attrs)
-		}
-		sold = append(sold, l)
-	}
-	return sold, nil
+	return nil
 }
 
 // lockSettlement locks the settlement of the order inside tx and reads it with

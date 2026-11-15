@@ -5,12 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/zitadel/zitadel-go/v3/pkg/actions"
 
 	"github.com/pannpers/go-logging/logging"
 )
@@ -88,42 +85,12 @@ type sessionUserCheckedPayload struct {
 func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requirePost(w, r) ||
+		!requireConfigured(ctx, w, h.logger, "login-event", "WEBHOOK_LOGIN_EVENT_SIGNING_KEY", h.signingKey) {
 		return
 	}
-
-	// An empty key would not reject anything: actions.ValidateRequestPayload
-	// computes the HMAC with whatever key it is given, so a body signed with
-	// "" would verify.
-	if h.signingKey == "" {
-		h.logger.Error(ctx, "login-event: signing key is not configured; recording nothing",
-			errors.New("WEBHOOK_LOGIN_EVENT_SIGNING_KEY is empty"))
-		http.Error(w, "not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		h.logger.Warn(ctx, "login-event: failed to read body", slog.String("error", err.Error()))
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if len(body) == 0 {
-		h.logger.Warn(ctx, "login-event: empty body")
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	// Verify the HMAC ZITADEL-Signature header against the raw JSON body using
-	// the Target's signing key. This is the security boundary alongside the
-	// private, internal-only webhook listener.
-	if err := actions.ValidateRequestPayload(body, &r.Header, h.signingKey); err != nil {
-		h.logger.Warn(ctx, "login-event: webhook signature validation failed",
-			slog.String("error", err.Error()),
-		)
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	body, ok := readSignedBody(w, r, h.logger, "login-event", h.signingKey)
+	if !ok {
 		return
 	}
 

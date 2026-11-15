@@ -263,6 +263,59 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 	return sessionID, redirectURL, nil
 }
 
+// verifyResponseOf returns the VerifyResponse of the userAuthentication result
+// of a FinalizeSession response, after checking that it names a user and a
+// certificate. A result the cert failed verification in is FailedPrecondition;
+// a response of another shape is Internal.
+func verifyResponseOf(resp *stampv1.FinalizeSessionResponse) (*verifyv2.VerifyResponse, error) {
+	// Extract the userAuthentication result from the FinalizeSession response.
+	// MVP: we request exactly one result (userAuthentication), so results[0] is
+	// our result. Validate defensively.
+	results := resp.GetResults()
+	if len(results) == 0 {
+		return nil, apperr.New(codes.Internal, "pocket sign finalize session returned no results")
+	}
+
+	userAuthResult := results[0].GetUserAuthentication()
+	if userAuthResult == nil {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign finalize session result is not a userAuthentication result; "+
+				"ensure the session was created with a UserAuthentication request")
+	}
+
+	// A non-nil Error in the result means the cert failed verification on the
+	// Pocket Sign side (e.g. SIGNATURE_MISMATCH, CERTIFICATE_REVOKED,
+	// CERTIFICATE_EXPIRED). Map these to FailedPrecondition.
+	if userAuthResult.HasError() && userAuthResult.GetError() != nil {
+		errStatus := userAuthResult.GetError()
+		return nil, apperr.New(codes.FailedPrecondition,
+			fmt.Sprintf("pocket sign certificate verification failed: %s", errStatus.GetMessage()))
+	}
+
+	// GetResult() returns the *verifyv2.VerifyResponse on success. The
+	// ProviderUserID is carried in User.id (verify.v2.User.id), accessed via:
+	//   result.GetUserAuthentication().GetResult().GetUser().GetId()
+	verifyResp := userAuthResult.GetResult()
+	if verifyResp == nil {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign finalize session returned no verify response in userAuthentication result")
+	}
+
+	user := verifyResp.GetUser()
+	if user == nil || user.GetId() == "" {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign verify response contained no user id; "+
+				"ensure identifyUser=true was set on the UserAuthentication request")
+	}
+
+	cert := verifyResp.GetCertificate()
+	if cert == nil {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign verify response contained no certificate")
+	}
+	return verifyResp, nil
+}
+
 // CompleteVerify calls SessionService.FinalizeSession to complete the Stamp
 // session and extract the verified user identity.
 //
@@ -329,51 +382,12 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 			"pocket sign session nonce mismatch; this request has been rejected for security")
 	}
 
-	// Extract the userAuthentication result from the FinalizeSession response.
-	// MVP: we request exactly one result (userAuthentication), so results[0] is
-	// our result. Validate defensively.
-	results := resp.GetResults()
-	if len(results) == 0 {
-		return nil, apperr.New(codes.Internal, "pocket sign finalize session returned no results")
+	verifyResp, err := verifyResponseOf(resp)
+	if err != nil {
+		return nil, err
 	}
-
-	userAuthResult := results[0].GetUserAuthentication()
-	if userAuthResult == nil {
-		return nil, apperr.New(codes.Internal,
-			"pocket sign finalize session result is not a userAuthentication result; "+
-				"ensure the session was created with a UserAuthentication request")
-	}
-
-	// A non-nil Error in the result means the cert failed verification on the
-	// Pocket Sign side (e.g. SIGNATURE_MISMATCH, CERTIFICATE_REVOKED,
-	// CERTIFICATE_EXPIRED). Map these to FailedPrecondition.
-	if userAuthResult.HasError() && userAuthResult.GetError() != nil {
-		errStatus := userAuthResult.GetError()
-		return nil, apperr.New(codes.FailedPrecondition,
-			fmt.Sprintf("pocket sign certificate verification failed: %s", errStatus.GetMessage()))
-	}
-
-	// GetResult() returns the *verifyv2.VerifyResponse on success. The
-	// ProviderUserID is carried in User.id (verify.v2.User.id), accessed via:
-	//   result.GetUserAuthentication().GetResult().GetUser().GetId()
-	verifyResp := userAuthResult.GetResult()
-	if verifyResp == nil {
-		return nil, apperr.New(codes.Internal,
-			"pocket sign finalize session returned no verify response in userAuthentication result")
-	}
-
 	user := verifyResp.GetUser()
-	if user == nil || user.GetId() == "" {
-		return nil, apperr.New(codes.Internal,
-			"pocket sign verify response contained no user id; "+
-				"ensure identifyUser=true was set on the UserAuthentication request")
-	}
-
 	cert := verifyResp.GetCertificate()
-	if cert == nil {
-		return nil, apperr.New(codes.Internal,
-			"pocket sign verify response contained no certificate")
-	}
 	method, err := methodFromCertType(cert.GetType())
 	if err != nil {
 		return nil, err
