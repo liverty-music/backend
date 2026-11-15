@@ -821,8 +821,12 @@ func NewConcertsOfArtist(artistID string, ids []string, concerts []*Concert) (de
 			return nil, nil, apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+artistID)
 		}
 	}
+	named := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		named[id] = true
+	}
 	for _, c := range concerts {
-		if !orphan[c.ID] {
+		if named[c.ID] && !orphan[c.ID] {
 			deliverable = append(deliverable, c)
 		}
 	}

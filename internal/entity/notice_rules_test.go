@@ -100,6 +100,14 @@ func TestNewConcertsOfArtist(t *testing.T) {
 		assert.Equal(t, []string{"c-3"}, orphans)
 	})
 
+	t.Run("a given concert no id names is not returned", func(t *testing.T) {
+		t.Parallel()
+		got, _, err := entity.NewConcertsOfArtist("artist-1", []string{"c-1"}, []*entity.Concert{headlined, foreign})
+
+		require.NoError(t, err)
+		assert.Equal(t, []*entity.Concert{headlined}, got)
+	})
+
 	t.Run("an id that names no concert is refused", func(t *testing.T) {
 		t.Parallel()
 		_, _, err := entity.NewConcertsOfArtist("artist-1", []string{"c-1", "c-9"}, []*entity.Concert{headlined})

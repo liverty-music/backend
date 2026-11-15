@@ -166,10 +166,11 @@ func NewResaleListing(ticket *Ticket, stockID TicketStockID, seatType *SeatType,
 }
 
 // SoldEmailDue reports whether the listing's sold email is still to be sent:
-// none has been sent. One email per listing; a failure between sending and
-// recording the send can lead to a second email on retry.
+// the listing is Sold and none has been sent. One email per listing; a
+// failure between sending and recording the send can lead to a second email
+// on retry.
 func (l *ResaleListing) SoldEmailDue() bool {
-	return l.SoldEmailSendTime == nil
+	return l.Status == ResaleListingStatusSold && l.SoldEmailSendTime == nil
 }
 
 // Fee returns the listing's resale fee: 10% of its price, rounded down to the
