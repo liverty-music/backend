@@ -16,8 +16,9 @@ import (
 const passkeyRegistrationLinkTag = "passkey-registration-link"
 
 // PasskeyRegistrationLinkIssuer issues an identity's passkey registration
-// link at the identity provider. Implemented by the Zitadel
-// PasskeyRegistrationLinkIssuer.
+// link at the identity provider. Implemented by the identity service's client
+// (identity.UserClient); the identity service issues a link only for a
+// verified address.
 type PasskeyRegistrationLinkIssuer interface {
 	// IssuePasskeyRegistrationLink returns the identity's verified email
 	// address and a link that registers a passkey for it without a sign-in.

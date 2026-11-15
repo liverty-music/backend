@@ -21,6 +21,8 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 // stubMgmt is a test double for ManagementServiceClient. It embeds the
@@ -480,7 +482,7 @@ func TestOrganizationRepository_Provision(t *testing.T) {
 			}
 			p := newTestRepository(t, tt.stub, tt.userV2)
 
-			err := p.Provision(ctx, providerOrganizerID, shortName, email)
+			err := provision(p).Provision(ctx, providerOrganizerID, shortName, email)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -499,7 +501,7 @@ func TestOrganizationRepository_Provision_collisionMessageReachesAdmin(t *testin
 
 	p := newTestRepository(t, &stubMgmt{}, &stubUserV2{addHumanUserErr: alreadyExists("user exists")})
 
-	err := p.Provision(context.Background(), "zitadel-org-1", "xx-records", "admin@example.com")
+	err := provision(p).Provision(context.Background(), "zitadel-org-1", "xx-records", "admin@example.com")
 
 	// The Connect error interceptor exposes the innermost AppErr message of a
 	// client error, so that is what the admin sees.
@@ -514,7 +516,7 @@ func TestOrganizationRepository_Provision_ownerLookupIsOrgScopedAndIgnoresCase(t
 	userV2 := &stubUserV2{addHumanUserErr: alreadyExists("user exists"), listUsersResp: orgUsers("existing")}
 	p := newTestRepository(t, &stubMgmt{}, userV2)
 
-	require.NoError(t, p.Provision(context.Background(), "zitadel-org-1", "xx-records", "Band@Example.com"))
+	require.NoError(t, provision(p).Provision(context.Background(), "zitadel-org-1", "xx-records", "Band@Example.com"))
 
 	require.Len(t, userV2.listUsersReqs, 1)
 	req := userV2.listUsersReqs[0]
@@ -530,7 +532,7 @@ func TestOrganizationRepository_Provision_withoutShortName(t *testing.T) {
 	userV2 := &stubUserV2{}
 	p := newTestRepository(t, &stubMgmt{}, userV2)
 
-	err := p.Provision(context.Background(), "zitadel-org-1", "", "band@example.com")
+	err := provision(p).Provision(context.Background(), "zitadel-org-1", "", "band@example.com")
 
 	assert.ErrorIs(t, err, apperr.ErrInternal, "retryable once the short name is set")
 	assert.Zero(t, userV2.addHumanUserCalls, "no identity named \"<email> ()\" is created")
@@ -655,7 +657,7 @@ func TestOrganizationRepository_Provision_sendsStandardVerifyInvite(t *testing.T
 	userV2 := &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "owner-user-1"}}
 	p := newTestRepository(t, stub, userV2)
 
-	err := p.Provision(context.Background(), "zitadel-org-xyz", "xx-records", "owner@acme.com")
+	err := provision(p).Provision(context.Background(), "zitadel-org-xyz", "xx-records", "owner@acme.com")
 	require.NoError(t, err)
 
 	// The onboarding email is Zitadel's STANDARD invite: its "Accept invite" link
@@ -923,4 +925,10 @@ func assertLoginPolicyDefaults(t *testing.T, req loginPolicyDefaults) {
 	assert.Equal(t, 720*time.Hour, req.GetMfaInitSkipLifetime().AsDuration())
 	assert.Equal(t, 18*time.Hour, req.GetSecondFactorCheckLifetime().AsDuration())
 	assert.Equal(t, 12*time.Hour, req.GetMultiFactorCheckLifetime().AsDuration())
+}
+
+// provision runs the provisioning steps of p in the order the identity
+// service's usecase runs them.
+func provision(p *OrganizationRepository) usecase.IdentityOrganizationUseCase {
+	return usecase.NewIdentityOrganizationUseCase(p)
 }

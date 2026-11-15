@@ -314,3 +314,30 @@ func TestUser_EmailLanguage(t *testing.T) {
 		assert.Equal(t, want, (&entity.User{PreferredLanguage: lang}).EmailLanguage(), "preferred %q", lang)
 	}
 }
+
+func TestIdentityEmail_CheckPasskeyRecovery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		email   entity.IdentityEmail
+		wantErr error
+	}{
+		{name: "a verified address gets a link", email: entity.IdentityEmail{Address: "fan@example.com", Verified: true}},
+		{name: "an unverified address gets none", email: entity.IdentityEmail{Address: "fan@example.com"}, wantErr: apperr.ErrFailedPrecondition},
+		{name: "no address gets none, even marked verified", email: entity.IdentityEmail{Verified: true}, wantErr: apperr.ErrFailedPrecondition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.email.CheckPasskeyRecovery()
+
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}

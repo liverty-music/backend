@@ -16,6 +16,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -67,8 +68,10 @@ func newPasskeyLinkSender(t *testing.T, idp *fakeIdentityProvider, stub *stubPos
 	t.Cleanup(srv.Close)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	issuer, err := infrazitadel.NewPasskeyRegistrationLinkIssuerWithClient(idp, "https://auth.liverty-music.app", logger)
+	codes, err := infrazitadel.NewPasskeyRegistrationLinkIssuerWithClient(idp, "https://auth.liverty-music.app", logger)
 	require.NoError(t, err)
+	// The identity service's usecase decides whether a link is issued.
+	issuer := usecase.NewIdentityUserUseCase(nil, codes, nil)
 	return mail.NewPostmarkPasskeyRegistrationLinkSenderForTest(issuer, srv.URL, "server-token", logger)
 }
 

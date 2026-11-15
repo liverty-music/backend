@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -44,15 +43,12 @@ const userSearchLimit = 10
 // user name is taken outside the Organization.
 const userNameInUseMsg = "the owner identity's user name is already used outside the organization"
 
-// Compile-time interface compliance check.
-var _ entity.OrganizationRepository = (*OrganizationRepository)(nil)
-
 // OrganizationRepository creates, provisions and removes Organizers'
 // Organizations via the Zitadel Management API using the
-// organizer-provisioner machine user credential. Provision is idempotent: the
-// saga steps are existence-checked so a retry after a partial failure
-// completes without creating duplicates and never leaves the owner without
-// the owner role.
+// organizer-provisioner machine user credential. Provisioning is offered as
+// steps the identity service's usecase runs in order; each step is
+// existence-checked, so a retry after a partial failure completes without
+// creating duplicates.
 type OrganizationRepository struct {
 	mgmt                      mgmtpb.ManagementServiceClient
 	userV2                    userv2pb.UserServiceClient
@@ -207,59 +203,63 @@ func (p *OrganizationRepository) GetByName(ctx context.Context, shortName string
 	return "", apperr.New(codes.NotFound, "organization not found", slog.String("org_name", orgName))
 }
 
-// Provision completes the Organization providerOrganizerID, which Create
-// created. It is idempotent: each step is existence-checked so
-// a retry after a partial failure completes without creating duplicates.
-//
-// The steps:
-//  1. Set a passkey-primary custom login policy on the Organization.
-//  2. Project-grant the organizer-console project to the Organization.
-//  3. Create the owner identity (user name "<ownerEmail> (<shortName>)"), or
-//     reuse the one an earlier attempt created in the Organization.
-//  4. Grant the owner identity the owner role on the organizer-console project.
+// EnsurePasskeyLoginPolicy sets the passkey-primary custom login policy on the
+// Organization providerOrganizerID, or updates the existing one to it. Every
+// failure is Internal.
+func (p *OrganizationRepository) EnsurePasskeyLoginPolicy(ctx context.Context, providerOrganizerID string) error {
+	// Management API calls for the Organization's own resources are scoped to
+	// the Organization.
+	if err := p.ensureLoginPolicy(middleware.SetOrgID(ctx, providerOrganizerID), providerOrganizerID); err != nil {
+		return apperr.Wrap(err, codes.Internal, "ensure passkey-primary login policy",
+			slog.String("zitadel_org_id", providerOrganizerID))
+	}
+	return nil
+}
+
+// EnsureConsoleProjectGrant project-grants organizer-console to the
+// Organization providerOrganizerID; an existing grant counts as done. Every
+// failure is Internal.
+func (p *OrganizationRepository) EnsureConsoleProjectGrant(ctx context.Context, providerOrganizerID string) error {
+	// AddProjectGrant is called from the provisioner's own org context; the
+	// organizer-console project lives in the provisioner's org, so it is called
+	// without the Organization header.
+	if err := p.ensureProjectGrant(ctx, providerOrganizerID); err != nil {
+		return apperr.Wrap(err, codes.Internal, "ensure project grant",
+			slog.String("zitadel_org_id", providerOrganizerID))
+	}
+	return nil
+}
+
+// EnsureOwnerIdentity creates the owner identity (user name
+// "<ownerEmail> (<shortName>)") in the Organization providerOrganizerID and
+// sends its invite, or reuses the identity an earlier attempt created there,
+// and returns its id.
 //
 // Failures caused by the owner identity itself (Zitadel rejects the email or
 // the user name, or the user name is taken outside the Organization) carry
 // InvalidArgument or AlreadyExists and cannot succeed on retry; every other
 // failure is Internal.
-func (p *OrganizationRepository) Provision(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) error {
-	if shortName == "" {
-		// Only the Organizer created before short names lacks one; it is
-		// given one by hand, after which a retry succeeds.
-		return apperr.New(codes.Internal, "organizer has no short name",
-			slog.String("zitadel_org_id", providerOrganizerID))
-	}
-
-	// Management API calls for the Organization's own resources are scoped to
-	// the Organization.
-	orgCtx := middleware.SetOrgID(ctx, providerOrganizerID)
-
-	if err := p.ensureLoginPolicy(orgCtx, providerOrganizerID); err != nil {
-		return apperr.Wrap(err, codes.Internal, "ensure passkey-primary login policy")
-	}
-
-	// AddProjectGrant is called from the provisioner's own org context; the
-	// organizer-console project lives in the provisioner's org, so we call
-	// it without the Organization header.
-	if err := p.ensureProjectGrant(ctx, providerOrganizerID); err != nil {
-		return apperr.Wrap(err, codes.Internal, "ensure project grant")
-	}
-
+func (p *OrganizationRepository) EnsureOwnerIdentity(ctx context.Context, providerOrganizerID, shortName, ownerEmail string) (string, error) {
 	ownerID, err := p.ensureOwnerIdentity(ctx, providerOrganizerID, shortName, ownerEmail)
 	if err != nil {
 		// ensureOwnerIdentity already assigns the code (AlreadyExists /
 		// InvalidArgument / Internal); keep it.
-		return fmt.Errorf("ensure owner identity: %w", err)
+		return "", fmt.Errorf("ensure owner identity: %w", err)
 	}
+	return ownerID, nil
+}
 
-	if err := p.ensureUserGrant(orgCtx, ownerID); err != nil {
-		return apperr.Wrap(err, codes.Internal, "ensure owner identity grant")
+// EnsureOwnerGrant grants the identity ownerID of the Organization
+// providerOrganizerID the owner role on organizer-console; an existing grant
+// counts as done. Every failure is Internal.
+func (p *OrganizationRepository) EnsureOwnerGrant(ctx context.Context, providerOrganizerID, ownerID string) error {
+	if err := p.ensureUserGrant(middleware.SetOrgID(ctx, providerOrganizerID), ownerID); err != nil {
+		return apperr.Wrap(err, codes.Internal, "ensure owner identity grant",
+			slog.String("zitadel_org_id", providerOrganizerID))
 	}
-
-	p.logger.Info(ctx, "organization provisioned",
-		slog.String("short_name", shortName),
+	p.logger.Info(ctx, "organization owner granted",
 		slog.String("zitadel_org_id", providerOrganizerID),
-		slog.String("owner_email", ownerEmail),
+		slog.String("owner_id", ownerID),
 	)
 	return nil
 }

@@ -388,11 +388,39 @@ type IdentityRemover interface {
 	DeleteIdentity(ctx context.Context, providerUserID string) error
 }
 
+// IdentityEmail is an identity's email address as the identity provider
+// records it, read before a passkey registration link is issued for it.
+type IdentityEmail struct {
+	// Address is the identity's email address, "" when it has none.
+	Address string
+	// Verified reports whether the identity provider has verified Address.
+	Verified bool
+	// Organization is the identity provider's id of the Organization the
+	// identity belongs to.
+	Organization string
+}
+
+// CheckPasskeyRecovery reports whether a passkey registration link may be
+// issued for the identity: only an identity with a verified address gets one,
+// so the link reaches only a mailbox the identity has proven to own.
+//
+// # Possible errors
+//
+//   - FailedPrecondition: the identity has no address, or its address is not
+//     verified.
+func (e IdentityEmail) CheckPasskeyRecovery() error {
+	if e.Address == "" || !e.Verified {
+		return apperr.New(codes.FailedPrecondition, "identity's email address is not verified")
+	}
+	return nil
+}
+
 // PasskeyRegistrationLinkSender sends a User's verified email address a link
 // that registers a new passkey for the User's identity on whichever device
 // the link is opened (User.SendPasskeyRegistrationLink). The link stops
 // working 1 hour after it is sent and once a registration has been started
-// with it; the identity's existing passkeys stay registered.
+// with it; the identity's existing passkeys stay registered. A link is issued
+// only for a verified address ([IdentityEmail.CheckPasskeyRecovery]).
 type PasskeyRegistrationLinkSender interface {
 	// SendPasskeyRegistrationLink sends one email, in the user's preferred
 	// language (Japanese when none), to the address the user's identity has

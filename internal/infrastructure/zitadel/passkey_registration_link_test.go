@@ -12,6 +12,7 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
+	"github.com/liverty-music/backend/internal/entity"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -62,41 +63,28 @@ func newIssuer(t *testing.T, client *stubPasskeyLinkClient) *infrazitadel.Passke
 	return issuer
 }
 
-func TestPasskeyRegistrationLinkIssuer_IssuePasskeyRegistrationLink(t *testing.T) {
+func TestPasskeyRegistrationLinkIssuer_GetIdentityEmail(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	t.Run("returns the verified address and a code-based /passkey/set link of the identity's organization", func(t *testing.T) {
+	t.Run("returns the address, whether it is verified, and the identity's organization", func(t *testing.T) {
 		t.Parallel()
-		client := &stubPasskeyLinkClient{user: humanUser(true)}
+		for _, verified := range []bool{true, false} {
+			client := &stubPasskeyLinkClient{user: humanUser(verified)}
 
-		address, link, err := newIssuer(t, client).IssuePasskeyRegistrationLink(ctx, "zitadel-fan-1")
+			got, err := newIssuer(t, client).GetIdentityEmail(ctx, "zitadel-fan-1")
 
-		require.NoError(t, err)
-		assert.Equal(t, "fan@example.com", address)
-		u, err := url.Parse(link)
-		require.NoError(t, err)
-		assert.Equal(t, "https://auth.liverty-music.app/ui/v2/login/passkey/set", u.Scheme+"://"+u.Host+u.Path)
-		assert.Equal(t, url.Values{"userId": {"zitadel-fan-1"}, "code": {"code"}, "codeId": {"code-id"}, "organization": {"product-org-1"}}, u.Query())
-		require.Len(t, client.created, 1)
-		assert.NotNil(t, client.created[0].GetReturnCode(), "the code is returned, not emailed by Zitadel")
-	})
-
-	t.Run("fails with FailedPrecondition and issues no code for an unverified address", func(t *testing.T) {
-		t.Parallel()
-		client := &stubPasskeyLinkClient{user: humanUser(false)}
-
-		_, _, err := newIssuer(t, client).IssuePasskeyRegistrationLink(ctx, "zitadel-fan-1")
-
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-		assert.Empty(t, client.created)
+			require.NoError(t, err)
+			assert.Equal(t, &entity.IdentityEmail{Address: "fan@example.com", Verified: verified, Organization: "product-org-1"}, got)
+			assert.Empty(t, client.created, "reading issues no code")
+		}
 	})
 
 	t.Run("fails with NotFound for an identity that does not exist", func(t *testing.T) {
 		t.Parallel()
 		client := &stubPasskeyLinkClient{getErr: grpcstatus.Error(grpccodes.NotFound, "not found")}
 
-		_, _, err := newIssuer(t, client).IssuePasskeyRegistrationLink(ctx, "zitadel-fan-1")
+		_, err := newIssuer(t, client).GetIdentityEmail(ctx, "zitadel-fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -105,16 +93,56 @@ func TestPasskeyRegistrationLinkIssuer_IssuePasskeyRegistrationLink(t *testing.T
 		t.Parallel()
 		client := &stubPasskeyLinkClient{user: &userpb.User{UserId: "machine-1", Type: &userpb.User_Machine{}}}
 
-		_, _, err := newIssuer(t, client).IssuePasskeyRegistrationLink(ctx, "machine-1")
+		_, err := newIssuer(t, client).GetIdentityEmail(ctx, "machine-1")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("fails with Internal for an identity with no organization", func(t *testing.T) {
+		t.Parallel()
+		user := humanUser(true)
+		user.Details = nil
+		client := &stubPasskeyLinkClient{user: user}
+
+		_, err := newIssuer(t, client).GetIdentityEmail(ctx, "zitadel-fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+}
+
+func TestPasskeyRegistrationLinkIssuer_CreatePasskeyRegistrationLink(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("returns a code-based /passkey/set link of the given organization", func(t *testing.T) {
+		t.Parallel()
+		client := &stubPasskeyLinkClient{}
+
+		link, err := newIssuer(t, client).CreatePasskeyRegistrationLink(ctx, "zitadel-fan-1", "product-org-1")
+
+		require.NoError(t, err)
+		u, err := url.Parse(link)
+		require.NoError(t, err)
+		assert.Equal(t, "https://auth.liverty-music.app/ui/v2/login/passkey/set", u.Scheme+"://"+u.Host+u.Path)
+		assert.Equal(t, url.Values{"userId": {"zitadel-fan-1"}, "code": {"code"}, "codeId": {"code-id"}, "organization": {"product-org-1"}}, u.Query())
+		require.Len(t, client.created, 1)
+		assert.NotNil(t, client.created[0].GetReturnCode(), "the code is returned, not emailed by Zitadel")
+	})
+
+	t.Run("fails with NotFound for an identity that does not exist", func(t *testing.T) {
+		t.Parallel()
+		client := &stubPasskeyLinkClient{createErr: grpcstatus.Error(grpccodes.NotFound, "not found")}
+
+		_, err := newIssuer(t, client).CreatePasskeyRegistrationLink(ctx, "zitadel-fan-1", "product-org-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("fails with Internal when the code cannot be issued, without the code in the error", func(t *testing.T) {
 		t.Parallel()
-		client := &stubPasskeyLinkClient{user: humanUser(true), createErr: grpcstatus.Error(grpccodes.PermissionDenied, "no user.passkey.write")}
+		client := &stubPasskeyLinkClient{createErr: grpcstatus.Error(grpccodes.PermissionDenied, "no user.passkey.write")}
 
-		_, _, err := newIssuer(t, client).IssuePasskeyRegistrationLink(ctx, "zitadel-fan-1")
+		_, err := newIssuer(t, client).CreatePasskeyRegistrationLink(ctx, "zitadel-fan-1", "product-org-1")
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})

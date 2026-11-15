@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -25,9 +26,10 @@ type PasskeyRegistrationLinkClient interface {
 	CreatePasskeyRegistrationLink(ctx context.Context, in *userpb.CreatePasskeyRegistrationLinkRequest, opts ...grpc.CallOption) (*userpb.CreatePasskeyRegistrationLinkResponse, error)
 }
 
-// PasskeyRegistrationLinkIssuer issues the one-time passkey registration
-// code of an identity through the v2 User Service and builds the hosted
-// login link that registers a passkey with it. It authenticates as the
+// PasskeyRegistrationLinkIssuer reads an identity's email address and issues
+// its one-time passkey registration code through the v2 User Service, building
+// the hosted login link that registers a passkey with it. Whether a link may be
+// issued is decided by the identity service's usecase. It authenticates as the
 // fan-passkey-recovery machine user, whose ORG_OWNER membership on the product
 // org carries user.passkey.write (no narrower org role does). Only the event
 // consumer builds it.
@@ -86,41 +88,49 @@ func NewPasskeyRegistrationLinkIssuerWithClient(client PasskeyRegistrationLinkCl
 	}, nil
 }
 
-// IssuePasskeyRegistrationLink reads the identity providerUserID and, when its
-// email address is verified, issues a passkey registration code for it. It
-// returns the verified address and the hosted login link that registers a
-// passkey with the code without a sign-in:
-// <login origin>/ui/v2/login/passkey/set?userId=…&code=…&codeId=…&organization=<the identity's organization>.
+// GetIdentityEmail reads the email address of the identity providerUserID,
+// whether it is verified, and the identity's organization.
 //
 // # Possible errors
 //
 //   - NotFound: the identity does not exist (or is not a human identity).
-//   - FailedPrecondition: the identity has no verified email address; no
-//     code is issued.
-//   - Internal: any other failure.
-func (i *PasskeyRegistrationLinkIssuer) IssuePasskeyRegistrationLink(ctx context.Context, providerUserID string) (address, link string, err error) {
+//   - Internal: any other failure, including an identity with no organization.
+func (i *PasskeyRegistrationLinkIssuer) GetIdentityEmail(ctx context.Context, providerUserID string) (*entity.IdentityEmail, error) {
 	attrs := slog.String("provider_user_id", providerUserID)
 	resp, err := i.client.GetUserByID(ctx, &userpb.GetUserByIDRequest{UserId: providerUserID})
 	if err != nil {
 		if isNotFound(err) {
-			return "", "", apperr.Wrap(err, codes.NotFound, "identity not found", attrs)
+			return nil, apperr.Wrap(err, codes.NotFound, "identity not found", attrs)
 		}
-		return "", "", apperr.Wrap(err, codes.Internal, "get zitadel user", attrs)
+		return nil, apperr.Wrap(err, codes.Internal, "get zitadel user", attrs)
 	}
 	user := resp.GetUser()
 	human := user.GetHuman()
 	if human == nil {
-		return "", "", apperr.New(codes.NotFound, "identity is not a human user", attrs)
-	}
-	email := human.GetEmail()
-	if email.GetEmail() == "" || !email.GetIsVerified() {
-		return "", "", apperr.New(codes.FailedPrecondition, "identity's email address is not verified", attrs)
+		return nil, apperr.New(codes.NotFound, "identity is not a human user", attrs)
 	}
 	organization := user.GetDetails().GetResourceOwner()
 	if organization == "" {
-		return "", "", apperr.New(codes.Internal, "identity has no organization", attrs)
+		return nil, apperr.New(codes.Internal, "identity has no organization", attrs)
 	}
+	return &entity.IdentityEmail{
+		Address:      human.GetEmail().GetEmail(),
+		Verified:     human.GetEmail().GetIsVerified(),
+		Organization: organization,
+	}, nil
+}
 
+// CreatePasskeyRegistrationLink issues a passkey registration code for the
+// identity providerUserID of organization and returns the hosted login link
+// that registers a passkey with the code without a sign-in:
+// <login origin>/ui/v2/login/passkey/set?userId=…&code=…&codeId=…&organization=….
+//
+// # Possible errors
+//
+//   - NotFound: the identity does not exist.
+//   - Internal: any other failure.
+func (i *PasskeyRegistrationLinkIssuer) CreatePasskeyRegistrationLink(ctx context.Context, providerUserID, organization string) (string, error) {
+	attrs := slog.String("provider_user_id", providerUserID)
 	created, err := i.client.CreatePasskeyRegistrationLink(ctx, &userpb.CreatePasskeyRegistrationLinkRequest{
 		UserId: providerUserID,
 		Medium: &userpb.CreatePasskeyRegistrationLinkRequest_ReturnCode{
@@ -129,13 +139,13 @@ func (i *PasskeyRegistrationLinkIssuer) IssuePasskeyRegistrationLink(ctx context
 	})
 	if err != nil {
 		if isNotFound(err) {
-			return "", "", apperr.Wrap(err, codes.NotFound, "identity not found", attrs)
+			return "", apperr.Wrap(err, codes.NotFound, "identity not found", attrs)
 		}
-		return "", "", apperr.Wrap(err, codes.Internal, "create passkey registration link", attrs)
+		return "", apperr.Wrap(err, codes.Internal, "create passkey registration link", attrs)
 	}
 	code := created.GetCode()
 	if code.GetId() == "" || code.GetCode() == "" {
-		return "", "", apperr.New(codes.Internal, "zitadel returned no passkey registration code", attrs)
+		return "", apperr.New(codes.Internal, "zitadel returned no passkey registration code", attrs)
 	}
 
 	query := url.Values{}
@@ -144,7 +154,7 @@ func (i *PasskeyRegistrationLinkIssuer) IssuePasskeyRegistrationLink(ctx context
 	query.Set("codeId", code.GetId())
 	query.Set("organization", organization)
 	i.logger.Info(ctx, "passkey registration code issued", attrs)
-	return email.GetEmail(), i.loginBaseURL + "/ui/v2/login/passkey/set?" + query.Encode(), nil
+	return i.loginBaseURL + "/ui/v2/login/passkey/set?" + query.Encode(), nil
 }
 
 // FanWebBaseURLFromIssuer derives the fan web origin from the Zitadel issuer
