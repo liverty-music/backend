@@ -100,66 +100,14 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		return err
 	}
 
-	// -- release gate: event start_time + dispute buffer. --
-	// A nil start_time means the event time is not yet published; withhold
-	// (do not error). Reading it fresh each sweep picks up a start_time that is
-	// filled in after the purchase.
-	eventStartTime, err := uc.eventStartTimeRepo.GetEventStartTime(ctx, s.EventID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Warn(ctx, "payout sweep: event not found for settlement; skipping",
-				slog.String("settlement_id", string(s.ID)),
-				slog.String("event_id", s.EventID),
-			)
-			return nil
-		}
-		return err
-	}
-
 	now := uc.clock()
-
-	var startTime time.Time
-	if eventStartTime != nil {
-		startTime = *eventStartTime
-	}
-	if !entity.IsReleaseEligible(now, startTime, uc.disputeBuffer) {
-		// Gate not yet passed; not an error — the next sweep will retry.
-		return nil
-	}
-
-	// -- Organizer payout eligibility: transfers capability must be active. --
-	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, s.OrganizerID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			// No payout account yet; payout withheld (not failed).
-			uc.logger.Info(ctx, "payout sweep: no payout account for organizer; payout withheld",
-				slog.String("settlement_id", string(s.ID)),
-				slog.String("organizer_id", s.OrganizerID),
-			)
-			return nil
-		}
+	passed, err := uc.releaseGatePassed(ctx, s, now)
+	if err != nil || !passed {
 		return err
 	}
-
-	// Refresh capability status from the provider before deciding.
-	freshStatus, err := uc.payoutAccountRepo.GetStatus(ctx, acct.ProviderAccountID)
-	if err != nil {
-		uc.logger.Warn(ctx, "payout sweep: failed to refresh account status; using cached status",
-			slog.String("settlement_id", string(s.ID)),
-			slog.String("provider_account_id", acct.ProviderAccountID),
-			slog.Any("error", err),
-		)
-		freshStatus = acct.Status
-	}
-
-	if !freshStatus.IsPayoutEligible() {
-		// payout account verification not complete; payout withheld (not failed).
-		uc.logger.Info(ctx, "payout sweep: organizer account not payout-active; payout withheld",
-			slog.String("settlement_id", string(s.ID)),
-			slog.String("organizer_id", s.OrganizerID),
-			slog.String("account_status", freshStatus.String()),
-		)
-		return nil
+	acct, err := uc.payoutActiveAccount(ctx, s)
+	if err != nil || acct == nil {
+		return err
 	}
 
 	// -- splits engine: validate splits and build the Transfer work list. --
@@ -167,7 +115,6 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	if err != nil {
 		return err
 	}
-	splits := plan.Splits
 
 	// -- resolve the provider payment ID to its charge ID. --
 	providerChargeID, err := uc.orderRepo.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
@@ -175,31 +122,9 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		return err
 	}
 
-	// -- create Transfer(s) for each split. --
-	// NOTE: NO on_behalf_of and NO statement descriptor are set on the
-	// Transfer. The platform is the Stripe settlement merchant; the statement
-	// descriptor is platform account configuration owned by cloud-provisioning
-	// task 5.1. Setting on_behalf_of would require the Organizer's payout
-	// account to hold the card_payments capability active before the original
-	// charge, which would gate ticket sale on merchant KYB — contradicting the
-	// design requirement that onboarding never blocks sale.
-	releasedSplits := make([]entity.SettlementSplit, len(splits))
-	for i, split := range splits {
-		providerPayoutID, err := uc.settlementRepo.CreatePayout(ctx, entity.PayoutParams{
-			SettlementID:           s.ID,
-			PayeeProviderAccountID: acct.ProviderAccountID,
-			ProviderChargeID:       providerChargeID,
-			Amount:                 split.Amount,
-			Currency:               order.Currency,
-		})
-		if err != nil {
-			return err
-		}
-		releasedSplits[i] = entity.SettlementSplit{
-			PayeeOrganizerID: split.PayeeOrganizerID,
-			Amount:           split.Amount,
-			ProviderPayoutID: providerPayoutID,
-		}
+	releasedSplits, err := uc.createPayouts(ctx, s, acct, providerChargeID, order.Currency, plan.Splits)
+	if err != nil {
+		return err
 	}
 
 	// -- persist the released state atomically. --
@@ -223,4 +148,102 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		slog.Int("split_count", len(releasedSplits)),
 	)...)
 	return nil
+}
+
+// releaseGatePassed reports whether the settlement's release gate (event
+// start time + dispute buffer) has passed at now. A nil start time means the
+// event time is not yet published; it withholds (no error). Reading it fresh
+// each sweep picks up a start time filled in after the purchase. An event
+// that no longer exists is skipped with a warning.
+func (uc *settlementUseCase) releaseGatePassed(ctx context.Context, s *entity.Settlement, now time.Time) (bool, error) {
+	eventStartTime, err := uc.eventStartTimeRepo.GetEventStartTime(ctx, s.EventID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Warn(ctx, "payout sweep: event not found for settlement; skipping",
+				slog.String("settlement_id", string(s.ID)),
+				slog.String("event_id", s.EventID),
+			)
+			return false, nil
+		}
+		return false, err
+	}
+	var startTime time.Time
+	if eventStartTime != nil {
+		startTime = *eventStartTime
+	}
+	// Gate not yet passed is not an error — the next sweep will retry.
+	return entity.IsReleaseEligible(now, startTime, uc.disputeBuffer), nil
+}
+
+// payoutActiveAccount returns the Organizer's payout account when its
+// transfers capability is active, refreshed from the provider (the cached
+// status when the refresh fails), and nil when the payout is withheld: no
+// account yet, or verification not complete.
+func (uc *settlementUseCase) payoutActiveAccount(ctx context.Context, s *entity.Settlement) (*entity.PayoutAccount, error) {
+	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, s.OrganizerID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			// No payout account yet; payout withheld (not failed).
+			uc.logger.Info(ctx, "payout sweep: no payout account for organizer; payout withheld",
+				slog.String("settlement_id", string(s.ID)),
+				slog.String("organizer_id", s.OrganizerID),
+			)
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Refresh capability status from the provider before deciding.
+	freshStatus, err := uc.payoutAccountRepo.GetStatus(ctx, acct.ProviderAccountID)
+	if err != nil {
+		uc.logger.Warn(ctx, "payout sweep: failed to refresh account status; using cached status",
+			slog.String("settlement_id", string(s.ID)),
+			slog.String("provider_account_id", acct.ProviderAccountID),
+			slog.Any("error", err),
+		)
+		freshStatus = acct.Status
+	}
+
+	if !freshStatus.IsPayoutEligible() {
+		// payout account verification not complete; payout withheld (not failed).
+		uc.logger.Info(ctx, "payout sweep: organizer account not payout-active; payout withheld",
+			slog.String("settlement_id", string(s.ID)),
+			slog.String("organizer_id", s.OrganizerID),
+			slog.String("account_status", freshStatus.String()),
+		)
+		return nil, nil
+	}
+	return acct, nil
+}
+
+// createPayouts creates one Transfer per split and returns the splits with
+// their provider payout ids.
+//
+// NOTE: NO on_behalf_of and NO statement descriptor are set on the Transfer.
+// The platform is the Stripe settlement merchant; the statement descriptor is
+// platform account configuration owned by cloud-provisioning task 5.1. Setting
+// on_behalf_of would require the Organizer's payout account to hold the
+// card_payments capability active before the original charge, which would
+// gate ticket sale on merchant KYB — contradicting the design requirement
+// that onboarding never blocks sale.
+func (uc *settlementUseCase) createPayouts(ctx context.Context, s *entity.Settlement, acct *entity.PayoutAccount, providerChargeID, currency string, splits []entity.SettlementSplit) ([]entity.SettlementSplit, error) {
+	releasedSplits := make([]entity.SettlementSplit, len(splits))
+	for i, split := range splits {
+		providerPayoutID, err := uc.settlementRepo.CreatePayout(ctx, entity.PayoutParams{
+			SettlementID:           s.ID,
+			PayeeProviderAccountID: acct.ProviderAccountID,
+			ProviderChargeID:       providerChargeID,
+			Amount:                 split.Amount,
+			Currency:               currency,
+		})
+		if err != nil {
+			return nil, err
+		}
+		releasedSplits[i] = entity.SettlementSplit{
+			PayeeOrganizerID: split.PayeeOrganizerID,
+			Amount:           split.Amount,
+			ProviderPayoutID: providerPayoutID,
+		}
+	}
+	return releasedSplits, nil
 }
