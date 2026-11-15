@@ -3,6 +3,7 @@ package entity
 
 import (
 	"context"
+	"strings"
 )
 
 // PushSubscription represents a browser Web Push API subscription registered by a user.
@@ -100,4 +101,39 @@ type PushSubscriptionRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListByUserIDs(ctx context.Context, userIDs []string) ([]*PushSubscription, error)
+}
+
+// PushDeviceFamily is the browser or OS family of a push subscription, told
+// from its push service. Analytics and announcements carry it instead of the
+// push address, which identifies the browser and is never shared.
+type PushDeviceFamily string
+
+const (
+	// PushDeviceFamilyAndroid is Firebase Cloud Messaging (Android and Chrome).
+	PushDeviceFamilyAndroid PushDeviceFamily = "android"
+	// PushDeviceFamilyApple is Apple's push service.
+	PushDeviceFamilyApple PushDeviceFamily = "apple"
+	// PushDeviceFamilyFirefox is Mozilla's push service.
+	PushDeviceFamilyFirefox PushDeviceFamily = "firefox"
+	// PushDeviceFamilyWindows is Windows Push Notification Services.
+	PushDeviceFamilyWindows PushDeviceFamily = "windows"
+	// PushDeviceFamilyOther is any other push service.
+	PushDeviceFamilyOther PushDeviceFamily = "other"
+)
+
+// DeviceFamily tells the subscription's device family from the host of its
+// push address; a host not listed is Other.
+func (s *PushSubscription) DeviceFamily() PushDeviceFamily {
+	switch {
+	case strings.Contains(s.Endpoint, "fcm.googleapis.com"):
+		return PushDeviceFamilyAndroid
+	case strings.Contains(s.Endpoint, "web.push.apple.com"):
+		return PushDeviceFamilyApple
+	case strings.Contains(s.Endpoint, "updates.push.services.mozilla.com"):
+		return PushDeviceFamilyFirefox
+	case strings.Contains(s.Endpoint, ".notify.windows.com"):
+		return PushDeviceFamilyWindows
+	default:
+		return PushDeviceFamilyOther
+	}
 }
