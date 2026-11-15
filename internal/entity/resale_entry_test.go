@@ -474,3 +474,22 @@ func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
 	assert.Nil(t, entered.NextDrawTime(now, nil), "an event without a start time has no draw")
 	assert.Nil(t, entered.NextDrawTime(start, &start), "the last draw has passed")
 }
+
+func TestResaleEntry_EndedEmailDue(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name  string
+		entry entity.ResaleEntry
+		want  bool
+	}{
+		{"lapsed and not sent", entity.ResaleEntry{State: entity.ResaleEntryStateLapsed}, true},
+		{"lost and not sent", entity.ResaleEntry{State: entity.ResaleEntryStateLost}, true},
+		{"lost and sent", entity.ResaleEntry{State: entity.ResaleEntryStateLost, EndedEmailSendTime: &sent}, false},
+		{"still entered", entity.ResaleEntry{State: entity.ResaleEntryStateEntered}, false},
+		{"won", entity.ResaleEntry{State: entity.ResaleEntryStateWon}, false},
+	} {
+		assert.Equal(t, tt.want, tt.entry.EndedEmailDue(), tt.name)
+	}
+}

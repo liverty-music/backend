@@ -248,6 +248,14 @@ func (e *ResaleEntry) NeedsEndedEmail() bool {
 	return e.State == ResaleEntryStateLapsed || e.State == ResaleEntryStateLost
 }
 
+// EndedEmailDue reports whether the entry's ended email is still to be sent:
+// the entry needs one ([ResaleEntry.NeedsEndedEmail]) and none has been sent.
+// One email per entry; a failure between sending and recording the send can
+// lead to a second email on retry.
+func (e *ResaleEntry) EndedEmailDue() bool {
+	return e.NeedsEndedEmail() && e.EndedEmailSendTime == nil
+}
+
 // IsWithdrawable reports whether the fan may withdraw the entry: only while
 // it is Entered.
 func (e *ResaleEntry) IsWithdrawable() bool {
@@ -493,22 +501,19 @@ type ResaleEntryEndedEmail struct {
 	TextBody string
 }
 
-// ResaleEntryEndedEmailSender sends a Lapsed or Lost entry's ended email at
-// most once. The implementation lives in internal/infrastructure/mail/.
+// ResaleEntryEndedEmailSender sends an entry's ended email. Whether it is due
+// is [ResaleEntry.EndedEmailDue]; the caller records the send
+// (ResaleEntryRepository.MarkEndedEmailSent). The implementation lives in
+// internal/infrastructure/mail/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type ResaleEntryEndedEmailSender interface {
-	// SendEndedEmail sends msg to the address when the entry has no ended
-	// email send time, then sets that time. When the time is already set it
-	// sends nothing and succeeds. A failure between sending and recording can
-	// lead to a second email on retry; no other case sends twice.
+	// SendEndedEmail sends msg to the address, tagged with the entry's id.
 	//
 	// # Possible errors
 	//
 	//   - InvalidArgument: the address or the message is empty.
-	//   - FailedPrecondition: the entry is not Lapsed or Lost.
-	//   - Unavailable: email cannot be sent; the send time stays unset.
-	//   - NotFound: no entry has the id.
+	//   - Unavailable: email cannot be sent.
 	SendEndedEmail(ctx context.Context, id ResaleEntryID, to string, msg ResaleEntryEndedEmail) error
 }
 

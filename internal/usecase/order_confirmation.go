@@ -30,21 +30,22 @@ type OrderConfirmationDeps struct {
 	EventOrganizer EventOrganizerRepository
 	Organizers     entity.OrganizerRepository
 	Mailer         entity.OrderMailer
-	// ResaleListings reads a refunded listing for its sold email.
-	ResaleListings ResaleListingReader
-	// ResaleMailer sends a listing's sold email at most once.
+	// ResaleListings reads a refunded listing for its sold email and records
+	// the send.
+	ResaleListings ResaleListingSoldEmails
+	// ResaleMailer sends a listing's sold email.
 	ResaleMailer entity.ResaleListingSoldEmailSender
 	// Entries reads a Lost lottery entry for its loss email.
 	Entries entity.LotteryEntryRepository
 	// Stocks reads the TicketStock of a Lost entry's Order: its SeatType and
 	// event.
 	Stocks entity.TicketStockRepository
-	// LossMailer sends a Lost entry's loss email at most once.
+	// LossMailer sends a Lost entry's loss email.
 	LossMailer entity.LotteryLossEmailSender
 	// ResaleEntries reads a Lapsed or Lost resale entry for its ended
 	// message.
 	ResaleEntries entity.ResaleEntryRepository
-	// ResaleEntryMailer sends a resale entry's ended email at most once.
+	// ResaleEntryMailer sends a resale entry's ended email.
 	ResaleEntryMailer entity.ResaleEntryEndedEmailSender
 	// Tickets reads the Tickets of a cancelled event's Order for its
 	// cancellation notice.

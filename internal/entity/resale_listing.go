@@ -159,6 +159,13 @@ func NewResaleListing(ticket *Ticket, stockID TicketStockID, seatType *SeatType,
 	}
 }
 
+// SoldEmailDue reports whether the listing's sold email is still to be sent:
+// none has been sent. One email per listing; a failure between sending and
+// recording the send can lead to a second email on retry.
+func (l *ResaleListing) SoldEmailDue() bool {
+	return l.SoldEmailSendTime == nil
+}
+
 // Fee returns the listing's resale fee: 10% of its price, rounded down to the
 // yen.
 func (l *ResaleListing) Fee() int64 {
@@ -284,21 +291,27 @@ type ResaleListingRepository interface {
 	// RESALE_LISTING.refunded with the refunded ResaleListing, together with
 	// the refund, when it sets it. Nothing when it already had a refund time.
 	RecordRefund(ctx context.Context, id ResaleListingID, providerRefundID string, at time.Time) error
+
+	// MarkSoldEmailSent sets the listing's sold email send time when it is
+	// unset; an already set time is kept.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no listing has the id.
+	MarkSoldEmailSent(ctx context.Context, id ResaleListingID, at time.Time) error
 }
 
-// ResaleListingSoldEmailSender sends a listing's "your ticket sold" email at
-// most once. The implementation lives in internal/infrastructure/mail/.
+// ResaleListingSoldEmailSender sends a listing's "your ticket sold" email.
+// Whether it is due is [ResaleListing.SoldEmailDue]; the caller records the
+// send. The implementation lives in internal/infrastructure/mail/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type ResaleListingSoldEmailSender interface {
-	// SendSoldEmail sends msg to the address when the listing has no sold
-	// email send time, then sets that time. When the time is already set it
-	// sends nothing and succeeds.
+	// SendSoldEmail sends msg to the address, tagged with the listing's id.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: the address or the message is empty.
-	//  - Unavailable: email cannot be sent; the send time stays unset.
-	//  - NotFound: no listing has the id.
+	//  - Unavailable: email cannot be sent.
 	SendSoldEmail(ctx context.Context, id ResaleListingID, to string, msg ResaleListingSoldEmail) error
 }

@@ -56,8 +56,13 @@ func (uc *notificationUseCase) SendLotteryLoss(ctx context.Context, entryID enti
 		count:    order.TicketCount,
 		reason:   entry.LostReason,
 	}
-	if err := d.LossMailer.SendLossEmail(ctx, entry.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
-		return err
+	if entry.LossEmailDue() {
+		if err := d.LossMailer.SendLossEmail(ctx, entry.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
+			return err
+		}
+		if err := d.Entries.MarkLossEmailSent(ctx, entry.ID, d.Now()); err != nil {
+			return err
+		}
 	}
 
 	// Named after the entry, so a repeated announcement pushes once.

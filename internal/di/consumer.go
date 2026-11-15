@@ -145,22 +145,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	resaleListingRepo := rdb.NewResaleListingRepository(db, newOutbox(logger))
 	var resaleSoldSender entity.ResaleListingSoldEmailSender = mail.NewNoopResaleSoldSender(logger)
 	if cfg.Postmark.ServerToken != "" {
-		resaleSoldSender = mail.NewPostmarkResaleSoldSender(resaleListingRepo, cfg.Postmark.ServerToken,
-			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+		resaleSoldSender = mail.NewPostmarkResaleSoldSender(cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger)
 	}
 	// The loss email of a Lost lottery entry goes the same way.
 	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db, newOutbox(logger))
 	var lossSender entity.LotteryLossEmailSender = mail.NewNoopLotteryLossSender(logger)
 	if cfg.Postmark.ServerToken != "" {
-		lossSender = mail.NewPostmarkLotteryLossSender(lotteryEntryRepo, cfg.Postmark.ServerToken,
-			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+		lossSender = mail.NewPostmarkLotteryLossSender(cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger)
 	}
 	// The ended email of a Lapsed or Lost resale entry goes the same way.
 	resaleEntryRepo := rdb.NewResaleEntryRepository(db, newOutbox(logger))
 	var resaleEntryEndedSender entity.ResaleEntryEndedEmailSender = mail.NewNoopResaleEntryEndedSender(logger)
 	if cfg.Postmark.ServerToken != "" {
-		resaleEntryEndedSender = mail.NewPostmarkResaleEntryEndedSender(resaleEntryRepo, cfg.Postmark.ServerToken,
-			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+		resaleEntryEndedSender = mail.NewPostmarkResaleEntryEndedSender(cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger)
 	}
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {

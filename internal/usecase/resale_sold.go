@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -11,12 +12,19 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// ResaleListingReader reads one ResaleListing. A minimal interface over the
-// resale listing repository. Interfaces are defined where consumed (AGENTS.md
-// rule).
-type ResaleListingReader interface {
+// ResaleListingSoldEmails reads one ResaleListing and records its sold email.
+// A minimal interface over the resale listing repository. Interfaces are
+// defined where consumed (AGENTS.md rule).
+type ResaleListingSoldEmails interface {
 	// Get returns the listing with the given id.
 	Get(ctx context.Context, id entity.ResaleListingID) (*entity.ResaleListing, error)
+	// MarkSoldEmailSent sets the listing's sold email send time when it is
+	// unset.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no listing has the id.
+	MarkSoldEmailSent(ctx context.Context, id entity.ResaleListingID, at time.Time) error
 }
 
 // SendResaleSold implements [NotificationUseCase]: the sold email, sent at
@@ -26,6 +34,9 @@ func (uc *notificationUseCase) SendResaleSold(ctx context.Context, refunded enti
 	listing, err := d.ResaleListings.Get(ctx, entity.ResaleListingID(refunded.ResaleListingID))
 	if err != nil {
 		return err
+	}
+	if !listing.SoldEmailDue() {
+		return nil
 	}
 	user, err := d.Users.Get(ctx, refunded.UserID)
 	if err != nil {
@@ -46,7 +57,10 @@ func (uc *notificationUseCase) SendResaleSold(ctx context.Context, refunded enti
 		order: order, concert: concerts[0], tz: d.TimeZone,
 		listing: listing,
 	}
-	return d.ResaleMailer.SendSoldEmail(ctx, listing.ID, user.Email, content.email(user.EmailLanguage()))
+	if err := d.ResaleMailer.SendSoldEmail(ctx, listing.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
+		return err
+	}
+	return d.ResaleListings.MarkSoldEmailSent(ctx, listing.ID, d.Now())
 }
 
 // resaleSoldContent is everything the sold email shows.
