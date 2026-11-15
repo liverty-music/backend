@@ -21,13 +21,11 @@ func TestTicketSaleSearch_DueAt(t *testing.T) {
 		want bool
 	}{
 		{
-			// @spec components/usecase/ticket-sale/discover-for-artist "Ten days counted by date"
 			name: "Ten days counted by date",
 			now:  time.Date(2026, 10, 17, 21, 0, 0, 0, jst),
 			want: true,
 		},
 		{
-			// @spec components/usecase/ticket-sale/discover-for-artist "Nine days counted by date"
 			name: "Nine days counted by date",
 			now:  time.Date(2026, 10, 16, 23, 59, 0, 0, jst),
 			want: false,

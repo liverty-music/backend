@@ -132,6 +132,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 		return &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: now.Add(-d)}
 	}
 	const day = 24 * time.Hour
+	jst := time.FixedZone("JST", 9*60*60)
 	searchErr := apperr.New(codes.ResourceExhausted, "spend cap reached")
 
 	tests := []struct {
@@ -197,6 +198,34 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
+			},
+		},
+		{
+			// @spec components/usecase/ticket-sale/discover-for-artist "Ten days counted by date"
+			// The run starts at 12:00 on 1 November in Japan time; the last
+			// search was at 21:00:30 on 22 October, less than ten days but ten
+			// dates before.
+			name: "Ten days counted by date",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.sales("series-a")
+				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: time.Date(2026, 10, 22, 21, 0, 30, 0, jst)})
+				m.officialSite()
+				m.search([]string{"series-a"}, nil, nil)
+				m.record([]string{"series-a"}, nil)
+			},
+		},
+		{
+			// @spec components/usecase/ticket-sale/discover-for-artist "Nine days counted by date"
+			// The last search was at 00:00 on 23 October in Japan time, nine
+			// dates before the run.
+			name: "Nine days counted by date",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.sales("series-a")
+				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: time.Date(2026, 10, 23, 0, 0, 0, 0, jst)})
 			},
 		},
 		{
