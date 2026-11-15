@@ -363,6 +363,80 @@ func (uc *seriesUseCase) Create(
 	return series, concerts, nil
 }
 
+// checkGivenEvents validates each event input of an update: one that names an
+// event must name an event of the series, and a new or DRAFT event is checked
+// as Create checks it. A PUBLISHED or CANCELLED event keeps its Venue, so its
+// place id is not required, and its date is not checked against the current
+// day: a past published date can still be corrected.
+func (uc *seriesUseCase) checkGivenEvents(eventInputs []*DraftEventInput, stored map[string]*entity.Event) error {
+	for _, inp := range eventInputs {
+		var current *entity.Event
+		if inp.EventID != nil {
+			current = stored[*inp.EventID]
+			if current == nil {
+				return apperr.New(codes.FailedPrecondition, "a given event is not an event of the series")
+			}
+		}
+		isDraft := current == nil || current.HasPublishState(entity.PublishStateDraft)
+		if err := uc.validateEventInput(inp, isDraft, isDraft); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkEveryDateGiven fails with FailedPrecondition when an update leaves out
+// a stored published or cancelled date: such a date is cancelled, not removed.
+func checkEveryDateGiven(storedEvents []*entity.Event, eventInputs []*DraftEventInput) error {
+	given := make(map[string]bool, len(eventInputs))
+	for _, inp := range eventInputs {
+		if inp.EventID != nil {
+			given[*inp.EventID] = true
+		}
+	}
+	for _, e := range storedEvents {
+		if !given[e.ID] && !e.HasPublishState(entity.PublishStateDraft) {
+			return apperr.New(codes.FailedPrecondition,
+				"every published or cancelled date must be given; a published date is cancelled, not removed")
+		}
+	}
+	return nil
+}
+
+// updatedEvents builds the events of an update from its inputs: a new draft
+// for an input that names no event or a DRAFT one, and the correction of a
+// published or cancelled event otherwise.
+func (uc *seriesUseCase) updatedEvents(ctx context.Context, seriesID string, eventInputs []*DraftEventInput, stored map[string]*entity.Event) ([]*entity.Event, error) {
+	events := make([]*entity.Event, 0, len(eventInputs))
+	for _, inp := range eventInputs {
+		var (
+			e   *entity.Event
+			err error
+		)
+		switch current := eventNamedBy(inp, stored); {
+		case current == nil:
+			e, err = uc.newDraftEvent(ctx, seriesID, "", inp)
+		case current.HasPublishState(entity.PublishStateDraft):
+			e, err = uc.newDraftEvent(ctx, seriesID, current.ID, inp)
+		default:
+			e, err = uc.correctedEvent(ctx, current, inp)
+		}
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, nil
+}
+
+// eventNamedBy returns the stored event the input names, or nil for a new one.
+func eventNamedBy(inp *DraftEventInput, stored map[string]*entity.Event) *entity.Event {
+	if inp.EventID == nil {
+		return nil
+	}
+	return stored[*inp.EventID]
+}
+
 // Update edits a concert, published or not (design D9).
 func (uc *seriesUseCase) Update(
 	ctx context.Context,
@@ -396,22 +470,8 @@ func (uc *seriesUseCase) Update(
 	for _, e := range storedEvents {
 		stored[e.ID] = e
 	}
-	for _, inp := range eventInputs {
-		var current *entity.Event
-		if inp.EventID != nil {
-			current = stored[*inp.EventID]
-			if current == nil {
-				return nil, nil, apperr.New(codes.FailedPrecondition, "a given event is not an event of the series")
-			}
-		}
-		// A new or DRAFT event is checked as Create checks it. A PUBLISHED or
-		// CANCELLED event keeps its Venue, so its place id is not required,
-		// and its date is not checked against the current day: a past
-		// published date can still be corrected.
-		isDraft := current == nil || current.HasPublishState(entity.PublishStateDraft)
-		if err := uc.validateEventInput(inp, isDraft, isDraft); err != nil {
-			return nil, nil, err
-		}
+	if err := uc.checkGivenEvents(eventInputs, stored); err != nil {
+		return nil, nil, err
 	}
 
 	// Corrections keep what publish fixed; checked before any write, and
@@ -421,43 +481,13 @@ func (uc *seriesUseCase) Update(
 	if err := existing.CheckChange(draft, storedEvents); err != nil {
 		return nil, nil, err
 	}
-	given := make(map[string]bool, len(eventInputs))
-	for _, inp := range eventInputs {
-		if inp.EventID != nil {
-			given[*inp.EventID] = true
-		}
-	}
-	for _, e := range storedEvents {
-		if !given[e.ID] && !e.HasPublishState(entity.PublishStateDraft) {
-			return nil, nil, apperr.New(codes.FailedPrecondition,
-				"every published or cancelled date must be given; a published date is cancelled, not removed")
-		}
+	if err := checkEveryDateGiven(storedEvents, eventInputs); err != nil {
+		return nil, nil, err
 	}
 
-	events := make([]*entity.Event, 0, len(eventInputs))
-	for _, inp := range eventInputs {
-		if inp.EventID == nil {
-			e, err := uc.newDraftEvent(ctx, seriesID, "", inp)
-			if err != nil {
-				return nil, nil, err
-			}
-			events = append(events, e)
-			continue
-		}
-		current := stored[*inp.EventID]
-		if current.HasPublishState(entity.PublishStateDraft) {
-			e, err := uc.newDraftEvent(ctx, seriesID, current.ID, inp)
-			if err != nil {
-				return nil, nil, err
-			}
-			events = append(events, e)
-			continue
-		}
-		next, err := uc.correctedEvent(ctx, current, inp)
-		if err != nil {
-			return nil, nil, err
-		}
-		events = append(events, next)
+	events, err := uc.updatedEvents(ctx, seriesID, eventInputs, stored)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if err := uc.seriesRepo.Update(ctx, draft, events, performerArtistIDs); err != nil {

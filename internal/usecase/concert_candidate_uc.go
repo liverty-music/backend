@@ -169,6 +169,32 @@ func (uc *concertCandidateUseCase) List(ctx context.Context) ([]*ConcertCandidat
 	return reviews, nil
 }
 
+// publishCandidate stores the candidate's event with no duplicate at its
+// venue, date and start time: under the series_id carried on the concert
+// candidate (the series row already exists, created at discovery when the
+// group's series_id was resolved). Approval never mints a series, adopts
+// identity, or re-derives grouping. A known-start concert candidate that fills
+// an existing unknown-start row legitimately inserts nothing; that is a
+// success, not a conflict. It returns the ids of the events it inserted.
+func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueID string, existing []*entity.Event) ([]string, error) {
+	ev := candidateToEvent(sc)
+	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
+		if err := uc.concertRepo.FillEventStartTimes(ctx,
+			[]string{match.ID},
+			[]*time.Time{sc.StartTime},
+			[]*time.Time{sc.OpenTime},
+		); err != nil {
+			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", sc.ID, err)
+		}
+		return nil, nil
+	}
+	insertedIDs, err := insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
+	if err != nil {
+		return nil, fmt.Errorf("insert event under series for concert candidate %q: %w", sc.ID, err)
+	}
+	return insertedIDs, nil
+}
+
 // Approve promotes a pending concert candidate to a published event, reconciling a
 // duplicate existing event per the resolution when one is detected.
 func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
@@ -206,27 +232,9 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 		return uc.reconcileDuplicate(ctx, sc, conflictEvent, resolution, reviewerID)
 	}
 
-	// No duplicate — insert the event under the series_id carried on the concert
-	// candidate (the series row already exists, created at discovery when the group's
-	// series_id was resolved). Approval never mints a series, adopts identity, or
-	// re-derives grouping. A known-start concert candidate that fills an existing
-	// unknown-start row legitimately inserts nothing; that is a success, not a
-	// conflict.
-	ev := candidateToEvent(sc)
-	var insertedIDs []string
-	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
-		if err := uc.concertRepo.FillEventStartTimes(ctx,
-			[]string{match.ID},
-			[]*time.Time{sc.StartTime},
-			[]*time.Time{sc.OpenTime},
-		); err != nil {
-			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", concertCandidateID, err)
-		}
-	} else {
-		insertedIDs, err = insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
-		if err != nil {
-			return nil, fmt.Errorf("insert event under series for concert candidate %q: %w", concertCandidateID, err)
-		}
+	insertedIDs, err := uc.publishCandidate(ctx, sc, venueID, existing)
+	if err != nil {
+		return nil, err
 	}
 
 	// Concert.Create announces the inserted event (CONCERT.created).

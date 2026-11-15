@@ -607,92 +607,21 @@ func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]e
 	if _, err := uc.userRepo.Get(ctx, id); err != nil {
 		return nil, err
 	}
-	reads := uc.deletionReads
+	c := &deletionBlockerCounter{
+		reads:  uc.deletionReads,
+		now:    uc.deletionReads.Now(),
+		events: map[string]*entity.Event{},
+		counts: map[entity.DeletionBlockerKind]int{},
+	}
 	userID := entity.UserID(id)
-	now := reads.Now()
-	counts := map[entity.DeletionBlockerKind]int{}
-
-	// events caches each Event read, since several records name the same one.
-	events := map[string]*entity.Event{}
-	eventOf := func(id string) (*entity.Event, error) {
-		if e, ok := events[id]; ok {
-			return e, nil
-		}
-		e, err := reads.Events.Get(ctx, id)
-		if err != nil {
+	for _, count := range []func(context.Context, entity.UserID) error{
+		c.countUpcomingTickets, c.countListedResales, c.countLotteryEntries, c.countCheckouts,
+	} {
+		if err := count(ctx, userID); err != nil {
 			return nil, err
 		}
-		events[id] = e
-		return e, nil
 	}
-
-	tickets, err := reads.Tickets.ListByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	for _, t := range tickets {
-		if t.Status != entity.TicketStatusIssued {
-			continue
-		}
-		event, err := eventOf(t.EventID)
-		if err != nil {
-			return nil, err
-		}
-		if !event.HasPassedAt(now) {
-			counts[entity.DeletionBlockerKindUpcomingTicket]++
-		}
-	}
-
-	listings, err := reads.ResaleListings.ListByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	for _, l := range listings {
-		if l.Status != entity.ResaleListingStatusListed {
-			continue
-		}
-		// A Listed listing past its deadline is expired: it can no longer be
-		// bought, and its stored status never changes. An event without a
-		// start time has no resale, so its listing is not open either.
-		event, err := eventOf(l.EventID)
-		if err != nil {
-			return nil, err
-		}
-		if deadline, ok := entity.ResaleDeadlineOf(event); ok && l.IsOpenAt(now, deadline) {
-			counts[entity.DeletionBlockerKindListedResale]++
-		}
-	}
-
-	entries, err := reads.LotteryEntries.ListByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		switch e.State {
-		case entity.LotteryEntryStateEntered:
-			counts[entity.DeletionBlockerKindPendingLotteryEntry]++
-		case entity.LotteryEntryStateWon:
-			// A win with no Order is not charged yet: its issuance still
-			// charges the card and reads the User.
-			_, err := reads.Orders.GetByLotteryEntryID(ctx, e.ID)
-			switch {
-			case errors.Is(err, apperr.ErrNotFound):
-				counts[entity.DeletionBlockerKindPaymentInProgress]++
-			case err != nil:
-				return nil, err
-			}
-		}
-	}
-
-	checkouts, err := reads.Checkouts.ListByUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range checkouts {
-		if c.Status == entity.CheckoutStatusCommitted || c.IsHoldingAt(now) {
-			counts[entity.DeletionBlockerKindPaymentInProgress]++
-		}
-	}
+	counts := c.counts
 
 	blockers := []entity.DeletionBlocker{}
 	for _, kind := range []entity.DeletionBlockerKind{
@@ -706,6 +635,114 @@ func (uc *userUseCase) ListDeletionBlockers(ctx context.Context, id string) ([]e
 		}
 	}
 	return blockers, nil
+}
+
+// deletionBlockerCounter counts, by kind, the activity of one user that blocks
+// deleting the account.
+type deletionBlockerCounter struct {
+	reads DeletionBlockerReads
+	now   time.Time
+	// events caches each Event read, since several records name the same one.
+	events map[string]*entity.Event
+	counts map[entity.DeletionBlockerKind]int
+}
+
+// eventOf reads the Event, once per id.
+func (c *deletionBlockerCounter) eventOf(ctx context.Context, id string) (*entity.Event, error) {
+	if e, ok := c.events[id]; ok {
+		return e, nil
+	}
+	e, err := c.reads.Events.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	c.events[id] = e
+	return e, nil
+}
+
+// countUpcomingTickets counts the Issued tickets of events not yet passed.
+func (c *deletionBlockerCounter) countUpcomingTickets(ctx context.Context, userID entity.UserID) error {
+	tickets, err := c.reads.Tickets.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, t := range tickets {
+		if t.Status != entity.TicketStatusIssued {
+			continue
+		}
+		event, err := c.eventOf(ctx, t.EventID)
+		if err != nil {
+			return err
+		}
+		if !event.HasPassedAt(c.now) {
+			c.counts[entity.DeletionBlockerKindUpcomingTicket]++
+		}
+	}
+	return nil
+}
+
+// countListedResales counts the listings that can still be bought. A Listed
+// listing past its deadline is expired: it can no longer be bought, and its
+// stored status never changes. An event without a start time has no resale,
+// so its listing is not open either.
+func (c *deletionBlockerCounter) countListedResales(ctx context.Context, userID entity.UserID) error {
+	listings, err := c.reads.ResaleListings.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, l := range listings {
+		if l.Status != entity.ResaleListingStatusListed {
+			continue
+		}
+		event, err := c.eventOf(ctx, l.EventID)
+		if err != nil {
+			return err
+		}
+		if deadline, ok := entity.ResaleDeadlineOf(event); ok && l.IsOpenAt(c.now, deadline) {
+			c.counts[entity.DeletionBlockerKindListedResale]++
+		}
+	}
+	return nil
+}
+
+// countLotteryEntries counts the entries waiting for the draw and the wins
+// not charged yet.
+func (c *deletionBlockerCounter) countLotteryEntries(ctx context.Context, userID entity.UserID) error {
+	entries, err := c.reads.LotteryEntries.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		switch e.State {
+		case entity.LotteryEntryStateEntered:
+			c.counts[entity.DeletionBlockerKindPendingLotteryEntry]++
+		case entity.LotteryEntryStateWon:
+			// A win with no Order is not charged yet: its issuance still
+			// charges the card and reads the User.
+			_, err := c.reads.Orders.GetByLotteryEntryID(ctx, e.ID)
+			switch {
+			case errors.Is(err, apperr.ErrNotFound):
+				c.counts[entity.DeletionBlockerKindPaymentInProgress]++
+			case err != nil:
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// countCheckouts counts the checkouts holding or committed.
+func (c *deletionBlockerCounter) countCheckouts(ctx context.Context, userID entity.UserID) error {
+	checkouts, err := c.reads.Checkouts.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, ck := range checkouts {
+		if ck.Status == entity.CheckoutStatusCommitted || ck.IsHoldingAt(c.now) {
+			c.counts[entity.DeletionBlockerKindPaymentInProgress]++
+		}
+	}
+	return nil
 }
 
 // GetByEmail returns the user registered with the address.

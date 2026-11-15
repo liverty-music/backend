@@ -213,6 +213,45 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 		}
 	}
 
+	toPublish, err := uc.decideSeriesEvents(ctx, artistID, seriesID, series, existingEvents, newPlaces, tally)
+	if err != nil {
+		return "", err
+	}
+	if len(toPublish) == 0 {
+		return mintedID, nil
+	}
+
+	// One Concert.Create for the series, so it tells the Artist's followers
+	// about all of them at once.
+	insertedIDs, err := uc.concertRepo.Create(ctx, toPublish...)
+	if err != nil {
+		return "", fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
+	}
+	tally.published += len(insertedIDs)
+	if len(insertedIDs) > 0 {
+		uc.logger.Info(ctx, "auto-published new concerts for series",
+			slog.String("artist_id", artistID),
+			slog.String("series_id", seriesID),
+			slog.String("title", series.Title),
+			slog.Int("inserted", len(insertedIDs)),
+		)
+	}
+
+	return mintedID, nil
+}
+
+// decideSeriesEvents decides each member event of the series (see
+// persistDiscoveredEvent) and returns the Concerts to publish together in one
+// Concert.Create call. An event with no venue name left after normalization is
+// skipped with a warning.
+func (uc *concertCreationUseCase) decideSeriesEvents(
+	ctx context.Context,
+	artistID, seriesID string,
+	series *entity.DiscoveredSeries,
+	existingEvents []*entity.Event,
+	newPlaces map[string]*entity.VenuePlace,
+	tally *ingestTally,
+) ([]*entity.Concert, error) {
 	// Index existing (artist, date) events by date for the re-discovery fast-path.
 	existingByDate := make(map[string][]*entity.Event, len(existingEvents))
 	for _, ev := range existingEvents {
@@ -243,33 +282,46 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 
 		concert, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces, toPublish, tally)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if concert != nil {
 			toPublish = append(toPublish, concert)
 		}
 	}
-	if len(toPublish) == 0 {
-		return mintedID, nil
-	}
+	return toPublish, nil
+}
 
-	// One Concert.Create for the series, so it tells the Artist's followers
-	// about all of them at once.
-	insertedIDs, err := uc.concertRepo.Create(ctx, toPublish...)
-	if err != nil {
-		return "", fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
+// rediscover handles an event the artist already plays at its venue and date:
+// when an existing event matches it, a known start time is filled onto an
+// unknown-start row (counted in tally) and the matching event is returned, so
+// nothing new is stored. It returns nil when no existing event matches, a
+// genuinely new start time.
+func (uc *concertCreationUseCase) rediscover(
+	ctx context.Context,
+	artistID string,
+	ev *entity.DiscoveredEvent,
+	sameVenue []*entity.Event,
+	claimedFill map[string]bool,
+	tally *ingestTally,
+) (*entity.Event, error) {
+	match, isFill := resolveExistingEvent(sameVenue, ev, claimedFill)
+	if match == nil || !isFill {
+		return match, nil
 	}
-	tally.published += len(insertedIDs)
-	if len(insertedIDs) > 0 {
-		uc.logger.Info(ctx, "auto-published new concerts for series",
-			slog.String("artist_id", artistID),
-			slog.String("series_id", seriesID),
-			slog.String("title", series.Title),
-			slog.Int("inserted", len(insertedIDs)),
-		)
+	claimedFill[match.ID] = true
+	if err := uc.concertRepo.FillEventStartTimes(ctx,
+		[]string{match.ID},
+		[]*time.Time{entity.NullableTime(ev.StartTime)},
+		[]*time.Time{entity.NullableTime(ev.OpenTime)},
+	); err != nil {
+		return nil, fmt.Errorf("fill event start times: %w", err)
 	}
-
-	return mintedID, nil
+	tally.filled++
+	uc.logger.Info(ctx, "filled existing event start time on re-discovery (no new concert)",
+		slog.String("artist_id", artistID),
+		slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
+	)
+	return match, nil
 }
 
 // persistDiscoveredEvent resolves a single member event under the
@@ -294,23 +346,11 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	// new date — or a listed venue not among the artist's existing events on this
 	// date — falls through to venue resolution below.
 	if sameVenue := eventsAtSameVenue(sameDateEvents, ev.ListedVenueName); len(sameVenue) > 0 {
-		match, isFill := resolveExistingEvent(sameVenue, ev, claimedFill)
+		match, err := uc.rediscover(ctx, artistID, ev, sameVenue, claimedFill, tally)
+		if err != nil {
+			return nil, err
+		}
 		if match != nil {
-			if isFill {
-				claimedFill[match.ID] = true
-				if err := uc.concertRepo.FillEventStartTimes(ctx,
-					[]string{match.ID},
-					[]*time.Time{entity.NullableTime(ev.StartTime)},
-					[]*time.Time{entity.NullableTime(ev.OpenTime)},
-				); err != nil {
-					return nil, fmt.Errorf("fill event start times: %w", err)
-				}
-				tally.filled++
-				uc.logger.Info(ctx, "filled existing event start time on re-discovery (no new concert)",
-					slog.String("artist_id", artistID),
-					slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-				)
-			}
 			// Exact re-discovery (or fill) — no new event, no Places call.
 			return nil, nil
 		}

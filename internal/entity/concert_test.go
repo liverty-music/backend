@@ -994,3 +994,49 @@ func TestEvent_MergeDiscovered(t *testing.T) {
 	assert.Nil(t, gotStart)
 	assert.Nil(t, gotOpen)
 }
+
+func TestDropPending(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	event := func(date time.Time, venue string, start time.Time) *entity.DiscoveredEvent {
+		return &entity.DiscoveredEvent{LocalDate: date, ListedVenueName: venue, StartTime: start}
+	}
+	pending := []entity.ConcertCandidateDedupKey{{LocalDate: day, ListedVenueName: "ZEPP HANEDA"}}
+
+	t.Run("drops an event pending at its date and venue whatever its start time", func(t *testing.T) {
+		t.Parallel()
+		series := []*entity.DiscoveredSeries{
+			{Title: "Tour", Events: []*entity.DiscoveredEvent{
+				event(day, "Zepp Haneda", day.Add(18*time.Hour)),
+				event(day, "Zepp Namba", day.Add(18*time.Hour)),
+			}},
+		}
+
+		got := entity.DropPending(series, pending)
+
+		require.Len(t, got, 1)
+		require.Len(t, got[0].Events, 1)
+		assert.Equal(t, "Zepp Namba", got[0].Events[0].ListedVenueName)
+	})
+
+	t.Run("removes a series left with no events", func(t *testing.T) {
+		t.Parallel()
+		series := []*entity.DiscoveredSeries{
+			{Title: "Gone", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", day)}},
+			{Title: "Kept", Events: []*entity.DiscoveredEvent{event(day.AddDate(0, 0, 1), "Zepp Haneda", day)}},
+		}
+
+		got := entity.DropPending(series, pending)
+
+		require.Len(t, got, 1)
+		assert.Equal(t, "Kept", got[0].Title)
+	})
+
+	t.Run("returns the series as they are when nothing is pending", func(t *testing.T) {
+		t.Parallel()
+		series := []*entity.DiscoveredSeries{{Title: "Tour", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", day)}}}
+
+		assert.Equal(t, series, entity.DropPending(series, nil))
+	})
+}

@@ -84,22 +84,41 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 		return nil
 	}
 
-	// 2. For each follower, narrow the new-concert set to that recipient's
-	//    hype-matched subset, then record and dispatch one notification per
-	//    eligible recipient through the notification service. Every recipient
-	//    gets a durable record; the service resolves each recipient's push
-	//    subscriptions, performs the send and cleans up gone (410) endpoints.
-	//
-	//    The subject names the per-recipient subset — never the unfiltered
-	//    new-concert set — so a home-hype fan sees an area-accurate count and
-	//    lands on a concert that actually matched their hype tier.
+	dispatched, err := uc.notifyFollowers(ctx, artist.ID, followers, concerts, requestID)
+	if err != nil {
+		return err
+	}
+
+	// The artist has followers, but none was eligible after hype filtering (every
+	// recipient's matched subset was empty). Log the empty outcome so "processed
+	// the event but sent nothing" is diagnosable from logs alone, rather than
+	// returning silently.
+	if dispatched == 0 {
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
+			slog.String("artist_id", artist.ID),
+			slog.String("reason", "no_eligible_recipients"),
+			slog.Int("follower_count", len(followers)),
+		)...)
+	}
+
+	return nil
+}
+
+// notifyFollowers narrows the new-concert set to each follower's hype-matched
+// subset, then starts one Deliver per eligible recipient, which records and
+// dispatches the notification: the notification service resolves each
+// recipient's push subscriptions, performs the send and cleans up gone (410)
+// endpoints. It returns how many it started.
+//
+// The subject names the per-recipient subset — never the unfiltered
+// new-concert set — so a home-hype fan sees an area-accurate count and lands
+// on a concert that actually matched their hype tier.
+func (uc *notificationUseCase) notifyFollowers(ctx context.Context, artistID string, followers []*entity.Follower, concerts []*entity.Concert, requestID string) (int, error) {
 	dispatched := 0
 	for _, f := range followers {
 		// Honour context cancellation before each recipient.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return dispatched, err
 		}
 
 		// f.User may be nil if the join with users dropped a row (e.g. an
@@ -123,26 +142,13 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 		if err := uc.startDeliver(ctx, id, DeliverRequest{
 			UserID:  f.User.ID,
 			Type:    entity.NotificationTypeNewConcerts,
-			Subject: entity.NotificationSubject{ArtistID: artist.ID, EventIDs: eventIDs},
+			Subject: entity.NotificationSubject{ArtistID: artistID, EventIDs: eventIDs},
 		}); err != nil {
 			// Surface so the announcement is processed again; the followers
 			// already started are not started again (same workflow id).
-			return fmt.Errorf("failed to start the notification of user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
+			return dispatched, fmt.Errorf("failed to start the notification of user %s of new concerts for artist %s: %w", f.User.ID, artistID, err)
 		}
 		dispatched++
 	}
-
-	// The artist has followers, but none was eligible after hype filtering (every
-	// recipient's matched subset was empty). Log the empty outcome so "processed
-	// the event but sent nothing" is diagnosable from logs alone, rather than
-	// returning silently.
-	if dispatched == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering", analyticslog.Attrs(analyticslog.TopicNotificationDelivery,
-			slog.String("artist_id", artist.ID),
-			slog.String("reason", "no_eligible_recipients"),
-			slog.Int("follower_count", len(followers)),
-		)...)
-	}
-
-	return nil
+	return dispatched, nil
 }

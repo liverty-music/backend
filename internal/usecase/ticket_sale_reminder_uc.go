@@ -159,22 +159,7 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 		return 0
 	}
 
-	// Hydrate users for timezone and language.
-	// TODO(perf): batch user hydration when UserRepository gains ListByIDs.
-	type recipient struct {
-		user        *entity.User
-		linkEventID string
-	}
-	recipients := make([]recipient, 0, len(trackers))
-	for _, tr := range trackers {
-		u, err := uc.userRepo.Get(ctx, tr.UserID)
-		if err != nil {
-			uc.logger.Warn(ctx, "ticket_sale_reminder: failed to hydrate user; skipping",
-				append(attrs, slog.String("user_id", tr.UserID), slog.String("error", err.Error()))...)
-			continue
-		}
-		recipients = append(recipients, recipient{user: u, linkEventID: tr.EventID})
-	}
+	recipients := uc.hydrateRecipients(ctx, trackers, attrs)
 	if len(recipients) == 0 {
 		return 0
 	}
@@ -205,20 +190,7 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 				continue
 			}
 
-			tz := userTimezone(user)
-			fire, expiry, ok := scheduledFireTime(stage, sale, tz)
-			if !ok {
-				// Stage not applicable for this sale (method, unknown
-				// milestone, or the first-sight guard).
-				continue
-			}
-			if now.Before(fire) {
-				// Not yet time — a later scan will fire this.
-				continue
-			}
-			if !now.Before(expiry) {
-				// The reminder's moment has passed (sale opened or application
-				// window closed) — do not send a stale reminder.
+			if !reminderDue(stage, sale, user, now) {
 				continue
 			}
 
@@ -241,6 +213,40 @@ func (uc *ticketSaleReminderUseCase) remindAudience(
 		}
 	}
 	return published
+}
+
+// reminderRecipient is a fan who tracks the sale's series, hydrated for the
+// time zone and language of the reminder, with the event the reminder links to.
+type reminderRecipient struct {
+	user        *entity.User
+	linkEventID string
+}
+
+// hydrateRecipients reads the user of each tracker; a user that cannot be read
+// is logged and skipped.
+// TODO(perf): batch user hydration when UserRepository gains ListByIDs.
+func (uc *ticketSaleReminderUseCase) hydrateRecipients(ctx context.Context, trackers []*entity.SeriesTracker, attrs []slog.Attr) []reminderRecipient {
+	recipients := make([]reminderRecipient, 0, len(trackers))
+	for _, tr := range trackers {
+		u, err := uc.userRepo.Get(ctx, tr.UserID)
+		if err != nil {
+			uc.logger.Warn(ctx, "ticket_sale_reminder: failed to hydrate user; skipping",
+				append(attrs, slog.String("user_id", tr.UserID), slog.String("error", err.Error()))...)
+			continue
+		}
+		recipients = append(recipients, reminderRecipient{user: u, linkEventID: tr.EventID})
+	}
+	return recipients
+}
+
+// reminderDue reports whether the stage's reminder is due for the user at now:
+// the stage applies to the sale (method, known milestone, the first-sight
+// guard), its fire time has come in the user's time zone, and its moment has
+// not passed (the sale opened or the application window closed), so a stale
+// reminder is never sent.
+func reminderDue(stage entity.ReminderStage, sale *entity.TicketSale, user *entity.User, now time.Time) bool {
+	fire, expiry, ok := scheduledFireTime(stage, sale, userTimezone(user))
+	return ok && !now.Before(fire) && now.Before(expiry)
 }
 
 // scheduledFireTime returns the absolute instant at which stage should fire

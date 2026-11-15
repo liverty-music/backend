@@ -60,29 +60,7 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	// start time. The event is checked inside this step, so a resumed run
 	// does not check it again after a capture that happened.
 	outcome, err := Step(ctx, f, "capture", func(ctx context.Context) (resaleCapture, error) {
-		published, err := uc.eventState.IsEventPublished(ctx, plan.EventID)
-		if err != nil {
-			return resaleCapture{}, err
-		}
-		gate := entity.ResaleChargeGateAt(published, uc.clock(), plan.StartTime)
-		charged := false
-		switch gate {
-		case entity.ResaleChargeGateConcertStopped:
-			// An earlier try may have captured the card authorization with its
-			// outcome unknown, so the payment provider is asked first.
-			authorization, err := uc.cardAuthorizations.Get(ctx, plan.CardAuthorizationID)
-			if err != nil {
-				return resaleCapture{}, err
-			}
-			charged = authorization.CountsAsCharged(published)
-		case entity.ResaleChargeGateOpen:
-			err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
-			if err != nil && !errors.Is(err, apperr.ErrFailedPrecondition) {
-				return resaleCapture{}, err
-			}
-			charged = err == nil
-		}
-		return resaleCaptureOf(entity.ResaleChargeOutcomeAt(gate, charged)), nil
+		return uc.captureResaleCharge(ctx, plan)
 	})
 	if err != nil {
 		return IssueResult{}, err
@@ -126,6 +104,35 @@ func (uc *orderUseCase) issueResaleEntry(ctx context.Context, f Flow, entryID en
 	uc.logger.Info(ctx, "resale win reverted: the payment was not completed before the show", attrs,
 		slog.String("order_id", string(plan.OrderID)))
 	return IssueResult{OrderID: plan.OrderID}, nil
+}
+
+// captureResaleCharge charges the entry's card authorization when the gate
+// allows it ([entity.ResaleChargeGateAt]) and returns the outcome of the
+// attempt. After a stopped concert an earlier try may have captured the card
+// authorization with its outcome unknown, so the payment provider is asked
+// whether it did instead of capturing again.
+func (uc *orderUseCase) captureResaleCharge(ctx context.Context, plan resaleIssuePlan) (resaleCapture, error) {
+	published, err := uc.eventState.IsEventPublished(ctx, plan.EventID)
+	if err != nil {
+		return resaleCapture{}, err
+	}
+	gate := entity.ResaleChargeGateAt(published, uc.clock(), plan.StartTime)
+	charged := false
+	switch gate {
+	case entity.ResaleChargeGateConcertStopped:
+		authorization, err := uc.cardAuthorizations.Get(ctx, plan.CardAuthorizationID)
+		if err != nil {
+			return resaleCapture{}, err
+		}
+		charged = authorization.CountsAsCharged(published)
+	case entity.ResaleChargeGateOpen:
+		err = uc.cardAuthorizations.Capture(ctx, plan.CardAuthorizationID)
+		if err != nil && !errors.Is(err, apperr.ErrFailedPrecondition) {
+			return resaleCapture{}, err
+		}
+		charged = err == nil
+	}
+	return resaleCaptureOf(entity.ResaleChargeOutcomeAt(gate, charged)), nil
 }
 
 // resaleCaptureOf records outcome as the capture step's result.
