@@ -575,20 +575,9 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		return err
 	}
 
-	seriesImage, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
+	imageCount, err := uc.deleteSeriesImageFiles(ctx, organizerID)
 	if err != nil {
 		return err
-	}
-	if len(seriesImage) > 0 && (uc.imageStorer == nil || uc.storageBuckets.Internal == "" || uc.storageBuckets.Served == "") {
-		return apperr.New(codes.Internal, "organizer image storage is not configured", slog.String("organizer_id", organizerID))
-	}
-	for _, m := range seriesImage {
-		if err := uc.imageStorer.DeleteOriginal(ctx, uc.storageBuckets.Internal, organizerID, m.ID); err != nil {
-			return err
-		}
-		if err := uc.imageStorer.DeleteVariants(ctx, uc.storageBuckets.Served, organizerID, m.ID); err != nil {
-			return err
-		}
 	}
 
 	// An Organizer whose provisioning failed before the Organization link was
@@ -610,9 +599,32 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	uc.logger.Info(ctx, "organizer deleted",
 		slog.String("organizer_id", organizerID),
 		slog.String("provider_organizer_id", providerOrganizerID),
-		slog.Int("series_image_count", len(seriesImage)),
+		slog.Int("series_image_count", imageCount),
 	)
 	return nil
+}
+
+// deleteSeriesImageFiles deletes the original and the variants of every
+// series image of the Organizer and returns how many images it had. It fails
+// with Internal when the Organizer has images and image storage is not
+// configured.
+func (uc *organizerUseCase) deleteSeriesImageFiles(ctx context.Context, organizerID string) (int, error) {
+	seriesImage, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
+	if err != nil {
+		return 0, err
+	}
+	if len(seriesImage) > 0 && (uc.imageStorer == nil || uc.storageBuckets.Internal == "" || uc.storageBuckets.Served == "") {
+		return 0, apperr.New(codes.Internal, "organizer image storage is not configured", slog.String("organizer_id", organizerID))
+	}
+	for _, m := range seriesImage {
+		if err := uc.imageStorer.DeleteOriginal(ctx, uc.storageBuckets.Internal, organizerID, m.ID); err != nil {
+			return 0, err
+		}
+		if err := uc.imageStorer.DeleteVariants(ctx, uc.storageBuckets.Served, organizerID, m.ID); err != nil {
+			return 0, err
+		}
+	}
+	return len(seriesImage), nil
 }
 
 // SetBusinessDetails implements [OrganizerUseCase].

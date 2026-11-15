@@ -109,29 +109,16 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		return 0, nil
 	}
 
-	// Resolve the grounding seed URL. Without a usable official-site URL the
-	// searcher cannot ground, so skip the artist (benign) rather than burn a
-	// grounding call on an empty seed. A missing row is NotFound, not an infra
-	// error; only genuine infra errors propagate (and let the job's circuit
-	// breaker handle systemic failures).
-	site, err := uc.artistRepo.GetOfficialSite(ctx, artist.ID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Warn(ctx, "ticket_sale_discovery: no official site; skipping artist", attrs...)
-			return 0, nil
-		}
+	siteURL, err := uc.groundingSeed(ctx, artist.ID, attrs)
+	if err != nil || siteURL == "" {
 		return 0, err
-	}
-	if site.URL == "" {
-		uc.logger.Warn(ctx, "ticket_sale_discovery: empty official site URL; skipping artist", attrs...)
-		return 0, nil
 	}
 
 	searchedTime := uc.clock()
 	found, err := uc.searcher.SearchPublishedSales(ctx, &entity.PublishedSaleSearchInput{
 		ArtistID:        artist.ID,
 		ArtistName:      artist.Name,
-		OfficialSiteURL: site.URL,
+		OfficialSiteURL: siteURL,
 		Series:          seriesRefs,
 	})
 	if err != nil {
@@ -143,23 +130,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	uc.logger.Info(ctx, "ticket_sale_discovery: searcher returned sales",
 		append(attrs, slog.Int("series_count", len(seriesRefs)), slog.Int("count", len(found)))...)
 
-	var totalNew int
-	for _, sale := range found {
-		if ctx.Err() != nil {
-			break
-		}
-		// TicketSale.UpsertDiscovered announces a sale it creates.
-		_, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
-		if err != nil {
-			uc.logger.Error(ctx, "ticket_sale_discovery: upsert failed", err,
-				append(attrs, slog.String("series_id", sale.SeriesID),
-					slog.String("sale_start", sale.SaleStartTime.Format(time.RFC3339)))...)
-			continue
-		}
-		if outcome == entity.UpsertOutcomeInserted {
-			totalNew++
-		}
-	}
+	totalNew := uc.storeFound(ctx, found, attrs)
 
 	uc.reportSearch(ctx, artist.ID, nil, len(seriesRefs), len(found), totalNew)
 
@@ -174,6 +145,50 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	uc.logger.Info(ctx, "ticket_sale_discovery: complete for artist",
 		append(attrs, slog.Int("series_count", len(seriesRefs)), slog.Int("new_sales", totalNew))...)
 	return totalNew, nil
+}
+
+// groundingSeed returns the artist's official site URL, the seed the
+// searcher grounds on, or "" when the artist is to be skipped. Without a
+// usable official-site URL the searcher cannot ground, so the artist is
+// skipped (benign) rather than a grounding call burnt on an empty seed. A
+// missing row is NotFound, not an infra error; only genuine infra errors
+// propagate (and let the job's circuit breaker handle systemic failures).
+func (uc *ticketSaleDiscoveryUseCase) groundingSeed(ctx context.Context, artistID string, attrs []slog.Attr) (string, error) {
+	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Warn(ctx, "ticket_sale_discovery: no official site; skipping artist", attrs...)
+			return "", nil
+		}
+		return "", err
+	}
+	if site.URL == "" {
+		uc.logger.Warn(ctx, "ticket_sale_discovery: empty official site URL; skipping artist", attrs...)
+	}
+	return site.URL, nil
+}
+
+// storeFound stores each found sale (TicketSale.UpsertDiscovered announces a
+// sale it creates) and returns how many are new. A sale that cannot be stored
+// is logged and skipped; storing stops when ctx ends.
+func (uc *ticketSaleDiscoveryUseCase) storeFound(ctx context.Context, found []*entity.DiscoveredTicketSale, attrs []slog.Attr) int {
+	var totalNew int
+	for _, sale := range found {
+		if ctx.Err() != nil {
+			break
+		}
+		_, outcome, err := uc.ticketSaleRepo.UpsertDiscovered(ctx, sale)
+		if err != nil {
+			uc.logger.Error(ctx, "ticket_sale_discovery: upsert failed", err,
+				append(attrs, slog.String("series_id", sale.SeriesID),
+					slog.String("sale_start", sale.SaleStartTime.Format(time.RFC3339)))...)
+			continue
+		}
+		if outcome == entity.UpsertOutcomeInserted {
+			totalNew++
+		}
+	}
+	return totalNew
 }
 
 // groupSalesSeries groups upcoming concerts of series without an Organizer
