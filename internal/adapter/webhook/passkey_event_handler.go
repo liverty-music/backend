@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/zitadel/zitadel-go/v3/pkg/actions"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
@@ -87,38 +85,13 @@ type passkeyTokenPayload struct {
 func (h *PasskeyEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requirePost(w, r) ||
+		!requireConfigured(ctx, w, h.logger, "passkey-event", "WEBHOOK_PASSKEY_EVENT_SIGNING_KEY", h.signingKey) ||
+		!requireConfigured(ctx, w, h.logger, "passkey-event", "ZITADEL_PRODUCT_ORG_ID", h.productOrgID) {
 		return
 	}
-	// An empty key would not reject anything: actions.ValidateRequestPayload
-	// computes the HMAC with whatever key it is given, so a body signed with
-	// "" would verify.
-	if h.signingKey == "" {
-		h.logger.Error(ctx, "passkey-event: signing key is not configured; recording nothing",
-			errors.New("WEBHOOK_PASSKEY_EVENT_SIGNING_KEY is empty"))
-		http.Error(w, "not configured", http.StatusServiceUnavailable)
-		return
-	}
-	if h.productOrgID == "" {
-		h.logger.Error(ctx, "passkey-event: product organization id is not configured; recording nothing",
-			errors.New("ZITADEL_PRODUCT_ORG_ID is empty"))
-		http.Error(w, "not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil || len(body) == 0 {
-		h.logger.Warn(ctx, "passkey-event: missing or unreadable body")
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	if err := actions.ValidateRequestPayload(body, &r.Header, h.signingKey); err != nil {
-		h.logger.Warn(ctx, "passkey-event: webhook signature validation failed",
-			slog.String("error", err.Error()))
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	body, ok := readSignedBody(w, r, h.logger, "passkey-event", h.signingKey)
+	if !ok {
 		return
 	}
 
@@ -129,6 +102,31 @@ func (h *PasskeyEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	data, ok := h.passkeyChange(ctx, payload)
+	if !ok {
+		h.writeOK(ctx, w)
+		return
+	}
+
+	if err := h.changes.StartRecordChange(ctx, data); err != nil {
+		h.logger.Error(ctx, "passkey-event: failed to start recording the passkey change; it is neither recorded nor emailed", err,
+			slog.String("provider_user_id", data.ProviderUserID),
+			slog.String("kind", data.Kind))
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	h.logger.Info(ctx, "passkey-event: passkey change recording started",
+		slog.String("provider_user_id", data.ProviderUserID),
+		slog.String("kind", data.Kind))
+	h.writeOK(ctx, w)
+}
+
+// passkeyChange returns the passkey change the event announces, or false when
+// there is nothing to record: another event type, an Organizer member's
+// identity (its passkeys are not a fan's), a notice with no identity, or an
+// event_payload that cannot be decoded. Each case but the identity of an
+// Organizer is logged.
+func (h *PasskeyEventHandler) passkeyChange(ctx context.Context, payload passkeyEventPayload) (entity.UserPasskeyChangedData, bool) {
 	var kind entity.PasskeyChangeKind
 	switch payload.EventType {
 	case passkeyVerifiedEventType:
@@ -138,27 +136,23 @@ func (h *PasskeyEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	default:
 		h.logger.Warn(ctx, "passkey-event: unexpected event_type, recording nothing",
 			slog.String("event_type", payload.EventType))
-		h.writeOK(ctx, w)
-		return
+		return entity.UserPasskeyChangedData{}, false
 	}
 	if payload.ResourceOwner != h.productOrgID {
 		// An Organizer member's identity: its passkeys are not a fan's.
-		h.writeOK(ctx, w)
-		return
+		return entity.UserPasskeyChangedData{}, false
 	}
 	if payload.AggregateID == "" {
 		h.logger.Warn(ctx, "passkey-event: notice has no identity, recording nothing",
 			slog.String("event_type", payload.EventType))
-		h.writeOK(ctx, w)
-		return
+		return entity.UserPasskeyChangedData{}, false
 	}
 
 	token, err := decodePasskeyToken(payload.EventPayload)
 	if err != nil {
 		h.logger.Warn(ctx, "passkey-event: failed to decode event_payload, recording nothing",
 			slog.String("error", err.Error()), slog.String("provider_user_id", payload.AggregateID))
-		h.writeOK(ctx, w)
-		return
+		return entity.UserPasskeyChangedData{}, false
 	}
 
 	data := entity.UserPasskeyChangedData{
@@ -174,18 +168,7 @@ func (h *PasskeyEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if data.ChangeTime.IsZero() {
 		data.ChangeTime = time.Now()
 	}
-
-	if err := h.changes.StartRecordChange(ctx, data); err != nil {
-		h.logger.Error(ctx, "passkey-event: failed to start recording the passkey change; it is neither recorded nor emailed", err,
-			slog.String("provider_user_id", data.ProviderUserID),
-			slog.String("kind", data.Kind))
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	h.logger.Info(ctx, "passkey-event: passkey change recording started",
-		slog.String("provider_user_id", data.ProviderUserID),
-		slog.String("kind", data.Kind))
-	h.writeOK(ctx, w)
+	return data, true
 }
 
 // decodePasskeyToken decodes event_payload, a base64 JSON string in

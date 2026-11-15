@@ -271,11 +271,7 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	organizerID, err := lockSeriesForWrite(ctx, tx, series.ID)
-	if errors.Is(err, apperr.ErrNotFound) || (err == nil && organizerID == nil) {
-		return apperr.New(codes.FailedPrecondition, "no first-party series has the id", slog.String("series_id", series.ID))
-	}
-	if err != nil {
+	if err := lockFirstPartySeries(ctx, tx, series.ID); err != nil {
 		return err
 	}
 	stored, err := lockSeriesEvents(ctx, tx, series.ID)
@@ -295,37 +291,7 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 	}
 
 	for _, edit := range plan.Edits {
-		e := edit.Given
-		switch edit.Kind {
-		case entity.EventEditAdd:
-			added := *e
-			added.ID = entity.NewID()
-			if err := insertDraftEvent(ctx, tx, series.ID, &added, performerArtistIDs); err != nil {
-				return err
-			}
-			continue
-		case entity.EventEditDraft:
-			if _, err := tx.Exec(ctx, updateDraftEventQuery,
-				e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, e.PerAccountLimit,
-			); err != nil {
-				return toAppErr(err, "failed to update draft event", slog.String("event_id", e.ID))
-			}
-		case entity.EventEditPublishedTimes:
-			if edit.MovesSlot {
-				moved := *edit.Stored
-				moved.StartTime = e.StartTime
-				if err := takeNewSlot(ctx, tx, &moved); err != nil {
-					return err
-				}
-			}
-			if _, err := tx.Exec(ctx, updatePublishedEventTimesQuery, e.ID, e.StartTime, e.OpenTime); err != nil {
-				return toAppErr(err, "failed to update published event times", slog.String("event_id", e.ID))
-			}
-		default:
-			// A CANCELLED event never changes, its performers included.
-			continue
-		}
-		if err := setPerformers(ctx, tx, e.ID, performerArtistIDs); err != nil {
+		if err := applyEventEdit(ctx, tx, series.ID, edit, performerArtistIDs); err != nil {
 			return err
 		}
 	}
@@ -340,6 +306,82 @@ func (r *SeriesRepository) Update(ctx context.Context, series *entity.Series, ev
 		return toAppErr(err, "failed to commit series update transaction")
 	}
 	return nil
+}
+
+// lockFirstPartySeries locks the series row for a write. It fails with
+// FailedPrecondition when no first-party series has the id.
+func lockFirstPartySeries(ctx context.Context, tx pgx.Tx, seriesID string) error {
+	organizerID, err := lockSeriesForWrite(ctx, tx, seriesID)
+	if errors.Is(err, apperr.ErrNotFound) || (err == nil && organizerID == nil) {
+		return apperr.New(codes.FailedPrecondition, "no first-party series has the id", slog.String("series_id", seriesID))
+	}
+	return err
+}
+
+// applyEventEdit stores one edit of a series update: a new draft, a changed
+// draft, or changed times of a PUBLISHED event, with the performers of the
+// event it leaves. A CANCELLED event never changes.
+func applyEventEdit(ctx context.Context, tx pgx.Tx, seriesID string, edit entity.EventEdit, performerArtistIDs []string) error {
+	e := edit.Given
+	switch edit.Kind {
+	case entity.EventEditAdd:
+		added := *e
+		added.ID = entity.NewID()
+		return insertDraftEvent(ctx, tx, seriesID, &added, performerArtistIDs)
+	case entity.EventEditDraft:
+		if _, err := tx.Exec(ctx, updateDraftEventQuery,
+			e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, e.PerAccountLimit,
+		); err != nil {
+			return toAppErr(err, "failed to update draft event", slog.String("event_id", e.ID))
+		}
+	case entity.EventEditPublishedTimes:
+		if edit.MovesSlot {
+			moved := *edit.Stored
+			moved.StartTime = e.StartTime
+			if err := takeNewSlot(ctx, tx, &moved); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, updatePublishedEventTimesQuery, e.ID, e.StartTime, e.OpenTime); err != nil {
+			return toAppErr(err, "failed to update published event times", slog.String("event_id", e.ID))
+		}
+	default:
+		return nil
+	}
+	return setPerformers(ctx, tx, e.ID, performerArtistIDs)
+}
+
+// publishDraft makes the draft PUBLISHED when its slot is free, and reports
+// true. When the slot is held, by a PUBLISHED event of the series or by a
+// discovered event the draft claims (keeping the discovered id, design D7), the
+// draft is removed and it reports false.
+func publishDraft(ctx context.Context, tx pgx.Tx, seriesID string, draft *entity.Event) (bool, error) {
+	holder, err := checkSlot(ctx, tx, draft, draft.ID)
+	if err != nil {
+		return false, err
+	}
+	claim, err := draft.ClaimSlotPlan(seriesID, holder)
+	if err != nil {
+		return false, err
+	}
+	switch claim {
+	case entity.SlotClaimPublish:
+		if _, err := tx.Exec(ctx, publishEventQuery, draft.ID); err != nil {
+			return false, toAppErr(err, "failed to publish event", slog.String("event_id", draft.ID))
+		}
+		return true, nil
+	case entity.SlotClaimDiscovered:
+		if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID, draft.Limit()); err != nil {
+			return false, toAppErr(err, "failed to claim event", slog.String("event_id", holder.EventID))
+		}
+		if _, err := tx.Exec(ctx, copyPerformersQuery, draft.ID, holder.EventID); err != nil {
+			return false, toAppErr(err, "failed to link performers to claimed event", slog.String("event_id", holder.EventID))
+		}
+	}
+	if _, err := tx.Exec(ctx, deleteEventByIDQuery, draft.ID); err != nil {
+		return false, toAppErr(err, "failed to remove the draft of a held slot", slog.String("event_id", draft.ID))
+	}
+	return false, nil
 }
 
 // takeNewSlot prepares a PUBLISHED event to take the slot of its new start
@@ -449,34 +491,12 @@ func (r *SeriesRepository) PublishEvents(ctx context.Context, seriesID string, e
 	var published []string
 	for _, id := range eventIDs {
 		draft := stored[id]
-		holder, err := checkSlot(ctx, tx, draft, draft.ID)
+		ok, err := publishDraft(ctx, tx, seriesID, draft)
 		if err != nil {
 			return nil, err
 		}
-		claim, err := draft.ClaimSlotPlan(seriesID, holder)
-		if err != nil {
-			return nil, err
-		}
-		switch claim {
-		case entity.SlotClaimPublish:
-			if _, err := tx.Exec(ctx, publishEventQuery, draft.ID); err != nil {
-				return nil, toAppErr(err, "failed to publish event", slog.String("event_id", draft.ID))
-			}
+		if ok {
 			published = append(published, draft.ID)
-			continue
-		case entity.SlotClaimDiscovered:
-			// Claim a discovered event, keeping its id (design D7).
-			if _, err := tx.Exec(ctx, claimEventQuery, holder.EventID, seriesID, draft.Limit()); err != nil {
-				return nil, toAppErr(err, "failed to claim event", slog.String("event_id", holder.EventID))
-			}
-			if _, err := tx.Exec(ctx, copyPerformersQuery, draft.ID, holder.EventID); err != nil {
-				return nil, toAppErr(err, "failed to link performers to claimed event", slog.String("event_id", holder.EventID))
-			}
-		}
-		// A PUBLISHED event of this series already holds the slot, or the
-		// discovered one was claimed: the draft goes.
-		if _, err := tx.Exec(ctx, deleteEventByIDQuery, draft.ID); err != nil {
-			return nil, toAppErr(err, "failed to remove the draft of a held slot", slog.String("event_id", draft.ID))
 		}
 	}
 

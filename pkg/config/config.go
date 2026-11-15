@@ -1036,18 +1036,62 @@ func (c *ServerConfig) Validate() error {
 		return err
 	}
 
-	if c.Server.Port <= 0 || c.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", c.Server.Port)
+	if err := c.validateAuthentication(); err != nil {
+		return err
 	}
 
-	if !c.IsLocal() && len(c.Server.AllowedOrigins) == 0 {
+	if err := c.validatePorts(); err != nil {
+		return err
+	}
+
+	if err := c.validateOrigins(); err != nil {
+		return err
+	}
+
+	if c.Webhook.PreAccessTokenAudience == "" {
+		return fmt.Errorf("webhook pre-access-token audience is required")
+	}
+
+	if err := c.PocketSign.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.Stripe.Validate(); err != nil {
+		return err
+	}
+
+	if c.Workload != "" && !slices.Contains(apiWorkloads, c.Workload) {
+		return fmt.Errorf("invalid API_WORKLOAD: %q (allowed: %s)", c.Workload, strings.Join(apiWorkloads, ", "))
+	}
+
+	if !c.IsLocal() {
+		return c.validateWorkloadSettings()
+	}
+
+	return nil
+}
+
+// validateOrigins requires, outside local, the CORS allowed origins of the fan
+// and the organizer servers and the NATS URL.
+func (c *ServerConfig) validateOrigins() error {
+	if c.IsLocal() {
+		return nil
+	}
+	if len(c.Server.AllowedOrigins) == 0 {
 		return fmt.Errorf("CORS allowed origins are required for non-local environments")
 	}
-
-	if !c.IsLocal() && c.NATS.URL == "" {
+	if c.NATS.URL == "" {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
+	if len(c.Server.OrganizerAllowedOrigins) == 0 {
+		return fmt.Errorf("organizer CORS allowed origins are required for non-local environments")
+	}
+	return nil
+}
 
+// validateAuthentication checks the JWT issuer and its JWKS refresh interval
+// and the fan web origin.
+func (c *ServerConfig) validateAuthentication() error {
 	if c.JWT.Issuer == "" {
 		return fmt.Errorf("JWT issuer is required")
 	}
@@ -1058,6 +1102,16 @@ func (c *ServerConfig) Validate() error {
 
 	if c.JWT.JWKSRefreshInterval <= 0 {
 		return fmt.Errorf("JWT JWKS refresh interval must be positive")
+	}
+	return nil
+}
+
+// validatePorts checks that the fan, admin, organizer, reception and webhook
+// ports are valid and distinct, so the webhook listener stays off the public
+// Gateway.
+func (c *ServerConfig) validatePorts() error {
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", c.Server.Port)
 	}
 
 	if c.Webhook.Port <= 0 || c.Webhook.Port > 65535 {
@@ -1086,31 +1140,6 @@ func (c *ServerConfig) Validate() error {
 		}
 		seen[p] = true
 	}
-
-	if !c.IsLocal() && len(c.Server.OrganizerAllowedOrigins) == 0 {
-		return fmt.Errorf("organizer CORS allowed origins are required for non-local environments")
-	}
-
-	if c.Webhook.PreAccessTokenAudience == "" {
-		return fmt.Errorf("webhook pre-access-token audience is required")
-	}
-
-	if err := c.PocketSign.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.Stripe.Validate(); err != nil {
-		return err
-	}
-
-	if c.Workload != "" && !slices.Contains(apiWorkloads, c.Workload) {
-		return fmt.Errorf("invalid API_WORKLOAD: %q (allowed: %s)", c.Workload, strings.Join(apiWorkloads, ", "))
-	}
-
-	if !c.IsLocal() {
-		return c.validateWorkloadSettings()
-	}
-
 	return nil
 }
 

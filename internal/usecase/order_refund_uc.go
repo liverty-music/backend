@@ -56,20 +56,9 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		return nil, err
 	}
 
-	// -- load the settlement: Order.Issue stored it with the Paid Order, so a
-	// missing one is broken data and nothing is refunded silently. --
-	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
-	if errors.Is(err, apperr.ErrNotFound) {
-		return nil, apperr.Wrap(err, codes.Internal, "the Paid Order has no Settlement",
-			slog.String("order_id", string(orderID)))
-	}
+	settlement, err := uc.refundSettlement(ctx, orderID)
 	if err != nil {
 		return nil, err
-	}
-	// A settlement given up because every ticket was resold has nothing left
-	// to claw back or reverse.
-	if settlement != nil && settlement.IsReversed() {
-		settlement = nil
 	}
 
 	// ── STRIPE MONEY MOVEMENT ──────────────────────────────────────────────
@@ -78,55 +67,9 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	//   ReversePayout: key = "settlement-reversal:<settlementID>:<providerPayoutID>"
 	// A crash after Stripe but before the DB commit means the next invocation
 	// replays Stripe calls (no-ops at provider) and re-attempts the DB tx.
-
-	// -- issue the platform-balance Refund (CANCELLATION only).
-	//
-	// For DISPUTE we do NOT call CreateRefund. When the fan opens a
-	// chargeback the card network immediately reverses the charge and debits the
-	// platform balance — Stripe surfaces this as the dispute. Calling
-	// CreateRefund on a disputed charge returns charge_disputed (402) because
-	// the money has already left via the chargeback, so the Refund API call would
-	// error before reverseSplits ever runs, leaving the Organizer's transfer
-	// un-reversed. The platform's obligation is only to claw back the Organizer
-	// transfer(s) via transfer_reversal, void the tickets, and mark the Order
-	// refunded.
-	//
-	// Design decision on the refund amount (non-DISPUTE paths):
-	//   We refund the price of the Order's Tickets still Issued (the full
-	//   Order.Amount when none was resold), making the fan whole. A ticket
-	//   resold through official resale was already refunded less the resale
-	//   fee. The processor fee (Stripe's cut) is NOT subtracted — doing so would
-	//   short the fan by an amount they never agreed to forfeit. Stripe does not
-	//   return the processor fee on refunds; the platform absorbs it, which is the
-	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
-	//   expanding the BalanceTransaction to obtain the exact fee.
-	var providerRefundID string
-	// refundAmount is what the platform refunds to the fan's card: 0 for a
-	// dispute, whose money the card issuer already returned.
-	var refundAmount int64
-	if reason != RefundReasonDispute {
-		refundAmount, err = uc.refundableAmount(ctx, order)
-		if err != nil {
-			return nil, err
-		}
-		// Every ticket resold: nothing is left to refund.
-		if refundAmount > 0 {
-			// Resolve the provider charge ID: prefer the value cached on the settlement row
-			// (set by the payout sweep), fall back to a live lookup at the payment provider.
-			providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
-			if err != nil {
-				return nil, err
-			}
-
-			providerRefundID, err = uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
-				OrderID:          orderID,
-				ProviderChargeID: providerChargeID,
-				Amount:           refundAmount,
-			})
-			if err != nil {
-				return nil, err
-			}
-		}
+	refundAmount, providerRefundID, err := uc.refundToCard(ctx, order, reason, settlement)
+	if err != nil {
+		return nil, err
 	}
 
 	// -- reverse any already-paid-out Transfer(s) per split. --
@@ -155,8 +98,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	if settlement != nil {
 		settleID = settlement.ID
 	}
-
-	commit := entity.RefundCommit{
+	return uc.commitRefund(ctx, entity.RefundCommit{
 		OrderID:          orderID,
 		Reason:           reason,
 		Amount:           refundAmount,
@@ -164,7 +106,77 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		RefundTime:       now,
 		SettlementID:     settleID,
 		ReversedSplits:   reversedSplits,
+	})
+}
+
+// refundSettlement loads the Order's settlement: Order.Issue stored it with
+// the Paid Order, so a missing one is broken data and nothing is refunded
+// silently (Internal). A settlement given up because every ticket was resold
+// has nothing left to claw back or reverse, and is returned as nil.
+func (uc *orderUseCase) refundSettlement(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
+	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		return nil, apperr.Wrap(err, codes.Internal, "the Paid Order has no Settlement",
+			slog.String("order_id", string(orderID)))
 	}
+	if err != nil {
+		return nil, err
+	}
+	if settlement != nil && settlement.IsReversed() {
+		return nil, nil
+	}
+	return settlement, nil
+}
+
+// refundToCard issues the platform-balance Refund of the Order and returns
+// the amount and the provider's refund id. Nothing is issued for a DISPUTE:
+// when the fan opens a chargeback the card network immediately reverses the
+// charge and debits the platform balance — Stripe surfaces this as the
+// dispute. Calling CreateRefund on a disputed charge returns charge_disputed
+// (402) because the money has already left via the chargeback, so the Refund
+// API call would error before reverseSplits ever runs, leaving the
+// Organizer's transfer un-reversed. The platform's obligation is only to claw
+// back the Organizer transfer(s) via transfer_reversal, void the tickets, and
+// mark the Order refunded. The amount is 0 then, and also when every ticket
+// was resold and nothing is left to refund.
+//
+// Design decision on the refund amount (non-DISPUTE paths): we refund the
+// price of the Order's Tickets still Issued (the full Order.Amount when none
+// was resold), making the fan whole. A ticket resold through official resale
+// was already refunded less the resale fee. The processor fee (Stripe's cut)
+// is NOT subtracted — doing so would short the fan by an amount they never
+// agreed to forfeit. Stripe does not return the processor fee on refunds; the
+// platform absorbs it, which is the JP norm. Precise per-fee subtraction is
+// intentionally deferred: it requires expanding the BalanceTransaction to
+// obtain the exact fee.
+func (uc *orderUseCase) refundToCard(ctx context.Context, order *entity.Order, reason RefundReason, settlement *entity.Settlement) (int64, string, error) {
+	if reason == RefundReasonDispute {
+		return 0, "", nil
+	}
+	refundAmount, err := uc.refundableAmount(ctx, order)
+	if err != nil || refundAmount == 0 {
+		return 0, "", err
+	}
+	// Resolve the provider charge ID: prefer the value cached on the settlement row
+	// (set by the payout sweep), fall back to a live lookup at the payment provider.
+	providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
+	if err != nil {
+		return 0, "", err
+	}
+	providerRefundID, err := uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
+		OrderID:          order.ID,
+		ProviderChargeID: providerChargeID,
+		Amount:           refundAmount,
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	return refundAmount, providerRefundID, nil
+}
+
+// commitRefund commits the refund and returns the Order as stored.
+func (uc *orderUseCase) commitRefund(ctx context.Context, commit entity.RefundCommit) (*entity.Order, error) {
+	orderID := commit.OrderID
 	if err := uc.refundRepo.CommitRefund(ctx, commit); err != nil {
 		// FailedPrecondition from CommitRefund has two causes. Another refund
 		// of the same Order got there first (its Settlement is already
@@ -191,8 +203,8 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 
 	uc.logger.Info(ctx, "refund order: completed", analyticslog.Attrs(analyticslog.TopicPayment,
 		slog.String("order_id", string(orderID)),
-		slog.String("reason", reason.String()),
-		slog.String("provider_refund_id", providerRefundID), // empty for DISPUTE (no CreateRefund call)
+		slog.String("reason", commit.Reason.String()),
+		slog.String("provider_refund_id", commit.ProviderRefundID), // empty for DISPUTE (no CreateRefund call)
 	)...)
 	// Return the Order as stored: CommitRefund changes nothing when a
 	// concurrent refund of the Order without a Settlement got there first,

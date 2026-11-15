@@ -184,25 +184,47 @@ func NewTicketSaleSearcher(
 	}, nil
 }
 
-// SearchPublishedSales implements [entity.TicketSaleSearcher]. It makes one
-// grounded call (GoogleSearch limited to the last 30 days, plus URL context)
-// that returns JSON, then drops every sale that fails the deterministic checks
-// in validatePublishedSale. Any failure of the call fails the search; there is no
-// retry, because a failed grounded call is still billed. The one exception is
-// a request rejected as invalid: some pages break the Preview tool-invocation
-// report after URL context reads them (backend #542), so the request is sent
-// once more without the report.
-func (s *TicketSaleSearcher) SearchPublishedSales(
+// callWithFallback sends the request. When it is rejected as invalid, it
+// sends it once more without the tool-invocation report, and the returned
+// attributes then say so.
+func (s *TicketSaleSearcher) callWithFallback(
 	ctx context.Context,
-	in *entity.PublishedSaleSearchInput,
-) ([]*entity.DiscoveredTicketSale, error) {
-	if in == nil || len(in.Series) == 0 {
-		return nil, nil
+	prompt string,
+	cfg *genai.GenerateContentConfig,
+	base posthog.LLMGeneration,
+	gens *[]posthog.LLMGeneration,
+	attrs []slog.Attr,
+) (*genai.GenerateContentResponse, []slog.Attr, error) {
+	resp, err := s.call(ctx, prompt, cfg, base, gens)
+	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
+		s.logger.Warn(ctx, "TicketSaleSearcher: request rejected as invalid, retrying once without the tool-invocation report",
+			append(attrs, slog.String("error", err.Error()))...)
+		reduced := *cfg
+		reduced.ToolConfig = nil
+		attrs = append(attrs, slog.Bool("tool_report_dropped", true))
+		resp, err = s.call(ctx, prompt, &reduced, base, gens)
 	}
-	now := s.now().Truncate(time.Second)
-	series := make(map[string]*entity.SalesSeriesRef, len(in.Series))
-	seriesIDs := make([]string, 0, len(in.Series))
-	for _, sr := range in.Series {
+	return resp, attrs, err
+}
+
+// baseGeneration returns the report every request of the search starts from.
+func (s *TicketSaleSearcher) baseGeneration(in *entity.PublishedSaleSearchInput, seriesIDs []string) posthog.LLMGeneration {
+	return posthog.LLMGeneration{
+		Model: s.config.Model,
+		Request: posthog.LLMRequest{
+			ArtistID:        in.ArtistID,
+			OfficialSiteURL: in.OfficialSiteURL,
+			SeriesIDs:       seriesIDs,
+		},
+	}
+}
+
+// distinctSeries indexes the series by id, skipping nil ones, ones with no id
+// and repeats, and returns the ids in input order.
+func distinctSeries(in []*entity.SalesSeriesRef) (map[string]*entity.SalesSeriesRef, []string) {
+	series := make(map[string]*entity.SalesSeriesRef, len(in))
+	seriesIDs := make([]string, 0, len(in))
+	for _, sr := range in {
 		if sr == nil || sr.SeriesID == "" {
 			continue
 		}
@@ -212,69 +234,24 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 		series[sr.SeriesID] = sr
 		seriesIDs = append(seriesIDs, sr.SeriesID)
 	}
-	if len(seriesIDs) == 0 {
-		return nil, nil
-	}
+	return series, seriesIDs
+}
 
-	attrs := []slog.Attr{
-		slog.String("artist_name", in.ArtistName),
-		slog.String("official_site_url", in.OfficialSiteURL),
-		slog.Int("series_count", len(seriesIDs)),
-		slog.String("model", s.config.Model),
-	}
-
-	cfg := s.buildConfig(now, seriesIDs)
-	prompt := publishedSalesUserPrompt(now, in, seriesIDs, series)
-
-	// Every request sent below is reported once, after the response is
-	// read so the last one carries what was kept.
-	base := posthog.LLMGeneration{
-		Model: s.config.Model,
-		Request: posthog.LLMRequest{
-			ArtistID:        in.ArtistID,
-			OfficialSiteURL: in.OfficialSiteURL,
-			SeriesIDs:       seriesIDs,
-		},
-	}
-	var gens []posthog.LLMGeneration
-	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
-	// fail marks the last request with errorKind.
-	fail := func(errorKind string) {
-		if len(gens) > 0 {
-			gens[len(gens)-1].ErrorKind = errorKind
-		}
-	}
-
-	resp, err := s.call(ctx, prompt, cfg, base, &gens)
-	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
-		s.logger.Warn(ctx, "TicketSaleSearcher: request rejected as invalid, retrying once without the tool-invocation report",
-			append(attrs, slog.String("error", err.Error()))...)
-		reduced := *cfg
-		reduced.ToolConfig = nil
-		attrs = append(attrs, slog.Bool("tool_report_dropped", true))
-		resp, err = s.call(ctx, prompt, &reduced, base, &gens)
-	}
-	if err != nil {
-		return nil, publishedSalesCallErr(err, attrs...)
-	}
-
-	text, errorKind, err := s.readResponse(ctx, resp, attrs)
-	if err != nil {
-		fail(errorKind)
-		return nil, err
-	}
-
-	var out publishedSalesResponse
-	if err := json.Unmarshal([]byte(text), &out); err != nil {
-		fail(errorKindInvalidJSON)
-		return nil, apperr.Wrap(err, codes.Internal, "TicketSaleSearcher: response is not valid JSON", attrs...)
-	}
-
-	candidates := make([]*entity.DiscoveredTicketSale, 0, len(out.Phases))
+// keepValidSales validates the phases Gemini returned and returns the sales to
+// keep with the counts of what was returned, kept and dropped, logging each
+// drop.
+func (s *TicketSaleSearcher) keepValidSales(
+	ctx context.Context,
+	phases []*publishedSaleJSON,
+	now time.Time,
+	series map[string]*entity.SalesSeriesRef,
+	attrs []slog.Attr,
+) ([]*entity.DiscoveredTicketSale, *posthog.SaleParseResult) {
+	candidates := make([]*entity.DiscoveredTicketSale, 0, len(phases))
 	dropped := map[string]int{}
 	droppedResultDates := map[string]int{}
 	resultDates := 0
-	for _, p := range out.Phases {
+	for _, p := range phases {
 		if p == nil {
 			continue
 		}
@@ -305,13 +282,76 @@ func (s *TicketSaleSearcher) SearchPublishedSales(
 		}
 		candidates = append(candidates, c)
 	}
-	gens[len(gens)-1].Sales = &posthog.SaleParseResult{
-		Returned:           len(out.Phases),
+	return candidates, &posthog.SaleParseResult{
+		Returned:           len(phases),
 		Kept:               len(candidates),
 		Dropped:            dropped,
 		ResultDates:        resultDates,
 		DroppedResultDates: droppedResultDates,
 	}
+}
+
+// SearchPublishedSales implements [entity.TicketSaleSearcher]. It makes one
+// grounded call (GoogleSearch limited to the last 30 days, plus URL context)
+// that returns JSON, then drops every sale that fails the deterministic checks
+// in validatePublishedSale. Any failure of the call fails the search; there is no
+// retry, because a failed grounded call is still billed. The one exception is
+// a request rejected as invalid: some pages break the Preview tool-invocation
+// report after URL context reads them (backend #542), so the request is sent
+// once more without the report.
+func (s *TicketSaleSearcher) SearchPublishedSales(
+	ctx context.Context,
+	in *entity.PublishedSaleSearchInput,
+) ([]*entity.DiscoveredTicketSale, error) {
+	if in == nil || len(in.Series) == 0 {
+		return nil, nil
+	}
+	now := s.now().Truncate(time.Second)
+	series, seriesIDs := distinctSeries(in.Series)
+	if len(seriesIDs) == 0 {
+		return nil, nil
+	}
+
+	attrs := []slog.Attr{
+		slog.String("artist_name", in.ArtistName),
+		slog.String("official_site_url", in.OfficialSiteURL),
+		slog.Int("series_count", len(seriesIDs)),
+		slog.String("model", s.config.Model),
+	}
+	base := s.baseGeneration(in, seriesIDs)
+	cfg := s.buildConfig(now, seriesIDs)
+	prompt := publishedSalesUserPrompt(now, in, seriesIDs, series)
+
+	// Every request sent below is reported once, after the response is
+	// read so the last one carries what was kept.
+	var gens []posthog.LLMGeneration
+	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
+	// fail marks the last request with errorKind.
+	fail := func(errorKind string) {
+		if len(gens) > 0 {
+			gens[len(gens)-1].ErrorKind = errorKind
+		}
+	}
+
+	resp, attrs, err := s.callWithFallback(ctx, prompt, cfg, base, &gens, attrs)
+	if err != nil {
+		return nil, publishedSalesCallErr(err, attrs...)
+	}
+
+	text, errorKind, err := s.readResponse(ctx, resp, attrs)
+	if err != nil {
+		fail(errorKind)
+		return nil, err
+	}
+
+	var out publishedSalesResponse
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		fail(errorKindInvalidJSON)
+		return nil, apperr.Wrap(err, codes.Internal, "TicketSaleSearcher: response is not valid JSON", attrs...)
+	}
+
+	candidates, result := s.keepValidSales(ctx, out.Phases, now, series, attrs)
+	gens[len(gens)-1].Sales = result
 
 	s.logger.Info(ctx, "TicketSaleSearcher: search complete",
 		append(attrs,
@@ -393,25 +433,14 @@ func publishedSalesUserPrompt(
 	return b.String()
 }
 
-// readResponse logs the response metadata and returns the JSON text of the
-// first candidate. An empty or cut-off response is an Internal error, returned
-// with its generation error kind.
-func (s *TicketSaleSearcher) readResponse(
-	ctx context.Context,
-	resp *genai.GenerateContentResponse,
-	attrs []slog.Attr,
-) (string, string, error) {
-	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0] == nil || resp.Candidates[0].Content == nil {
-		s.logResponseMetadata(ctx, resp, nil, attrs)
-		return "", errorKindNoCandidates, apperr.New(codes.Internal, "TicketSaleSearcher: response has no candidate", attrs...)
-	}
-	candidate := resp.Candidates[0]
-
+// textAndToolQueries returns the answer text of the parts (thought parts
+// left out) and the Google Search queries of their server-side tool calls.
+func textAndToolQueries(parts []*genai.Part) (string, []string) {
 	var (
 		text    strings.Builder
 		queries []string
 	)
-	for _, p := range candidate.Content.Parts {
+	for _, p := range parts {
 		if p == nil {
 			continue
 		}
@@ -426,6 +455,24 @@ func (s *TicketSaleSearcher) readResponse(
 		}
 		text.WriteString(p.Text)
 	}
+	return text.String(), queries
+}
+
+// readResponse logs the response metadata and returns the JSON text of the
+// first candidate. An empty or cut-off response is an Internal error, returned
+// with its generation error kind.
+func (s *TicketSaleSearcher) readResponse(
+	ctx context.Context,
+	resp *genai.GenerateContentResponse,
+	attrs []slog.Attr,
+) (string, string, error) {
+	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0] == nil || resp.Candidates[0].Content == nil {
+		s.logResponseMetadata(ctx, resp, nil, attrs)
+		return "", errorKindNoCandidates, apperr.New(codes.Internal, "TicketSaleSearcher: response has no candidate", attrs...)
+	}
+	candidate := resp.Candidates[0]
+
+	text, queries := textAndToolQueries(candidate.Content.Parts)
 	if len(queries) == 0 && candidate.GroundingMetadata != nil {
 		queries = candidate.GroundingMetadata.WebSearchQueries
 	}
@@ -435,10 +482,10 @@ func (s *TicketSaleSearcher) readResponse(
 		return "", errorKindIncomplete, apperr.New(codes.Internal, "TicketSaleSearcher: response did not finish",
 			append(attrs, slog.String("finish_reason", string(candidate.FinishReason)))...)
 	}
-	if strings.TrimSpace(text.String()) == "" {
+	if strings.TrimSpace(text) == "" {
 		return "", errorKindNoText, apperr.New(codes.Internal, "TicketSaleSearcher: response has no text", attrs...)
 	}
-	return text.String(), "", nil
+	return text, "", nil
 }
 
 // publishedSalesCallErr maps a failed Gemini call to an apperr code (design D4):
@@ -532,6 +579,44 @@ func publishedResultDate(raw string, method entity.TicketSaleMethod, end time.Ti
 	return &d, ""
 }
 
+// candidateFields returns the log attributes that describe a response's first
+// candidate: its finish reason, URL-context counts, source URLs and retrieved
+// URLs.
+func candidateFields(c *genai.Candidate) []slog.Attr {
+	fields := []slog.Attr{
+		slog.String("finish_reason", string(c.FinishReason)),
+		slog.String("finish_message", c.FinishMessage),
+	}
+	if c.Content != nil {
+		// url_context_retrieved can omit fetches that only failed; these
+		// count from the server-side tool parts.
+		calls, succeeded := urlContextCounts(c.Content.Parts)
+		fields = append(fields,
+			slog.Int("url_context_calls", calls),
+			slog.Int("url_context_succeeded", succeeded),
+		)
+	}
+	if g := c.GroundingMetadata; g != nil {
+		urls := make([]string, 0, len(g.GroundingChunks))
+		for _, ch := range g.GroundingChunks {
+			if ch != nil && ch.Web != nil {
+				urls = append(urls, ch.Web.URI)
+			}
+		}
+		fields = append(fields, slog.Any("source_urls", urls))
+	}
+	if uc := c.URLContextMetadata; uc != nil {
+		retrieved := make([]string, 0, len(uc.URLMetadata))
+		for _, um := range uc.URLMetadata {
+			if um != nil {
+				retrieved = append(retrieved, fmt.Sprintf("%s [%s]", um.RetrievedURL, um.URLRetrievalStatus))
+			}
+		}
+		fields = append(fields, slog.Any("url_context_retrieved", retrieved))
+	}
+	return fields
+}
+
 // logResponseMetadata logs the metadata of a Gemini response for tuning and
 // cost tracking: token usage, finish reason, the search queries the call
 // issued (each one is billed), grounding sources and URL-context retrieval.
@@ -570,37 +655,6 @@ func (s *TicketSaleSearcher) logResponseMetadata(
 		s.logger.Info(ctx, "TicketSaleSearcher: gemini response metadata", fields...)
 		return
 	}
-	c := resp.Candidates[0]
-	fields = append(fields,
-		slog.String("finish_reason", string(c.FinishReason)),
-		slog.String("finish_message", c.FinishMessage),
-	)
-	if c.Content != nil {
-		// url_context_retrieved can omit fetches that only failed; these
-		// count from the server-side tool parts.
-		calls, succeeded := urlContextCounts(c.Content.Parts)
-		fields = append(fields,
-			slog.Int("url_context_calls", calls),
-			slog.Int("url_context_succeeded", succeeded),
-		)
-	}
-	if g := c.GroundingMetadata; g != nil {
-		urls := make([]string, 0, len(g.GroundingChunks))
-		for _, ch := range g.GroundingChunks {
-			if ch != nil && ch.Web != nil {
-				urls = append(urls, ch.Web.URI)
-			}
-		}
-		fields = append(fields, slog.Any("source_urls", urls))
-	}
-	if uc := c.URLContextMetadata; uc != nil {
-		retrieved := make([]string, 0, len(uc.URLMetadata))
-		for _, um := range uc.URLMetadata {
-			if um != nil {
-				retrieved = append(retrieved, fmt.Sprintf("%s [%s]", um.RetrievedURL, um.URLRetrievalStatus))
-			}
-		}
-		fields = append(fields, slog.Any("url_context_retrieved", retrieved))
-	}
+	fields = append(fields, candidateFields(resp.Candidates[0])...)
 	s.logger.Info(ctx, "TicketSaleSearcher: gemini response metadata", fields...)
 }

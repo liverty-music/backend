@@ -185,18 +185,15 @@ func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL, pro
 	return selectLinks(io.LimitReader(resp.Body, officialPageMaxBytes), final, domain, profile), nil
 }
 
-// selectLinks returns the <a href> links of an HTML document that point to
-// domain and match profile, resolved against base, normalized, de-duplicated
-// and filled tier by tier in page order up to profile.max.
-func selectLinks(r io.Reader, base *url.URL, domain string, profile linkProfile) []string {
-	seen := make(map[string]struct{})
-	byTier := make([][]string, len(profile.tiers))
-
+// anchorHrefs returns the href attribute of every <a> tag of the HTML, in
+// document order.
+func anchorHrefs(r io.Reader) []string {
+	var hrefs []string
 	z := html.NewTokenizer(r)
 	for {
 		tt := z.Next()
 		if tt == html.ErrorToken {
-			break
+			return hrefs
 		}
 		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
 			continue
@@ -208,15 +205,27 @@ func selectLinks(r io.Reader, base *url.URL, domain string, profile linkProfile)
 		for {
 			key, val, more := z.TagAttr()
 			if string(key) == "href" {
-				if link, tier, ok := matchLink(string(val), base, domain, profile); ok {
-					if _, dup := seen[link]; !dup {
-						seen[link] = struct{}{}
-						byTier[tier] = append(byTier[tier], link)
-					}
-				}
+				hrefs = append(hrefs, string(val))
 			}
 			if !more {
 				break
+			}
+		}
+	}
+}
+
+// selectLinks returns the <a href> links of an HTML document that point to
+// domain and match profile, resolved against base, normalized, de-duplicated
+// and filled tier by tier in page order up to profile.max.
+func selectLinks(r io.Reader, base *url.URL, domain string, profile linkProfile) []string {
+	seen := make(map[string]struct{})
+	byTier := make([][]string, len(profile.tiers))
+
+	for _, href := range anchorHrefs(r) {
+		if link, tier, ok := matchLink(href, base, domain, profile); ok {
+			if _, dup := seen[link]; !dup {
+				seen[link] = struct{}{}
+				byTier[tier] = append(byTier[tier], link)
 			}
 		}
 	}

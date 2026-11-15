@@ -55,28 +55,9 @@ type PublicHTTPRoute struct {
 	Handler http.Handler
 }
 
-// NewConnectServer creates a new Connect server instance.
-//
-// It is the shared factory for both the consumer and the admin Connect servers:
-// the two are built identically except for the port and CORS origins (carried by
-// serverCfg), the handler set (handlerFuncs), and any
-// extraInterceptors. The consumer server passes no extra interceptors; the admin
-// server passes its boundary admin-authorization interceptor. extraInterceptors are
-// inserted after the claims bridge and before validation, preserving the
-// interceptor-chain-ordering invariants for both servers.
-//
-// Every RPC handler is wrapped with the server's HandlerTimeout.
-// publicRoutes are served without authentication; see [PublicHTTPRoute].
-func NewConnectServer(
-	serverCfg config.ServerSettings,
-	logger *logging.Logger,
-	authFunc authn.AuthFunc,
-	rateLimiter *ratelimit.Limiter,
-	healthHandler HealthHandlerFunc,
-	extraInterceptors []connect.ServerInterceptor,
-	publicRoutes []PublicHTTPRoute,
-	handlerFuncs ...RPCHandlerFunc,
-) *ConnectServer {
+// interceptorChain returns the interceptors of the RPC server in execution
+// order, outermost first.
+func interceptorChain(logger *logging.Logger, rateLimiter *ratelimit.Limiter, extraInterceptors []connect.ServerInterceptor) []connect.ServerInterceptor {
 	// Create interceptors. otelconnect only fails on invalid options, and none
 	// are passed; on failure the server runs without tracing rather than not
 	// at all, as the v1 code (which discarded the error) did.
@@ -135,6 +116,44 @@ func NewConnectServer(
 	}
 	interceptors = append(interceptors, extraInterceptors...)
 	interceptors = append(interceptors, validationInterceptor)
+	return interceptors
+}
+
+// newHealthMux returns the mux of the health check server: a minimal chain for
+// Kubernetes probes. It has no access log, tracing, error-handling, auth
+// bridge or validation; health checks are called every few seconds and those
+// layers add noise without operational value.
+func newHealthMux(logger *logging.Logger, healthHandler HealthHandlerFunc) *http.ServeMux {
+	healthServer := connect.NewServer(newRecoverInterceptor(logger))
+	healthHandler(healthServer)
+	healthMux := http.NewServeMux()
+	connecthttp.Mount(healthMux, healthServer)
+	return healthMux
+}
+
+// NewConnectServer creates a new Connect server instance.
+//
+// It is the shared factory for both the consumer and the admin Connect servers:
+// the two are built identically except for the port and CORS origins (carried by
+// serverCfg), the handler set (handlerFuncs), and any
+// extraInterceptors. The consumer server passes no extra interceptors; the admin
+// server passes its boundary admin-authorization interceptor. extraInterceptors are
+// inserted after the claims bridge and before validation, preserving the
+// interceptor-chain-ordering invariants for both servers.
+//
+// Every RPC handler is wrapped with the server's HandlerTimeout.
+// publicRoutes are served without authentication; see [PublicHTTPRoute].
+func NewConnectServer(
+	serverCfg config.ServerSettings,
+	logger *logging.Logger,
+	authFunc authn.AuthFunc,
+	rateLimiter *ratelimit.Limiter,
+	healthHandler HealthHandlerFunc,
+	extraInterceptors []connect.ServerInterceptor,
+	publicRoutes []PublicHTTPRoute,
+	handlerFuncs ...RPCHandlerFunc,
+) *ConnectServer {
+	interceptors := interceptorChain(logger, rateLimiter, extraInterceptors)
 
 	// RPC services share one connect.Server, mounted on the protected mux.
 	// connecthttp.Mount keeps v2's default 4 MiB per-message read limit.
@@ -145,14 +164,7 @@ func NewConnectServer(
 	protectedMux := http.NewServeMux()
 	connecthttp.Mount(protectedMux, rpcServer)
 
-	// Health check server — minimal chain for Kubernetes probes.
-	// No access log, tracing, error-handling, auth bridge, or validation;
-	// health checks are called every few seconds and those layers add
-	// noise without operational value.
-	healthServer := connect.NewServer(newRecoverInterceptor(logger))
-	healthHandler(healthServer)
-	healthMux := http.NewServeMux()
-	connecthttp.Mount(healthMux, healthServer)
+	healthMux := newHealthMux(logger, healthHandler)
 
 	// Wrap protected mux with authn middleware (default-deny)
 	authMiddleware := authn.NewMiddleware(authFunc)

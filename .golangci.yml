@@ -6,10 +6,23 @@ run:
 
 linters:
   enable:
+    - cyclop
     - depguard
     - forbidigo
+    - funlen
+    - gocognit
     - revive
   settings:
+    # Function size and complexity limits (OpenSpec change
+    # move-decisions-into-entities): a function that grows past them is split
+    # by responsibility. Tests and the local analysis CLIs are excluded below.
+    funlen:
+      lines: 60
+      statements: 40
+    gocognit:
+      min-complexity: 20
+    cyclop:
+      max-complexity: 15
     # Every import points inward (OpenSpec change
     # restructure-backend-responsibilities): entity <- usecase <- adapter /
     # infrastructure, wired by internal/di and cmd/, which may import
@@ -89,6 +102,6 @@ linters:
       # Tests, and the local analysis CLIs whose stderr is read by a human at
       # a terminal, are not deployed.
       - path: _test\.go
-        linters: [forbidigo]
+        linters: [forbidigo, funlen, gocognit, cyclop]
       - path: ^cmd/(analyze-[^/]+|replay-ab-log|annotated-fixture)/
-        linters: [forbidigo]
+        linters: [forbidigo, funlen, gocognit, cyclop]

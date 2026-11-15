@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -30,6 +29,53 @@ type JobApp struct {
 	ConcertUC       usecase.ConcertUseCase
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
+}
+
+// provideJobConcertUseCase builds the ConcertUseCase of the discovery job:
+// the repositories, the workflow client, the analytics client and the Gemini
+// searcher. In a non-local environment the job fails fast without the Gemini
+// key, since it would run with no searcher and discover nothing.
+func provideJobConcertUseCase(ctx context.Context, cfg *config.JobConfig, db *rdb.Database, logger *logging.Logger) (usecase.ConcertUseCase, error) {
+	// Repositories
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
+	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
+	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
+
+	// The new concerts of a search are started as a create-from-discovered
+	// workflow, which the workflow worker runs.
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// Infrastructure - PostHog analytics client for the search signals
+	// (optional: nil without POSTHOG_PROJECT_API_KEY).
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// Infrastructure - Gemini
+	//
+	// Fail fast in non-local environments: without the key the job would run
+	// with no searcher and discover nothing. Local development may run without.
+	if !cfg.IsLocal() && cfg.GCP.GeminiSearchAPIKey == "" {
+		return nil, fmt.Errorf("GCP_GEMINI_SEARCH_API_KEY is required for the discovery job in non-local environments")
+	}
+	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), geminiHTTPClient, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use Cases
+	centroidResolver := geo.NewCentroidResolver()
+	return usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger), nil
 }
 
 // InitializeJobApp creates a JobApp with only the dependencies needed for batch processing.
@@ -60,59 +106,11 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		return nil, err
 	}
 
-	// Repositories
-	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
-	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
-	venueRepo := rdb.NewVenueRepository(db)
-	seriesRepo := rdb.NewSeriesRepository(db, newOutbox(logger))
-	organizerRepo := rdb.NewOrganizerRepository(db, newOutbox(logger))
-	concertSearchRepo := rdb.NewConcertSearchRepository(db)
-	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
-	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
-
-	// The new concerts of a search are started as a create-from-discovered
-	// workflow, which the workflow worker runs.
-	workflows, err := provideWorkflows(ctx, db, logger)
+	concertUC, err := provideJobConcertUseCase(ctx, cfg, db, logger)
 	if err != nil {
 		return nil, err
 	}
-
-	// Infrastructure - PostHog analytics client for the search signals
-	// (optional: nil without POSTHOG_PROJECT_API_KEY).
-	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Infrastructure - Gemini
-	//
-	// Fail fast in non-local environments: without the key the job would run
-	// with no searcher and discover nothing. Local development may run without.
-	if !cfg.IsLocal() && cfg.GCP.GeminiSearchAPIKey == "" {
-		return nil, fmt.Errorf("GCP_GEMINI_SEARCH_API_KEY is required for the discovery job in non-local environments")
-	}
-	var geminiSearcher entity.ConcertSearcher
-	if cfg.GCP.GeminiSearchAPIKey != "" {
-		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-			APIKey:          cfg.GCP.GeminiSearchAPIKey,
-			Model:           cfg.GCP.ConcertSearchModel(),
-			ThinkingLevel:   cfg.GCP.ConcertSearchThinkingLevel(),
-			OmitTemperature: true,
-
-			IncludeServerSideToolInvocations: true,
-			Reporter:                         posthog.NewGenerationReporter(analyticsClient, logger),
-		}, geminiHTTPClient, gemini.NewOfficialPageClient(), logger)
-		if err != nil {
-			return nil, err
-		}
-		geminiSearcher = searcher
-	}
-
-	// Use Cases
-	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 
 	// Register shutdown phases.
 	shutdown.AddObservePhase(telemetryCloser)

@@ -62,66 +62,13 @@ func (uc *lotteryEntryUseCase) DrawDueSales(ctx context.Context, f Flow, at time
 
 // Draw implements [LotteryEntryUseCase].
 func (uc *lotteryEntryUseCase) Draw(ctx context.Context, f Flow, saleID entity.TicketSaleID) (int, error) {
-	eventIDs, err := Step(ctx, f, "get sale", func(ctx context.Context) ([]string, error) {
-		sale, err := uc.saleRepo.Get(ctx, saleID)
-		if err != nil {
-			return nil, err
-		}
-		return sale.EventIDs, nil
-	})
+	stockIDs, err := uc.drawnStockIDs(ctx, f, saleID)
 	if err != nil {
 		return 0, err
 	}
-	stockIDs, err := Step(ctx, f, "list stocks", func(ctx context.Context) ([]entity.TicketStockID, error) {
-		var ids []entity.TicketStockID
-		for _, eventID := range eventIDs {
-			stocks, err := uc.stockRepo.ListByEvent(ctx, eventID, uc.clock())
-			if err != nil {
-				return nil, err
-			}
-			for _, s := range stocks {
-				ids = append(ids, s.ID)
-			}
-		}
-		return ids, nil
-	})
+	orders, ordered, err := uc.drawOrders(ctx, f, saleID, stockIDs)
 	if err != nil {
 		return 0, err
-	}
-
-	orders := make([]entity.StockDrawOrder, 0, len(stockIDs))
-	ordered := 0
-	for _, stockID := range stockIDs {
-		// The random order is recorded by its step, so a resumed draw records
-		// with the order computed before the stop.
-		entries, err := Step(ctx, f, "order "+string(stockID), func(ctx context.Context) ([]drawnEntry, error) {
-			entered, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, saleID, stockID)
-			if err != nil {
-				return nil, err
-			}
-			draw := make([]entity.DrawEntry, len(entered))
-			for i, e := range entered {
-				draw[i] = entity.DrawEntry{ID: e.ID, TicketCount: e.Order.TicketCount}
-			}
-			shuffled := entity.ShuffleDrawOrder(draw, uc.newRand())
-			out := make([]drawnEntry, len(shuffled))
-			for i, e := range shuffled {
-				out[i] = drawnEntry{ID: e.ID, TicketCount: e.TicketCount}
-			}
-			return out, nil
-		})
-		if err != nil {
-			return 0, err
-		}
-		if len(entries) == 0 {
-			continue
-		}
-		order := entity.StockDrawOrder{TicketStockID: stockID, Entries: make([]entity.DrawEntry, len(entries))}
-		for i, e := range entries {
-			order.Entries[i] = entity.DrawEntry{ID: e.ID, TicketCount: e.TicketCount}
-		}
-		orders = append(orders, order)
-		ordered += len(entries)
 	}
 	if ordered == 0 {
 		// No Entered entry: the closed sale is already drawn.
@@ -139,4 +86,71 @@ func (uc *lotteryEntryUseCase) Draw(ctx context.Context, f Flow, saleID entity.T
 		slog.Int("entry_count", ordered),
 	)...)
 	return ordered, nil
+}
+
+// drawnStockIDs returns the ids of the ticket stocks of the sale's events.
+func (uc *lotteryEntryUseCase) drawnStockIDs(ctx context.Context, f Flow, saleID entity.TicketSaleID) ([]entity.TicketStockID, error) {
+	eventIDs, err := Step(ctx, f, "get sale", func(ctx context.Context) ([]string, error) {
+		sale, err := uc.saleRepo.Get(ctx, saleID)
+		if err != nil {
+			return nil, err
+		}
+		return sale.EventIDs, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return Step(ctx, f, "list stocks", func(ctx context.Context) ([]entity.TicketStockID, error) {
+		var ids []entity.TicketStockID
+		for _, eventID := range eventIDs {
+			stocks, err := uc.stockRepo.ListByEvent(ctx, eventID, uc.clock())
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range stocks {
+				ids = append(ids, s.ID)
+			}
+		}
+		return ids, nil
+	})
+}
+
+// drawOrders records, per ticket stock, the random order of its Entered
+// entries, and returns the orders of the stocks that have entries with the
+// number of entries in them. The random order is recorded by its step, so a
+// resumed draw records with the order computed before the stop.
+func (uc *lotteryEntryUseCase) drawOrders(ctx context.Context, f Flow, saleID entity.TicketSaleID, stockIDs []entity.TicketStockID) ([]entity.StockDrawOrder, int, error) {
+	orders := make([]entity.StockDrawOrder, 0, len(stockIDs))
+	ordered := 0
+	for _, stockID := range stockIDs {
+		entries, err := Step(ctx, f, "order "+string(stockID), func(ctx context.Context) ([]drawnEntry, error) {
+			entered, err := uc.entryRepo.ListEnteredByTicketSaleAndTicketStock(ctx, saleID, stockID)
+			if err != nil {
+				return nil, err
+			}
+			draw := make([]entity.DrawEntry, len(entered))
+			for i, e := range entered {
+				draw[i] = entity.DrawEntry{ID: e.ID, TicketCount: e.Order.TicketCount}
+			}
+			shuffled := entity.ShuffleDrawOrder(draw, uc.newRand())
+			out := make([]drawnEntry, len(shuffled))
+			for i, e := range shuffled {
+				out[i] = drawnEntry{ID: e.ID, TicketCount: e.TicketCount}
+			}
+			return out, nil
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(entries) == 0 {
+			continue
+		}
+		order := entity.StockDrawOrder{TicketStockID: stockID, Entries: make([]entity.DrawEntry, len(entries))}
+		for i, e := range entries {
+			order.Entries[i] = entity.DrawEntry{ID: e.ID, TicketCount: e.TicketCount}
+		}
+		orders = append(orders, order)
+		ordered += len(entries)
+	}
+	return orders, ordered, nil
 }

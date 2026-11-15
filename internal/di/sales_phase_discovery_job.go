@@ -31,6 +31,60 @@ type TicketSaleDiscoveryJobApp struct {
 	ShutdownTimeout  time.Duration
 }
 
+// provideTicketSaleSearcher builds the Gemini published-sale searcher, which
+// this job cannot run without: a missing GCP_GEMINI_SEARCH_API_KEY is an
+// error.
+func provideTicketSaleSearcher(ctx context.Context, cfg config.GCPConfig, reporter gemini.GenerationReporter, logger *logging.Logger) (entity.TicketSaleSearcher, error) {
+	if cfg.GeminiSearchAPIKey == "" {
+		return nil, fmt.Errorf("sales-phase-discovery job requires GCP_GEMINI_SEARCH_API_KEY")
+	}
+	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	return gemini.NewTicketSaleSearcher(ctx, gemini.TicketSaleSearcherConfig{
+		APIKey:   cfg.GeminiSearchAPIKey,
+		Model:    cfg.PublishedSaleSearchModel(),
+		Thinking: cfg.PublishedSaleSearchThinking(),
+		Reporter: reporter,
+	}, geminiHTTPClient, logger)
+}
+
+// provideTicketSaleDiscoveryUseCase builds the TicketSaleDiscoveryUseCase of
+// the sales-phase discovery job: its repositories, the analytics client and
+// the Gemini searcher, without which the job cannot run.
+func provideTicketSaleDiscoveryUseCase(ctx context.Context, cfg *config.JobConfig, db *rdb.Database, logger *logging.Logger) (usecase.TicketSaleDiscoveryUseCase, error) {
+	// Repositories
+	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
+	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db, newOutbox(logger))
+	ticketSaleSearchRepo := rdb.NewTicketSaleSearchRepository(db)
+	journeyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
+
+	// PostHog analytics client for the search signals (optional: nil without
+	// POSTHOG_PROJECT_API_KEY).
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	searcher, err := provideTicketSaleSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// Metrics wired for future observability; not yet plumbed into the UC.
+	_ = infratelemetry.NewBusinessMetrics()
+
+	return usecase.NewTicketSaleDiscoveryUseCase(
+		concertRepo,
+		artistRepo,
+		ticketSaleRepo,
+		ticketSaleSearchRepo,
+		journeyRepo,
+		searcher,
+		analyticsClient, time.Now,
+		logger,
+	), nil
+}
+
 // InitializeTicketSaleDiscoveryJobApp wires the sales-phase discovery job.
 // A missing Gemini API key is a hard initialization error.
 func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscoveryJobApp, error) {
@@ -58,49 +112,11 @@ func InitializeTicketSaleDiscoveryJobApp(ctx context.Context) (*TicketSaleDiscov
 		return nil, err
 	}
 
-	// Repositories
 	followRepo := rdb.NewFollowRepository(db, newOutbox(logger))
-	concertRepo := rdb.NewConcertRepository(db, newOutbox(logger))
-	artistRepo := rdb.NewArtistRepository(db, newOutbox(logger))
-	ticketSaleRepo := rdb.NewTicketSaleRepository(db, newOutbox(logger))
-	ticketSaleSearchRepo := rdb.NewTicketSaleSearchRepository(db)
-	journeyRepo := rdb.NewTicketJourneyRepository(db, newOutbox(logger))
-
-	// PostHog analytics client for the search signals (optional: nil without
-	// POSTHOG_PROJECT_API_KEY).
-	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	ticketSaleDiscUC, err := provideTicketSaleDiscoveryUseCase(ctx, cfg, db, logger)
 	if err != nil {
 		return nil, err
 	}
-
-	// Gemini published-sale searcher — mandatory for this job.
-	if cfg.GCP.GeminiSearchAPIKey == "" {
-		return nil, fmt.Errorf("sales-phase-discovery job requires GCP_GEMINI_SEARCH_API_KEY")
-	}
-	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	searcher, err := gemini.NewTicketSaleSearcher(ctx, gemini.TicketSaleSearcherConfig{
-		APIKey:   cfg.GCP.GeminiSearchAPIKey,
-		Model:    cfg.GCP.PublishedSaleSearchModel(),
-		Thinking: cfg.GCP.PublishedSaleSearchThinking(),
-		Reporter: posthog.NewGenerationReporter(analyticsClient, logger),
-	}, geminiHTTPClient, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Metrics wired for future observability; not yet plumbed into the UC.
-	_ = infratelemetry.NewBusinessMetrics()
-
-	ticketSaleDiscUC := usecase.NewTicketSaleDiscoveryUseCase(
-		concertRepo,
-		artistRepo,
-		ticketSaleRepo,
-		ticketSaleSearchRepo,
-		journeyRepo,
-		searcher,
-		analyticsClient, time.Now,
-		logger,
-	)
 
 	shutdown.Init(logger)
 	shutdown.AddObservePhase(telemetryCloser)

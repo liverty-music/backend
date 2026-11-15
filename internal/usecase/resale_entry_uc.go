@@ -324,14 +324,22 @@ func (uc *resaleEntryUseCase) confirm(ctx context.Context, cardAuthorizationID s
 	if err := authorization.Confirm(purchase, stock.SeatType.AmountFor(purchase.TicketCount)); err != nil {
 		return nil, uc.reject(ctx, cardAuthorizationID, err)
 	}
+	return uc.createEntry(ctx, authorization, stock, now)
+}
+
+// createEntry makes the resale entry and its Pending Order for the confirmed
+// authorization. A refusal of the repository (the entry exists, a failed
+// precondition, a stock that is gone) releases the authorization.
+func (uc *resaleEntryUseCase) createEntry(ctx context.Context, authorization *entity.CardAuthorization, stock *entity.TicketStock, now time.Time) (*entity.ResaleEntry, error) {
+	purchase := authorization.Purchase
 	order := entity.NewPendingOrder(purchase.UserID, stock, purchase.TicketCount, purchase.ReferralCode, entity.OrderPaymentProvider)
-	order.CardAuthorizationID = cardAuthorizationID
+	order.CardAuthorizationID = authorization.ID
 	newEntry := entity.NewResaleEntry(order, now)
 	newEntry.CardAuthorizationExpireTime = authorization.ExpireTime
-	entry, err = uc.entryRepo.Create(ctx, newEntry)
+	entry, err := uc.entryRepo.Create(ctx, newEntry)
 	if err != nil {
 		if errors.Is(err, apperr.ErrAlreadyExists) || errors.Is(err, apperr.ErrFailedPrecondition) || errors.Is(err, apperr.ErrNotFound) {
-			return nil, uc.reject(ctx, cardAuthorizationID, err)
+			return nil, uc.reject(ctx, authorization.ID, err)
 		}
 		return nil, err
 	}

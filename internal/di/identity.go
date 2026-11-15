@@ -70,6 +70,39 @@ var FanAPIProcedures = []string{
 	backenduserv1connect.UserServiceDeleteIdentityProcedure,
 }
 
+// identityHandlers builds the identity-provider clients and returns the
+// handlers of the identity service's UserService and OrganizationService.
+func identityHandlers(ctx context.Context, cfg *config.IdentityConfig, logger *logging.Logger) ([]server.RPCHandlerFunc, error) {
+	emailVerifier, err := infrazitadel.NewEmailVerifier(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create zitadel email verifier: %w", err)
+	}
+	identityRemover, err := infrazitadel.NewIdentityRemover(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create zitadel identity remover: %w", err)
+	}
+	passkeyLinks, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
+	}
+	organizations, err := infrazitadel.NewOrganizationRepository(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create organization repository: %w", err)
+	}
+
+	// Both services are mounted on every caller's listener; each listener's allowlist
+	// decides what its caller reaches, so an operation outside the caller's
+	// set is refused with PermissionDenied instead of looking unimplemented.
+	return []server.RPCHandlerFunc{
+		func(s *connect.Server) {
+			backenduserv1connect.RegisterUserServiceHandler(s, rpc.NewBackendUserHandler(usecase.NewIdentityUserUseCase(emailVerifier, passkeyLinks, identityRemover)))
+		},
+		func(s *connect.Server) {
+			backendorganizationv1connect.RegisterOrganizationServiceHandler(s, rpc.NewBackendOrganizationHandler(usecase.NewIdentityOrganizationUseCase(organizations)))
+		},
+	}, nil
+}
+
 // InitializeIdentityApp creates the identity service with its
 // identity-provider clients. Building the clients makes no network request,
 // so the service starts while the identity provider is down.
@@ -94,33 +127,9 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 		return nil, err
 	}
 
-	emailVerifier, err := infrazitadel.NewEmailVerifier(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	handlers, err := identityHandlers(ctx, cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("create zitadel email verifier: %w", err)
-	}
-	identityRemover, err := infrazitadel.NewIdentityRemover(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create zitadel identity remover: %w", err)
-	}
-	passkeyLinks, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
-	}
-	organizations, err := infrazitadel.NewOrganizationRepository(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create organization repository: %w", err)
-	}
-
-	// Both services are mounted on every caller's listener; each listener's allowlist
-	// decides what its caller reaches, so an operation outside the caller's
-	// set is refused with PermissionDenied instead of looking unimplemented.
-	handlers := []server.RPCHandlerFunc{
-		func(s *connect.Server) {
-			backenduserv1connect.RegisterUserServiceHandler(s, rpc.NewBackendUserHandler(usecase.NewIdentityUserUseCase(emailVerifier, passkeyLinks, identityRemover)))
-		},
-		func(s *connect.Server) {
-			backendorganizationv1connect.RegisterOrganizationServiceHandler(s, rpc.NewBackendOrganizationHandler(usecase.NewIdentityOrganizationUseCase(organizations)))
-		},
+		return nil, err
 	}
 	listener := func(port int) server.BackendServerSettings {
 		return server.BackendServerSettings{Host: cfg.Listeners.Host, Port: port, HandlerTimeout: cfg.Listeners.HandlerTimeout}

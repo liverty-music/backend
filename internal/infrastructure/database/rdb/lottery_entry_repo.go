@@ -161,10 +161,7 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 		slog.String("user_id", string(order.UserID)),
 		slog.String("card_authorization_id", order.CardAuthorizationID),
 	}
-	if order.CardAuthorizationID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "a lottery entry is made for an order with its card authorization", attrs...)
-	}
-	if err := order.ValidateSource(); err != nil {
+	if err := checkLotteryEntryOrder(order, attrs); err != nil {
 		return nil, err
 	}
 	tx, err := r.db.Pool.Begin(ctx)
@@ -174,10 +171,8 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	for _, setting := range []string{"lock_timeout", "statement_timeout"} {
-		if _, err := tx.Exec(ctx, "SET LOCAL "+setting+" = '"+lotteryEntryCreateTimeout+"'"); err != nil {
-			return nil, toAppErr(err, "failed to bound lottery entry creation", attrs...)
-		}
+	if err := boundEntryCreation(ctx, tx, lotteryEntryCreateTimeout, "failed to bound lottery entry creation", attrs); err != nil {
+		return nil, err
 	}
 	if err := lockUserForOrder(ctx, tx, order.UserID); err != nil {
 		return nil, err
@@ -194,56 +189,11 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 		return nil, toAppErr(err, "failed to read the entry of the card authorization", attrs...)
 	}
 
-	sale, err := getTicketSale(ctx, tx, entry.TicketSaleID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, toAppErr(err, "failed to read the entry's sale", attrs...)
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		sale = nil
-	}
-	stock, err := getTicketStock(ctx, tx, order.TicketStockID, now)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperr.New(codes.FailedPrecondition, "the lottery sale or the ticket stock does not exist", attrs...)
-	}
-	if err != nil {
-		return nil, toAppErr(err, "failed to read the entry's stock", attrs...)
-	}
-	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
+	if err := checkEntryAllowed(ctx, tx, entry, now, attrs); err != nil {
 		return nil, err
 	}
-	var entered bool
-	if err := tx.QueryRow(ctx, lotteryEntryOfUserForEventQuery, string(entry.TicketSaleID), string(order.UserID), stock.EventID).Scan(&entered); err != nil {
-		return nil, toAppErr(err, "failed to read the user's entries", attrs...)
-	}
-	if entered {
-		return nil, apperr.New(codes.AlreadyExists, "the user has already entered the sale for the event", attrs...)
-	}
-	event, err := eventLimit(ctx, tx, stock.EventID)
-	if err != nil {
-		return nil, toAppErr(err, "failed to read the event's per-account limit", attrs...)
-	}
-	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, now)
-	if err != nil {
-		return nil, toAppErr(err, "failed to count the user's tickets", attrs...)
-	}
-	if !event.Fits(held, stock.SeatTypeID, order.TicketCount) {
-		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
-	}
 
-	if err := insertPendingOrder(ctx, tx, order); err != nil {
-		return nil, toAppErr(err, "failed to insert the entry's order", attrs...)
-	}
-	tag, err := tx.Exec(ctx, lotteryEntryInsertQuery, string(entry.ID), string(order.ID), string(entry.TicketSaleID))
-	if err != nil {
-		return nil, toAppErr(err, "failed to insert lottery entry", attrs...)
-	}
-	if tag.RowsAffected() == 0 {
-		return nil, apperr.New(codes.FailedPrecondition, "the sale has ended", attrs...)
-	}
-	pending := *order
-	pending.Status = entity.OrderStatusPending
-	pending.LotteryEntryID = entry.ID
-	if err := announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryEntered, &pending); err != nil {
+	if err := r.insertEntered(ctx, tx, entry, attrs); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -258,6 +208,36 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	created.State = entity.LotteryEntryStateEntered
 	created.DrawPosition = nil
 	return &created, nil
+}
+
+// checkLotteryEntryOrder checks that the order a lottery entry is made for
+// names its card authorization and a valid source.
+func checkLotteryEntryOrder(order *entity.Order, attrs []slog.Attr) error {
+	if order.CardAuthorizationID == "" {
+		return apperr.New(codes.InvalidArgument, "a lottery entry is made for an order with its card authorization", attrs...)
+	}
+	return order.ValidateSource()
+}
+
+// insertEntered stores, in tx, the entry and its Pending Order and announces
+// LOTTERY_ENTRY.entered. It fails with FailedPrecondition when the sale has
+// ended.
+func (r *LotteryEntryRepository) insertEntered(ctx context.Context, tx pgx.Tx, entry *entity.LotteryEntry, attrs []slog.Attr) error {
+	order := entry.Order
+	if err := insertPendingOrder(ctx, tx, order); err != nil {
+		return toAppErr(err, "failed to insert the entry's order", attrs...)
+	}
+	tag, err := tx.Exec(ctx, lotteryEntryInsertQuery, string(entry.ID), string(order.ID), string(entry.TicketSaleID))
+	if err != nil {
+		return toAppErr(err, "failed to insert lottery entry", attrs...)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.FailedPrecondition, "the sale has ended", attrs...)
+	}
+	pending := *order
+	pending.Status = entity.OrderStatusPending
+	pending.LotteryEntryID = entry.ID
+	return announce(ctx, r.outbox, tx, entity.SubjectLotteryEntryEntered, &pending)
 }
 
 // Get returns the entry by its ID, in any state.
@@ -358,6 +338,50 @@ type drawnRow struct {
 	position int
 }
 
+// checkEntryAllowed checks, inside tx, that the entry may be made: its sale
+// and stock exist and fit ([entity.ValidateLotteryEntrySale]), the user has not
+// entered the sale for the event, and the application fits the event's
+// per-account limit and seat type.
+func checkEntryAllowed(ctx context.Context, tx pgx.Tx, entry *entity.LotteryEntry, now time.Time, attrs []slog.Attr) error {
+	order := entry.Order
+	sale, err := getTicketSale(ctx, tx, entry.TicketSaleID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return toAppErr(err, "failed to read the entry's sale", attrs...)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		sale = nil
+	}
+	stock, err := getTicketStock(ctx, tx, order.TicketStockID, now)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.New(codes.FailedPrecondition, "the lottery sale or the ticket stock does not exist", attrs...)
+	}
+	if err != nil {
+		return toAppErr(err, "failed to read the entry's stock", attrs...)
+	}
+	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
+		return err
+	}
+	var entered bool
+	if err := tx.QueryRow(ctx, lotteryEntryOfUserForEventQuery, string(entry.TicketSaleID), string(order.UserID), stock.EventID).Scan(&entered); err != nil {
+		return toAppErr(err, "failed to read the user's entries", attrs...)
+	}
+	if entered {
+		return apperr.New(codes.AlreadyExists, "the user has already entered the sale for the event", attrs...)
+	}
+	event, err := eventLimit(ctx, tx, stock.EventID)
+	if err != nil {
+		return toAppErr(err, "failed to read the event's per-account limit", attrs...)
+	}
+	held, err := getHeldForEvent(ctx, tx, order.UserID, stock.EventID, nil, now)
+	if err != nil {
+		return toAppErr(err, "failed to count the user's tickets", attrs...)
+	}
+	if !event.Fits(held, stock.SeatTypeID, order.TicketCount) {
+		return apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type", attrs...)
+	}
+	return nil
+}
+
 // PersistDrawOutcome admits each stock's entries in draw order against the
 // stock's remaining count read under its row lock, then records the winners
 // and the losers and voids the losers' orders, in one transaction. An entry
@@ -390,43 +414,17 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID 
 		return apperr.New(codes.NotFound, "ticket sale not found", attrs...)
 	}
 
-	// Lock every drawn stock in id order, as every other change of a stock's
-	// counts does, and read what remains of it under the lock.
-	sorted := slices.Clone(orders)
-	slices.SortFunc(sorted, func(a, b entity.StockDrawOrder) int {
-		return strings.Compare(string(a.TicketStockID), string(b.TicketStockID))
-	})
-	remaining := make(map[entity.TicketStockID]int, len(sorted))
-	var ids []string
-	for _, o := range sorted {
-		if len(o.Entries) == 0 {
-			continue
-		}
-		stock, err := lockTicketStock(ctx, tx, o.TicketStockID, now)
-		if err != nil {
-			return toAppErr(err, "failed to lock the drawn stock", append(attrs, slog.String("ticket_stock_id", string(o.TicketStockID)))...)
-		}
-		remaining[o.TicketStockID] = stock.Remaining()
-		for _, e := range o.Entries {
-			ids = append(ids, string(e.ID))
-		}
+	sorted, remaining, ids, err := lockDrawnStocks(ctx, tx, orders, now, attrs)
+	if err != nil {
+		return err
 	}
 	if len(ids) == 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, lotteryEntryStillEnteredQuery, string(saleID), ids)
+	decided, err := stillEnteredFilter(ctx, tx, saleID, ids, attrs)
 	if err != nil {
-		return toAppErr(err, "failed to read the drawn entries", attrs...)
+		return err
 	}
-	stillEntered, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return toAppErr(err, "failed to read the drawn entries", attrs...)
-	}
-	entered := make(map[entity.LotteryEntryID]bool, len(stillEntered))
-	for _, id := range stillEntered {
-		entered[entity.LotteryEntryID(id)] = true
-	}
-	decided := func(id entity.LotteryEntryID) bool { return !entered[id] }
 
 	var winners, losers []drawnRow
 	for _, o := range sorted {
@@ -456,6 +454,52 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(ctx context.Context, saleID 
 		slog.Int("loser_count", len(losers)),
 	)
 	return nil
+}
+
+// lockDrawnStocks locks every drawn stock in id order, as every other change
+// of a stock's counts does, and reads what remains of it under the lock. It
+// returns the orders sorted by stock id, what remains per stock and the ids of
+// the drawn entries.
+func lockDrawnStocks(ctx context.Context, tx pgx.Tx, orders []entity.StockDrawOrder, now time.Time, attrs []slog.Attr) ([]entity.StockDrawOrder, map[entity.TicketStockID]int, []string, error) {
+	sorted := slices.Clone(orders)
+	slices.SortFunc(sorted, func(a, b entity.StockDrawOrder) int {
+		return strings.Compare(string(a.TicketStockID), string(b.TicketStockID))
+	})
+	remaining := make(map[entity.TicketStockID]int, len(sorted))
+	var ids []string
+	for _, o := range sorted {
+		if len(o.Entries) == 0 {
+			continue
+		}
+		stock, err := lockTicketStock(ctx, tx, o.TicketStockID, now)
+		if err != nil {
+			return nil, nil, nil, toAppErr(err, "failed to lock the drawn stock", append(attrs, slog.String("ticket_stock_id", string(o.TicketStockID)))...)
+		}
+		remaining[o.TicketStockID] = stock.Remaining()
+		for _, e := range o.Entries {
+			ids = append(ids, string(e.ID))
+		}
+	}
+	return sorted, remaining, ids, nil
+}
+
+// stillEnteredFilter reads which of the drawn entries are still Entered and
+// returns a function that reports an entry already decided, so a retried
+// persist leaves it as it is.
+func stillEnteredFilter(ctx context.Context, tx pgx.Tx, saleID entity.TicketSaleID, ids []string, attrs []slog.Attr) (func(entity.LotteryEntryID) bool, error) {
+	rows, err := tx.Query(ctx, lotteryEntryStillEnteredQuery, string(saleID), ids)
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the drawn entries", attrs...)
+	}
+	stillEntered, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, toAppErr(err, "failed to read the drawn entries", attrs...)
+	}
+	entered := make(map[entity.LotteryEntryID]bool, len(stillEntered))
+	for _, id := range stillEntered {
+		entered[entity.LotteryEntryID(id)] = true
+	}
+	return func(id entity.LotteryEntryID) bool { return !entered[id] }, nil
 }
 
 // recordOutcome sets the drawn entries that are still Entered to state with
@@ -623,6 +667,23 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 	if _, err := tx.Exec(ctx, lotteryEntryVoidOrdersQuery, orders, int16(outcome.Order.To), statesOf(outcome.Order.From)); err != nil {
 		return toAppErr(err, "failed to void the ended entries' orders", attrs...)
 	}
+	if err := r.announceEnded(ctx, tx, ended, outcome); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit ending the event's lottery entries", attrs...)
+	}
+	r.db.logger.Info(ctx, "lottery entries of a cancelled event ended",
+		slog.String("entityType", "lottery_entry"),
+		slog.String("event_id", eventID),
+		slog.Int("entry_count", len(ended)),
+	)
+	return nil
+}
+
+// announceEnded announces, in chunks, each entry the cancellation of its event
+// made Lost.
+func (r *LotteryEntryRepository) announceEnded(ctx context.Context, tx pgx.Tx, ended []endedEntry, outcome entity.LotteryOutcome) error {
 	for start := 0; start < len(ended); start += drawAnnouncementChunk {
 		end := min(start+drawAnnouncementChunk, len(ended))
 		chunk := make([]*entity.LotteryEntry, 0, end-start)
@@ -639,14 +700,6 @@ func (r *LotteryEntryRepository) EndEnteredByEvent(ctx context.Context, eventID 
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit ending the event's lottery entries", attrs...)
-	}
-	r.db.logger.Info(ctx, "lottery entries of a cancelled event ended",
-		slog.String("entityType", "lottery_entry"),
-		slog.String("event_id", eventID),
-		slog.Int("entry_count", len(ended)),
-	)
 	return nil
 }
 

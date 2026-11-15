@@ -218,18 +218,7 @@ func newLotteryUseCase(d LotteryEntryDeps, newRand func() *mrand.Rand) *lotteryE
 // AuthorizeCard implements [LotteryEntryUseCase].
 func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error) {
 	now := uc.clock()
-	sale, err := uc.saleRepo.Get(ctx, saleID)
-	if err != nil {
-		return nil, err
-	}
-	stock, err := uc.stockRepo.Get(ctx, stockID, now)
-	if err != nil {
-		return nil, err
-	}
-	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
-		return nil, err
-	}
-	event, err := uc.eventRepo.Get(ctx, stock.EventID)
+	sale, stock, event, err := uc.loadEntryTarget(ctx, saleID, stockID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -242,35 +231,8 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 	if err := entity.ValidatePersonalDetails(&fullName, &phoneNumber); err != nil {
 		return nil, err
 	}
-	if !sale.IsOpenAt(now) {
-		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")
-	}
-	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
-	if err != nil {
+	if err := uc.checkMayEnter(ctx, sale, stock, event, userID, count, now); err != nil {
 		return nil, err
-	}
-	if !published {
-		return nil, apperr.New(codes.FailedPrecondition, "the concert is not published; it may have been cancelled",
-			slog.String("event_id", stock.EventID))
-	}
-	if err := uc.checkVerification(ctx, sale, userID); err != nil {
-		return nil, err
-	}
-	held, err := uc.orderRepo.GetHeldForEvent(ctx, userID, stock.EventID, nil, now)
-	if err != nil {
-		return nil, err
-	}
-	if !event.Fits(held, stock.SeatTypeID, count) {
-		return nil, apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type")
-	}
-	// Advisory: LotteryEntry.Create is the guard, but refusing here spares the
-	// fan a card authentication that Confirm would release.
-	entered, err := uc.hasEntryForEvent(ctx, sale.ID, userID, stock.EventID, now)
-	if err != nil {
-		return nil, err
-	}
-	if entered {
-		return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this sale for the event")
 	}
 	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), &fullName, &phoneNumber); err != nil {
 		return nil, err
@@ -284,6 +246,65 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, saleID entity.
 		TicketCount:   count,
 		ReferralCode:  code,
 	}, stock.SeatType.AmountFor(count))
+}
+
+// loadEntryTarget reads the lottery sale, the ticket stock and the event of
+// the stock, and checks that the stock can be entered in the sale.
+func (uc *lotteryEntryUseCase) loadEntryTarget(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID, now time.Time) (*entity.TicketSale, *entity.TicketStock, *entity.Event, error) {
+	sale, err := uc.saleRepo.Get(ctx, saleID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stock, err := uc.stockRepo.Get(ctx, stockID, now)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := entity.ValidateLotteryEntrySale(sale, stock); err != nil {
+		return nil, nil, nil, err
+	}
+	event, err := uc.eventRepo.Get(ctx, stock.EventID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return sale, stock, event, nil
+}
+
+// checkMayEnter fails with FailedPrecondition unless the fan may enter the sale
+// for count tickets of the stock now: the sale is open, its concert is
+// published, the fan is verified when the sale requires it, the application
+// fits the event's limits, and the fan has not entered the sale for the event.
+func (uc *lotteryEntryUseCase) checkMayEnter(ctx context.Context, sale *entity.TicketSale, stock *entity.TicketStock, event *entity.Event, userID entity.UserID, count int, now time.Time) error {
+	if !sale.IsOpenAt(now) {
+		return apperr.New(codes.FailedPrecondition, "the sale's window is not open")
+	}
+	published, err := uc.eventState.IsEventPublished(ctx, stock.EventID)
+	if err != nil {
+		return err
+	}
+	if !published {
+		return apperr.New(codes.FailedPrecondition, "the concert is not published; it may have been cancelled",
+			slog.String("event_id", stock.EventID))
+	}
+	if err := uc.checkVerification(ctx, sale, userID); err != nil {
+		return err
+	}
+	held, err := uc.orderRepo.GetHeldForEvent(ctx, userID, stock.EventID, nil, now)
+	if err != nil {
+		return err
+	}
+	if !event.Fits(held, stock.SeatTypeID, count) {
+		return apperr.New(codes.FailedPrecondition, "the application does not fit the event's per-account limit or seat type")
+	}
+	// Advisory: LotteryEntry.Create is the guard, but refusing here spares the
+	// fan a card authentication that Confirm would release.
+	entered, err := uc.hasEntryForEvent(ctx, sale.ID, userID, stock.EventID, now)
+	if err != nil {
+		return err
+	}
+	if entered {
+		return apperr.New(codes.FailedPrecondition, "the fan has already entered this sale for the event")
+	}
+	return nil
 }
 
 // hasEntryForEvent reports whether the fan has an entry, in any state, in the
@@ -359,6 +380,20 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 	}
 
 	now := uc.clock()
+	stock, err := uc.confirmableStock(ctx, authorization, purchase, now)
+	if err != nil {
+		return nil, err
+	}
+	return uc.createEntry(ctx, cardAuthorizationID, purchase, stock, now)
+}
+
+// confirmableStock returns the ticket stock of the purchase when the
+// authorization can confirm it: the stock exists, its concert is published,
+// the authorization matches the purchase and its amount, and the application
+// still fits the event's limits. Otherwise it releases the authorization
+// (reject) and returns the refusal.
+func (uc *lotteryEntryUseCase) confirmableStock(ctx context.Context, authorization *entity.CardAuthorization, purchase entity.CardAuthorizationPurchase, now time.Time) (*entity.TicketStock, error) {
+	cardAuthorizationID := authorization.ID
 	stock, err := uc.stockRepo.Get(ctx, purchase.TicketStockID, now)
 	if err != nil {
 		if isNotFound(err) {
@@ -391,10 +426,16 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 		return nil, uc.reject(ctx, cardAuthorizationID,
 			apperr.New(codes.FailedPrecondition, "the application no longer fits the event's per-account limit or seat type"))
 	}
+	return stock, nil
+}
 
+// createEntry makes the lottery entry and its Pending Order for the confirmed
+// purchase. A refusal of the repository (the fan already entered, or another
+// failed precondition) releases the authorization.
+func (uc *lotteryEntryUseCase) createEntry(ctx context.Context, cardAuthorizationID string, purchase entity.CardAuthorizationPurchase, stock *entity.TicketStock, now time.Time) (*entity.LotteryEntry, error) {
 	order := entity.NewPendingOrder(purchase.UserID, stock, purchase.TicketCount, purchase.ReferralCode, entity.OrderPaymentProvider)
 	order.CardAuthorizationID = cardAuthorizationID
-	entry, err = uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID), now)
+	entry, err := uc.entryRepo.Create(ctx, entity.NewLotteryEntry(order, purchase.TicketSaleID), now)
 	if err != nil {
 		switch {
 		case errors.Is(err, apperr.ErrAlreadyExists):

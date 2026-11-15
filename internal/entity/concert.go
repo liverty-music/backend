@@ -400,6 +400,37 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 	return result
 }
 
+// DropPending removes from series the events already pending review as a
+// ConcertCandidate of the artist: an event with the local date and the
+// venue (see [DateVenueKey]) of a pending key, whatever its start time, so
+// name drift across runs does not re-stage an already-pending concert. A
+// series left with no events is removed entirely. It reuses the events slices
+// of series.
+func DropPending(series []*DiscoveredSeries, pending []ConcertCandidateDedupKey) []*DiscoveredSeries {
+	if len(pending) == 0 {
+		return series
+	}
+	pendingSet := make(map[string]bool, len(pending))
+	for _, k := range pending {
+		pendingSet[DateVenueKey(k.LocalDate, k.ListedVenueName)] = true
+	}
+	kept := series[:0]
+	for _, s := range series {
+		events := s.Events[:0]
+		for _, ev := range s.Events {
+			if !pendingSet[DateVenueKey(ev.LocalDate, ev.ListedVenueName)] {
+				events = append(events, ev)
+			}
+		}
+		if len(events) == 0 {
+			continue
+		}
+		s.Events = events
+		kept = append(kept, s)
+	}
+	return kept
+}
+
 // knownSlots maps (date, venue) to the set of StartKey values already
 // recorded there, with "" representing an unknown-start row. The asymmetric
 // rule of [FilterNewSeries] reads off this one map: an unknown-start entry is

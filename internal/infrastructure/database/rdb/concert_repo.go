@@ -416,6 +416,26 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 			slog.String("series_type", seriesT),
 		)
 	}
+	applySeriesColumns(&series, sourceURL, organizerID, description, visibility)
+	c.PublishState = nullPublishState(eventState)
+	series.PublishState = nullPublishState(publishState)
+	if seriesImageID.Valid {
+		series.CoverImage = &entity.SeriesImage{
+			ID:          seriesImageID.String,
+			OrganizerID: imageOrgID.String,
+		}
+	}
+	if lat != nil && lng != nil {
+		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
+	}
+	c.Series = &series
+	c.Venue = &venue
+	return &c, nil
+}
+
+// applySeriesColumns sets the Series attributes that are NULL in the database:
+// a NULL column leaves the field unset.
+func applySeriesColumns(series *entity.Series, sourceURL *string, organizerID, description, visibility sql.NullString) {
 	if sourceURL != nil {
 		series.SourceURL = *sourceURL
 	}
@@ -431,20 +451,6 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		v := entity.SeriesVisibility(visibility.String)
 		series.Visibility = &v
 	}
-	c.PublishState = nullPublishState(eventState)
-	series.PublishState = nullPublishState(publishState)
-	if seriesImageID.Valid {
-		series.CoverImage = &entity.SeriesImage{
-			ID:          seriesImageID.String,
-			OrganizerID: imageOrgID.String,
-		}
-	}
-	if lat != nil && lng != nil {
-		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
-	}
-	c.Series = &series
-	c.Venue = &venue
-	return &c, nil
 }
 
 // hydrate fills each Concert's Performers and its first-party Series'
@@ -881,59 +887,11 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return nil, nil
 	}
 
-	n := len(valid)
-	eventIDs := make([]string, n)
-	seriesIDs := make([]string, n)
-	venueIDs := make([]string, n)
-	listedVenueNames := make([]*string, n)
-	eventDates := make([]time.Time, n)
-	startTimes := make([]*time.Time, n)
-	openTimes := make([]*time.Time, n)
-
-	// Flatten (venue_id, local_event_date, start_at, artist_id) tuples from each
-	// concert's Performers slice. The physical-key triple lets the
-	// insertEventPerformersQuery JOIN onto the actual event row regardless of
-	// whether our input event UUID landed or lost the UPSERT race — this is
-	// what makes re-scrape lineup updates correctly attach to the existing
-	// event id instead of being silently dropped. start_at is matched with
-	// IS NOT DISTINCT FROM so it both disambiguates 昼夜2公演 and matches NULLs.
-	var (
-		performerVenueIDs   []string
-		performerEventDates []time.Time
-		performerStartAts   []*time.Time
-		performerArtistIDs  []string
-	)
-
-	for i, c := range valid {
-		if c.ID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "concert must carry an ID (event UUID) before insert")
-		}
-		if c.VenueID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "concert must carry a VenueID before insert")
-		}
-		if c.SeriesID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "concert must carry a SeriesID before insert")
-		}
-		if len(c.Artists) == 0 {
-			return nil, apperr.New(codes.InvalidArgument, "concert must have at least one performer before insert")
-		}
-		eventIDs[i] = c.ID
-		seriesIDs[i] = c.SeriesID
-		venueIDs[i] = c.VenueID
-		listedVenueNames[i] = c.ListedVenueName
-		eventDates[i] = c.LocalDate
-		startTimes[i] = c.StartTime
-		openTimes[i] = c.OpenTime
-		for _, p := range c.Artists {
-			if p == nil || p.ID == "" {
-				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
-			}
-			performerVenueIDs = append(performerVenueIDs, c.VenueID)
-			performerEventDates = append(performerEventDates, c.LocalDate)
-			performerStartAts = append(performerStartAts, c.StartTime)
-			performerArtistIDs = append(performerArtistIDs, p.ID)
-		}
+	batch, err := newConcertBatch(valid)
+	if err != nil {
+		return nil, err
 	}
+	n := len(valid)
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -941,76 +899,22 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, upsertEventsQuery,
-		eventIDs, seriesIDs, venueIDs, listedVenueNames, eventDates, startTimes, openTimes,
-	); err != nil {
-		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
-	}
-
-	rows, err := tx.Query(ctx, insertConcertsQuery, eventIDs)
+	insertedIDs, err := batch.insertEventsAndConcerts(ctx, tx)
 	if err != nil {
-		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
+		return nil, err
 	}
-	defer rows.Close()
-	insertedIDs := make([]string, 0, n)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, toAppErr(err, "failed to scan inserted concert id")
-		}
-		insertedIDs = append(insertedIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "concert insert RETURNING iteration ended with error",
-			slog.Int("count", n),
-		)
-	}
-	// Load-bearing explicit close: pgx v5 forbids issuing a new query on
-	// the same transaction while a previous Rows is still open, and the
-	// next tx.Query for insertEventPerformersQuery happens immediately
-	// below. The `defer rows.Close()` at line 520 only fires when Create
-	// returns; while `rows.Next()` returning false also auto-closes today,
-	// any future intermediate break/return between the loop and the next
-	// tx.Query would leak the cursor and block the follow-up query.
-	rows.Close()
 
-	// linkedEventIDs collects the event IDs returned by
-	// insertEventPerformersQuery — these are the events where one of THIS
-	// batch's performer links was genuinely new (ON CONFLICT DO NOTHING
-	// excludes re-deliveries from RETURNING). The union with insertedIDs
-	// covers the co-headliner notification case: when artist B is
-	// discovered for an event artist A already created, the events UPSERT
-	// keeps the existing row, insertConcertsQuery returns nothing — but
-	// the concert_artists RETURNING surfaces the new (event, B) link so
-	// B's followers get notified.
-	var linkedEventIDs []string
+	// linkedEventIDs are the events where one of THIS batch's performer links
+	// was genuinely new (ON CONFLICT DO NOTHING excludes re-deliveries from
+	// RETURNING). The union with insertedIDs covers the co-headliner
+	// notification case: when artist B is discovered for an event artist A
+	// already created, the events UPSERT keeps the existing row,
+	// insertConcertsQuery returns nothing — but the concert_artists RETURNING
+	// surfaces the new (event, B) link so B's followers get notified.
 	// newlyListed maps each Artist to the events it was newly linked to.
-	newlyListed := map[string][]string{}
-	if len(performerArtistIDs) > 0 {
-		linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
-			performerVenueIDs, performerEventDates, performerStartAts, performerArtistIDs,
-		)
-		if err != nil {
-			return nil, toAppErr(err, "failed to insert concert_artists",
-				slog.Int("event_count", n),
-				slog.Int("link_count", len(performerArtistIDs)),
-			)
-		}
-		defer linkRows.Close()
-		for linkRows.Next() {
-			var id, artistID string
-			if err := linkRows.Scan(&id, &artistID); err != nil {
-				return nil, toAppErr(err, "failed to scan linked event id")
-			}
-			linkedEventIDs = append(linkedEventIDs, id)
-			newlyListed[artistID] = append(newlyListed[artistID], id)
-		}
-		if err := linkRows.Err(); err != nil {
-			return nil, toAppErr(err, "concert_artists insert RETURNING iteration ended with error",
-				slog.Int("link_count", len(performerArtistIDs)),
-			)
-		}
-		linkRows.Close()
+	linkedEventIDs, newlyListed, err := batch.linkPerformers(ctx, tx)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := announceNewConcerts(ctx, r.outbox, tx, newlyListed); err != nil {
@@ -1033,6 +937,143 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	)
 
 	return notifiableIDs, nil
+}
+
+// concertBatch is the columns of the concerts a Create inserts, one entry per
+// concert, and the (venue_id, local_event_date, start_at, artist_id) tuples of
+// their performers.
+type concertBatch struct {
+	eventIDs         []string
+	seriesIDs        []string
+	venueIDs         []string
+	listedVenueNames []*string
+	eventDates       []time.Time
+	startTimes       []*time.Time
+	openTimes        []*time.Time
+
+	// The performer tuples: the physical-key triple lets the
+	// insertEventPerformersQuery JOIN onto the actual event row regardless of
+	// whether our input event UUID landed or lost the UPSERT race — this is
+	// what makes re-scrape lineup updates correctly attach to the existing
+	// event id instead of being silently dropped. start_at is matched with
+	// IS NOT DISTINCT FROM so it both disambiguates 昼夜2公演 and matches NULLs.
+	performerVenueIDs   []string
+	performerEventDates []time.Time
+	performerStartAts   []*time.Time
+	performerArtistIDs  []string
+}
+
+// newConcertBatch flattens the concerts into columns. It fails with
+// InvalidArgument for a concert without an id, a venue, a series or a
+// performer, or with a performer without an id.
+func newConcertBatch(concerts []*entity.Concert) (*concertBatch, error) {
+	n := len(concerts)
+	b := &concertBatch{
+		eventIDs:         make([]string, n),
+		seriesIDs:        make([]string, n),
+		venueIDs:         make([]string, n),
+		listedVenueNames: make([]*string, n),
+		eventDates:       make([]time.Time, n),
+		startTimes:       make([]*time.Time, n),
+		openTimes:        make([]*time.Time, n),
+	}
+	for i, c := range concerts {
+		if c.ID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry an ID (event UUID) before insert")
+		}
+		if c.VenueID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry a VenueID before insert")
+		}
+		if c.SeriesID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry a SeriesID before insert")
+		}
+		if len(c.Artists) == 0 {
+			return nil, apperr.New(codes.InvalidArgument, "concert must have at least one performer before insert")
+		}
+		b.eventIDs[i] = c.ID
+		b.seriesIDs[i] = c.SeriesID
+		b.venueIDs[i] = c.VenueID
+		b.listedVenueNames[i] = c.ListedVenueName
+		b.eventDates[i] = c.LocalDate
+		b.startTimes[i] = c.StartTime
+		b.openTimes[i] = c.OpenTime
+		for _, p := range c.Artists {
+			if p == nil || p.ID == "" {
+				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
+			}
+			b.performerVenueIDs = append(b.performerVenueIDs, c.VenueID)
+			b.performerEventDates = append(b.performerEventDates, c.LocalDate)
+			b.performerStartAts = append(b.performerStartAts, c.StartTime)
+			b.performerArtistIDs = append(b.performerArtistIDs, p.ID)
+		}
+	}
+	return b, nil
+}
+
+// insertEventsAndConcerts upserts the events and inserts the placeholder
+// concerts rows, and returns the ids of the concerts genuinely inserted.
+func (b *concertBatch) insertEventsAndConcerts(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	n := len(b.eventIDs)
+	if _, err := tx.Exec(ctx, upsertEventsQuery,
+		b.eventIDs, b.seriesIDs, b.venueIDs, b.listedVenueNames, b.eventDates, b.startTimes, b.openTimes,
+	); err != nil {
+		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
+	}
+
+	rows, err := tx.Query(ctx, insertConcertsQuery, b.eventIDs)
+	if err != nil {
+		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
+	}
+	// pgx v5 forbids issuing a new query on the same transaction while a
+	// previous Rows is still open, so the rows are closed before returning.
+	defer rows.Close()
+	insertedIDs := make([]string, 0, n)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, toAppErr(err, "failed to scan inserted concert id")
+		}
+		insertedIDs = append(insertedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert insert RETURNING iteration ended with error", slog.Int("count", n))
+	}
+	return insertedIDs, nil
+}
+
+// linkPerformers inserts the concert_artists links and returns the ids of the
+// events one of whose links was new, and, per artist, the events it was newly
+// linked to.
+func (b *concertBatch) linkPerformers(ctx context.Context, tx pgx.Tx) ([]string, map[string][]string, error) {
+	newlyListed := map[string][]string{}
+	if len(b.performerArtistIDs) == 0 {
+		return nil, newlyListed, nil
+	}
+	linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
+		b.performerVenueIDs, b.performerEventDates, b.performerStartAts, b.performerArtistIDs,
+	)
+	if err != nil {
+		return nil, nil, toAppErr(err, "failed to insert concert_artists",
+			slog.Int("event_count", len(b.eventIDs)),
+			slog.Int("link_count", len(b.performerArtistIDs)),
+		)
+	}
+	defer linkRows.Close()
+	var linkedEventIDs []string
+	for linkRows.Next() {
+		var id, artistID string
+		if err := linkRows.Scan(&id, &artistID); err != nil {
+			return nil, nil, toAppErr(err, "failed to scan linked event id")
+		}
+		linkedEventIDs = append(linkedEventIDs, id)
+		newlyListed[artistID] = append(newlyListed[artistID], id)
+	}
+	if err := linkRows.Err(); err != nil {
+		return nil, nil, toAppErr(err, "concert_artists insert RETURNING iteration ended with error",
+			slog.Int("link_count", len(b.performerArtistIDs)),
+		)
+	}
+	return linkedEventIDs, newlyListed, nil
 }
 
 // FindEventsByVenueAndDate implements entity.ConcertRepository. It returns

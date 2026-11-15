@@ -93,20 +93,10 @@ func NewClient(apiKey string, httpClient *http.Client, logger *logging.Logger) *
 	}
 }
 
-// ResolveImages fetches artist image data from fanart.tv using the artist's MusicBrainz ID.
-// Returns nil without error when the artist has no fanart.tv entry (HTTP 404).
-func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart, error) {
-	c.logger.Info(ctx, "resolving artist images", slog.String("mbid", mbid))
-
-	u := fmt.Sprintf("%s%s", c.baseURL, mbid)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to create fanarttv request")
-	}
-	req.Header.Set("api-key", c.apiKey)
-
-	resp, err := backoff.Retry(ctx, func() (*http.Response, error) {
+// send sends the request through the throttler, retrying a retryable status
+// with exponential backoff; mbid only labels the log lines.
+func (c *client) send(ctx context.Context, req *http.Request, mbid string) (*http.Response, error) {
+	return backoff.Retry(ctx, func() (*http.Response, error) {
 		c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))
 
 		var resp *http.Response
@@ -137,6 +127,35 @@ func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart
 		backoff.WithMaxTries(4),
 		backoff.WithMaxElapsedTime(0),
 	)
+}
+
+// decodeFanart reads at most 1 MiB of the response body and decodes it.
+func decodeFanart(r io.Reader) (*entity.Fanart, error) {
+	body, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to read fanarttv response body")
+	}
+	var fanart entity.Fanart
+	if err := json.Unmarshal(body, &fanart); err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode fanarttv response")
+	}
+	return &fanart, nil
+}
+
+// ResolveImages fetches artist image data from fanart.tv using the artist's MusicBrainz ID.
+// Returns nil without error when the artist has no fanart.tv entry (HTTP 404).
+func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart, error) {
+	c.logger.Info(ctx, "resolving artist images", slog.String("mbid", mbid))
+
+	u := fmt.Sprintf("%s%s", c.baseURL, mbid)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to create fanarttv request")
+	}
+	req.Header.Set("api-key", c.apiKey)
+
+	resp, err := c.send(ctx, req, mbid)
 	if err != nil {
 		return nil, api.FromHTTP(err, nil, "fanarttv api request failed")
 	}
@@ -154,14 +173,9 @@ func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart
 		return nil, err
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	fanart, err := decodeFanart(resp.Body)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to read fanarttv response body")
-	}
-
-	var fanart entity.Fanart
-	if err := json.Unmarshal(body, &fanart); err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to decode fanarttv response")
+		return nil, err
 	}
 
 	c.logger.Info(ctx, "resolved artist images",
@@ -170,7 +184,7 @@ func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart
 		slog.Int("backgrounds", len(fanart.ArtistBackground)),
 	)
 
-	return &fanart, nil
+	return fanart, nil
 }
 
 // SetBaseURL allows overriding the base URL used by the client. This is

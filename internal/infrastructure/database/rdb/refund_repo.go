@@ -90,6 +90,106 @@ const insertOrderRefundTxQuery = `
 	VALUES ($1, $2, $3, $4, $5)
 `
 
+// voidTicketsAndCancelListings locks the order's tickets, voids the Issued ones
+// and cancels their Listed listings; a resold ticket's Sold listing is
+// untouched.
+func voidTicketsAndCancelListings(ctx context.Context, tx pgx.Tx, orderID entity.OrderID, plan entity.RefundPlan, attrs slog.Attr) error {
+	if _, err := tx.Exec(ctx, lockTicketsByOrderTxQuery, string(orderID)); err != nil {
+		return toAppErr(err, "failed to lock tickets in refund tx", attrs)
+	}
+	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
+		string(orderID), int16(plan.Tickets.To), statesOf(plan.Tickets.From),
+	); err != nil {
+		return toAppErr(err, "failed to void tickets in refund tx", attrs)
+	}
+	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(orderID), int16(plan.Listings.To), statesOf(plan.Listings.From)); err != nil {
+		return toAppErr(err, "failed to cancel resale listings in refund tx", attrs)
+	}
+	return nil
+}
+
+// reverseSettlement flips the order's settlement to Reversed, when it has one,
+// and persists the reversal id of each split that was reversed. A settlement
+// already Reversed fails with FailedPrecondition, which signals a concurrent
+// refund to the usecase.
+func reverseSettlement(ctx context.Context, tx pgx.Tx, commit entity.RefundCommit) error {
+	if commit.SettlementID == "" {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, markReversedTxQuery, string(commit.SettlementID))
+	if err != nil {
+		return toAppErr(err, "failed to mark settlement reversed in refund tx",
+			slog.String("settlement_id", string(commit.SettlementID)))
+	}
+	if tag.RowsAffected() == 0 {
+		// Settlement already Reversed (or Unspecified, which must not exist).
+		return apperr.New(codes.FailedPrecondition,
+			"settlement is already reversed; refund was applied concurrently")
+	}
+	for _, split := range commit.ReversedSplits {
+		if split.ProviderPayoutReversalID == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, upsertSplitReversalRefTxQuery,
+			string(commit.SettlementID), split.PayeeOrganizerID, split.ProviderPayoutReversalID,
+		); err != nil {
+			return toAppErr(err, "failed to update split reversal ref in refund tx",
+				slog.String("settlement_id", string(commit.SettlementID)),
+				slog.String("payee_organizer_id", split.PayeeOrganizerID))
+		}
+	}
+	return nil
+}
+
+// refundOrder makes the Paid order Refunded, stores its refund and announces
+// it. It reports false, with no error, when an earlier call already made the
+// order Refunded. The deferred rollback undoes the ticket and listing changes
+// when the order is not Paid, and nothing is announced: the order is NotFound,
+// or Pending or Void (never paid, so a refund against it is a
+// FailedPrecondition, not a repeat).
+func (r *RefundRepository) refundOrder(ctx context.Context, tx pgx.Tx, commit entity.RefundCommit, plan entity.RefundPlan, attrs slog.Attr) (bool, error) {
+	tag, err := tx.Exec(ctx, refundOrderTxQuery, string(commit.OrderID), int16(plan.Order.To), statesOf(plan.Order.From))
+	if err != nil {
+		return false, toAppErr(err, "failed to update order status in refund tx", attrs)
+	}
+	if tag.RowsAffected() == 0 {
+		// The order is not Paid. In every case below the deferred rollback
+		// undoes the ticket and listing changes above, and nothing is
+		// announced.
+		var status int16
+		err := tx.QueryRow(ctx, orderStatusTxQuery, string(commit.OrderID)).Scan(&status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, apperr.New(codes.NotFound, "no order has the id", attrs)
+		}
+		if err != nil {
+			return false, toAppErr(err, "failed to read the order status in refund tx", attrs)
+		}
+		if entity.OrderStatus(status) != entity.OrderStatusRefunded {
+			// Pending or Void: the order was never paid, so a refund
+			// recorded against it is an error, not a repeat.
+			return false, apperr.New(codes.FailedPrecondition, "the order was never paid; no refund is recorded", attrs)
+		}
+		return false, nil
+	}
+	var providerRefundID *string
+	if commit.ProviderRefundID != "" {
+		providerRefundID = &commit.ProviderRefundID
+	}
+	if _, err := tx.Exec(ctx, insertOrderRefundTxQuery,
+		string(commit.OrderID), int16(commit.Reason), commit.Amount, providerRefundID, commit.RefundTime,
+	); err != nil {
+		return false, toAppErr(err, "failed to insert the order refund in refund tx", attrs)
+	}
+	refunded, err := scanOrder(tx.QueryRow(ctx, orderGetQuery, string(commit.OrderID)))
+	if err != nil {
+		return false, toAppErr(err, "failed to read the refunded order in refund tx", attrs)
+	}
+	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderRefunded, refunded); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // CommitRefund implements [entity.RefundRepository].
 //
 // The mutations run inside one transaction:
@@ -126,90 +226,21 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	// each change only to rows in the states it names.
 	plan := (&entity.Order{ID: commit.OrderID}).RefundPlan()
 
-	// 1. Lock the order's tickets, void the Issued ones and cancel their
-	// Listed listings; a resold ticket's Sold listing is untouched.
-	if _, err := tx.Exec(ctx, lockTicketsByOrderTxQuery, string(commit.OrderID)); err != nil {
-		return toAppErr(err, "failed to lock tickets in refund tx", attrs)
+	if err := voidTicketsAndCancelListings(ctx, tx, commit.OrderID, plan, attrs); err != nil {
+		return err
 	}
-	if _, err := tx.Exec(ctx, voidTicketsByOrderTxQuery,
-		string(commit.OrderID), int16(plan.Tickets.To), statesOf(plan.Tickets.From),
-	); err != nil {
-		return toAppErr(err, "failed to void tickets in refund tx", attrs)
+	if err := reverseSettlement(ctx, tx, commit); err != nil {
+		return err
 	}
-	if _, err := tx.Exec(ctx, cancelListingsByOrderTxQuery, string(commit.OrderID), int16(plan.Listings.To), statesOf(plan.Listings.From)); err != nil {
-		return toAppErr(err, "failed to cancel resale listings in refund tx", attrs)
-	}
-
-	// 2. Flip settlement → Reversed (only if a settlement row exists).
-	if commit.SettlementID != "" {
-		tag, err := tx.Exec(ctx, markReversedTxQuery, string(commit.SettlementID))
-		if err != nil {
-			return toAppErr(err, "failed to mark settlement reversed in refund tx",
-				slog.String("settlement_id", string(commit.SettlementID)))
-		}
-		if tag.RowsAffected() == 0 {
-			// Settlement already Reversed (or Unspecified, which must not exist).
-			// Signal concurrent-refund replay to the use case.
-			return apperr.New(codes.FailedPrecondition,
-				"settlement is already reversed; refund was applied concurrently")
-		}
-
-		// 3. Persist provider_payout_reversal_id on each split that was reversed.
-		for _, split := range commit.ReversedSplits {
-			if split.ProviderPayoutReversalID == "" {
-				continue
-			}
-			if _, err := tx.Exec(ctx, upsertSplitReversalRefTxQuery,
-				string(commit.SettlementID), split.PayeeOrganizerID, split.ProviderPayoutReversalID,
-			); err != nil {
-				return toAppErr(err, "failed to update split reversal ref in refund tx",
-					slog.String("settlement_id", string(commit.SettlementID)),
-					slog.String("payee_organizer_id", split.PayeeOrganizerID))
-			}
-		}
-	}
-
-	// 4. Make the Paid order Refunded, store its refund and announce it.
-	tag, err := tx.Exec(ctx, refundOrderTxQuery, string(commit.OrderID), int16(plan.Order.To), statesOf(plan.Order.From))
+	refunded, err := r.refundOrder(ctx, tx, commit, plan, attrs)
 	if err != nil {
-		return toAppErr(err, "failed to update order status in refund tx", attrs)
+		return err
 	}
-	if tag.RowsAffected() == 0 {
-		// The order is not Paid. In every case below the deferred rollback
-		// undoes the ticket and listing changes above, and nothing is
-		// announced.
-		var status int16
-		err := tx.QueryRow(ctx, orderStatusTxQuery, string(commit.OrderID)).Scan(&status)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperr.New(codes.NotFound, "no order has the id", attrs)
-		}
-		if err != nil {
-			return toAppErr(err, "failed to read the order status in refund tx", attrs)
-		}
-		if entity.OrderStatus(status) != entity.OrderStatusRefunded {
-			// Pending or Void: the order was never paid, so a refund
-			// recorded against it is an error, not a repeat.
-			return apperr.New(codes.FailedPrecondition, "the order was never paid; no refund is recorded", attrs)
-		}
-		// An earlier call made it Refunded: the first refund is kept.
+	if !refunded {
+		// An earlier call made it Refunded: the first refund is kept, and the
+		// deferred rollback undoes the changes above.
 		r.db.logger.Info(ctx, "refund not committed: the order is already refunded", attrs)
 		return nil
-	}
-	var providerRefundID *string
-	if commit.ProviderRefundID != "" {
-		providerRefundID = &commit.ProviderRefundID
-	}
-	if _, err := tx.Exec(ctx, insertOrderRefundTxQuery,
-		string(commit.OrderID), int16(commit.Reason), commit.Amount, providerRefundID, commit.RefundTime,
-	); err != nil {
-		return toAppErr(err, "failed to insert the order refund in refund tx", attrs)
-	}
-	refunded, err := scanOrder(tx.QueryRow(ctx, orderGetQuery, string(commit.OrderID)))
-	if err != nil {
-		return toAppErr(err, "failed to read the refunded order in refund tx", attrs)
-	}
-	if err := announce(ctx, r.outbox, tx, entity.SubjectOrderRefunded, refunded); err != nil {
-		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -139,43 +139,66 @@ func (c resaleEntryEndedContent) lead(lang string) (subject, lead string, applyA
 // email renders the ended email in lang ("ja" or "en").
 func (c resaleEntryEndedContent) email(lang string) entity.ResaleEntryEndedEmail {
 	subject, lead, applyAgain := c.lead(lang)
-	date := c.concert.LocalDate
 	venue := orderConfirmationContent{concert: c.concert}.venueName()
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", lead)
 	if lang == "en" {
-		fmt.Fprintf(&b, "[Concert]\n%s\nDate: %s\nVenue: %s\n\n", c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), venue)
-		fmt.Fprintf(&b, "[Your application]\nSeat type: %s\nTickets: %d\n\n", c.seatType, c.count)
-		if c.reason == entity.ResaleEntryLostReasonListingCancelled {
-			fmt.Fprintf(&b, "[Payment]\nThe amount charged to your card is refunded to your card in full. How long the refund takes to show on your card statement depends on your card issuer.\n")
-		} else {
-			fmt.Fprintf(&b, "[Payment]\nYour card was not charged. The amount held on your card is given back; it may still show on your card statement for a few days.\n")
-		}
-		switch {
-		case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
-			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again with another card:\n%s\n", entity.ResaleEntriesLink)
-		case applyAgain:
-			fmt.Fprintf(&b, "\nResale for this concert is still open. You can apply again:\n%s\n", entity.ResaleEntriesLink)
-		case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
-			fmt.Fprintf(&b, "\nResale for this concert has closed.\n")
-		}
-		return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
-	}
-	fmt.Fprintf(&b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
-		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], venue)
-	fmt.Fprintf(&b, "■ お申し込み内容\n席種: %s\n枚数: %d枚\n\n", c.seatType, c.count)
-	if c.reason == entity.ResaleEntryLostReasonListingCancelled {
-		fmt.Fprintf(&b, "■ お支払い\nカードでお支払いいただいた金額は、全額をカードに返金します。返金がカードのご利用明細に反映されるまでの期間は、カード会社によって異なります。\n")
+		c.writeEnglish(&b, venue, applyAgain)
 	} else {
-		fmt.Fprintf(&b, "■ お支払い\nカードへの請求はありません。カードで確保していた金額は解放されます。カードのご利用明細には数日間表示される場合があります。\n")
+		c.writeJapanese(&b, venue, applyAgain)
+	}
+	return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
+}
+
+// writeEnglish writes the English body after the lead: the concert, the
+// application, the payment and, when it applies, the invitation to apply again
+// or the notice that resale closed.
+func (c resaleEntryEndedContent) writeEnglish(b *strings.Builder, venue string, applyAgain bool) {
+	date := c.concert.LocalDate
+	fmt.Fprintf(b, "[Concert]\n%s\nDate: %s\nVenue: %s\n\n", c.concertTitle(), date.Format("Jan 2, 2006 (Mon)"), venue)
+	fmt.Fprintf(b, "[Your application]\nSeat type: %s\nTickets: %d\n\n", c.seatType, c.count)
+	if c.reason == entity.ResaleEntryLostReasonListingCancelled {
+		fmt.Fprintf(b, "[Payment]\nThe amount charged to your card is refunded to your card in full. How long the refund takes to show on your card statement depends on your card issuer.\n")
+	} else {
+		fmt.Fprintf(b, "[Payment]\nYour card was not charged. The amount held on your card is given back; it may still show on your card statement for a few days.\n")
 	}
 	switch {
 	case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
-		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。別のカードで再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
+		fmt.Fprintf(b, "\nResale for this concert is still open. You can apply again with another card:\n%s\n", entity.ResaleEntriesLink)
 	case applyAgain:
-		fmt.Fprintf(&b, "\nこの公演の公式リセールは受付中です。再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
-	case c.state == entity.ResaleEntryStateLost && c.reason != entity.ResaleEntryLostReasonConcertCancelled && c.reason != entity.ResaleEntryLostReasonListingCancelled:
-		fmt.Fprintf(&b, "\nこの公演の公式リセールの受付は終了しました。\n")
+		fmt.Fprintf(b, "\nResale for this concert is still open. You can apply again:\n%s\n", entity.ResaleEntriesLink)
+	case c.resaleClosedNotice():
+		fmt.Fprintf(b, "\nResale for this concert has closed.\n")
 	}
-	return entity.ResaleEntryEndedEmail{Subject: subject, TextBody: b.String()}
+}
+
+// writeJapanese writes the Japanese body after the lead, as writeEnglish does
+// in English.
+func (c resaleEntryEndedContent) writeJapanese(b *strings.Builder, venue string, applyAgain bool) {
+	date := c.concert.LocalDate
+	fmt.Fprintf(b, "■ 公演\n%s\n日時: %d/%d/%d(%s)\n会場: %s\n\n",
+		c.concertTitle(), date.Year(), int(date.Month()), date.Day(), entity.WeekdaysJA[date.Weekday()], venue)
+	fmt.Fprintf(b, "■ お申し込み内容\n席種: %s\n枚数: %d枚\n\n", c.seatType, c.count)
+	if c.reason == entity.ResaleEntryLostReasonListingCancelled {
+		fmt.Fprintf(b, "■ お支払い\nカードでお支払いいただいた金額は、全額をカードに返金します。返金がカードのご利用明細に反映されるまでの期間は、カード会社によって異なります。\n")
+	} else {
+		fmt.Fprintf(b, "■ お支払い\nカードへの請求はありません。カードで確保していた金額は解放されます。カードのご利用明細には数日間表示される場合があります。\n")
+	}
+	switch {
+	case applyAgain && c.reason == entity.ResaleEntryLostReasonCardNotCharged:
+		fmt.Fprintf(b, "\nこの公演の公式リセールは受付中です。別のカードで再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
+	case applyAgain:
+		fmt.Fprintf(b, "\nこの公演の公式リセールは受付中です。再度お申し込みいただけます。\n%s\n", entity.ResaleEntriesLink)
+	case c.resaleClosedNotice():
+		fmt.Fprintf(b, "\nこの公演の公式リセールの受付は終了しました。\n")
+	}
+}
+
+// resaleClosedNotice reports whether the email says resale closed: the entry
+// is Lost for a reason that resale reopening could have changed, which is not
+// a cancelled concert or listing.
+func (c resaleEntryEndedContent) resaleClosedNotice() bool {
+	return c.state == entity.ResaleEntryStateLost &&
+		c.reason != entity.ResaleEntryLostReasonConcertCancelled &&
+		c.reason != entity.ResaleEntryLostReasonListingCancelled
 }
