@@ -120,31 +120,33 @@ func NormalizeVenueName(name string) string {
 }
 
 // SameListedVenue reports whether two listed venue names name the same venue:
-// they are equal once each goes through [NormalizeVenueName]. A name that is
-// missing normalizes to "" and so equals another missing one.
+// they have the same [ListedVenueKey], so names that differ only in
+// whitespace, middle-dot variants or Latin letter case match. A name that is
+// missing gives "" and so equals another missing one.
 func SameListedVenue(a, b string) bool {
-	return NormalizeVenueName(a) == NormalizeVenueName(b)
+	return ListedVenueKey(a) == ListedVenueKey(b)
 }
 
 // DateVenueKey is the key under which an event on date at the listed venue is
-// matched with another: the local date and the normalized listed venue name.
+// matched with another: the local date and the venue as [ListedVenueKey]
+// gives it.
 // Every match of a discovered event against an existing, pending or other
 // discovered event on (date, venue) uses it.
 func DateVenueKey(date time.Time, listedVenueName string) string {
-	return date.Format("2006-01-02") + "|" + NormalizeVenueName(listedVenueName)
+	return date.Format("2006-01-02") + "|" + ListedVenueKey(listedVenueName)
 }
 
 // venueMiddleDots are the middle-dot variants two notations of one venue name
 // differ in; NFKC has already folded the half-width ･ to ・.
 var venueMiddleDots = strings.NewReplacer("・", "", "·", "", "•", "", "‧", "", "∙", "", "⋅", "")
 
-// VenueRepeatKey returns the form in which two listed venue names are the same
-// venue for the events of one search: the normalization
+// ListedVenueKey returns the form in which two listed venue names are the same
+// venue (Venue spec, "Same listed venue"): the normalization
 // ([NormalizeVenueName]) with whitespace, middle-dot variants and Latin letter
 // case ignored, so "渋谷CLUB QUATTRO" and "渋谷 CLUB QUATTRO", or "Zepp Haneda"
 // and "ZEPP HANEDA", give one key. No other rule makes two names the same. It
 // is "" for a venue not yet announced.
-func VenueRepeatKey(listedVenueName string) string {
+func ListedVenueKey(listedVenueName string) string {
 	s := strings.ToLower(NormalizeVenueName(listedVenueName))
 	s = venueMiddleDots.Replace(s)
 	return strings.Join(strings.Fields(s), "")
@@ -152,15 +154,15 @@ func VenueRepeatKey(listedVenueName string) string {
 
 // SelectVenuePlace picks the place of the venue listed as listedVenueName
 // among the places a search returned, most relevant first: the first place
-// whose name is the same venue under [VenueRepeatKey], otherwise the most
+// whose name is the same venue under [ListedVenueKey], otherwise the most
 // relevant place. It returns nil when there is no place.
 func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace {
 	if len(places) == 0 {
 		return nil
 	}
-	if key := VenueRepeatKey(listedVenueName); key != "" {
+	if key := ListedVenueKey(listedVenueName); key != "" {
 		for _, p := range places {
-			if VenueRepeatKey(p.Name) == key {
+			if ListedVenueKey(p.Name) == key {
 				return p
 			}
 		}

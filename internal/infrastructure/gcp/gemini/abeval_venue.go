@@ -58,8 +58,8 @@ var tbdVenueMarkers = map[string]struct{}{
 // NormalizeFixtureVenue is the venue form in which the A/B evaluation
 // matches an event the model returned against the hand-written ground truth
 // (fixture) on the (date, venue) key. It is for fixture matching only: the
-// product compares venue names through entity.NormalizeVenueName, and
-// ConcertSearcher's repeat removal starts from that. Its extra rules (a
+// product compares venue names through entity.ListedVenueKey, which starts
+// from entity.NormalizeVenueName. Its extra rules (a
 // prefecture in parentheses, a renamed venue) forgive differences between a
 // page and a fixture; they are not rules of the product.
 //

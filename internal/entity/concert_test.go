@@ -576,6 +576,19 @@ func TestFilterNewSeries(t *testing.T) {
 			wantNil: true,
 		},
 		{
+			// @spec components/entity/discovered-series/filter-new-series "Letter case and spacing differ"
+			name: "letter case and spacing drift against existing is deduped",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Drifted", makeEvent(date1, "ZEPP HANEDA")),
+				},
+				existing: []*entity.Concert{
+					{LocalDate: date1, ListedVenueName: func() *string { s := "Zepp Haneda"; return &s }()},
+				},
+			},
+			wantNil: true,
+		},
+		{
 			name: "genuinely different venue on the same date stays distinct",
 			args: args{
 				series: []*entity.DiscoveredSeries{
@@ -863,22 +876,30 @@ func TestConcert_PublishStateAndVisibility(t *testing.T) {
 	})
 }
 
-func TestVenueRepeatKeyAndSameListedVenue(t *testing.T) {
+func TestListedVenueKeyAndSameListedVenue(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, entity.VenueRepeatKey("渋谷CLUB QUATTRO"), entity.VenueRepeatKey("渋谷 CLUB QUATTRO"), "whitespace is ignored")
-	assert.Equal(t, entity.VenueRepeatKey("Zepp Haneda"), entity.VenueRepeatKey("ZEPP HANEDA"), "Latin letter case is ignored")
-	assert.Equal(t, entity.VenueRepeatKey("東京文化会館・大ホール"), entity.VenueRepeatKey("東京文化会館･大ホール"), "middle dot variants are ignored")
-	assert.Equal(t, entity.VenueRepeatKey("大阪・フェスティバルホール"), entity.VenueRepeatKey("フェスティバルホール"), "it starts from NormalizeVenueName")
-	assert.NotEqual(t, entity.VenueRepeatKey("Zepp Haneda"), entity.VenueRepeatKey("Zepp Osaka"))
-	assert.Empty(t, entity.VenueRepeatKey("TBA"), "a venue not yet announced has no key")
+	assert.Equal(t, entity.ListedVenueKey("渋谷CLUB QUATTRO"), entity.ListedVenueKey("渋谷 CLUB QUATTRO"), "whitespace is ignored")
+	assert.Equal(t, entity.ListedVenueKey("Zepp Haneda"), entity.ListedVenueKey("ZEPP HANEDA"), "Latin letter case is ignored")
+	assert.Equal(t, entity.ListedVenueKey("東京文化会館・大ホール"), entity.ListedVenueKey("東京文化会館･大ホール"), "middle dot variants are ignored")
+	assert.Equal(t, entity.ListedVenueKey("大阪・フェスティバルホール"), entity.ListedVenueKey("フェスティバルホール"), "it starts from NormalizeVenueName")
+	assert.NotEqual(t, entity.ListedVenueKey("Zepp Haneda"), entity.ListedVenueKey("Zepp Osaka"))
+	assert.Empty(t, entity.ListedVenueKey("TBA"), "a venue not yet announced has no key")
 
 	assert.True(t, entity.SameListedVenue("大阪・フェスティバルホール", "フェスティバルホール"))
-	assert.False(t, entity.SameListedVenue("Zepp Haneda", "zepp haneda"), "the venue match itself keeps case, as the spec's exact name does")
+	// @spec components/entity/venue "Spacing differs"
+	assert.True(t, entity.SameListedVenue("渋谷CLUB QUATTRO", "渋谷 CLUB QUATTRO"))
+	// @spec components/entity/venue "Letter case differs"
+	assert.True(t, entity.SameListedVenue("Zepp Haneda", "ZEPP HANEDA"))
+	// @spec components/entity/venue "Middle dot differs"
+	assert.True(t, entity.SameListedVenue("東京文化会館・大ホール", "東京文化会館 大ホール"))
+	// @spec components/entity/venue "Different venues"
+	assert.False(t, entity.SameListedVenue("Zepp Haneda", "Zepp Namba"))
 	assert.True(t, entity.SameListedVenue("TBA", ""), "two missing names are alike")
 
 	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	assert.Equal(t, entity.DateVenueKey(day, "大阪・フェスティバルホール"), entity.DateVenueKey(day, "フェスティバルホール"))
+	assert.Equal(t, entity.DateVenueKey(day, "Zepp Haneda"), entity.DateVenueKey(day, "ZEPP HANEDA"), "the date and venue key compares venues as SameListedVenue does")
 	assert.NotEqual(t, entity.DateVenueKey(day, "A"), entity.DateVenueKey(day.AddDate(0, 0, 1), "A"))
 }
 

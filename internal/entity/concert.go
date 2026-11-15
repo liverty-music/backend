@@ -118,7 +118,7 @@ type DiscoveredEvent struct {
 }
 
 // DiscoveredEventKey is what makes two discovered events of one search the same
-// show: the same date, the same venue ([VenueRepeatKey]) and the same start
+// show: the same date, the same venue ([ListedVenueKey]) and the same start
 // time. See [DiscoveredEvent.RepeatKey].
 type DiscoveredEventKey struct {
 	LocalDate string
@@ -128,14 +128,14 @@ type DiscoveredEventKey struct {
 }
 
 // RepeatKey returns the key under which a search drops the repeats of an
-// event: its local date, its venue as [VenueRepeatKey] gives it and its start
+// event: its local date, its venue as [ListedVenueKey] gives it and its start
 // time. The start time is part of it so that two shows on the same date at
 // the same venue (a 1st and a 2nd stage) stay distinct events. Two events that
 // share the date and venue and both lack a start time are one: the search
 // dedups conservatively when the disambiguator is missing, which loses two
 // genuinely distinct shows announced before their start times are published.
 func (e *DiscoveredEvent) RepeatKey() DiscoveredEventKey {
-	key := DiscoveredEventKey{LocalDate: e.LocalDate.Format("2006-01-02"), Venue: VenueRepeatKey(e.ListedVenueName)}
+	key := DiscoveredEventKey{LocalDate: e.LocalDate.Format("2006-01-02"), Venue: ListedVenueKey(e.ListedVenueName)}
 	if !e.StartTime.IsZero() {
 		key.StartTime = e.StartTime.Unix()
 	}
@@ -151,12 +151,12 @@ func (e *DiscoveredEvent) HasPassedAt(t time.Time) bool {
 
 // ClassifyType sets the series' type from its venues, following the SeriesType
 // definitions: TOUR when its events are at two or more venues (compared by
-// [VenueRepeatKey], ignoring venues not yet announced), SINGLE otherwise, a
+// [ListedVenueKey], ignoring venues not yet announced), SINGLE otherwise, a
 // one-off show or several days at one venue.
 func (s *DiscoveredSeries) ClassifyType() {
 	venues := make(map[string]struct{}, len(s.Events))
 	for _, ev := range s.Events {
-		if v := VenueRepeatKey(ev.ListedVenueName); v != "" {
+		if v := ListedVenueKey(ev.ListedVenueName); v != "" {
 			venues[v] = struct{}{}
 		}
 	}
@@ -354,9 +354,9 @@ func NotifiableEventIDs(inserted, linked []string) []string {
 // The key uses ListedVenueName rather than the resolved venue_id because
 // discovered events have not yet been venue-resolved; ListedVenueName is the
 // upstream identity that survives both sides of the comparison. The name
-// component is compared through NormalizeVenueName so Gemini's formatting drift
-// across runs (full/half-width, whitespace, "大阪・"/"大阪公演 ＠" location prefixes)
-// does not defeat the match; the (date, start_at) components are unchanged.
+// component is compared through ListedVenueKey so Gemini's formatting drift
+// across runs (full/half-width, whitespace, middle dots, letter case,
+// "大阪・"/"大阪公演 ＠" location prefixes) does not defeat the match; the (date, start_at) components are unchanged.
 //
 // start_time disambiguates within a (date, venue), but asymmetrically so the
 // downstream resolution stays correct:
