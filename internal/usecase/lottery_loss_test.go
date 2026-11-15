@@ -24,6 +24,9 @@ type lossFixture struct {
 	mailer    *entitymocks.MockLotteryLossEmailSender
 	workflows *ucmocks.MockWorkflows
 	uc        usecase.NotificationUseCase
+	// emailSent is the entry's loss email send time, set when the send is
+	// recorded; nil while none was sent.
+	emailSent *time.Time
 }
 
 // lossNow is the time the loss tests' clock reads.
@@ -61,9 +64,18 @@ func newLossFixture(t *testing.T) *lossFixture {
 // lost makes entry-1 Lost with the reason, its Void Order order-1 of fan-1
 // for 2 S席 tickets of stock-1 of event-1, readable.
 func (f *lossFixture) lost(reason entity.LotteryEntryLostReason, language string) {
-	f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).Return(&entity.LotteryEntry{
-		ID: "entry-1", OrderID: "order-1", TicketSaleID: "sale-l", State: entity.LotteryEntryStateLost, LostReason: reason,
-	}, nil).Maybe()
+	f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("entry-1")).
+		RunAndReturn(func(context.Context, entity.LotteryEntryID) (*entity.LotteryEntry, error) {
+			return &entity.LotteryEntry{
+				ID: "entry-1", OrderID: "order-1", TicketSaleID: "sale-l", State: entity.LotteryEntryStateLost, LostReason: reason,
+				LossEmailSendTime: f.emailSent,
+			}, nil
+		}).Maybe()
+	f.entries.EXPECT().MarkLossEmailSent(mock.Anything, entity.LotteryEntryID("entry-1"), lossNow).
+		RunAndReturn(func(context.Context, entity.LotteryEntryID, time.Time) error {
+			f.emailSent = new(lossNow)
+			return nil
+		}).Maybe()
 	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{
 		ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid,
 	}, nil).Maybe()
@@ -138,8 +150,9 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 	t.Run("loss announced twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-lottery-loss "Loss announced twice"
-		// The sender emails an entry once (it sends nothing once the entry has
-		// a loss email send time) and the runtime runs one workflow per id.
+		// The first run sends and records the email; the second reads the
+		// recorded send time and sends nothing. The runtime runs one workflow
+		// per id.
 		f := newLossFixture(t)
 		f.lost(entity.LotteryEntryLostReasonNotDrawn, "ja")
 		emails := 0
@@ -147,7 +160,7 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 			RunAndReturn(func(context.Context, entity.LotteryEntryID, string, entity.LotteryLossEmail) error {
 				emails++
 				return nil
-			}).Twice()
+			}).Once()
 		pushed := map[string]bool{}
 		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
@@ -158,7 +171,7 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 		require.NoError(t, f.uc.SendLotteryLoss(ctx, "entry-1"))
 		require.NoError(t, f.uc.SendLotteryLoss(ctx, "entry-1"))
 
-		assert.Equal(t, 2, emails, "both runs ask the sender, which keeps it to one email")
+		assert.Equal(t, 1, emails, "one email for the entry")
 		assert.Len(t, pushed, 1, "one push workflow for the entry")
 	})
 
@@ -173,6 +186,7 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 		err := f.uc.SendLotteryLoss(ctx, "entry-1")
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable, "fails so the announcement is redelivered; no push yet")
+		assert.Nil(t, f.emailSent, "a failed send is not recorded")
 	})
 
 	t.Run("fan allowed notifications", func(t *testing.T) {

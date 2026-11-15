@@ -17,8 +17,8 @@ func NewPostmarkSignInLinkSenderForTest(consoleBaseURL, apiURL, serverToken stri
 }
 
 // NewPostmarkResaleSoldSenderForTest points the sender at a stub Postmark API.
-func NewPostmarkResaleSoldSenderForTest(listings ResaleListingStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleSoldSender {
-	return newPostmarkResaleSoldSender(listings, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+func NewPostmarkResaleSoldSenderForTest(apiURL, serverToken string, logger *logging.Logger) *PostmarkResaleSoldSender {
+	return newPostmarkResaleSoldSender(apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
 
 // NewPostmarkPasskeyRegistrationLinkSenderForTest points the sender at a stub Postmark API.
@@ -37,12 +37,12 @@ func NewPostmarkEmailVerificationSenderForTest(codes EmailVerificationCodeIssuer
 }
 
 // NewPostmarkLotteryLossSenderForTest points the sender at a stub Postmark API.
-func NewPostmarkLotteryLossSenderForTest(entries LotteryEntryStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkLotteryLossSender {
-	return newPostmarkLotteryLossSender(entries, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+func NewPostmarkLotteryLossSenderForTest(apiURL, serverToken string, logger *logging.Logger) *PostmarkLotteryLossSender {
+	return newPostmarkLotteryLossSender(apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
 
 // NewPostmarkResaleEntryEndedSenderForTest points the sender at a stub
 // Postmark API.
-func NewPostmarkResaleEntryEndedSenderForTest(entries ResaleEntryStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleEntryEndedSender {
-	return newPostmarkResaleEntryEndedSender(entries, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+func NewPostmarkResaleEntryEndedSenderForTest(apiURL, serverToken string, logger *logging.Logger) *PostmarkResaleEntryEndedSender {
+	return newPostmarkResaleEntryEndedSender(apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }

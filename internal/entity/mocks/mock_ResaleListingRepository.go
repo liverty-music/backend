@@ -252,6 +252,69 @@ func (_c *MockResaleListingRepository_ListByUser_Call) RunAndReturn(run func(ctx
 	return _c
 }
 
+// MarkSoldEmailSent provides a mock function for the type MockResaleListingRepository
+func (_mock *MockResaleListingRepository) MarkSoldEmailSent(ctx context.Context, id entity.ResaleListingID, at time.Time) error {
+	ret := _mock.Called(ctx, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkSoldEmailSent")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.ResaleListingID, time.Time) error); ok {
+		r0 = returnFunc(ctx, id, at)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockResaleListingRepository_MarkSoldEmailSent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkSoldEmailSent'
+type MockResaleListingRepository_MarkSoldEmailSent_Call struct {
+	*mock.Call
+}
+
+// MarkSoldEmailSent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.ResaleListingID
+//   - at time.Time
+func (_e *MockResaleListingRepository_Expecter) MarkSoldEmailSent(ctx any, id any, at any) *MockResaleListingRepository_MarkSoldEmailSent_Call {
+	return &MockResaleListingRepository_MarkSoldEmailSent_Call{Call: _e.mock.On("MarkSoldEmailSent", ctx, id, at)}
+}
+
+func (_c *MockResaleListingRepository_MarkSoldEmailSent_Call) Run(run func(ctx context.Context, id entity.ResaleListingID, at time.Time)) *MockResaleListingRepository_MarkSoldEmailSent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.ResaleListingID
+		if args[1] != nil {
+			arg1 = args[1].(entity.ResaleListingID)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockResaleListingRepository_MarkSoldEmailSent_Call) Return(err error) *MockResaleListingRepository_MarkSoldEmailSent_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockResaleListingRepository_MarkSoldEmailSent_Call) RunAndReturn(run func(ctx context.Context, id entity.ResaleListingID, at time.Time) error) *MockResaleListingRepository_MarkSoldEmailSent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RecordRefund provides a mock function for the type MockResaleListingRepository
 func (_mock *MockResaleListingRepository) RecordRefund(ctx context.Context, id entity.ResaleListingID, providerRefundID string, at time.Time) error {
 	ret := _mock.Called(ctx, id, providerRefundID, at)

@@ -184,3 +184,12 @@ func TestResaleListing_NeedsRefund(t *testing.T) {
 		}
 	}
 }
+
+func TestResaleListing_SoldEmailDue(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	assert.True(t, (&entity.ResaleListing{Status: entity.ResaleListingStatusSold}).SoldEmailDue(), "sold and not sent")
+	assert.False(t, (&entity.ResaleListing{Status: entity.ResaleListingStatusSold, SoldEmailSendTime: &sent}).SoldEmailDue(), "sold and sent")
+	assert.False(t, (&entity.ResaleListing{Status: entity.ResaleListingStatusListed}).SoldEmailDue(), "not sold")
+}

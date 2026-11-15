@@ -154,6 +154,11 @@ type Notification struct {
 	ReadTime *time.Time
 }
 
+// BelongsTo reports whether the Notification was sent to the user.
+func (n *Notification) BelongsTo(userID string) bool {
+	return n.UserID == userID
+}
+
 // NotificationRepository defines persistence operations for the notification log.
 //
 // MarkRead is user-scoped so one user cannot alter another user's record.

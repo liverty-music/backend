@@ -277,7 +277,7 @@ func (uc *orderUseCase) Get(ctx context.Context, userID entity.UserID, orderID e
 	}
 	// Ownership check: an Order belonging to another account is reported exactly
 	// like a missing one (non-revealing), never disclosed.
-	if order.UserID != userID {
+	if !order.BelongsTo(userID) {
 		return nil, apperr.New(codes.NotFound, "order not found")
 	}
 	return order, nil

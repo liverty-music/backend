@@ -341,7 +341,7 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, cardAuthorizationID 
 		}
 		return nil, notCallers()
 	}
-	if caller != nil && purchase.UserID != *caller {
+	if caller != nil && !purchase.BelongsTo(*caller) {
 		return nil, notCallers()
 	}
 

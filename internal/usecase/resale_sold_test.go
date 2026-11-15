@@ -24,6 +24,9 @@ type resaleSoldFixture struct {
 	orders   *entitymocks.MockOrderRepository
 	mailer   *entitymocks.MockResaleListingSoldEmailSender
 	uc       usecase.NotificationUseCase
+	// emailSent is the listing's sold email send time, set when the send is
+	// recorded; nil while none was sent.
+	emailSent *time.Time
 }
 
 var resaleRefunded = entity.ResaleListingRefundedData{ResaleListingID: "l-1", UserID: "fan-1", OrderID: "order-1", EventID: "event-1"}
@@ -45,15 +48,23 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), ucmocks.NewMockWorkflows(t), anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
-			Now:    time.Now,
+			Now:    func() time.Time { return soldEmailNow },
 			Orders: f.orders, Users: f.users, Concerts: concertReader(t, concert),
 			ResaleListings: f.listings, ResaleMailer: f.mailer, TimeZone: tsJST,
 		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	soldAt := time.Date(2026, 11, 13, 18, 20, 0, 0, tsJST)
-	f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).Return(&entity.ResaleListing{
-		ID: "l-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Price: 5000,
-		Status: entity.ResaleListingStatusSold, SoldTime: &soldAt,
-	}, nil).Maybe()
+	f.listings.EXPECT().Get(mock.Anything, entity.ResaleListingID("l-1")).
+		RunAndReturn(func(context.Context, entity.ResaleListingID) (*entity.ResaleListing, error) {
+			return &entity.ResaleListing{
+				ID: "l-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Price: 5000,
+				Status: entity.ResaleListingStatusSold, SoldTime: &soldAt, SoldEmailSendTime: f.emailSent,
+			}, nil
+		}).Maybe()
+	f.listings.EXPECT().MarkSoldEmailSent(mock.Anything, entity.ResaleListingID("l-1"), soldEmailNow).
+		RunAndReturn(func(context.Context, entity.ResaleListingID, time.Time) error {
+			f.emailSent = new(soldEmailNow)
+			return nil
+		}).Maybe()
 	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: lang}, nil).Maybe()
 	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{
 		ID: "order-1", Payment: entity.Payment{CardBrand: "visa", CardLast4: "4242"},
@@ -105,10 +116,10 @@ func TestNotificationUseCase_SendResaleSold(t *testing.T) {
 	t.Run("listing announced twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-resale-sold "Listing announced twice"
-		// Both deliveries reach the sender, which sends only the first
-		// (ResaleListing.SendSoldEmail "Sent before").
+		// The first delivery sends and records the email; the second reads the
+		// recorded send time and sends nothing.
 		f := newResaleSoldFixture(t, "")
-		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).Return(nil).Twice()
+		f.mailer.EXPECT().SendSoldEmail(mock.Anything, entity.ResaleListingID("l-1"), "fan@example.com", mock.Anything).Return(nil).Once()
 
 		require.NoError(t, f.uc.SendResaleSold(ctx, resaleRefunded))
 		require.NoError(t, f.uc.SendResaleSold(ctx, resaleRefunded))
@@ -124,5 +135,9 @@ func TestNotificationUseCase_SendResaleSold(t *testing.T) {
 		err := f.uc.SendResaleSold(ctx, resaleRefunded)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Nil(t, f.emailSent, "a failed send is not recorded")
 	})
 }
+
+// soldEmailNow is the time the sold email tests' clock reads.
+var soldEmailNow = time.Date(2026, 11, 13, 9, 30, 0, 0, time.UTC)

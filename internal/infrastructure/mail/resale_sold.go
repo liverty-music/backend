@@ -3,7 +3,6 @@ package mail
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -14,19 +13,10 @@ import (
 // resaleSoldTag tags "your ticket sold" emails in Postmark's activity log.
 const resaleSoldTag = "resale-sold"
 
-// ResaleListingStore is what the mailer needs from the ResaleListing
-// repository.
-type ResaleListingStore interface {
-	Get(ctx context.Context, id entity.ResaleListingID) (*entity.ResaleListing, error)
-	MarkSoldEmailSent(ctx context.Context, id entity.ResaleListingID, at time.Time) error
-}
-
 // PostmarkResaleSoldSender implements [entity.ResaleListingSoldEmailSender]
 // with Postmark's transactional message stream.
 type PostmarkResaleSoldSender struct {
 	postmarkClient
-	listings ResaleListingStore
-	clock    func() time.Time
 }
 
 // Compile-time interface compliance check.
@@ -34,15 +24,13 @@ var _ entity.ResaleListingSoldEmailSender = (*PostmarkResaleSoldSender)(nil)
 
 // NewPostmarkResaleSoldSender creates a sender for the given server token,
 // From address and message stream.
-func NewPostmarkResaleSoldSender(listings ResaleListingStore, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleSoldSender {
-	return newPostmarkResaleSoldSender(listings, postmarkAPIURL, serverToken, fromAddress, messageStream, clock, logger)
+func NewPostmarkResaleSoldSender(serverToken, fromAddress, messageStream string, logger *logging.Logger) *PostmarkResaleSoldSender {
+	return newPostmarkResaleSoldSender(postmarkAPIURL, serverToken, fromAddress, messageStream, logger)
 }
 
-func newPostmarkResaleSoldSender(listings ResaleListingStore, apiURL, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkResaleSoldSender {
+func newPostmarkResaleSoldSender(apiURL, serverToken, fromAddress, messageStream string, logger *logging.Logger) *PostmarkResaleSoldSender {
 	return &PostmarkResaleSoldSender{
 		postmarkClient: newPostmarkClient(apiURL, serverToken, fromAddress, messageStream, logger),
-		listings:       listings,
-		clock:          clock,
 	}
 }
 
@@ -52,18 +40,8 @@ func (s *PostmarkResaleSoldSender) SendSoldEmail(ctx context.Context, id entity.
 	if to == "" || msg.Subject == "" || msg.TextBody == "" {
 		return apperr.New(codes.InvalidArgument, "the address and the message must not be empty", attrs)
 	}
-	listing, err := s.listings.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if listing.SoldEmailSendTime != nil {
-		return nil
-	}
-	if err := s.post(ctx, to, msg.Subject, msg.TextBody, resaleSoldTag,
-		map[string]string{"resale_listing_id": string(id)}, attrs); err != nil {
-		return err
-	}
-	return s.listings.MarkSoldEmailSent(ctx, id, s.clock())
+	return s.post(ctx, to, msg.Subject, msg.TextBody, resaleSoldTag,
+		map[string]string{"resale_listing_id": string(id)}, attrs)
 }
 
 // NoopResaleSoldSender is used when no Postmark token is configured (local

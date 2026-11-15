@@ -4,113 +4,61 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
-	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/mail"
 )
 
-// fakeResaleEntries is an in-memory ResaleEntryStore.
-type fakeResaleEntries struct {
-	mu      sync.Mutex
-	entries map[entity.ResaleEntryID]*entity.ResaleEntry
-}
+var endedMsg = entity.ResaleEntryEndedEmail{Subject: "公式リセールの申込が終了しました", TextBody: "本文"}
 
-func (f *fakeResaleEntries) Get(_ context.Context, id entity.ResaleEntryID) (*entity.ResaleEntry, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	e, ok := f.entries[id]
-	if !ok {
-		return nil, apperr.ErrNotFound
-	}
-	copied := *e
-	return &copied, nil
-}
-
-func (f *fakeResaleEntries) MarkEndedEmailSent(_ context.Context, id entity.ResaleEntryID, at time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if e := f.entries[id]; e.EndedEmailSendTime == nil {
-		e.EndedEmailSendTime = &at
-	}
-	return nil
-}
-
-var endedMsg = entity.ResaleEntryEndedEmail{Subject: "公式リセールの申し込みについて", TextBody: "本文"}
-
-func newResaleEntryEndedSender(t *testing.T, stub *stubPostmark, entries *fakeResaleEntries) *mail.PostmarkResaleEntryEndedSender {
+func newResaleEntryEndedSender(t *testing.T, stub *stubPostmark) *mail.PostmarkResaleEntryEndedSender {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(stub.handler))
 	t.Cleanup(srv.Close)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return mail.NewPostmarkResaleEntryEndedSenderForTest(entries, srv.URL, "server-token", func() time.Time { return sentAt }, logger)
-}
-
-func resaleEntryIn(state entity.ResaleEntryState) *fakeResaleEntries {
-	return &fakeResaleEntries{entries: map[entity.ResaleEntryID]*entity.ResaleEntry{
-		"entry-1": {ID: "entry-1", State: state},
-	}}
+	return mail.NewPostmarkResaleEntryEndedSenderForTest(srv.URL, "server-token", logger)
 }
 
 func TestPostmarkResaleEntryEndedSender_SendEndedEmail(t *testing.T) {
 	t.Parallel()
 
-	t.Run("first send", func(t *testing.T) {
+	t.Run("sends the message to the address, tagged with the id", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-entry/send-ended-email "First send"
-		entries := resaleEntryIn(entity.ResaleEntryStateLapsed)
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newResaleEntryEndedSender(t, stub, entries)
 
-		require.NoError(t, sender.SendEndedEmail(context.Background(), "entry-1", "fan@example.com", endedMsg))
+		require.NoError(t, newResaleEntryEndedSender(t, stub).SendEndedEmail(context.Background(), "entry-1", "fan@example.com", endedMsg))
 
 		require.Len(t, stub.sent, 1)
 		assert.Equal(t, "fan@example.com", stub.sent[0]["To"])
 		assert.Equal(t, endedMsg.Subject, stub.sent[0]["Subject"])
 		assert.Equal(t, "resale-entry-ended", stub.sent[0]["Tag"])
-		got, _ := entries.Get(context.Background(), "entry-1")
-		assert.Equal(t, &sentAt, got.EndedEmailSendTime)
+		assert.Equal(t, map[string]any{"resale_entry_id": "entry-1"}, stub.sent[0]["Metadata"])
 	})
 
-	t.Run("sent already", func(t *testing.T) {
+	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/entity/resale-entry/send-ended-email "Sent already"
-		entries := resaleEntryIn(entity.ResaleEntryStateLost)
-		earlier := sentAt.Add(-time.Hour)
-		entries.entries["entry-1"].EndedEmailSendTime = &earlier
-		stub := &stubPostmark{status: http.StatusOK}
-		sender := newResaleEntryEndedSender(t, stub, entries)
+		// @spec components/entity/resale-entry/send-ended-email "Mail unavailable"
+		stub := &stubPostmark{status: http.StatusInternalServerError}
 
-		require.NoError(t, sender.SendEndedEmail(context.Background(), "entry-1", "fan@example.com", endedMsg))
+		err := newResaleEntryEndedSender(t, stub).SendEndedEmail(context.Background(), "entry-1", "fan@example.com", endedMsg)
 
-		assert.Empty(t, stub.sent, "no email is sent")
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
-	t.Run("entry still in the draw", func(t *testing.T) {
+	t.Run("empty address", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/entity/resale-entry/send-ended-email "Entry still in the draw"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newResaleEntryEndedSender(t, stub, resaleEntryIn(entity.ResaleEntryStateEntered))
 
-		err := sender.SendEndedEmail(context.Background(), "entry-1", "fan@example.com", endedMsg)
+		err := newResaleEntryEndedSender(t, stub).SendEndedEmail(context.Background(), "entry-1", "", endedMsg)
 
-		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		assert.Empty(t, stub.sent)
-	})
-
-	t.Run("unknown entry", func(t *testing.T) {
-		t.Parallel()
-		stub := &stubPostmark{status: http.StatusOK}
-		sender := newResaleEntryEndedSender(t, stub, resaleEntryIn(entity.ResaleEntryStateLost))
-
-		assert.ErrorIs(t, sender.SendEndedEmail(context.Background(), "entry-2", "fan@example.com", endedMsg), apperr.ErrNotFound)
 	})
 }

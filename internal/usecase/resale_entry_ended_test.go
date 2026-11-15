@@ -24,7 +24,9 @@ type endedFixture struct {
 	workflows *ucmocks.MockWorkflows
 	// language is the fan's preferred language; empty means none.
 	language string
-	uc       usecase.NotificationUseCase
+	// emailSent is the entry's ended email send time; nil when none was sent.
+	emailSent *time.Time
+	uc        usecase.NotificationUseCase
 }
 
 // endedNow is the time the ended-message tests' clock reads.
@@ -60,21 +62,29 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 // ended makes entry-1 of fan-1 for 2 S席 tickets readable in the state with
 // the reason.
 func (f *endedFixture) ended(state entity.ResaleEntryState, reason entity.ResaleEntryLostReason) {
-	f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(&entity.ResaleEntry{
-		ID: "entry-1", OrderID: "order-1", State: state, LostReason: reason,
-		Order: &entity.Order{ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid},
-	}, nil)
+	f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).
+		RunAndReturn(func(context.Context, entity.ResaleEntryID) (*entity.ResaleEntry, error) {
+			return &entity.ResaleEntry{
+				ID: "entry-1", OrderID: "order-1", State: state, LostReason: reason, EndedEmailSendTime: f.emailSent,
+				Order: &entity.Order{ID: "order-1", UserID: "fan-1", TicketStockID: "stock-1", TicketCount: 2, Status: entity.OrderStatusVoid},
+			}, nil
+		})
 	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: f.language}, nil).Maybe()
 	f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-1"), endedNow).Return(&entity.TicketStock{
 		ID: "stock-1", EventID: "event-1", SeatType: &entity.SeatType{Name: "S席", Price: 5000},
 	}, nil).Maybe()
 }
 
-// sends records the ended email.
+// sends records the ended email and expects its send to be recorded.
 func (f *endedFixture) sends(mail *entity.ResaleEntryEndedEmail) {
 	f.mailer.EXPECT().SendEndedEmail(mock.Anything, entity.ResaleEntryID("entry-1"), "fan@example.com", mock.Anything).
 		RunAndReturn(func(_ context.Context, _ entity.ResaleEntryID, _ string, m entity.ResaleEntryEndedEmail) error {
 			*mail = m
+			return nil
+		}).Once()
+	f.entries.EXPECT().MarkEndedEmailSent(mock.Anything, entity.ResaleEntryID("entry-1"), endedNow).
+		RunAndReturn(func(context.Context, entity.ResaleEntryID, time.Time) error {
+			f.emailSent = new(endedNow)
 			return nil
 		}).Once()
 }
@@ -153,13 +163,16 @@ func TestNotificationUseCase_SendResaleEntryEnded(t *testing.T) {
 	t.Run("run again after the email was sent", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-resale-entry-ended "Run again after the email was sent"
-		// ResaleEntry.SendEndedEmail sends nothing for an entry with an ended
-		// email send time, and the push is the same named Deliver.
+		// The first run sends and records the email; the second reads the
+		// recorded send time and sends no second email (the mailer expects one
+		// send), and both start the same named Deliver.
 		f := newEndedFixture(t, open)
 		f.ended(entity.ResaleEntryStateLapsed, entity.ResaleEntryLostReasonUnspecified)
-		f.mailer.EXPECT().SendEndedEmail(mock.Anything, entity.ResaleEntryID("entry-1"), "fan@example.com", mock.Anything).Return(nil).Once()
-		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:resale_entry_lapsed:entry-1", mock.Anything).Return(nil).Once()
+		var mail entity.ResaleEntryEndedEmail
+		f.sends(&mail)
+		f.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, "deliver:resale_entry_lapsed:entry-1", mock.Anything).Return(nil).Twice()
 
+		require.NoError(t, f.uc.SendResaleEntryEnded(ctx, "entry-1"))
 		require.NoError(t, f.uc.SendResaleEntryEnded(ctx, "entry-1"))
 	})
 

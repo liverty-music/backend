@@ -186,6 +186,11 @@ type Order struct {
 	ConfirmationSendTime *time.Time
 }
 
+// BelongsTo reports whether the Order is the user's: the user placed it.
+func (o *Order) BelongsTo(userID UserID) bool {
+	return o.UserID == userID
+}
+
 // RefundReason is why an Order was refunded. Values mirror the proto enum
 // liverty_music.rpc.admin.order.v1.RefundReason; 2 is retired.
 type RefundReason int16
@@ -337,6 +342,22 @@ func (o *Order) ValidateSource() error {
 // authorization, the provider payment ID and the pay time.
 func (o *Order) CanBePaid() bool {
 	return o.CardAuthorizationID != "" && o.Payment.ProviderPaymentID != "" && o.PayTime != nil
+}
+
+// GetsCancellationNotice reports whether the fan of the Order is told that its
+// event was cancelled: only a Paid Order holds tickets to the event. A Pending,
+// Void or already Refunded Order gets no notice.
+func (o *Order) GetsCancellationNotice() bool {
+	return o.Status == OrderStatusPaid
+}
+
+// GetsRefundNotice reports whether the fan is told about the Order's refund:
+// only a refund for the event's cancellation with an amount to return. A
+// refund for a dispute is told by the dispute, and an Order whose tickets were
+// all resold has nothing left to refund.
+func (o *Order) GetsRefundNotice() bool {
+	r := o.Refund
+	return r != nil && r.Reason == RefundReasonCancellation && r.Amount > 0
 }
 
 // IsPaid reports whether the Order was made Paid, also when it was refunded

@@ -2,6 +2,7 @@ package entity_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 
@@ -231,4 +232,13 @@ func TestHasEntryForStocks(t *testing.T) {
 	assert.True(t, entity.HasEntryForStocks([]*entity.LotteryEntry{entryOf("stock-a", entity.LotteryEntryStateLost)}, stocks), "in any state")
 	assert.False(t, entity.HasEntryForStocks([]*entity.LotteryEntry{entryOf("stock-other-event", entity.LotteryEntryStateEntered)}, stocks), "an entry for a stock of another event does not")
 	assert.False(t, entity.HasEntryForStocks(nil, stocks))
+}
+
+func TestLotteryEntry_LossEmailDue(t *testing.T) {
+	t.Parallel()
+
+	sent := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	assert.True(t, (&entity.LotteryEntry{State: entity.LotteryEntryStateLost}).LossEmailDue(), "lost and not sent")
+	assert.False(t, (&entity.LotteryEntry{State: entity.LotteryEntryStateLost, LossEmailSendTime: &sent}).LossEmailDue(), "lost and sent")
+	assert.False(t, (&entity.LotteryEntry{State: entity.LotteryEntryStateWon}).LossEmailDue(), "won")
 }

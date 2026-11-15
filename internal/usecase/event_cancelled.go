@@ -61,7 +61,7 @@ func (uc *notificationUseCase) SendEventCancelled(ctx context.Context, eventID s
 	}
 	var errs []error
 	for _, o := range orders {
-		if o.Status != entity.OrderStatusPaid {
+		if !o.GetsCancellationNotice() {
 			continue
 		}
 		// A failure to start one Order's notice does not stop the others; the

@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
+
 	"github.com/liverty-music/backend/pkg/geo"
 )
 
@@ -784,4 +787,58 @@ type ConcertSearcher interface {
 	//  - Unavailable: If the external service is down.
 	//  - Internal: unexpected failure during search processing.
 	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*DiscoveredSeries, error)
+}
+
+// NewConcertsOfArtist checks the concerts a new-concerts notification names
+// for an artist and returns the ones it may be sent for. Every id must name
+// one of the given concerts and the artist must perform at each; a concert
+// with no performers at all is a data anomaly, which is left out and returned
+// in orphanIDs instead of failing the whole notification.
+//
+// # Possible errors
+//
+//   - InvalidArgument: an id names no given concert, or the artist does not
+//     perform at a concert that has performers.
+func NewConcertsOfArtist(artistID string, ids []string, concerts []*Concert) (deliverable []*Concert, orphanIDs []string, err error) {
+	byID := make(map[string]*Concert, len(concerts))
+	for _, c := range concerts {
+		byID[c.ID] = c
+	}
+	orphan := make(map[string]bool)
+	for _, id := range ids {
+		c, ok := byID[id]
+		if !ok {
+			return nil, nil, apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
+		}
+		if len(c.Artists) == 0 {
+			if !orphan[id] {
+				orphan[id] = true
+				orphanIDs = append(orphanIDs, id)
+			}
+			continue
+		}
+		if !c.HasPerformer(artistID) {
+			return nil, nil, apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+artistID)
+		}
+	}
+	named := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		named[id] = true
+	}
+	for _, c := range concerts {
+		if named[c.ID] && !orphan[c.ID] {
+			deliverable = append(deliverable, c)
+		}
+	}
+	return deliverable, orphanIDs, nil
+}
+
+// HasPerformer reports whether the artist performs at the concert.
+func (c *Concert) HasPerformer(artistID string) bool {
+	for _, a := range c.Artists {
+		if a != nil && a.ID == artistID {
+			return true
+		}
+	}
+	return false
 }

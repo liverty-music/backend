@@ -218,6 +218,13 @@ const (
 	LotteryEntryStepReleaseCardAuthorization
 )
 
+// LossEmailDue reports whether the entry's loss email is still to be sent: the
+// entry is Lost and none has been sent. One email per entry; a failure between
+// sending and recording the send can lead to a second email on retry.
+func (e *LotteryEntry) LossEmailDue() bool {
+	return e.State == LotteryEntryStateLost && e.LossEmailSendTime == nil
+}
+
 // NextStep returns the work that follows the entry's state.
 func (e *LotteryEntry) NextStep() LotteryEntryStep {
 	switch e.State {
@@ -337,22 +344,19 @@ type LotteryLossEmail struct {
 	TextBody string
 }
 
-// LotteryLossEmailSender sends a Lost entry's loss email at most once. The
-// implementation lives in internal/infrastructure/mail/.
+// LotteryLossEmailSender sends a Lost entry's loss email. Whether it is due is
+// [LotteryEntry.LossEmailDue]; the caller records the send
+// (LotteryEntryRepository.MarkLossEmailSent). The implementation lives in
+// internal/infrastructure/mail/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type LotteryLossEmailSender interface {
-	// SendLossEmail sends msg to the address of the entry's Order's user when
-	// the entry has no loss email send time, then sets that time. When the
-	// time is already set it sends nothing and succeeds. A failure between
-	// sending and recording can lead to a second email on retry; no other
-	// case sends twice.
+	// SendLossEmail sends msg to the address, tagged with the entry's id.
 	//
 	// # Possible errors
 	//
 	//   - InvalidArgument: the address or the message is empty.
-	//   - Unavailable: email cannot be sent; the send time stays unset.
-	//   - NotFound: no entry has the id.
+	//   - Unavailable: email cannot be sent.
 	SendLossEmail(ctx context.Context, id LotteryEntryID, to string, msg LotteryLossEmail) error
 }
 

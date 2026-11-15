@@ -183,7 +183,7 @@ func (uc *resaleListingUseCase) Withdraw(ctx context.Context, userID entity.User
 		}
 		return nil, err
 	}
-	if listing.UserID != userID {
+	if !listing.BelongsTo(userID) {
 		return nil, apperr.New(codes.PermissionDenied, "the listing is not the fan's")
 	}
 	if err := uc.Listings.Withdraw(ctx, id, now); err != nil {
