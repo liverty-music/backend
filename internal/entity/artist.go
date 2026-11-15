@@ -154,6 +154,34 @@ func ValidateOfficialSiteURL(raw string) error {
 	return nil
 }
 
+// MergeArtistsByMBID returns the artists to register from the given ones: one
+// per MBID, because one MBID is one artist, and of several given artists with
+// the same MBID the first (its name and id) wins. Nil entries are skipped. An
+// MBID that is already registered keeps its registered artist unchanged; the
+// repository's unique MBID index decides that.
+//
+// # Possible errors
+//
+//   - InvalidArgument: an artist has no MBID.
+func MergeArtistsByMBID(artists []*Artist) ([]*Artist, error) {
+	seen := make(map[string]bool, len(artists))
+	merged := make([]*Artist, 0, len(artists))
+	for _, a := range artists {
+		if a == nil {
+			continue
+		}
+		if a.MBID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "all artists must have a non-empty MBID")
+		}
+		if seen[a.MBID] {
+			continue
+		}
+		seen[a.MBID] = true
+		merged = append(merged, a)
+	}
+	return merged, nil
+}
+
 // FilterArtistsByMBID removes artists with an empty MBID and deduplicates the
 // remaining entries by MBID, keeping the first occurrence of each.
 func FilterArtistsByMBID(artists []*Artist) []*Artist {

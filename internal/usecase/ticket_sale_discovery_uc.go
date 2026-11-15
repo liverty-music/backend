@@ -11,26 +11,6 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ticketSaleSearchIntervalDays is how many Japan-time dates a searched series
-// waits before it is searched again, unless all of its known sales have ended.
-const ticketSaleSearchIntervalDays = 10
-
-// ticketSaleSearchZone is Japan time, the zone the daily discovery run is
-// scheduled in. JST has no DST, so a fixed zone is exact.
-var ticketSaleSearchZone = time.FixedZone("JST", 9*60*60)
-
-// ticketSaleSearchDue reports whether a series last searched at searched is
-// due again at now. It compares Japan-time dates rather than elapsed time, so
-// a search recorded a little after 21:00 does not push the next search to the
-// following day's run.
-func ticketSaleSearchDue(searched, now time.Time) bool {
-	date := func(t time.Time) time.Time {
-		local := t.In(ticketSaleSearchZone)
-		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, ticketSaleSearchZone)
-	}
-	return !date(now).Before(date(searched).AddDate(0, 0, ticketSaleSearchIntervalDays))
-}
-
 // TicketSaleDiscoveryUseCase selects the series of an artist that need a
 // search for published ticket sales, calls the searcher once for the artist
 // over those series, stores the results as discovered TicketSales, records the
@@ -256,14 +236,14 @@ func (uc *ticketSaleDiscoveryUseCase) selectSeriesToSearch(
 	if err != nil {
 		return nil, err
 	}
-	searchedAt := make(map[string]time.Time, len(searches))
+	lastSearch := make(map[string]*entity.TicketSaleSearch, len(searches))
 	for _, search := range searches {
-		searchedAt[search.SeriesID] = search.SearchedTime
+		lastSearch[search.SeriesID] = search
 	}
 
 	out := kept[:0]
 	for _, ref := range kept {
-		if t, ok := searchedAt[ref.SeriesID]; ok && !ticketSaleSearchDue(t, now) {
+		if search, ok := lastSearch[ref.SeriesID]; ok && !search.DueAt(now) {
 			continue
 		}
 		out = append(out, ref)

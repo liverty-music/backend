@@ -139,9 +139,10 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	return &a, nil
 }
 
-// Create persists one or more artists using unnest bulk upsert.
-// All artists must have a non-empty MBID; artists with matching MBIDs are
-// deduplicated. Returns all artists with valid database IDs.
+// Create registers the artists entity.MergeArtistsByMBID keeps, one per MBID,
+// with an unnest bulk insert. The unique MBID index keeps an artist already
+// registered (also by a concurrent call) unchanged. It returns, for each given
+// artist in input order, the registered artist of its MBID.
 //
 // # Announces
 //
@@ -153,24 +154,20 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		return []*entity.Artist{}, nil
 	}
 
-	var ids, names, mbids []string
-	// inputIdx[i] = original index of the i-th artist in the input slice.
-	var inputIdx []int
-
-	for origIdx, a := range artists {
-		if a == nil {
-			continue
-		}
-		if a.MBID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "all artists must have a non-empty MBID")
-		}
+	merged, err := entity.MergeArtistsByMBID(artists)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(merged))
+	names := make([]string, 0, len(merged))
+	mbids := make([]string, 0, len(merged))
+	for _, a := range merged {
 		if a.ID == "" {
 			a.ID = entity.NewArtist(a.Name, a.MBID).ID
 		}
 		ids = append(ids, a.ID)
 		names = append(names, a.Name)
 		mbids = append(mbids, a.MBID)
-		inputIdx = append(inputIdx, origIdx)
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -197,35 +194,23 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		}
 	}
 
-	// Fetch back all persisted artists (both new and pre-existing) by MBID,
-	// preserving the input order via WITH ORDINALITY.
-	resultByOrigIdx := make(map[int]*entity.Artist)
-
+	// Fetch back all registered artists (new and pre-existing) by MBID.
 	rows, err := tx.Query(ctx, selectArtistsByMBIDsQuery, mbids)
 	if err != nil {
 		return nil, toAppErr(err, "failed to select artists by mbids")
 	}
-	defer rows.Close()
-
-	i := 0
-	for rows.Next() {
-		a, err := scanArtist(rows.Scan)
-		if err != nil {
-			return nil, toAppErr(err, "failed to scan artist")
-		}
-		resultByOrigIdx[inputIdx[i]] = a
-		i++
+	registered, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Artist, error) {
+		return scanArtist(row.Scan)
+	})
+	if err != nil {
+		return nil, toAppErr(err, "failed to scan artists by mbids")
 	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "error iterating artist rows by mbids")
-	}
-	rows.Close()
 
+	byMBID := make(map[string]*entity.Artist, len(registered))
 	var created []*entity.Artist
-	announcedIDs := map[string]bool{}
-	for _, a := range resultByOrigIdx {
-		if inserted[a.ID] && !announcedIDs[a.ID] {
-			announcedIDs[a.ID] = true
+	for _, a := range registered {
+		byMBID[a.MBID] = a
+		if inserted[a.ID] {
 			created = append(created, a)
 		}
 	}
@@ -236,11 +221,14 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		return nil, toAppErr(err, "failed to commit artist create transaction")
 	}
 
-	// Reassemble in original input order, skipping nil entries.
-	result := make([]*entity.Artist, 0, len(resultByOrigIdx))
-	for origIdx := range artists {
-		if a, ok := resultByOrigIdx[origIdx]; ok {
-			result = append(result, a)
+	// Each given artist gets the registered artist of its MBID, in input order.
+	result := make([]*entity.Artist, 0, len(artists))
+	for _, a := range artists {
+		if a == nil {
+			continue
+		}
+		if reg, ok := byMBID[a.MBID]; ok {
+			result = append(result, reg)
 		}
 	}
 

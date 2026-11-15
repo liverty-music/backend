@@ -19,6 +19,26 @@ type TicketSaleSearch struct {
 	SearchedTime time.Time
 }
 
+// TicketSaleSearchIntervalDays is how many Japan-time dates a searched series
+// waits before it is searched again, unless all of its known sales have ended.
+const TicketSaleSearchIntervalDays = 10
+
+// ticketSaleSearchZone is Japan time, the zone the daily discovery run is
+// scheduled in. JST has no DST, so a fixed zone is exact.
+var ticketSaleSearchZone = time.FixedZone("JST", 9*60*60)
+
+// DueAt reports whether the series is due to be searched again at now: at
+// least [TicketSaleSearchIntervalDays] Japan-time dates after its last search.
+// It compares dates rather than elapsed time, so a search recorded a little
+// after 21:00 does not push the next search to the following day's run.
+func (s *TicketSaleSearch) DueAt(now time.Time) bool {
+	date := func(t time.Time) time.Time {
+		local := t.In(ticketSaleSearchZone)
+		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, ticketSaleSearchZone)
+	}
+	return !date(now).Before(date(s.SearchedTime).AddDate(0, 0, TicketSaleSearchIntervalDays))
+}
+
 // Validate checks that the searched time is not after now. It fails with
 // InvalidArgument, which callers return as it is.
 func (s *TicketSaleSearch) Validate(now time.Time) error {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFilterArtistsByMBID(t *testing.T) {
@@ -206,4 +207,19 @@ func TestArtist_CheckSearchable(t *testing.T) {
 	assert.NoError(t, (&entity.Artist{ID: "a", Name: "Band", MBID: "mbid"}).CheckSearchable())
 	assert.ErrorIs(t, (&entity.Artist{ID: "a", MBID: "mbid"}).CheckSearchable(), apperr.ErrInternal, "no name")
 	assert.ErrorIs(t, (&entity.Artist{ID: "a", Name: "Band"}).CheckSearchable(), apperr.ErrInternal, "no MBID")
+}
+
+func TestMergeArtistsByMBID(t *testing.T) {
+	t.Parallel()
+
+	first := &entity.Artist{ID: "a-1", Name: "First", MBID: "mbid-1"}
+	second := &entity.Artist{ID: "a-2", Name: "Second", MBID: "mbid-1"}
+	other := &entity.Artist{ID: "a-3", Name: "Other", MBID: "mbid-2"}
+
+	got, err := entity.MergeArtistsByMBID([]*entity.Artist{first, nil, second, other})
+	require.NoError(t, err)
+	assert.Equal(t, []*entity.Artist{first, other}, got, "one artist per MBID, the first given wins")
+
+	_, err = entity.MergeArtistsByMBID([]*entity.Artist{first, {Name: "No MBID"}})
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 }

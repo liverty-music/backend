@@ -684,31 +684,14 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 	return concerts, nil
 }
 
-// Bounding-box half-margins (in degrees) around a reference point, used to
-// pre-filter venue rows before the precise Haversine 200 km cut. The latitude
-// margin covers ~200 km (1° lat ≈ 111 km). The longitude margin is deliberately
-// generous: 1° lon shrinks with latitude (cos φ), so ±2.6° is conservative enough
-// to still span 200 km at Japan's northern extremes (Hokkaido, 43°N+); the tighter
-// ±2.3° is insufficient above ~38.6°N. Over-selecting here is harmless — the
-// use-case Haversine filter removes any venue that is inside the box but beyond
-// 200 km.
-const (
-	boundingBoxLatMargin = 1.8
-	boundingBoxLngMargin = 2.6
-)
-
-// ListByLocation retrieves candidate concerts in [from, to] whose venue is a
-// coarse spatial match for the reference point (inside the bounding box OR sharing
-// its admin_area). Venue lat/lng are included so the use-case layer can apply the
-// precise Haversine 200 km cut and HOME/NEARBY classification.
+// ListByLocation retrieves the concerts in [from, to] whose venue
+// GeoLocation.MayBeNear admits: inside location.Box() or in its admin area.
+// Venue lat/lng are included so the use-case layer can apply the precise
+// Haversine 200 km cut and HOME/NEARBY classification.
 func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.Concert, error) {
-	latMin := location.Latitude - boundingBoxLatMargin
-	latMax := location.Latitude + boundingBoxLatMargin
-	lngMin := location.Longitude - boundingBoxLngMargin
-	lngMax := location.Longitude + boundingBoxLngMargin
-
+	box := location.Box()
 	rows, err := r.db.Pool.Query(ctx, listConcertsByLocationQuery,
-		from, to, latMin, latMax, lngMin, lngMax, location.AdminArea,
+		from, to, box.LatMin, box.LatMax, box.LngMin, box.LngMax, location.AdminArea,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by location",
