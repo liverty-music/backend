@@ -21,9 +21,6 @@ const ReminderScanLookbackMargin = reminderScanLookbackMargin
 // ExportedOfficialSiteRefreshBatchSize exposes officialSiteRefreshBatchSize for black-box tests.
 var ExportedOfficialSiteRefreshBatchSize = officialSiteRefreshBatchSize
 
-// ExportedTicketSaleSearchDue exposes ticketSaleSearchDue for black-box tests.
-var ExportedTicketSaleSearchDue = ticketSaleSearchDue
-
 // RunSignInLinksSynchronously makes the OrganizerUseCase run the background
 // lookup and send of SendSignInLinks before SendSignInLinks returns.
 func RunSignInLinksSynchronously(uc OrganizerUseCase) {

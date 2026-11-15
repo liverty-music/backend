@@ -38,6 +38,19 @@ func (s TicketJourneyStatus) String() string {
 	}
 }
 
+// RaisesHype reports whether a fan who moves a journey to this status shows
+// they will travel for the concert, so the app may raise their hype to match
+// it: applied for, waiting for payment, or paid. Tracking a concert or losing
+// a lottery shows nothing about travel.
+func (s TicketJourneyStatus) RaisesHype() bool {
+	switch s {
+	case TicketJourneyStatusApplied, TicketJourneyStatusUnpaid, TicketJourneyStatusPaid:
+		return true
+	default:
+		return false
+	}
+}
+
 // IsValid reports whether s is a recognized TicketJourneyStatus value.
 func (s TicketJourneyStatus) IsValid() bool {
 	return s >= TicketJourneyStatusTracking && s <= TicketJourneyStatusPaid

@@ -767,3 +767,57 @@ func TestConcertRepository_ListCatalogByArtist(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
+
+// TestConcertRepository_ListByLocationParity runs the location query over
+// venues inside, on and just outside every edge of the box, with and without
+// coordinates, in and outside the admin area, and compares what it returns
+// with GeoLocation.MayBeNear.
+func TestConcertRepository_ListByLocationParity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	f := newVisibilityFixture(t, db)
+	point := &entity.GeoLocation{Latitude: 35.681, Longitude: 139.767, AdminArea: "JP-13"}
+	box := point.Box()
+	const step = 1e-6
+
+	coords := map[string]*entity.Coordinates{
+		"none":            nil,
+		"center":          {Latitude: point.Latitude, Longitude: point.Longitude},
+		"north edge":      {Latitude: box.LatMax, Longitude: point.Longitude},
+		"past north":      {Latitude: box.LatMax + step, Longitude: point.Longitude},
+		"south edge":      {Latitude: box.LatMin, Longitude: point.Longitude},
+		"past south":      {Latitude: box.LatMin - step, Longitude: point.Longitude},
+		"east edge":       {Latitude: point.Latitude, Longitude: box.LngMax},
+		"past east":       {Latitude: point.Latitude, Longitude: box.LngMax + step},
+		"west edge":       {Latitude: point.Latitude, Longitude: box.LngMin},
+		"past west":       {Latitude: point.Latitude, Longitude: box.LngMin - step},
+		"corner":          {Latitude: box.LatMax, Longitude: box.LngMax},
+		"past the corner": {Latitude: box.LatMax + step, Longitude: box.LngMax + step},
+	}
+	want := map[string]bool{}
+	names := map[string]string{}
+	artist := f.artist()
+	for name, c := range coords {
+		for _, area := range []string{"JP-13", "JP-01"} {
+			venue := &entity.Venue{AdminArea: &area, Coordinates: c}
+			var lat, lng *float64
+			if c != nil {
+				lat, lng = &c.Latitude, &c.Longitude
+			}
+			id := f.event(f.discoveredSeries(), f.venue(area, lat, lng), 2, "", artist)
+			want[id] = point.MayBeNear(venue)
+			names[id] = name + " in " + area
+		}
+	}
+
+	got, err := f.repo.ListByLocation(f.ctx, point, f.today, f.today.AddDate(0, 0, 7))
+	require.NoError(t, err)
+
+	returned := map[string]bool{}
+	for _, id := range concertIDs(got) {
+		returned[id] = true
+	}
+	for id, w := range want {
+		assert.Equal(t, w, returned[id], names[id])
+	}
+}

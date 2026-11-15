@@ -295,3 +295,46 @@ type FollowRepository interface {
 	//   - Internal: database query failure.
 	ListFollowers(ctx context.Context, artistID string) ([]*Follower, error)
 }
+
+// HypeRaiseFor decides which hype raise a ticket journey of status for
+// concert asks for: the fan's Follow of the concert's one followed artist and
+// the lowest level that matches the concert from home
+// ([LowestHypeMatching]), when that Follow may be raised to it
+// ([Follow.RaisableTo]). It returns false when the status shows no travel
+// ([TicketJourneyStatus.RaisesHype]), the fan has no home, the fan follows
+// none or several of the concert's artists, the concert's distance is
+// unknown, or the Follow may not be raised.
+func HypeRaiseFor(status TicketJourneyStatus, home *Home, concert *Concert, followed []*FollowedArtist) (*Follow, Hype, bool) {
+	if !status.RaisesHype() || home == nil {
+		return nil, "", false
+	}
+	follow := onlyFollowedPerformer(concert, followed)
+	if follow == nil {
+		return nil, "", false
+	}
+	target, ok := LowestHypeMatching(home, concert)
+	if !ok || !follow.RaisableTo(target) {
+		return nil, "", false
+	}
+	return follow, target, true
+}
+
+// onlyFollowedPerformer returns the fan's Follow of the concert's one followed
+// artist, or nil when the fan follows none or several of its artists.
+func onlyFollowedPerformer(concert *Concert, followed []*FollowedArtist) *Follow {
+	performing := make(map[string]bool, len(concert.Artists))
+	for _, a := range concert.Artists {
+		performing[a.ID] = true
+	}
+	var match *Follow
+	for _, fa := range followed {
+		if fa.Artist == nil || !performing[fa.Artist.ID] {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		match = &Follow{UserID: fa.UserID, ArtistID: fa.Artist.ID, Hype: fa.Hype, HypeSetBy: fa.HypeSetBy}
+	}
+	return match
+}

@@ -4,6 +4,7 @@ package entity
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 	"unicode/utf8"
@@ -51,6 +52,25 @@ type Artist struct {
 // artist who died) will not announce anything new.
 func (a *Artist) IsActive() bool {
 	return !a.ActivityEnded
+}
+
+// CheckSearchable reports whether new concerts can be searched for the
+// artist: the search needs its name and its MBID, which the concerts it finds
+// are linked by. An artist without them is a data problem only an admin can
+// fix, so the search must not run (and spend its quota) for it.
+//
+// # Possible errors
+//
+//   - Internal: the artist has no name or no MBID.
+func (a *Artist) CheckSearchable() error {
+	if a.Name == "" || a.MBID == "" {
+		return apperr.New(codes.Internal, "artist is missing required fields for discovery",
+			slog.String("artist_id", a.ID),
+			slog.Bool("name_empty", a.Name == ""),
+			slog.Bool("mbid_empty", a.MBID == ""),
+		)
+	}
+	return nil
 }
 
 // FanartDueAt reports whether the artist's images are due for a sync at now:
@@ -132,6 +152,34 @@ func ValidateOfficialSiteURL(raw string) error {
 		return apperr.New(codes.InvalidArgument, fmt.Sprintf("official site url must be an absolute URI, got %q", raw))
 	}
 	return nil
+}
+
+// MergeArtistsByMBID returns the artists to register from the given ones: one
+// per MBID, because one MBID is one artist, and of several given artists with
+// the same MBID the first (its name and id) wins. Nil entries are skipped. An
+// MBID that is already registered keeps its registered artist unchanged; the
+// repository's unique MBID index decides that.
+//
+// # Possible errors
+//
+//   - InvalidArgument: an artist has no MBID.
+func MergeArtistsByMBID(artists []*Artist) ([]*Artist, error) {
+	seen := make(map[string]bool, len(artists))
+	merged := make([]*Artist, 0, len(artists))
+	for _, a := range artists {
+		if a == nil {
+			continue
+		}
+		if a.MBID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "all artists must have a non-empty MBID")
+		}
+		if seen[a.MBID] {
+			continue
+		}
+		seen[a.MBID] = true
+		merged = append(merged, a)
+	}
+	return merged, nil
 }
 
 // FilterArtistsByMBID removes artists with an empty MBID and deduplicates the

@@ -72,6 +72,18 @@ func TestArtistRepository_Create(t *testing.T) {
 			want: []*entity.Artist{{Name: "Original Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"}},
 		},
 		{
+			name:  "same MBID twice in one call registers the first and returns it for both",
+			setup: func() { cleanTables(t, db) },
+			args: args{artists: []*entity.Artist{
+				entity.NewArtist("First Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"),
+				entity.NewArtist("Second Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"),
+			}},
+			want: []*entity.Artist{
+				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
+				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
+			},
+		},
+		{
 			name:    "empty MBID returns error",
 			setup:   func() { cleanTables(t, db) },
 			args:    args{artists: []*entity.Artist{entity.NewArtist("Test", "")}},
