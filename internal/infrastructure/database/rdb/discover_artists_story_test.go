@@ -203,7 +203,7 @@ func (s *discoverStory) checkedAt(artistID string, at time.Time) {
 // runDaily runs the daily image run's steps as cmd/job/artist-image-sync does.
 func (s *discoverStory) runDaily() {
 	s.t.Helper()
-	due, err := s.artistRepo.ListStaleOrMissingFanart(s.ctx, imageRunAge, imageRunLimit)
+	due, err := s.artistRepo.ListStaleOrMissingFanart(s.ctx, time.Now(), imageRunAge, imageRunLimit)
 	require.NoError(s.t, err)
 	for _, artist := range due {
 		require.NoError(s.t, s.imageSync.SyncArtistImage(s.ctx, artist.ID, artist.MBID))

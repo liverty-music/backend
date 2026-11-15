@@ -274,7 +274,7 @@ func TestOfficialSiteRefreshUseCase_RefreshDueOfficialSites(t *testing.T) {
 		due := followedArtists(19)
 
 		d.followRepo.EXPECT().ListAll(ctx).Return(followedArtists(133), nil).Once()
-		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, age, 19).Return(due, nil).Once()
+		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, mock.Anything, age, 19).Return(due, nil).Once()
 		var refreshed []string
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, mock.Anything).
 			RunAndReturn(func(_ context.Context, mbid string) (string, error) {
@@ -307,7 +307,7 @@ func TestOfficialSiteRefreshUseCase_RefreshDueOfficialSites(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, &usecase.OfficialSiteRefreshSummary{}, got)
-		d.artistRepo.AssertNotCalled(t, "ListStaleOfficialSite", mock.Anything, mock.Anything, mock.Anything)
+		d.artistRepo.AssertNotCalled(t, "ListStaleOfficialSite", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		d.siteResolver.AssertNotCalled(t, "ResolveOfficialSiteURL", mock.Anything, mock.Anything)
 	})
 
@@ -318,7 +318,7 @@ func TestOfficialSiteRefreshUseCase_RefreshDueOfficialSites(t *testing.T) {
 		due := followedArtists(5)
 
 		d.followRepo.EXPECT().ListAll(ctx).Return(followedArtists(35), nil).Once()
-		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, age, 5).Return(due, nil).Once()
+		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, mock.Anything, age, 5).Return(due, nil).Once()
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, mock.Anything).
 			Return("", apperr.New(codes.Unavailable, "musicbrainz url-rels request failed")).Times(3)
 
@@ -338,7 +338,7 @@ func TestOfficialSiteRefreshUseCase_RefreshDueOfficialSites(t *testing.T) {
 		due := followedArtists(3)
 
 		d.followRepo.EXPECT().ListAll(ctx).Return(followedArtists(21), nil).Once()
-		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, age, 3).Return(due, nil).Once()
+		d.artistRepo.EXPECT().ListStaleOfficialSite(ctx, mock.Anything, age, 3).Return(due, nil).Once()
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, due[0].MBID).
 			Return("", apperr.New(codes.Unavailable, "musicbrainz url-rels request failed")).Once()
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, due[1].MBID).Return("", nil).Once()
@@ -360,7 +360,7 @@ func TestOfficialSiteRefreshUseCase_RefreshDueOfficialSites(t *testing.T) {
 		due := followedArtists(3)
 
 		d.followRepo.EXPECT().ListAll(runCtx).Return(followedArtists(21), nil).Once()
-		d.artistRepo.EXPECT().ListStaleOfficialSite(runCtx, age, 3).Return(due, nil).Once()
+		d.artistRepo.EXPECT().ListStaleOfficialSite(runCtx, mock.Anything, age, 3).Return(due, nil).Once()
 		d.siteResolver.EXPECT().ResolveOfficialSiteURL(runCtx, due[0].MBID).
 			RunAndReturn(func(context.Context, string) (string, error) {
 				cancel()

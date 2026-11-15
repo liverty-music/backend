@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"github.com/liverty-music/backend/internal/entity"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -19,8 +20,6 @@ import (
 const (
 	// maxConsecutiveErrors is the threshold for stopping the job due to systemic failures.
 	maxConsecutiveErrors = 3
-	// staleDuration defines how old fanart_synced_at must be to qualify for re-sync.
-	staleDuration = 7 * 24 * time.Hour
 	// batchLimit caps the number of artists processed per run.
 	batchLimit = 500
 	// fallbackShutdownTimeout is used when DI initialization fails and
@@ -68,7 +67,7 @@ func run(bootLogger *logging.Logger) error {
 	ctx, runSpan := telemetry.StartJobRun(ctx, "artist-image-sync")
 	defer runSpan.End()
 
-	artists, err := app.ArtistRepo.ListStaleOrMissingFanart(ctx, staleDuration, batchLimit)
+	artists, err := app.ArtistRepo.ListStaleOrMissingFanart(ctx, time.Now(), entity.FanartStaleAge, batchLimit)
 	if err != nil {
 		return err
 	}

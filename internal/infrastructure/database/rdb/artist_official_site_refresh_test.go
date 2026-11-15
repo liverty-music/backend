@@ -60,7 +60,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 		followArtist(t, db, userID, neverID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, staleID, time.Now().Add(-8*24*time.Hour)))
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 10)
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Never", "Stale"}, artistNames(got))
@@ -78,7 +78,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 		followArtist(t, db, userID, artistID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, artistID, time.Now().Add(-2*24*time.Hour)))
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 10)
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -94,7 +94,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 		followArtist(t, db, userID, noSiteID)
 		require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(withSiteID, "https://example.com/")))
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 10)
 
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []string{"With Site", "No Site"}, artistNames(got))
@@ -110,7 +110,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 		followArtist(t, db, user1, followedID)
 		followArtist(t, db, user2, followedID)
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 10)
 
 		require.NoError(t, err)
 		// The artist followed by two fans is returned once; the unfollowed one is not.
@@ -126,7 +126,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 			followArtist(t, db, userID, artistID)
 		}
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 20)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 20)
 
 		require.NoError(t, err)
 		assert.Len(t, got, 20)
@@ -140,7 +140,7 @@ func TestArtistRepository_ListStaleOfficialSite(t *testing.T) {
 		followArtist(t, db, userID, artistID)
 		require.NoError(t, repo.MarkOfficialSiteChecked(ctx, artistID, time.Now()))
 
-		got, err := repo.ListStaleOfficialSite(ctx, age, 10)
+		got, err := repo.ListStaleOfficialSite(ctx, time.Now(), age, 10)
 
 		require.NoError(t, err)
 		assert.NotNil(t, got)

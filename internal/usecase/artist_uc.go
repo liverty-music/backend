@@ -369,7 +369,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 func withoutEnded(artists []*entity.Artist) []*entity.Artist {
 	result := make([]*entity.Artist, 0, len(artists))
 	for _, a := range artists {
-		if !a.ActivityEnded {
+		if a.IsActive() {
 			result = append(result, a)
 		}
 	}
@@ -393,7 +393,7 @@ func (uc *artistUseCase) withoutEndedNow(ctx context.Context, artists []*entity.
 	}
 	ended := make(map[string]bool, len(current))
 	for _, a := range current {
-		if a.ActivityEnded {
+		if !a.IsActive() {
 			ended[a.MBID] = true
 		}
 	}

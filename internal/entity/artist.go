@@ -45,6 +45,39 @@ type Artist struct {
 	OrganizerID *string
 }
 
+// IsActive reports whether the artist is still active, so that it is suggested,
+// searched for concerts and for ticket sales: its activity has not ended in the
+// music catalog. An artist whose activity has ended (a dissolved group, a solo
+// artist who died) will not announce anything new.
+func (a *Artist) IsActive() bool {
+	return !a.ActivityEnded
+}
+
+// FanartDueAt reports whether the artist's images are due for a sync at now:
+// never synced, or last synced before now minus FanartStaleAge. A sync exactly
+// at that instant is not yet due. The due-artist query of the repository selects
+// exactly the artists this accepts.
+func (a *Artist) FanartDueAt(now time.Time) bool {
+	return a.FanartSyncTime == nil || a.FanartSyncTime.Before(now.Add(-FanartStaleAge))
+}
+
+// Refresh cadences and failure stops of the catalog-backed refreshes. They are
+// policy, so they live with the entity that the refreshes update.
+const (
+	// OfficialSiteRefreshAge is how old an official site check must be for the
+	// artist to be checked again.
+	OfficialSiteRefreshAge = 7 * 24 * time.Hour
+	// OfficialSiteRefreshCycleDays is the number of daily runs over which every
+	// followed artist is refreshed once; it sizes each run's batch.
+	OfficialSiteRefreshCycleDays = 7
+	// OfficialSiteRefreshMaxConsecutiveFailures stops a run after this many
+	// artists fail in a row, treating it as a systemic catalog failure.
+	OfficialSiteRefreshMaxConsecutiveFailures = 3
+	// FanartStaleAge is how old a fanart sync must be for a followed artist's
+	// images to be synced again.
+	FanartStaleAge = 7 * 24 * time.Hour
+)
+
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
 func NewArtist(name, mbid string) *Artist {
 	return &Artist{
@@ -238,29 +271,29 @@ type ArtistRepository interface {
 	UpdateFanart(ctx context.Context, id string, fanart *Fanart, syncTime time.Time) error
 
 	// ListStaleOrMissingFanart returns the artists whose images are due for a
-	// check: artists never checked, whoever registered them, and artists
-	// followed by at least one user whose last check is older than
-	// staleDuration. An artist nobody follows keeps the images of its last
+	// check at now: artists never checked, whoever registered them, and
+	// artists followed by at least one user whose last check is older than
+	// staleAge. An artist nobody follows keeps the images of its last
 	// check. Artists are returned never-checked first and then oldest check
 	// first, each at most once, and at most limit artists.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: database query failure.
-	ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*Artist, error)
+	ListStaleOrMissingFanart(ctx context.Context, now time.Time, staleAge time.Duration, limit int) ([]*Artist, error)
 
 	// Official site refresh operations
 
 	// ListStaleOfficialSite returns the artists followed by at least one user
-	// whose official site is due for a check: never checked, or last checked
-	// longer ago than age. Artists are returned whether or not they have an
+	// whose official site is due for a check at now: never checked, or last
+	// checked longer ago than age. Artists are returned whether or not they have an
 	// official site, never-checked first and then oldest check first, each at
 	// most once, and at most limit artists.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: database query failure.
-	ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*Artist, error)
+	ListStaleOfficialSite(ctx context.Context, now time.Time, age time.Duration, limit int) ([]*Artist, error)
 
 	// UpdateOfficialSiteURL replaces the URL of the official site stored for
 	// the artist, keeping the site's id. The stored site is unchanged on failure.

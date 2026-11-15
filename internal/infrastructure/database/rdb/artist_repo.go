@@ -430,11 +430,11 @@ func (r *ArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *
 	return nil
 }
 
-// ListStaleOrMissingFanart returns artists whose images are due for a check:
-// never checked, or followed by at least one user and last checked longer ago
-// than staleDuration. Never-checked artists come first, then the oldest checks.
-func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error) {
-	staleThreshold := time.Now().Add(-staleDuration)
+// ListStaleOrMissingFanart returns artists whose images are due for a check at
+// now: never checked, or followed by at least one user and last checked longer
+// ago than staleAge. Never-checked artists come first, then the oldest checks.
+func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, now time.Time, staleAge time.Duration, limit int) ([]*entity.Artist, error) {
+	staleThreshold := now.Add(-staleAge)
 
 	rows, err := r.db.Pool.Query(ctx, listStaleOrMissingFanartQuery, staleThreshold, limit)
 	if err != nil {
@@ -458,8 +458,8 @@ func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDu
 
 // ListStaleOfficialSite returns followed artists whose official site is due
 // for a check. Never-checked artists come first, then the oldest checks.
-func (r *ArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error) {
-	staleThreshold := time.Now().Add(-age)
+func (r *ArtistRepository) ListStaleOfficialSite(ctx context.Context, now time.Time, age time.Duration, limit int) ([]*entity.Artist, error) {
+	staleThreshold := now.Add(-age)
 
 	rows, err := r.db.Pool.Query(ctx, listStaleOfficialSiteQuery, staleThreshold, limit)
 	if err != nil {

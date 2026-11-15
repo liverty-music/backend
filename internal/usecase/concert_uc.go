@@ -417,7 +417,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	// An artist whose activity has ended (a dissolved group, a solo artist
 	// who died) will not announce concerts: skip the external search. When
 	// the catalog clears the end, the artist is searched again.
-	if artist.ActivityEnded {
+	if !artist.IsActive() {
 		uc.logger.Debug(ctx, "skipping discovery for artist whose activity has ended",
 			slog.String("artist_id", artistID),
 		)
