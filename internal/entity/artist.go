@@ -55,8 +55,10 @@ func (a *Artist) IsActive() bool {
 
 // FanartDueAt reports whether the artist's images are due for a sync at now:
 // never synced, or last synced before now minus FanartStaleAge. A sync exactly
-// at that instant is not yet due. The due-artist query of the repository selects
-// exactly the artists this accepts.
+// at that instant is not yet due. It does not look at followers: the
+// repository's due query also needs one for an artist that was synced before
+// (an artist nobody follows keeps the images of its last sync), and the parity
+// test checks both.
 func (a *Artist) FanartDueAt(now time.Time) bool {
 	return a.FanartSyncTime == nil || a.FanartSyncTime.Before(now.Add(-FanartStaleAge))
 }
@@ -76,6 +78,12 @@ const (
 	// FanartStaleAge is how old a fanart sync must be for a followed artist's
 	// images to be synced again.
 	FanartStaleAge = 7 * 24 * time.Hour
+	// ArtistRefreshSlots is the number of days in the artist refresh rotation:
+	// each daily run reads one slot, so every artist is read once per cycle.
+	ArtistRefreshSlots = 30
+	// ArtistRefreshMaxConsecutiveFailures stops a refresh run after this many
+	// artists fail in a row, treating it as a systemic catalog failure.
+	ArtistRefreshMaxConsecutiveFailures = 3
 )
 
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.

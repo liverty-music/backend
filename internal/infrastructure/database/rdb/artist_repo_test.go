@@ -884,22 +884,28 @@ func TestArtistRepository_FanartDueParity(t *testing.T) {
 		"just after":   new(threshold.Add(time.Nanosecond)),
 		"recently":     new(now),
 	}
+	// The query also needs a follower for an artist that was synced before;
+	// a never-synced artist is due whether or not anyone follows it.
 	for name, sync := range syncs {
-		cleanTables(t, db)
-		userID := seedUser(t, db, "Fan", "fan-parity@example.com", "ext-fan-parity")
-		artistID := seedArtist(t, db, name, fmt.Sprintf("60000000-0000-0000-0000-%012d", len(name)))
-		followArtist(t, db, userID, artistID)
-		if sync != nil {
-			require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, *sync))
+		for _, followed := range []bool{false, true} {
+			cleanTables(t, db)
+			artistID := seedArtist(t, db, name, fmt.Sprintf("60000000-0000-0000-0000-%012d", len(name)*2+map[bool]int{false: 0, true: 1}[followed]))
+			if followed {
+				userID := seedUser(t, db, "Fan", "fan-parity@example.com", "ext-fan-parity")
+				followArtist(t, db, userID, artistID)
+			}
+			if sync != nil {
+				require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, *sync))
+			}
+
+			got, err := repo.ListStaleOrMissingFanart(ctx, now, entity.FanartStaleAge, 10)
+			require.NoError(t, err)
+
+			stored, err := repo.Get(ctx, artistID)
+			require.NoError(t, err)
+			wantDue := stored.FanartDueAt(now) && (sync == nil || followed)
+			gotDue := len(got) == 1 && got[0].ID == artistID
+			assert.Equal(t, wantDue, gotDue, "fanart due for a sync %q, followed %v", name, followed)
 		}
-
-		got, err := repo.ListStaleOrMissingFanart(ctx, now, entity.FanartStaleAge, 10)
-		require.NoError(t, err)
-
-		stored, err := repo.Get(ctx, artistID)
-		require.NoError(t, err)
-		wantDue := stored.FanartDueAt(now)
-		gotDue := len(got) == 1 && got[0].ID == artistID
-		assert.Equal(t, wantDue, gotDue, "fanart due for a sync %q", name)
 	}
 }

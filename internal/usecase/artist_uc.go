@@ -143,15 +143,6 @@ const ArtistCacheTTL = 6 * time.Hour
 // cached lookup per artist then serves every limit up to it.
 const similarLookupLimit = 50
 
-const (
-	// artistRefreshSlots is the number of days in the refresh rotation: each
-	// daily run reads one slot, so every artist is read once per cycle.
-	artistRefreshSlots = 30
-	// artistRefreshMaxConsecutiveFailures stops a run after this many artists
-	// fail in a row, treating it as a systemic catalog failure.
-	artistRefreshMaxConsecutiveFailures = 3
-)
-
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
@@ -543,17 +534,17 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 }
 
 // artistRefreshSlot returns the rotation slot of the day of now in Japan time:
-// the whole days from 1970-01-01 to that day, modulo artistRefreshSlots.
+// the whole days from 1970-01-01 to that day, modulo entity.ArtistRefreshSlots.
 func artistRefreshSlot(now time.Time) int {
 	days := entity.JapanDate(now).Unix() / (24 * 60 * 60)
-	return int(days % artistRefreshSlots)
+	return int(days % entity.ArtistRefreshSlots)
 }
 
 // RefreshDue implements [ArtistUseCase].
 func (uc *artistUseCase) RefreshDue(ctx context.Context) (ArtistRefreshSummary, error) {
 	summary := ArtistRefreshSummary{Slot: artistRefreshSlot(uc.clock())}
 
-	artists, err := uc.artistRepo.ListRefreshDue(ctx, artistRefreshSlots, summary.Slot)
+	artists, err := uc.artistRepo.ListRefreshDue(ctx, entity.ArtistRefreshSlots, summary.Slot)
 	if err != nil {
 		return summary, fmt.Errorf("list artists of refresh slot %d: %w", summary.Slot, err)
 	}
@@ -574,7 +565,7 @@ func (uc *artistUseCase) RefreshDue(ctx context.Context) (ArtistRefreshSummary, 
 				slog.String("artist_id", artist.ID),
 				slog.String("artist_name", artist.Name),
 			)
-			if consecutiveFailures >= artistRefreshMaxConsecutiveFailures {
+			if consecutiveFailures >= entity.ArtistRefreshMaxConsecutiveFailures {
 				summary.CircuitBroken = true
 				uc.logger.Error(ctx, "circuit breaker activated: stopping after consecutive failures", nil,
 					slog.Int("consecutive_failures", consecutiveFailures),
