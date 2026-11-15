@@ -294,7 +294,7 @@ func (uc *notificationUseCase) assertOwnership(ctx context.Context, userID, noti
 	if err != nil {
 		return fmt.Errorf("failed to load notification: %w", err)
 	}
-	if n.UserID != userID {
+	if !n.BelongsTo(userID) {
 		return apperr.New(codes.PermissionDenied, "notification does not belong to the requesting user")
 	}
 	return nil

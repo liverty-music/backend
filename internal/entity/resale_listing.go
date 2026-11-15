@@ -142,6 +142,12 @@ type ResaleListing struct {
 	ResaleEntryState ResaleEntryState
 }
 
+// BelongsTo reports whether the listing is the user's: the user listed the
+// Ticket.
+func (l *ResaleListing) BelongsTo(userID UserID) bool {
+	return l.UserID == userID
+}
+
 // NewResaleListing returns a Listed ResaleListing with a generated UUIDv7 id
 // for the ticket of the stock, priced at the seat type's price, created at
 // now.

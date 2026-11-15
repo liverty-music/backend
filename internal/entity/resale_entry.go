@@ -135,6 +135,12 @@ type ResaleEntry struct {
 	Order *Order
 }
 
+// BelongsTo reports whether the entry is the user's: its Order is. An entry
+// read without its Order belongs to nobody.
+func (e *ResaleEntry) BelongsTo(userID UserID) bool {
+	return e.Order != nil && e.Order.BelongsTo(userID)
+}
+
 // NewResaleEntry returns an Entered entry for order, applied for at now, with
 // a generated UUIDv7 id and no draw time, and names it as order's source.
 // order is Pending and carries the card authorization the entry is made from.

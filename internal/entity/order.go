@@ -186,6 +186,11 @@ type Order struct {
 	ConfirmationSendTime *time.Time
 }
 
+// BelongsTo reports whether the Order is the user's: the user placed it.
+func (o *Order) BelongsTo(userID UserID) bool {
+	return o.UserID == userID
+}
+
 // RefundReason is why an Order was refunded. Values mirror the proto enum
 // liverty_music.rpc.admin.order.v1.RefundReason; 2 is retired.
 type RefundReason int16

@@ -114,3 +114,22 @@ func TestNewConcertsOfArtist(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
+
+func TestBelongsTo(t *testing.T) {
+	t.Parallel()
+
+	const fan, other entity.UserID = "fan-1", "fan-2"
+	order := &entity.Order{UserID: fan}
+
+	assert.True(t, order.BelongsTo(fan))
+	assert.False(t, order.BelongsTo(other))
+	assert.True(t, (&entity.ResaleListing{UserID: fan}).BelongsTo(fan))
+	assert.False(t, (&entity.ResaleListing{UserID: fan}).BelongsTo(other))
+	assert.True(t, entity.CardAuthorizationPurchase{UserID: fan}.BelongsTo(fan))
+	assert.False(t, entity.CardAuthorizationPurchase{UserID: fan}.BelongsTo(other))
+	assert.True(t, (&entity.Notification{UserID: "fan-1"}).BelongsTo("fan-1"))
+	assert.False(t, (&entity.Notification{UserID: "fan-1"}).BelongsTo("fan-2"))
+	assert.True(t, (&entity.ResaleEntry{Order: order}).BelongsTo(fan))
+	assert.False(t, (&entity.ResaleEntry{Order: order}).BelongsTo(other))
+	assert.False(t, (&entity.ResaleEntry{}).BelongsTo(fan), "an entry read without its Order belongs to nobody")
+}

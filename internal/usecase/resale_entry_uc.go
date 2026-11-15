@@ -296,7 +296,7 @@ func (uc *resaleEntryUseCase) confirm(ctx context.Context, cardAuthorizationID s
 		return nil, err
 	}
 	purchase := authorization.Purchase
-	if !purchase.IsResaleEntry() || (caller != nil && purchase.UserID != *caller) {
+	if !purchase.IsResaleEntry() || (caller != nil && !purchase.BelongsTo(*caller)) {
 		return nil, notCallers()
 	}
 	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
@@ -363,7 +363,7 @@ func (uc *resaleEntryUseCase) Withdraw(ctx context.Context, userID entity.UserID
 	if err != nil {
 		return nil, err
 	}
-	if entry.Order == nil || entry.Order.UserID != userID {
+	if !entry.BelongsTo(userID) {
 		return nil, apperr.New(codes.NotFound, "no resale entry of the fan has the id", slog.String("resale_entry_id", string(id)))
 	}
 	return uc.entryRepo.Withdraw(ctx, id, uc.clock())

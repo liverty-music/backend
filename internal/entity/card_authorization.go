@@ -145,6 +145,11 @@ type CardAuthorizationPurchase struct {
 	ReferralCode *ReferralCode
 }
 
+// BelongsTo reports whether the purchase is the user's: the user pays for it.
+func (p CardAuthorizationPurchase) BelongsTo(userID UserID) bool {
+	return p.UserID == userID
+}
+
 // IsLotteryEntry reports whether the purchase is a lottery entry.
 func (p CardAuthorizationPurchase) IsLotteryEntry() bool {
 	return p.Purpose == CardAuthorizationPurposeLotteryEntry

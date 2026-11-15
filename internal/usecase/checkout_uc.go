@@ -277,7 +277,7 @@ func (uc *checkoutUseCase) ownCheckout(ctx context.Context, userID entity.UserID
 		}
 		return nil, err
 	}
-	if checkout.Order.UserID != userID {
+	if !checkout.Order.BelongsTo(userID) {
 		return nil, apperr.New(codes.PermissionDenied, "the checkout is not the caller's")
 	}
 	return checkout, nil

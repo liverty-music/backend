@@ -97,7 +97,7 @@ func (uc *orderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID,
 	if err != nil {
 		return nil, err
 	}
-	if order.UserID != userID {
+	if !order.BelongsTo(userID) {
 		return nil, apperr.New(codes.PermissionDenied, "checkout is not the caller's", attrs)
 	}
 	if order.IsPaid() {
