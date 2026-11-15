@@ -119,7 +119,7 @@ type placeSearchResponse struct {
 	} `json:"places"`
 }
 
-// client implements entity.ArtistIdentityManager and entity.OfficialSiteResolver
+// client implements entity.ArtistIdentityManager and entity.OfficialSiteCatalog
 // for specific MusicBrainz lookups.
 type client struct {
 	httpClient   *http.Client
@@ -215,101 +215,54 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 	return artist, nil
 }
 
-// ResolveOfficialSiteURL returns the primary official homepage URL for the artist
-// identified by the given MBID using MusicBrainz url-rels.
-//
-// Selection priority (first match wins):
-//  1. ended=false AND source-credit matches artistName (case-insensitive)
-//  2. ended=false AND source-credit is empty
-//  3. ended=false (any active relation, fallback)
-//
-// Returns an empty string without error when no active official homepage is found.
-func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (string, error) {
-	c.logger.Info(ctx, "resolving official site URL", slog.String("mbid", mbid))
+// ListOfficialSiteRelations returns the artist's name and its "official
+// homepage" url relations, ended ones included, read from MusicBrainz url-rels
+// for the artist identified by the given MBID.
+func (c *client) ListOfficialSiteRelations(ctx context.Context, mbid string) (*entity.OfficialSiteRelations, error) {
+	c.logger.Info(ctx, "listing official site relations", slog.String("mbid", mbid))
 
 	url := fmt.Sprintf("%s%s?inc=url-rels&fmt=json", c.baseURL, mbid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", apperr.Wrap(err, codes.Internal, "failed to create musicbrainz url-rels request")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to create musicbrainz url-rels request")
 	}
 
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.doWithRetry(ctx, req)
 	if err != nil {
-		return "", api.FromHTTP(err, nil, "musicbrainz url-rels request failed")
+		return nil, api.FromHTTP(err, nil, "musicbrainz url-rels request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if err := api.FromHTTP(nil, resp, "musicbrainz url-rels request failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz url-rels request failed", err, slog.String("mbid", mbid))
-		return "", err
+		return nil, err
 	}
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz url-rels response")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz url-rels response")
 	}
 
-	selectedURL := selectOfficialSiteURL(data.Name, data.Relations)
-	if selectedURL == "" {
-		c.logger.Warn(ctx, "no official site URL found", slog.String("mbid", mbid), slog.String("artistName", data.Name))
-	}
-	return selectedURL, nil
-}
-
-// selectOfficialSiteURL picks the best official homepage URL from a list of url relations.
-// Only active (not ended) official homepage relations are considered. When any of
-// them points at a site's top page, deeper links (such as /artist/<name> pages on
-// label sites) are dropped. Among the remaining relations the priority is:
-// name-matched > unattributed > any > empty string.
-func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
-	const officialHomepage = "official homepage"
-
-	var active, topPages []urlRelation
-	for _, r := range relations {
-		if r.Type != officialHomepage || r.Ended {
+	rels := &entity.OfficialSiteRelations{ArtistName: data.Name}
+	for _, r := range data.Relations {
+		if r.Type != officialHomepageRelation {
 			continue
 		}
-		active = append(active, r)
-		if isTopPageURL(r.URL.Resource) {
-			topPages = append(topPages, r)
-		}
+		rels.Relations = append(rels.Relations, entity.OfficialSiteRelation{
+			URL:          r.URL.Resource,
+			SourceCredit: r.SourceCredit,
+			Ended:        r.Ended,
+		})
 	}
-	if len(topPages) > 0 {
-		active = topPages
-	}
-
-	var fallbackEmpty, fallbackAny string
-	for _, r := range active {
-		resource := r.URL.Resource
-		if strings.EqualFold(r.SourceCredit, artistName) {
-			return resource
-		}
-		if r.SourceCredit == "" && fallbackEmpty == "" {
-			fallbackEmpty = resource
-		}
-		if fallbackAny == "" {
-			fallbackAny = resource
-		}
-	}
-
-	if fallbackEmpty != "" {
-		return fallbackEmpty
-	}
-	return fallbackAny
+	return rels, nil
 }
 
-// isTopPageURL reports whether raw points at a site's top page: a URL with a
-// host, no path other than "/", no query and no fragment.
-func isTopPageURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return (u.Path == "" || u.Path == "/") && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
-}
+// officialHomepageRelation is the MusicBrainz url relation type of an
+// artist's official homepage.
+const officialHomepageRelation = "official homepage"
 
 // escapeLucenePhrase escapes characters that are special inside a Lucene
 // double-quoted phrase (backslash and double-quote).
@@ -319,9 +272,10 @@ func escapeLucenePhrase(s string) string {
 }
 
 // SearchPlace searches for a venue by name (and optionally admin area) using
-// the MusicBrainz place search endpoint. It returns the top match or
-// apperr.ErrNotFound if no results are returned.
-func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
+// the MusicBrainz place search endpoint. It returns at most
+// placeSearchLimit places in MusicBrainz's order of relevance, and an empty
+// slice when it found none.
+func (c *client) SearchPlace(ctx context.Context, name, adminArea string) ([]Place, error) {
 	c.logger.Info(ctx, "searching place", slog.String("venueName", name), slog.String("adminArea", adminArea))
 	// Wrap terms in double quotes to force Lucene phrase matching.
 	// Without quotes, names with spaces (e.g. "Zepp Nagoya") are tokenised into
@@ -333,7 +287,7 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	}
 	params := url.Values{}
 	params.Set("query", lucene)
-	params.Set("limit", "1")
+	params.Set("limit", strconv.Itoa(placeSearchLimit))
 	params.Set("fmt", "json")
 	endpoint := fmt.Sprintf("%s?%s", c.placeBaseURL, params.Encode())
 
@@ -358,26 +312,29 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz place response")
 	}
-	if len(data.Places) == 0 {
-		return nil, apperr.New(codes.NotFound, "no matching place found in musicbrainz")
-	}
-	r := data.Places[0]
-	place := &Place{ID: r.ID, Name: r.Name}
-	if r.Coordinates.Latitude != "" && r.Coordinates.Longitude != "" {
-		if lat, err := strconv.ParseFloat(r.Coordinates.Latitude, 64); err == nil {
-			place.Latitude = &lat
+	places := make([]Place, 0, len(data.Places))
+	for _, r := range data.Places {
+		place := Place{ID: r.ID, Name: r.Name}
+		if r.Coordinates.Latitude != "" && r.Coordinates.Longitude != "" {
+			if lat, err := strconv.ParseFloat(r.Coordinates.Latitude, 64); err == nil {
+				place.Latitude = &lat
+			}
+			if lng, err := strconv.ParseFloat(r.Coordinates.Longitude, 64); err == nil {
+				place.Longitude = &lng
+			}
 		}
-		if lng, err := strconv.ParseFloat(r.Coordinates.Longitude, 64); err == nil {
-			place.Longitude = &lng
-		}
+		places = append(places, place)
 	}
-	return place, nil
+	return places, nil
 }
+
+// placeSearchLimit is the most places SearchPlace asks MusicBrainz for.
+const placeSearchLimit = 5
 
 // Compile-time interface compliance checks.
 var (
 	_ entity.ArtistIdentityManager = (*client)(nil)
-	_ entity.OfficialSiteResolver  = (*client)(nil)
+	_ entity.OfficialSiteCatalog   = (*client)(nil)
 )
 
 // SetBaseURL allows overriding the base URL used by the client. This is

@@ -47,7 +47,7 @@ type textSearchResponse struct {
 	Places []placeResult `json:"places"`
 }
 
-func TestClient_SearchPlace(t *testing.T) {
+func TestClient_SearchText(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -57,22 +57,23 @@ func TestClient_SearchPlace(t *testing.T) {
 		statusCode   int
 		responseBody any
 		wantErr      error
-		wantPlaceID  string
-		wantName     string
+		wantPlaceIDs []string
+		wantNames    []string
 		invalidJSON  bool
 	}{
 		{
-			name:       "success - returns top place match",
+			name:       "success - returns every place in order",
 			venueName:  "Zepp Nagoya",
 			adminArea:  "Aichi",
 			statusCode: http.StatusOK,
 			responseBody: textSearchResponse{
 				Places: []placeResult{
 					{ID: "ChIJexamplePlaceID001", DisplayName: placeDisplayName{Text: "Zepp Nagoya"}},
+					{ID: "ChIJexamplePlaceID003", DisplayName: placeDisplayName{Text: "Zepp Nagoya Parking"}},
 				},
 			},
-			wantPlaceID: "ChIJexamplePlaceID001",
-			wantName:    "Zepp Nagoya",
+			wantPlaceIDs: []string{"ChIJexamplePlaceID001", "ChIJexamplePlaceID003"},
+			wantNames:    []string{"Zepp Nagoya", "Zepp Nagoya Parking"},
 		},
 		{
 			name:       "success - no admin_area",
@@ -84,16 +85,17 @@ func TestClient_SearchPlace(t *testing.T) {
 					{ID: "ChIJexamplePlaceID002", DisplayName: placeDisplayName{Text: "Nippon Budokan"}},
 				},
 			},
-			wantPlaceID: "ChIJexamplePlaceID002",
-			wantName:    "Nippon Budokan",
+			wantPlaceIDs: []string{"ChIJexamplePlaceID002"},
+			wantNames:    []string{"Nippon Budokan"},
 		},
 		{
-			name:         "not found - empty places array",
+			name:         "no place - empty places array",
 			venueName:    "Unknown Venue",
 			adminArea:    "",
 			statusCode:   http.StatusOK,
 			responseBody: textSearchResponse{},
-			wantErr:      apperr.New(codes.NotFound, "no matching place found in google maps"),
+			wantPlaceIDs: []string{},
+			wantNames:    []string{},
 		},
 		{
 			name:       "error - HTTP 500",
@@ -132,23 +134,28 @@ func TestClient_SearchPlace(t *testing.T) {
 			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL)
 
-			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
+			places, err := client.SearchText(context.Background(), tt.venueName, tt.adminArea)
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, place)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, place)
-				assert.Equal(t, tt.wantPlaceID, place.PlaceID)
-				assert.Equal(t, tt.wantName, place.Name)
+				assert.Nil(t, places)
+				return
 			}
+			require.NoError(t, err)
+			ids := make([]string, 0, len(places))
+			names := make([]string, 0, len(places))
+			for _, p := range places {
+				ids = append(ids, p.PlaceID)
+				names = append(names, p.Name)
+			}
+			assert.Equal(t, tt.wantPlaceIDs, ids)
+			assert.Equal(t, tt.wantNames, names)
 		})
 	}
 }
 
-func TestClient_SearchPlace_Coordinates(t *testing.T) {
+func TestClient_SearchText_Coordinates(t *testing.T) {
 	t.Parallel()
 
 	ptrFloat := func(v float64) *float64 { return &v }
@@ -214,10 +221,11 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 			c := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			c.SetBaseURL(server.URL)
 
-			place, err := c.SearchPlace(context.Background(), "test", "")
+			places, err := c.SearchText(context.Background(), "test", "")
 
 			require.NoError(t, err)
-			require.NotNil(t, place)
+			require.Len(t, places, 1)
+			place := places[0]
 
 			if tt.wantLat != nil {
 				require.NotNil(t, place.Latitude)

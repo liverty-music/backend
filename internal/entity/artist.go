@@ -367,15 +367,18 @@ type ArtistIdentityManager interface {
 	GetArtist(ctx context.Context, mbid string) (*Artist, error)
 }
 
-// OfficialSiteResolver resolves an artist's official site URL from an external catalog.
-type OfficialSiteResolver interface {
-	// ResolveOfficialSiteURL returns the primary official homepage URL for the artist
-	// identified by the given MBID. Returns an empty string (no error) when no active
-	// official homepage relation is found.
+// OfficialSiteCatalog reads what an external catalog records about an
+// artist's official homepages. [SelectOfficialSite] picks the official site
+// among them.
+type OfficialSiteCatalog interface {
+	// ListOfficialSiteRelations returns the artist's name and official
+	// homepage links in the catalog, for the artist identified by the given
+	// MBID. Relations is empty when the catalog records no official homepage.
 	//
 	// # Possible errors:
 	//
+	//   - NotFound: the catalog has no artist with the MBID.
 	//   - Unavailable: the external catalog service is down or rate-limited.
-	//   - Internal: unexpected failure during resolution.
-	ResolveOfficialSiteURL(ctx context.Context, mbid string) (string, error)
+	//   - Internal: unexpected failure while reading the catalog.
+	ListOfficialSiteRelations(ctx context.Context, mbid string) (*OfficialSiteRelations, error)
 }

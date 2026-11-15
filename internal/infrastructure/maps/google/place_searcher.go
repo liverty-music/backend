@@ -17,14 +17,18 @@ func NewPlaceSearcher(c *Client) *PlaceSearcher {
 }
 
 // SearchPlace implements entity.VenuePlaceSearcher.
-func (s *PlaceSearcher) SearchPlace(ctx context.Context, name, adminArea string) (*entity.VenuePlace, error) {
-	place, err := s.client.SearchPlace(ctx, name, adminArea)
+func (s *PlaceSearcher) SearchPlace(ctx context.Context, name, adminArea string) ([]*entity.VenuePlace, error) {
+	places, err := s.client.SearchText(ctx, name, adminArea)
 	if err != nil {
 		return nil, err
 	}
-	var coords *entity.Coordinates
-	if place.Latitude != nil && place.Longitude != nil {
-		coords = &entity.Coordinates{Latitude: *place.Latitude, Longitude: *place.Longitude}
+	result := make([]*entity.VenuePlace, 0, len(places))
+	for _, place := range places {
+		var coords *entity.Coordinates
+		if place.Latitude != nil && place.Longitude != nil {
+			coords = &entity.Coordinates{Latitude: *place.Latitude, Longitude: *place.Longitude}
+		}
+		result = append(result, &entity.VenuePlace{ProviderUserID: place.PlaceID, Name: place.Name, Coordinates: coords})
 	}
-	return &entity.VenuePlace{ProviderUserID: place.PlaceID, Name: place.Name, Coordinates: coords}, nil
+	return result, nil
 }

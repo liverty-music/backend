@@ -77,8 +77,8 @@ func (m *storyMusicBrainz) GetArtist(_ context.Context, mbid string) (*entity.Ar
 // storyNoOfficialSite finds no official site for any artist.
 type storyNoOfficialSite struct{}
 
-func (storyNoOfficialSite) ResolveOfficialSiteURL(context.Context, string) (string, error) {
-	return "", nil
+func (storyNoOfficialSite) ListOfficialSiteRelations(context.Context, string) (*entity.OfficialSiteRelations, error) {
+	return &entity.OfficialSiteRelations{}, nil
 }
 
 type storyFollowMetrics struct{}

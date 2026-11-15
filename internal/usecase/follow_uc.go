@@ -47,11 +47,11 @@ type FollowUseCase interface {
 
 // followUseCase implements the FollowUseCase interface.
 type followUseCase struct {
-	followRepo   entity.FollowRepository
-	artistRepo   entity.ArtistRepository
-	siteResolver entity.OfficialSiteResolver
-	metrics      FollowMetrics
-	logger       *logging.Logger
+	followRepo  entity.FollowRepository
+	artistRepo  entity.ArtistRepository
+	siteCatalog entity.OfficialSiteCatalog
+	metrics     FollowMetrics
+	logger      *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -61,16 +61,16 @@ var _ FollowUseCase = (*followUseCase)(nil)
 func NewFollowUseCase(
 	followRepo entity.FollowRepository,
 	artistRepo entity.ArtistRepository,
-	siteResolver entity.OfficialSiteResolver,
+	siteCatalog entity.OfficialSiteCatalog,
 	metrics FollowMetrics,
 	logger *logging.Logger,
 ) FollowUseCase {
 	return &followUseCase{
-		followRepo:   followRepo,
-		artistRepo:   artistRepo,
-		siteResolver: siteResolver,
-		metrics:      metrics,
-		logger:       logger,
+		followRepo:  followRepo,
+		artistRepo:  artistRepo,
+		siteCatalog: siteCatalog,
+		metrics:     metrics,
+		logger:      logger,
 	}
 }
 
@@ -131,11 +131,12 @@ func (uc *followUseCase) resolveAndPersistOfficialSite(ctx context.Context, arti
 		return
 	}
 
-	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, artist.MBID)
+	rels, err := uc.siteCatalog.ListOfficialSiteRelations(ctx, artist.MBID)
 	if err != nil {
 		uc.logger.Warn(ctx, "failed to resolve official site URL", slog.String("artist_id", artistID), slog.String("mbid", artist.MBID), slog.Any("error", err))
 		return
 	}
+	url := entity.SelectOfficialSite(*rels)
 	if url == "" {
 		return
 	}

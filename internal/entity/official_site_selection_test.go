@@ -1,83 +1,31 @@
-package musicbrainz_test
+package entity_test
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// Local types that mirror the unexported url-rels response shapes.
-type selectionURLResource struct {
-	Resource string `json:"resource"`
-}
-
-type selectionURLRelation struct {
-	Type         string               `json:"type"`
-	SourceCredit string               `json:"source-credit"`
-	Ended        bool                 `json:"ended"`
-	URL          selectionURLResource `json:"url"`
-}
-
-type selectionURLRelsResponse struct {
-	ID        string                 `json:"id"`
-	Name      string                 `json:"name"`
-	Relations []selectionURLRelation `json:"relations"`
-}
-
 // homepage builds an official homepage relation.
-func homepage(resource, credit string, ended bool) selectionURLRelation {
-	return selectionURLRelation{
-		Type:         "official homepage",
-		SourceCredit: credit,
-		Ended:        ended,
-		URL:          selectionURLResource{Resource: resource},
-	}
+func homepage(url, credit string, ended bool) entity.OfficialSiteRelation {
+	return entity.OfficialSiteRelation{URL: url, SourceCredit: credit, Ended: ended}
 }
 
-// resolveFrom serves the given url-rels response from a test server and
-// resolves the official site URL through the real client.
-func resolveFrom(t *testing.T, artistName string, relations []selectionURLRelation) string {
-	t.Helper()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(selectionURLRelsResponse{
-			ID:        "00000000-0000-0000-0000-000000000000",
-			Name:      artistName,
-			Relations: relations,
-		})
-	}))
-	t.Cleanup(server.Close)
-
-	client := musicbrainz.NewClient(server.Client(), testLogger(t))
-	t.Cleanup(func() { _ = client.Close() })
-	client.SetBaseURL(server.URL + "/")
-
-	got, err := client.ResolveOfficialSiteURL(context.Background(), "00000000-0000-0000-0000-000000000000")
-	require.NoError(t, err)
-	return got
-}
-
-func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
+func TestSelectOfficialSite(t *testing.T) {
 	t.Parallel()
 
 	const artistName = "Test Artist"
 
 	tests := []struct {
 		name      string
-		relations []selectionURLRelation
+		relations []entity.OfficialSiteRelation
 		want      string
 	}{
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Top page preferred over a label page"
 			name: "Top page preferred over a label page",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://columbia.jp/artist-info/04limitedsazabys/", "", false),
 				homepage("https://www.04limitedsazabys.com/", "", false),
 			},
@@ -86,7 +34,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Several top pages"
 			name: "Several top pages",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://label.example.com/artist/test", "", false),
 				homepage("https://first.example.com/", "", false),
 				homepage("https://second.example.com", "", false),
@@ -96,7 +44,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "No top page"
 			name: "No top page",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://label-a.example.com/artist/test", "Other Name", false),
 				homepage("https://label-b.example.com/artist/test", "", false),
 				homepage("https://label-c.example.com/artist/test", "", false),
@@ -106,7 +54,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Link credited to the artist's name"
 			name: "Link credited to the artist's name",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://other.example.com/", "Other Name", false),
 				homepage("https://uncredited.example.com/", "", false),
 				homepage("https://credited.example.com/", "TEST ARTIST", false),
@@ -116,7 +64,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Uncredited link"
 			name: "Uncredited link",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://other.example.com/", "Other Name", false),
 				homepage("https://uncredited.example.com/", "", false),
 			},
@@ -125,7 +73,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Only other credits"
 			name: "Only other credits",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://label.example.com/artist/test", "Other Name", false),
 				homepage("https://first.example.com/", "Other Name", false),
 				homepage("https://second.example.com/", "Another Name", false),
@@ -135,23 +83,20 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		{
 			// @spec components/entity/artist/resolve-official-site-url "All links ended"
 			name: "All links ended",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("http://hitsujibungaku.jimdo.com/", "", true),
 				homepage("https://old.example.com/", "", true),
 			},
 			want: "",
 		},
 		{
-			// @spec components/entity/artist/resolve-official-site-url "No homepage link"
-			name: "No homepage link",
-			relations: []selectionURLRelation{
-				{Type: "social network", URL: selectionURLResource{Resource: "https://x.com/test"}},
-			},
-			want: "",
+			name:      "no link",
+			relations: nil,
+			want:      "",
 		},
 		{
 			name: "ended top page does not hide an active deeper link",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://old.example.com/", "", true),
 				homepage("https://label.example.com/artist/test", "", false),
 			},
@@ -159,7 +104,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		},
 		{
 			name: "a link with a query is not a top page",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://example.com/?lang=ja", "", false),
 				homepage("https://artist.example.com/", "", false),
 			},
@@ -167,7 +112,7 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		},
 		{
 			name: "a link with a fragment is not a top page",
-			relations: []selectionURLRelation{
+			relations: []entity.OfficialSiteRelation{
 				homepage("https://example.com/#top", "", false),
 				homepage("https://artist.example.com/", "", false),
 			},
@@ -179,21 +124,21 @@ func TestClient_ResolveOfficialSiteURL_Selection(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := resolveFrom(t, artistName, tt.relations)
+			got := entity.SelectOfficialSite(entity.OfficialSiteRelations{ArtistName: artistName, Relations: tt.relations})
 
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-// TestClient_ResolveOfficialSiteURL_FollowedArtistsRegression pins the
+// TestSelectOfficialSite_FollowedArtistsRegression pins the
 // selection for the 30 followed artists that had several active official
 // homepage links in MusicBrainz on 2026-10-05. Links are listed in the order
 // MusicBrainz returned them and are uncredited unless credited names the link
 // credited to the artist's own name (only レキシ has one). The five artists
 // stored with a label page then resolve to their own domain; the other 25
 // keep the URL the previous rule picked.
-func TestClient_ResolveOfficialSiteURL_FollowedArtistsRegression(t *testing.T) {
+func TestSelectOfficialSite_FollowedArtistsRegression(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -239,7 +184,7 @@ func TestClient_ResolveOfficialSiteURL_FollowedArtistsRegression(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			relations := make([]selectionURLRelation, 0, len(tt.links))
+			relations := make([]entity.OfficialSiteRelation, 0, len(tt.links))
 			for _, link := range tt.links {
 				credit := ""
 				if link == tt.credited {
@@ -248,7 +193,7 @@ func TestClient_ResolveOfficialSiteURL_FollowedArtistsRegression(t *testing.T) {
 				relations = append(relations, homepage(link, credit, false))
 			}
 
-			got := resolveFrom(t, tt.name, relations)
+			got := entity.SelectOfficialSite(entity.OfficialSiteRelations{ArtistName: tt.name, Relations: relations})
 
 			assert.Equal(t, tt.want, got)
 		})

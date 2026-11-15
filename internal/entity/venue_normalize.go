@@ -149,3 +149,21 @@ func VenueRepeatKey(listedVenueName string) string {
 	s = venueMiddleDots.Replace(s)
 	return strings.Join(strings.Fields(s), "")
 }
+
+// SelectVenuePlace picks the place of the venue listed as listedVenueName
+// among the places a search returned, most relevant first: the first place
+// whose name is the same venue under [VenueRepeatKey], otherwise the most
+// relevant place. It returns nil when there is no place.
+func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace {
+	if len(places) == 0 {
+		return nil
+	}
+	if key := VenueRepeatKey(listedVenueName); key != "" {
+		for _, p := range places {
+			if VenueRepeatKey(p.Name) == key {
+				return p
+			}
+		}
+	}
+	return places[0]
+}

@@ -128,3 +128,63 @@ func TestNormalizeVenueName_DriftCollapsesButDistinctStays(t *testing.T) {
 		"genuinely different venues must stay distinct",
 	)
 }
+
+func TestSelectVenuePlace(t *testing.T) {
+	t.Parallel()
+
+	station := &entity.VenuePlace{ProviderUserID: "p-station", Name: "羽田空港第3ターミナル駅"}
+	zepp := &entity.VenuePlace{ProviderUserID: "p-zepp", Name: "ZEPP HANEDA"}
+	budokan := &entity.VenuePlace{ProviderUserID: "p-budokan", Name: "Nippon Budokan"}
+	park := &entity.VenuePlace{ProviderUserID: "p-park", Name: "北の丸公園"}
+
+	tests := []struct {
+		name   string
+		listed string
+		places []*entity.VenuePlace
+		want   *entity.VenuePlace
+	}{
+		{
+			// @spec components/entity/venue/select-place "A less relevant place has the listed name"
+			name:   "a less relevant place has the listed name",
+			listed: "Zepp Haneda",
+			places: []*entity.VenuePlace{station, zepp},
+			want:   zepp,
+		},
+		{
+			// @spec components/entity/venue/select-place "No place has the listed name"
+			name:   "no place has the listed name",
+			listed: "日本武道館",
+			places: []*entity.VenuePlace{budokan, park},
+			want:   budokan,
+		},
+		{
+			// @spec components/entity/venue/select-place "No place"
+			name:   "no place",
+			listed: "日本武道館",
+			places: nil,
+			want:   nil,
+		},
+		{
+			name:   "the first of several places with the listed name",
+			listed: "Zepp Haneda",
+			places: []*entity.VenuePlace{station, zepp, {ProviderUserID: "p-zepp-2", Name: "Zepp Haneda"}},
+			want:   zepp,
+		},
+		{
+			name:   "an unannounced listed name matches no place by name",
+			listed: "TBA",
+			places: []*entity.VenuePlace{budokan, {ProviderUserID: "p-tba", Name: "TBA"}},
+			want:   budokan,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := entity.SelectVenuePlace(tt.listed, tt.places)
+
+			assert.Same(t, tt.want, got)
+		})
+	}
+}
