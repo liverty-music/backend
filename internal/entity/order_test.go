@@ -133,20 +133,14 @@ func TestOrder_CanBePaid(t *testing.T) {
 	})
 }
 
-func TestOrder_CanBecomeVoid(t *testing.T) {
+func TestOrderVoid(t *testing.T) {
 	t.Parallel()
 
-	t.Run("pending order", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/order "Pending order"
-		assert.True(t, (&entity.Order{Status: entity.OrderStatusPending}).CanBecomeVoid())
-	})
-
-	t.Run("paid order", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/order "Paid order"
-		assert.False(t, (&entity.Order{Status: entity.OrderStatusPaid}).CanBecomeVoid())
-	})
+	assert.Equal(t, entity.OrderStatusVoid, entity.OrderVoid.To)
+	// @spec components/entity/order "Pending order"
+	assert.Contains(t, entity.OrderVoid.From, entity.OrderStatusPending)
+	// @spec components/entity/order "Paid order"
+	assert.NotContains(t, entity.OrderVoid.From, entity.OrderStatusPaid)
 }
 
 var orderStatuses = []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid}

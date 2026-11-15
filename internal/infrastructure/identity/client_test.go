@@ -205,11 +205,11 @@ func TestUserClient(t *testing.T) {
 
 	t.Run("an identity service that cannot be reached is Unavailable", func(t *testing.T) {
 		t.Parallel()
-		ts := httptest.NewServer(http.NotFoundHandler())
-		url := ts.URL
-		ts.Close()
-
-		assert.ErrorIs(t, identity.NewUserClient(url).DeleteIdentity(ctx, "u1"), apperr.ErrUnavailable)
+		// A host name under .invalid never resolves (RFC 6761), so the dial
+		// fails on every machine. The port of a closed test server is not
+		// used: a test running in parallel can take it, and its server then
+		// resets the connection.
+		assert.ErrorIs(t, identity.NewUserClient("http://identity.invalid:9100").DeleteIdentity(ctx, "u1"), apperr.ErrUnavailable)
 	})
 }
 

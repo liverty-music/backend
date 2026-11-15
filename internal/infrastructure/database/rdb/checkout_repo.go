@@ -223,6 +223,9 @@ func (r *CheckoutRepository) GetOrCreateHeld(ctx context.Context, stockID entity
 
 	order := entity.NewPendingOrder(userID, stock, count, referralCode, entity.OrderPaymentProvider)
 	checkout := entity.NewCheckout(order, saleID, now)
+	if err := order.ValidateSource(); err != nil {
+		return nil, err
+	}
 	if err := insertPendingOrder(ctx, tx, order); err != nil {
 		return nil, toAppErr(err, "failed to insert the checkout's order", attrs...)
 	}

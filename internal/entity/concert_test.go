@@ -853,6 +853,9 @@ func TestConcert_PublishStateAndVisibility(t *testing.T) {
 	concertOf := func(series *entity.Series, state entity.PublishState) *entity.Concert {
 		return &entity.Concert{Event: *eventAt(testVenueA, nil, new(state)), Series: series}
 	}
+	// visible is whether fans see the concert: its Event is publicly visible
+	// under its Series.
+	visible := func(c *entity.Concert) bool { return c.IsPubliclyVisible(c.Series) }
 
 	t.Run("carry the CANCELLED state of its event in a published tour", func(t *testing.T) {
 		t.Parallel()
@@ -865,14 +868,14 @@ func TestConcert_PublishStateAndVisibility(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/concert "Concert of an unlisted Organizer series"
 		c := concertOf(firstPartySeries(entity.SeriesVisibilityUnlisted), entity.PublishStatePublished)
-		assert.False(t, c.IsVisibleToFans())
+		assert.False(t, visible(c))
 	})
 
 	t.Run("hide the CANCELLED date of a PUBLIC series and show its PUBLISHED date", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/concert "Cancelled date of a public series"
-		assert.False(t, concertOf(public, entity.PublishStateCancelled).IsVisibleToFans())
-		assert.True(t, concertOf(public, entity.PublishStatePublished).IsVisibleToFans())
+		assert.False(t, visible(concertOf(public, entity.PublishStateCancelled)))
+		assert.True(t, visible(concertOf(public, entity.PublishStatePublished)))
 	})
 }
 

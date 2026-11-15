@@ -163,7 +163,7 @@ func (e *LotteryEntry) RevertWin(reason LotteryEntryLostReason) (Transition[Lott
 	e.State, e.LostReason = LotteryEntryStateLost, reason
 	e.Order.Status = OrderStatusVoid
 	return Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateWon}, To: LotteryEntryStateLost},
-		Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid},
+		OrderVoid,
 		nil
 }
 
@@ -201,7 +201,7 @@ func lostOutcome(reason LotteryEntryLostReason) LotteryOutcome {
 	return LotteryOutcome{
 		Entry:      Transition[LotteryEntryState]{From: []LotteryEntryState{LotteryEntryStateEntered}, To: LotteryEntryStateLost},
 		LostReason: reason,
-		Order:      Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid},
+		Order:      OrderVoid,
 	}
 }
 

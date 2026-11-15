@@ -243,7 +243,7 @@ func TestRunLotteryDraw(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := entity.RunLotteryDraw(tt.args.entries, tt.args.quantity, tt.args.rng)
+			result := runLotteryDraw(tt.args.entries, tt.args.quantity, tt.args.rng)
 
 			if tt.wantWinnerIDs != nil {
 				assert.ElementsMatch(t, tt.wantWinnerIDs, collectWinnerIDs(result.Winners),
@@ -289,7 +289,7 @@ func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 		entries := uniqueDrawEntries(nEntries, func(int) int { return metaRng.IntN(maxCount) + 1 })
 
 		drawRng := newSeededRng(seed)
-		result := entity.RunLotteryDraw(entries, quantity, drawRng)
+		result := runLotteryDraw(entries, quantity, drawRng)
 
 		totalWon := 0
 		for _, w := range result.Winners {
@@ -320,7 +320,7 @@ func TestRunLotteryDraw_AllOrNothing(t *testing.T) {
 	quantity := 6
 	rng := newSeededRng(17)
 
-	result := entity.RunLotteryDraw(entries, quantity, rng)
+	result := runLotteryDraw(entries, quantity, rng)
 
 	// Build a map of id → requested count for fast lookup.
 	countByID := make(map[entity.LotteryEntryID]int, len(entries))
@@ -388,7 +388,7 @@ func TestRunLotteryDraw_PartitionProperty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := entity.RunLotteryDraw(tt.args.entries, tt.args.quantity, tt.args.rng)
+			result := runLotteryDraw(tt.args.entries, tt.args.quantity, tt.args.rng)
 
 			seen := make(map[entity.LotteryEntryID]int)
 			for _, w := range result.Winners {
@@ -429,7 +429,7 @@ func TestRunLotteryDraw_LoserOrder(t *testing.T) {
 
 	for seed := range 20 {
 		rng := newSeededRng(uint64(seed))
-		result := entity.RunLotteryDraw(entries, quantity, rng)
+		result := runLotteryDraw(entries, quantity, rng)
 
 		seqs := make([]int, len(result.Losers))
 		for i, l := range result.Losers {
@@ -450,7 +450,7 @@ func TestRunLotteryDraw_DrawPositions(t *testing.T) {
 	quantity := 2
 	rng := newSeededRng(55)
 
-	result := entity.RunLotteryDraw(entries, quantity, rng)
+	result := runLotteryDraw(entries, quantity, rng)
 
 	allSeqs := make([]int, 0, len(entries))
 	for _, w := range result.Winners {
@@ -483,10 +483,10 @@ func TestRunLotteryDraw_Determinism(t *testing.T) {
 	quantity := 7
 
 	const runs = 10
-	first := entity.RunLotteryDraw(entries, quantity, newSeededRng(1234))
+	first := runLotteryDraw(entries, quantity, newSeededRng(1234))
 
 	for i := range runs - 1 {
-		got := entity.RunLotteryDraw(entries, quantity, newSeededRng(1234))
+		got := runLotteryDraw(entries, quantity, newSeededRng(1234))
 		assert.Equalf(t, first, got,
 			"run %d: result differs from first run with same seed", i+1)
 	}
@@ -516,7 +516,7 @@ func TestRunLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
 
 	for seed := range 50 {
 		rng := newSeededRng(uint64(seed))
-		result := entity.RunLotteryDraw(entries, quantity, rng)
+		result := runLotteryDraw(entries, quantity, rng)
 
 		winnerIDs := collectWinnerIDs(result.Winners)
 		loserIDs := collectLoserIDs(result.Losers)
@@ -562,7 +562,7 @@ func TestRunLotteryDraw_GreedyFitThreeApps(t *testing.T) {
 
 	for seed := range 100 {
 		rng := newSeededRng(uint64(seed))
-		result := entity.RunLotteryDraw(entries, quantity, rng)
+		result := runLotteryDraw(entries, quantity, rng)
 
 		// Partition: every app appears exactly once.
 		seen := make(map[entity.LotteryEntryID]bool)
@@ -616,7 +616,7 @@ func TestRunLotteryDraw_UniformFairness(t *testing.T) {
 	for trial := range trials {
 		// Deterministic per-trial seed so the test is fully reproducible.
 		rng := newSeededRng(uint64(trial)*2_654_435_761 + 1)
-		result := entity.RunLotteryDraw(entries, quantity, rng)
+		result := runLotteryDraw(entries, quantity, rng)
 
 		require.Lenf(t, result.Winners, quantity,
 			"trial %d: exactly %d single-ticket entries must win", trial, quantity)
@@ -677,7 +677,7 @@ func TestRunLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := entity.RunLotteryDraw(tt.entries, tt.quantity, newSeededRng(11))
+			result := runLotteryDraw(tt.entries, tt.quantity, newSeededRng(11))
 
 			// Every winner has a positive count (no zero/negative winners).
 			totalWon := 0
@@ -714,7 +714,7 @@ func TestRunLotteryDraw_LoserCanPrecedeWinner(t *testing.T) {
 
 	foundLoserBeforeWinner := false
 	for seed := range 100 {
-		result := entity.RunLotteryDraw(entries, quantity, newSeededRng(uint64(seed)))
+		result := runLotteryDraw(entries, quantity, newSeededRng(uint64(seed)))
 
 		require.Lenf(t, result.Winners, 1, "seed %d: exactly one winner (small)", seed)
 		require.Lenf(t, result.Losers, 1, "seed %d: exactly one loser (big)", seed)
@@ -734,4 +734,11 @@ func TestRunLotteryDraw_LoserCanPrecedeWinner(t *testing.T) {
 
 	assert.True(t, foundLoserBeforeWinner,
 		"expected at least one shuffle where the greedy-skipped loser 'big' has a lower draw position than the winner 'small' (the loser-before-winner interleaving)")
+}
+
+// runLotteryDraw runs a lottery draw the way production does: the usecase
+// shuffles the entries into a draw order (ShuffleDrawOrder) and the
+// repository admits them in that order (AdmitInDrawOrder).
+func runLotteryDraw(entries []entity.DrawEntry, quantity int, rng *rand.Rand) entity.DrawResult {
+	return entity.AdmitInDrawOrder(entity.ShuffleDrawOrder(entries, rng), quantity, nil)
 }

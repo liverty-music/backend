@@ -546,11 +546,9 @@ func (o *Order) IsHeldAt(now time.Time, src OrderSourceState) bool {
 	return o.Status == OrderStatusPending && src.Checkout != nil && src.Checkout.IsHoldingAt(now)
 }
 
-// CanBecomeVoid reports whether the Order may become Void: only a Pending
-// Order may, when its source ends without it ever being paid.
-func (o *Order) CanBecomeVoid() bool {
-	return o.Status == OrderStatusPending
-}
+// OrderVoid is the change of an Order whose source ends without it ever being
+// paid: only a Pending Order becomes Void.
+var OrderVoid = Transition[OrderStatus]{From: []OrderStatus{OrderStatusPending}, To: OrderStatusVoid}
 
 // RefundCommit bundles all of the DB state that must be persisted atomically
 // when an Order is refunded. The refund use case performs the Stripe money

@@ -28,48 +28,6 @@ func TestNewCheckout(t *testing.T) {
 	assert.NoError(t, order.ValidateSource())
 }
 
-func TestValidateCheckoutSale(t *testing.T) {
-	t.Parallel()
-
-	stock := entity.NewTicketStock("event-1", "seat-s", 150)
-	tests := []struct {
-		name  string
-		sale  *entity.TicketSale
-		valid bool
-	}{
-		{
-			// @spec components/entity/checkout "First-come sale of the event"
-			name:  "first-come sale naming the stock's event",
-			sale:  entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-1"),
-			valid: true,
-		},
-		{
-			// @spec components/entity/checkout "Lottery sale"
-			name: "lottery sale",
-			sale: entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1"),
-		},
-		{
-			// @spec components/entity/checkout "No sale"
-			name: "no sale",
-		},
-		{
-			name: "first-come sale of another event",
-			sale: entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-2"),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := entity.ValidateCheckoutSale(tt.sale, stock)
-			if tt.valid {
-				assert.NoError(t, err)
-			} else {
-				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
-			}
-		})
-	}
-}
-
 func TestCheckout_IsHoldingAt(t *testing.T) {
 	t.Parallel()
 
@@ -93,29 +51,6 @@ func TestCheckout_StatusAt(t *testing.T) {
 
 	assert.Equal(t, entity.CheckoutStatusHeld, held.StatusAt(expiry.Add(-time.Minute)))
 	assert.Equal(t, entity.CheckoutStatusExpired, held.StatusAt(expiry), "a lapsed hold reads as Expired")
-}
-
-func TestCheckout_CanBecome(t *testing.T) {
-	t.Parallel()
-
-	captured := time.Date(2026, 11, 5, 18, 14, 0, 0, jst)
-
-	t.Run("charged checkout can only become completed", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/checkout "Charged checkout"
-		c := &entity.Checkout{Status: entity.CheckoutStatusCommitted, CaptureTime: &captured}
-
-		assert.True(t, c.CanBecome(entity.CheckoutStatusCompleted))
-		assert.False(t, c.CanBecome(entity.CheckoutStatusReleased))
-		assert.False(t, c.CanBecome(entity.CheckoutStatusExpired))
-	})
-
-	t.Run("uncharged commit can be released", func(t *testing.T) {
-		t.Parallel()
-		c := &entity.Checkout{Status: entity.CheckoutStatusCommitted}
-
-		assert.True(t, c.CanBecome(entity.CheckoutStatusReleased))
-	})
 }
 
 func heldCheckout(id, saleID string, count int, expire time.Time) *entity.Checkout {

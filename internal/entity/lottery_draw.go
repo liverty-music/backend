@@ -64,8 +64,9 @@ type DrawResult struct {
 	Losers []DrawLoser
 }
 
-// RunLotteryDraw executes the lottery draw algorithm against the given
-// entries and ticket quantity.
+// A lottery draw runs in two steps: [ShuffleDrawOrder] puts the entries in a
+// draw order, and [AdmitInDrawOrder] admits them in that order against the
+// ticket quantity.
 //
 // Algorithm — uniform-random order + greedy fit, whole-entry
 // all-or-nothing:
@@ -89,7 +90,7 @@ type DrawResult struct {
 //     DrawResult is sorted in ascending DrawPosition order (the shuffle order),
 //     which is the persisted loser order for ⑦ official-resale.
 //
-// RunLotteryDraw returns an empty DrawResult (no winners, no losers) when
+// A draw returns an empty DrawResult (no winners, no losers) when
 // entries is empty. It returns no error; validation (positive quantity,
 // positive TicketCount) is the caller's responsibility. As a defensive
 // measure, an entry with a non-positive TicketCount is never
@@ -97,13 +98,10 @@ type DrawResult struct {
 // a winner slot or break the no-oversell invariant. A non-positive quantity
 // simply admits no one.
 //
-// The rng parameter must not be nil.
-func RunLotteryDraw(entries []DrawEntry, quantity int, rng *rand.Rand) DrawResult {
-	return AdmitInDrawOrder(ShuffleDrawOrder(entries, rng), quantity, nil)
-}
+// The rng parameter of ShuffleDrawOrder must not be nil.
 
 // ShuffleDrawOrder returns entries in a uniformly random draw order, the
-// first step of [RunLotteryDraw] and of a resale draw; an entry's draw
+// first step of a lottery draw and of a resale draw; an entry's draw
 // position is its index in the result. entries is left unmodified. The rng
 // parameter must not be nil.
 func ShuffleDrawOrder[T any](entries []T, rng *rand.Rand) []T {
@@ -114,8 +112,8 @@ func ShuffleDrawOrder[T any](entries []T, rng *rand.Rand) []T {
 	return ordered
 }
 
-// AdmitInDrawOrder is the walk of [RunLotteryDraw] over entries already in
-// their draw order: each entry's draw position is its index in ordered. It
+// AdmitInDrawOrder is the second step of a lottery draw, the walk over
+// entries already in their draw order: each entry's draw position is its index in ordered. It
 // walks ordered once and admits each entry with a positive ticket count that
 // fits the remaining quantity, deducting its whole count; every other entry
 // is a loser. When skip is not nil, an entry it reports is left out of the

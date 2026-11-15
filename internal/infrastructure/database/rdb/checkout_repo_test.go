@@ -634,6 +634,7 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.Equal(t, 0, sold)
 
 		// @spec components/entity/checkout/revert-commit "Already charged"
+		// @spec components/entity/checkout "Charged checkout"
 		charged := heldCheckout(t, db, repo, 2, start)
 		_, err = repo.Commit(ctx, charged.ID, committedAt)
 		require.NoError(t, err)
