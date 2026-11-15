@@ -613,6 +613,9 @@ func TestClient_ListOfficialSiteRelations(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			if len(tt.want.Relations) == 0 {
+				assert.Empty(t, entity.SelectOfficialSite(*got), "no official site is picked")
+			}
 		})
 	}
 }
