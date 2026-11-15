@@ -6,6 +6,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHype_IsValid(t *testing.T) {
@@ -377,6 +378,69 @@ func TestFollow_RaisableTo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, tt.follow.RaisableTo(tt.to))
+		})
+	}
+}
+
+func TestTicketJourneyStatus_RaisesHype(t *testing.T) {
+	t.Parallel()
+
+	for status, want := range map[entity.TicketJourneyStatus]bool{
+		entity.TicketJourneyStatusTracking: false,
+		entity.TicketJourneyStatusApplied:  true,
+		entity.TicketJourneyStatusLost:     false,
+		entity.TicketJourneyStatusUnpaid:   true,
+		entity.TicketJourneyStatusPaid:     true,
+	} {
+		assert.Equal(t, want, status.RaisesHype(), status.String())
+	}
+}
+
+func TestHypeRaiseFor(t *testing.T) {
+	t.Parallel()
+
+	tokyoHome, _, _, osaka := hypeTestFixture()
+	headliner := &entity.Artist{ID: "artist-1"}
+	support := &entity.Artist{ID: "artist-2"}
+	osaka = &entity.Concert{ID: osaka.ID, LocalDate: osaka.LocalDate, Venue: osaka.Venue, Artists: []*entity.Artist{headliner, support}}
+	followOf := func(a *entity.Artist, hype entity.Hype, by entity.HypeSetBy) *entity.FollowedArtist {
+		return &entity.FollowedArtist{UserID: "user-1", Artist: a, Hype: hype, HypeSetBy: by}
+	}
+	byDefault := followOf(headliner, entity.HypeHome, entity.HypeSetByDefault)
+
+	tests := []struct {
+		name       string
+		status     entity.TicketJourneyStatus
+		home       *entity.Home
+		followed   []*entity.FollowedArtist
+		wantArtist string
+		wantHype   entity.Hype
+	}{
+		{name: "a paid distant concert of the one followed artist raises to away", status: entity.TicketJourneyStatusPaid, home: tokyoHome,
+			followed:   []*entity.FollowedArtist{byDefault, followOf(&entity.Artist{ID: "other"}, entity.HypeHome, entity.HypeSetByDefault)},
+			wantArtist: "artist-1", wantHype: entity.HypeAway},
+		{name: "tracking raises nothing", status: entity.TicketJourneyStatusTracking, home: tokyoHome, followed: []*entity.FollowedArtist{byDefault}},
+		{name: "a fan without a home gets no raise", status: entity.TicketJourneyStatusApplied, followed: []*entity.FollowedArtist{byDefault}},
+		{name: "no followed performer gets no raise", status: entity.TicketJourneyStatusApplied, home: tokyoHome},
+		{name: "two followed performers get no raise", status: entity.TicketJourneyStatusApplied, home: tokyoHome,
+			followed: []*entity.FollowedArtist{byDefault, followOf(support, entity.HypeHome, entity.HypeSetByDefault)}},
+		{name: "a level the fan set is kept", status: entity.TicketJourneyStatusApplied, home: tokyoHome,
+			followed: []*entity.FollowedArtist{followOf(headliner, entity.HypeHome, entity.HypeSetByFan)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			follow, hype, ok := entity.HypeRaiseFor(tt.status, tt.home, osaka, tt.followed)
+
+			if tt.wantArtist == "" {
+				assert.False(t, ok)
+				assert.Nil(t, follow)
+				return
+			}
+			require.True(t, ok)
+			assert.Equal(t, tt.wantArtist, follow.ArtistID)
+			assert.Equal(t, tt.wantHype, hype)
 		})
 	}
 }

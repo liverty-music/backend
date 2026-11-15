@@ -199,3 +199,11 @@ func TestArtist_FanartDueAt(t *testing.T) {
 	assert.False(t, at(threshold.Add(time.Nanosecond)).FanartDueAt(now), "just inside the age is not due")
 	assert.False(t, at(now).FanartDueAt(now))
 }
+
+func TestArtist_CheckSearchable(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, (&entity.Artist{ID: "a", Name: "Band", MBID: "mbid"}).CheckSearchable())
+	assert.ErrorIs(t, (&entity.Artist{ID: "a", MBID: "mbid"}).CheckSearchable(), apperr.ErrInternal, "no name")
+	assert.ErrorIs(t, (&entity.Artist{ID: "a", Name: "Band"}).CheckSearchable(), apperr.ErrInternal, "no MBID")
+}

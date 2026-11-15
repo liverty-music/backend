@@ -342,47 +342,20 @@ func (uc *concertUseCase) ListByArtists(ctx context.Context, artistIDs []string,
 	return entity.GroupByDateAndProximity(concerts, home), nil
 }
 
-// maxLocationDateRange is the maximum span of a ListByLocation date range. The
-// proto message-level CEL constraint only enforces from <= to (protovalidate CEL
-// has no calendar-day arithmetic for google.type.Date), so the 30-day cap is
-// enforced here in the use case.
-const maxLocationDateRange = 30 * 24 * time.Hour
-
-// ListByLocation returns all concerts near the given reference point within
-// [from, to], grouped by date and classified by proximity. It classifies via the
-// shared GroupByDateAndProximity using a transient Home adapted from the reference
-// point, then strips AWAY-only date groups so only HOME/NEARBY concerts surface.
+// ListByLocation returns the concerts near the given reference point within
+// [from, to], grouped by date, with only the HOME and NEARBY concerts of each
+// date (entity.LocationQuery).
 func (uc *concertUseCase) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.ProximityGroup, error) {
-	if to.Sub(from) > maxLocationDateRange {
-		return nil, apperr.New(codes.InvalidArgument,
-			"date range must not exceed 30 days",
-			slog.Time("from", from),
-			slog.Time("to", to),
-		)
+	query := entity.LocationQuery{Location: location, From: from, To: to}
+	if err := query.Check(); err != nil {
+		return nil, err
 	}
 
 	concerts, err := uc.concertRepo.ListByLocation(ctx, location, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("list concerts by location: %w", err)
 	}
-
-	// Adapt the reference point into a transient Home so the shared proximity
-	// classifier can run; then drop date groups that ended up with no HOME or
-	// NEARBY concerts (the bounding-box pre-filter admits venues up to ~200 km+
-	// away that the Haversine cut then reclassifies as AWAY).
-	groups := entity.GroupByDateAndProximity(concerts, location.AsHome())
-
-	nearby := groups[:0]
-	for _, g := range groups {
-		if len(g.Home)+len(g.Nearby) == 0 {
-			continue
-		}
-		// AWAY is never surfaced in the All Nearby view; clear it so the response
-		// mapper cannot leak beyond-200 km venues that shared the bounding box.
-		g.Away = nil
-		nearby = append(nearby, g)
-	}
-	return nearby, nil
+	return query.NearbyGroups(concerts), nil
 }
 
 // SearchTrigger names what started a SearchNewConcerts run, reported as the
@@ -588,13 +561,8 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 	// doesn't catch, so the next CronJob tick re-enters executeSearch
 	// unconditionally). An admin fix to the artist row is the only valid
 	// recovery; surfacing Internal here keeps the error visible in logs.
-	if artist.Name == "" || artist.MBID == "" {
-		return nil, apperr.New(codes.Internal,
-			"artist is missing required fields for discovery",
-			slog.String("artist_id", artistID),
-			slog.Bool("name_empty", artist.Name == ""),
-			slog.Bool("mbid_empty", artist.MBID == ""),
-		)
+	if err := artist.CheckSearchable(); err != nil {
+		return nil, err
 	}
 
 	// Get Official Site — missing site is not an error; search continues with nil

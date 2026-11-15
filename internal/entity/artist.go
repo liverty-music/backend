@@ -4,6 +4,7 @@ package entity
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 	"unicode/utf8"
@@ -51,6 +52,25 @@ type Artist struct {
 // artist who died) will not announce anything new.
 func (a *Artist) IsActive() bool {
 	return !a.ActivityEnded
+}
+
+// CheckSearchable reports whether new concerts can be searched for the
+// artist: the search needs its name and its MBID, which the concerts it finds
+// are linked by. An artist without them is a data problem only an admin can
+// fix, so the search must not run (and spend its quota) for it.
+//
+// # Possible errors
+//
+//   - Internal: the artist has no name or no MBID.
+func (a *Artist) CheckSearchable() error {
+	if a.Name == "" || a.MBID == "" {
+		return apperr.New(codes.Internal, "artist is missing required fields for discovery",
+			slog.String("artist_id", a.ID),
+			slog.Bool("name_empty", a.Name == ""),
+			slog.Bool("mbid_empty", a.MBID == ""),
+		)
+	}
+	return nil
 }
 
 // FanartDueAt reports whether the artist's images are due for a sync at now:

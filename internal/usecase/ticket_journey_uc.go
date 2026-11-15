@@ -184,17 +184,11 @@ func (uc *ticketJourneyUseCase) MarkApplied(ctx context.Context, entered entity.
 }
 
 // raiseHypeToMatch raises the fan's hype level for the artist of the event's
-// concert to the lowest level that matches the concert
-// ([entity.LowestHypeMatching]), when the journey's status is Applied, Unpaid
-// or Paid, the fan has a home, the event is a concert with a lowest matching
-// level (its distance is known when it is outside the home), exactly one of its
-// artists is followed by the fan, and that Follow is raisable to the level.
-// The journey write has already succeeded and is what the caller asked for,
+// concert when entity.HypeRaiseFor asks for a raise. It reads nothing when the
+// status raises no hype or the fan has no home. The journey write has already succeeded and is what the caller asked for,
 // so every failure here is logged and swallowed.
 func (uc *ticketJourneyUseCase) raiseHypeToMatch(ctx context.Context, userID, eventID string, status entity.TicketJourneyStatus) {
-	switch status {
-	case entity.TicketJourneyStatusApplied, entity.TicketJourneyStatusUnpaid, entity.TicketJourneyStatusPaid:
-	default:
+	if !status.RaisesHype() {
 		return
 	}
 	attrs := []slog.Attr{slog.String("user_id", userID), slog.String("event_id", eventID)}
@@ -218,18 +212,13 @@ func (uc *ticketJourneyUseCase) raiseHypeToMatch(ctx context.Context, userID, ev
 	if len(concerts) == 0 {
 		return
 	}
-	concert := concerts[0]
 	followed, err := uc.follows.ListByUser(ctx, userID)
 	if err != nil {
 		warn("hype raise skipped: failed to read the follows", err)
 		return
 	}
-	follow := onlyFollowedPerformer(concert, followed)
-	if follow == nil {
-		return
-	}
-	target, ok := entity.LowestHypeMatching(user.Home, concert)
-	if !ok || !follow.RaisableTo(target) {
+	follow, target, ok := entity.HypeRaiseFor(status, user.Home, concerts[0], followed)
+	if !ok {
 		return
 	}
 	raised, err := uc.follows.RaiseHype(ctx, userID, follow.ArtistID, target)
@@ -241,24 +230,4 @@ func (uc *ticketJourneyUseCase) raiseHypeToMatch(ctx context.Context, userID, ev
 		uc.logger.Info(ctx, "hype raised to match a concert",
 			append(attrs, slog.String("artist_id", follow.ArtistID), slog.String("hype", string(target)))...)
 	}
-}
-
-// onlyFollowedPerformer returns the fan's Follow of the concert's one followed
-// artist, or nil when the fan follows none or several of its artists.
-func onlyFollowedPerformer(concert *entity.Concert, followed []*entity.FollowedArtist) *entity.Follow {
-	performing := make(map[string]bool, len(concert.Artists))
-	for _, a := range concert.Artists {
-		performing[a.ID] = true
-	}
-	var match *entity.Follow
-	for _, fa := range followed {
-		if fa.Artist == nil || !performing[fa.Artist.ID] {
-			continue
-		}
-		if match != nil {
-			return nil
-		}
-		match = &entity.Follow{UserID: fa.UserID, ArtistID: fa.Artist.ID, Hype: fa.Hype, HypeSetBy: fa.HypeSetBy}
-	}
-	return match
 }
