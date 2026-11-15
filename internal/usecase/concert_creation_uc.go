@@ -556,7 +556,7 @@ func resolveSeriesForGroup(
 }
 
 // eventsAtSameVenue returns the subset of candidate events whose listed venue
-// name matches listedVenueName under NormalizeVenueName. Used by the discovery
+// name is the same venue as listedVenueName (entity.SameListedVenue). Used by the discovery
 // re-discovery fast-path to decide whether an event can skip the Places API
 // (the artist already plays this venue on this date).
 func eventsAtSameVenue(cands []*entity.Event, listedVenueName string) []*entity.Event {

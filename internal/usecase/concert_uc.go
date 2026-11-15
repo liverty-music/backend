@@ -647,7 +647,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Arti
 
 	// Further deduplicate against pending concert candidates. The candidate dedup key uses
 	// (local_date, normalized listed_venue_name), matching FilterNewSeries'
-	// semantics: the venue name is compared through entity.NormalizeVenueName on
+	// semantics: the venue name is compared through entity.ListedVenueKey on
 	// both sides so name drift across runs does not re-stage an already-pending
 	// concert. Events pending review are dropped; a series emptied by that drop
 	// is removed entirely.

@@ -794,7 +794,7 @@ func (s *ConcertSearcher) executePass(
 
 // mergeDrafts turns the drafts into discovered series: it drops events dated
 // before the current date at their Venue at from, removes repeats by
-// (local_date, venue as [entity.VenueRepeatKey] gives it, start_time) keeping the
+// (local_date, venue as [entity.ListedVenueKey] gives it, start_time) keeping the
 // first, groups events under their originating series entry, and classifies
 // each series by its venues ([entity.DiscoveredSeries.ClassifyType]).
 //
