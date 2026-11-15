@@ -89,24 +89,9 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	}
 	uc.logger.Info(ctx, "ticket_sale_discovery: starting for artist", attrs...)
 
-	now := uc.clock()
-	concerts, err := uc.concertRepo.ListUpcomingByArtist(ctx, artist.ID, now)
-	if err != nil {
+	seriesRefs, err := uc.seriesToSearch(ctx, artist.ID, attrs)
+	if err != nil || len(seriesRefs) == 0 {
 		return 0, err
-	}
-	seriesRefs := groupSalesSeries(concerts)
-	if len(seriesRefs) == 0 {
-		uc.logger.Info(ctx, "ticket_sale_discovery: no upcoming series for artist", attrs...)
-		return 0, nil
-	}
-
-	seriesRefs, err = uc.selectSeriesToSearch(ctx, seriesRefs, now)
-	if err != nil {
-		return 0, err
-	}
-	if len(seriesRefs) == 0 {
-		uc.logger.Info(ctx, "ticket_sale_discovery: no series needs a search", attrs...)
-		return 0, nil
 	}
 
 	siteURL, err := uc.groundingSeed(ctx, artist.ID, attrs)
@@ -134,17 +119,46 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 
 	uc.reportSearch(ctx, artist.ID, nil, len(seriesRefs), len(found), totalNew)
 
-	searchedIDs := make([]string, len(seriesRefs))
-	for i, ref := range seriesRefs {
-		searchedIDs[i] = ref.SeriesID
-	}
-	if err := uc.searchRepo.Record(ctx, searchedIDs, searchedTime); err != nil {
+	if err := uc.searchRepo.Record(ctx, seriesIDsOf(seriesRefs), searchedTime); err != nil {
 		return totalNew, err
 	}
 
 	uc.logger.Info(ctx, "ticket_sale_discovery: complete for artist",
 		append(attrs, slog.Int("series_count", len(seriesRefs)), slog.Int("new_sales", totalNew))...)
 	return totalNew, nil
+}
+
+// seriesToSearch returns the artist's series that need a search now: the
+// upcoming series without an Organizer (groupSalesSeries) that
+// selectSeriesToSearch keeps. It logs why nothing is left when nothing is.
+func (uc *ticketSaleDiscoveryUseCase) seriesToSearch(ctx context.Context, artistID string, attrs []slog.Attr) ([]*entity.SalesSeriesRef, error) {
+	now := uc.clock()
+	concerts, err := uc.concertRepo.ListUpcomingByArtist(ctx, artistID, now)
+	if err != nil {
+		return nil, err
+	}
+	seriesRefs := groupSalesSeries(concerts)
+	if len(seriesRefs) == 0 {
+		uc.logger.Info(ctx, "ticket_sale_discovery: no upcoming series for artist", attrs...)
+		return nil, nil
+	}
+	seriesRefs, err = uc.selectSeriesToSearch(ctx, seriesRefs, now)
+	if err != nil {
+		return nil, err
+	}
+	if len(seriesRefs) == 0 {
+		uc.logger.Info(ctx, "ticket_sale_discovery: no series needs a search", attrs...)
+	}
+	return seriesRefs, nil
+}
+
+// seriesIDsOf returns the series id of each ref, in order.
+func seriesIDsOf(refs []*entity.SalesSeriesRef) []string {
+	ids := make([]string, len(refs))
+	for i, ref := range refs {
+		ids[i] = ref.SeriesID
+	}
+	return ids
 }
 
 // groundingSeed returns the artist's official site URL, the seed the

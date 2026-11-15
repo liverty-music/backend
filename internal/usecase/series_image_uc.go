@@ -179,6 +179,60 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 	}, nil
 }
 
+// readOriginal reads the series image row, for the organizer id the storage
+// keys are scoped to, and its original from the originals bucket. It returns
+// a nil series image, and no error, when there is nothing to process: the row
+// was deleted (e.g. cancelled before processing), or the original was, which
+// happens only once its processing ended, so this is a repeated request.
+func (uc *seriesImageUseCase) readOriginal(ctx context.Context, internalBucket, seriesImageID string) (*entity.SeriesImage, []byte, error) {
+	seriesImage, err := uc.seriesImageRepo.Get(ctx, seriesImageID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			uc.logger.Warn(ctx, "series image row not found; skipping",
+				slog.String("series_image_id", seriesImageID),
+			)
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("find series image %s: %w", seriesImageID, err)
+	}
+	rawData, err := uc.imageStorer.ReadOriginal(ctx, internalBucket, seriesImage.OrganizerID, seriesImageID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "original already processed; skipping repeated request",
+			slog.String("series_image_id", seriesImageID),
+		)
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("read original for series image %s (org %s): %w", seriesImageID, seriesImage.OrganizerID, err)
+	}
+	return seriesImage, rawData, nil
+}
+
+// putVariants writes the thumb and large WebP variants to the served bucket.
+func (uc *seriesImageUseCase) putVariants(ctx context.Context, servedBucket, organizerID, seriesImageID string, thumb, large []byte) error {
+	if err := uc.imageStorer.PutVariant(ctx, servedBucket, organizerID, seriesImageID, "thumb", "image/webp", thumb); err != nil {
+		return fmt.Errorf("write thumb variant: %w", err)
+	}
+	if err := uc.imageStorer.PutVariant(ctx, servedBucket, organizerID, seriesImageID, "large", "image/webp", large); err != nil {
+		return fmt.Errorf("write large variant: %w", err)
+	}
+	return nil
+}
+
+// reclaimOldVariants deletes the variants of the replaced series image from
+// the served bucket, best-effort: the old series image row was deleted inside
+// ReplaceCover and only the objects remain, so a failure leaves them orphaned
+// and is only logged.
+func (uc *seriesImageUseCase) reclaimOldVariants(ctx context.Context, servedBucket, organizerID, oldSeriesImageID string) {
+	if err := uc.imageStorer.DeleteVariants(ctx, servedBucket, organizerID, oldSeriesImageID); err != nil {
+		uc.logger.Warn(ctx, "failed to delete old variants (orphaned)",
+			slog.String("organizer_id", organizerID),
+			slog.String("old_series_image_id", oldSeriesImageID),
+			slog.Any("error", err),
+		)
+	}
+}
+
 // Process reads the original from the internal bucket, processes it into
 // WebP variants, writes them to the served bucket, cuts over series_cover_images to
 // the new series image id (no-404 guarantee), and deletes the original. Permanent
@@ -189,31 +243,9 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, series
 	internalBucket := os.Getenv(storageInternalBucketEnv)
 	servedBucket := os.Getenv(storageBucketEnv)
 
-	// Load the series image row to get the organizer id the storage keys are scoped to.
-	seriesImage, err := uc.seriesImageRepo.Get(ctx, seriesImageID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			// SeriesImage row was deleted (e.g., cancelled before processing) — ack.
-			uc.logger.Warn(ctx, "series image row not found; skipping",
-				slog.String("series_image_id", seriesImageID),
-			)
-			return nil
-		}
-		return fmt.Errorf("find series image %s: %w", seriesImageID, err)
-	}
-
-	// Read the original from the originals bucket.
-	rawData, err := uc.imageStorer.ReadOriginal(ctx, internalBucket, seriesImage.OrganizerID, seriesImageID)
-	if errors.Is(err, apperr.ErrNotFound) {
-		// The original is deleted only once its processing ended (cut over or
-		// a permanent failure), so this is a repeated request: ack.
-		uc.logger.Info(ctx, "original already processed; skipping repeated request",
-			slog.String("series_image_id", seriesImageID),
-		)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read original for series image %s (org %s): %w", seriesImageID, seriesImage.OrganizerID, err)
+	seriesImage, rawData, err := uc.readOriginal(ctx, internalBucket, seriesImageID)
+	if err != nil || seriesImage == nil {
+		return err
 	}
 
 	// Process the image (decode, safety check, resize, encode WebP).
@@ -233,12 +265,8 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, series
 		return fmt.Errorf("process image %s: %w", seriesImageID, err)
 	}
 
-	// Write variants to the served bucket.
-	if err := uc.imageStorer.PutVariant(ctx, servedBucket, seriesImage.OrganizerID, seriesImageID, "thumb", "image/webp", thumb); err != nil {
-		return fmt.Errorf("write thumb variant: %w", err)
-	}
-	if err := uc.imageStorer.PutVariant(ctx, servedBucket, seriesImage.OrganizerID, seriesImageID, "large", "image/webp", large); err != nil {
-		return fmt.Errorf("write large variant: %w", err)
+	if err := uc.putVariants(ctx, servedBucket, seriesImage.OrganizerID, seriesImageID, thumb, large); err != nil {
+		return err
 	}
 
 	// Cut over series_cover_images to the new series image id and capture the old id.
@@ -259,16 +287,8 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, series
 		return fmt.Errorf("cut over series_cover_images for series %s: %w", seriesID, err)
 	}
 
-	// Reclaim the old variants from the served bucket (best-effort). The old
-	// series image row was deleted inside ReplaceCover; only the objects remain.
 	if oldSeriesImageID != "" && oldSeriesImageID != seriesImageID {
-		if delErr := uc.imageStorer.DeleteVariants(ctx, servedBucket, seriesImage.OrganizerID, oldSeriesImageID); delErr != nil {
-			uc.logger.Warn(ctx, "failed to delete old variants (orphaned)",
-				slog.String("organizer_id", seriesImage.OrganizerID),
-				slog.String("old_series_image_id", oldSeriesImageID),
-				slog.Any("error", delErr),
-			)
-		}
+		uc.reclaimOldVariants(ctx, servedBucket, seriesImage.OrganizerID, oldSeriesImageID)
 	}
 
 	// Delete the original — it is no longer needed.
