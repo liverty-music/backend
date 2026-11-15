@@ -111,6 +111,7 @@ packages:
       FollowMetrics: {}
       FollowUseCase: {}
       IdentityOrganizationUseCase: {}
+      IdentityOrganizations: {}
       IdentityUserUseCase: {}
       IdentityVerificationUseCase: {}
       IdentityVerifier: {}
@@ -122,7 +123,7 @@ packages:
       OrderUseCase: {}
       OrganizerMetrics: {}
       OrganizerUseCase: {}
-      PasskeyRegistrationLinkIssuer: {}
+      PasskeyRegistrationCodes: {}
       PasskeyUseCase: {}
       ProcessedWebhookEventRepository: {}
       PushMetrics: {}
