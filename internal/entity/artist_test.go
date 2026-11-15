@@ -3,6 +3,7 @@ package entity_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 
@@ -167,4 +168,34 @@ func TestValidateOfficialSiteURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestArtist_IsActive(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, (&entity.Artist{}).IsActive(), "no end recorded yet")
+	assert.True(t, (&entity.Artist{ActivityEnded: false}).IsActive())
+	assert.False(t, (&entity.Artist{ActivityEnded: true}).IsActive(), "an ended activity is not active")
+}
+
+func TestOfficialSiteRefreshPolicy(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 7*24*time.Hour, entity.OfficialSiteRefreshAge)
+	assert.Equal(t, 7, entity.OfficialSiteRefreshCycleDays)
+	assert.Equal(t, 3, entity.OfficialSiteRefreshMaxConsecutiveFailures)
+}
+
+func TestArtist_FanartDueAt(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	threshold := now.Add(-entity.FanartStaleAge)
+	at := func(t time.Time) *entity.Artist { return &entity.Artist{FanartSyncTime: &t} }
+
+	assert.True(t, (&entity.Artist{}).FanartDueAt(now), "never synced")
+	assert.False(t, at(threshold).FanartDueAt(now), "exactly at the age is not yet due")
+	assert.True(t, at(threshold.Add(-time.Nanosecond)).FanartDueAt(now), "just past the age is due")
+	assert.False(t, at(threshold.Add(time.Nanosecond)).FanartDueAt(now), "just inside the age is not due")
+	assert.False(t, at(now).FanartDueAt(now))
 }

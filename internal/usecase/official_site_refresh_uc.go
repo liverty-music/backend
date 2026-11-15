@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -16,13 +15,13 @@ import (
 const (
 	// officialSiteRefreshAge is how old an official site check must be for the
 	// artist to be due again.
-	officialSiteRefreshAge = 7 * 24 * time.Hour
+	officialSiteRefreshAge = entity.OfficialSiteRefreshAge
 	// officialSiteRefreshCycleDays is the number of daily runs over which every
 	// followed artist is refreshed once; it sizes each run's batch.
-	officialSiteRefreshCycleDays = 7
+	officialSiteRefreshCycleDays = entity.OfficialSiteRefreshCycleDays
 	// officialSiteRefreshMaxConsecutiveFailures stops a run after this many
 	// artists fail in a row, treating it as a systemic catalog failure.
-	officialSiteRefreshMaxConsecutiveFailures = 3
+	officialSiteRefreshMaxConsecutiveFailures = entity.OfficialSiteRefreshMaxConsecutiveFailures
 )
 
 // OfficialSiteRefreshSummary reports what one daily refresh run did.
@@ -183,7 +182,7 @@ func (uc *officialSiteRefreshUseCase) RefreshDueOfficialSites(ctx context.Contex
 		return summary, nil
 	}
 
-	artists, err := uc.artistRepo.ListStaleOfficialSite(ctx, officialSiteRefreshAge, summary.BatchSize)
+	artists, err := uc.artistRepo.ListStaleOfficialSite(ctx, uc.clock(), officialSiteRefreshAge, summary.BatchSize)
 	if err != nil {
 		return nil, fmt.Errorf("list artists due for official site refresh: %w", err)
 	}

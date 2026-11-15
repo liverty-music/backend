@@ -595,8 +595,8 @@ func (_c *MockArtistRepository_ListRefreshDue_Call) RunAndReturn(run func(ctx co
 }
 
 // ListStaleOfficialSite provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error) {
-	ret := _mock.Called(ctx, age, limit)
+func (_mock *MockArtistRepository) ListStaleOfficialSite(ctx context.Context, now time.Time, age time.Duration, limit int) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, now, age, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListStaleOfficialSite")
@@ -604,18 +604,18 @@ func (_mock *MockArtistRepository) ListStaleOfficialSite(ctx context.Context, ag
 
 	var r0 []*entity.Artist
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, int) ([]*entity.Artist, error)); ok {
-		return returnFunc(ctx, age, limit)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, time.Duration, int) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, now, age, limit)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, int) []*entity.Artist); ok {
-		r0 = returnFunc(ctx, age, limit)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, time.Duration, int) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, now, age, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Duration, int) error); ok {
-		r1 = returnFunc(ctx, age, limit)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time, time.Duration, int) error); ok {
+		r1 = returnFunc(ctx, now, age, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -629,30 +629,36 @@ type MockArtistRepository_ListStaleOfficialSite_Call struct {
 
 // ListStaleOfficialSite is a helper method to define mock.On call
 //   - ctx context.Context
+//   - now time.Time
 //   - age time.Duration
 //   - limit int
-func (_e *MockArtistRepository_Expecter) ListStaleOfficialSite(ctx any, age any, limit any) *MockArtistRepository_ListStaleOfficialSite_Call {
-	return &MockArtistRepository_ListStaleOfficialSite_Call{Call: _e.mock.On("ListStaleOfficialSite", ctx, age, limit)}
+func (_e *MockArtistRepository_Expecter) ListStaleOfficialSite(ctx any, now any, age any, limit any) *MockArtistRepository_ListStaleOfficialSite_Call {
+	return &MockArtistRepository_ListStaleOfficialSite_Call{Call: _e.mock.On("ListStaleOfficialSite", ctx, now, age, limit)}
 }
 
-func (_c *MockArtistRepository_ListStaleOfficialSite_Call) Run(run func(ctx context.Context, age time.Duration, limit int)) *MockArtistRepository_ListStaleOfficialSite_Call {
+func (_c *MockArtistRepository_ListStaleOfficialSite_Call) Run(run func(ctx context.Context, now time.Time, age time.Duration, limit int)) *MockArtistRepository_ListStaleOfficialSite_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 time.Duration
+		var arg1 time.Time
 		if args[1] != nil {
-			arg1 = args[1].(time.Duration)
+			arg1 = args[1].(time.Time)
 		}
-		var arg2 int
+		var arg2 time.Duration
 		if args[2] != nil {
-			arg2 = args[2].(int)
+			arg2 = args[2].(time.Duration)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -663,14 +669,14 @@ func (_c *MockArtistRepository_ListStaleOfficialSite_Call) Return(artists []*ent
 	return _c
 }
 
-func (_c *MockArtistRepository_ListStaleOfficialSite_Call) RunAndReturn(run func(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOfficialSite_Call {
+func (_c *MockArtistRepository_ListStaleOfficialSite_Call) RunAndReturn(run func(ctx context.Context, now time.Time, age time.Duration, limit int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOfficialSite_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ListStaleOrMissingFanart provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error) {
-	ret := _mock.Called(ctx, staleDuration, limit)
+func (_mock *MockArtistRepository) ListStaleOrMissingFanart(ctx context.Context, now time.Time, staleAge time.Duration, limit int) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, now, staleAge, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListStaleOrMissingFanart")
@@ -678,18 +684,18 @@ func (_mock *MockArtistRepository) ListStaleOrMissingFanart(ctx context.Context,
 
 	var r0 []*entity.Artist
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, int) ([]*entity.Artist, error)); ok {
-		return returnFunc(ctx, staleDuration, limit)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, time.Duration, int) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, now, staleAge, limit)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, int) []*entity.Artist); ok {
-		r0 = returnFunc(ctx, staleDuration, limit)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, time.Duration, int) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, now, staleAge, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Duration, int) error); ok {
-		r1 = returnFunc(ctx, staleDuration, limit)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time, time.Duration, int) error); ok {
+		r1 = returnFunc(ctx, now, staleAge, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -703,30 +709,36 @@ type MockArtistRepository_ListStaleOrMissingFanart_Call struct {
 
 // ListStaleOrMissingFanart is a helper method to define mock.On call
 //   - ctx context.Context
-//   - staleDuration time.Duration
+//   - now time.Time
+//   - staleAge time.Duration
 //   - limit int
-func (_e *MockArtistRepository_Expecter) ListStaleOrMissingFanart(ctx any, staleDuration any, limit any) *MockArtistRepository_ListStaleOrMissingFanart_Call {
-	return &MockArtistRepository_ListStaleOrMissingFanart_Call{Call: _e.mock.On("ListStaleOrMissingFanart", ctx, staleDuration, limit)}
+func (_e *MockArtistRepository_Expecter) ListStaleOrMissingFanart(ctx any, now any, staleAge any, limit any) *MockArtistRepository_ListStaleOrMissingFanart_Call {
+	return &MockArtistRepository_ListStaleOrMissingFanart_Call{Call: _e.mock.On("ListStaleOrMissingFanart", ctx, now, staleAge, limit)}
 }
 
-func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) Run(run func(ctx context.Context, staleDuration time.Duration, limit int)) *MockArtistRepository_ListStaleOrMissingFanart_Call {
+func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) Run(run func(ctx context.Context, now time.Time, staleAge time.Duration, limit int)) *MockArtistRepository_ListStaleOrMissingFanart_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 time.Duration
+		var arg1 time.Time
 		if args[1] != nil {
-			arg1 = args[1].(time.Duration)
+			arg1 = args[1].(time.Time)
 		}
-		var arg2 int
+		var arg2 time.Duration
 		if args[2] != nil {
-			arg2 = args[2].(int)
+			arg2 = args[2].(time.Duration)
+		}
+		var arg3 int
+		if args[3] != nil {
+			arg3 = args[3].(int)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -737,7 +749,7 @@ func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) Return(artists []*
 	return _c
 }
 
-func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) RunAndReturn(run func(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOrMissingFanart_Call {
+func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) RunAndReturn(run func(ctx context.Context, now time.Time, staleAge time.Duration, limit int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOrMissingFanart_Call {
 	_c.Call.Return(run)
 	return _c
 }

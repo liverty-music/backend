@@ -103,7 +103,7 @@ func (uc *ticketSaleDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		slog.String("artist_id", artist.ID),
 		slog.String("artist_name", artist.Name),
 	}
-	if artist.ActivityEnded {
+	if !artist.IsActive() {
 		uc.logger.Info(ctx, "ticket_sale_discovery: skipping artist whose activity has ended", attrs...)
 		return 0, nil
 	}
