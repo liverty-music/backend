@@ -70,11 +70,11 @@ type OfficialSiteRefreshUseCase interface {
 
 // officialSiteRefreshUseCase implements OfficialSiteRefreshUseCase.
 type officialSiteRefreshUseCase struct {
-	artistRepo   entity.ArtistRepository
-	followRepo   entity.FollowRepository
-	siteResolver entity.OfficialSiteResolver
-	clock        Clock
-	logger       *logging.Logger
+	artistRepo  entity.ArtistRepository
+	followRepo  entity.FollowRepository
+	siteCatalog entity.OfficialSiteCatalog
+	clock       Clock
+	logger      *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -84,16 +84,16 @@ var _ OfficialSiteRefreshUseCase = (*officialSiteRefreshUseCase)(nil)
 func NewOfficialSiteRefreshUseCase(
 	artistRepo entity.ArtistRepository,
 	followRepo entity.FollowRepository,
-	siteResolver entity.OfficialSiteResolver,
+	siteCatalog entity.OfficialSiteCatalog,
 	clock Clock,
 	logger *logging.Logger,
 ) OfficialSiteRefreshUseCase {
 	return &officialSiteRefreshUseCase{
-		artistRepo:   artistRepo,
-		followRepo:   followRepo,
-		siteResolver: siteResolver,
-		clock:        clock,
-		logger:       logger,
+		artistRepo:  artistRepo,
+		followRepo:  followRepo,
+		siteCatalog: siteCatalog,
+		clock:       clock,
+		logger:      logger,
 	}
 }
 
@@ -111,15 +111,17 @@ func officialSiteRefreshBatchSize(followed int) int {
 // An MBID the catalog does not know counts as no URL found, so the check is
 // still recorded and the artist is not due again on every run.
 func (uc *officialSiteRefreshUseCase) RefreshOfficialSite(ctx context.Context, artistID, mbid string) error {
-	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, mbid)
+	var url string
+	rels, err := uc.siteCatalog.ListOfficialSiteRelations(ctx, mbid)
 	switch {
+	case err == nil:
+		url = entity.SelectOfficialSite(*rels)
 	case errors.Is(err, apperr.ErrNotFound):
 		uc.logger.Warn(ctx, "catalog has no artist for the MBID; recording the official site check", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
 			slog.String("mbid", mbid),
 		)...)
-		url = ""
-	case err != nil:
+	default:
 		return fmt.Errorf("resolve official site url for artist %s: %w", artistID, err)
 	}
 

@@ -39,13 +39,15 @@ type VenuePlace struct {
 
 // VenuePlaceSearcher defines the interface for external place search services used in venue resolution.
 type VenuePlaceSearcher interface {
-	// SearchPlace looks up a venue by name and optional administrative area.
+	// SearchPlace looks up a venue by name and optional administrative area
+	// and returns the places the service found, most relevant first, or an
+	// empty slice when it found none. [SelectVenuePlace] picks the venue's
+	// place among them.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If no matching place is found.
-	//  - Unavailable: If the external service is unreachable.
-	SearchPlace(ctx context.Context, name, adminArea string) (*VenuePlace, error)
+	//   - Unavailable: If the external service is unreachable.
+	SearchPlace(ctx context.Context, name, adminArea string) ([]*VenuePlace, error)
 }
 
 // MapPlaceCandidate is one place the map catalog offers for a venue name a
@@ -76,7 +78,7 @@ type MapPlace struct {
 
 // VenueMapCatalog is the external map catalog a member picks a
 // venue from. It is separate from VenuePlaceSearcher, which concert discovery
-// uses for a single best match and which MusicBrainz also implements.
+// uses to resolve a listed venue name and which MusicBrainz also implements.
 type VenueMapCatalog interface {
 	// SearchPlaces looks up a venue name, which may be only the beginning of a
 	// name as the member types it, and returns at most 5 candidate places,

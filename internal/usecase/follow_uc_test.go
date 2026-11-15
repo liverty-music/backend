@@ -18,23 +18,23 @@ import (
 // repository and catalog mocks are strict: a background official-site
 // lookup that a test does not expect fails it.
 type followTestDeps struct {
-	followRepo   *mocks.MockFollowRepository
-	artistRepo   *mocks.MockArtistRepository
-	siteResolver *mocks.MockOfficialSiteResolver
-	uc           usecase.FollowUseCase
+	followRepo  *mocks.MockFollowRepository
+	artistRepo  *mocks.MockArtistRepository
+	siteCatalog *mocks.MockOfficialSiteCatalog
+	uc          usecase.FollowUseCase
 }
 
 func newFollowTestDeps(t *testing.T) *followTestDeps {
 	t.Helper()
 	d := &followTestDeps{
-		followRepo:   mocks.NewMockFollowRepository(t),
-		artistRepo:   mocks.NewMockArtistRepository(t),
-		siteResolver: mocks.NewMockOfficialSiteResolver(t),
+		followRepo:  mocks.NewMockFollowRepository(t),
+		artistRepo:  mocks.NewMockArtistRepository(t),
+		siteCatalog: mocks.NewMockOfficialSiteCatalog(t),
 	}
 	d.uc = usecase.NewFollowUseCase(
 		d.followRepo,
 		d.artistRepo,
-		d.siteResolver,
+		d.siteCatalog,
 		anyFollowMetrics(t),
 		newTestLogger(t),
 	)

@@ -1,7 +1,7 @@
 // Package google provides a client for the Google Maps Places API (New).
 //
-// This client uses Text Search (New) to find the one place of a discovered
-// concert's venue, Autocomplete (New) to list the places a member
+// This client uses Text Search (New) to find the candidate places of a
+// discovered concert's venue, Autocomplete (New) to list the places a member
 // picks a venue from, and Place Details (New) to read one place by its id.
 // It authenticates via OAuth 2.0 using Application Default Credentials (ADC),
 // which integrates with GKE Workload Identity for automatic token management.
@@ -95,9 +95,10 @@ func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client,
 	}
 }
 
-// SearchPlace searches for a venue by name using the Google Maps Places Text Search (New) API.
-// It returns the top match or apperr.ErrNotFound if no results are returned.
-func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
+// SearchText searches for a venue by name using the Google Maps Places Text
+// Search (New) API. It returns the places Google Maps found, in its order of
+// relevance, and an empty slice when it found none.
+func (c *Client) SearchText(ctx context.Context, name, adminArea string) ([]Place, error) {
 	c.logger.Info(ctx, "searching place", slog.String("venueName", name), slog.String("adminArea", adminArea))
 
 	query := name
@@ -145,19 +146,18 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		return nil, apperr.Wrap(err, codes.Internal, "failed to decode google maps response")
 	}
 
-	if len(data.Places) == 0 {
-		return nil, apperr.New(codes.NotFound, "no matching place found in google maps")
+	places := make([]Place, 0, len(data.Places))
+	for _, p := range data.Places {
+		place := Place{PlaceID: p.ID, Name: p.DisplayName.Text}
+		if p.Location.Latitude != 0 || p.Location.Longitude != 0 {
+			lat := p.Location.Latitude
+			lng := p.Location.Longitude
+			place.Latitude = &lat
+			place.Longitude = &lng
+		}
+		places = append(places, place)
 	}
-
-	p := data.Places[0]
-	place := &Place{PlaceID: p.ID, Name: p.DisplayName.Text}
-	if p.Location.Latitude != 0 || p.Location.Longitude != 0 {
-		lat := p.Location.Latitude
-		lng := p.Location.Longitude
-		place.Latitude = &lat
-		place.Longitude = &lng
-	}
-	return place, nil
+	return places, nil
 }
 
 // SetBaseURL overrides the API base URL. Intended for tests.

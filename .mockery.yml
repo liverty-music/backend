@@ -30,7 +30,7 @@ packages:
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
       NotificationRepository: {}
-      OfficialSiteResolver: {}
+      OfficialSiteCatalog: {}
       OrderMailer: {}
       OrderRepository: {}
       OrganizationRepository: {}

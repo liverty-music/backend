@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -234,22 +235,23 @@ func TestClient_SearchPlace(t *testing.T) {
 		statusCode   int
 		responseBody any
 		wantErr      error
-		wantID       string
-		wantName     string
+		wantIDs      []string
+		wantNames    []string
 		invalidJSON  bool
 	}{
 		{
-			name:       "success - returns top place match",
+			name:       "success - returns every place in order",
 			venueName:  "Zepp Nagoya",
 			adminArea:  "Aichi",
 			statusCode: http.StatusOK,
 			responseBody: placeSearchResponse{
 				Places: []placeEntry{
 					{ID: "a2e6e2c0-dead-beef-abcd-000000000001", Name: "Zepp Nagoya"},
+					{ID: "a2e6e2c0-dead-beef-abcd-000000000002", Name: "Zepp Namba"},
 				},
 			},
-			wantID:   "a2e6e2c0-dead-beef-abcd-000000000001",
-			wantName: "Zepp Nagoya",
+			wantIDs:   []string{"a2e6e2c0-dead-beef-abcd-000000000001", "a2e6e2c0-dead-beef-abcd-000000000002"},
+			wantNames: []string{"Zepp Nagoya", "Zepp Namba"},
 		},
 		{
 			name:       "success - no admin_area",
@@ -261,16 +263,17 @@ func TestClient_SearchPlace(t *testing.T) {
 					{ID: "bbbbbbbb-0000-0000-0000-000000000001", Name: "Nippon Budokan"},
 				},
 			},
-			wantID:   "bbbbbbbb-0000-0000-0000-000000000001",
-			wantName: "Nippon Budokan",
+			wantIDs:   []string{"bbbbbbbb-0000-0000-0000-000000000001"},
+			wantNames: []string{"Nippon Budokan"},
 		},
 		{
-			name:         "not found - empty places list",
+			name:         "no place - empty places list",
 			venueName:    "Unknown Venue",
 			adminArea:    "",
 			statusCode:   http.StatusOK,
 			responseBody: placeSearchResponse{},
-			wantErr:      apperr.New(codes.NotFound, "no matching place found in musicbrainz"),
+			wantIDs:      []string{},
+			wantNames:    []string{},
 		},
 		{
 			name:       "error - service unavailable (retries exhausted)",
@@ -309,17 +312,22 @@ func TestClient_SearchPlace(t *testing.T) {
 			client := musicbrainz.NewClient(server.Client(), testLogger(t))
 			client.SetPlaceBaseURL(server.URL + "/")
 
-			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
+			places, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, place)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, place)
-				assert.Equal(t, tt.wantID, place.ID)
-				assert.Equal(t, tt.wantName, place.Name)
+				assert.Nil(t, places)
+				return
 			}
+			require.NoError(t, err)
+			ids := make([]string, 0, len(places))
+			names := make([]string, 0, len(places))
+			for _, p := range places {
+				ids = append(ids, p.ID)
+				names = append(names, p.Name)
+			}
+			assert.Equal(t, tt.wantIDs, ids)
+			assert.Equal(t, tt.wantNames, names)
 		})
 	}
 }
@@ -388,10 +396,11 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 			c := musicbrainz.NewClient(server.Client(), testLogger(t))
 			c.SetPlaceBaseURL(server.URL + "/")
 
-			place, err := c.SearchPlace(context.Background(), "test", "")
+			places, err := c.SearchPlace(context.Background(), "test", "")
 
 			require.NoError(t, err)
-			require.NotNil(t, place)
+			require.Len(t, places, 1)
+			place := places[0]
 
 			if tt.wantLat != nil {
 				require.NotNil(t, place.Latitude)
@@ -467,7 +476,7 @@ func TestClient_GetArtist_ContextEnd(t *testing.T) {
 	}
 }
 
-func TestClient_ResolveOfficialSiteURL(t *testing.T) {
+func TestClient_ListOfficialSiteRelations(t *testing.T) {
 	// Local types that mirror the unexported url-rels response shapes.
 	type urlResource struct {
 		Resource string `json:"resource"`
@@ -494,10 +503,10 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 		responseBody any
 		invalidJSON  bool
 		wantErr      error
-		wantURL      string
+		want         *entity.OfficialSiteRelations
 	}{
 		{
-			name:       "success - returns official homepage URL",
+			name:       "success - returns every official homepage relation as stated",
 			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
 			statusCode: http.StatusOK,
 			responseBody: urlRelsResponse{
@@ -510,12 +519,38 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 						Ended:        false,
 						URL:          urlResource{Resource: "https://www.radiohead.com"},
 					},
+					{
+						Type:         "official homepage",
+						SourceCredit: "Radiohead",
+						Ended:        true,
+						URL:          urlResource{Resource: "https://old.radiohead.com/"},
+					},
 				},
 			},
-			wantURL: "https://www.radiohead.com",
+			want: &entity.OfficialSiteRelations{
+				ArtistName: "Radiohead",
+				Relations: []entity.OfficialSiteRelation{
+					{URL: "https://www.radiohead.com"},
+					{URL: "https://old.radiohead.com/", SourceCredit: "Radiohead", Ended: true},
+				},
+			},
 		},
 		{
-			name:       "no official site - returns empty string without error",
+			// @spec components/entity/artist/resolve-official-site-url "No homepage link"
+			name:       "no homepage link - relations of other types are left out",
+			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
+			statusCode: http.StatusOK,
+			responseBody: urlRelsResponse{
+				ID:   "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+				Name: "Unknown Band",
+				Relations: []urlRelation{
+					{Type: "social network", URL: urlResource{Resource: "https://x.com/test"}},
+				},
+			},
+			want: &entity.OfficialSiteRelations{ArtistName: "Unknown Band"},
+		},
+		{
+			name:       "no relations - returns no relation without error",
 			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
 			statusCode: http.StatusOK,
 			responseBody: urlRelsResponse{
@@ -523,7 +558,7 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 				Name:      "Unknown Band",
 				Relations: []urlRelation{},
 			},
-			wantURL: "",
+			want: &entity.OfficialSiteRelations{ArtistName: "Unknown Band"},
 		},
 		{
 			// @spec components/entity/artist/resolve-official-site-url "Catalog unreachable"
@@ -569,15 +604,15 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 			client := musicbrainz.NewClient(server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
-			gotURL, err := client.ResolveOfficialSiteURL(context.Background(), tt.args.mbid)
+			got, err := client.ListOfficialSiteRelations(context.Background(), tt.args.mbid)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Empty(t, gotURL)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantURL, gotURL)
+				assert.Nil(t, got)
+				return
 			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

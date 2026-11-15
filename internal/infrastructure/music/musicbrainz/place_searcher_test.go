@@ -74,9 +74,10 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			c.SetPlaceBaseURL(server.URL + "/")
 			searcher := musicbrainz.NewPlaceSearcher(c)
 
-			vp, err := searcher.SearchPlace(context.Background(), "test", "")
+			vps, err := searcher.SearchPlace(context.Background(), "test", "")
 			require.NoError(t, err)
-			require.NotNil(t, vp)
+			require.Len(t, vps, 1)
+			vp := vps[0]
 
 			if tt.wantCoords {
 				require.NotNil(t, vp.Coordinates, "expected non-nil Coordinates")

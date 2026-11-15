@@ -18,8 +18,11 @@ import (
 // knownPlaces resolves the venues it lists and no other.
 type knownPlaces map[string]*entity.VenuePlace
 
-func (p knownPlaces) SearchPlace(_ context.Context, name, _ string) (*entity.VenuePlace, error) {
-	return p[name], nil
+func (p knownPlaces) SearchPlace(_ context.Context, name, _ string) ([]*entity.VenuePlace, error) {
+	if place, ok := p[name]; ok {
+		return []*entity.VenuePlace{place}, nil
+	}
+	return nil, nil
 }
 
 // discoveredRowCounts returns the Events, Series and ConcertCandidates of

@@ -69,9 +69,10 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			client.SetBaseURL(server.URL)
 			searcher := google.NewPlaceSearcher(client)
 
-			vp, err := searcher.SearchPlace(context.Background(), "test", "")
+			vps, err := searcher.SearchPlace(context.Background(), "test", "")
 			require.NoError(t, err)
-			require.NotNil(t, vp)
+			require.Len(t, vps, 1)
+			vp := vps[0]
 
 			assert.Equal(t, tt.result.ID, vp.ProviderUserID)
 			assert.Equal(t, tt.result.DisplayName.Text, vp.Name)

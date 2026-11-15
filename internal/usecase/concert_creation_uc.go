@@ -2,14 +2,12 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -477,7 +475,8 @@ func buildConcertCandidate(id, artistID, seriesID string, series *entity.Discove
 // It uses a batch-local cache to avoid redundant API calls within one
 // CreateFromDiscovered invocation.
 //
-// Returns (place, nil) on success, (nil, nil) when the place is not found, or
+// The search returns candidates and entity.SelectVenuePlace picks one. It
+// returns (place, nil) on success, (nil, nil) when the search found no place, or
 // (nil, err) on error. A nil place is NOT a skip signal: the concert is still
 // staged for review with its resolved-venue preview absent, so a developer can
 // judge a venue that Google Places could not resolve.
@@ -497,14 +496,11 @@ func (uc *concertCreationUseCase) resolvePlace(
 	if adminArea != nil {
 		area = *adminArea
 	}
-	place, err := uc.placeSearcher.SearchPlace(ctx, name, area)
+	places, err := uc.placeSearcher.SearchPlace(ctx, name, area)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("search place %q: %w", name, err)
 	}
-	return place, nil
+	return entity.SelectVenuePlace(name, places), nil
 }
 
 // resolveSeriesForGroup resolves the series_id shared by a whole discovered

@@ -135,13 +135,13 @@ func (h *creationHarness) sweepsOrphans() {
 // resolvesPlace expects Google Places to be asked once for the listed venue
 // name and to resolve it to place.
 func (h *creationHarness) resolvesPlace(name string, place *entity.VenuePlace) {
-	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(place, nil).Once()
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return([]*entity.VenuePlace{place}, nil).Once()
 }
 
 // cannotResolvePlace expects Google Places to be asked once for the listed
 // venue name and to find no place.
 func (h *creationHarness) cannotResolvePlace(name string) {
-	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(nil, notFound("place")).Once()
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(nil, nil).Once()
 }
 
 // createsVenue expects the venue of placeID, stored under neither that place
