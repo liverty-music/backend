@@ -133,7 +133,26 @@ func (uc *ticketUseCase) List(ctx context.Context, userID entity.UserID) ([]*ent
 
 // Admit implements [TicketUseCase].
 func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult, error) {
-	// -- the caller: a usable Scanner, the bound device, inside the window --
+	scanner, err := uc.admittingScanner(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	// -- the code: genuine, fresh, for this event, only the user's own tickets --
+	code, reason, err := uc.checkCode(ctx, in.ScannedText, scanner.EventID, in.Now)
+	if err != nil {
+		return nil, err
+	}
+	if reason != entity.RejectedScanReasonUnspecified {
+		uc.appendRejections(ctx, code.WholeRejections(scanner.EventID, scanner.ID, reason, in.Now))
+		return &AdmitResult{RejectedScanReason: reason}, nil
+	}
+	return uc.admitTickets(ctx, scanner, code.TicketIDs, in.Now)
+}
+
+// admittingScanner returns the caller: a usable Scanner, called from its bound
+// device, inside the admission window of its event.
+func (uc *ticketUseCase) admittingScanner(ctx context.Context, in AdmitInput) (*entity.Scanner, error) {
 	scanner, err := uc.scannerRepo.GetByLinkToken(ctx, in.LinkToken)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -159,26 +178,20 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 	if !ok || !window.Contains(in.Now) {
 		return nil, apperr.New(codes.FailedPrecondition, "outside the admission window")
 	}
+	return scanner, nil
+}
 
-	// -- the code: genuine, fresh, for this event, only the user's own tickets --
-	code, reason, err := uc.checkCode(ctx, in.ScannedText, scanner.EventID, in.Now)
-	if err != nil {
-		return nil, err
-	}
-	if reason != entity.RejectedScanReasonUnspecified {
-		uc.appendRejections(ctx, code.WholeRejections(scanner.EventID, scanner.ID, reason, in.Now))
-		return &AdmitResult{RejectedScanReason: reason}, nil
-	}
-
-	// -- each presented ticket, independently --
+// admitTickets admits each presented ticket independently and records the
+// refusals, also those decided before a failure.
+func (uc *ticketUseCase) admitTickets(ctx context.Context, scanner *entity.Scanner, ticketIDs []entity.TicketID, now time.Time) (*AdmitResult, error) {
 	result := &AdmitResult{}
 	var rejections []*entity.RejectedScan
 	reject := func(ticketID entity.TicketID, rt RejectedTicket) {
 		result.RejectedTickets = append(result.RejectedTickets, rt)
-		rejections = append(rejections, entity.NewRejectedScan(scanner.EventID, scanner.ID, ticketID, rt.Reason, in.Now))
+		rejections = append(rejections, entity.NewRejectedScan(scanner.EventID, scanner.ID, ticketID, rt.Reason, now))
 	}
-	for _, ticketID := range code.TicketIDs {
-		admitted, err := uc.ticketRepo.Admit(ctx, ticketID, scanner.ID, in.Now)
+	for _, ticketID := range ticketIDs {
+		admitted, err := uc.ticketRepo.Admit(ctx, ticketID, scanner.ID, now)
 		if err != nil {
 			// Refusals decided so far are still recorded.
 			uc.appendRejections(ctx, rejections)

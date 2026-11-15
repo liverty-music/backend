@@ -158,12 +158,6 @@ func (u *User) ValidatePersonalDetails() error {
 	return ValidatePersonalDetails(u.FullName, u.PhoneNumber)
 }
 
-// HasPersonalDetails reports whether the user has given both a full name and
-// a phone number.
-func (u *User) HasPersonalDetails() bool {
-	return u.FullName != nil && u.PhoneNumber != nil
-}
-
 // NewUser represents data for creating a new user.
 type NewUser struct {
 	// ProviderUserID is the identity provider's user identifier (Zitadel sub claim).

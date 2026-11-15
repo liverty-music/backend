@@ -62,8 +62,8 @@ func TestHype_IsValid(t *testing.T) {
 	}
 }
 
-// hypeTestFixture builds the shared home + per-proximity concerts used by both
-// the MatchingConcerts and ShouldNotify tests. Concerts carry stable IDs so the
+// hypeTestFixture builds the shared home + per-proximity concerts used by
+// the MatchingConcerts tests. Concerts carry stable IDs so the
 // subset assertions can check identity, not just length.
 func hypeTestFixture() (tokyoHome *entity.Home, tokyo, yokohama, osaka *entity.Concert) {
 	// Tokyo (JP-13): lat 35.6762, lng 139.6503
@@ -215,65 +215,6 @@ func TestHype_MatchingConcerts(t *testing.T) {
 			t.Parallel()
 
 			got := tt.hype.MatchingConcerts(tt.home, tt.concerts)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestHype_ShouldNotify(t *testing.T) {
-	t.Parallel()
-
-	tokyoHome, tokyo, _, osaka := hypeTestFixture()
-
-	tests := []struct {
-		name     string
-		hype     entity.Hype
-		home     *entity.Home
-		concerts []*entity.Concert
-		want     bool
-	}{
-		{
-			name:     "false for HypeWatch",
-			hype:     entity.HypeWatch,
-			home:     tokyoHome,
-			concerts: []*entity.Concert{tokyo},
-			want:     false,
-		},
-		{
-			name:     "true for HypeHome with an in-area concert",
-			hype:     entity.HypeHome,
-			home:     tokyoHome,
-			concerts: []*entity.Concert{tokyo},
-			want:     true,
-		},
-		{
-			name:     "false for HypeHome with only out-of-area concerts",
-			hype:     entity.HypeHome,
-			home:     tokyoHome,
-			concerts: []*entity.Concert{osaka},
-			want:     false,
-		},
-		{
-			name:     "true for HypeAway with any concert",
-			hype:     entity.HypeAway,
-			home:     tokyoHome,
-			concerts: []*entity.Concert{osaka},
-			want:     true,
-		},
-		{
-			name:     "false for unknown hype",
-			hype:     entity.Hype("unknown"),
-			home:     tokyoHome,
-			concerts: []*entity.Concert{tokyo},
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := tt.hype.ShouldNotify(tt.home, tt.concerts)
 			assert.Equal(t, tt.want, got)
 		})
 	}

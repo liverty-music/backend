@@ -376,19 +376,7 @@ func NotifiableEventIDs(inserted, linked []string) []string {
 //
 // Returns nil if no new events remain in any series after filtering.
 func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*DiscoveredSeries {
-	// seen maps (date, venue) → the set of StartKey values already recorded
-	// there, with "" representing an unknown-start row. The asymmetric rule
-	// reads off this one map: an unknown-start entry is redundant iff anything
-	// is recorded (len>0); a known-start entry is redundant only iff that exact
-	// StartKey is recorded (the "" sentinel never matches a known start, so an
-	// unknown-start row never absorbs a known start the creation path must fill).
-	seen := make(map[string]map[string]bool)
-	mark := func(k, start string) {
-		if seen[k] == nil {
-			seen[k] = make(map[string]bool)
-		}
-		seen[k][start] = true
-	}
+	known := knownSlots{}
 	for _, ex := range existing {
 		// Skip NULL-venue existing rows from dedup tracking — a row inserted
 		// before listed_venue_name was stored has no upstream identity to dedup
@@ -398,7 +386,7 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 		if ex.ListedVenueName == nil {
 			continue
 		}
-		mark(DateVenueKey(ex.LocalDate, *ex.ListedVenueName), StartKey(ex.StartTime))
+		known.mark(DateVenueKey(ex.LocalDate, *ex.ListedVenueName), StartKey(ex.StartTime))
 	}
 
 	var result []*DiscoveredSeries
@@ -406,38 +394,7 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 		if s == nil {
 			continue
 		}
-		var kept []*DiscoveredEvent
-		for _, ev := range s.Events {
-			if ev == nil {
-				continue
-			}
-			// Drop blank-venue (TBA) events entirely. They have no natural-key
-			// identity to dedup against on the creation path (CreateFromDiscovered
-			// skips them with a Warn before insert) AND no useful content for the
-			// search path (ToConcert produces an empty VenueID / event ID, so the
-			// client would receive malformed concert rows with empty wrappers).
-			// Dropping here is the single chokepoint for both consumers.
-			if ev.ListedVenueName == "" {
-				continue
-			}
-			k := DateVenueKey(ev.LocalDate, ev.ListedVenueName)
-			start := StartKey(NullableTime(ev.StartTime))
-			var dup bool
-			if start == "" {
-				// Unknown start: redundant if anything is already known here.
-				dup = len(seen[k]) > 0
-			} else {
-				// Known start: redundant only if this exact time was already seen;
-				// an existing unknown-start row does NOT absorb it (it must pass so
-				// the creation path can fill the announced time).
-				dup = seen[k][start]
-			}
-			if dup {
-				continue
-			}
-			mark(k, start)
-			kept = append(kept, ev)
-		}
+		kept := known.keepNew(s.Events)
 		if len(kept) == 0 {
 			continue
 		}
@@ -448,6 +405,59 @@ func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*Discove
 		result = append(result, &ns)
 	}
 	return result
+}
+
+// knownSlots maps (date, venue) to the set of StartKey values already
+// recorded there, with "" representing an unknown-start row. The asymmetric
+// rule of [FilterNewSeries] reads off this one map: an unknown-start entry is
+// redundant iff anything is recorded (len>0); a known-start entry is
+// redundant only iff that exact StartKey is recorded (the "" sentinel never
+// matches a known start, so an unknown-start row never absorbs a known start
+// the creation path must fill).
+type knownSlots map[string]map[string]bool
+
+// mark records start at the (date, venue) key k.
+func (k knownSlots) mark(key, start string) {
+	if k[key] == nil {
+		k[key] = make(map[string]bool)
+	}
+	k[key][start] = true
+}
+
+// keepNew returns the events not yet known, in order, and records each one
+// it keeps so that the events after it are compared against it.
+func (k knownSlots) keepNew(events []*DiscoveredEvent) []*DiscoveredEvent {
+	var kept []*DiscoveredEvent
+	for _, ev := range events {
+		// Drop blank-venue (TBA) events entirely. They have no natural-key
+		// identity to dedup against on the creation path (CreateFromDiscovered
+		// skips them with a Warn before insert) AND no useful content for the
+		// search path (ToConcert produces an empty VenueID / event ID, so the
+		// client would receive malformed concert rows with empty wrappers).
+		// Dropping here is the single chokepoint for both consumers.
+		if ev == nil || ev.ListedVenueName == "" {
+			continue
+		}
+		key := DateVenueKey(ev.LocalDate, ev.ListedVenueName)
+		start := StartKey(NullableTime(ev.StartTime))
+		if k.known(key, start) {
+			continue
+		}
+		k.mark(key, start)
+		kept = append(kept, ev)
+	}
+	return kept
+}
+
+// known reports whether an event at key with start is already known: with
+// an unknown start, when anything is known there; with a known start, only
+// when that exact time is (an existing unknown-start row does not absorb it,
+// so the creation path can fill the announced time).
+func (k knownSlots) known(key, start string) bool {
+	if start == "" {
+		return len(k[key]) > 0
+	}
+	return k[key][start]
 }
 
 // ProximityTo determines the geographic proximity of this concert's venue

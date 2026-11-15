@@ -166,22 +166,36 @@ func (s *TicketSale) Validate() error {
 		return apperr.New(codes.InvalidArgument, "sale name must be 1 to 100 characters")
 	}
 	if s.IsDiscovered() {
-		if len(s.EventIDs) > 0 {
-			return apperr.New(codes.InvalidArgument, "a discovered sale names no event")
-		}
-		if s.VerificationRequirement != VerificationRequirementNone {
-			return apperr.New(codes.InvalidArgument, "a discovered sale has no verification requirement")
-		}
-		if s.ResultDate != nil {
-			if s.Method != TicketSaleMethodLottery {
-				return apperr.New(codes.InvalidArgument, "only a lottery has a result date")
-			}
-			if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime) {
-				return apperr.New(codes.InvalidArgument, "a result date is no earlier than the day of the sale end")
-			}
-		}
+		return s.validateDiscovered()
+	}
+	return s.validateOrganizers()
+}
+
+// validateDiscovered checks what only a discovered sale must hold: no events,
+// no verification requirement, and a result date only on a lottery, no
+// earlier than the day of the sale end.
+func (s *TicketSale) validateDiscovered() error {
+	if len(s.EventIDs) > 0 {
+		return apperr.New(codes.InvalidArgument, "a discovered sale names no event")
+	}
+	if s.VerificationRequirement != VerificationRequirementNone {
+		return apperr.New(codes.InvalidArgument, "a discovered sale has no verification requirement")
+	}
+	if s.ResultDate == nil {
 		return nil
 	}
+	if s.Method != TicketSaleMethodLottery {
+		return apperr.New(codes.InvalidArgument, "only a lottery has a result date")
+	}
+	if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime) {
+		return apperr.New(codes.InvalidArgument, "a result date is no earlier than the day of the sale end")
+	}
+	return nil
+}
+
+// validateOrganizers checks what only an Organizer's sale must hold: no
+// result date, and at least one event, each named once.
+func (s *TicketSale) validateOrganizers() error {
 	if s.ResultDate != nil {
 		return apperr.New(codes.InvalidArgument, "an Organizer's sale has no result date")
 	}

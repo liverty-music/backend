@@ -190,44 +190,60 @@ func (n *Notification) copyKey(s *LoadedSubject) string {
 		}
 		return copyAnnounceLottery
 	case NotificationTypeSalesReminder:
-		switch {
-		case n.Subject.Stage == ReminderStageApplyClose24H:
-			return copyApplyClose24H
-		case s.TicketSale.Method == TicketSaleMethodFirstCome:
-			return copyApplyOpenFirstCome
-		default:
-			return copyApplyOpenLottery
-		}
+		return n.reminderCopyKey(s)
 	case NotificationTypeLotteryWin:
 		return copyLotteryWin
 	case NotificationTypeResaleWin:
 		return copyResaleWin
 	case NotificationTypeLotteryLoss:
-		switch s.LotteryEntry.LostReason {
-		case LotteryEntryLostReasonCardNotCharged:
-			return copyLotteryNotCharged
-		case LotteryEntryLostReasonConcertCancelled:
-			return copyLotteryCancelled
-		default:
-			return copyLotteryNotDrawn
-		}
+		return lotteryLossCopyKey(s.LotteryEntry.LostReason)
 	case NotificationTypeResaleEntryLapsed:
 		return copyResaleLapsed
 	case NotificationTypeResaleEntryLost:
-		switch s.ResaleEntry.LostReason {
-		case ResaleEntryLostReasonConcertCancelled:
-			return copyResaleConcertCanceled
-		case ResaleEntryLostReasonCardNotCharged, ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
-			return copyResalePaymentFailed
-		case ResaleEntryLostReasonListingCancelled:
-			return copyResaleListingCanceled
-		default:
-			return copyResaleNoTicketLeft
-		}
+		return resaleLostCopyKey(s.ResaleEntry.LostReason)
 	case NotificationTypeConcertCancelled:
 		return copyConcertCancelled
 	default:
 		return copyOrderRefunded
+	}
+}
+
+// reminderCopyKey selects the row of a sales reminder: by its stage and, at
+// the opening, by the sale's method.
+func (n *Notification) reminderCopyKey(s *LoadedSubject) string {
+	switch {
+	case n.Subject.Stage == ReminderStageApplyClose24H:
+		return copyApplyClose24H
+	case s.TicketSale.Method == TicketSaleMethodFirstCome:
+		return copyApplyOpenFirstCome
+	default:
+		return copyApplyOpenLottery
+	}
+}
+
+// lotteryLossCopyKey selects the row of a lottery loss by its lost reason.
+func lotteryLossCopyKey(reason LotteryEntryLostReason) string {
+	switch reason {
+	case LotteryEntryLostReasonCardNotCharged:
+		return copyLotteryNotCharged
+	case LotteryEntryLostReasonConcertCancelled:
+		return copyLotteryCancelled
+	default:
+		return copyLotteryNotDrawn
+	}
+}
+
+// resaleLostCopyKey selects the row of a lost resale entry by its lost reason.
+func resaleLostCopyKey(reason ResaleEntryLostReason) string {
+	switch reason {
+	case ResaleEntryLostReasonConcertCancelled:
+		return copyResaleConcertCanceled
+	case ResaleEntryLostReasonCardNotCharged, ResaleEntryLostReasonPaymentNotCompletedBeforeShow:
+		return copyResalePaymentFailed
+	case ResaleEntryLostReasonListingCancelled:
+		return copyResaleListingCanceled
+	default:
+		return copyResaleNoTicketLeft
 	}
 }
 
