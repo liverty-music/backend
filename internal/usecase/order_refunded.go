@@ -70,8 +70,7 @@ func (uc *notificationUseCase) readRefundNotice(ctx context.Context, orderID ent
 	if err != nil {
 		return orderNoticeMessage{}, err
 	}
-	refund := order.Refund
-	if refund == nil || refund.Reason != entity.RefundReasonCancellation || refund.Amount <= 0 {
+	if !order.GetsRefundNotice() {
 		return orderNoticeMessage{}, nil
 	}
 	user, err := d.Users.Get(ctx, string(order.UserID))

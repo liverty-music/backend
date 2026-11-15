@@ -7,8 +7,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // NotifyNewConcerts sends Web Push notifications to followers of the artist,
@@ -46,64 +44,18 @@ func (uc *notificationUseCase) NotifyNewConcerts(ctx context.Context, data Conce
 		return fmt.Errorf("failed to list concerts by IDs: %w", err)
 	}
 
-	// Validate that every requested concert exists and that the specified
-	// artist is one of its performers. With M:N performers, "belongs to" is
-	// "is a performer at" — a single concert (e.g. a festival) may legitimately
-	// belong to multiple artists. This protects against admin mistakes on
-	// the debug RPC path and bad publisher state on the event path.
-	hasPerformer := make(map[string]bool, len(concerts))
-	// orphanConcerts records concerts whose Performers slice is empty after
-	// hydration. The new M:N schema allows a structurally valid event row
-	// to exist with no concert_artists links (e.g. a race between Create
-	// and the natural-key JOIN in insertEventPerformersQuery, or an
-	// orphaned data state). Treat these as non-fatal — log + skip — rather
-	// than aborting the whole batch and indefinitely retrying the Pub/Sub
-	// message, which would block notifications for every other concert.
-	orphanConcerts := make(map[string]bool, len(concerts))
-	for _, c := range concerts {
-		if len(c.Artists) == 0 {
-			orphanConcerts[c.ID] = true
-			uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
-				slog.String("concert_id", c.ID),
-				slog.String("artist_id", data.ArtistID),
-			)
-		}
-		hasPerformer[c.ID] = false
-		for _, p := range c.Artists {
-			if p != nil && p.ID == data.ArtistID {
-				hasPerformer[c.ID] = true
-				break
-			}
-		}
+	// Every requested concert must exist and feature the artist; a concert
+	// with no performers is a data anomaly that is skipped rather than
+	// failing (and redelivering) the whole batch.
+	concerts, orphanIDs, err := entity.NewConcertsOfArtist(data.ArtistID, data.ConcertIDs, concerts)
+	if err != nil {
+		return err
 	}
-	for _, id := range data.ConcertIDs {
-		performs, exists := hasPerformer[id]
-		if !exists {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
-		}
-		if orphanConcerts[id] {
-			// Already logged above; do not fail the batch on a data anomaly.
-			continue
-		}
-		if !performs {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+data.ArtistID)
-		}
-	}
-
-	// Drop orphan concerts from the working slice. The membership check
-	// skipped them above so they don't abort the batch, but if they
-	// stayed in `concerts` they would still feed MatchingConcerts —
-	// qualifying a follower for HypeHome / HypeNearby (or padding the
-	// HypeAway count and deep-link) on a concert whose performer
-	// membership was never confirmed (orphan concert_artists state).
-	if len(orphanConcerts) > 0 {
-		kept := concerts[:0]
-		for _, c := range concerts {
-			if !orphanConcerts[c.ID] {
-				kept = append(kept, c)
-			}
-		}
-		concerts = kept
+	for _, id := range orphanIDs {
+		uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
+			slog.String("concert_id", id),
+			slog.String("artist_id", data.ArtistID),
+		)
 	}
 
 	// If every concert was an orphan, there's nothing real to notify

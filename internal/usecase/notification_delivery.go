@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -114,16 +113,7 @@ func deliverNotification(ctx context.Context, d notificationDeliveryDeps, req De
 		return DeliveryOutcome{}, fmt.Errorf("failed to create notification record: %w", err)
 	}
 
-	// Carry the stable notification id and its type into the dispatched payload
-	// so the client/service worker can correlate interactions back to this
-	// record and report them by type, and name a reminder's sale and milestone
-	// so a fan's reaction can be told apart by milestone.
-	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
-	payload.Data[entity.NotificationDataKeyType] = string(req.Type)
-	if req.Type == entity.NotificationTypeSalesReminder {
-		payload.Data[entity.NotificationDataKeyTicketSaleID] = req.Subject.TicketSaleID
-		payload.Data[entity.NotificationDataKeyMilestone] = strings.ToLower(req.Subject.Stage.String())
-	}
+	n.Stamp(payload)
 
 	status, reason, reasonCategory := d.dispatch(ctx, n, payload)
 	outcome := DeliveryOutcome{NotificationID: n.ID, Status: status, FailureReason: reason}

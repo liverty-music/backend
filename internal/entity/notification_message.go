@@ -129,6 +129,23 @@ const (
 	ResaleEntriesLink = "/resale-entries"
 )
 
+// Stamp writes into the payload's data what tells the stored Notification
+// apart: its id and its type, so the service worker can report an interaction
+// with it by type, and for a sales reminder the sale and the milestone
+// (lower case), so a fan's reaction can be told apart by milestone. It is
+// called once the Notification is stored and has its id.
+func (n *Notification) Stamp(p *NotificationPayload) {
+	if p.Data == nil {
+		p.Data = map[string]string{}
+	}
+	p.Data[NotificationDataKeyNotificationID] = n.ID
+	p.Data[NotificationDataKeyType] = string(n.Type)
+	if n.Type == NotificationTypeSalesReminder {
+		p.Data[NotificationDataKeyTicketSaleID] = n.Subject.TicketSaleID
+		p.Data[NotificationDataKeyMilestone] = strings.ToLower(n.Subject.Stage.String())
+	}
+}
+
 // Message renders n from the records of s in lang, which falls back to English
 // for anything but Japanese: the title reads "[<artist>] <headline>", the body
 // "<detail>", a line break and the tour title. It reads nothing and holds no
