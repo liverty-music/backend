@@ -127,8 +127,10 @@ ENTRYPOINT ["/worker"]
 # cannot run it. The build- and run-time Alpine releases MUST provide the same
 # libvips major so the soname matches; keep both pinned to the same Alpine as
 # the golang builder image.
-FROM builder AS build-series-image-consumer
+FROM builder AS vips-builder
 RUN apk add --no-cache vips-dev gcc musl-dev pkgconfig
+
+FROM vips-builder AS build-series-image-consumer
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -tags vips \
@@ -149,10 +151,12 @@ ENTRYPOINT ["/series-image-consumer"]
 # bare GitHub-hosted runner, so the tests exercise the exact same libvips
 # build (same builder base image + same `apk add vips-dev ...` line) that
 # ships in the series-image-consumer runtime image above. Building from
-# build-series-image-consumer (not `builder`) reuses its already-installed
-# vips-dev/gcc/musl-dev/pkgconfig layer instead of re-installing them.
+# vips-builder, the stage build-series-image-consumer also starts from, shares
+# the installed vips-dev/gcc/musl-dev/pkgconfig layer without running the
+# production `go build`, which the tests do not use (it took 84 s of a 331 s
+# job: its cache mount is not visible to this stage's RUN).
 # `docker build --target test-series-image-consumer` fails the build (and so the
 # CI job) if either command exits non-zero.
-FROM build-series-image-consumer AS test-series-image-consumer
+FROM vips-builder AS test-series-image-consumer
 RUN CGO_ENABLED=1 go vet -tags vips ./internal/adapter/event/... \
     && CGO_ENABLED=1 go test -tags vips -v ./internal/adapter/event/...
