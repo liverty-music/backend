@@ -570,6 +570,21 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.Equal(t, entity.CheckoutStatusCommitted, got.Status)
 		assert.Equal(t, entity.OrderStatusPending, got.Order.Status)
 
+		// @spec components/entity/checkout "Charged checkout"
+		// A Committed checkout with a capture time is neither Expired by the
+		// sweep (here) nor Released by a revert (see "revert commit"); it only
+		// becomes Completed (see completedCheckout).
+		charged := heldCheckout(t, db, repo, 1, start)
+		_, err = repo.Commit(ctx, charged.ID, expiry.Add(-time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, repo.RecordCapture(ctx, charged.ID, expiry.Add(-30*time.Second)))
+		changed, err = repo.Release(ctx, charged.ID, expiry.Add(time.Minute))
+		require.NoError(t, err)
+		assert.False(t, changed)
+		got, err = repo.Get(ctx, charged.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.CheckoutStatusCommitted, got.Status)
+
 		// @spec components/entity/checkout/release "Paid checkout"
 		paid := completedCheckout(t, db, repo, issuance, start)
 		changed, err = repo.Release(ctx, paid.ID, expiry.Add(time.Hour))
@@ -634,6 +649,7 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.Equal(t, 0, sold)
 
 		// @spec components/entity/checkout/revert-commit "Already charged"
+		// @spec components/entity/checkout "Charged checkout"
 		charged := heldCheckout(t, db, repo, 2, start)
 		_, err = repo.Commit(ctx, charged.ID, committedAt)
 		require.NoError(t, err)

@@ -159,19 +159,6 @@ func (e *Event) HasPublishState(state PublishState) bool {
 	return e.PublishState != nil && *e.PublishState == state
 }
 
-// SameSlot reports whether e and other are the same performance: neither is
-// DRAFT, and they share the Venue, the local date and the start time, where an
-// unknown start time matches only another unknown start time. A DRAFT event
-// holds no slot, so it is the same performance as no other Event.
-func (e *Event) SameSlot(other *Event) bool {
-	if e.HasPublishState(PublishStateDraft) || other.HasPublishState(PublishStateDraft) {
-		return false
-	}
-	return e.VenueID == other.VenueID &&
-		e.LocalDate.Equal(other.LocalDate) &&
-		sameOptionalTime(e.StartTime, other.StartTime)
-}
-
 // CanTransitionTo reports whether the event may move to next. The only
 // transitions are DRAFT to PUBLISHED and PUBLISHED to CANCELLED: a draft that
 // will not happen is removed, never cancelled, and CANCELLED is terminal. An

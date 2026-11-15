@@ -366,6 +366,11 @@ func (uc *resaleEntryUseCase) Withdraw(ctx context.Context, userID entity.UserID
 	if !entry.BelongsTo(userID) {
 		return nil, apperr.New(codes.NotFound, "no resale entry of the fan has the id", slog.String("resale_entry_id", string(id)))
 	}
+	// The repository withdraws only an Entered entry under its row lock, so an
+	// entry drawn after this read is refused there too.
+	if !entry.IsWithdrawable() {
+		return nil, apperr.New(codes.FailedPrecondition, "only an entered resale entry can be withdrawn", slog.String("resale_entry_id", string(id)))
+	}
 	return uc.entryRepo.Withdraw(ctx, id, uc.clock())
 }
 

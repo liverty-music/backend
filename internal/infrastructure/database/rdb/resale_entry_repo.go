@@ -152,6 +152,9 @@ func (r *ResaleEntryRepository) Create(ctx context.Context, entry *entity.Resale
 	if order.CardAuthorizationID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "a resale entry is made for an order with its card authorization", attrs...)
 	}
+	if err := order.ValidateSource(); err != nil {
+		return nil, err
+	}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, toAppErr(err, "failed to begin resale entry creation", attrs...)

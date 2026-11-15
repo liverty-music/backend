@@ -10,12 +10,12 @@ import (
 // "firefox", "windows" or "other") of a PushDeviceFamily; "other" for an
 // unspecified one.
 func DeviceFamilyFromProto(f entityv1.PushDeviceFamily) string {
-	for name, v := range deviceFamilyToProto {
+	for family, v := range deviceFamilyToProto {
 		if v == f {
-			return name
+			return string(family)
 		}
 	}
-	return "other"
+	return string(entity.PushDeviceFamilyOther)
 }
 
 // NotificationTypeFromProto returns the NotificationType of its wire form,

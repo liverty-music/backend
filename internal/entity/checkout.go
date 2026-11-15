@@ -111,22 +111,6 @@ func NewCheckout(order *Order, saleID TicketSaleID, now time.Time) *Checkout {
 	return c
 }
 
-// ValidateCheckoutSale reports whether a Checkout can belong to sale for
-// stock: a FirstCome sale that names the stock's event. It fails with
-// FailedPrecondition, which callers return as it is.
-func ValidateCheckoutSale(sale *TicketSale, stock *TicketStock) error {
-	if sale == nil {
-		return apperr.New(codes.FailedPrecondition, "a checkout belongs to a ticket sale")
-	}
-	if sale.Method != TicketSaleMethodFirstCome {
-		return apperr.New(codes.FailedPrecondition, "a checkout belongs to a first-come sale")
-	}
-	if !sale.NamesEvent(stock.EventID) {
-		return apperr.New(codes.FailedPrecondition, "a checkout's sale must name the event of its ticket stock")
-	}
-	return nil
-}
-
 // IsHoldingAt reports whether the Checkout is Held and t is before its hold
 // expiry. Only holding Checkouts count in a TicketStock's held count, and only
 // a holding Checkout can be committed.
@@ -147,23 +131,6 @@ func (r *Checkout) StatusAt(t time.Time) CheckoutStatus {
 // IsCharged reports whether the Checkout's card was charged.
 func (r *Checkout) IsCharged() bool {
 	return r.CaptureTime != nil
-}
-
-// CanBecome reports whether the Checkout may move to status next. A
-// charged Checkout can only become Completed: it is never Released or
-// Expired.
-func (r *Checkout) CanBecome(next CheckoutStatus) bool {
-	switch r.Status {
-	case CheckoutStatusHeld:
-		return next == CheckoutStatusCommitted || next == CheckoutStatusExpired || next == CheckoutStatusReleased
-	case CheckoutStatusCommitted:
-		if r.IsCharged() {
-			return next == CheckoutStatusCompleted
-		}
-		return next == CheckoutStatusCompleted || next == CheckoutStatusReleased
-	default:
-		return false
-	}
 }
 
 // HoldingCheckoutOf returns the Checkout among checkouts that holds the stock

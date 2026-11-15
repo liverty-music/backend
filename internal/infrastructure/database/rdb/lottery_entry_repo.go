@@ -164,6 +164,9 @@ func (r *LotteryEntryRepository) Create(ctx context.Context, entry *entity.Lotte
 	if order.CardAuthorizationID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "a lottery entry is made for an order with its card authorization", attrs...)
 	}
+	if err := order.ValidateSource(); err != nil {
+		return nil, err
+	}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, toAppErr(err, "failed to begin lottery entry creation", attrs...)

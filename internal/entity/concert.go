@@ -31,13 +31,6 @@ type Concert struct {
 	Artists []*Artist
 }
 
-// IsVisibleToFans reports whether the concert is visible to fans: exactly when
-// its Event is publicly visible (see [Event.IsPubliclyVisible]). Its publish
-// state is its Event's.
-func (c *Concert) IsVisibleToFans() bool {
-	return c.IsPubliclyVisible(c.Series)
-}
-
 // EventsOf returns the Event of each concert, in order.
 func EventsOf(concerts []*Concert) []*Event {
 	events := make([]*Event, len(concerts))

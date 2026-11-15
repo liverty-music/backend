@@ -358,7 +358,7 @@ func TestResaleEntryUseCase_Withdraw(t *testing.T) {
 		// @spec components/usecase/resale-entry/withdraw "Already drawn"
 		f := newResaleEntryFixture(t)
 		f.entries.EXPECT().Get(mock.Anything, entity.ResaleEntryID("entry-1")).Return(mine(entity.ResaleEntryStateWon), nil)
-		f.entries.EXPECT().Withdraw(mock.Anything, entity.ResaleEntryID("entry-1"), reNow).Return(nil, apperr.New(codes.FailedPrecondition, "drawn"))
+		// A Won entry is refused before the repository is asked.
 
 		_, err := f.uc.Withdraw(ctx, "fan-1", "entry-1")
 

@@ -38,60 +38,6 @@ func firstPartySeries(visibility entity.SeriesVisibility) *entity.Series {
 	return &entity.Series{OrganizerID: &org, Visibility: &visibility}
 }
 
-func TestEvent_SameSlot(t *testing.T) {
-	t.Parallel()
-
-	published := new(entity.PublishStatePublished)
-
-	tests := []struct {
-		name string
-		a, b *entity.Event
-		want bool
-	}{
-		{
-			// @spec components/entity/event "Matinee and evening shows are distinct"
-			name: "return false for two start times on one venue and date",
-			a:    eventAt(testVenueA, new(testAt13), nil),
-			b:    eventAt(testVenueA, new(testAt18), nil),
-			want: false,
-		},
-		{
-			// @spec components/entity/event "Same slot under different series is one event"
-			name: "return true for one venue, date and start time under different series",
-			a:    &entity.Event{SeriesID: "s1", VenueID: testVenueA, LocalDate: testDate, StartTime: new(testAt18)},
-			b:    &entity.Event{SeriesID: "s2", VenueID: testVenueA, LocalDate: testDate, StartTime: new(testAt18), PublishState: published},
-			want: true,
-		},
-		{
-			// @spec components/entity/event "Two unknown start times collapse"
-			name: "return true when neither has a start time",
-			a:    eventAt(testVenueA, nil, nil),
-			b:    eventAt(testVenueA, nil, published),
-			want: true,
-		},
-		{
-			// @spec components/entity/event "Unknown start does not match a known start"
-			name: "return false for a known and an unknown start time",
-			a:    eventAt(testVenueA, new(testAt18), nil),
-			b:    eventAt(testVenueA, nil, nil),
-			want: false,
-		},
-		{
-			// @spec components/entity/event "Draft beside a discovered event"
-			name: "return false for a draft at the slot of a discovered event",
-			a:    eventAt(testVenueA, new(testAt18), new(entity.PublishStateDraft)),
-			b:    eventAt(testVenueA, new(testAt18), nil),
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, tt.a.SameSlot(tt.b))
-		})
-	}
-}
-
 func TestEvent_PublishState(t *testing.T) {
 	t.Parallel()
 

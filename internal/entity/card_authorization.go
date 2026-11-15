@@ -66,13 +66,6 @@ func (a *CardAuthorization) CountsAsCharged(eventPublished bool) bool {
 	return !eventPublished && a.Status == CardAuthorizationStatusCaptured
 }
 
-// ChargeableAt reports whether the card authorization can still be charged at
-// t: it is Authorized and t is before its expiry time. One without an expiry
-// time cannot be charged.
-func (a *CardAuthorization) ChargeableAt(t time.Time) bool {
-	return a.Status == CardAuthorizationStatusAuthorized && a.ExpireTime != nil && t.Before(*a.ExpireTime)
-}
-
 // CardAuthorizationPurpose is the kind of purchase a CardAuthorization pays
 // for.
 type CardAuthorizationPurpose int
