@@ -240,6 +240,7 @@ func TestClient_SearchPlace(t *testing.T) {
 		invalidJSON  bool
 	}{
 		{
+			// @spec components/entity/venue/search-place "Known venue"
 			name:       "success - returns every place in order",
 			venueName:  "Zepp Nagoya",
 			adminArea:  "Aichi",
@@ -267,6 +268,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			wantNames: []string{"Nippon Budokan"},
 		},
 		{
+			// @spec components/entity/venue/search-place "No match"
 			name:         "no place - empty places list",
 			venueName:    "Unknown Venue",
 			adminArea:    "",

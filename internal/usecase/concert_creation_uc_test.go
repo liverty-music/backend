@@ -511,6 +511,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 	t.Run("known-start fill is routed to the publish path, not staged", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Start time announced"
 		h := newCreationHarness(t)
 		// The Artist's existing unknown-start row on the date at the same listed
 		// venue: the re-discovery fast path adopts its series, skips the Places
@@ -645,6 +646,116 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	})
 }
 
+func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
+	t.Parallel()
+
+	date1 := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	date2 := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
+	start13 := time.Date(2026, 5, 10, 13, 0, 0, 0, time.UTC)
+	start18 := time.Date(2026, 5, 10, 18, 0, 0, 0, time.UTC)
+	venueA, venueB, venueZ := "Venue A", "Venue B", "Venue Z"
+
+	tour := func(events ...*entity.DiscoveredEvent) entity.ConcertDiscoveredData {
+		return entity.ConcertDiscoveredData{
+			ArtistID: "artist-tour",
+			Series: []*entity.DiscoveredSeries{{
+				Title: "Tour 2026", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour",
+				Events: events,
+			}},
+		}
+	}
+
+	t.Run("a re-discovered tour joins the series of its matching event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Re-discovered tour joins its series"
+		h := newCreationHarness(t)
+		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
+			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, nil).Once()
+		// Only the new date is created; no Series is (a Series.Create would fail the mock).
+		h.resolvesPlace(venueB, &entity.VenuePlace{ProviderUserID: "place-b", Name: venueB})
+		h.createsVenue("place-b", venueB)
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
+			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1},
+			&entity.DiscoveredEvent{ListedVenueName: venueB, LocalDate: date2},
+		)))
+
+		assert.Empty(t, h.createdSeries, "no Series is created")
+		require.Len(t, h.createdConcerts, 1)
+		assert.Equal(t, "series-1", h.createdConcerts[0].SeriesID, "the new date goes under the matched Event's Series")
+	})
+
+	t.Run("a same-day show at another venue does not make the tour join", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Same-day show at another venue does not join"
+		h := newCreationHarness(t)
+		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
+			Return([]*entity.Event{{ID: "event-9", SeriesID: "series-9", VenueID: "venue-z", LocalDate: date1, ListedVenueName: &venueZ}}, nil).Once()
+		h.createsSeries(1)
+		h.resolvesPlace(venueA, &entity.VenuePlace{ProviderUserID: "place-a", Name: venueA})
+		h.createsVenue("place-a", venueA)
+		h.notSuppressed(1)
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
+			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1},
+		)))
+
+		require.Len(t, h.createdSeries, 1, "a new Series is created")
+		require.Len(t, h.createdConcerts, 1)
+		assert.NotEqual(t, "series-9", h.createdConcerts[0].SeriesID)
+		assert.Equal(t, h.createdSeries[0].ID, h.createdConcerts[0].SeriesID)
+	})
+
+	t.Run("an exact re-discovery stores nothing and looks up no venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Exact re-discovery"
+		h := newCreationHarness(t)
+		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
+			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: &start18, ListedVenueName: &venueA}}, nil).Once()
+		// No Places, venue, slot, Create or Upsert expectation: any such call fails the mock.
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
+			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
+		)))
+
+		assert.Empty(t, h.createdConcerts)
+		assert.Empty(t, h.staged)
+		assert.Empty(t, h.createdVenues)
+	})
+
+	t.Run("two new start times fill the unknown-start event and publish the other", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Two new start times for one unknown-start event"
+		h := newCreationHarness(t)
+		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
+			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, nil).Once()
+		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, []*time.Time{&start13}, []*time.Time{nil}).Return(nil).Once()
+		// The venue is the matched Event's: no Places or venue lookup is expected.
+		h.notSuppressed(1)
+		h.slotHolds("venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: &start13})
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
+			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start13},
+			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
+		)))
+
+		require.Len(t, h.createdConcerts, 1, "the 18:00 show is a new event")
+		require.NotNil(t, h.createdConcerts[0].StartTime)
+		assert.True(t, h.createdConcerts[0].StartTime.Equal(start18))
+		assert.Equal(t, "series-1", h.createdConcerts[0].SeriesID)
+	})
+}
+
 func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	t.Parallel()
 
@@ -673,6 +784,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 	t.Run("three-date tour produces exactly one TOUR series", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "New tour"
 		h := newCreationHarness(t)
 		h.findsNoArtistEvents(1)
 		// Exactly one series row minted (not one per event): a second

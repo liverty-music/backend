@@ -448,6 +448,11 @@ func makeEvent(date time.Time, venue string) *entity.DiscoveredEvent {
 	return &entity.DiscoveredEvent{LocalDate: date, ListedVenueName: venue}
 }
 
+// startingAt returns an existing Concert at the venue with a known start time.
+func startingAt(date time.Time, venue string, start time.Time) *entity.Concert {
+	return &entity.Concert{LocalDate: date, ListedVenueName: &venue, StartTime: &start}
+}
+
 func TestFilterNewSeries(t *testing.T) {
 	t.Parallel()
 
@@ -534,6 +539,7 @@ func TestFilterNewSeries(t *testing.T) {
 			wantEventVenues: []string{"Zepp Tokyo"},
 		},
 		{
+			// @spec components/entity/discovered-series/filter-new-series "Duplicate within the batch"
 			name: "deduplicate within-batch same-date-and-venue events within one series",
 			args: args{
 				series: []*entity.DiscoveredSeries{
@@ -564,6 +570,7 @@ func TestFilterNewSeries(t *testing.T) {
 			wantEventVenues: []string{"Tokyo Dome"},
 		},
 		{
+			// @spec components/entity/discovered-series/filter-new-series "Venue name drift"
 			name: "venue-name drift against existing is deduped (admin-area prefix)",
 			args: args{
 				series: []*entity.DiscoveredSeries{
@@ -612,6 +619,65 @@ func TestFilterNewSeries(t *testing.T) {
 				existing: []*entity.Concert{},
 			},
 			wantEventVenues: []string{"フェスティバルホール"},
+		},
+		{
+			// @spec components/entity/discovered-series/filter-new-series "Same instant in another time zone"
+			name: "the same instant written in another time zone is deduped",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", &entity.DiscoveredEvent{
+						LocalDate:       date1,
+						ListedVenueName: "Zepp Tokyo",
+						StartTime:       time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("JST", 9*60*60)),
+					}),
+				},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC))},
+			},
+			wantNil: true,
+		},
+		{
+			// @spec components/entity/discovered-series/filter-new-series "Unknown start next to a known start"
+			name: "unknown-start event dropped next to an existing event with a known start",
+			args: args{
+				series:   []*entity.DiscoveredSeries{makeSeries("Tour", makeEvent(date1, zeppTokyo))},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC))},
+			},
+			wantNil: true,
+		},
+		{
+			// @spec components/entity/discovered-series/filter-new-series "Matinee next to an evening show"
+			name: "matinee kept next to an existing evening show",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", &entity.DiscoveredEvent{
+						LocalDate:       date1,
+						ListedVenueName: "Zepp Tokyo",
+						StartTime:       time.Date(2026, 3, 15, 13, 0, 0, 0, time.UTC),
+					}),
+				},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC))},
+			},
+			wantEventVenues: []string{"Zepp Tokyo"},
+		},
+		{
+			// @spec components/entity/discovered-series/filter-new-series "Same date, different venue"
+			name: "two discovered events on one date at different venues are both kept",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Two venues", makeEvent(date1, "Zepp Tokyo"), makeEvent(date1, "Zepp Osaka")),
+				},
+				existing: []*entity.Concert{},
+			},
+			wantEventVenues: []string{"Zepp Tokyo", "Zepp Osaka"},
+		},
+		{
+			// @spec components/entity/discovered-series/filter-new-series "Legacy concert without listed name"
+			name: "an existing concert without a listed venue name drops nothing",
+			args: args{
+				series:   []*entity.DiscoveredSeries{makeSeries("Tour", ev1)},
+				existing: []*entity.Concert{{LocalDate: date1}},
+			},
+			wantEventVenues: []string{"Zepp Tokyo"},
 		},
 		{
 			name: "preserve original order of events and series",
@@ -671,6 +737,7 @@ func TestFilterNewSeries(t *testing.T) {
 			wantNil: true,
 		},
 		{
+			// @spec components/entity/discovered-series/filter-new-series "Start time announced later"
 			name: "known-start event kept when only unknown-start existing row exists",
 			args: args{
 				series: []*entity.DiscoveredSeries{
