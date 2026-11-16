@@ -571,6 +571,18 @@ func TestFilterNewSeries(t *testing.T) {
 		},
 		{
 			// @spec components/entity/discovered-series/filter-new-series "Venue name drift"
+			name: "a discovered bare venue name is deduped against an existing admin-area-prefixed name",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Drifted", makeEvent(date1, "フェスティバルホール")),
+				},
+				existing: []*entity.Concert{
+					{LocalDate: date1, ListedVenueName: func() *string { s := "大阪・フェスティバルホール"; return &s }()},
+				},
+			},
+			wantNil: true,
+		},
+		{
 			name: "venue-name drift against existing is deduped (admin-area prefix)",
 			args: args{
 				series: []*entity.DiscoveredSeries{
