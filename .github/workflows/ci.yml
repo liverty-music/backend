@@ -100,12 +100,37 @@ jobs:
       # Renovate does not manage; fail when they are on different schema builds.
       - name: Check schema SDK modules share one schema commit
         run: scripts/check-schema-sdk-commit.sh
-      # The Go build cache gives golangci-lint and go vet the compiled packages
-      # of the dependencies; without it `make lint` compiled them on every run.
+      # Lint keeps its own caches, saved only by the daily run on `main` (the
+      # Test job does the same, with its own key). With setup-go's `cache: true`
+      # the first job to finish saved the shared key, and every pull request
+      # saved a 560 MB copy that no other pull request can read. go vet,
+      # golangci-lint and go fix compile the whole module: 118 s of the 190 s
+      # median on a clean cache. Run again on a warm cache they take 2 s, 2 s
+      # and 2 s, and 13 s for golangci-lint after a change (4 CPUs, measured
+      # locally; golangci-lint's own cache alone saves 61 s to 19 s).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Find the Go cache directories
+        id: gocache
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Go and golangci-lint caches
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+            ~/.cache/golangci-lint
+          # The key never matches: the newest cache with the prefix is restored.
+          key: go-lint-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-lint-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-lint-${{ runner.os }}-
       # `make lint` installs the golangci-lint version pinned in the Makefile,
       # the same binary local runs and the pre-commit hook use.
       - name: Run make lint
@@ -115,6 +140,16 @@ jobs:
       # still merge.
       - name: Check go fix modernizers
         run: make modernize
+
+      - name: Save the Go and golangci-lint caches
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+            ~/.cache/golangci-lint
+          key: go-lint-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
 
   schema-lint:
     needs: changes
