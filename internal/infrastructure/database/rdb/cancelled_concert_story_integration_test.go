@@ -118,7 +118,7 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 	orderRepo := orderRepository(t, rdb.NewOrderRepository(db))
 	s.refunder = &storyRefunder{OrderRepository: orderRepo, refunds: map[entity.OrderID]int64{}}
 	ticketRepo := rdb.NewTicketRepository(db, testOutbox)
-	s.mailer = &storyMailer{orders: orderRepo}
+	s.mailer = &storyMailer{}
 	notifications := func(workflows usecase.Workflows) usecase.NotificationUseCase {
 		return usecase.NewNotificationUseCase(rdb.NewNotificationRepository(db),
 			rdb.NewPushSubscriptionRepository(db, testOutbox), nil, workflows, noStoryMetrics{}, logger,

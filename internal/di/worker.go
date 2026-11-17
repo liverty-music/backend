@@ -127,7 +127,7 @@ func registerNotificationWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfi
 	var orderMailer entity.OrderMailer = mail.NewNoopOrderMailer(logger)
 	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
 	if pm := cfg.Postmark; pm.ServerToken != "" {
-		orderMailer = mail.NewPostmarkOrderMailer(orderRepo, pm.ServerToken, pm.FromAddress, pm.MessageStream, time.Now, logger)
+		orderMailer = mail.NewPostmarkOrderMailer(pm.ServerToken, pm.FromAddress, pm.MessageStream, logger)
 	}
 	subjects := usecase.SubjectDeps{
 		Now:           time.Now,

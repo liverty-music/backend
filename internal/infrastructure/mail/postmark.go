@@ -45,12 +45,6 @@ const orderCancellationTag = "order-cancellation"
 // orderRefundTag tags the refund notices in Postmark's activity log.
 const orderRefundTag = "order-refund"
 
-// OrderStore is what the mailer needs from the Order repository.
-type OrderStore interface {
-	Get(ctx context.Context, id entity.OrderID) (*entity.Order, error)
-	MarkConfirmationSent(ctx context.Context, id entity.OrderID, at time.Time) error
-}
-
 // postmarkClient posts single emails to Postmark's transactional message
 // stream. The senders of this package share it.
 type postmarkClient struct {
@@ -77,8 +71,6 @@ func newPostmarkClient(apiURL, serverToken, fromAddress, messageStream string, l
 // Postmark's transactional message stream.
 type PostmarkOrderMailer struct {
 	postmarkClient
-	orders OrderStore
-	clock  func() time.Time
 }
 
 // Compile-time interface compliance check.
@@ -86,36 +78,19 @@ var _ entity.OrderMailer = (*PostmarkOrderMailer)(nil)
 
 // NewPostmarkOrderMailer creates a sender for the given server token,
 // From address and message stream.
-func NewPostmarkOrderMailer(orders OrderStore, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkOrderMailer {
-	return newPostmarkOrderMailer(orders, postmarkAPIURL, serverToken, fromAddress, messageStream, clock, logger)
+func NewPostmarkOrderMailer(serverToken, fromAddress, messageStream string, logger *logging.Logger) *PostmarkOrderMailer {
+	return newPostmarkOrderMailer(postmarkAPIURL, serverToken, fromAddress, messageStream, logger)
 }
 
-func newPostmarkOrderMailer(orders OrderStore, apiURL, serverToken, fromAddress, messageStream string, clock func() time.Time, logger *logging.Logger) *PostmarkOrderMailer {
+func newPostmarkOrderMailer(apiURL, serverToken, fromAddress, messageStream string, logger *logging.Logger) *PostmarkOrderMailer {
 	return &PostmarkOrderMailer{
 		postmarkClient: newPostmarkClient(apiURL, serverToken, fromAddress, messageStream, logger),
-		orders:         orders,
-		clock:          clock,
 	}
 }
 
 // SendConfirmationEmail implements [entity.OrderMailer].
 func (s *PostmarkOrderMailer) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
-	if to == "" || msg.Subject == "" || msg.TextBody == "" {
-		return apperr.New(codes.InvalidArgument, "the address and the message must not be empty",
-			slog.String("order_id", string(orderID)))
-	}
-	order, err := s.orders.Get(ctx, orderID)
-	if err != nil {
-		return err
-	}
-	if order.ConfirmationSendTime != nil {
-		return nil
-	}
-	if err := s.post(ctx, to, msg.Subject, msg.TextBody, orderConfirmationTag,
-		map[string]string{"order_id": string(orderID)}, slog.String("order_id", string(orderID))); err != nil {
-		return err
-	}
-	return s.orders.MarkConfirmationSent(ctx, orderID, s.clock())
+	return s.sendOrderEmail(ctx, orderID, to, entity.OrderEmail(msg), orderConfirmationTag)
 }
 
 // SendCancellationEmail implements [entity.OrderMailer].

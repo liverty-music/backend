@@ -360,6 +360,14 @@ func (o *Order) GetsRefundNotice() bool {
 	return r != nil && r.Reason == RefundReasonCancellation && r.Amount > 0
 }
 
+// ConfirmationEmailDue reports whether the Order's purchase confirmation email
+// is still to be sent: the payment was captured (also when the Order was
+// refunded since) and none has been sent. One email per Order; a failure
+// between sending and recording the send can lead to a second email on retry.
+func (o *Order) ConfirmationEmailDue() bool {
+	return o.PayTime != nil && o.ConfirmationSendTime == nil
+}
+
 // IsPaid reports whether the Order was made Paid, also when it was refunded
 // since.
 func (o *Order) IsPaid() bool {
@@ -841,23 +849,21 @@ type OrderEmail struct {
 }
 
 // OrderMailer sends the emails about an Order to its user: the purchase
-// confirmation (at most once), the cancellation notice and the refund
-// notice. The implementation lives in internal/infrastructure/mail/.
+// confirmation, the cancellation notice and the refund notice. The implementation lives in internal/infrastructure/mail/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type OrderMailer interface {
-	// SendConfirmationEmail sends msg to the address of the Order's user when
-	// the Order has no confirmation-sent time, then sets that time. When the
-	// time is already set it sends nothing and succeeds. A failure between sending and
-	// recording can lead to a second email on retry; no other case sends
-	// twice.
+	// SendConfirmationEmail sends msg, the purchase confirmation of the
+	// Order, to the address as given, tagged with the Order's id. Whether
+	// the email is due ([Order.ConfirmationEmailDue]) and recording the send
+	// ([OrderRepository.MarkConfirmationSent]) are the caller's; it neither
+	// reads nor records the Order.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: the address or the message is empty.
-	//  - Unavailable: email cannot be sent; the confirmation-sent time stays
-	//    unset.
-	//  - NotFound: no Order has the id.
+	//   - InvalidArgument: the address or the message is empty; nothing is
+	//     sent.
+	//   - Unavailable: email cannot be sent.
 	SendConfirmationEmail(ctx context.Context, orderID OrderID, to string, msg OrderConfirmationEmail) error
 
 	// SendCancellationEmail sends msg, telling the user that the Order's

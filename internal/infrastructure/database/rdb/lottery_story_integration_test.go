@@ -174,7 +174,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 	eventState := rdb.NewEventPublishStateRepository(db)
 	resaleEntryRepo := rdb.NewResaleEntryRepository(db, testOutbox)
 	resaleListingRepo := rdb.NewResaleListingRepository(db, testOutbox)
-	s.mailer = &storyMailer{orders: s.orderRepo, entries: entryRepo, listings: resaleListingRepo, resaleEntries: resaleEntryRepo}
+	s.mailer = &storyMailer{}
 
 	s.seatTypes = usecase.NewSeatTypeUseCase(seatTypeRepo, seriesRepo)
 	s.stocks = usecase.NewTicketStockUseCase(stockRepo, seatTypeRepo, eventRepo, seriesRepo, eventOrganizerRepo, clock)

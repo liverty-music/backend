@@ -130,7 +130,7 @@ type notificationMailers struct {
 // provideNotificationMailers builds the senders of the purchase confirmation
 // and of the sold, loss and ended emails. Each goes through Postmark when its
 // server token is configured; otherwise a no-op sender reports Unavailable.
-func provideNotificationMailers(pm config.PostmarkConfig, orders mail.OrderStore, logger *logging.Logger) notificationMailers {
+func provideNotificationMailers(pm config.PostmarkConfig, logger *logging.Logger) notificationMailers {
 	m := notificationMailers{
 		confirmation:     mail.NewNoopOrderMailer(logger),
 		resaleSold:       mail.NewNoopResaleSoldSender(logger),
@@ -140,7 +140,7 @@ func provideNotificationMailers(pm config.PostmarkConfig, orders mail.OrderStore
 	if pm.ServerToken == "" {
 		return m
 	}
-	m.confirmation = mail.NewPostmarkOrderMailer(orders, pm.ServerToken, pm.FromAddress, pm.MessageStream, time.Now, logger)
+	m.confirmation = mail.NewPostmarkOrderMailer(pm.ServerToken, pm.FromAddress, pm.MessageStream, logger)
 	m.resaleSold = mail.NewPostmarkResaleSoldSender(pm.ServerToken, pm.FromAddress, pm.MessageStream, logger)
 	m.lotteryLoss = mail.NewPostmarkLotteryLossSender(pm.ServerToken, pm.FromAddress, pm.MessageStream, logger)
 	m.resaleEntryEnded = mail.NewPostmarkResaleEntryEndedSender(pm.ServerToken, pm.FromAddress, pm.MessageStream, logger)

@@ -37,6 +37,9 @@ type confirmationFixture struct {
 	uc         usecase.NotificationUseCase
 }
 
+// confirmNow is the time the confirmation tests' clock reads.
+var confirmNow = time.Date(2026, 11, 5, 9, 21, 0, 0, time.UTC)
+
 func newConfirmationFixture(t *testing.T) *confirmationFixture {
 	t.Helper()
 	f := &confirmationFixture{
@@ -58,7 +61,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 	}
 	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.publisher, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
-			Now:            time.Now,
+			Now:            func() time.Time { return confirmNow },
 			Orders:         f.orders,
 			Users:          f.users,
 			Concerts:       concertReader(t, concert),
@@ -107,6 +110,12 @@ func (f *confirmationFixture) expectPush(typ entity.NotificationType) *usecase.D
 	return &got
 }
 
+// expectRecord expects SendOrderConfirmation to record the confirmation of
+// order-1 as sent at confirmNow, once.
+func (f *confirmationFixture) expectRecord() {
+	f.orders.EXPECT().MarkConfirmationSent(mock.Anything, entity.OrderID("order-1"), confirmNow).Return(nil).Once()
+}
+
 // pushedFor runs the real Deliver of a started win notification for a fan with
 // the language and returns the message the browser receives.
 func pushedFor(t *testing.T, req usecase.DeliverRequest, order *entity.Order, language string) *entity.NotificationPayload {
@@ -135,6 +144,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				mail = m
 				return nil
 			})
+		f.expectRecord()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -165,6 +175,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				return nil
 			})
 		f.expectPush(entity.NotificationTypeLotteryWin)
+		f.expectRecord()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -188,6 +199,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 				return nil
 			})
 		f.expectPush(entity.NotificationTypeLotteryWin)
+		f.expectRecord()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -206,6 +218,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: "ja"}, nil)
 		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil)
 		started := f.expectPush(entity.NotificationTypeLotteryWin)
+		f.expectRecord()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -223,6 +236,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: "ja"}, nil)
 		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil)
 		started := f.expectPush(entity.NotificationTypeResaleWin)
+		f.expectRecord()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
@@ -235,35 +249,63 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 	t.Run("order announced twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Order announced twice"
-		// The sender keeps the email to one per Order (it sends nothing for an
-		// Order with a confirmation-sent time), so both runs ask it.
+		// The first delivery sends and records the email; the second reads the
+		// recorded send time and sends and records nothing.
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("checkout")
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
+		var sent *time.Time
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).
+			RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
+				read := *order
+				read.ConfirmationSendTime = sent
+				return &read, nil
+			}).Twice()
+		f.orders.EXPECT().MarkConfirmationSent(mock.Anything, entity.OrderID("order-1"), confirmNow).
+			RunAndReturn(func(_ context.Context, _ entity.OrderID, at time.Time) error {
+				sent = &at
+				return nil
+			}).Once()
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
-		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Twice()
+		emails := 0
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).
+			RunAndReturn(func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
+				emails++
+				return nil
+			}).Once()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+
+		assert.Equal(t, 1, emails, "the fan receives one email")
 	})
 
 	t.Run("paid announcement delivered twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Paid announcement delivered twice"
-		// The sender emails an Order once (it sends nothing once the Order has a
-		// confirmation-sent time) and the runtime runs one workflow per id, so
-		// the fan gets one of each when both runs name the same Order and the
-		// same workflow id.
+		// The first run sends and records the email; the second reads the
+		// recorded send time and sends nothing. The runtime runs one workflow
+		// per id, so both runs naming the same workflow id push once.
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("lottery")
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
-		emailed := map[entity.OrderID]bool{}
-		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, mock.Anything, "fan@example.com", mock.Anything).
-			RunAndReturn(func(_ context.Context, id entity.OrderID, _ string, _ entity.OrderConfirmationEmail) error {
-				emailed[id] = true
-				return nil
+		var sent *time.Time
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).
+			RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
+				read := *order
+				read.ConfirmationSendTime = sent
+				return &read, nil
 			}).Twice()
+		f.orders.EXPECT().MarkConfirmationSent(mock.Anything, entity.OrderID("order-1"), confirmNow).
+			RunAndReturn(func(_ context.Context, _ entity.OrderID, at time.Time) error {
+				sent = &at
+				return nil
+			}).Once()
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
+		emails := 0
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).
+			RunAndReturn(func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
+				emails++
+				return nil
+			}).Once()
 		pushed := map[string]bool{}
 		f.publisher.EXPECT().Start(mock.Anything, usecase.WorkflowDeliverNotification, mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
@@ -274,23 +316,33 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
-		assert.Equal(t, map[entity.OrderID]bool{"order-1": true}, emailed, "the fan receives one email")
+		assert.Equal(t, 1, emails, "the fan receives one email")
 		assert.Equal(t, map[string]bool{"deliver:lottery_win:order-1": true}, pushed, "the fan receives one lottery_win push")
 	})
 
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Mail unavailable"
+		// The failed run records nothing and starts no push; the run again
+		// sends the email and records it.
 		f := newConfirmationFixture(t)
 		order, data := confirmedOrder("lottery")
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return(apperr.New(apperr.ErrUnavailable.Code, "postmark down"))
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil).Twice()
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).
+			Return(apperr.New(apperr.ErrUnavailable.Code, "postmark down")).Once()
 
 		err := f.uc.SendOrderConfirmation(context.Background(), data)
 
-		assert.ErrorIs(t, err, apperr.ErrUnavailable, "fails so the announcement is redelivered; no push yet")
+		require.ErrorIs(t, err, apperr.ErrUnavailable, "fails so the announcement is redelivered")
+		f.orders.AssertNotCalled(t, "MarkConfirmationSent", mock.Anything, mock.Anything, mock.Anything)
+		f.publisher.AssertNotCalled(t, "Start", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).Return(nil).Once()
+		f.expectRecord()
+		f.expectPush(entity.NotificationTypeLotteryWin)
+
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 	})
 }
 
@@ -308,6 +360,7 @@ func TestEmailLanguageDefault(t *testing.T) {
 			mail = m
 			return nil
 		})
+	f.expectRecord()
 
 	require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
