@@ -249,20 +249,34 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 	t.Run("order announced twice", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/notification/send-order-confirmation "Order announced twice"
-		// The second delivery reads an Order whose confirmation was already
-		// sent: it sends and records nothing, and still starts the push, whose
-		// workflow id keeps it to one.
+		// The first delivery sends and records the email; the second reads the
+		// recorded send time and sends and records nothing.
 		f := newConfirmationFixture(t)
-		order, data := confirmedOrder("lottery")
-		order.ConfirmationSendTime = new(confirmNow)
-		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(order, nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
-		f.expectPush(entity.NotificationTypeLotteryWin)
+		order, data := confirmedOrder("checkout")
+		var sent *time.Time
+		f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).
+			RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
+				read := *order
+				read.ConfirmationSendTime = sent
+				return &read, nil
+			}).Twice()
+		f.orders.EXPECT().MarkConfirmationSent(mock.Anything, entity.OrderID("order-1"), confirmNow).
+			RunAndReturn(func(_ context.Context, _ entity.OrderID, at time.Time) error {
+				sent = &at
+				return nil
+			}).Once()
+		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil).Twice()
+		emails := 0
+		f.mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).
+			RunAndReturn(func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
+				emails++
+				return nil
+			}).Once()
 
 		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
+		require.NoError(t, f.uc.SendOrderConfirmation(context.Background(), data))
 
-		f.mailer.AssertNotCalled(t, "SendConfirmationEmail", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-		f.orders.AssertNotCalled(t, "MarkConfirmationSent", mock.Anything, mock.Anything, mock.Anything)
+		assert.Equal(t, 1, emails, "the fan receives one email")
 	})
 
 	t.Run("paid announcement delivered twice", func(t *testing.T) {
