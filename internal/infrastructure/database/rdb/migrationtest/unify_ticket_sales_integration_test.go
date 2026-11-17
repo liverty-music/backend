@@ -8,10 +8,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/liverty-music/backend/internal/testutil"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -21,17 +19,6 @@ import (
 )
 
 const (
-	// adminDSNFormat targets the shared test-db of the integration-test
-	// PostgreSQL as the superuser test-user; it only creates the scratch
-	// database.
-	adminDSNFormat = "postgres://test-user@localhost:%d/test-db?sslmode=disable"
-
-	// scratchDSNFormat targets the scratch database with search_path=app, as
-	// the Atlas Operator connects (k8s/atlas/base/atlas-migration.yaml).
-	scratchDSNFormat = "postgres://test-user@localhost:%d/%s?sslmode=disable&search_path=app"
-
-	scratchDatabase = "migration-test-db"
-
 	// unifyTicketSalesPrevious is the last migration before
 	// 20261011000000_unify_ticket_sales.sql.
 	unifyTicketSalesPrevious = "20261010020000"
@@ -40,15 +27,6 @@ const (
 	// itself; later migrations rename what it creates.
 	unifyTicketSalesVersion = "20261011000000"
 )
-
-// testDBPort is the port of the integration-test PostgreSQL: TEST_DB_PORT when
-// set, else the compose service's 15432 (same rule as the rdb tests).
-func testDBPort() int {
-	if port, err := strconv.Atoi(os.Getenv("TEST_DB_PORT")); err == nil {
-		return port
-	}
-	return 15432
-}
 
 // id returns a fixed UUIDv7 whose order follows n, so "newest" in the test
 // data is explicit rather than dependent on the clock.
@@ -346,48 +324,23 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 	})
 }
 
-// setupScratchDatabase empties the scratch database and returns a connection
-// to it and a function that applies the migrations up to a version ("" for
-// all). Cleanup empties the scratch database again; it is reused rather than
-// dropped, like the grants test's (DROP DATABASE forces a checkpoint).
+// setupScratchDatabase gives the test an empty database of its own and returns
+// a connection to it, with search_path=app as the Atlas Operator connects
+// (k8s/atlas/base/atlas-migration.yaml), and a function that applies the
+// migrations up to a version ("" for all). The database is dropped when the
+// test passes.
 func setupScratchDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, func(toVersion string)) {
 	t.Helper()
-
-	admin, err := pgx.Connect(ctx, fmt.Sprintf(adminDSNFormat, testDBPort()))
-	if err != nil {
-		t.Skipf("no local database available: %v", err)
-	}
-	defer func() { assert.NoError(t, admin.Close(ctx)) }()
 
 	atlasPath, err := exec.LookPath("atlas")
 	require.NoError(t, err, "atlas CLI is required to apply migrations")
 	migrationsDir, err := filepath.Abs("../../../../../k8s/atlas/base/migrations")
 	require.NoError(t, err)
 
-	var exists bool
-	require.NoError(t, admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, scratchDatabase).Scan(&exists))
-	if !exists {
-		_, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{scratchDatabase}.Sanitize())
-		require.NoError(t, err)
-	}
-
-	dsn := fmt.Sprintf(scratchDSNFormat, testDBPort(), scratchDatabase)
+	dsn := testutil.NewEmptyDatabase(t).URL("app")
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	reset := func() {
-		_, err := conn.Exec(ctx, `
-			DROP SCHEMA IF EXISTS app CASCADE;
-			DROP SCHEMA IF EXISTS dbos CASCADE;
-			DROP SCHEMA IF EXISTS atlas_schema_revisions CASCADE;
-			DROP SCHEMA IF EXISTS public CASCADE;
-			CREATE SCHEMA public;`)
-		require.NoError(t, err)
-	}
-	reset()
-	t.Cleanup(func() {
-		reset()
-		assert.NoError(t, conn.Close(context.Background()))
-	})
+	t.Cleanup(func() { assert.NoError(t, conn.Close(context.Background())) })
 
 	apply := func(toVersion string) {
 		t.Helper()

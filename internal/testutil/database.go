@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // the "pgx" driver pgtestdb connects with
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/atlasmigrator"
@@ -67,6 +68,34 @@ func NewDatabase(t testing.TB) TestDatabase {
 		TestRole: &pgtestdb.Role{Username: testDatabaseUser, Capabilities: "SUPERUSER"},
 	}, templateMigrator{atlasmigrator.NewDirMigrator(migrationsDir(t))})
 	return TestDatabase{Port: port, Name: conf.Database}
+}
+
+// NewEmptyDatabase returns an empty database of the test's own on the
+// integration-test PostgreSQL, for tests that apply migrations themselves
+// (for example only up to one revision), so they cannot use the template copy
+// of [NewDatabase]. Its name is random, so tests of any process may run at the
+// same time. The database is dropped when the test ends, whether it passes or
+// not, so a test that holds server-wide objects (roles) can drop them after.
+func NewEmptyDatabase(t testing.TB) TestDatabase {
+	t.Helper()
+	db := TestDatabase{
+		Port: DatabasePort(),
+		Name: "empty_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+	}
+	admin, err := sql.Open("pgx", TestDatabase{Port: db.Port, Name: "postgres"}.URL(""))
+	if err != nil {
+		t.Fatalf("connect to the test server: %v", err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE "`+db.Name+`"`); err != nil {
+		t.Fatalf("create database %s: %v", db.Name, err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.ExecContext(context.Background(), `DROP DATABASE "`+db.Name+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop database %s: %v", db.Name, err)
+		}
+	})
+	return db
 }
 
 // DatabasePort returns the port of the integration-test PostgreSQL:
