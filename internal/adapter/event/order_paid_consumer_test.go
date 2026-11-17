@@ -106,10 +106,10 @@ func (stubEventOrganizer) GetOrganizerID(context.Context, string) (string, error
 }
 
 // TestOrderPaidConsumer_Redelivery delivers the same ORDER.paid twice through
-// both durables with the real use cases. The order store keeps the
-// confirmation-sent time, and the sender sends only while it is unset (as
-// the Postmark sender does, contract-tested in the mail package), so one
-// email goes out; the journey upsert is idempotent and stays Paid.
+// both durables with the real use cases. The first run sends the
+// confirmation and records its send time in the order store; the second reads
+// that time and sends nothing, so one email goes out. The journey upsert is
+// idempotent and stays Paid.
 func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	t.Parallel()
 	logger := newTestLogger(t)
@@ -123,19 +123,22 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 		copied := *order
 		return &copied, nil
 	})
+	orders.EXPECT().MarkConfirmationSent(mock.Anything, entity.OrderID("order-1"), mock.Anything).RunAndReturn(
+		func(_ context.Context, _ entity.OrderID, at time.Time) error {
+			mu.Lock()
+			defer mu.Unlock()
+			order.ConfirmationSendTime = &at
+			return nil
+		}).Once()
 	emails := 0
 	mailer := entitymocks.NewMockOrderMailer(t)
 	mailer.EXPECT().SendConfirmationEmail(mock.Anything, entity.OrderID("order-1"), "fan@example.com", mock.Anything).RunAndReturn(
 		func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
 			mu.Lock()
 			defer mu.Unlock()
-			if order.ConfirmationSendTime == nil {
-				emails++
-				sent := time.Now()
-				order.ConfirmationSendTime = &sent
-			}
+			emails++
 			return nil
-		})
+		}).Once()
 	users := entitymocks.NewMockUserRepository(t)
 	users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com"}, nil)
 	organizers := entitymocks.NewMockOrganizerRepository(t)

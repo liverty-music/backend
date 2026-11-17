@@ -7,8 +7,8 @@ import (
 )
 
 // NewPostmarkOrderMailerForTest points the sender at a stub Postmark API.
-func NewPostmarkOrderMailerForTest(orders OrderStore, apiURL, serverToken string, clock func() time.Time, logger *logging.Logger) *PostmarkOrderMailer {
-	return newPostmarkOrderMailer(orders, apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", clock, logger)
+func NewPostmarkOrderMailerForTest(apiURL, serverToken string, logger *logging.Logger) *PostmarkOrderMailer {
+	return newPostmarkOrderMailer(apiURL, serverToken, "noreply@mail.dev.liverty-music.app", "outbound", logger)
 }
 
 // NewPostmarkSignInLinkSenderForTest points the sender at a stub Postmark API.

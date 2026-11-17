@@ -104,9 +104,13 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 		tz:         d.TimeZone,
 		lotteryWin: order.Source() == entity.OrderSourceLotteryEntry,
 	}
-	lang := user.EmailLanguage()
-	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(lang)); err != nil {
-		return err
+	if order.ConfirmationEmailDue() {
+		if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(user.EmailLanguage())); err != nil {
+			return err
+		}
+		if err := d.Orders.MarkConfirmationSent(ctx, order.ID, d.Now()); err != nil {
+			return err
+		}
 	}
 
 	// An Order of a Checkout is not pushed: the fan has just paid on screen.

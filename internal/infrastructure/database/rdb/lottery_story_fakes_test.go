@@ -175,16 +175,12 @@ type sentEmail struct {
 	to, subject, body string
 }
 
-// storyMailer sends the stories' confirmation and loss emails into memory,
-// keeping each to one per Order or entry with the send times the
-// repositories record, as the Postmark senders do.
+// storyMailer sends the stories' emails into memory. Like the Postmark
+// senders it only sends: the usecases decide whether an email is due and
+// record the send.
 type storyMailer struct {
-	mu            sync.Mutex
-	orders        entity.OrderRepository
-	entries       entity.LotteryEntryRepository
-	listings      *rdb.ResaleListingRepository
-	resaleEntries *rdb.ResaleEntryRepository
-	sent          []sentEmail
+	mu   sync.Mutex
+	sent []sentEmail
 }
 
 var (
@@ -194,16 +190,9 @@ var (
 	_ entity.LotteryLossEmailSender       = (*storyMailer)(nil)
 )
 
-func (m *storyMailer) SendConfirmationEmail(ctx context.Context, orderID entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
-	order, err := m.orders.Get(ctx, orderID)
-	if err != nil {
-		return err
-	}
-	if order.ConfirmationSendTime != nil {
-		return nil
-	}
+func (m *storyMailer) SendConfirmationEmail(_ context.Context, _ entity.OrderID, to string, msg entity.OrderConfirmationEmail) error {
 	m.record(to, msg.Subject, msg.TextBody)
-	return m.orders.MarkConfirmationSent(ctx, orderID, time.Now())
+	return nil
 }
 
 func (m *storyMailer) SendCancellationEmail(_ context.Context, _ entity.OrderID, to string, msg entity.OrderEmail) error {
@@ -216,40 +205,19 @@ func (m *storyMailer) SendRefundEmail(_ context.Context, _ entity.OrderID, to st
 	return nil
 }
 
-func (m *storyMailer) SendLossEmail(ctx context.Context, id entity.LotteryEntryID, to string, msg entity.LotteryLossEmail) error {
-	entry, err := m.entries.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if entry.LossEmailSendTime != nil {
-		return nil
-	}
+func (m *storyMailer) SendLossEmail(_ context.Context, _ entity.LotteryEntryID, to string, msg entity.LotteryLossEmail) error {
 	m.record(to, msg.Subject, msg.TextBody)
-	return m.entries.MarkLossEmailSent(ctx, id, time.Now())
+	return nil
 }
 
-func (m *storyMailer) SendSoldEmail(ctx context.Context, id entity.ResaleListingID, to string, msg entity.ResaleListingSoldEmail) error {
-	l, err := m.listings.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if l.SoldEmailSendTime != nil {
-		return nil
-	}
+func (m *storyMailer) SendSoldEmail(_ context.Context, _ entity.ResaleListingID, to string, msg entity.ResaleListingSoldEmail) error {
 	m.record(to, msg.Subject, msg.TextBody)
-	return m.listings.MarkSoldEmailSent(ctx, id, time.Now())
+	return nil
 }
 
-func (m *storyMailer) SendEndedEmail(ctx context.Context, id entity.ResaleEntryID, to string, msg entity.ResaleEntryEndedEmail) error {
-	e, err := m.resaleEntries.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if e.EndedEmailSendTime != nil {
-		return nil
-	}
+func (m *storyMailer) SendEndedEmail(_ context.Context, _ entity.ResaleEntryID, to string, msg entity.ResaleEntryEndedEmail) error {
 	m.record(to, msg.Subject, msg.TextBody)
-	return m.resaleEntries.MarkEndedEmailSent(ctx, id, time.Now())
+	return nil
 }
 
 func (m *storyMailer) record(to, subject, body string) {

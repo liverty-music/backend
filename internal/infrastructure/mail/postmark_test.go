@@ -8,7 +8,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
@@ -17,32 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// fakeOrders is an in-memory OrderStore.
-type fakeOrders struct {
-	mu     sync.Mutex
-	orders map[entity.OrderID]*entity.Order
-}
-
-func (f *fakeOrders) Get(_ context.Context, id entity.OrderID) (*entity.Order, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	o, ok := f.orders[id]
-	if !ok {
-		return nil, apperr.ErrNotFound
-	}
-	copied := *o
-	return &copied, nil
-}
-
-func (f *fakeOrders) MarkConfirmationSent(_ context.Context, id entity.OrderID, at time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if o := f.orders[id]; o.ConfirmationSendTime == nil {
-		o.ConfirmationSendTime = &at
-	}
-	return nil
-}
 
 // stubPostmark answers with a fixed status and counts the emails it got.
 type stubPostmark struct {
@@ -68,18 +41,15 @@ func (s *stubPostmark) handler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ErrorCode": 500, "Message": "unavailable"})
 }
 
-var (
-	sentAt = time.Date(2026, 11, 5, 18, 20, 0, 0, time.UTC)
-	msg    = entity.OrderConfirmationEmail{Subject: "ご購入ありがとうございます", TextBody: "本文"}
-)
+var msg = entity.OrderConfirmationEmail{Subject: "ご購入ありがとうございます", TextBody: "本文"}
 
-func newSender(t *testing.T, stub *stubPostmark, orders *fakeOrders) *mail.PostmarkOrderMailer {
+func newSender(t *testing.T, stub *stubPostmark) *mail.PostmarkOrderMailer {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(stub.handler))
 	t.Cleanup(srv.Close)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return mail.NewPostmarkOrderMailerForTest(orders, srv.URL, "server-token", func() time.Time { return sentAt }, logger)
+	return mail.NewPostmarkOrderMailerForTest(srv.URL, "server-token", logger)
 }
 
 func TestPostmarkOrderMailer_SendConfirmationEmail(t *testing.T) {
@@ -88,77 +58,61 @@ func TestPostmarkOrderMailer_SendConfirmationEmail(t *testing.T) {
 	t.Run("email sent", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-confirmation-email "Email sent"
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg))
 
 		require.Len(t, stub.sent, 1)
 		assert.Equal(t, "fan@example.com", stub.sent[0]["To"])
+		assert.Equal(t, msg.Subject, stub.sent[0]["Subject"])
+		assert.Equal(t, msg.TextBody, stub.sent[0]["TextBody"])
+		assert.Equal(t, "order-confirmation", stub.sent[0]["Tag"])
+		assert.Equal(t, map[string]any{"order_id": "order-1"}, stub.sent[0]["Metadata"])
 		assert.Equal(t, "outbound", stub.sent[0]["MessageStream"])
 		assert.Equal(t, "server-token", stub.tokens[0])
-		got, _ := orders.Get(context.Background(), "order-1")
-		assert.Equal(t, &sentAt, got.ConfirmationSendTime)
-	})
-
-	t.Run("redelivered event", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/order/send-confirmation-email "Redelivered event"
-		earlier := sentAt.Add(-time.Hour)
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1", ConfirmationSendTime: &earlier}}}
-		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
-
-		require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg))
-
-		assert.Empty(t, stub.sent)
 	})
 
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-confirmation-email "Mail unavailable"
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
-		stub := &stubPostmark{status: http.StatusInternalServerError}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError})
 
 		err := sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-		got, _ := orders.Get(context.Background(), "order-1")
-		assert.Nil(t, got.ConfirmationSendTime)
 	})
 
 	t.Run("black hole address is not sent", func(t *testing.T) {
 		t.Parallel()
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "e2e-test-password@Blackhole.Postmarkapp.com", msg))
 
 		assert.Empty(t, stub.sent)
-		got, _ := orders.Get(context.Background(), "order-1")
-		assert.Equal(t, &sentAt, got.ConfirmationSendTime)
 	})
 
 	t.Run("empty address", func(t *testing.T) {
 		t.Parallel()
-		orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
-		sender := newSender(t, &stubPostmark{status: http.StatusOK}, orders)
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub)
 
 		err := sender.SendConfirmationEmail(context.Background(), "order-1", "", msg)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
 	})
 
-	t.Run("unknown order", func(t *testing.T) {
+	t.Run("empty message", func(t *testing.T) {
 		t.Parallel()
-		sender := newSender(t, &stubPostmark{status: http.StatusOK}, &fakeOrders{orders: map[entity.OrderID]*entity.Order{}})
+		stub := &stubPostmark{status: http.StatusOK}
+		sender := newSender(t, stub)
 
-		err := sender.SendConfirmationEmail(context.Background(), "order-x", "fan@example.com", msg)
+		err := sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", entity.OrderConfirmationEmail{Subject: msg.Subject})
 
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Empty(t, stub.sent)
 	})
 }
 
@@ -166,13 +120,12 @@ var notice = entity.OrderEmail{Subject: "公演中止のお知らせ", TextBody:
 
 func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 	t.Parallel()
-	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
 
 	t.Run("email sent", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-cancellation-email "Email sent"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		require.NoError(t, sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", notice))
 
@@ -187,7 +140,7 @@ func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-cancellation-email "Address missing"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		err := sender.SendCancellationEmail(context.Background(), "order-1", "", notice)
 
@@ -199,7 +152,7 @@ func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-cancellation-email "Message missing"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		err := sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", entity.OrderEmail{})
 
@@ -210,7 +163,7 @@ func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-cancellation-email "Mail unavailable"
-		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError}, orders)
+		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError})
 
 		err := sender.SendCancellationEmail(context.Background(), "order-1", "fan@example.com", notice)
 
@@ -220,13 +173,12 @@ func TestPostmarkOrderMailer_SendCancellationEmail(t *testing.T) {
 
 func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
 	t.Parallel()
-	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1", Status: entity.OrderStatusRefunded}}}
 
 	t.Run("email sent", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-refund-email "Email sent"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		require.NoError(t, sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", notice))
 
@@ -240,7 +192,7 @@ func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-refund-email "Message missing"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		err := sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", entity.OrderEmail{})
 
@@ -252,7 +204,7 @@ func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-refund-email "Address missing"
 		stub := &stubPostmark{status: http.StatusOK}
-		sender := newSender(t, stub, orders)
+		sender := newSender(t, stub)
 
 		err := sender.SendRefundEmail(context.Background(), "order-1", "", notice)
 
@@ -263,7 +215,7 @@ func TestPostmarkOrderMailer_SendRefundEmail(t *testing.T) {
 	t.Run("mail unavailable", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/order/send-refund-email "Mail unavailable"
-		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError}, orders)
+		sender := newSender(t, &stubPostmark{status: http.StatusInternalServerError})
 
 		err := sender.SendRefundEmail(context.Background(), "order-1", "fan@example.com", notice)
 
@@ -282,14 +234,10 @@ func TestPostmarkOrderMailer_TestServerToken(t *testing.T) {
 	}
 	logger, err := logging.New()
 	require.NoError(t, err)
-	orders := &fakeOrders{orders: map[entity.OrderID]*entity.Order{"order-1": {ID: "order-1"}}}
-	sender := mail.NewPostmarkOrderMailer(orders, "POSTMARK_API_TEST",
-		"noreply@mail.dev.liverty-music.app", "outbound", func() time.Time { return sentAt }, logger)
+	sender := mail.NewPostmarkOrderMailer("POSTMARK_API_TEST",
+		"noreply@mail.dev.liverty-music.app", "outbound", logger)
 
 	// Not a black hole address: the client skips those without a request.
 	// The test token delivers nothing whatever the address.
 	require.NoError(t, sender.SendConfirmationEmail(context.Background(), "order-1", "fan@example.com", msg))
-
-	got, _ := orders.Get(context.Background(), "order-1")
-	assert.NotNil(t, got.ConfirmationSendTime)
 }

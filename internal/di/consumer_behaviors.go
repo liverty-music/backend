@@ -147,7 +147,7 @@ func (b *consumerBuilder) useCases(extHTTPClient *http.Client, identities entity
 // reports Unavailable.
 func (b *consumerBuilder) notificationUseCase() (usecase.NotificationUseCase, error) {
 	cfg, db, logger := b.cfg, b.db, b.logger
-	mailers := provideNotificationMailers(cfg.Postmark, b.orderRepo, logger)
+	mailers := provideNotificationMailers(cfg.Postmark, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
 	if err != nil {
 		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)

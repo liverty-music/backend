@@ -155,6 +155,30 @@ func TestOrder_IsPaid(t *testing.T) {
 	}
 }
 
+func TestOrder_ConfirmationEmailDue(t *testing.T) {
+	t.Parallel()
+
+	paid := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	sent := paid.Add(time.Minute)
+	tests := []struct {
+		name  string
+		order entity.Order
+		want  bool
+	}{
+		{name: "paid and not sent", order: entity.Order{Status: entity.OrderStatusPaid, PayTime: &paid}, want: true},
+		{name: "paid and sent", order: entity.Order{Status: entity.OrderStatusPaid, PayTime: &paid, ConfirmationSendTime: &sent}, want: false},
+		{name: "refunded and not sent", order: entity.Order{Status: entity.OrderStatusRefunded, PayTime: &paid}, want: true},
+		{name: "pending", order: entity.Order{Status: entity.OrderStatusPending}, want: false},
+		{name: "void", order: entity.Order{Status: entity.OrderStatusVoid}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.order.ConfirmationEmailDue())
+		})
+	}
+}
+
 func TestOrder_IssuanceOutcome(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
