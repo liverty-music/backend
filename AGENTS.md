@@ -113,7 +113,7 @@ All checkouts and worktrees share one server: the `postgres` container of `compo
 
 ### Cloud SQL Access (dev and prod, via port-forward)
 
-For integration tests use the local test PostgreSQL below instead.
+For integration tests use the local test PostgreSQL (previous section) instead.
 
 See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-provisioning runbook (ephemeral `db-proxy` Pod, personal IAM login, read-only).
 
