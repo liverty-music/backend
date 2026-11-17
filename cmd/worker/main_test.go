@@ -3,12 +3,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -19,60 +17,31 @@ import (
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
+	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	// scratchDatabase holds the dbos schema the worker verifies at start.
-	scratchDatabase = "worker-test-db"
-
-	adminDSNFormat   = "postgres://test-user@localhost:%d/test-db?sslmode=disable"
-	scratchDSNFormat = "postgres://test-user@localhost:%d/%s?sslmode=disable&search_path=app"
-)
-
-func testDBPort() int {
-	if port, err := strconv.Atoi(os.Getenv("TEST_DB_PORT")); err == nil {
-		return port
-	}
-	return 15432
-}
-
-// setupScratchDatabase gives the scratch database empty DBOS system tables.
-func setupScratchDatabase(t *testing.T) {
+// setupScratchDatabase gives the worker a database of its own, a copy of the
+// migrated template, with empty DBOS system tables, and returns its name.
+func setupScratchDatabase(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, fmt.Sprintf(adminDSNFormat, testDBPort()))
-	if err != nil {
-		t.Skipf("no local database available: %v", err)
-	}
-	defer func() { assert.NoError(t, admin.Close(ctx)) }()
-	var exists bool
-	require.NoError(t, admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, scratchDatabase).Scan(&exists))
-	if !exists {
-		_, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{scratchDatabase}.Sanitize())
-		require.NoError(t, err)
-	}
+	db := testutil.NewDatabase(t)
+	dsn := db.URL("app")
 
-	dsn := fmt.Sprintf(scratchDSNFormat, testDBPort(), scratchDatabase)
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `
-		DROP SCHEMA IF EXISTS app CASCADE;
-		DROP SCHEMA IF EXISTS dbos CASCADE;
-		DROP SCHEMA IF EXISTS atlas_schema_revisions CASCADE;
-		DROP SCHEMA IF EXISTS public CASCADE;
-		CREATE SCHEMA public;`)
+	_, err = conn.Exec(ctx, `DROP SCHEMA IF EXISTS dbos CASCADE`)
 	require.NoError(t, err)
 	require.NoError(t, conn.Close(ctx))
 
 	// DBOS creates its tables with the SQL TestDBOSMigrationsMatchModule keeps
-	// equal to the Atlas migration. The Atlas apply itself is not repeated here:
-	// its IAM grant loops would grant the grants test's fake roles, which are
-	// cluster-wide, privileges in this database while that test runs, and its
-	// DROP ROLE would fail (rdb.TestMigrationGrants_IAMRoles covers the apply).
+	// equal to the Atlas migration, so the copy's own dbos schema is replaced
+	// by the one DBOS builds.
 	require.NoError(t, dbos.Migrate(ctx, dsn, dbos.WithMigrateSchema(workflow.Schema)))
+	return db.Name
 }
 
 // startDatabaseProxy listens on a local port and refuses every connection
@@ -92,7 +61,7 @@ func startDatabaseProxy(t *testing.T, open *atomic.Bool) int {
 				_ = client.Close()
 				continue
 			}
-			upstream, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(testDBPort()))
+			upstream, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(testutil.DatabasePort()))
 			if err != nil {
 				_ = client.Close()
 				continue
@@ -115,7 +84,7 @@ func probe(health *server.HealthServer, path string) int {
 //
 // @spec components/infrastructure/backend/process/durable-workflows "Database unreachable at start"
 func TestRun_DatabaseUnreachableAtStart(t *testing.T) {
-	setupScratchDatabase(t)
+	scratchDatabase := setupScratchDatabase(t)
 	var open atomic.Bool
 	port := startDatabaseProxy(t, &open)
 	// The worker reads its configuration from the environment, as in its Pod.

@@ -2,7 +2,6 @@ package rdb_test
 
 import (
 	"context"
-	"fmt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/testutil"
 	"os/exec"
@@ -44,12 +43,6 @@ const (
 	// grantsProbeTable is created after every migration has run, to check the
 	// default privileges a future table inherits.
 	grantsProbeTable = "grants_probe"
-
-	// grantsTestDSNFormat targets the integration-test PostgreSQL as the
-	// superuser test-user. search_path=app matches the Atlas Operator
-	// connection (k8s/atlas/base/atlas-migration.yaml), so every table lands in
-	// schema app as in production.
-	grantsTestDSNFormat = "postgres://test-user@localhost:%d/%s?sslmode=disable&search_path=app"
 )
 
 // grantsReadWriteRoles keep full CRUD on the app schema.
@@ -282,24 +275,20 @@ func setupGrantsDatabase(t *testing.T, db *rdb.Database, ctx context.Context) *p
 
 	// Released after the roles are dropped: cleanups run last first.
 	testutil.LockMigrations(t)
-	name := "grants-" + uuid.NewV7().String()[24:]
-	_, err = db.Pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
-	require.NoError(t, err)
-	dsn := fmt.Sprintf(grantsTestDSNFormat, testutil.DatabasePort(), name)
-	conn, err := pgx.Connect(ctx, dsn)
-	require.NoError(t, err)
-
 	roles := append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...)
+	// Registered before the database, so it runs after the database is
+	// dropped: dropping the database removes the privileges the roles hold.
 	t.Cleanup(func() {
-		ctx := context.Background()
-		assert.NoError(t, conn.Close(ctx))
-		_, err := db.Pool.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
-		assert.NoError(t, err)
 		for _, role := range roles {
-			_, err := db.Pool.Exec(ctx, "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
+			_, err := db.Pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
 			assert.NoError(t, err)
 		}
 	})
+	scratch := testutil.NewEmptyDatabase(t)
+	dsn := scratch.URL("app")
+	conn, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, conn.Close(context.Background())) })
 
 	for _, role := range roles {
 		_, err := db.Pool.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+" NOLOGIN")
