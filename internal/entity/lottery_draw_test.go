@@ -115,8 +115,10 @@ func collectLoserIDs(ls []entity.DrawLoser) []string {
 	return ids
 }
 
-// TestRunLotteryDraw covers the core draw scenarios with deterministic seeds.
-func TestRunLotteryDraw(t *testing.T) {
+// TestLotteryDraw covers the core draw scenarios with deterministic seeds.
+// Each draw runs through the helper runLotteryDraw, which shuffles the
+// entries with ShuffleDrawOrder and admits them with AdmitInDrawOrder.
+func TestLotteryDraw(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -261,13 +263,13 @@ func TestRunLotteryDraw(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_NoOversellAndPartitionAtScale is a property-style test: for
+// TestLotteryDraw_NoOversellAndPartitionAtScale is a property-style test: for
 // many random seeds and random inputs, the draw must (a) never oversell, (b)
 // partition every entry into exactly one bucket, and (c) preserve each
 // winner's requested count. Entries carry DISTINCT IDs so a dropped,
 // duplicated, or swapped entry is actually detectable — with a shared ID
 // the property test would be blind to any per-entry defect.
-func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
+func TestLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry/run-lottery-draw "Demand above quantity"
@@ -304,9 +306,9 @@ func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_AllOrNothing verifies that each winner receives its full
+// TestLotteryDraw_AllOrNothing verifies that each winner receives its full
 // requested count — no partial allocations.
-func TestRunLotteryDraw_AllOrNothing(t *testing.T) {
+func TestLotteryDraw_AllOrNothing(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry/run-lottery-draw "Companion group is all-or-nothing"
@@ -336,9 +338,9 @@ func TestRunLotteryDraw_AllOrNothing(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_PartitionProperty verifies that every input entry
+// TestLotteryDraw_PartitionProperty verifies that every input entry
 // appears exactly once across winners + losers.
-func TestRunLotteryDraw_PartitionProperty(t *testing.T) {
+func TestLotteryDraw_PartitionProperty(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -408,10 +410,10 @@ func TestRunLotteryDraw_PartitionProperty(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_LoserOrder verifies that the losers (Losers slice)
+// TestLotteryDraw_LoserOrder verifies that the losers (Losers slice)
 // is sorted in ascending DrawPosition order, matching the persisted losers
 // for 繰上げ promotion.
-func TestRunLotteryDraw_LoserOrder(t *testing.T) {
+func TestLotteryDraw_LoserOrder(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry/run-lottery-draw "Order of the losers"
@@ -441,9 +443,9 @@ func TestRunLotteryDraw_LoserOrder(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_DrawPositions verifies that DrawPosition values are
+// TestLotteryDraw_DrawPositions verifies that DrawPosition values are
 // distinct and form a valid permutation index (0 .. n-1).
-func TestRunLotteryDraw_DrawPositions(t *testing.T) {
+func TestLotteryDraw_DrawPositions(t *testing.T) {
 	t.Parallel()
 
 	entries := drawEntries("a", 1, "b", 1, "c", 1, "d", 1)
@@ -469,9 +471,9 @@ func TestRunLotteryDraw_DrawPositions(t *testing.T) {
 		"draw sequences across winners and losers must be a permutation of 0..n-1")
 }
 
-// TestRunLotteryDraw_Determinism verifies that the same entries, quantity,
+// TestLotteryDraw_Determinism verifies that the same entries, quantity,
 // and rng seed always produce identical results.
-func TestRunLotteryDraw_Determinism(t *testing.T) {
+func TestLotteryDraw_Determinism(t *testing.T) {
 	t.Parallel()
 
 	entries := drawEntries(
@@ -492,11 +494,11 @@ func TestRunLotteryDraw_Determinism(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_GreedyFitContinuesPastTooLarge explicitly constructs a
+// TestLotteryDraw_GreedyFitContinuesPastTooLarge explicitly constructs a
 // scenario where the quantity cannot accommodate a large entry but a
 // later smaller entry fits. The test asserts that the smaller entry
 // wins and the larger one loses.
-func TestRunLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
+func TestLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/lottery-entry/run-lottery-draw "A smaller entry fills the gap"
@@ -536,9 +538,9 @@ func TestRunLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_GreedyFitThreeApps tests the three-app greedy-fit scenario
+// TestLotteryDraw_GreedyFitThreeApps tests the three-app greedy-fit scenario
 // by pinning down the shuffle order via a controlled shuffle function rather
-// than a seed hunt. Since RunLotteryDraw accepts *rand.Rand and rng.Shuffle is
+// than a seed hunt. Since ShuffleDrawOrder accepts *rand.Rand and rng.Shuffle is
 // called on it, we set up inputs where ALL possible shuffle orderings produce a
 // predictable winner/loser split given the greedy-fit rule.
 //
@@ -554,7 +556,7 @@ func TestRunLotteryDraw_GreedyFitContinuesPastTooLarge(t *testing.T) {
 //
 // We iterate over enough seeds to hit both orderings and verify the invariants:
 // - no oversell, - partition property, - B and (A or C) is in expected role.
-func TestRunLotteryDraw_GreedyFitThreeApps(t *testing.T) {
+func TestLotteryDraw_GreedyFitThreeApps(t *testing.T) {
 	t.Parallel()
 
 	entries := drawEntries("A", 3, "B", 4, "C", 2)
@@ -591,7 +593,7 @@ func TestRunLotteryDraw_GreedyFitThreeApps(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_UniformFairness is the defining property of a fair lottery:
+// TestLotteryDraw_UniformFairness is the defining property of a fair lottery:
 // across many random shuffles, symmetric entries must win with (statistically)
 // equal probability. Ten identical single-ticket entries compete for a
 // quantity of 5, so each entry wins iff it lands in the first five of the
@@ -601,7 +603,7 @@ func TestRunLotteryDraw_GreedyFitThreeApps(t *testing.T) {
 // make the same entries win every time — falls far outside it). Every other
 // test in this file is invariant to shuffle order, so THIS is the only test that
 // would fail if the shuffle were removed.
-func TestRunLotteryDraw_UniformFairness(t *testing.T) {
+func TestLotteryDraw_UniformFairness(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -634,13 +636,13 @@ func TestRunLotteryDraw_UniformFairness(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_InvalidInputsAreSafe pins the defensive contract for
+// TestLotteryDraw_InvalidInputsAreSafe pins the defensive contract for
 // malformed input: a non-positive TicketCount is never admitted (so a
 // zero cannot occupy a 0-ticket winner slot and a negative cannot inflate
 // remaining quantity into an oversell), and a non-positive quantity admits no
-// one. These drive the guard in RunLotteryDraw; without it a negative count
+// one. These drive the guard in AdmitInDrawOrder; without it a negative count
 // would win and ADD to remaining, letting later entries oversell.
-func TestRunLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
+func TestLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -698,7 +700,7 @@ func TestRunLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
 	}
 }
 
-// TestRunLotteryDraw_LoserCanPrecedeWinner verifies the interleaving the fairness
+// TestLotteryDraw_LoserCanPrecedeWinner verifies the interleaving the fairness
 // argument depends on: greedy fit can admit a later-shuffled entry while
 // making an earlier-shuffled one lose, so a loser's DrawPosition can be LOWER
 // than a winner's. With big(10) + small(2) and quantity 3, whenever "big" is
@@ -706,7 +708,7 @@ func TestRunLotteryDraw_InvalidInputsAreSafe(t *testing.T) {
 // higher one. This asserts such an ordering actually occurs (and, when it does,
 // that big's sequence is below small's) — a regression that reordered admission
 // to prefer low sequences would eliminate it.
-func TestRunLotteryDraw_LoserCanPrecedeWinner(t *testing.T) {
+func TestLotteryDraw_LoserCanPrecedeWinner(t *testing.T) {
 	t.Parallel()
 
 	entries := drawEntries("big", 10, "small", 2)
