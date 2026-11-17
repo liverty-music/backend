@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema modernize fix mocks refresh-aaguid-names test test-integration test-stripe-e2e check
+.PHONY: lint lint-schema modernize fix mocks refresh-aaguid-names test test-db-clean test-integration test-stripe-e2e check
 
 # Every binary links both the Pocket Sign and the Zitadel SDKs, which register
 # the same protobuf extension number; protobuf panics at init unless this is
@@ -61,10 +61,17 @@ fix:
 
 ## test: unit tests with local DB (docker compose). Each database test gets a
 ## copy of a template database that the tests build with the atlas CLI
-## (internal/testutil/database.go), so atlas must be on PATH.
+## (internal/testutil/database.go), so atlas must be on PATH. The PostgreSQL is
+## shared by every checkout: it is started when it is not running and never
+## recreated (scripts/test-postgres.sh).
 test:
-	docker compose up -d postgres --wait
+	scripts/test-postgres.sh up
 	go test ./...
+
+## test-db-clean: drop the test templates and kept copies of failed tests that
+## have been unused for a day (run it when no test is running)
+test-db-clean:
+	scripts/test-postgres.sh clean
 
 ## test-integration: integration tests (DB must already be running)
 ## Pass GOTEST_FLAGS for CI-specific options (e.g., coverage)
