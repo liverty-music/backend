@@ -103,9 +103,17 @@ A workflow that needs an admin, and the `workflow` subcommands that resolve it, 
 
 See `internal/infrastructure/gcp/gemini/AGENTS.md`.
 
+### Local test PostgreSQL (shared by every checkout)
+
+All checkouts and worktrees share one server: the `postgres` container of `compose.yml` (project `liverty-music-backend`, port 15432). Each database test gets a database of its own from `testutil.NewDatabase`, so tests of different checkouts do not collide; the server itself is the shared part.
+
+- `make test` runs `scripts/test-postgres.sh up`: it starts the container when it is not running, never recreates it (another checkout may be running tests on it), and fails when a `-c name=value` setting of `compose.yml` differs from the running server's. Then merge `origin/main` into the checkout; recreate the server (`docker compose up -d --force-recreate postgres --wait`) only when no test is running anywhere. A change to the server's options in `compose.yml` therefore needs that recreation once by whoever merges it.
+- `make test-db-clean` drops the `testdb_tpl_*` templates and the kept copies of failed tests that are older than a day and have no session. Run it when no test is running; `DRY_RUN=1` lists what it would drop.
+- A checkout that needs a server of its own sets `TEST_DB_PORT` to the port of a throwaway container you run yourself (`testutil.DatabasePort` and the scratch-database tests read it); `make test` then does not touch compose.
+
 ### Cloud SQL Access (dev and prod, via port-forward)
 
-For integration tests use `docker compose up -d postgres` instead.
+For integration tests use the local test PostgreSQL below instead.
 
 See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-provisioning runbook (ephemeral `db-proxy` Pod, personal IAM login, read-only).
 
