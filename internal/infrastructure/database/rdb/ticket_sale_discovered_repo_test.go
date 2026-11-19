@@ -310,11 +310,11 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 	})
 }
 
-// TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime proves the
-// discovered time is set on insert and never changed by a re-discovery.
+// TestTicketSaleRepository_UpsertDiscovered_FindTime proves the
+// find time is set on insert and never changed by a re-discovery.
 //
 // @spec components/entity/ticket-sale "Re-discovery keeps the find time"
-func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
+func TestTicketSaleRepository_UpsertDiscovered_FindTime(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 

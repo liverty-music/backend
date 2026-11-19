@@ -244,10 +244,10 @@ func oct(day, hh, mm int) time.Time {
 func TestDiscoveredTicketSale_TicketSale(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/ticket-sale "Re-discovery keeps the find time"
-	// The discovered time is the one given when the sale is first stored; a
-	// later discovery only carries the sale's values, never a discovered time,
-	// and UpsertDiscovered keeps the stored one (rdb contract test).
+	// The find time is the one given when the sale is first stored; a later
+	// discovery only carries the sale's values, never a find time, and
+	// UpsertDiscovered keeps the stored one
+	// (TestTicketSaleRepository_UpsertDiscovered_FindTime).
 	first := time.Date(2026, 6, 1, 21, 0, 0, 0, jst)
 	found := &entity.DiscoveredTicketSale{
 		SeriesID:      "series-1",
