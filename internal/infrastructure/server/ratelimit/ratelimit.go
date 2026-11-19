@@ -38,14 +38,17 @@ type Limiter struct {
 	mu      sync.Mutex
 	entries map[string]*entry
 	cfg     Config
+	now     func() time.Time
 	done    chan struct{}
 }
 
 // NewLimiter creates a Limiter that evicts idle entries every evictInterval.
-func NewLimiter(cfg Config, evictInterval time.Duration) *Limiter {
+// now is the clock the token buckets refill by (time.Now in production).
+func NewLimiter(cfg Config, evictInterval time.Duration, now func() time.Time) *Limiter {
 	l := &Limiter{
 		entries: make(map[string]*entry),
 		cfg:     cfg,
+		now:     now,
 		done:    make(chan struct{}),
 	}
 	go l.evictLoop(evictInterval)
@@ -95,10 +98,11 @@ func (l *Limiter) Allow(key string, authenticated bool) bool {
 		e = &entry{limiter: lim}
 		l.entries[key] = e
 	}
-	e.lastAccess = time.Now()
+	now := l.now()
+	e.lastAccess = now
 	l.mu.Unlock()
 
-	return e.limiter.Allow()
+	return e.limiter.AllowN(now, 1)
 }
 
 // NewInterceptor returns a Connect-RPC server interceptor that rate-limits

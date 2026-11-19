@@ -51,7 +51,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{
 		AuthRPS: 100, AuthBurst: 100,
 		AnonRPS: 100, AnonBurst: 100,
-	}, time.Minute)
+	}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 
 	healthHandler := func(*connect.Server) {}

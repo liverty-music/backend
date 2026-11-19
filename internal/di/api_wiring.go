@@ -632,7 +632,7 @@ func (w *apiWiring) buildServing() error {
 		AuthBurst: cfg.Server.RateLimit.AuthBurst,
 		AnonRPS:   cfg.Server.RateLimit.AnonRPS,
 		AnonBurst: cfg.Server.RateLimit.AnonBurst,
-	}, time.Minute)
+	}, time.Minute, time.Now)
 
 	// Consumer Connect server — all consumer services, no admin service; its
 	// only extra interceptor is the per-client limit below.

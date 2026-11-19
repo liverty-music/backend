@@ -55,7 +55,7 @@ func testServerSettings(origin string) config.ServerSettings {
 // newTestRateLimiter returns a rate limiter loose enough not to interfere.
 func newTestRateLimiter(t *testing.T) *ratelimit.Limiter {
 	t.Helper()
-	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 	return rateLimiter
 }
