@@ -77,7 +77,6 @@ func (s *newConcertsStory) discover(artistID, artistName, tour string, count int
 		rdb.NewVenueRepository(s.db),
 		rdb.NewConcertRepository(s.db, testOutbox),
 		rdb.NewSeriesRepository(s.db, testOutbox),
-		rdb.NewSuppressedConcertRepository(s.db),
 		places, nil, time.Now, s.d.logger,
 	)
 	require.NoError(s.t, uc.CreateFromDiscovered(s.ctx, entity.ConcertDiscoveredData{

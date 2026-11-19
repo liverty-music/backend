@@ -145,6 +145,31 @@ func TestOrderVoid(t *testing.T) {
 
 var orderStatuses = []entity.OrderStatus{entity.OrderStatusPending, entity.OrderStatusPaid, entity.OrderStatusRefunded, entity.OrderStatusVoid}
 
+func TestOrderStatus_LeavesWithEvent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status entity.OrderStatus
+		want   bool
+	}{
+		// @spec components/entity/order "Void order"
+		{name: "void order", status: entity.OrderStatusVoid, want: true},
+		// @spec components/entity/order "Refunded order"
+		{name: "refunded order", status: entity.OrderStatusRefunded, want: true},
+		// @spec components/entity/order "Paid order"
+		{name: "paid order", status: entity.OrderStatusPaid, want: false},
+		// @spec components/entity/order "Pending order"
+		{name: "pending order", status: entity.OrderStatusPending, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.status.LeavesWithEvent())
+		})
+	}
+	assert.Len(t, tests, len(entity.OrderStatuses), "every status has a case")
+}
+
 func TestOrder_IsPaid(t *testing.T) {
 	t.Parallel()
 	want := map[entity.OrderStatus]bool{

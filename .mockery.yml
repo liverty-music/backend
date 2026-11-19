@@ -55,7 +55,6 @@ packages:
       SeriesRepository: {}
       SettlementRepository: {}
       SignInLinkSender: {}
-      SuppressedConcertRepository: {}
       TicketJourneyRepository: {}
       TicketRepository: {}
       TicketSaleReminderRepository: {}

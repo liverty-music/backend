@@ -99,8 +99,7 @@ type SeriesUseCase interface {
 	//  - FailedPrecondition: The title is blank, there is no performer, an
 	//    event to publish has no venue or date, a named event is not DRAFT,
 	//    no event is named and none is DRAFT, or a slot is held by another
-	//    organizer or by a CANCELLED event. A slot suppressed by an admin
-	//    delete does not block it.
+	//    organizer or by a CANCELLED event.
 	//  - Any error of Series.PublishEvents, with its own code.
 	Publish(ctx context.Context, callerOrgID, seriesID string, eventIDs []string) (*entity.Series, []*entity.Concert, error)
 

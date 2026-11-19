@@ -14,13 +14,11 @@ import (
 // ConcertCreationUseCase processes discovered concert batches. It resolves each
 // concert's venue and branches the outcome: a genuinely new concert at a resolved
 // venue is auto-published, a same-slot conflict or an unresolved venue is staged
-// for admin review, and a suppressed natural key is skipped entirely.
+// for admin review.
 type ConcertCreationUseCase interface {
 	// CreateFromDiscovered processes a batch of scraped concerts for a single
 	// artist. For each concert it resolves a venue via Google Places API, then:
 	//   - unresolved venue → staged for review (no venues row, no publish);
-	//   - resolved venue whose natural key is suppressed → skipped (no publish,
-	//     no stage), so an admin's deletion is not undone by re-discovery;
 	//   - resolved venue with a same-slot conflict → staged for reconciliation
 	//     (no publish), resolved later via ConcertCandidateUseCase.Approve;
 	//   - resolved venue, genuinely new → auto-published: the events of one
@@ -37,15 +35,14 @@ type ConcertCreationUseCase interface {
 // package-level venue/duplicate helpers shared with ConcertCandidateUseCase.Approve
 // so discovery and approval agree on venue resolution and conflict detection.
 type concertCreationUseCase struct {
-	concertCandidateRepo  entity.ConcertCandidateRepository
-	venueRepo             entity.VenueRepository
-	concertRepo           entity.ConcertRepository
-	seriesRepo            entity.SeriesRepository
-	suppressedConcertRepo entity.SuppressedConcertRepository
-	placeSearcher         entity.VenuePlaceSearcher
-	analytics             AnalyticsClient
-	clock                 Clock
-	logger                *logging.Logger
+	concertCandidateRepo entity.ConcertCandidateRepository
+	venueRepo            entity.VenueRepository
+	concertRepo          entity.ConcertRepository
+	seriesRepo           entity.SeriesRepository
+	placeSearcher        entity.VenuePlaceSearcher
+	analytics            AnalyticsClient
+	clock                Clock
+	logger               *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -59,7 +56,6 @@ func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
 	concertRepo entity.ConcertRepository,
 	seriesRepo entity.SeriesRepository,
-	suppressedConcertRepo entity.SuppressedConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
 	analytics AnalyticsClient,
 	clock Clock,
@@ -69,22 +65,21 @@ func NewConcertCreationUseCase(
 		panic("placeSearcher is required")
 	}
 	return &concertCreationUseCase{
-		concertCandidateRepo:  concertCandidateRepo,
-		venueRepo:             venueRepo,
-		concertRepo:           concertRepo,
-		seriesRepo:            seriesRepo,
-		suppressedConcertRepo: suppressedConcertRepo,
-		placeSearcher:         placeSearcher,
-		analytics:             analytics,
-		clock:                 clock,
-		logger:                logger,
+		concertCandidateRepo: concertCandidateRepo,
+		venueRepo:            venueRepo,
+		concertRepo:          concertRepo,
+		seriesRepo:           seriesRepo,
+		placeSearcher:        placeSearcher,
+		analytics:            analytics,
+		clock:                clock,
+		logger:               logger,
 	}
 }
 
 // ingestTally counts what one CreateFromDiscovered batch did with its events,
 // for the concert.ingest.completed signal.
 type ingestTally struct {
-	published, staged, filled, suppressed, conflicts int
+	published, staged, filled, conflicts int
 }
 
 // Outcomes of the concert.ingest.completed signal.
@@ -96,8 +91,8 @@ const (
 // CreateFromDiscovered processes a discovered concert batch grouped by series.
 // The series_id shared by a whole group is resolved ONCE (adopt an existing
 // event's series, else mint), the series row is created eagerly, then each
-// member event is resolved and branched between auto-publish, staging, and
-// suppression — all under the same series_id.
+// member event is resolved and branched between auto-publish and staging —
+// all under the same series_id.
 //
 // Per series:
 //  1. Resolve the group series_id via a cheap (artist, dates) DB lookup — NO
@@ -110,8 +105,7 @@ const (
 //     onto an unknown-start row if applicable, and insert nothing new.
 //  2. Otherwise resolve the venue via Google Places (batch-local cache).
 //  3. Unresolved venue → stage for review (no venues row, no publish).
-//  4. Resolve/create the venues row, then consult the suppression set — a
-//     deleted-then-rediscovered natural key is skipped entirely.
+//  4. Resolve/create the venues row.
 //  5. Same-slot conflict → stage for reconciliation (no publish).
 //  6. Genuinely new → insert the event under the group series_id.
 //
@@ -136,13 +130,12 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			outcome = ingestOutcomeFailed
 		}
 		sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertIngestCompleted, uc.clock(), AnalyticsProperties{
-			"artist_id":        data.ArtistID,
-			"outcome":          outcome,
-			"published_count":  tally.published,
-			"staged_count":     tally.staged,
-			"filled_count":     tally.filled,
-			"suppressed_count": tally.suppressed,
-			"conflict_count":   tally.conflicts,
+			"artist_id":       data.ArtistID,
+			"outcome":         outcome,
+			"published_count": tally.published,
+			"staged_count":    tally.staged,
+			"filled_count":    tally.filled,
+			"conflict_count":  tally.conflicts,
 		})
 	}()
 
@@ -326,7 +319,7 @@ func (uc *concertCreationUseCase) rediscover(
 
 // persistDiscoveredEvent resolves a single member event under the
 // already-resolved group series_id and returns the Concert to publish, or nil
-// for a re-discovery, fill, suppression, or staged outcome. toPublish holds the
+// for a re-discovery, fill, or staged outcome. toPublish holds the
 // series' events already decided for publication, so an event colliding with
 // one of them is staged too.
 func (uc *concertCreationUseCase) persistDiscoveredEvent(
@@ -356,7 +349,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		}
 		// A genuinely new start time at a venue the artist already plays on this
 		// date: reuse the known venue_id (no Places call), but still run the SAME
-		// suppression + duplicate-staging gate as the general path — so an
+		// duplicate-staging gate as the general path — so an
 		// unknown-start entry colliding with a known-start row stages for review
 		// instead of inserting a phantom NULL-start duplicate.
 		venueID := sameVenue[0].VenueID
@@ -401,13 +394,13 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	return uc.stageOrPublish(ctx, artistID, seriesID, series, ev, venueID, candidate, toPublish, tally)
 }
 
-// stageOrPublish runs the shared tail for a resolved-venue event: the
-// suppression gate, then same-slot conflict detection against the stored
-// events and the series' events already decided for publication (staging for
-// reconciliation on a conflict — which also covers an unknown-start entry that
-// collides with a known-start row), and finally the Concert to publish under
-// the group series_id. candidate is the row to persist if the event must be staged. It is the
-// single decision point shared by the re-discovery fast-path and the general
+// stageOrPublish runs the shared tail for a resolved-venue event: same-slot
+// conflict detection against the stored events and the series' events already
+// decided for publication (staging for reconciliation on a conflict — which
+// also covers an unknown-start entry that collides with a known-start row),
+// and finally the Concert to publish under the group series_id. candidate is
+// the row to persist if the event must be staged. It is the single decision
+// point shared by the re-discovery fast-path and the general
 // Places path, so the two cannot diverge on the human-gate rules.
 func (uc *concertCreationUseCase) stageOrPublish(
 	ctx context.Context,
@@ -419,21 +412,6 @@ func (uc *concertCreationUseCase) stageOrPublish(
 	toPublish []*entity.Concert,
 	tally *ingestTally,
 ) (*entity.Concert, error) {
-	// Suppression gate: a deleted-then-rediscovered slot is skipped entirely.
-	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
-	if err != nil {
-		return nil, fmt.Errorf("check suppression for %q: %w", series.Title, err)
-	}
-	if suppressed {
-		tally.suppressed++
-		uc.logger.Info(ctx, "skipping suppressed concert (deleted by an admin)",
-			slog.String("artist_id", artistID),
-			slog.String("venue_id", venueID),
-			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-		)
-		return nil, nil
-	}
-
 	// Same-slot conflict → stage for reconciliation (no publish). Checked before
 	// insert so a colliding event keeps the human gate.
 	conflict, err := detectDuplicateEvent(ctx, candidate, venueID, uc.concertRepo)

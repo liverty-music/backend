@@ -590,24 +590,6 @@ func TestSeriesUseCase_Publish_Lifecycle(t *testing.T) {
 		})
 	}
 
-	t.Run("publish a draft at a slot an admin's delete suppressed", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/series/publish "Suppressed slot"
-		d := newAuthoringDeps(t)
-		s := lifecycleSeries(entity.SeriesVisibilityPublic)
-		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).
-			Return(s, concertsOf([]*entity.Event{lifecycleEvent(draftA, entity.PublishStateDraft, date, nil)}, artists), nil).Once()
-		// Series.PublishEvents no longer refuses a suppressed slot.
-		d.seriesRepo.EXPECT().PublishEvents(mock.Anything, lifecycleSeriesID, []string{draftA}, (*string)(nil)).Return([]string{draftA}, nil).Once()
-		published(d, s, nil, artists)
-
-		_, concerts, err := d.uc.Publish(ctx, authoringOrgID, lifecycleSeriesID, nil)
-
-		require.NoError(t, err)
-		require.Len(t, concerts, 1)
-		assert.True(t, concerts[0].HasPublishState(entity.PublishStatePublished))
-	})
-
 	t.Run("fail with FAILED_PRECONDITION when the series has no DRAFT event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/publish "Already published"
