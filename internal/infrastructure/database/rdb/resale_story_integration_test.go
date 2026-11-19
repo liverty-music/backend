@@ -144,7 +144,7 @@ func TestResaleStory_UnsoldAtTheDeadline(t *testing.T) {
 	listed := s.listOne(fan)
 
 	// -- the admission window opens with the listing unsold --
-	s.now = listed.Deadline
+	s.now = listed.CloseTime
 	listings := s.ownListings(fan)
 	require.Len(t, listings, 1)
 	assert.Equal(t, entity.ResaleListingStatusExpired, listings[0].Status, "the listing is no longer offered")

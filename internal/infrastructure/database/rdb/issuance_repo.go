@@ -39,20 +39,20 @@ const (
 	// payment.
 	issuancePayOrderQuery = `
 		UPDATE orders SET status = 1, provider = $2, provider_payment_id = $3, provider_payment_method_id = $4,
-			card_brand = $5, card_last4 = $6, pay_at = $7
+			card_brand = $5, card_last4 = $6, pay_time = $7
 		WHERE id = $1 AND status = 4
 	`
 	issuanceInsertTicketQuery = `
 		INSERT INTO tickets (
 			id, order_id, user_id, event_id, identity_verification_id,
-			resale_without_consent_prohibited, status, issue_at
+			resale_without_consent_prohibited, status, issue_time
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	// issuanceInsertSettlementQuery inserts the Held settlement row for the
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
 	// caller (OrderUseCase) must resolve the Organizer before calling Issue.
 	issuanceInsertSettlementQuery = `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at)
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	// issuanceInsertSettlementSplitQuery inserts one payout split for the
@@ -66,7 +66,7 @@ const (
 	// it is Committed and charged.
 	issuanceCompleteCheckoutQuery = `
 		UPDATE checkouts SET status = 3
-		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
+		WHERE id = $1 AND status = 2 AND capture_time IS NOT NULL
 	`
 	// issuanceResaleEntryQuery reads the resale entry that names the Order,
 	// if any, and its Order's stock.
@@ -94,7 +94,7 @@ const (
 		SELECT EXISTS (SELECT 1 FROM resale_listings WHERE resale_entry_id = $1 AND status = 4)
 	`
 	issuanceSellListingsQuery = `
-		UPDATE resale_listings rl SET status = 2, sold_at = $2
+		UPDATE resale_listings rl SET status = 2, sell_time = $2
 		FROM tickets t
 		WHERE rl.resale_entry_id = $1 AND rl.status = 1 AND t.id = rl.ticket_id
 		RETURNING rl.id, rl.ticket_id, t.order_id

@@ -433,7 +433,7 @@ func (p *StripePayoutAccounts) CreateOnboardingLink(ctx context.Context, provide
 
 	p.logger.Info(ctx, "Stripe account onboarding link created",
 		slog.String("provider_account_id", providerAccountID),
-		slog.Time("expires_at", time.Unix(link.ExpiresAt, 0)),
+		slog.Time("expire_time", time.Unix(link.ExpiresAt, 0)),
 	)
 	return link.URL, nil
 }

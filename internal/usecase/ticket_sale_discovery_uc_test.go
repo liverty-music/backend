@@ -129,7 +129,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 	}
 	// searchedAgo returns the search of series-a last searched d ago.
 	searchedAgo := func(d time.Duration) *entity.TicketSaleSearch {
-		return &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: now.Add(-d)}
+		return &entity.TicketSaleSearch{SeriesID: "series-a", SearchTime: now.Add(-d)}
 	}
 	const day = 24 * time.Hour
 	jst := time.FixedZone("JST", 9*60*60)
@@ -210,7 +210,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.sales("series-a")
-				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: time.Date(2026, 10, 22, 21, 0, 30, 0, jst)})
+				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchTime: time.Date(2026, 10, 22, 21, 0, 30, 0, jst)})
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
@@ -225,7 +225,7 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.sales("series-a")
-				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchedTime: time.Date(2026, 10, 23, 0, 0, 0, 0, jst)})
+				m.searches([]string{"series-a"}, &entity.TicketSaleSearch{SeriesID: "series-a", SearchTime: time.Date(2026, 10, 23, 0, 0, 0, 0, jst)})
 			},
 		},
 		{

@@ -26,9 +26,9 @@ func at(hh, mm, ss int) time.Time {
 // fresh tickets, signed at signed.
 func newCode(n int, signed time.Time) *entity.AdmissionCode {
 	code := &entity.AdmissionCode{
-		UserID:     entity.UserID(entity.NewID()),
-		EventID:    entity.NewID(),
-		SignedTime: signed,
+		UserID:   entity.UserID(entity.NewID()),
+		EventID:  entity.NewID(),
+		SignTime: signed,
 	}
 	for range n {
 		code.TicketIDs = append(code.TicketIDs, entity.TicketID(entity.NewID()))
@@ -134,7 +134,7 @@ func TestDecodeAdmissionCode(t *testing.T) {
 		assert.Equal(t, code.UserID, got.UserID)
 		assert.Equal(t, code.EventID, got.EventID)
 		assert.Equal(t, code.TicketIDs, got.TicketIDs)
-		assert.True(t, code.SignedTime.Equal(got.SignedTime))
+		assert.True(t, code.SignTime.Equal(got.SignTime))
 		assert.Equal(t, code.Signature, got.Signature)
 	})
 
@@ -221,7 +221,7 @@ func TestAdmissionCode_Verify(t *testing.T) {
 			name: "genuine code signed far ahead by a fast clock",
 			mutate: func(t *testing.T, code *entity.AdmissionCode, _ *entity.WalletPublicKey) {
 				t.Helper()
-				code.SignedTime = at(18, 31, 0)
+				code.SignTime = at(18, 31, 0)
 				device.SignCode(t, code)
 			},
 			now:  at(18, 30, 0),
@@ -241,7 +241,7 @@ func TestAdmissionCode_Verify(t *testing.T) {
 			name: "signed time changed after signing",
 			mutate: func(t *testing.T, code *entity.AdmissionCode, _ *entity.WalletPublicKey) {
 				t.Helper()
-				code.SignedTime = code.SignedTime.Add(time.Minute)
+				code.SignTime = code.SignTime.Add(time.Minute)
 			},
 			now:  at(18, 31, 5),
 			want: entity.AdmissionCodeForged,

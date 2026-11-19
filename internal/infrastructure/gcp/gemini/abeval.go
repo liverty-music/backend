@@ -12,7 +12,7 @@ var groundTruthJSON []byte
 // GroundTruth is the top-level fixture structure for the A/B harness.
 type GroundTruth struct {
 	EvaluationFrom string              `json:"evaluation_from"`
-	CapturedAt     string              `json:"captured_at"`
+	CaptureTime    string              `json:"captured_at"`
 	Artists        []GroundTruthArtist `json:"artists"`
 }
 

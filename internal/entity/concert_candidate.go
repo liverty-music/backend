@@ -64,9 +64,9 @@ type ConcertCandidate struct {
 	// ResolvedLongitude is the WGS 84 longitude of the resolved venue. Nil when
 	// unresolved.
 	ResolvedLongitude *float64
-	// DiscoveredTime is the timestamp when the discovery pipeline staged this
+	// FindTime is the timestamp when the discovery pipeline staged this
 	// concert. Used to order the review queue.
-	DiscoveredTime time.Time
+	FindTime time.Time
 }
 
 // ConcertCandidateDedupKey is the pre-resolution dedup key used during discovery
@@ -88,7 +88,7 @@ type ConcertCandidateRepository interface {
 	// (artist_id, local_date, resolved_place_id) index; when nil it falls back
 	// to (artist_id, local_date, listed_venue_name). On conflict the mutable
 	// payload (title, start/open times, admin_area, source_url, resolved_*) is
-	// updated but the original discovered_at is kept so queue order is stable.
+	// updated but the original find_time is kept so queue order is stable.
 	//
 	// # Possible errors
 	//
@@ -96,7 +96,7 @@ type ConcertCandidateRepository interface {
 	//  - Internal: unexpected failure.
 	Upsert(ctx context.Context, sc *ConcertCandidate) error
 
-	// ListPending returns all concert candidates ordered by discovered_at ascending
+	// ListPending returns all concert candidates ordered by find_time ascending
 	// (oldest first = review-queue order).
 	ListPending(ctx context.Context) ([]*ConcertCandidate, error)
 

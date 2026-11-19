@@ -94,12 +94,12 @@ func TestResaleListing_IsOpenAt(t *testing.T) {
 		wantStatus entity.ResaleListingStatus
 	}{
 		{
-			// @spec components/entity/resale-listing "Before the deadline"
+			// @spec components/entity/resale-listing "Before the close time"
 			name: "before the deadline", status: entity.ResaleListingStatusListed, at: at(15, 59, 0),
 			wantOpen: true, wantStatus: entity.ResaleListingStatusListed,
 		},
 		{
-			// @spec components/entity/resale-listing "At the deadline"
+			// @spec components/entity/resale-listing "At the close time"
 			name: "at the deadline", status: entity.ResaleListingStatusListed, at: at(16, 0, 0),
 			wantOpen: false, wantStatus: entity.ResaleListingStatusExpired,
 		},

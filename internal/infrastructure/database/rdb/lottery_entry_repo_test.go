@@ -75,8 +75,8 @@ func setSaleEndByDatabaseClock(t *testing.T, db *rdb.Database, saleID entity.Tic
 	t.Helper()
 	_, err := db.Pool.Exec(context.Background(), `
 		UPDATE ticket_sales
-		SET sale_start_at = now() - interval '1 hour' + least($2::interval, interval '0'),
-		    sale_end_at = now() + $2::interval
+		SET sale_start_time = now() - interval '1 hour' + least($2::interval, interval '0'),
+		    sale_end_time = now() + $2::interval
 		WHERE id = $1`, string(saleID), end)
 	require.NoError(t, err)
 }

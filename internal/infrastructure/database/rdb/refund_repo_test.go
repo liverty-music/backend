@@ -45,7 +45,7 @@ func seedRefundablePurchase(t *testing.T, db *rdb.Database, n int) *refundablePu
 	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT order_id FROM tickets WHERE id = $1`, string(tickets[0])).Scan(&orderID))
 	settlementID, organizerID := entity.NewID(), seedOrganizer(t, db)
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 		settlementID, orderID, organizerID, f.EventID, issuedTicketsTime)
 	require.NoError(t, err)
 	insertSettlementSplit(t, db, entity.SettlementID(settlementID), organizerID, 2700)
@@ -63,7 +63,7 @@ func (p *refundablePurchase) list(t *testing.T, i int, status entity.ResaleListi
 		soldAt = listedAt
 	}
 	_, err := p.db.Pool.Exec(context.Background(), `
-		INSERT INTO resale_listings (id, ticket_id, user_id, price, status, created_at, sold_at, ticket_stock_id)
+		INSERT INTO resale_listings (id, ticket_id, user_id, price, status, create_time, sell_time, ticket_stock_id)
 		SELECT $1, t.id, t.user_id, $3, $4, $5, $6, $7 FROM tickets t WHERE t.id = $2`,
 		id, string(p.tickets[i]), p.stock.Price(), int16(status), listedAt, soldAt, string(p.stock.ID))
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestRefundRepository_CommitRefund(t *testing.T) {
 	t.Run("refund recorded", func(t *testing.T) {
 		// @spec components/entity/order/commit-refund "Refund recorded"
 		p := seedRefundablePurchase(t, db, 2)
-		_, err := db.Pool.Exec(ctx, `UPDATE settlements SET status = 2, release_at = $2 WHERE id = $1`, string(p.settlement), at)
+		_, err := db.Pool.Exec(ctx, `UPDATE settlements SET status = 2, release_time = $2 WHERE id = $1`, string(p.settlement), at)
 		require.NoError(t, err)
 		_, err = db.Pool.Exec(ctx, `UPDATE settlement_splits SET provider_payout_id = 'tr_1' WHERE settlement_id = $1`, string(p.settlement))
 		require.NoError(t, err)
@@ -260,7 +260,7 @@ func TestRefundRepository_CommitRefund(t *testing.T) {
 			p := seedRefundablePurchase(t, db, 2)
 			// The Order was never paid; its Tickets and Settlement stand in
 			// for rows that a refund must leave as they are.
-			_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = $2, provider_payment_id = NULL, pay_at = NULL WHERE id = $1`,
+			_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = $2, provider_payment_id = NULL, pay_time = NULL WHERE id = $1`,
 				string(p.orderID), int16(status))
 			require.NoError(t, err)
 			mark := outboxMark(t, db)

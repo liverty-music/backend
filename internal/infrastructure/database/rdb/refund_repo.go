@@ -86,7 +86,7 @@ const orderStatusTxQuery = `
 // insertOrderRefundTxQuery stores the refund of the order refundOrderTxQuery
 // made Refunded.
 const insertOrderRefundTxQuery = `
-	INSERT INTO order_refunds (order_id, reason, amount, provider_refund_id, refund_at)
+	INSERT INTO order_refunds (order_id, reason, amount, provider_refund_id, refund_time)
 	VALUES ($1, $2, $3, $4, $5)
 `
 

@@ -248,8 +248,8 @@ func TestResaleDrawStory_OneOfTwoTicketsResold(t *testing.T) {
 	assert.Equal(t, listed.Listing.ID, listings[0].Listing.ID)
 	assert.Equal(t, entity.ResaleListingStatusSold, listings[0].Status)
 	require.NotNil(t, listings[0].Listing.RefundTime, "refunded")
-	require.NotNil(t, listings[0].Listing.SoldTime)
-	assert.LessOrEqual(t, listings[0].Listing.RefundTime.Sub(*listings[0].Listing.SoldTime), 2*time.Minute)
+	require.NotNil(t, listings[0].Listing.SellTime)
+	assert.LessOrEqual(t, listings[0].Listing.RefundTime.Sub(*listings[0].Listing.SellTime), 2*time.Minute)
 	sold := 0
 	for _, m := range s.emailsTo(seller) {
 		if strings.Contains(m.subject, "売れました") {
@@ -309,7 +309,7 @@ func TestResaleDrawStory_NobodyWinsAtTheLastDraw(t *testing.T) {
 	// The show is 8 days after the first-come sale (7 days) opens, so the
 	// card authorization still holds at the last draw.
 	start := storyWindowStart.Add(8 * 24 * time.Hour)
-	_, err := db.Pool.Exec(s.ctx, `UPDATE events SET start_at = $2, local_event_date = $3 WHERE id = $1`,
+	_, err := db.Pool.Exec(s.ctx, `UPDATE events SET start_time = $2, local_event_date = $3 WHERE id = $1`,
 		s.eventID, start, start.In(storyJST).Format(time.DateOnly))
 	require.NoError(t, err)
 	stock, seller := s.soldOutTo(2)

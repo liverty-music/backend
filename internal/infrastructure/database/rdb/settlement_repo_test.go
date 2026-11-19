@@ -164,7 +164,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusHeld, got.Status, "settlement must stay Held when the split update fails")
 		assert.Empty(t, got.ProviderChargeID, "provider_charge_id must not be persisted on rollback")
-		assert.True(t, got.ReleaseTime.IsZero(), "released_at must not be persisted on rollback")
+		assert.True(t, got.ReleaseTime.IsZero(), "release_time must not be persisted on rollback")
 		require.Len(t, got.Splits, 2)
 		for _, split := range got.Splits {
 			assert.Empty(t, split.ProviderPayoutID, "no split's provider_payout_id may be persisted when the transaction rolls back")

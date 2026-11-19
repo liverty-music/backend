@@ -183,7 +183,7 @@ type Undelivered struct {
 // oldestUndeliveredQuery reads the oldest row of the outbox with the subject
 // in its envelope.
 const oldestUndeliveredQuery = `
-	SELECT payload->>'destination_topic', created_at
+	SELECT payload->>'destination_topic', create_time
 	FROM watermill_events_outbox
 	ORDER BY "offset"
 	LIMIT 1

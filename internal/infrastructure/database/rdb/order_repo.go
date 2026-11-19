@@ -23,8 +23,8 @@ type OrderRepository struct {
 const orderSelect = `
 	SELECT o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
-		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
+		o.status, o.amount, o.currency, o.pay_time, o.confirmation_send_time,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_time,
 		le.id, c.id, re.id
 	FROM orders o
 	LEFT JOIN order_refunds orf ON orf.order_id = o.id
@@ -45,16 +45,16 @@ const (
 	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
 	// it is unset, so a second call keeps the first time.
 	orderMarkConfirmationSentQuery = `
-		UPDATE orders SET confirmation_send_at = $2
-		WHERE id = $1 AND confirmation_send_at IS NULL
+		UPDATE orders SET confirmation_send_time = $2
+		WHERE id = $1 AND confirmation_send_time IS NULL
 	`
 	orderExistsQuery = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
 	// orderListByUserQuery lists the user's Paid and Refunded orders.
-	orderListByUserQuery = orderSelect + ` WHERE o.user_id = $1 AND o.status IN (1, 2) ORDER BY o.pay_at, o.id`
+	orderListByUserQuery = orderSelect + ` WHERE o.user_id = $1 AND o.status IN (1, 2) ORDER BY o.pay_time, o.id`
 	// orderListByEventQuery takes the event as a one-element uuid array, the
 	// shape eventOrderIDsSubquery expects, and lists its Paid and Refunded
 	// orders.
-	orderListByEventQuery = orderSelect + ` WHERE o.id IN (` + eventOrderIDsSubquery + `) AND o.status IN (1, 2) ORDER BY o.pay_at, o.id`
+	orderListByEventQuery = orderSelect + ` WHERE o.id IN (` + eventOrderIDsSubquery + `) AND o.status IN (1, 2) ORDER BY o.pay_time, o.id`
 	orderGetEventIDQuery  = `
 		SELECT s.event_id FROM orders o JOIN ticket_stocks s ON s.id = o.ticket_stock_id WHERE o.id = $1
 	`
@@ -91,7 +91,7 @@ const (
 			LEFT JOIN resale_entries re ON re.order_id = o.id
 			WHERE o.user_id = $1 AND s.event_id = $2 AND ($3::uuid IS NULL OR o.id <> $3::uuid)
 			  AND (o.status = 1
-			       OR (o.status = 4 AND ((c.status = 1 AND c.hold_expire_at > $4) OR c.status = 2 OR le.state IN (1, 2) OR re.state IN (1, 2))))
+			       OR (o.status = 4 AND ((c.status = 1 AND c.hold_expire_time > $4) OR c.status = 2 OR le.state IN (1, 2) OR re.state IN (1, 2))))
 		)
 		SELECT COALESCE(SUM(n), 0)::int, (array_agg(seat_type_id) FILTER (WHERE n > 0))[1] FROM counted
 	`

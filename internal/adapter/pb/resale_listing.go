@@ -8,7 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
-// FromResaleListing maps a listing, with its deadline and its status when
+// FromResaleListing maps a listing, with its close time and its status when
 // read, to Protobuf. Only the fan's own side is mapped: never anything about
 // the fan who bought it.
 func FromResaleListing(v *usecase.ResaleListingAt) *entityv1.ResaleListing {
@@ -36,11 +36,11 @@ func FromResaleListing(v *usecase.ResaleListingAt) *entityv1.ResaleListing {
 	if l.ProviderRefundID != "" {
 		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: l.ProviderRefundID}
 	}
-	if !v.Deadline.IsZero() {
-		pb.DeadlineTime = timestamppb.New(v.Deadline)
+	if !v.CloseTime.IsZero() {
+		pb.CloseTime = timestamppb.New(v.CloseTime)
 	}
-	if l.SoldTime != nil {
-		pb.SoldTime = timestamppb.New(*l.SoldTime)
+	if l.SellTime != nil {
+		pb.SellTime = timestamppb.New(*l.SellTime)
 	}
 	if l.RefundTime != nil {
 		pb.RefundTime = timestamppb.New(*l.RefundTime)

@@ -252,8 +252,8 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	meta := runMeta{
 		SDKVersion:     "google.golang.org/genai@v1.69.0",
 		EvaluationFrom: gt.EvaluationFrom,
-		StartedAt:      startedAt.Format(time.RFC3339),
-		FinishedAt:     time.Now().UTC().Format(time.RFC3339),
+		StartTime:      startedAt.Format(time.RFC3339),
+		FinishTime:     time.Now().UTC().Format(time.RFC3339),
 		CellsExecuted:  len(results),
 		TotalCostUSD:   totalCost,
 	}
@@ -261,7 +261,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		t.Fatalf("write outputs: %v", err)
 	}
 	t.Logf("variant %s complete: %d cells, started %s, finished %s (match against billing-export hour)",
-		variant, len(results), meta.StartedAt, meta.FinishedAt)
+		variant, len(results), meta.StartTime, meta.FinishTime)
 }
 
 // tempLabel renders the temperature for logs ("unset" when not sent).

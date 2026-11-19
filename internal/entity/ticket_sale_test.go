@@ -33,13 +33,13 @@ func namedSale(name string, method entity.TicketSaleMethod, start, end time.Time
 func discoveredSale(method entity.TicketSaleMethod, start, end time.Time) *entity.TicketSale {
 	discovered := time.Date(2026, 10, 1, 21, 0, 0, 0, jst)
 	return &entity.TicketSale{
-		ID:             "sale-1",
-		SeriesID:       "series-1",
-		Name:           "オフィシャル先行",
-		Method:         method,
-		SaleStartTime:  start,
-		SaleEndTime:    end,
-		DiscoveredTime: &discovered,
+		ID:            "sale-1",
+		SeriesID:      "series-1",
+		Name:          "オフィシャル先行",
+		Method:        method,
+		SaleStartTime: start,
+		SaleEndTime:   end,
+		FindTime:      &discovered,
 	}
 }
 
@@ -244,10 +244,10 @@ func oct(day, hh, mm int) time.Time {
 func TestDiscoveredTicketSale_TicketSale(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/ticket-sale "Re-discovery keeps the discovered time"
-	// The discovered time is the one given when the sale is first stored; a
-	// later discovery only carries the sale's values, never a discovered time,
-	// and UpsertDiscovered keeps the stored one (rdb contract test).
+	// The find time is the one given when the sale is first stored; a later
+	// discovery only carries the sale's values, never a find time, and
+	// UpsertDiscovered keeps the stored one
+	// (TestTicketSaleRepository_UpsertDiscovered_FindTime).
 	first := time.Date(2026, 6, 1, 21, 0, 0, 0, jst)
 	found := &entity.DiscoveredTicketSale{
 		SeriesID:      "series-1",
@@ -260,7 +260,7 @@ func TestDiscoveredTicketSale_TicketSale(t *testing.T) {
 	sale := found.TicketSale(first)
 
 	assert.True(t, sale.IsDiscovered())
-	assert.True(t, first.Equal(*sale.DiscoveredTime))
+	assert.True(t, first.Equal(*sale.FindTime))
 	assert.NoError(t, found.Validate(first))
 }
 

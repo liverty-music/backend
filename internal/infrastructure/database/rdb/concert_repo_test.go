@@ -275,13 +275,13 @@ func TestConcertRepository_Create(t *testing.T) {
 		_ = seriesID2 // seeded but unused in this path; kept for clarity
 	})
 
-	t.Run("natural key conflict — open_at updated from NULL to non-NULL", func(t *testing.T) {
+	t.Run("natural key conflict — open_time updated from NULL to non-NULL", func(t *testing.T) {
 		setupFixtures(t)
 
 		listedVenue := "Zepp DiverCity"
 		seriesID := seedSeries(t, ctx, seriesRepo, "No OpenTime")
 
-		// First insert: event with open_at = NULL.
+		// First insert: event with open_time = NULL.
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c03", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -290,8 +290,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
-		// Second insert: same natural key but open_at is now non-NULL.
-		// COALESCE(EXCLUDED.open_at, events.open_at) → fills the NULL.
+		// Second insert: same natural key but open_time is now non-NULL.
+		// COALESCE(EXCLUDED.open_time, events.open_time) → fills the NULL.
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c04", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -304,16 +304,16 @@ func TestConcertRepository_Create(t *testing.T) {
 		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		require.NotNil(t, got[0].OpenTime, "open_at should be updated from NULL to non-NULL")
+		require.NotNil(t, got[0].OpenTime, "open_time should be updated from NULL to non-NULL")
 	})
 
-	t.Run("natural key conflict — existing non-NULL open_at preserved", func(t *testing.T) {
+	t.Run("natural key conflict — existing non-NULL open_time preserved", func(t *testing.T) {
 		setupFixtures(t)
 
 		listedVenue := "Zepp DiverCity"
 		seriesID := seedSeries(t, ctx, seriesRepo, "Has OpenTime")
 
-		// First insert: event with open_at = non-NULL.
+		// First insert: event with open_time = non-NULL.
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c05", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -322,8 +322,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
-		// Second insert: same natural key but open_at = NULL.
-		// COALESCE(NULL, events.open_at) → preserves existing value.
+		// Second insert: same natural key but open_time = NULL.
+		// COALESCE(NULL, events.open_time) → preserves existing value.
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c06", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -336,16 +336,16 @@ func TestConcertRepository_Create(t *testing.T) {
 		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
+		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_time must not be overwritten by NULL")
 	})
 
-	t.Run("natural key conflict — existing non-NULL open_at preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
+	t.Run("natural key conflict — existing non-NULL open_time preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
 		setupFixtures(t)
 
 		listedVenue := "Zepp DiverCity"
 		seriesID := seedSeries(t, ctx, seriesRepo, "First Write Wins OpenAt")
 
-		// First insert: confirmed open_at.
+		// First insert: confirmed open_time.
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0b", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -354,9 +354,9 @@ func TestConcertRepository_Create(t *testing.T) {
 			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
-		// Second insert: same natural key with a different non-NULL open_at.
-		// Symmetric assertion to the start_at first-write-wins test —
-		// COALESCE(events.open_at, EXCLUDED.open_at) keeps the first value.
+		// Second insert: same natural key with a different non-NULL open_time.
+		// Symmetric assertion to the start_time first-write-wins test —
+		// COALESCE(events.open_time, EXCLUDED.open_time) keeps the first value.
 		laterOpen := openTime.Add(2 * time.Hour)
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0c", VenueID: venueID,
@@ -372,15 +372,15 @@ func TestConcertRepository_Create(t *testing.T) {
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime)
 		require.True(t, got[0].OpenTime.Equal(openTime),
-			"non-NULL open_at must NOT be overwritten by a different non-NULL incoming value")
+			"non-NULL open_time must NOT be overwritten by a different non-NULL incoming value")
 	})
 
-	// Note: a "different non-NULL start_at first-write-wins" subtest was removed
+	// Note: a "different non-NULL start_time first-write-wins" subtest was removed
 	// here — under the physical natural key (venue_id, local_event_date,
-	// start_at), two different start times at the same venue/date are DISTINCT
+	// start_time), two different start times at the same venue/date are DISTINCT
 	// events (昼夜2公演), not a conflict. That behaviour is covered by
-	// TestConcertRepository_PhysicalNaturalKey; open_at first-write-wins (which
-	// is still a genuine same-key conflict) is covered by the open_at subtest above.
+	// TestConcertRepository_PhysicalNaturalKey; open_time first-write-wins (which
+	// is still a genuine same-key conflict) is covered by the open_time subtest above.
 
 	t.Run("co-headliner — second artist's discovery returns the existing event id via linkedEventIDs", func(t *testing.T) {
 		// Co-headliner notification path:
@@ -445,13 +445,13 @@ func TestConcertRepository_Create(t *testing.T) {
 			"both artists should resolve to the same event row")
 	})
 
-	t.Run("NULL start_at — same (series_id, local_event_date, venue_id) triggers UPSERT regardless of start_at", func(t *testing.T) {
+	t.Run("NULL start_time — same (series_id, local_event_date, venue_id) triggers UPSERT regardless of start_time", func(t *testing.T) {
 		setupFixtures(t)
 
 		listedVenue := "Zepp DiverCity"
 		seriesID := seedSeries(t, ctx, seriesRepo, "First NULL start")
 
-		// First insert: event with start_at = NULL.
+		// First insert: event with start_time = NULL.
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c07", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -460,8 +460,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			Artists:   []*entity.Artist{{ID: artistID}},
 		})
 
-		// Second insert: same series+venue+date, also start_at = NULL.
-		// Same natural key (series_id, local_event_date, venue_id) → conflict. start_at is NOT part of the key; it's filled in via COALESCE when previously NULL.
+		// Second insert: same series+venue+date, also start_time = NULL.
+		// Same natural key (series_id, local_event_date, venue_id) → conflict. start_time is NOT part of the key; it's filled in via COALESCE when previously NULL.
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -473,7 +473,7 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		got, err := concertRepo.ListByArtist(ctx, artistID)
 		require.NoError(t, err)
-		assert.Len(t, got, 1, "two NULL start_at events with same series+venue+date must conflict")
+		assert.Len(t, got, 1, "two NULL start_time events with same series+venue+date must conflict")
 	})
 
 	t.Run("same artist re-inserted for same event — concerts ON CONFLICT DO NOTHING", func(t *testing.T) {
@@ -566,7 +566,7 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 }
 
 // TestConcertRepository_PhysicalNaturalKey verifies the physical-identity
-// natural key (venue_id, local_event_date, start_at): the same physical show
+// natural key (venue_id, local_event_date, start_time): the same physical show
 // collapses to one row regardless of series (so a tour-stop and a co-bill
 // classification of the same performance do not duplicate), while two shows at
 // the same venue and date with different start times stay distinct (昼夜2公演).

@@ -310,11 +310,11 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 	})
 }
 
-// TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime proves the
-// discovered time is set on insert and never changed by a re-discovery.
+// TestTicketSaleRepository_UpsertDiscovered_FindTime proves the
+// find time is set on insert and never changed by a re-discovery.
 //
-// @spec components/entity/ticket-sale "Re-discovery keeps the discovered time"
-func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
+// @spec components/entity/ticket-sale "Re-discovery keeps the find time"
+func TestTicketSaleRepository_UpsertDiscovered_FindTime(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 
@@ -334,10 +334,10 @@ func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
 	sales, err := repo.ListBySeries(ctx, seriesID)
 	require.NoError(t, err)
 	require.Len(t, sales, 1)
-	require.NotNil(t, sales[0].DiscoveredTime)
-	assert.True(t, sales[0].DiscoveredTime.After(before) && sales[0].DiscoveredTime.Before(after),
+	require.NotNil(t, sales[0].FindTime)
+	assert.True(t, sales[0].FindTime.After(before) && sales[0].FindTime.Before(after),
 		"the discovered time is the time of the first store")
-	first := *sales[0].DiscoveredTime
+	first := *sales[0].FindTime
 
 	upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
 		SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
@@ -347,7 +347,7 @@ func TestTicketSaleRepository_UpsertDiscovered_DiscoveredTime(t *testing.T) {
 	sales, err = repo.ListBySeries(ctx, seriesID)
 	require.NoError(t, err)
 	require.Len(t, sales, 1)
-	assert.Equal(t, first.UTC(), sales[0].DiscoveredTime.UTC(), "the discovered time does not change on update")
+	assert.Equal(t, first.UTC(), sales[0].FindTime.UTC(), "the discovered time does not change on update")
 }
 
 func TestTicketSaleRepository_ListBySeries(t *testing.T) {

@@ -21,8 +21,8 @@ func TestNewScanner(t *testing.T) {
 	assert.Equal(t, entity.ScannerStatusUnused, scanner.Status)
 	assert.NotEmpty(t, scanner.ID)
 	assert.Nil(t, scanner.BoundPublicKey)
-	assert.Nil(t, scanner.BoundTime)
-	assert.Nil(t, scanner.RevokedTime)
+	assert.Nil(t, scanner.BindTime)
+	assert.Nil(t, scanner.RevokeTime)
 
 	raw, err := base64.RawURLEncoding.DecodeString(scanner.LinkToken)
 	require.NoError(t, err)

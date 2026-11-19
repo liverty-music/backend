@@ -28,7 +28,7 @@ func TestFromConcertCandidate(t *testing.T) {
 			Title:           "Summer Tour 2026",
 			LocalDate:       localDate,
 			ListedVenueName: "Nippon Budokan",
-			DiscoveredTime:  discoveredAt,
+			FindTime:        discoveredAt,
 		}
 	}
 
@@ -81,7 +81,7 @@ func TestFromConcertCandidate(t *testing.T) {
 		assert.Equal(t, "candidate-1", got.GetId().GetValue())
 		assert.Equal(t, "Summer Tour 2026", got.Title.GetValue())
 		assert.Equal(t, "Nippon Budokan", got.ListedVenueName.GetValue())
-		assert.Equal(t, timestamppb.New(discoveredAt), got.DiscoveredTime)
+		assert.Equal(t, timestamppb.New(discoveredAt), got.FindTime)
 		assert.Equal(t, &entityv1.LocalDate{Value: pb.TimeToDate(localDate)}, got.LocalDate)
 	})
 }

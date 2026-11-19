@@ -52,8 +52,8 @@ type RejectedConcert struct {
 	// ReviewedBy is the Zitadel subject (identity) of the developer who
 	// rejected the concert. Nil when unavailable.
 	ReviewedBy *string
-	// RejectedTime is the timestamp when the concert was rejected.
-	RejectedTime time.Time
+	// RejectTime is the timestamp when the concert was rejected.
+	RejectTime time.Time
 }
 
 // RejectedConcertRepository defines the append-only data access interface

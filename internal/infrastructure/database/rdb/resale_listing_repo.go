@@ -25,8 +25,8 @@ var _ entity.ResaleListingRepository = (*ResaleListingRepository)(nil)
 
 const resaleListingColumns = `
 	rl.id, rl.ticket_id, t.order_id, rl.user_id, t.event_id, rl.ticket_stock_id, rl.price, rl.status,
-	rl.created_at, rl.sold_at, rl.withdraw_at, rl.provider_refund_id,
-	rl.refund_at, rl.sold_email_send_at, rl.resale_entry_id, ra.state
+	rl.create_time, rl.sell_time, rl.withdraw_time, rl.provider_refund_id,
+	rl.refund_time, rl.sold_email_send_time, rl.resale_entry_id, ra.state
 `
 
 const (
@@ -36,32 +36,32 @@ const (
 	// resaleListingLockTicketQuery locks the ticket being listed, so a refund
 	// voiding it or an admission waits for the listing (or the other way
 	// round).
-	resaleListingLockTicketQuery = `SELECT status, admit_at FROM tickets WHERE id = $1 FOR UPDATE`
+	resaleListingLockTicketQuery = `SELECT status, admit_time FROM tickets WHERE id = $1 FOR UPDATE`
 	resaleListingInsertQuery     = `
-		INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at)
+		INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, create_time)
 		VALUES ($1, $2, $3, $4, $5, 1, $6)
 	`
 	resaleListingTicketStockQuery = `SELECT ticket_stock_id FROM resale_listings WHERE id = $1`
 	// resaleListingLockedQuery reads the listing under its row lock, with its
 	// event's start time for the deadline.
 	resaleListingLockedQuery = `
-		SELECT ` + resaleListingColumns + `, e.start_at` + resaleListingFrom + `
+		SELECT ` + resaleListingColumns + `, e.start_time` + resaleListingFrom + `
 		JOIN events e ON e.id = t.event_id
 		WHERE rl.id = $1
 		FOR UPDATE OF rl
 	`
-	resaleListingWithdrawQuery = `UPDATE resale_listings SET status = 3, withdraw_at = $2 WHERE id = $1 AND status = 1`
+	resaleListingWithdrawQuery = `UPDATE resale_listings SET status = 3, withdraw_time = $2 WHERE id = $1 AND status = 1`
 	resaleListingByUserQuery   = `SELECT ` + resaleListingColumns + resaleListingFrom + `
 		WHERE rl.user_id = $1
-		ORDER BY rl.created_at DESC, rl.id DESC
+		ORDER BY rl.create_time DESC, rl.id DESC
 	`
 	resaleListingRecordRefundQuery = `
-		UPDATE resale_listings SET provider_refund_id = $2, refund_at = $3
-		WHERE id = $1 AND status = 2 AND refund_at IS NULL
+		UPDATE resale_listings SET provider_refund_id = $2, refund_time = $3
+		WHERE id = $1 AND status = 2 AND refund_time IS NULL
 	`
 	resaleListingMarkSoldEmailSentQuery = `
-		UPDATE resale_listings SET sold_email_send_at = $2
-		WHERE id = $1 AND sold_email_send_at IS NULL
+		UPDATE resale_listings SET sold_email_send_time = $2
+		WHERE id = $1 AND sold_email_send_time IS NULL
 	`
 )
 
@@ -264,7 +264,7 @@ func scanResaleListing(row pgx.Row, extra ...any) (*entity.ResaleListing, error)
 	if providerRefundID.Valid {
 		l.ProviderRefundID = providerRefundID.String
 	}
-	l.SoldTime = optionalTime(soldAt)
+	l.SellTime = optionalTime(soldAt)
 	l.WithdrawTime = optionalTime(withdrawAt)
 	l.RefundTime = optionalTime(refundAt)
 	l.SoldEmailSendTime = optionalTime(emailedAt)

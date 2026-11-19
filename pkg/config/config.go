@@ -522,8 +522,8 @@ type GCPConfig struct {
 	// same events). Empty/zero falls back to defaultSearchDiscoveryWindow.
 	GeminiSearchDiscoveryWindow time.Duration `envconfig:"GCP_GEMINI_SEARCH_DISCOVERY_WINDOW"`
 
-	// Look-ahead window for the sales-reminders scan. Phases whose
-	// apply_start_at falls within [now, now+window] are included in the
+	// Look-ahead window for the sales-reminders scan. TicketSales whose
+	// sale_start_time falls within [now, now+window] are included in the
 	// reminder evaluation pass. Zero falls back to
 	// defaultSalesReminderWindow (7 days).
 	SalesReminderWindow time.Duration `envconfig:"GCP_SALES_REMINDER_WINDOW"`

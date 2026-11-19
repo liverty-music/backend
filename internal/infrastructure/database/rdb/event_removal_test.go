@@ -83,7 +83,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 	ctx := context.Background()
 	insertPending := `INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, provider, status, amount, currency)
 		VALUES ($1, $2, $3, 1, 1, 4, 3000, 'JPY')`
-	insertHeld := `INSERT INTO checkouts (id, status, hold_expire_at, order_id, ticket_sale_id)
+	insertHeld := `INSERT INTO checkouts (id, status, hold_expire_time, order_id, ticket_sale_id)
 		VALUES ($1, 1, now() + interval '15 minutes', $2, $3)`
 	backendPID := func(t *testing.T, q interface {
 		QueryRow(context.Context, string, ...any) pgx.Row
@@ -165,7 +165,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		fan := saleFan(t, db)
 		captured := time.Now()
 		checkoutID, orderID := insertStockCheckout(t, db, f, fan, entity.OrderStatusPending, entity.CheckoutStatusCommitted, 1, captured, true)
-		_, err := db.Pool.Exec(ctx, `UPDATE checkouts SET capture_at = now() WHERE id = $1`, checkoutID)
+		_, err := db.Pool.Exec(ctx, `UPDATE checkouts SET capture_time = now() WHERE id = $1`, checkoutID)
 		require.NoError(t, err)
 
 		// The issuance: complete the checkout (locking its row), then, once the
@@ -180,9 +180,9 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		deleted := make(chan error, 1)
 		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).Delete(ctx, o.eventID) }()
 		require.Eventually(t, backendBlocking(t, db, backendPID(t, issuance)), 5*time.Second, 20*time.Millisecond, "the removal waits for the issuance")
-		_, err = issuance.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_issue', pay_at = now() WHERE id = $1`, orderID)
+		_, err = issuance.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_issue', pay_time = now() WHERE id = $1`, orderID)
 		require.NoError(t, err)
-		_, err = issuance.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, now())`,
+		_, err = issuance.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, 1, now())`,
 			entity.NewID(), orderID, fan, o.eventID)
 		require.NoError(t, err, "the issuance is not chosen as a deadlock victim")
 		require.NoError(t, issuance.Commit(ctx))

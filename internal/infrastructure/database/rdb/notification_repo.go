@@ -24,23 +24,23 @@ const (
 	createNotificationQuery = `
 		INSERT INTO notifications (id, user_id, type, subject)
 		VALUES ($1, $2, $3, $4)
-		RETURNING created_at
+		RETURNING create_time
 	`
 	markNotificationReadQuery = `
 		UPDATE notifications
-		SET read_at = NOW()
-		WHERE id = $1 AND user_id = $2 AND read_at IS NULL
+		SET read_time = NOW()
+		WHERE id = $1 AND user_id = $2 AND read_time IS NULL
 	`
 	getNotificationQuery = `
-		SELECT id, user_id, type, subject, created_at, read_at
+		SELECT id, user_id, type, subject, create_time, read_time
 		FROM notifications
 		WHERE id = $1
 	`
 	listNotificationsByUserQuery = `
-		SELECT id, user_id, type, subject, created_at, read_at
+		SELECT id, user_id, type, subject, create_time, read_time
 		FROM notifications
 		WHERE user_id = $1
-		ORDER BY created_at DESC, id DESC
+		ORDER BY create_time DESC, id DESC
 		LIMIT $2
 	`
 )
@@ -75,7 +75,7 @@ func (r *NotificationRepository) Create(ctx context.Context, n *entity.Notificat
 	return nil
 }
 
-// MarkRead sets read_at for the (userID, id) notification. The read_at IS NULL
+// MarkRead sets read_time for the (userID, id) notification. The read_time IS NULL
 // guard makes a repeat call a no-op, so the operation is idempotent.
 func (r *NotificationRepository) MarkRead(ctx context.Context, userID, id string) error {
 	_, err := r.db.Pool.Exec(ctx, markNotificationReadQuery, id, userID)

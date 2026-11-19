@@ -34,17 +34,17 @@ func seedResoldSeller(t *testing.T, db *rdb.Database, f *stockFixture) resoldSel
 	}
 	tickets := []string{entity.NewID(), entity.NewID()}
 	for _, id := range tickets {
-		exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+		exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 			id, string(s.orderID), string(seller), f.EventID, issuedTicketsTime)
 	}
 	s.listedTicket = tickets[0]
 	organizerID := seedOrganizer(t, db)
 	s.settlementID = entity.NewID()
-	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 		s.settlementID, string(s.orderID), organizerID, f.EventID, issuedTicketsTime)
 	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 9500)`, s.settlementID, organizerID)
 	s.listing = entity.ResaleListingID(entity.NewID())
-	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at) VALUES ($1, $2, $3, $4, 3000, 1, $5)`,
+	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, create_time) VALUES ($1, $2, $3, $4, 3000, 1, $5)`,
 		string(s.listing), s.listedTicket, string(seller), string(f.ID), resaleApplyTime)
 	return s
 }
@@ -258,7 +258,7 @@ func TestResaleEntryRepository_RevertWin(t *testing.T) {
 	t.Run("win already issued", func(t *testing.T) {
 		// @spec components/entity/resale-entry/revert-win "Win already issued"
 		e, _ := wonWithTwo(t)
-		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_x', pay_at = now() WHERE id = $1`, string(e.OrderID))
+		_, err := db.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_x', pay_time = now() WHERE id = $1`, string(e.OrderID))
 		require.NoError(t, err)
 
 		assert.ErrorIs(t, repo.RevertWin(ctx, e.ID, entity.ResaleEntryLostReasonCardNotCharged), apperr.ErrFailedPrecondition)

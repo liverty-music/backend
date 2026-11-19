@@ -64,13 +64,16 @@ func connectAsReceptionRole(t *testing.T, db *rdb.Database) *rdb.Database {
 	require.NoError(t, err)
 	// Later migrations rename what this grant names:
 	// 20261012000000_one_name_per_concept.sql renames tickets.admitted_at to
-	// admit_at, and 20261012220000_rename_reception_links_to_scanners.sql
-	// renames reception_links to scanners and its token to link_token. In a
-	// migrated database the grants follow the renames; replayed here on the
-	// current schema, the grant names them by their current names.
+	// admit_at, 20261012220000_rename_reception_links_to_scanners.sql renames
+	// reception_links to scanners and its token to link_token, and
+	// 20261119070000_unify_timestamp_naming.sql renames admit_at to admit_time
+	// and bound_at to bind_time. In a migrated database the grants follow the
+	// renames; replayed here on the current schema, the grant names them by
+	// their current names.
 	grants := strings.NewReplacer(
-		"(admitted_at) ON tickets", "(admit_at) ON tickets",
-		"(status, bound_public_key, bound_at, token) ON reception_links", "(status, bound_public_key, bound_at, link_token) ON scanners",
+		"(admitted_at) ON tickets", "(admit_time) ON tickets",
+		"(status, bound_public_key, bound_at, token) ON reception_links", "(status, bound_public_key, bind_time, link_token) ON scanners",
+		"(bound_public_key, bound_at) ON reception_links", "(bound_public_key, bind_time) ON scanners",
 		"reception_links", "scanners",
 	).Replace(string(migration))
 	_, err = db.Pool.Exec(ctx, grants)
@@ -144,7 +147,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		t.Helper()
 		cleanTables(t, db)
 		s := &stage{eventID: seedAdmissionEvent(t, db), fan: testutil.NewDeviceKey(t)}
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_time = $2, start_time = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
 		s.fanID = entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		s.tickets = seedIssuedTickets(t, db, s.eventID, string(s.fanID), n)
@@ -173,7 +176,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		// @spec components/usecase/ticket/admit "Same code at two entrances"
 		s := setup(t, 2)
 		now := nov20(18, 32)
-		code := s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignedTime: now})
+		code := s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignTime: now})
 
 		var (
 			wg      sync.WaitGroup
@@ -213,12 +216,12 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 	t.Run("presented again later", func(t *testing.T) {
 		s := setup(t, 1)
 		first := nov20(18, 32)
-		got, err := admit(t, s, 0, s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignedTime: first}), first)
+		got, err := admit(t, s, 0, s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignTime: first}), first)
 		require.NoError(t, err)
 		assert.Equal(t, 1, got.AdmittedTicketCount)
 
 		later := nov20(18, 40)
-		got, err = admit(t, s, 1, s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignedTime: later}), later)
+		got, err = admit(t, s, 1, s.fan.SignCode(t, &entity.AdmissionCode{UserID: s.fanID, EventID: s.eventID, TicketIDs: s.tickets, SignTime: later}), later)
 		require.NoError(t, err)
 		require.Len(t, got.RejectedTickets, 1)
 		rt := got.RejectedTickets[0]
@@ -249,7 +252,7 @@ func TestScannerUseCase_Open_Integration(t *testing.T) {
 	const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
 	eventID := seedAdmissionEvent(t, db)
-	_, err = db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
+	_, err = db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, eventID, nov20(19, 0))
 	require.NoError(t, err)
 	scanner := seedScanner(t, db, eventID)
 	receptionDB := connectAsReceptionRole(t, db)

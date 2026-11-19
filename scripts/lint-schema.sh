@@ -4,13 +4,15 @@
 # Checks:
 #   1. No SERIAL / BIGSERIAL (use UUIDv7)
 #   2. No bare TIMESTAMP (use TIMESTAMPTZ)
-#   3. No audit columns (updated_at, deleted_at). created_at is allowed: a
+#   3. No audit columns (update_time, delete_time). create_time is allowed: a
 #      timestamp column exists only when an entity field needs it, and when that
-#      field means "when the record was created" it is named created_at rather
+#      field means "when the record was created" it is named create_time rather
 #      than a synonym. Whether the column is needed is a review judgment.
 #   4. No VARCHAR (use TEXT + CHECK constraint)
 #   5. COMMENT ON TABLE coverage
 #   6. COMMENT ON COLUMN coverage
+#   7. No column named *_at: a timestamp is the present-tense verb followed by
+#      _time, as in proto (create_time, not created_at)
 #
 # Exit codes:
 #   0  all checks passed
@@ -52,9 +54,9 @@ check_timestamp() {
 # ── Check 3: audit columns ────────────────────────────────────────────
 check_audit_columns() {
   local hits
-  hits=$(grep -nE '\b(updated_at|deleted_at)\b' "$SCHEMA" || true)
+  hits=$(grep -nE '\b(update_time|delete_time)\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
-    echo "FAIL: Prohibited audit columns detected (updated_at is audit metadata; deleted_at is a soft delete):" >&2
+    echo "FAIL: Prohibited audit columns detected (update_time is audit metadata; delete_time is a soft delete):" >&2
     echo "$hits" >&2
     errors=$((errors + 1))
   fi
@@ -130,6 +132,19 @@ check_column_comments() {
   done < "$SCHEMA"
 }
 
+# ── Check 7: columns named *_at ───────────────────────────────────────
+# A column definition is an indented line inside CREATE TABLE starting with
+# its name; ALTER TABLE ... ADD COLUMN is checked too.
+check_at_columns() {
+  local hits
+  hits=$(grep -nE '^[[:space:]]+"?[a-z_][a-z0-9_]*_at"?[[:space:]]|ADD COLUMN( IF NOT EXISTS)? "?[a-z_][a-z0-9_]*_at"?\b' "$SCHEMA" || true)
+  if [ -n "$hits" ]; then
+    echo "FAIL: Column named *_at detected (name a timestamp <verb>_time, e.g. create_time):" >&2
+    echo "$hits" >&2
+    errors=$((errors + 1))
+  fi
+}
+
 # ── Run all checks ────────────────────────────────────────────────────
 check_serial
 check_timestamp
@@ -137,6 +152,7 @@ check_audit_columns
 check_varchar
 check_table_comments
 check_column_comments
+check_at_columns
 
 if [ "$errors" -gt 0 ]; then
   echo "" >&2

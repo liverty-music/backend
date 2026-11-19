@@ -234,8 +234,8 @@ type runFile struct {
 type runMeta struct {
 	SDKVersion     string  `json:"sdk_version"`
 	EvaluationFrom string  `json:"evaluation_from"`
-	StartedAt      string  `json:"started_at"`
-	FinishedAt     string  `json:"finished_at"`
+	StartTime      string  `json:"started_at"`
+	FinishTime     string  `json:"finished_at"`
 	CellsExecuted  int     `json:"cells_executed"`
 	TotalCostUSD   float64 `json:"total_cost_usd"`
 }
@@ -288,8 +288,8 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 		meta := runMeta{
 			SDKVersion:     "google.golang.org/genai@v1.69.0",
 			EvaluationFrom: gt.EvaluationFrom,
-			StartedAt:      startedAt.Format(time.RFC3339),
-			FinishedAt:     time.Now().UTC().Format(time.RFC3339),
+			StartTime:      startedAt.Format(time.RFC3339),
+			FinishTime:     time.Now().UTC().Format(time.RFC3339),
 			CellsExecuted:  len(results),
 			TotalCostUSD:   totalCost,
 		}
@@ -323,8 +323,8 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 	meta := runMeta{
 		SDKVersion:     "google.golang.org/genai@v1.69.0",
 		EvaluationFrom: gt.EvaluationFrom,
-		StartedAt:      startedAt.Format(time.RFC3339),
-		FinishedAt:     finishedAt.Format(time.RFC3339),
+		StartTime:      startedAt.Format(time.RFC3339),
+		FinishTime:     finishedAt.Format(time.RFC3339),
 		CellsExecuted:  len(results),
 		TotalCostUSD:   totalCost,
 	}

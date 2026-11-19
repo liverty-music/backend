@@ -31,14 +31,14 @@ type rowQuerier interface {
 
 // ticketSaleColumns selects a ticket_sales row (aliased ts).
 const ticketSaleColumns = `
-	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_at, ts.sale_end_at,
-	ts.verification_requirement, ts.discovered_at, ts.result_date
+	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_time, ts.sale_end_time,
+	ts.verification_requirement, ts.find_time, ts.result_date
 `
 
 const (
 	ticketSaleInsertQuery = `
 		INSERT INTO ticket_sales (
-			id, series_id, name, method, sale_start_at, sale_end_at, verification_requirement
+			id, series_id, name, method, sale_start_time, sale_end_time, verification_requirement
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	// ticketSaleEventInsertQuery names the event only when it is an event of
@@ -55,21 +55,21 @@ const (
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		JOIN ticket_sale_events tse ON tse.ticket_sale_id = ts.id
 		WHERE tse.event_id = $1
-		ORDER BY ts.sale_start_at, ts.id
+		ORDER BY ts.sale_start_time, ts.id
 	`
 	// ticketSaleListDueForDrawQuery returns the Organizer's Lottery sales
 	// that ended at or before $1, the instant entity.LotteryDrawDelay before
 	// now, and still have an Entered entry. A discovered sale has no entry.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.discovered_at IS NULL
+		WHERE ts.method = 2 AND ts.sale_end_time <= $1 AND ts.find_time IS NULL
 		  AND EXISTS (SELECT 1 FROM lottery_entries le WHERE le.ticket_sale_id = ts.id AND le.state = 1)
-		ORDER BY ts.sale_end_at, ts.id
+		ORDER BY ts.sale_end_time, ts.id
 	`
 	ticketSaleListBySeriesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.series_id = $1
-		ORDER BY ts.sale_start_at, ts.id
+		ORDER BY ts.sale_start_time, ts.id
 	`
 	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
 	// within the lookahead ($1 seconds) and whose end is no further back than
@@ -77,36 +77,36 @@ const (
 	// is while one of its events is PUBLISHED.
 	ticketSaleListWithPendingMilestonesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.sale_start_at <= NOW() + make_interval(secs => $1)
-		  AND ts.sale_end_at >= NOW() - make_interval(secs => $2)
-		  AND (ts.discovered_at IS NOT NULL OR EXISTS (
+		WHERE ts.sale_start_time <= NOW() + make_interval(secs => $1)
+		  AND ts.sale_end_time >= NOW() - make_interval(secs => $2)
+		  AND (ts.find_time IS NOT NULL OR EXISTS (
 		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
-		ORDER BY ts.sale_start_at, ts.id
+		ORDER BY ts.sale_start_time, ts.id
 	`
 	// ticketSaleUpsertDiscoveredQuery stores a discovered sale in one
 	// statement. The SELECT from series yields no row when the series does
 	// not exist or has an Organizer, so nothing is written and no row is
 	// returned. A known discovered sale with the same series, method and start
 	// date in Japan time (uq_ticket_sales_discovered_convergence) gets the new
-	// name and times and keeps its id, series, method and discovered_at. It
+	// name and times and keeps its id, series, method and find_time. It
 	// takes the new result date when there is one; otherwise it keeps the
 	// stored one while it is no earlier than the Japan-time day of the new end
 	// time, and clears it once a later end time makes it impossible.
 	// xmax = 0 is true only for a freshly inserted row.
 	ticketSaleUpsertDiscoveredQuery = `
 		INSERT INTO ticket_sales (
-			id, series_id, name, method, sale_start_at, sale_end_at,
-			verification_requirement, discovered_at, result_date
+			id, series_id, name, method, sale_start_time, sale_end_time,
+			verification_requirement, find_time, result_date
 		)
 		SELECT $1, s.id, $3, $4, $5, $6, 0, NOW(), $7::date
 		FROM series s WHERE s.id = $2 AND s.organizer_id IS NULL
-		ON CONFLICT (series_id, method, sale_start_date_jst) WHERE discovered_at IS NOT NULL DO UPDATE
+		ON CONFLICT (series_id, method, sale_start_date_jst) WHERE find_time IS NOT NULL DO UPDATE
 		SET name          = EXCLUDED.name,
-		    sale_start_at = EXCLUDED.sale_start_at,
-		    sale_end_at   = EXCLUDED.sale_end_at,
+		    sale_start_time = EXCLUDED.sale_start_time,
+		    sale_end_time   = EXCLUDED.sale_end_time,
 		    result_date   = CASE
 		        WHEN EXCLUDED.result_date IS NOT NULL THEN EXCLUDED.result_date
-		        WHEN ticket_sales.result_date >= (EXCLUDED.sale_end_at AT TIME ZONE 'Asia/Tokyo')::date THEN ticket_sales.result_date
+		        WHEN ticket_sales.result_date >= (EXCLUDED.sale_end_time AT TIME ZONE 'Asia/Tokyo')::date THEN ticket_sales.result_date
 		    END
 		RETURNING id, (xmax = 0) AS inserted
 	`
@@ -117,7 +117,7 @@ const (
 		ORDER BY ticket_sale_id, event_id
 	`
 	ticketSaleSetWindowQuery = `
-		UPDATE ticket_sales SET sale_start_at = $2, sale_end_at = $3 WHERE id = $1
+		UPDATE ticket_sales SET sale_start_time = $2, sale_end_time = $3 WHERE id = $1
 	`
 	ticketSaleSetVerificationRequirementQuery = `
 		UPDATE ticket_sales SET verification_requirement = $2 WHERE id = $1
@@ -428,7 +428,7 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	s.ID = entity.TicketSaleID(id)
 	s.Method = entity.TicketSaleMethod(method)
 	s.VerificationRequirement = entity.VerificationRequirement(verifReq)
-	s.DiscoveredTime = optionalTime(discoveredAt)
+	s.FindTime = optionalTime(discoveredAt)
 	s.ResultDate = optionalTime(resultDate)
 	return &s, nil
 }

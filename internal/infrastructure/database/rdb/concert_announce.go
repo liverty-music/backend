@@ -13,7 +13,7 @@ import (
 // announcedConcertsQuery reads, inside the announcing transaction, the
 // events to announce with their venues and performers.
 const announcedConcertsQuery = `
-	SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+	SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time,
 	       e.publish_state::text, e.per_account_limit,
 	       v.name, v.admin_area,
 	       COALESCE(ARRAY(SELECT ca.artist_id::text FROM concert_artists ca WHERE ca.event_id = e.id ORDER BY ca.artist_id), '{}')

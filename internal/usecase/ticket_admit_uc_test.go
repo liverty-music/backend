@@ -112,7 +112,7 @@ func (f *admitFixture) heldTickets(n int) []*entity.Ticket {
 // code signs, on the fan's device at signed, a code for eventID presenting ids.
 func (f *admitFixture) code(eventID string, signed time.Time, ids ...entity.TicketID) string {
 	f.t.Helper()
-	return f.fan.SignCode(f.t, &entity.AdmissionCode{UserID: f.fanID, EventID: eventID, TicketIDs: ids, SignedTime: signed})
+	return f.fan.SignCode(f.t, &entity.AdmissionCode{UserID: f.fanID, EventID: eventID, TicketIDs: ids, SignTime: signed})
 }
 
 // admit sends scanned through 受付1 at now, signed by signer.
@@ -235,7 +235,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 			assert.Equal(t, entity.RejectedScanReasonExpired, s.Reason)
 			assert.Equal(t, f.scanner.ID, s.ScannerID)
 			assert.Equal(t, f.event.ID, s.EventID)
-			assert.True(t, s.ScannedTime.Equal(now))
+			assert.True(t, s.ScanTime.Equal(now))
 		}
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
@@ -334,7 +334,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 			assert.Equal(t, entity.RejectedScanReasonForged, f.appended[0].Reason)
 			assert.Empty(t, f.appended[0].TicketID, "a forged scan names no ticket")
 			assert.Equal(t, f.scanner.ID, f.appended[0].ScannerID)
-			assert.True(t, f.appended[0].ScannedTime.Equal(now))
+			assert.True(t, f.appended[0].ScanTime.Equal(now))
 			f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
@@ -434,7 +434,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, f.appended[0].Reason)
 		assert.Equal(t, tickets[0].ID, f.appended[0].TicketID)
 		assert.Equal(t, f.scanner.ID, f.appended[0].ScannerID)
-		assert.True(t, f.appended[0].ScannedTime.Equal(later))
+		assert.True(t, f.appended[0].ScanTime.Equal(later))
 	})
 
 	t.Run("refunded ticket", func(t *testing.T) {

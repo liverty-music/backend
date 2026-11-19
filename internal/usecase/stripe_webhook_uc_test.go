@@ -85,7 +85,7 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_dup",
 		ProviderPaymentID: providerPaymentID, // real production path: pi_ used to resolve Order
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	}
 
 	// First delivery — should process and mark.
@@ -132,7 +132,7 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  providerChargeID,
 		ProviderPaymentID: providerPaymentID,
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	}))
 }
 
@@ -154,7 +154,7 @@ func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) 
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_no_pi",
 		ProviderPaymentID: "", // missing
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -179,7 +179,7 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_notfound",
 		ProviderPaymentID: "pi_notfound",
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -211,7 +211,7 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_after_refund",
 		ProviderPaymentID: "pi_after_refund",
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	})
 
 	require.NoError(t, err, "the notice is acknowledged")
@@ -236,7 +236,7 @@ func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 		ProviderEventID:  "evt_charge_refunded_001",
 		Type:             usecase.StripeEventChargeRefunded,
 		ProviderChargeID: "ch_refunded",
-		ReceivedAt:       time.Now(),
+		ReceiveTime:      time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -257,7 +257,7 @@ func TestStripeWebhook_UnknownEventType_AcceptedWithNoError(t *testing.T) {
 	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID: "evt_unknown_001",
 		Type:            usecase.StripeEventType("customer.created"),
-		ReceivedAt:      time.Now(),
+		ReceiveTime:     time.Now(),
 	})
 	require.NoError(t, err, "unknown event types must be accepted without error")
 }
@@ -279,7 +279,7 @@ func TestStripeWebhook_IsProcessedDBError_Propagated(t *testing.T) {
 		ProviderEventID:   "evt_db_err",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderPaymentID: "pi_db_err",
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	})
 	require.Error(t, err, "DB error from IsProcessed must be propagated so Stripe retries")
 	f.processed.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything)
@@ -313,7 +313,7 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_mark_fail",
 		ProviderPaymentID: providerPaymentID,
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	})
 	// Fix #4: error must propagate so handler returns 500 → Stripe retries.
 	require.Error(t, err, "MarkProcessed failure must propagate so Stripe retries")
@@ -325,7 +325,7 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 		ProviderEventID:   "evt_pi_1",
 		Type:              usecase.StripeEventPaymentIntentSucceeded,
 		ProviderPaymentID: "pi_1",
-		ReceivedAt:        time.Now(),
+		ReceiveTime:       time.Now(),
 	}
 
 	t.Run("completed charge", func(t *testing.T) {

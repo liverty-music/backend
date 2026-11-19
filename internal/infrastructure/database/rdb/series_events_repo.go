@@ -33,14 +33,14 @@ const (
 	// lockSeriesEventsQuery reads and locks every event of the series with
 	// the fields a lifecycle write decides on.
 	lockSeriesEventsQuery = `
-		SELECT id, venue_id, local_event_date, start_at, open_at, publish_state, per_account_limit
+		SELECT id, venue_id, local_event_date, start_time, open_time, publish_state, per_account_limit
 		FROM events
 		WHERE series_id = $1
 		FOR UPDATE
 	`
 
 	insertAuthoredEventQuery = `
-		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state, per_account_limit)
+		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_time, open_time, publish_state, per_account_limit)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'DRAFT', $8)
 	`
 
@@ -69,14 +69,14 @@ const (
 
 	updateDraftEventQuery = `
 		UPDATE events
-		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, start_at = $5, open_at = $6,
+		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, start_time = $5, open_time = $6,
 		    per_account_limit = COALESCE($7, per_account_limit)
 		WHERE id = $1 AND publish_state = 'DRAFT'
 	`
 
 	updatePublishedEventTimesQuery = `
 		UPDATE events
-		SET start_at = $2, open_at = $3
+		SET start_time = $2, open_time = $3
 		WHERE id = $1 AND publish_state = 'PUBLISHED'
 	`
 
@@ -93,7 +93,7 @@ const (
 		JOIN series s ON s.id = e.series_id
 		WHERE e.venue_id = $1
 		  AND e.local_event_date = $2
-		  AND e.start_at IS NOT DISTINCT FROM $3
+		  AND e.start_time IS NOT DISTINCT FROM $3
 		  AND e.id <> $4
 		  AND ` + catalogEventCondition + `
 		FOR UPDATE OF e

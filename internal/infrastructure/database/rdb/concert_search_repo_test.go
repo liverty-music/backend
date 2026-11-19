@@ -22,6 +22,7 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 		name string
 		run  func(t *testing.T)
 	}{
+		// @spec components/entity/concert-search/upsert "First search"
 		{
 			name: "insert new concert search with pending status",
 			run: func(t *testing.T) {
@@ -58,8 +59,38 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 				assert.Equal(t, entity.ConcertSearchStatusPending, log.Status)
 			},
 		},
+		// @spec components/entity/concert-search/upsert "Restart keeps last find time"
 		{
-			name: "upsert updates searched_at timestamp",
+			name: "restart sets search time and status and keeps last find time",
+			run: func(t *testing.T) {
+				t.Helper()
+				cleanTables(t, db)
+				artistID := seedArtist(t, db, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+
+				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusCompleted)
+				require.NoError(t, err)
+				require.NoError(t, repo.MarkFound(ctx, artistID))
+				// Move the earlier search and find a day back, so a restart that
+				// rewrote either time would show.
+				_, err = db.Pool.Exec(ctx, `UPDATE concert_searches
+					SET search_time = search_time - interval '1 day', last_find_time = last_find_time - interval '1 day'
+					WHERE artist_id = $1`, artistID)
+				require.NoError(t, err)
+				before, err := repo.GetByArtistID(ctx, artistID)
+				require.NoError(t, err)
+
+				_, err = repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+				require.NoError(t, err)
+
+				after, err := repo.GetByArtistID(ctx, artistID)
+				require.NoError(t, err)
+				assert.Equal(t, entity.ConcertSearchStatusPending, after.Status)
+				assert.WithinDuration(t, time.Now(), after.SearchTime, 5*time.Second)
+				assert.True(t, after.LastFindTime.Equal(before.LastFindTime), "the last find time is unchanged")
+			},
+		},
+		{
+			name: "upsert updates search_time timestamp",
 			run: func(t *testing.T) {
 				t.Helper()
 				cleanTables(t, db)
@@ -116,8 +147,8 @@ func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
 		log, err := concertSearchRepo.GetByArtistID(ctx, artistID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ConcertSearchStatusFailed, log.Status)
-		// last_found_at defaults to NULL → zero time until a discovery is recorded.
-		assert.True(t, log.LastFoundTime.IsZero())
+		// last_find_time defaults to NULL → zero time until a discovery is recorded.
+		assert.True(t, log.LastFindTime.IsZero())
 	})
 }
 
@@ -127,7 +158,8 @@ func TestConcertSearchRepository_MarkFound(t *testing.T) {
 	repo := rdb.NewConcertSearchRepository(db)
 	ctx := context.Background()
 
-	t.Run("sets last_found_at on existing row without disturbing searched_at", func(t *testing.T) {
+	// @spec components/entity/concert-search/mark-found "Found"
+	t.Run("sets last_find_time on existing row without disturbing search_time", func(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "MarkFound Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4d01")
 
@@ -136,16 +168,16 @@ func TestConcertSearchRepository_MarkFound(t *testing.T) {
 
 		before, err := repo.GetByArtistID(ctx, artistID)
 		require.NoError(t, err)
-		require.True(t, before.LastFoundTime.IsZero())
+		require.True(t, before.LastFindTime.IsZero())
 
 		err = repo.MarkFound(ctx, artistID)
 		require.NoError(t, err)
 
 		after, err := repo.GetByArtistID(ctx, artistID)
 		require.NoError(t, err)
-		assert.False(t, after.LastFoundTime.IsZero())
-		assert.WithinDuration(t, time.Now(), after.LastFoundTime, 5*time.Second)
-		// searched_at is unaffected by MarkFound.
+		assert.False(t, after.LastFindTime.IsZero())
+		assert.WithinDuration(t, time.Now(), after.LastFindTime, 5*time.Second)
+		// search_time is unaffected by MarkFound.
 		assert.True(t, after.SearchTime.Equal(before.SearchTime))
 	})
 }

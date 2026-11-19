@@ -457,7 +457,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
 				// Existing has a nil venue name; the (date, venue) key differs, so the
-				// scraped concert is new and published → last_found_at is recorded.
+				// scraped concert is new and published → last_find_time is recorded.
 				d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 			},
 			wantErr: nil,
@@ -731,7 +731,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 // TestSearchNewConcerts_DiscoveryWindow verifies the recent-discovery skip gate:
 // a stale search is still skipped when a new concert was found within the
-// discovery window, but proceeds when last_found_at is unset (null) or beyond
+// discovery window, but proceeds when last_find_time is unset (null) or beyond
 // the window.
 func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 	t.Parallel()
@@ -745,7 +745,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 		},
 	}
 
-	t.Run("stale search but recent discovery is skipped (last_found_at < discoveryWindow)", func(t *testing.T) {
+	t.Run("stale search but recent discovery is skipped (last_find_time < discoveryWindow)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			ctx := context.Background()
@@ -755,10 +755,10 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			now := time.Now()
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
-				ArtistID:      artistID,
-				SearchTime:    now,
-				Status:        entity.ConcertSearchStatusCompleted,
-				LastFoundTime: now,
+				ArtistID:     artistID,
+				SearchTime:   now,
+				Status:       entity.ConcertSearchStatusCompleted,
+				LastFindTime: now,
 			}, nil).Once()
 
 			time.Sleep(48 * time.Hour) // past 24h TTL but within 14d discovery window
@@ -769,13 +769,13 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 		})
 	})
 
-	t.Run("stale search with no prior discovery proceeds (last_found_at null)", func(t *testing.T) {
+	t.Run("stale search with no prior discovery proceeds (last_find_time null)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			ctx := context.Background()
 			d := newConcertTestDeps(t)
 
-			// Stale completed search, never discovered anything (zero LastFoundTime).
+			// Stale completed search, never discovered anything (zero LastFindTime).
 			now := time.Now()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
 				ArtistID:   artistID,
@@ -800,11 +800,11 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			assert.NoError(t, err)
 
 			got := startedConcerts(t, d.starts)
-			assert.Equal(t, 1, got, "null last_found_at must not skip; search should publish")
+			assert.Equal(t, 1, got, "null last_find_time must not skip; search should publish")
 		})
 	})
 
-	t.Run("stale search and stale discovery proceeds (last_found_at > discoveryWindow)", func(t *testing.T) {
+	t.Run("stale search and stale discovery proceeds (last_find_time > discoveryWindow)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			ctx := context.Background()
@@ -812,10 +812,10 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 			now := time.Now()
 			d.concertSearchRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.ConcertSearch{
-				ArtistID:      artistID,
-				SearchTime:    now,
-				Status:        entity.ConcertSearchStatusCompleted,
-				LastFoundTime: now,
+				ArtistID:     artistID,
+				SearchTime:   now,
+				Status:       entity.ConcertSearchStatusCompleted,
+				LastFindTime: now,
 			}, nil).Once()
 
 			time.Sleep(15 * 24 * time.Hour) // past both the TTL and the 14d discovery window
@@ -863,7 +863,7 @@ func startedConcerts(t *testing.T, starts func() []workflowStart) int {
 // TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
 // deduplicates scraped series against existing DB records via
 // entity.FilterNewSeries, aligned with the events physical natural key
-// (venue_id, local_event_date, start_at). start_time disambiguates
+// (venue_id, local_event_date, start_time). start_time disambiguates
 // asymmetrically: two differing known starts are distinct shows (昼夜2公演),
 // an unknown-start event is dropped when anything is already known at that
 // (date, venue), and a known-start event passes when only an unknown-start
@@ -887,7 +887,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		// ── Cases where dedup SHOULD filter (wantNewConcerts = 0) ──
 
 		{
-			name: "same date, same start_at — deduped",
+			name: "same date, same start_time — deduped",
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
@@ -900,7 +900,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 0,
 		},
 		{
-			name: "same date, scraped nil start_at — deduped",
+			name: "same date, scraped nil start_time — deduped",
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
@@ -913,12 +913,12 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 0,
 		},
 		{
-			// Existing row has no published start_at; the scrape now carries one.
+			// Existing row has no published start_time; the scrape now carries one.
 			// This is the FILL case: it MUST pass the filter so the creation path
 			// can fill the announced time onto the existing row rather than being
 			// silently dropped here (an unknown-start row does not absorb a known
 			// start). The creation path then UPSERT-dedups it onto that row.
-			name: "same date, existing nil start_at, scraped has start_at — passes for fill",
+			name: "same date, existing nil start_time, scraped has start_time — passes for fill",
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")},
 			},
@@ -931,7 +931,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 1,
 		},
 		{
-			name: "both nil start_at, same date — deduped",
+			name: "both nil start_time, same date — deduped",
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")},
 			},
@@ -1039,7 +1039,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil),
 					mock.MatchedBy(func(now time.Time) bool { return !listedAt.IsZero() && now.Equal(listedAt) })).Return(tt.scraped, nil).Once()
 				d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.ConcertSearchStatusCompleted).Return(nil).Once()
-				// A published discovery records last_found_at; no publish → no MarkFound.
+				// A published discovery records last_find_time; no publish → no MarkFound.
 				if tt.wantNewConcerts > 0 {
 					d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 				}

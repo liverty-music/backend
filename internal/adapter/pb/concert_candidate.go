@@ -25,7 +25,7 @@ func FromConcertCandidate(sc *entity.ConcertCandidate, performer *entity.Artist)
 		Title:           &entityv1.Title{Value: sc.Title},
 		LocalDate:       &entityv1.LocalDate{Value: TimeToDate(sc.LocalDate)},
 		ListedVenueName: &entityv1.ListedVenueName{Value: sc.ListedVenueName},
-		DiscoveredTime:  timestamppb.New(sc.DiscoveredTime),
+		FindTime:        timestamppb.New(sc.FindTime),
 	}
 
 	if sc.StartTime != nil {

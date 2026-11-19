@@ -145,24 +145,26 @@ func TestConcertSearch_WasRecentlyDiscovered(t *testing.T) {
 		sl   *entity.ConcertSearch
 		want bool
 	}{
+		// @spec components/entity/concert-search "Never found"
 		{
 			name: "never discovered (zero) is not recent",
 			sl:   &entity.ConcertSearch{},
 			want: false,
 		},
+		// @spec components/entity/concert-search "Found 3 days ago with a 14-day window"
 		{
 			name: "discovered within window is recent",
-			sl:   &entity.ConcertSearch{LastFoundTime: now.Add(-2 * 24 * time.Hour)},
+			sl:   &entity.ConcertSearch{LastFindTime: now.Add(-3 * 24 * time.Hour)},
 			want: true,
 		},
 		{
 			name: "discovered exactly at window boundary is not recent",
-			sl:   &entity.ConcertSearch{LastFoundTime: now.Add(-window)},
+			sl:   &entity.ConcertSearch{LastFindTime: now.Add(-window)},
 			want: false,
 		},
 		{
 			name: "discovered beyond window is not recent",
-			sl:   &entity.ConcertSearch{LastFoundTime: now.Add(-15 * 24 * time.Hour)},
+			sl:   &entity.ConcertSearch{LastFindTime: now.Add(-15 * 24 * time.Hour)},
 			want: false,
 		},
 	}

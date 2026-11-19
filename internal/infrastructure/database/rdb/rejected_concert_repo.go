@@ -15,7 +15,7 @@ type RejectedConcertRepository struct {
 
 const insertRejectedConcertQuery = `
 	INSERT INTO rejected_concerts (
-		id, artist_id, artist_name, title, local_date, start_at, open_at,
+		id, artist_id, artist_name, title, local_date, start_time, open_time,
 		listed_venue_name, admin_area, source_url,
 		resolved_place_id, resolved_venue_name, resolved_admin_area,
 		reason, reviewed_by

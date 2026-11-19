@@ -68,7 +68,7 @@ func seedDeletableOrganizer(t *testing.T, db *rdb.Database, status entity.Organi
 	o.stock = seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodLottery, 100, 4)
 	o.saleID = o.stock.SaleID
 	o.scannerID = seedEventScanner(t, db, o.eventID)
-	exec(`INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scanned_at) VALUES ($1, $2, $3, 1, now())`,
+	exec(`INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scan_time) VALUES ($1, $2, $3, 1, now())`,
 		uuid.NewV7().String(), o.eventID, string(o.scannerID))
 	return o
 }
@@ -101,16 +101,16 @@ func seedPurchase(t *testing.T, db *rdb.Database, o deletableOrganizer, orderSta
 	if orderStatus == entity.OrderStatusRefunded {
 		ticketStatus = entity.TicketStatusVoided
 	}
-	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at)
+	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
 		p.ticketID, p.orderID, userID, o.eventID, int16(ticketStatus), paidAt)
-	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time) VALUES ($1, $2, $3, $4, $5, $6)`,
 		p.settlementID, p.orderID, o.organizerID, o.eventID, int16(settlementStatus), paidAt)
 	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 2500)`,
 		p.settlementID, o.organizerID)
 	if admitted {
-		exec(`UPDATE tickets SET admit_at = $2 WHERE id = $1`, p.ticketID, paidAt)
-		exec(`INSERT INTO admissions (ticket_id, event_id, scanner_id, admitted_at) VALUES ($1, $2, $3, $4)`,
+		exec(`UPDATE tickets SET admit_time = $2 WHERE id = $1`, p.ticketID, paidAt)
+		exec(`INSERT INTO admissions (ticket_id, event_id, scanner_id, admit_time) VALUES ($1, $2, $3, $4)`,
 			p.ticketID, o.eventID, string(o.scannerID), paidAt)
 	}
 	return p
@@ -157,10 +157,10 @@ func seedRemovableEvent(t *testing.T, db *rdb.Database, status entity.OrganizerS
 	firstCome := seedStockForEvent(t, db, e.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 	e.checkoutID, e.checkoutOrderID = insertStockCheckout(t, db, firstCome, buyerID, entity.OrderStatusRefunded, entity.CheckoutStatusCompleted, 1, at, true)
 	// A Refunded Order has its refund record, removed with the Order.
-	exec(`INSERT INTO order_refunds (order_id, reason, amount, provider_refund_id, refund_at) VALUES ($1, 1, 3000, 're_removable', $2)`,
+	exec(`INSERT INTO order_refunds (order_id, reason, amount, provider_refund_id, refund_time) VALUES ($1, 1, 3000, 're_removable', $2)`,
 		e.checkoutOrderID, at)
 	e.checkoutTicket = entity.NewID()
-	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, $5, $6)`,
 		e.checkoutTicket, e.checkoutOrderID, buyerID, e.eventID, int16(entity.TicketStatusVoided), at)
 	resaleOrderID := entity.NewID()
 	e.resaleCardAuthorizationID = newCardAuthorizationID(db)
@@ -168,10 +168,10 @@ func seedRemovableEvent(t *testing.T, db *rdb.Database, status entity.OrganizerS
 		VALUES ($1, $2, $3, 1, $4, 1, 5, 3000, 'JPY')`,
 		resaleOrderID, buyerID, string(e.stock.ID), e.resaleCardAuthorizationID)
 	e.resaleEntryID = entity.NewID()
-	exec(`INSERT INTO resale_entries (id, order_id, state, lost_reason, created_at, draw_at) VALUES ($1, $2, 3, 3, $3, $3)`,
+	exec(`INSERT INTO resale_entries (id, order_id, state, lost_reason, create_time, draw_time) VALUES ($1, $2, 3, 3, $3, $3)`,
 		e.resaleEntryID, resaleOrderID, at)
 	e.resaleListingID = entity.NewID()
-	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at, sold_at, resale_entry_id)
+	exec(`INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, create_time, sell_time, resale_entry_id)
 		VALUES ($1, $2, $3, $4, 3000, 2, $5, $5, $6)`,
 		e.resaleListingID, e.lottery.ticketID, e.followerID, string(e.stock.ID), at, e.resaleEntryID)
 	return e

@@ -15,15 +15,15 @@ type ConcertSearchRepository struct {
 
 const (
 	getConcertSearchByArtistIDQuery = `
-		SELECT artist_id, searched_at, status, last_found_at
+		SELECT artist_id, search_time, status, last_find_time
 		FROM concert_searches
 		WHERE artist_id = $1
 	`
 	upsertConcertSearchQuery = `
-		INSERT INTO concert_searches (artist_id, searched_at, status)
+		INSERT INTO concert_searches (artist_id, search_time, status)
 		VALUES ($1, NOW(), $2)
-		ON CONFLICT (artist_id) DO UPDATE SET searched_at = NOW(), status = $2
-		RETURNING searched_at
+		ON CONFLICT (artist_id) DO UPDATE SET search_time = NOW(), status = $2
+		RETURNING search_time
 	`
 	updateConcertSearchStatusQuery = `
 		UPDATE concert_searches
@@ -32,7 +32,7 @@ const (
 	`
 	markConcertSearchFoundQuery = `
 		UPDATE concert_searches
-		SET last_found_at = NOW()
+		SET last_find_time = NOW()
 		WHERE artist_id = $1
 	`
 	deleteConcertSearchQuery = `
@@ -49,7 +49,7 @@ func NewConcertSearchRepository(db *Database) *ConcertSearchRepository {
 // GetByArtistID retrieves the concert search for a specific artist.
 func (r *ConcertSearchRepository) GetByArtistID(ctx context.Context, artistID string) (*entity.ConcertSearch, error) {
 	var log entity.ConcertSearch
-	// last_found_at is nullable; scan into a pointer so a NULL maps to the
+	// last_find_time is nullable; scan into a pointer so a NULL maps to the
 	// zero value rather than a scan error.
 	var lastFound *time.Time
 	err := r.db.Pool.QueryRow(ctx, getConcertSearchByArtistIDQuery, artistID).
@@ -58,7 +58,7 @@ func (r *ConcertSearchRepository) GetByArtistID(ctx context.Context, artistID st
 		return nil, toAppErr(err, "failed to get concert search", slog.String("artist_id", artistID))
 	}
 	if lastFound != nil {
-		log.LastFoundTime = *lastFound
+		log.LastFindTime = *lastFound
 	}
 	return &log, nil
 }
@@ -83,7 +83,7 @@ func (r *ConcertSearchRepository) UpdateStatus(ctx context.Context, artistID str
 }
 
 // MarkFound records that a search for the artist discovered at least one new
-// concert by setting last_found_at to the current time. It assumes a row
+// concert by setting last_find_time to the current time. It assumes a row
 // already exists (the pending Upsert creates it before the search runs).
 func (r *ConcertSearchRepository) MarkFound(ctx context.Context, artistID string) error {
 	_, err := r.db.Pool.Exec(ctx, markConcertSearchFoundQuery, artistID)

@@ -35,7 +35,7 @@ func insertStockOrder(t *testing.T, db *rdb.Database, f *stockFixture, userID st
 	}
 	_, err := db.Pool.Exec(context.Background(), `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider,
-			provider_payment_id, status, amount, currency, pay_at)
+			provider_payment_id, status, amount, currency, pay_time)
 		VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, 'JPY', $9)`,
 		id, userID, string(f.ID), count, cardAuth, paymentID, int16(status), f.Price()*int64(count), payAt)
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func insertStockCheckout(t *testing.T, db *rdb.Database, f *stockFixture, userID
 		captureAt = holdExpire.Add(-time.Minute)
 	}
 	_, err := db.Pool.Exec(context.Background(), `
-		INSERT INTO checkouts (id, status, hold_expire_at, commit_at, capture_at, order_id, ticket_sale_id)
+		INSERT INTO checkouts (id, status, hold_expire_time, commit_time, capture_time, order_id, ticket_sale_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		checkoutID, int16(status), holdExpire, commitAt, captureAt, orderID, string(f.SaleID))
 	require.NoError(t, err)

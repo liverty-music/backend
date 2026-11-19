@@ -41,7 +41,7 @@ func TestTicketAdmissibleParity(t *testing.T) {
 	listingTime := saleWindowStart.Add(24 * time.Hour)
 
 	for i, c := range combos {
-		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET status = $2, admit_at = $3 WHERE id = $1`, string(s.tickets[i].ID), int16(c.status), c.admit)
+		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET status = $2, admit_time = $3 WHERE id = $1`, string(s.tickets[i].ID), int16(c.status), c.admit)
 		require.NoError(t, err, c.name)
 		ticket := &entity.Ticket{Status: c.status, AdmitTime: c.admit}
 		want := ticket.IsAdmissible()
@@ -61,10 +61,10 @@ func TestTicketAdmissibleParity(t *testing.T) {
 			sc := seedScanner(t, db, f.f.EventID)
 			switch status {
 			case entity.ScannerStatusInUse:
-				_, err := db.Pool.Exec(ctx, `UPDATE scanners SET status = 2, link_token = NULL, bound_public_key = decode('04' || repeat('00', 64), 'hex'), bound_at = now() WHERE id = $1`, string(sc.ID))
+				_, err := db.Pool.Exec(ctx, `UPDATE scanners SET status = 2, link_token = NULL, bound_public_key = decode('04' || repeat('00', 64), 'hex'), bind_time = now() WHERE id = $1`, string(sc.ID))
 				require.NoError(t, err)
 			case entity.ScannerStatusRevoked:
-				_, err := db.Pool.Exec(ctx, `UPDATE scanners SET status = 3, link_token = NULL, revoked_at = now() WHERE id = $1`, string(sc.ID))
+				_, err := db.Pool.Exec(ctx, `UPDATE scanners SET status = 3, link_token = NULL, revoke_time = now() WHERE id = $1`, string(sc.ID))
 				require.NoError(t, err)
 			}
 

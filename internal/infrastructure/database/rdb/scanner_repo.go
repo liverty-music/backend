@@ -32,7 +32,7 @@ func NewScannerRepository(db *Database) *ScannerRepository {
 }
 
 const (
-	scannerColumns = `id, event_id, number, link_token, link_token_hash, bound_public_key, status, bound_at, revoked_at`
+	scannerColumns = `id, event_id, number, link_token, link_token_hash, bound_public_key, status, bind_time, revoke_time`
 
 	// scannerLockEventQuery serialises Scanner creation per event: the event
 	// row lock (FOR NO KEY UPDATE, which does not block inserts that
@@ -53,13 +53,13 @@ const (
 
 	scannerBindQuery = `
 		UPDATE scanners
-		SET status = 2, bound_public_key = $2, bound_at = $3, link_token = NULL
+		SET status = 2, bound_public_key = $2, bind_time = $3, link_token = NULL
 		WHERE id = $1 AND status = 1
 		RETURNING ` + scannerColumns
 
 	scannerRevokeQuery = `
 		UPDATE scanners
-		SET status = 3, revoked_at = $2, link_token = NULL
+		SET status = 3, revoke_time = $2, link_token = NULL
 		WHERE id = $1 AND status <> 3
 	`
 )
@@ -214,11 +214,11 @@ func scanScannerWithHash(row pgx.Row) (*entity.Scanner, []byte, error) {
 	scanner.Status = entity.ScannerStatus(status)
 	if boundAt.Valid {
 		t := boundAt.Time
-		scanner.BoundTime = &t
+		scanner.BindTime = &t
 	}
 	if revokedAt.Valid {
 		t := revokedAt.Time
-		scanner.RevokedTime = &t
+		scanner.RevokeTime = &t
 	}
 	return &scanner, linkTokenHash, nil
 }

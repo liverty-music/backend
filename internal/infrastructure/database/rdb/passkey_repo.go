@@ -27,7 +27,7 @@ const (
 	// insertPasskeyQuery stores a passkey once: a repeated provider passkey id
 	// keeps the stored row unchanged.
 	insertPasskeyQuery = `
-		INSERT INTO passkeys (provider_passkey_id, user_id, aaguid, created_at, name)
+		INSERT INTO passkeys (provider_passkey_id, user_id, aaguid, create_time, name)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (provider_passkey_id) DO NOTHING
 		RETURNING provider_passkey_id
@@ -35,14 +35,14 @@ const (
 
 	deletePasskeyQuery = `
 		DELETE FROM passkeys WHERE provider_passkey_id = $1
-		RETURNING provider_passkey_id, user_id, aaguid, created_at, name
+		RETURNING provider_passkey_id, user_id, aaguid, create_time, name
 	`
 
 	listPasskeysByUserQuery = `
-		SELECT provider_passkey_id, user_id, aaguid, created_at, name
+		SELECT provider_passkey_id, user_id, aaguid, create_time, name
 		FROM passkeys
 		WHERE user_id = $1
-		ORDER BY created_at DESC, provider_passkey_id
+		ORDER BY create_time DESC, provider_passkey_id
 	`
 )
 

@@ -23,7 +23,7 @@ func NewEventRepository(db *Database) *EventRepository {
 }
 
 const getEventQuery = `
-	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at, publish_state, per_account_limit
+	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_time, open_time, publish_state, per_account_limit
 	FROM events WHERE id = $1
 `
 

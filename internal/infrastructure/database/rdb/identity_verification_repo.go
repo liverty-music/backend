@@ -25,16 +25,16 @@ func NewIdentityVerificationRepository(db *Database) *IdentityVerificationReposi
 
 const (
 	insertIdentityVerificationQuery = `
-		INSERT INTO identity_verifications (id, user_id, method, provider_user_id, dedupe_strength, verify_at, status)
+		INSERT INTO identity_verifications (id, user_id, method, provider_user_id, dedupe_strength, verify_time, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
+		RETURNING id, user_id, method, provider_user_id, dedupe_strength, verify_time, status
 	`
 
 	// listIdentityVerificationsByUserIDQuery returns every row of the user; which
 	// one is current is the entity's to decide
 	// ([entity.CurrentIdentityVerification]).
 	listIdentityVerificationsByUserIDQuery = `
-		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
+		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_time, status
 		FROM identity_verifications
 		WHERE user_id = $1
 	`
@@ -42,7 +42,7 @@ const (
 	// getIdentityVerificationByProviderUserIDQuery returns the single ACTIVE row
 	// for the given provider_user_id, enforced by the partial unique index.
 	getIdentityVerificationByProviderUserIDQuery = `
-		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
+		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_time, status
 		FROM identity_verifications
 		WHERE provider_user_id = $1
 		  AND status = 1

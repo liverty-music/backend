@@ -17,7 +17,7 @@ func FromWalletPublicKey(key *entity.WalletPublicKey) *entityv1.WalletPublicKey 
 	return &entityv1.WalletPublicKey{
 		UserId:       &entityv1.UserId{Value: string(key.UserID)},
 		PublicKey:    &entityv1.PublicKey{Value: key.PublicKey},
-		RegisterTime: timestamppb.New(key.RegisteredTime),
+		RegisterTime: timestamppb.New(key.RegisterTime),
 	}
 }
 
@@ -40,11 +40,11 @@ func FromScanner(scanner *entity.Scanner) *entityv1.Scanner {
 	if scanner.BoundPublicKey != nil {
 		out.BoundPublicKey = &entityv1.PublicKey{Value: scanner.BoundPublicKey}
 	}
-	if scanner.BoundTime != nil {
-		out.BindTime = timestamppb.New(*scanner.BoundTime)
+	if scanner.BindTime != nil {
+		out.BindTime = timestamppb.New(*scanner.BindTime)
 	}
-	if scanner.RevokedTime != nil {
-		out.RevokeTime = timestamppb.New(*scanner.RevokedTime)
+	if scanner.RevokeTime != nil {
+		out.RevokeTime = timestamppb.New(*scanner.RevokeTime)
 	}
 	return out
 }

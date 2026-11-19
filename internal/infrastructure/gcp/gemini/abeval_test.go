@@ -16,7 +16,7 @@ func TestLoadGroundTruth_FixtureWellFormed(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "2026-10-01", gt.EvaluationFrom)
-	assert.NotEmpty(t, gt.CapturedAt)
+	assert.NotEmpty(t, gt.CaptureTime)
 	require.Len(t, gt.Artists, 4, "fixture must cover 4 artists")
 
 	wantArtists := map[string]string{

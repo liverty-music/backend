@@ -27,20 +27,20 @@ const (
 	// RETURNING old/new (PostgreSQL 18) reports the row version the upsert
 	// actually replaced — the latest committed one, locked by ON CONFLICT — so
 	// "replaced" is exact under concurrent registrations. Registering the key
-	// the user already has keeps the stored registered_at.
+	// the user already has keeps the stored register_time.
 	walletPublicKeyRegisterQuery = `
-		INSERT INTO wallet_public_keys AS w (user_id, public_key, registered_at)
+		INSERT INTO wallet_public_keys AS w (user_id, public_key, register_time)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) DO UPDATE
 			SET public_key = EXCLUDED.public_key,
-			    registered_at = CASE WHEN w.public_key = EXCLUDED.public_key
-			                         THEN w.registered_at ELSE EXCLUDED.registered_at END
-		RETURNING new.public_key, new.registered_at,
+			    register_time = CASE WHEN w.public_key = EXCLUDED.public_key
+			                         THEN w.register_time ELSE EXCLUDED.register_time END
+		RETURNING new.public_key, new.register_time,
 		          COALESCE(old.public_key <> new.public_key, FALSE)
 	`
 
 	walletPublicKeyGetByUserQuery = `
-		SELECT public_key, registered_at FROM wallet_public_keys WHERE user_id = $1
+		SELECT public_key, register_time FROM wallet_public_keys WHERE user_id = $1
 	`
 )
 
@@ -58,7 +58,7 @@ func (r *WalletPublicKeyRepository) Register(ctx context.Context, userID entity.
 		Scan(&stored, &at, &replaced); err != nil {
 		return nil, false, toAppErr(err, "failed to register wallet public key", slog.String("user_id", string(userID)))
 	}
-	return &entity.WalletPublicKey{UserID: userID, PublicKey: entity.PublicKey(stored), RegisteredTime: at}, replaced, nil
+	return &entity.WalletPublicKey{UserID: userID, PublicKey: entity.PublicKey(stored), RegisterTime: at}, replaced, nil
 }
 
 // GetByUser implements [entity.WalletPublicKeyRepository].
@@ -70,5 +70,5 @@ func (r *WalletPublicKeyRepository) GetByUser(ctx context.Context, userID entity
 	if err := r.db.Pool.QueryRow(ctx, walletPublicKeyGetByUserQuery, string(userID)).Scan(&stored, &at); err != nil {
 		return nil, toAppErr(err, "failed to get wallet public key", slog.String("user_id", string(userID)))
 	}
-	return &entity.WalletPublicKey{UserID: userID, PublicKey: entity.PublicKey(stored), RegisteredTime: at}, nil
+	return &entity.WalletPublicKey{UserID: userID, PublicKey: entity.PublicKey(stored), RegisterTime: at}, nil
 }

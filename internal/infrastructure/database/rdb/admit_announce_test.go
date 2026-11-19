@@ -83,7 +83,7 @@ func TestTicketRepository_AdmitAnnounces(t *testing.T) {
 
 		var admitted, admissions int
 		require.NoError(t, db.Pool.QueryRow(ctx,
-			`SELECT (SELECT count(*) FROM tickets WHERE id = $1 AND admit_at IS NOT NULL), (SELECT count(*) FROM admissions WHERE ticket_id = $1)`,
+			`SELECT (SELECT count(*) FROM tickets WHERE id = $1 AND admit_time IS NOT NULL), (SELECT count(*) FROM admissions WHERE ticket_id = $1)`,
 			string(ticket)).Scan(&admitted, &admissions))
 		assert.Zero(t, admitted, "the Ticket has no admit time")
 		assert.Zero(t, admissions, "no Admission is stored")

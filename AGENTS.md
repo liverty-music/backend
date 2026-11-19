@@ -50,11 +50,9 @@ A fact is announced by the entity operation that stores it, in the same transact
 
 ### Naming Conventions
 
-- **Timestamps**:
-    - **Database**: Use `_at` suffix (e.g., `start_at`, `created_at`). Type: `TIMESTAMPTZ`.
-    - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
-    - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
-    - **When a timestamp exists**: only when an entity field in the spec needs it; no audit metadata (`updated_at`, `deleted_at` are rejected by `scripts/lint-schema.sh`). When the field means "when the record was created", name it `created_at` / `CreateTime` / proto `create_time` (AIP-148), not a synonym such as `configured_at` or `recorded_at`.
+- **Timestamps**: one name in every layer, the present-tense verb of the moment it records followed by `time`: DB column and proto `sign_time` (`TIMESTAMPTZ`), Go `SignTime` (`time.Time`), log key `sign_time`, never `_at` and never a past participle (`SignedTime`). Only the last word before `time` is the verb; words before it keep their own form (`sold_email_send_time` is the send time of the "sold" email). Where the present tense reads badly, use a verb that reads well and means the same (`find_time`, `sell_time`). `scripts/lint-schema.sh` rejects any `*_at` column.
+    - **External names**: a key another system defines (Zitadel's `created_at`, Stripe's `expires_at`) stays on the wire; the Go field that holds it follows the rule (`CreateTime time.Time \`json:"created_at"\``).
+    - **When a timestamp exists**: only when an entity field in the spec needs it; no audit metadata (`update_time`, `delete_time` are rejected by `scripts/lint-schema.sh`). When the field means "when the record was created", name it `create_time` / `CreateTime` (AIP-148), not a synonym such as `configure_time` or `record_time`.
 
 ### Go conventions
 
@@ -68,7 +66,7 @@ General Go guidance comes from the `go` plugin skills (go-errors, go-doc-comment
 
 ### Database schema
 
-`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `updated_at` / `deleted_at`, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. Functions are not in `schema.sql`: Atlas Community cannot read them, and one there makes `atlas migrate diff` refuse to run without `atlas login` (#765); a function is written by hand in a migration (`db-migration-workflow` skill). General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
+`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `update_time` / `delete_time`, no `*_at` column, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. Functions are not in `schema.sql`: Atlas Community cannot read them, and one there makes `atlas migrate diff` refuse to run without `atlas login` (#765); a function is written by hand in a migration (`db-migration-workflow` skill). General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
 
 ## Development Workflows
 
@@ -124,7 +122,7 @@ See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-pr
 - A new handler MUST be registered in `internal/di/provider.go` in the correct list (admin vs consumer).
 - Interfaces are defined where consumed (`internal/entity/`, `internal/usecase/`); impls in `infrastructure/`/`adapter/`.
 - Nullable columns scan into `sql.Null*` and are `.Valid`-checked before assignment (cf. `user_repo.go scanUser`).
-- Every new column (timestamps included) maps to an entity field the spec defines; a column no spec requirement uses is a violation, and a creation-time column is named `created_at`, not a synonym.
+- Every new column (timestamps included) maps to an entity field the spec defines; a column no spec requirement uses is a violation, and a creation-time column is named `create_time`, not a synonym.
 - A write that checks a condition and then acts (a delete refused while a record exists, a create limited by a count) runs the check and the write in one transaction and locks the rows that the paths creating those records also lock (cf. `checkout_repo.go` `checkoutUserLockQuery`). A delete of dependent rows filters by the states the check allowed, so a row created after the check makes a RESTRICT foreign key fail instead of vanishing.
 - A different filter is a different method (`ListByArtist`), not an optional parameter on an existing one; an optional value is a pointer (cf. `VenueRepository.GetByListedName` `adminArea *string`), never `""` or `0` meaning "absent".
 - A usecase test stubs its ports with the mockery mocks in `mocks/`; a hand-written fake does not grow behaviour the real implementation lacks.

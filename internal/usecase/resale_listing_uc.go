@@ -19,13 +19,14 @@ import (
 // its text keep their names.
 const LogKeyNeedsOperator = "checkout needs an operator"
 
-// ResaleListingAt is a listing with its deadline and its status at the time
-// it was read: a Listed listing past its deadline is Expired.
+// ResaleListingAt is a listing with its close time and its status at the time
+// it was read: a Listed listing past its close time is Expired.
 type ResaleListingAt struct {
 	// Listing is the stored listing.
 	Listing *entity.ResaleListing
-	// Deadline is its event's resale deadline ([entity.ResaleDeadlineOf]).
-	Deadline time.Time
+	// CloseTime is the listing's close time: its event's resale deadline
+	// ([entity.ResaleDeadlineOf]).
+	CloseTime time.Time
 	// Status is the listing's status at the time it was read.
 	Status entity.ResaleListingStatus
 }
@@ -55,7 +56,7 @@ type ResaleListingUseCase interface {
 	//  - FailedPrecondition: the listing is Sold, Cancelled or expired.
 	Withdraw(ctx context.Context, userID entity.UserID, id entity.ResaleListingID) (*ResaleListingAt, error)
 
-	// List returns the fan's listings, newest first, each with its deadline;
+	// List returns the fan's listings, newest first, each with its close time;
 	// an empty slice when there are none.
 	List(ctx context.Context, userID entity.UserID) ([]*ResaleListingAt, error)
 
@@ -295,7 +296,7 @@ func (uc *resaleListingUseCase) eventAndDeadline(ctx context.Context, eventID st
 	return event, deadline, nil
 }
 
-// listingAt returns the listing with its deadline and its status at now.
+// listingAt returns the listing with its close time and its status at now.
 func listingAt(l *entity.ResaleListing, deadline, now time.Time) *ResaleListingAt {
-	return &ResaleListingAt{Listing: l, Deadline: deadline, Status: l.StatusAt(now, deadline)}
+	return &ResaleListingAt{Listing: l, CloseTime: deadline, Status: l.StatusAt(now, deadline)}
 }

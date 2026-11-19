@@ -31,35 +31,35 @@ const (
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.mbid = $1
 	`
 	updateFanartQuery = `
-		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
+		UPDATE artists SET fanart = $2, fanart_sync_time = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
-		WHERE a.fanart_synced_at IS NULL
-		   OR (a.fanart_synced_at < $1
+		WHERE a.fanart_sync_time IS NULL
+		   OR (a.fanart_sync_time < $1
 		       AND EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id))
-		ORDER BY a.fanart_synced_at ASC NULLS FIRST, a.id ASC
+		ORDER BY a.fanart_sync_time ASC NULLS FIRST, a.id ASC
 		LIMIT $2
 	`
 	getOfficialSiteQuery = `
@@ -80,24 +80,24 @@ const (
 	// The slot comes from the UUID's last two bytes, which UUIDv7 fills with
 	// random bits, so artists spread evenly and an artist never changes slot.
 	listArtistsRefreshDueQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE ((get_byte(uuid_send(a.id), 14) << 8) | get_byte(uuid_send(a.id), 15)) % $1 = $2
 		ORDER BY a.id
 	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
-		  AND (a.official_site_checked_at IS NULL OR a.official_site_checked_at < $1)
-		ORDER BY a.official_site_checked_at ASC NULLS FIRST, a.id ASC
+		  AND (a.official_site_check_time IS NULL OR a.official_site_check_time < $1)
+		ORDER BY a.official_site_check_time ASC NULLS FIRST, a.id ASC
 		LIMIT $2
 	`
 	updateOfficialSiteURLQuery = `
 		UPDATE artist_official_site SET url = $2 WHERE artist_id = $1
 	`
 	markOfficialSiteCheckedQuery = `
-		UPDATE artists SET official_site_checked_at = $2 WHERE id = $1
+		UPDATE artists SET official_site_check_time = $2 WHERE id = $1
 	`
 )
 
@@ -112,7 +112,7 @@ const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa
 
 // scanArtist scans a row into an Artist entity including nullable fanart and
 // official site check columns. The row selects id, name, mbid, fanart,
-// fanart_synced_at, official_site_checked_at, activity_ended and
+// fanart_sync_time, official_site_check_time, activity_ended and
 // artistOrganizerColumn, in that order.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var a entity.Artist

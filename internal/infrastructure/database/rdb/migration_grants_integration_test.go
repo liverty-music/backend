@@ -81,16 +81,16 @@ var organizerWrites = map[string]organizerTableWrites{
 	}},
 	"venues": {insert: true},
 	"events": {insert: true, delete: true, updateColumns: []string{
-		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_at", "open_at", "per_account_limit",
+		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_time", "open_time", "per_account_limit",
 	}},
 	"concert_artists":    {insert: true, delete: true},
 	"ticket_journeys":    {insert: true},
 	"concerts":           {insert: true},
 	"concert_candidates": {delete: true},
 	"series_images":      {insert: true},
-	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_synced_at"}},
-	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoked_at"}},
-	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
+	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_sync_time"}},
+	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoke_time"}},
+	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_time", "sale_end_time", "verification_requirement"}},
 	"seat_types":         {insert: true, delete: true},
 	"ticket_stocks":      {insert: true},
 	"ticket_sale_events": {insert: true},
@@ -114,10 +114,10 @@ type receptionTableAccess struct {
 // to scanners and token to link_token, and the privileges follow them).
 // The role has no privilege on any other app table.
 var receptionAccess = map[string]receptionTableAccess{
-	"scanners":           {selects: true, updateColumns: []string{"status", "bound_public_key", "bound_at", "link_token"}},
+	"scanners":           {selects: true, updateColumns: []string{"status", "bound_public_key", "bind_time", "link_token"}},
 	"events":             {selects: true},
 	"wallet_public_keys": {selects: true},
-	"tickets":            {selects: true, updateColumns: []string{"admit_at"}},
+	"tickets":            {selects: true, updateColumns: []string{"admit_time"}},
 	"admissions":         {selects: true, insert: true},
 	// 20261030130100_grant_events_outbox_inserts.sql: the announcement of Ticket.Admit.
 	"watermill_events_outbox": {insert: true},

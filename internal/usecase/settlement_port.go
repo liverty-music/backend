@@ -30,7 +30,7 @@ type ProcessedWebhookEventRepository interface {
 // minimal interface so the settlement use case does not depend on the full
 // concert repository. Interfaces are defined where consumed (AGENTS.md rule).
 type EventStartTimeRepository interface {
-	// GetEventStartTime returns the start_at timestamp for the event
+	// GetEventStartTime returns the start_time timestamp for the event
 	// identified by eventID. A nil result means the event's start time is not
 	// yet published; the settlement sweeper withholds payout rather than
 	// erroring.

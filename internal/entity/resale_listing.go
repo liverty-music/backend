@@ -42,7 +42,7 @@ const (
 	// ResaleListingStatusCancelled means it ended because its Ticket's Order
 	// was refunded.
 	ResaleListingStatusCancelled ResaleListingStatus = 4
-	// ResaleListingStatusExpired is a Listed listing at or after its deadline.
+	// ResaleListingStatusExpired is a Listed listing at or after its close time.
 	// It is derived by [ResaleListing.StatusAt] and never stored.
 	ResaleListingStatusExpired ResaleListingStatus = 5
 )
@@ -110,7 +110,7 @@ type ResaleListing struct {
 	// UserID is the fan offering it: the Ticket's user.
 	UserID UserID
 	// EventID is the event the Ticket admits to, whose start time sets the
-	// listing's deadline.
+	// listing's close time.
 	EventID string
 	// TicketStockID is the TicketStock the Ticket is of.
 	TicketStockID TicketStockID
@@ -121,8 +121,8 @@ type ResaleListing struct {
 	Status ResaleListingStatus
 	// CreateTime is when the fan listed the Ticket.
 	CreateTime time.Time
-	// SoldTime is when another fan's Order bought it; nil unless Sold.
-	SoldTime *time.Time
+	// SellTime is when another fan's Order bought it; nil unless Sold.
+	SellTime *time.Time
 	// WithdrawTime is when the fan withdrew it; nil unless Withdrawn.
 	WithdrawTime *time.Time
 	// ProviderRefundID is the payment provider's ID for the refund to the
@@ -192,7 +192,7 @@ func (l *ResaleListing) IsOpenAt(t, deadline time.Time) bool {
 }
 
 // StatusAt returns the listing's status as of t: a Listed listing at or after
-// its deadline is Expired; any other status is returned as stored.
+// its close time is Expired; any other status is returned as stored.
 func (l *ResaleListing) StatusAt(t, deadline time.Time) ResaleListingStatus {
 	if l.Status == ResaleListingStatusListed && !l.IsOpenAt(t, deadline) {
 		return ResaleListingStatusExpired
@@ -212,7 +212,7 @@ func (l *ResaleListing) NeedsRefund() (bool, error) {
 }
 
 // IsFreeForDrawAt reports whether a draw at t may allocate the listing: it is
-// Listed, t is not after its deadline (the last draw runs at the deadline),
+// Listed, t is not after its close time (the last draw runs at the deadline),
 // and no ResaleEntry is allocated to it, or the entry allocated to it is Lost.
 func (l *ResaleListing) IsFreeForDrawAt(t, deadline time.Time) bool {
 	return l.Status == ResaleListingStatusListed && !t.After(deadline) &&
@@ -263,7 +263,7 @@ type ResaleListingRepository interface {
 	Get(ctx context.Context, id ResaleListingID) (*ResaleListing, error)
 
 	// Withdraw makes a listing that is open at now Withdrawn with that
-	// withdraw time; the deadline is read from its Ticket's event. A Withdrawn
+	// withdraw time; the close time is read from its Ticket's event. A Withdrawn
 	// listing is left unchanged.
 	//
 	// # Possible errors

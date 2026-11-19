@@ -301,7 +301,7 @@ func (s *lotteryStory) secondEvent(price int64, quantity int) (string, *entity.T
 	eventID := uuid.NewV7().String()
 	start := storyEventStart.Add(24 * time.Hour)
 	_, err := s.db.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit)
+		INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit)
 		SELECT $1, series_id, venue_id, $3, $4, 'PUBLISHED', 4 FROM events WHERE id = $2
 	`, eventID, s.eventID, start.Format(time.DateOnly), start)
 	require.NoError(s.t, err)
@@ -383,7 +383,7 @@ func (s *lotteryStory) seedOrganizerEvent() {
 
 	s.eventID = uuid.NewV7().String()
 	_, err = s.db.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED', 4)
+		INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED', 4)
 	`, s.eventID, s.seriesID, seedVenue(t, s.db, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
 	require.NoError(t, err)
 }
@@ -595,7 +595,7 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 			ProviderEventID:   "evt_" + uuid.NewV7().String(),
 			Type:              usecase.StripeEventPaymentIntentSucceeded,
 			ProviderPaymentID: fakeProviderPrefix + e.Order.CardAuthorizationID,
-			ReceivedAt:        s.now,
+			ReceiveTime:       s.now,
 		}))
 	}
 	for _, paid := range s.takePaid() {

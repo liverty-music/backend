@@ -23,15 +23,15 @@ var _ entity.TicketRepository = (*TicketRepository)(nil)
 const (
 	ticketSelectColumns = `
 		id, order_id, user_id, event_id,
-		identity_verification_id, resale_without_consent_prohibited, status, issue_at, admit_at
+		identity_verification_id, resale_without_consent_prohibited, status, issue_time, admit_time
 	`
-	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issue_at DESC, id`
-	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issue_at, id`
+	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issue_time DESC, id`
+	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issue_time, id`
 	ticketGetQuery                = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE id = $1`
 
 	// ticketAdmitQuery admits one ticket in a single statement: the
 	// conditional UPDATE on the ticket row is the per-ticket check-and-set (a
-	// concurrent admit blocks on the row lock, then re-checks admit_at and
+	// concurrent admit blocks on the row lock, then re-checks admit_time and
 	// matches nothing), and the Admission is inserted from its RETURNING rows,
 	// so the admitted time and the Admission are stored together or not at
 	// all. The Scanner row is share-locked and must not be Revoked, so
@@ -41,12 +41,12 @@ const (
 		WITH scanner AS (
 			SELECT id FROM scanners WHERE id = $2::uuid AND status <> 3 FOR SHARE
 		), admitted AS (
-			UPDATE tickets SET admit_at = $3
-			WHERE id = $1 AND status = 1 AND admit_at IS NULL AND EXISTS (SELECT 1 FROM scanner)
-			RETURNING id, event_id, admit_at
+			UPDATE tickets SET admit_time = $3
+			WHERE id = $1 AND status = 1 AND admit_time IS NULL AND EXISTS (SELECT 1 FROM scanner)
+			RETURNING id, event_id, admit_time
 		), recorded AS (
-			INSERT INTO admissions (ticket_id, event_id, scanner_id, admitted_at)
-			SELECT id, event_id, $2::uuid, admit_at FROM admitted
+			INSERT INTO admissions (ticket_id, event_id, scanner_id, admit_time)
+			SELECT id, event_id, $2::uuid, admit_time FROM admitted
 			RETURNING ticket_id
 		)
 		SELECT count(*) FROM recorded
@@ -54,7 +54,7 @@ const (
 
 	// ticketAdmitStateQuery explains why ticketAdmitQuery admitted nothing.
 	ticketAdmitStateQuery = `
-		SELECT t.status, t.admit_at,
+		SELECT t.status, t.admit_time,
 		       EXISTS (SELECT 1 FROM scanners WHERE id = $2::uuid AND status <> 3)
 		FROM tickets t WHERE t.id = $1
 	`

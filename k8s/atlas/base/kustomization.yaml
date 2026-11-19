@@ -152,3 +152,4 @@ configMapGenerator:
   - migrations/20261107130000_add_lottery_entry_lost_reason_concert_cancelled.sql
   - migrations/20261109025437_add_artist_activity_ended.sql
   - migrations/20261110080127_users_email_unique_ignoring_case.sql
+  - migrations/20261119070000_unify_timestamp_naming.sql

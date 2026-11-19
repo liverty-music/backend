@@ -144,14 +144,14 @@ func TestNotificationRepository_MarkRead(t *testing.T) {
 	n := newTestNotification(userID)
 	require.NoError(t, repo.Create(ctx, n))
 
-	// First mark records read_at.
+	// First mark records read_time.
 	require.NoError(t, repo.MarkRead(ctx, userID, n.ID))
 	got, err := repo.Get(ctx, n.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.ReadTime)
 	firstReadAt := *got.ReadTime
 
-	// Second mark is a no-op: read_at is unchanged.
+	// Second mark is a no-op: read_time is unchanged.
 	require.NoError(t, repo.MarkRead(ctx, userID, n.ID))
 	got, err = repo.Get(ctx, n.ID)
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestNotificationRepository_ListByUser(t *testing.T) {
 	t.Run("More than the limit", func(t *testing.T) {
 		cleanTables(t, db)
 		userID := seedUser(t, db, "notif-limit-user", "notif-limit@example.com", "ext-notif-limit-01")
-		// Each Create runs in its own transaction, so each gets a later created_at.
+		// Each Create runs in its own transaction, so each gets a later create_time.
 		newestFirst := make([]string, 60)
 		for i := range newestFirst {
 			n := newTestNotification(userID)

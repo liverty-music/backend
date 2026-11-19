@@ -29,7 +29,7 @@ var la = func() *time.Location {
 	return loc
 }()
 
-// saleFarPast is a DiscoveredTime well in the past so it never trips the first-sight guard.
+// saleFarPast is a FindTime well in the past so it never trips the first-sight guard.
 var saleFarPast = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // organizerLottery returns an Organizer's lottery of series-org offering the
@@ -53,17 +53,17 @@ func TestScheduledFireTime(t *testing.T) {
 
 	// kickoff is a lottery opening 5 Oct 18:00 and closing 22 Oct 23:59 (JST).
 	kickoff := &entity.TicketSale{
-		Method:         entity.TicketSaleMethodLottery,
-		SaleStartTime:  jstAt(2026, 10, 5, 18, 0),
-		SaleEndTime:    jstAt(2026, 10, 22, 23, 59),
-		DiscoveredTime: new(saleFarPast),
+		Method:        entity.TicketSaleMethodLottery,
+		SaleStartTime: jstAt(2026, 10, 5, 18, 0),
+		SaleEndTime:   jstAt(2026, 10, 22, 23, 59),
+		FindTime:      new(saleFarPast),
 	}
 	// firstCome opens 6 Oct 19:00 JST and closes 10 Oct 23:59.
 	firstCome := &entity.TicketSale{
-		Method:         entity.TicketSaleMethodFirstCome,
-		SaleStartTime:  jstAt(2026, 10, 6, 19, 0),
-		SaleEndTime:    jstAt(2026, 10, 10, 23, 59),
-		DiscoveredTime: new(saleFarPast),
+		Method:        entity.TicketSaleMethodFirstCome,
+		SaleStartTime: jstAt(2026, 10, 6, 19, 0),
+		SaleEndTime:   jstAt(2026, 10, 10, 23, 59),
+		FindTime:      new(saleFarPast),
 	}
 
 	tests := []struct {
@@ -96,7 +96,7 @@ func TestScheduledFireTime(t *testing.T) {
 		{
 			name: "First-come stage: no APPLY_CLOSE_24H", stage: entity.ReminderStageApplyClose24H,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 6, 19, 0),
-				SaleEndTime: jstAt(2026, 10, 25, 23, 59), DiscoveredTime: new(saleFarPast)},
+				SaleEndTime: jstAt(2026, 10, 25, 23, 59), FindTime: new(saleFarPast)},
 			tz: jst, wantOK: false,
 		},
 
@@ -108,17 +108,17 @@ func TestScheduledFireTime(t *testing.T) {
 		// @spec stories/get-reminded-of-ticket-sale-milestones "First-come sale at midnight"
 		{
 			name: "First-come sale at midnight: 23:30 anchor moves to 21:00 that evening", stage: entity.ReminderStageApplyOpen,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 0, 0), DiscoveredTime: new(saleFarPast)},
+			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 0, 0), FindTime: new(saleFarPast)},
 			tz:   jst, wantTime: jstAt(2026, 10, 6, 21, 0), wantExpiry: jstAt(2026, 10, 7, 0, 0), wantOK: true,
 		},
 		{
 			name: "first-come sale at 05:00: 04:30 anchor moves to 21:00 the previous evening", stage: entity.ReminderStageApplyOpen,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 5, 0), DiscoveredTime: new(saleFarPast)},
+			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 5, 0), FindTime: new(saleFarPast)},
 			tz:   jst, wantTime: jstAt(2026, 10, 6, 21, 0), wantExpiry: jstAt(2026, 10, 7, 5, 0), wantOK: true,
 		},
 		{
 			name: "first-come sale at 08:30: 08:00 anchor is outside quiet hours", stage: entity.ReminderStageApplyOpen,
-			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 8, 30), DiscoveredTime: new(saleFarPast)},
+			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 8, 30), FindTime: new(saleFarPast)},
 			tz:   jst, wantTime: jstAt(2026, 10, 7, 8, 0), wantExpiry: jstAt(2026, 10, 7, 8, 30), wantOK: true,
 		},
 
@@ -127,7 +127,7 @@ func TestScheduledFireTime(t *testing.T) {
 		{
 			name: "Lottery opening during the night: 02:00 open moves to 08:00", stage: entity.ReminderStageApplyOpen,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 7, 2, 0),
-				SaleEndTime: jstAt(2026, 10, 14, 23, 59), DiscoveredTime: new(saleFarPast)},
+				SaleEndTime: jstAt(2026, 10, 14, 23, 59), FindTime: new(saleFarPast)},
 			tz: jst, wantTime: jstAt(2026, 10, 7, 8, 0), wantExpiry: jstAt(2026, 10, 14, 23, 59), wantOK: true,
 		},
 
@@ -135,13 +135,13 @@ func TestScheduledFireTime(t *testing.T) {
 		{
 			name: "Close reminder at night: 23:59 close fires 08:00 on the closing day", stage: entity.ReminderStageApplyClose24H,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 5, 18, 0),
-				SaleEndTime: jstAt(2026, 10, 22, 23, 59), DiscoveredTime: new(saleFarPast)},
+				SaleEndTime: jstAt(2026, 10, 22, 23, 59), FindTime: new(saleFarPast)},
 			tz: jst, wantTime: jstAt(2026, 10, 22, 8, 0), wantExpiry: jstAt(2026, 10, 22, 23, 59), wantOK: true,
 		},
 		{
 			name: "close at 12:00 fires at the 12:00 anchor the day before", stage: entity.ReminderStageApplyClose24H,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 5, 18, 0),
-				SaleEndTime: jstAt(2026, 10, 22, 12, 0), DiscoveredTime: new(saleFarPast)},
+				SaleEndTime: jstAt(2026, 10, 22, 12, 0), FindTime: new(saleFarPast)},
 			tz: jst, wantTime: jstAt(2026, 10, 21, 12, 0), wantExpiry: jstAt(2026, 10, 22, 12, 0), wantOK: true,
 		},
 
@@ -149,19 +149,19 @@ func TestScheduledFireTime(t *testing.T) {
 		{
 			name: "Milestone already past when the sale was discovered", stage: entity.ReminderStageApplyOpen,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 5, 10, 0),
-				SaleEndTime: jstAt(2026, 10, 12, 23, 59), DiscoveredTime: new(jstAt(2026, 10, 5, 12, 0))},
+				SaleEndTime: jstAt(2026, 10, 12, 23, 59), FindTime: new(jstAt(2026, 10, 5, 12, 0))},
 			tz: jst, wantOK: false,
 		},
 		{
 			name: "first-sight guard: anchor equal to discovery fires", stage: entity.ReminderStageApplyOpen,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodLottery, SaleStartTime: jstAt(2026, 10, 5, 10, 0),
-				SaleEndTime: jstAt(2026, 10, 12, 23, 59), DiscoveredTime: new(jstAt(2026, 10, 5, 10, 0))},
+				SaleEndTime: jstAt(2026, 10, 12, 23, 59), FindTime: new(jstAt(2026, 10, 5, 10, 0))},
 			tz: jst, wantTime: jstAt(2026, 10, 5, 10, 0), wantExpiry: jstAt(2026, 10, 12, 23, 59), wantOK: true,
 		},
 		{
 			name: "first-come sale discovered at 21:00 the evening before a midnight opening still fires", stage: entity.ReminderStageApplyOpen,
 			sale: &entity.TicketSale{Method: entity.TicketSaleMethodFirstCome, SaleStartTime: jstAt(2026, 10, 7, 0, 0),
-				DiscoveredTime: new(jstAt(2026, 10, 6, 21, 3))},
+				FindTime: new(jstAt(2026, 10, 6, 21, 3))},
 			tz: jst, wantTime: jstAt(2026, 10, 6, 21, 0), wantExpiry: jstAt(2026, 10, 7, 0, 0), wantOK: true,
 		},
 
@@ -309,9 +309,9 @@ func TestReminderMessage_LinksToTheTrackedEvent(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: deliverySaleID, SeriesID: "series-1", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.Add(-10 * time.Minute),
-		SaleEndTime:    now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(-10 * time.Minute),
+		SaleEndTime:   now.AddDate(0, 0, 10),
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "user-001", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 	scan := newScanDeps(t, now, sale)
@@ -431,8 +431,8 @@ func TestScanDueReminders_FirstComeAboutToOpen(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-fc", SeriesID: "series-fc", Method: entity.TicketSaleMethodFirstCome,
-		SaleStartTime:  now.Add(20 * time.Minute), // anchor 10 minutes ago
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(20 * time.Minute), // anchor 10 minutes ago
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
@@ -452,8 +452,8 @@ func TestScanDueReminders_FirstComeAlreadyOpen(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-fc", SeriesID: "series-fc", Method: entity.TicketSaleMethodFirstCome,
-		SaleStartTime:  now.Add(-5 * time.Minute), // opened 5 minutes ago
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(-5 * time.Minute), // opened 5 minutes ago
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "ja", TimeZone: noonZone(now)}
 
@@ -474,9 +474,9 @@ func TestScanDueReminders_LotteryOpens(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-lot", SeriesID: "series-lot", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.Add(-10 * time.Minute),
-		SaleEndTime:    now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(-10 * time.Minute),
+		SaleEndTime:   now.AddDate(0, 0, 10),
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
@@ -496,9 +496,9 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-sent", SeriesID: "series-sent", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.Add(-10 * time.Minute),
-		SaleEndTime:    now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(-10 * time.Minute),
+		SaleEndTime:   now.AddDate(0, 0, 10),
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
@@ -521,9 +521,9 @@ func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-expired", SeriesID: "series-expired", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.AddDate(0, 0, -30),
-		SaleEndTime:    now.AddDate(0, 0, -20),
-		DiscoveredTime: new(now.AddDate(0, 0, -60)),
+		SaleStartTime: now.AddDate(0, 0, -30),
+		SaleEndTime:   now.AddDate(0, 0, -20),
+		FindTime:      new(now.AddDate(0, 0, -60)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: "Asia/Tokyo"}
 
@@ -543,9 +543,9 @@ func TestScanDueReminders_FanNoLongerListed(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-rd", SeriesID: "series-rd", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.AddDate(0, 0, -5),
-		SaleEndTime:    now.Add(12 * time.Hour),
-		DiscoveredTime: new(now.AddDate(0, 0, -30)),
+		SaleStartTime: now.AddDate(0, 0, -5),
+		SaleEndTime:   now.Add(12 * time.Hour),
+		FindTime:      new(now.AddDate(0, 0, -30)),
 	}
 
 	d := newScanDeps(t, now, sale)
@@ -567,17 +567,17 @@ func TestScanDueReminders_EvaluatesEachListedSale(t *testing.T) {
 	broken := &entity.TicketSale{
 		ID: "sale-broken", SeriesID: "series-broken", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		FindTime: new(now.AddDate(0, 0, -3)),
 	}
 	inThreeDays := &entity.TicketSale{
 		ID: "sale-3d", SeriesID: "series-3d", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.AddDate(0, 0, 3), SaleEndTime: now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -1)),
+		FindTime: new(now.AddDate(0, 0, -1)),
 	}
 	open := &entity.TicketSale{
 		ID: "sale-open", SeriesID: "series-open", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		FindTime: new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
@@ -703,9 +703,9 @@ func TestScanDueReminders_MilestonePastAtDiscovery(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-late", SeriesID: "series-late", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.Add(-2 * time.Hour),
-		SaleEndTime:    now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.Add(-time.Hour)),
+		SaleStartTime: now.Add(-2 * time.Hour),
+		SaleEndTime:   now.AddDate(0, 0, 10),
+		FindTime:      new(now.Add(-time.Hour)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
@@ -747,9 +747,9 @@ func TestScanDueReminders_SentStagesUnreadable(t *testing.T) {
 	now := reminderNow
 	sale := &entity.TicketSale{
 		ID: "sale-lot", SeriesID: "series-lot", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime:  now.Add(-10 * time.Minute),
-		SaleEndTime:    now.AddDate(0, 0, 10),
-		DiscoveredTime: new(now.AddDate(0, 0, -3)),
+		SaleStartTime: now.Add(-10 * time.Minute),
+		SaleEndTime:   now.AddDate(0, 0, 10),
+		FindTime:      new(now.AddDate(0, 0, -3)),
 	}
 	user := &entity.User{ID: "fan-1", PreferredLanguage: "en", TimeZone: noonZone(now)}
 
