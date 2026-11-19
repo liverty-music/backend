@@ -66,6 +66,20 @@ func TestConcertRepository_Delete(t *testing.T) {
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM events WHERE id = $1`, otherEventID), "other event")
 	})
 
+	t.Run("last event of a discovered series", func(t *testing.T) {
+		// @spec components/entity/series "Discovered series left empty"
+		cleanTables(t, db)
+		venueID := seedVenue(t, db, "Venue Five")
+		artistID := seedArtist(t, db, "Artist Five", uuid.NewV7().String())
+		eventID := seedEvent(t, db, venueID, artistID, "Solo", "2026-08-01")
+		seriesID := seriesOf(t, db, eventID)
+
+		require.NoError(t, repo.Delete(ctx, eventID))
+
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, eventID), "event")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1 AND organizer_id IS NULL`, seriesID), "the discovered series remains with no event")
+	})
+
 	t.Run("an Organizer's sale left naming no event is removed", func(t *testing.T) {
 		cleanTables(t, db)
 		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
