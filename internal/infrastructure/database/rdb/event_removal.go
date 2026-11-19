@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -114,12 +115,18 @@ const (
 		WHERE ts.id = ANY($1::uuid[]) AND ts.discovered_at IS NULL
 		  AND NOT EXISTS (SELECT 1 FROM ticket_sale_events tse WHERE tse.ticket_sale_id = ts.id)
 	`
-	// removeEmptiedFirstPartySeriesQuery removes the first-party Series bound to
-	// $1 that have no event left, with their seat types. A discovered Series
-	// stays.
-	removeEmptiedFirstPartySeriesQuery = `
+	// selectEmptiedSeriesQuery reads the Series bound to $1 that have no event
+	// left, with the Organizer of a first-party one.
+	selectEmptiedSeriesQuery = `
+		SELECT s.id, s.organizer_id FROM series s
+		WHERE s.id = ANY($1::uuid[])
+		  AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
+	`
+	// removeEmptiedSeriesQuery removes the Series bound to $1, with their seat
+	// types, that still have no event.
+	removeEmptiedSeriesQuery = `
 		DELETE FROM series s
-		WHERE s.id = ANY($1::uuid[]) AND s.organizer_id IS NOT NULL
+		WHERE s.id = ANY($1::uuid[])
 		  AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
 	`
 )
@@ -154,8 +161,8 @@ func lockAndCheckEventRemoval(ctx context.Context, tx pgx.Tx, eventIDs []string)
 // entries of the Void and Refunded Orders, those Orders and their card
 // authorizations, then the events (which cascades
 // their TicketStocks, sale events, concerts, performers and ticket journeys),
-// then the Organizer's TicketSales and first-party Series the removal leaves
-// empty.
+// then the Organizer's TicketSales the removal leaves empty and the Series it
+// leaves empty that leave with their last event.
 //
 // The caller runs lockAndCheckEventRemoval first in the same transaction; a
 // live purchase left in place makes a RESTRICT foreign key fail the removal.
@@ -169,7 +176,7 @@ func removeEvents(ctx context.Context, tx pgx.Tx, eventIDs []string) error {
 		return toAppErr(err, "failed to read the events' series")
 	}
 
-	endedOrders := []int16{int16(entity.OrderStatusRefunded), int16(entity.OrderStatusVoid)}
+	endedOrders := ordersLeavingWithEvent()
 	statements := []struct {
 		query string
 		args  []any
@@ -187,12 +194,63 @@ func removeEvents(ctx context.Context, tx pgx.Tx, eventIDs []string) error {
 		{removeEventOrdersQuery, []any{eventIDs, endedOrders}, "orders"},
 		{removeEventsQuery, []any{eventIDs}, "events"},
 		{removeEmptiedTicketSalesQuery, []any{saleIDs}, "ticket sales"},
-		{removeEmptiedFirstPartySeriesQuery, []any{seriesIDs}, "series"},
 	}
 	for _, st := range statements {
 		if _, err := tx.Exec(ctx, st.query, st.args...); err != nil {
 			return toAppErr(err, "failed to remove the events' "+st.what, slog.Int("events", len(eventIDs)))
 		}
+	}
+	return removeEmptiedSeries(ctx, tx, seriesIDs)
+}
+
+// ordersLeavingWithEvent returns the Order statuses, as stored, of the Orders
+// removed together with their Event (entity.OrderStatus.LeavesWithEvent).
+func ordersLeavingWithEvent() []int16 {
+	var statuses []int16
+	for _, s := range entity.OrderStatuses {
+		if s.LeavesWithEvent() {
+			statuses = append(statuses, int16(s))
+		}
+	}
+	return statuses
+}
+
+// removeEmptiedSeries removes, within tx, the Series among seriesIDs that the
+// removal left with no event and that leave with their last event
+// (entity.Series.LeavesWithLastEvent), with their seat types. The delete
+// checks again that each still has no event.
+func removeEmptiedSeries(ctx context.Context, tx pgx.Tx, seriesIDs []string) error {
+	rows, err := tx.Query(ctx, selectEmptiedSeriesQuery, seriesIDs)
+	if err != nil {
+		return toAppErr(err, "failed to read the series the removal emptied")
+	}
+	emptied, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Series, error) {
+		var (
+			s           entity.Series
+			organizerID sql.NullString
+		)
+		if err := row.Scan(&s.ID, &organizerID); err != nil {
+			return nil, err
+		}
+		if organizerID.Valid {
+			s.OrganizerID = &organizerID.String
+		}
+		return &s, nil
+	})
+	if err != nil {
+		return toAppErr(err, "failed to read the series the removal emptied")
+	}
+	var leaving []string
+	for _, s := range emptied {
+		if s.LeavesWithLastEvent() {
+			leaving = append(leaving, s.ID)
+		}
+	}
+	if len(leaving) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, removeEmptiedSeriesQuery, leaving); err != nil {
+		return toAppErr(err, "failed to remove the events' series", slog.Int("series", len(leaving)))
 	}
 	return nil
 }

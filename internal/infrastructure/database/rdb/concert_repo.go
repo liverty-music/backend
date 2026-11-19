@@ -3,7 +3,6 @@ package rdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -262,22 +261,10 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
-	// deleteEventQuery removes a published event by id. Rows referencing the
-	// event are removed by the schema's ON DELETE CASCADE foreign keys.
-	deleteEventQuery = `DELETE FROM events e WHERE e.id = $1 AND ` + catalogEventCondition
-
-	// catalogEventSlotQuery returns a published (not DRAFT) event's slot for
-	// the suppression entry; DeleteAndSuppress reads it after
-	// lockAndCheckEventRemoval.
-	catalogEventSlotQuery = `
-		SELECT e.venue_id, e.local_event_date, e.start_at FROM events e
-		WHERE e.id = $1 AND ` + catalogEventCondition + `
-	`
-
-	insertSuppressionQuery = `
-		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT ON CONSTRAINT uq_suppressed_concerts_natural_key DO NOTHING
+	// catalogEventExistsQuery reports whether the id is a published (not
+	// DRAFT) event; Delete reads it after lockAndCheckEventRemoval.
+	catalogEventExistsQuery = `
+		SELECT EXISTS (SELECT 1 FROM events e WHERE e.id = $1 AND ` + catalogEventCondition + `)
 	`
 
 	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
@@ -767,28 +754,16 @@ func (r *ConcertRepository) listCatalog(ctx context.Context, failure, query stri
 	return concerts, nil
 }
 
-// Delete removes a published event by id, cascading to all referencing rows via
-// the schema's foreign keys. Deleting a non-existent id is a no-op success
-// (idempotent) — a zero affected-row count is not treated as an error.
-func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
-	if _, err := r.db.Pool.Exec(ctx, deleteEventQuery, eventID); err != nil {
-		return toAppErr(err, "failed to delete event", slog.String("event_id", eventID))
-	}
-	return nil
-}
-
-// DeleteAndSuppress deletes a published event with everything that depends
-// only on it (see removeEvents) and records a suppression entry for its slot,
-// in one transaction. The event's purchase records are locked and checked
-// first (lockAndCheckEventRemoval); an id that is gone or DRAFT is then a
-// no-op. ON CONFLICT absorbs a repeated suppression of the same
-// slot.
+// Delete deletes a published event with everything that depends only on it
+// (see removeEvents), in one transaction. The event's purchase records are
+// locked and checked first (lockAndCheckEventRemoval); an id that is gone or
+// DRAFT is then a no-op. Nothing is recorded about the event's slot.
 //
 // # Possible errors
 //
 //   - FailedPrecondition: the event has a Paid Order, a Settlement that is
 //     not Reversed, or a purchase in progress.
-func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
+func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin concert delete transaction", slog.String("event_id", eventID))
@@ -800,27 +775,15 @@ func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID strin
 	if err := lockAndCheckEventRemoval(ctx, tx, eventIDs); err != nil {
 		return err
 	}
-	var (
-		venueID   string
-		localDate time.Time
-		startAt   sql.NullTime
-	)
-	err = tx.QueryRow(ctx, catalogEventSlotQuery, eventID).Scan(&venueID, &localDate, &startAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+	var exists bool
+	if err := tx.QueryRow(ctx, catalogEventExistsQuery, eventID).Scan(&exists); err != nil {
+		return toAppErr(err, "failed to read event", slog.String("event_id", eventID))
 	}
-	if err != nil {
-		return toAppErr(err, "failed to read event slot", slog.String("event_id", eventID))
+	if !exists {
+		return nil
 	}
 	if err := removeEvents(ctx, tx, eventIDs); err != nil {
 		return err
-	}
-	var start *time.Time
-	if startAt.Valid {
-		start = &startAt.Time
-	}
-	if _, err := tx.Exec(ctx, insertSuppressionQuery, entity.NewID(), venueID, localDate, start); err != nil {
-		return toAppErr(err, "failed to record suppression", slog.String("event_id", eventID))
 	}
 
 	if err := tx.Commit(ctx); err != nil {

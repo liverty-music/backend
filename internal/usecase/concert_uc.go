@@ -37,9 +37,8 @@ type ConcertUseCase interface {
 	ListCatalogByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
 	// Delete permanently removes a published concert by its event id with the
-	// records that depend only on it, and suppresses its slot for discovery
-	// (see [entity.ConcertRepository.DeleteAndSuppress] for the exact set). It
-	// is idempotent: deleting an id that no longer exists succeeds.
+	// records that depend only on it (see [entity.ConcertRepository.Delete]
+	// for the exact set); nothing is recorded about its slot. It is idempotent: deleting an id that no longer exists succeeds.
 	//
 	// # Possible errors
 	//
@@ -791,15 +790,15 @@ func (uc *concertUseCase) ListCatalogByArtist(ctx context.Context, artistID stri
 }
 
 // Delete permanently removes a published concert by its event id, with the
-// records that depend only on it, and records a suppression entry for its slot
-// so a later discovery run does not re-create it. An empty id is rejected;
-// deleting an absent id succeeds and records no suppression. A live purchase
-// of the event fails it with the repository's FailedPrecondition, unchanged.
+// records that depend only on it (ConcertRepository.Delete). An empty id is
+// rejected; deleting an absent id succeeds and changes nothing. A live
+// purchase of the event fails it with the repository's FailedPrecondition,
+// unchanged.
 func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
 	if eventID == "" {
 		return apperr.New(codes.InvalidArgument, "event id must not be empty")
 	}
-	if err := uc.concertRepo.DeleteAndSuppress(ctx, eventID); err != nil {
+	if err := uc.concertRepo.Delete(ctx, eventID); err != nil {
 		return fmt.Errorf("delete concert %q: %w", eventID, err)
 	}
 	return nil

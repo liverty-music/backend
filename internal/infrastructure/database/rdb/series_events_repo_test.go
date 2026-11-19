@@ -102,12 +102,6 @@ func (f *authoredFixture) discovered(date time.Time, start *time.Time) (eventID,
 	return eventID, fanID
 }
 
-func (f *authoredFixture) suppress(date time.Time, start *time.Time) {
-	f.t.Helper()
-	f.exec(`INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at) VALUES ($1, $2, $3, $4)`,
-		entity.NewID(), f.venueID, date, start)
-}
-
 func (f *authoredFixture) exec(sql string, args ...any) {
 	f.t.Helper()
 	_, err := f.db.Pool.Exec(f.ctx, sql, args...)
@@ -449,22 +443,6 @@ func TestSeriesRepository_Update(t *testing.T) {
 		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
 	})
 
-	t.Run("take a suppressed new slot", func(t *testing.T) {
-		// @spec components/entity/series/update "Suppressed new slot"
-		f := newAuthoredFixture(t, db)
-		seriesID, ids := f.series(entity.PublishStatePublished)
-		f.suppress(authoredFirstDate, jstAt(authoredFirstDate, 18))
-		s, events := f.edit(seriesID)
-		events[0].StartTime = jstAt(authoredFirstDate, 18)
-
-		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
-
-		_, after := f.edit(seriesID)
-		assert.Equal(t, ids[0], after[0].ID)
-		require.NotNil(t, after[0].StartTime)
-		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
-	})
-
 	t.Run("fail with FAILED_PRECONDITION when an event of another first-party series holds the new slot", func(t *testing.T) {
 		// @spec components/entity/series/update "First-party event at the new slot"
 		f := newAuthoredFixture(t, db)
@@ -631,20 +609,6 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		assert.Equal(t, "UNLISTED", visibility)
 		assert.Equal(t, heldSeriesID, stockSeriesID)
 		assert.Equal(t, heldSeriesID, saleSeriesID)
-	})
-
-	t.Run("publish a draft at a suppressed slot", func(t *testing.T) {
-		// @spec components/entity/series/publish-events "Suppressed slot"
-		f := newAuthoredFixture(t, db)
-		seriesID, ids := f.series(entity.PublishStateDraft)
-		f.suppress(authoredFirstDate, nil)
-
-		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)
-
-		require.NoError(t, err)
-		assert.Equal(t, ids, got)
-		state, _ := f.state(ids[0])
-		assert.Equal(t, "PUBLISHED", state)
 	})
 
 	t.Run("fail with FAILED_PRECONDITION for an event already PUBLISHED", func(t *testing.T) {

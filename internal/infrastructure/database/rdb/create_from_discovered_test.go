@@ -62,7 +62,6 @@ func TestCreateFromDiscovered_ProcessedAgain(t *testing.T) {
 		rdb.NewVenueRepository(db),
 		rdb.NewConcertRepository(db, testOutbox),
 		rdb.NewSeriesRepository(db, testOutbox),
-		rdb.NewSuppressedConcertRepository(db),
 		places, nil, time.Now, logger,
 	)
 	day := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)

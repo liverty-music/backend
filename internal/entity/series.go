@@ -141,6 +141,13 @@ func (s *Series) IsFirstParty() bool {
 	return s.OrganizerID != nil
 }
 
+// LeavesWithLastEvent reports whether the Series is removed together with its
+// Events when a removal of Events leaves it with none: a first-party Series
+// is, a Series found by discovery stays.
+func (s *Series) LeavesWithLastEvent() bool {
+	return s.IsFirstParty()
+}
+
 // IsSearchable reports whether a search for ticket sales covers the Series: a
 // first-party Series is not searched, since it sells only through its
 // Organizer's own TicketSales.
@@ -394,8 +401,7 @@ type SeriesRepository interface {
 	//  - FailedPrecondition: If the series does not exist or is not
 	//    first-party, if a given id is not an event of the series, or if a
 	//    PUBLISHED event's new slot is held by an event of another
-	//    first-party series. Nothing changes. A slot suppressed by an admin
-	//    delete does not block it.
+	//    first-party series. Nothing changes.
 	Update(ctx context.Context, series *Series, events []*Event, performerArtistIDs []string) error
 
 	// GetAuthored retrieves the full authored concert for one series: the
@@ -435,8 +441,7 @@ type SeriesRepository interface {
 	//    series, or a slot is held by an event of another first-party series
 	//    (of another organizer or of the same one) or by a CANCELLED event,
 	//    or a share token is given for a series that is not UNLISTED or
-	//    already has one. Nothing changes. A slot suppressed by an admin
-	//    delete does not block it.
+	//    already has one. Nothing changes.
 	//  - AlreadyExists: If another series holds the given share token.
 	//    Nothing changes.
 	//  - Unavailable: If the announcement cannot be recorded. Nothing

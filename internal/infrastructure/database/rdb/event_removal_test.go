@@ -62,7 +62,7 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 			"%s references an event's records but the fixture has no row in it: add one to seedRemovableEvent and handle it in removeEvents", table)
 	}
 
-	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, e.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).Delete(ctx, e.eventID))
 
 	for _, table := range tables {
 		assert.Zerof(t, count(table), "%s keeps rows of the deleted event", table)
@@ -70,7 +70,6 @@ func TestRemoveEvents_ForeignKeyCatalog(t *testing.T) {
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM card_authorizations WHERE id = $1`, e.resaleCardAuthorizationID),
 		"the card authorization of a removed Order is removed with it")
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, e.eventID), "event")
-	assert.Equal(t, 1, count("suppressed_concerts"), "the slot is suppressed")
 }
 
 // TestRemoveEvents_ConcurrentPurchase covers "a purchase started while the
@@ -150,7 +149,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		require.NoError(t, err)
 
 		deleted := make(chan error, 1)
-		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
+		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).Delete(ctx, o.eventID) }()
 		require.Eventually(t, backendBlocking(t, db, backendPID(t, purchase)), 5*time.Second, 20*time.Millisecond, "the removal waits for the checkout")
 		require.NoError(t, purchase.Commit(ctx))
 
@@ -179,7 +178,7 @@ func TestRemoveEvents_ConcurrentPurchase(t *testing.T) {
 		require.NoError(t, err)
 
 		deleted := make(chan error, 1)
-		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(ctx, o.eventID) }()
+		go func() { deleted <- rdb.NewConcertRepository(db, testOutbox).Delete(ctx, o.eventID) }()
 		require.Eventually(t, backendBlocking(t, db, backendPID(t, issuance)), 5*time.Second, 20*time.Millisecond, "the removal waits for the issuance")
 		_, err = issuance.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_issue', pay_at = now() WHERE id = $1`, orderID)
 		require.NoError(t, err)

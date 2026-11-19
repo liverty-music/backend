@@ -80,6 +80,16 @@ const (
 	OrderStatusVoid OrderStatus = 5
 )
 
+// OrderStatuses lists every persistable OrderStatus.
+var OrderStatuses = []OrderStatus{OrderStatusPaid, OrderStatusRefunded, OrderStatusPending, OrderStatusVoid}
+
+// LeavesWithEvent reports whether an Order in this status is removed together
+// with the Event it admits to: only an ended Order, Void or Refunded. A Pending
+// or Paid Order keeps its Event from being removed.
+func (s OrderStatus) LeavesWithEvent() bool {
+	return s == OrderStatusVoid || s == OrderStatusRefunded
+}
+
 // String returns the lowercase status name.
 func (s OrderStatus) String() string {
 	switch s {
