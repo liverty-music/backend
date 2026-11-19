@@ -7,9 +7,20 @@ name: CI
 # #639 and #641 with failing Lint and Test (#669). Keep exactly one job named
 # `CI Success` in this repository.
 #
-# Path-filtered jobs are skipped, not replaced by placeholder `*-skip` jobs:
-# only `CI Success` is required, and `alls-green` treats the jobs listed in
-# `allowed-skips` as passing when skipped.
+# Lint and Test run on every pull request, with no path filter. A path
+# allow-list has to name every file the checks read, and it did not: the
+# Makefile, scripts/, testdata/ and the templates embedded in the binary were
+# missing, so #852 (Makefile and scripts/test-postgres.sh only) merged with
+# Test skipped and `CI Success` green. The filter saved almost nothing: 1 of the
+# last 80 merged pull requests skipped Test, and that one was #852.
+#
+# Only jobs with a narrow, known set of inputs keep a path filter: Schema Lint,
+# Atlas CI, Vulnerability Check and the vips Series Image Consumer Test.
+# Benchmark runs only in the daily run. Skipped jobs are not replaced by
+# placeholder `*-skip` jobs: only `CI Success` is required, and `alls-green`
+# treats the jobs listed in `allowed-skips` as passing when skipped. The daily
+# run on `main` runs every job, so a file a filter misses is caught within a
+# day.
 #
 # Pull requests are the gate. `main` is not re-checked on every push: from
 # 2026-08-21 to 2026-10-21 those runs found no merge that broke `main`, and
@@ -36,9 +47,7 @@ jobs:
     # Path filters apply to pull requests only. A scheduled or manual run checks
     # the whole of `main`, so every output is true for it.
     outputs:
-      src: ${{ github.event_name != 'pull_request' || steps.filter.outputs.src == 'true' }}
       series_image: ${{ github.event_name != 'pull_request' || steps.filter.outputs.series_image == 'true' }}
-      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
       schema: ${{ github.event_name != 'pull_request' || steps.filter.outputs.schema == 'true' }}
       atlas: ${{ github.event_name != 'pull_request' || steps.filter.outputs.atlas == 'true' }}
       deps: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deps == 'true' }}
@@ -54,12 +63,6 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.github/workflows/ci.yml'
-            src:
-              - '**/*.go'
-              - 'go.mod'
-              - 'go.sum'
-              - 'k8s/atlas/base/migrations/**'
-              - '.github/workflows/**'
             # Only the vips-tagged files: the rest of the package is tested by
             # Test, and the scheduled run tests everything with vips.
             series_image:
@@ -69,13 +72,6 @@ jobs:
               - 'go.sum'
               - 'Dockerfile'
               - '.github/workflows/ci.yml'
-            go:
-              - '**/*.go'
-              - 'go.mod'
-              - 'go.sum'
-              - '.golangci.yml'
-              - 'Makefile'
-              - '.github/workflows/**'
             schema:
               - 'internal/infrastructure/database/rdb/schema/schema.sql'
               - 'scripts/lint-schema.sh'
@@ -89,8 +85,6 @@ jobs:
               - '.github/workflows/**'
 
   lint:
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
     name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -163,8 +157,6 @@ jobs:
         run: make lint-schema
 
   test:
-    needs: changes
-    if: needs.changes.outputs.src == 'true'
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -438,7 +430,7 @@ jobs:
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
         with:
-          allowed-skips: lint, schema-lint, test, vulnerability-check, series-image-consumer-test, benchmark, atlas-ci
+          allowed-skips: schema-lint, vulnerability-check, series-image-consumer-test, benchmark, atlas-ci
           jobs: ${{ toJSON(needs) }}
 
   # Without this a failure on `main` reaches nobody: Benchmark failed on every
