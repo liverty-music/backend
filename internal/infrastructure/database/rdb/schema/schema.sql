@@ -992,7 +992,7 @@ CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_sale_id ON checkouts(ticket_sale
 COMMENT ON INDEX idx_checkouts_ticket_sale_id IS 'Optimizes the ON DELETE RESTRICT check of a sale delete';
 
 -- delete_ticket_stock(UUID) (TicketStock.Delete) is defined by hand-written
--- migrations only, latest 20261105130000_add_resale_entries_and_card_authorizations.sql:
+-- migrations only, latest 20261119090000_delete_ticket_stock_void_orders_only.sql:
 -- Atlas Community cannot read functions from this file, so a function here
 -- would stop `atlas migrate diff` from working without `atlas login`.
 

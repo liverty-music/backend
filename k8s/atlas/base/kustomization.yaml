@@ -153,3 +153,4 @@ configMapGenerator:
   - migrations/20261109025437_add_artist_activity_ended.sql
   - migrations/20261110080127_users_email_unique_ignoring_case.sql
   - migrations/20261119070000_unify_timestamp_naming.sql
+  - migrations/20261119090000_delete_ticket_stock_void_orders_only.sql

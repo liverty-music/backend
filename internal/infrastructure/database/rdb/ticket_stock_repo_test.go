@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -523,5 +524,118 @@ func TestTicketStockRepository_Delete(t *testing.T) {
 		err := repo.Delete(ctx, entity.TicketStockID(entity.NewID()))
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+// TestTicketStockRepository_DeleteByOrderStatus stores one Order of each
+// status for a stock: only a stock whose Orders are all Void is deleted, so a
+// new status cannot silently become removable.
+func TestTicketStockRepository_DeleteByOrderStatus(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewTicketStockRepository(db)
+	ctx := context.Background()
+
+	for _, status := range entity.OrderStatuses {
+		// @spec components/entity/ticket-stock/delete "Stock with a pending order"
+		// @spec components/entity/ticket-stock/delete "Stock with a paid order"
+		t.Run(status.String(), func(t *testing.T) {
+			f := seedStock(t, db, entity.TicketSaleMethodFirstCome, 150, 4)
+			orderID := insertStockOrder(t, db, f, saleFan(t, db), status, 1, true)
+
+			err := repo.Delete(ctx, f.ID)
+
+			if status == entity.OrderStatusVoid {
+				require.NoError(t, err)
+				assert.False(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "stock")
+				assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "void order")
+				return
+			}
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+			assert.True(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "stock")
+			assert.True(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "%s order", status)
+		})
+	}
+}
+
+// TestTicketStockRepository_DeleteConcurrentLotteryEntry runs a lottery
+// entry's Pending Order insert for the stock in a second connection while
+// delete_ticket_stock runs, and checks the invariant of backend#741: either
+// the delete fails with FailedPrecondition and the Order survives, or the
+// insert is refused and no Order that is not Void was removed.
+func TestTicketStockRepository_DeleteConcurrentLotteryEntry(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewTicketStockRepository(db)
+	ctx := context.Background()
+
+	// enter inserts a Pending Order with an Entered lottery entry for the
+	// stock in tx.
+	enter := func(tx pgx.Tx, f *stockFixture, orderID string) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, provider, status, amount, currency)
+			VALUES ($1, $2, $3, 1, 1, $4, $5, 'JPY')`,
+			orderID, saleFan(t, db), string(f.ID), int16(entity.OrderStatusPending), f.Price()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO lottery_entries (id, state, order_id, ticket_sale_id) VALUES ($1, $2, $3, $4)`,
+			entity.NewID(), int16(entity.LotteryEntryStateEntered), orderID, string(f.SaleID))
+		return err
+	}
+
+	t.Run("insert committed before the delete", func(t *testing.T) {
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 4)
+		_, voidOrder := insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.LotteryEntryStateLost, 1)
+		orderID := entity.NewID()
+		tx, err := db.Pool.Begin(ctx)
+		require.NoError(t, err)
+		require.NoError(t, enter(tx, f, orderID))
+		require.NoError(t, tx.Commit(ctx))
+
+		err = repo.Delete(ctx, f.ID)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the delete fails")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "the pending order survives")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, voidOrder), "nothing is removed")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "stock")
+	})
+
+	t.Run("insert started after the delete's lock", func(t *testing.T) {
+		f := seedStock(t, db, entity.TicketSaleMethodLottery, 150, 4)
+		_, voidOrder := insertStockEntry(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.LotteryEntryStateLost, 1)
+		// The delete runs in an open transaction, so it holds the stock row
+		// lock until the insert has started.
+		del, err := db.Pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = del.Rollback(ctx) }()
+		var deleted bool
+		require.NoError(t, del.QueryRow(ctx, `SELECT delete_ticket_stock($1)`, string(f.ID)).Scan(&deleted))
+		require.True(t, deleted)
+		var pid uint32
+		require.NoError(t, del.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid))
+
+		orderID := entity.NewID()
+		inserted := make(chan error, 1)
+		go func() {
+			tx, err := db.Pool.Begin(ctx)
+			if err != nil {
+				inserted <- err
+				return
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			if err := enter(tx, f, orderID); err != nil {
+				inserted <- err
+				return
+			}
+			inserted <- tx.Commit(ctx)
+		}()
+		require.Eventually(t, backendBlocking(t, db, pid), 5*time.Second, 20*time.Millisecond, "the insert waits for the delete")
+		require.NoError(t, del.Commit(ctx))
+
+		err = <-inserted
+		assert.True(t, rdb.IsForeignKeyViolation(err), "the insert is refused: %v", err)
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "no pending order exists")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, voidOrder), "the void order is removed")
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "stock")
 	})
 }
