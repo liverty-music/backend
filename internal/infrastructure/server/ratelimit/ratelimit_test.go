@@ -2,6 +2,7 @@ package ratelimit_test
 
 import (
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,13 +12,58 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeClock is a clock that moves only when the test advances it, so no token
+// refills while a test runs, however slow the machine is.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{now: time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)}
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+// newTestLimiter returns a Limiter on a fake clock that never moves.
 func newTestLimiter() *ratelimit.Limiter {
+	return newTestLimiterWithClock(newFakeClock())
+}
+
+func newTestLimiterWithClock(clock *fakeClock) *ratelimit.Limiter {
 	return ratelimit.NewLimiter(ratelimit.Config{
 		AuthRPS:   10,
 		AuthBurst: 2,
 		AnonRPS:   5,
 		AnonBurst: 1,
-	}, time.Hour) // long eviction interval — tests control timing
+	}, time.Hour, clock.Now) // long eviction interval: no eviction during a test
+}
+
+func TestLimiter_RefillsByItsClock(t *testing.T) {
+	t.Parallel()
+	clock := newFakeClock()
+	l := newTestLimiterWithClock(clock)
+	defer func() { _ = l.Close() }()
+
+	// The anon burst is 1 at 5 requests per second.
+	require.True(t, l.Allow("ip:203.0.113.1", false))
+	require.False(t, l.Allow("ip:203.0.113.1", false), "the burst is used")
+
+	clock.Advance(199 * time.Millisecond)
+	assert.False(t, l.Allow("ip:203.0.113.1", false), "no token before 200ms")
+
+	clock.Advance(time.Millisecond)
+	assert.True(t, l.Allow("ip:203.0.113.1", false), "one token after 200ms")
 }
 
 func TestLimiter_Allow(t *testing.T) {

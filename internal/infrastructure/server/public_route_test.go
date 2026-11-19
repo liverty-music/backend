@@ -44,7 +44,7 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{
 		AuthRPS: 0.001, AuthBurst: 1,
 		AnonRPS: 0.001, AnonBurst: 1,
-	}, time.Minute)
+	}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 
 	listTop := "/" + artistv1connect.ArtistServiceName + "/ListTop"

@@ -42,7 +42,7 @@ func newChainTestServer(t *testing.T, handlerErr func() error) *httptest.Server 
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), map[string]bool{chainPublicProcedure: true})

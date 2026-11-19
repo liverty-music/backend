@@ -66,7 +66,7 @@ func newTestAdminOrderServer(t *testing.T, orderUC usecase.OrderUseCase, refundU
 	validator.EXPECT().ValidateToken(mock.Anything, adminViewerToken).
 		Return(&authctx.Claims{Sub: "regular-user", Roles: []string{"viewer"}}, nil).Maybe()
 
-	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{
