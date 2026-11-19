@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
@@ -25,7 +24,7 @@ const (
 )
 
 // Refund implements [OrderUseCase].
-func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error) {
+func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason) (*entity.Order, error) {
 	if reason == RefundReasonUnspecified {
 		return nil, apperr.New(codes.InvalidArgument, "refund reason must be specified")
 	}
@@ -103,7 +102,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		Reason:           reason,
 		Amount:           refundAmount,
 		ProviderRefundID: providerRefundID,
-		RefundTime:       now,
+		RefundTime:       uc.clock(),
 		SettlementID:     settleID,
 		ReversedSplits:   reversedSplits,
 	})

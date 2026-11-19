@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	stripe "github.com/stripe/stripe-go/v87"
 	stripewh "github.com/stripe/stripe-go/v87/webhook"
@@ -128,7 +127,6 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		Type:              usecase.StripeEventType(event.Type),
 		ProviderChargeID:  providerChargeID,
 		ProviderPaymentID: providerPaymentID,
-		ReceiveTime:       time.Now().UTC(),
 	}
 
 	dispatchErr := h.webhookSvc.HandleEvent(ctx, parsed)

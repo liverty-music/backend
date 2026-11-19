@@ -96,7 +96,7 @@ type OrderUseCase interface {
 	//  - InvalidArgument: the reason is UNSPECIFIED.
 	//  - Internal: database or payment provider failure, or the Paid Order
 	//    has no Settlement (nothing is refunded).
-	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
+	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason) (*entity.Order, error)
 
 	// Issue is the issue workflow of one Order's source ([WorkflowIssue],
 	// named [IssueWorkflowID] after the Order): a Won lottery entry, or a

@@ -9,14 +9,18 @@ import (
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/pkg/authctx"
+	apperrconnect "github.com/pannpers/go-apperr/apperr/connectv2"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
 // callThroughAdminPipeline runs one unary handler method behind the same
-// interceptors as the admin server (internal/di/provider.go): the server-wide
-// RequireRoleInterceptor for the admin role, then the protovalidate
-// interceptor. It lets a handler test cover the role and boundary checks the
+// interceptors as the admin server (internal/di/provider.go and
+// internal/infrastructure/server/connect.go): the apperr error-handling
+// interceptor that turns an apperr code into its Connect code, the
+// server-wide RequireRoleInterceptor for the admin role, then the
+// protovalidate interceptor. It lets a handler test cover the role and boundary checks the
 // admin adapter specs state without starting a server.
 func callThroughAdminPipeline[Req, Res any](
 	t *testing.T,
@@ -36,7 +40,10 @@ func callThroughAdminPipeline[Req, Res any](
 		}
 		return stream.Send(resp)
 	})
-	chain := auth.NewRequireRoleInterceptor("admin")(validate.NewServerInterceptor()(handler))
+	logger, err := logging.New()
+	require.NoError(t, err)
+	chain := apperrconnect.NewErrorHandlingInterceptor(logger)(
+		auth.NewRequireRoleInterceptor("admin")(validate.NewServerInterceptor()(handler)))
 	reqMsg, ok := any(req).(proto.Message)
 	require.True(t, ok, "request type %T is not a proto message", req)
 	stream := &unaryTestStream{req: reqMsg}

@@ -3,7 +3,6 @@ package usecase_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -77,7 +76,7 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 	f.firstDelivery("evt_dup_001")
 	f.processed.EXPECT().IsProcessed(mock.Anything, "evt_dup_001").Return(true, nil).Once()
 	f.paidOrderOf(providerPaymentID, orderID)
-	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute).
 		Return(&entity.Order{Status: entity.OrderStatusRefunded}, nil).Once()
 
 	event := usecase.StripeWebhookEvent{
@@ -85,7 +84,6 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_dup",
 		ProviderPaymentID: providerPaymentID, // real production path: pi_ used to resolve Order
-		ReceiveTime:       time.Now(),
 	}
 
 	// First delivery — should process and mark.
@@ -124,7 +122,7 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 	// The order repo is the real resolution path: pi_ → Order.
 	f.paidOrderOf(providerPaymentID, orderID)
 	// RefundOrder must be called with the resolved OrderID, for a dispute.
-	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute).
 		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil).Once()
 
 	require.NoError(t, f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
@@ -132,7 +130,6 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  providerChargeID,
 		ProviderPaymentID: providerPaymentID,
-		ReceiveTime:       time.Now(),
 	}))
 }
 
@@ -154,7 +151,6 @@ func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) 
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_no_pi",
 		ProviderPaymentID: "", // missing
-		ReceiveTime:       time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -179,7 +175,6 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_notfound",
 		ProviderPaymentID: "pi_notfound",
-		ReceiveTime:       time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -200,8 +195,8 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil)
 	var got *entity.Order
 	// RefundOrder is idempotent: an already refunded Order comes back as is.
-	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
-		RunAndReturn(func(_ context.Context, id entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute).
+		RunAndReturn(func(_ context.Context, id entity.OrderID, _ usecase.RefundReason) (*entity.Order, error) {
 			got = &entity.Order{ID: id, Status: entity.OrderStatusRefunded}
 			return got, nil
 		}).Once()
@@ -211,7 +206,6 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_after_refund",
 		ProviderPaymentID: "pi_after_refund",
-		ReceiveTime:       time.Now(),
 	})
 
 	require.NoError(t, err, "the notice is acknowledged")
@@ -236,7 +230,6 @@ func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 		ProviderEventID:  "evt_charge_refunded_001",
 		Type:             usecase.StripeEventChargeRefunded,
 		ProviderChargeID: "ch_refunded",
-		ReceiveTime:      time.Now(),
 	})
 	require.NoError(t, err)
 	f.refunds.AssertNotCalled(t, "Refund", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -257,7 +250,6 @@ func TestStripeWebhook_UnknownEventType_AcceptedWithNoError(t *testing.T) {
 	err := f.svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID: "evt_unknown_001",
 		Type:            usecase.StripeEventType("customer.created"),
-		ReceiveTime:     time.Now(),
 	})
 	require.NoError(t, err, "unknown event types must be accepted without error")
 }
@@ -279,7 +271,6 @@ func TestStripeWebhook_IsProcessedDBError_Propagated(t *testing.T) {
 		ProviderEventID:   "evt_db_err",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderPaymentID: "pi_db_err",
-		ReceiveTime:       time.Now(),
 	})
 	require.Error(t, err, "DB error from IsProcessed must be propagated so Stripe retries")
 	f.processed.AssertNotCalled(t, "MarkProcessed", mock.Anything, mock.Anything)
@@ -301,7 +292,7 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 
 	f := newWebhookFixture(t)
 	f.paidOrderOf(providerPaymentID, orderID)
-	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute, mock.Anything).
+	f.refunds.EXPECT().Refund(mock.Anything, orderID, usecase.RefundReasonDispute).
 		Return(&entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil).Once()
 	f.processed.EXPECT().IsProcessed(mock.Anything, "evt_mark_fail").Return(false, nil).Once()
 	// Simulate a transient DB failure when recording the processed event.
@@ -313,7 +304,6 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_mark_fail",
 		ProviderPaymentID: providerPaymentID,
-		ReceiveTime:       time.Now(),
 	})
 	// Fix #4: error must propagate so handler returns 500 → Stripe retries.
 	require.Error(t, err, "MarkProcessed failure must propagate so Stripe retries")
@@ -325,7 +315,6 @@ func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 		ProviderEventID:   "evt_pi_1",
 		Type:              usecase.StripeEventPaymentIntentSucceeded,
 		ProviderPaymentID: "pi_1",
-		ReceiveTime:       time.Now(),
 	}
 
 	t.Run("completed charge", func(t *testing.T) {

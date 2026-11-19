@@ -595,7 +595,6 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 			ProviderEventID:   "evt_" + uuid.NewV7().String(),
 			Type:              usecase.StripeEventPaymentIntentSucceeded,
 			ProviderPaymentID: fakeProviderPrefix + e.Order.CardAuthorizationID,
-			ReceiveTime:       s.now,
 		}))
 	}
 	for _, paid := range s.takePaid() {

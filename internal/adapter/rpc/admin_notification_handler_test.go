@@ -111,11 +111,9 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/notification "No concerts"
 		h := newAdminNotificationHandler(t, ucmocks.NewMockNotificationUseCase(t), devConfig())
 
-		_, viaPipeline := callThroughAdminPipeline(t, adminCtx(), notifyRequest(0), h.NotifyNewConcerts)
-		_, direct := h.NotifyNewConcerts(adminCtx(), notifyRequest(0))
+		_, err := callThroughAdminPipeline(t, adminCtx(), notifyRequest(0), h.NotifyNewConcerts)
 
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(viaPipeline))
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(direct))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
 	t.Run("too many concerts", func(t *testing.T) {
@@ -149,7 +147,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 			t.Parallel()
 			h := newAdminNotificationHandler(t, ucmocks.NewMockNotificationUseCase(t), devConfig())
 
-			_, err := h.NotifyNewConcerts(adminCtx(), tt.req)
+			_, err := callThroughAdminPipeline(t, adminCtx(), tt.req, h.NotifyNewConcerts)
 
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})

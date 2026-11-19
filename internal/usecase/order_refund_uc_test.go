@@ -29,7 +29,9 @@ type refundFixture struct {
 	settlements *entitymocks.MockSettlementRepository
 	events      *entitymocks.MockEventRepository
 	tickets     *entitymocks.MockTicketRepository
-	uc          usecase.OrderUseCase
+	// now is the time the use case's clock reads.
+	now time.Time
+	uc  usecase.OrderUseCase
 }
 
 func newRefundFixture(t *testing.T) *refundFixture {
@@ -40,8 +42,10 @@ func newRefundFixture(t *testing.T) *refundFixture {
 		settlements: entitymocks.NewMockSettlementRepository(t),
 		events:      entitymocks.NewMockEventRepository(t),
 		tickets:     entitymocks.NewMockTicketRepository(t),
+		now:         time.Date(2026, 10, 1, 12, 30, 0, 0, time.UTC),
 	}
 	f.uc = usecase.NewOrderUseCase(usecase.OrderDeps{
+		Clock:          func() time.Time { return f.now },
 		EventRepo:      f.events,
 		TicketRepo:     f.tickets,
 		OrderRepo:      f.orders,
@@ -195,7 +199,7 @@ func TestOrderUseCase_Refund_Cancellation_HappyPath(t *testing.T) {
 	// correct SettlementID and that the reversed split's trr_ ref is passed.
 	commit := f.commits(order)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 
@@ -222,7 +226,7 @@ func TestOrderUseCase_Refund_SettlementUnreadable(t *testing.T) {
 	// No CreateRefund or CommitRefund is expected: no money moves and nothing
 	// is recorded.
 
-	_, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute, now)
+	_, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute)
 
 	assert.ErrorIs(t, err, apperr.ErrInternal)
 	assert.Equal(t, entity.OrderStatusPaid, order.Status, "the Order stays Paid")
@@ -237,7 +241,6 @@ func TestOrderUseCase_Refund_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 	// @spec components/usecase/order/refund "Repeated refund"
 
 	ctx := context.Background()
-	now := time.Now()
 
 	const orderID = entity.OrderID("order-already-refunded")
 
@@ -254,7 +257,7 @@ func TestOrderUseCase_Refund_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 	f := newRefundFixture(t)
 	f.reads(alreadyRefunded)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	f.orders.AssertNotCalled(t, "CreateRefund", mock.Anything, mock.Anything)
@@ -268,7 +271,6 @@ func TestOrderUseCase_Refund_NotRefundable_PendingOrder(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	now := time.Now()
 
 	const orderID = entity.OrderID("order-pending")
 
@@ -285,7 +287,7 @@ func TestOrderUseCase_Refund_NotRefundable_PendingOrder(t *testing.T) {
 	f := newRefundFixture(t)
 	f.reads(pendingOrder)
 
-	_, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	_, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "expected FailedPrecondition for a non-Paid order")
 }
@@ -329,7 +331,7 @@ func TestOrderUseCase_Refund_Dispute_AfterPayout(t *testing.T) {
 	}).Return("trr_dispute", nil).Once()
 	commit := f.commits(order)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonDispute, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonDispute)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	// CommitRefund commits atomically, with the reversal.
@@ -357,7 +359,7 @@ func TestOrderUseCase_Refund_EventState(t *testing.T) {
 		f.eventIn(orderID, entity.PublishStatePublished)
 		// No CreateRefund or CommitRefund is expected: no refund and no commit.
 
-		_, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonCancellation, now)
+		_, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonCancellation)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -371,7 +373,7 @@ func TestOrderUseCase_Refund_EventState(t *testing.T) {
 		f.heldSettlement(orderID)
 		f.commits(order)
 
-		got, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute, now)
+		got, err := f.uc.Refund(context.Background(), orderID, usecase.RefundReasonDispute)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
@@ -388,11 +390,10 @@ func TestOrderUseCase_Refund_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	// @spec components/usecase/order/refund "Reason missing"
 
 	ctx := context.Background()
-	now := time.Now()
 
 	f := newRefundFixture(t)
 
-	_, err := f.uc.Refund(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
+	_, err := f.uc.Refund(ctx, "order-unspec", usecase.RefundReasonUnspecified)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument, "expected InvalidArgument for unspecified reason")
 }
@@ -411,7 +412,7 @@ func TestOrderUseCase_Refund_OrderNotFound(t *testing.T) {
 	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-missing")).
 		Return(nil, apperr.New(apperr.ErrNotFound.Code, "order not found")).Once()
 
-	_, err := f.uc.Refund(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
+	_, err := f.uc.Refund(ctx, "order-missing", usecase.RefundReasonCancellation)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "expected NotFound")
 }
@@ -453,7 +454,7 @@ func TestOrderUseCase_Refund_HeldSettlement_NoReversal_ButCommitCalled(t *testin
 	f.orders.EXPECT().CreateRefund(mock.Anything, mock.Anything).Return("re_held", nil).Once()
 	commit := f.commits(order)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	// No transfers to reverse (Held = not yet paid out).
@@ -488,7 +489,7 @@ func TestOrderUseCase_Refund_NonStripeProvider_FailedPrecondition(t *testing.T) 
 	f.reads(komojuOrder)
 	f.cancelledEvent(komojuOrder.ID)
 
-	_, err := f.uc.Refund(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
+	_, err := f.uc.Refund(ctx, "order-komoju", usecase.RefundReasonCancellation)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
 		"non-Stripe provider must return FailedPrecondition (no Stripe refund path)")
@@ -517,7 +518,7 @@ func TestOrderUseCase_Refund_EmptyProviderPaymentID_FailedPrecondition(t *testin
 	f.reads(badOrder)
 	f.cancelledEvent(badOrder.ID)
 
-	_, err := f.uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
+	_, err := f.uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
 		"empty ProviderPaymentID must return FailedPrecondition")
@@ -555,7 +556,7 @@ func TestOrderUseCase_Refund_ConcurrentRefund_IdempotentViaCommitFailedPrecondit
 	// post-refund state.
 	f.reads(refundedOrder)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 	require.NoError(t, err)
 	// Returns the current (post-concurrent-refund) state.
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
@@ -585,7 +586,7 @@ func TestOrderUseCase_Refund_CommitRefusedForOrderNotRefunded(t *testing.T) {
 	// commit.
 	f.reads(order)
 
-	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	assert.Nil(t, result)
@@ -619,7 +620,7 @@ func TestOrderUseCase_Refund_AfterResale(t *testing.T) {
 			Return("re_half", nil).Once()
 		commit := f.commits(order)
 
-		got, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
@@ -644,7 +645,7 @@ func TestOrderUseCase_Refund_AfterResale(t *testing.T) {
 		// settlement given up by resales.
 		commit := f.commits(order)
 
-		got, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, orderID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
@@ -681,7 +682,7 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 		cancellable(f, order, 2, 0)
 		commit := f.commits(order)
 
-		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
@@ -698,13 +699,13 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 		cancellable(f, order, 1, 1)
 		commit := f.commits(order)
 
-		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.RefundReasonCancellation, commit.Reason)
 		assert.Equal(t, int64(3000), commit.Amount)
 		assert.Equal(t, "re_rec", commit.ProviderRefundID)
-		assert.True(t, now.Equal(commit.RefundTime))
+		assert.True(t, f.now.Equal(commit.RefundTime), "the refund takes the use case's clock")
 		require.NotNil(t, got.Refund)
 		assert.Equal(t, int64(3000), got.Refund.Amount)
 	})
@@ -719,7 +720,7 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 		// No CreateRefund is expected: a dispute issues no refund.
 		commit := f.commits(order)
 
-		_, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonDispute, now)
+		_, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonDispute)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.RefundReasonDispute, commit.Reason)
@@ -740,7 +741,7 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 			Return(apperr.New(codes.FailedPrecondition, "settlement is already reversed")).Once()
 		f.reads(&stored)
 
-		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, &stored, got)
@@ -763,7 +764,7 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 		f.refunds.EXPECT().CommitRefund(mock.Anything, mock.Anything).Return(nil).Once()
 		f.reads(&stored)
 
-		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		got, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		assert.Equal(t, stored.Refund, got.Refund, "the refund stored by the first call, not this call's")
@@ -792,9 +793,9 @@ func TestOrderUseCase_Refund_RecordsTheRefund(t *testing.T) {
 		f.refunds.EXPECT().CommitRefund(mock.Anything, mock.Anything).Return(apperr.New(codes.Internal, "database unavailable")).Once()
 		commit := f.commits(order)
 
-		_, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		_, err := f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 		require.Error(t, err)
-		_, err = f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation, now)
+		_, err = f.uc.Refund(ctx, order.ID, usecase.RefundReasonCancellation)
 
 		require.NoError(t, err)
 		require.Len(t, refundRequests, 2)
