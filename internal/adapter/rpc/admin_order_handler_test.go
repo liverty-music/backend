@@ -60,13 +60,14 @@ func TestAdminOrderHandler_Refund(t *testing.T) {
 		uc := &refundUCStub{fn: func(id entity.OrderID) (*entity.Order, error) {
 			return &entity.Order{ID: id, Status: entity.OrderStatusRefunded, Currency: "JPY"}, nil
 		}}
-		resp, err := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc).Refund(context.Background(), &adminorderv1.RefundRequest{
-			OrderId: &entityv1.OrderId{Value: "order-1"},
+		h := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc)
+		resp, err := callThroughAdminPipeline(t, adminCtx(), &adminorderv1.RefundRequest{
+			OrderId: &entityv1.OrderId{Value: refundTestOrderID},
 			Reason:  adminorderv1.RefundReason_REFUND_REASON_CANCELLATION,
-		})
+		}, h.Refund)
 		require.NoError(t, err)
 		assert.Equal(t, usecase.RefundReasonCancellation, uc.reason)
-		assert.Equal(t, "order-1", resp.Order.Id.Value)
+		assert.Equal(t, refundTestOrderID, resp.Order.Id.Value)
 		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_REFUNDED, resp.Order.Status)
 	})
 
