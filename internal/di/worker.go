@@ -226,7 +226,6 @@ func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg
 		rdb.NewVenueRepository(db),
 		rdb.NewConcertRepository(db, outbox),
 		rdb.NewSeriesRepository(db, outbox),
-		rdb.NewSuppressedConcertRepository(db),
 		placeSearcher,
 		analyticsClient, time.Now,
 		logger,

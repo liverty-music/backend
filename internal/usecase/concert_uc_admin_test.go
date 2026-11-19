@@ -83,17 +83,19 @@ func TestConcertUseCase_AdminDelete(t *testing.T) {
 	tests := []struct {
 		name    string
 		eventID string
-		// repoErr is what DeleteAndSuppress returns for a non-empty eventID.
+		// repoErr is what ConcertRepository.Delete returns for a non-empty eventID.
 		repoErr error
 		wantErr error
 	}{
 		{
-			// @spec components/usecase/concert/delete "Auto-published concert deleted"
-			name: "delete and suppress a discovered concert", eventID: "event-discovered",
+			// Only ConcertRepository.Delete is called: nothing records the
+			// Concert's Venue, date or start time.
+			// @spec components/usecase/concert/delete "Concert deleted"
+			name: "delete a concert of a test artist", eventID: "event-test-artist",
 		},
 		{
 			// @spec components/usecase/concert/delete "Cancelled concert after refunds"
-			name: "delete and suppress a cancelled organizer concert after refunds", eventID: "event-cancelled",
+			name: "delete a cancelled organizer concert after refunds", eventID: "event-cancelled",
 		},
 		{
 			// @spec components/usecase/concert/delete "Unknown id"
@@ -117,7 +119,7 @@ func TestConcertUseCase_AdminDelete(t *testing.T) {
 			t.Parallel()
 			d := newConcertTestDeps(t)
 			if tt.eventID != "" {
-				d.concertRepo.EXPECT().DeleteAndSuppress(mock.Anything, tt.eventID).Return(tt.repoErr).Once()
+				d.concertRepo.EXPECT().Delete(mock.Anything, tt.eventID).Return(tt.repoErr).Once()
 			}
 
 			err := d.uc.Delete(context.Background(), tt.eventID)

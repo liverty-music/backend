@@ -212,8 +212,7 @@ func setPerformers(ctx context.Context, tx pgx.Tx, eventID string, performerIDs 
 }
 
 // checkSlot returns the event that holds the slot, or nil when the slot is
-// free. exceptID is the event being placed, which never holds its own slot. A
-// suppressed slot does not matter here: suppression keeps only discovery away.
+// free. exceptID is the event being placed, which never holds its own slot.
 func checkSlot(ctx context.Context, tx pgx.Tx, e *entity.Event, exceptID string) (*entity.SlotHolder, error) {
 	var (
 		h           entity.SlotHolder

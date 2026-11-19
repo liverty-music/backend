@@ -299,7 +299,7 @@ func TestCancelledConcertStory_DeletedRightAfterTheRefunds(t *testing.T) {
 	s.cancel()
 	s.refundAll()
 
-	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).Delete(s.ctx, s.eventID))
 
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
 	for i := range s.fans {
@@ -326,7 +326,7 @@ func TestCancelledConcertStory_DeletedDuringTheWindow(t *testing.T) {
 	s.cancel(s.eventID)
 	require.Equal(t, entity.LotteryEntryStateLost, s.ownEntry(sale, fan, entry.ID).State, "the entry has ended")
 
-	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).DeleteAndSuppress(s.ctx, s.eventID))
+	require.NoError(t, rdb.NewConcertRepository(db, testOutbox).Delete(s.ctx, s.eventID))
 
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, s.eventID), "the Event no longer exists")
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1`, s.seriesID), "the Series no longer exists")

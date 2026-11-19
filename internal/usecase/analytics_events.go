@@ -129,8 +129,7 @@ const (
 	// EventConcertIngestCompleted is recorded once per CreateFromDiscovered
 	// batch, a failed one included with what it had done before failing.
 	// Properties: artist_id, outcome ("completed" or "failed"),
-	// published_count, staged_count, filled_count, suppressed_count,
-	// conflict_count.
+	// published_count, staged_count, filled_count, conflict_count.
 	EventConcertIngestCompleted AnalyticsEventName = "concert.ingest.completed"
 
 	// EventTicketSaleSearchCompleted is recorded once per DiscoverForArtist

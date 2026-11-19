@@ -58,13 +58,12 @@ type ingestSignal struct {
 // helpers record what the usecase passes to the mocks, so a test can assert on
 // what was stored; a call no test expects fails the test.
 type creationHarness struct {
-	uc         usecase.ConcertCreationUseCase
-	candidate  *entitymocks.MockConcertCandidateRepository
-	venue      *entitymocks.MockVenueRepository
-	concert    *entitymocks.MockConcertRepository
-	series     *entitymocks.MockSeriesRepository
-	suppressed *entitymocks.MockSuppressedConcertRepository
-	place      *entitymocks.MockVenuePlaceSearcher
+	uc        usecase.ConcertCreationUseCase
+	candidate *entitymocks.MockConcertCandidateRepository
+	venue     *entitymocks.MockVenueRepository
+	concert   *entitymocks.MockConcertRepository
+	series    *entitymocks.MockSeriesRepository
+	place     *entitymocks.MockVenuePlaceSearcher
 
 	createdSeries   []*entity.Series
 	createdVenues   []*entity.Venue
@@ -78,12 +77,11 @@ type creationHarness struct {
 func newCreationHarness(t *testing.T) *creationHarness {
 	t.Helper()
 	h := &creationHarness{
-		candidate:  entitymocks.NewMockConcertCandidateRepository(t),
-		venue:      entitymocks.NewMockVenueRepository(t),
-		concert:    entitymocks.NewMockConcertRepository(t),
-		series:     entitymocks.NewMockSeriesRepository(t),
-		suppressed: entitymocks.NewMockSuppressedConcertRepository(t),
-		place:      entitymocks.NewMockVenuePlaceSearcher(t),
+		candidate: entitymocks.NewMockConcertCandidateRepository(t),
+		venue:     entitymocks.NewMockVenueRepository(t),
+		concert:   entitymocks.NewMockConcertRepository(t),
+		series:    entitymocks.NewMockSeriesRepository(t),
+		place:     entitymocks.NewMockVenuePlaceSearcher(t),
 	}
 	analytics := ucmocks.NewMockAnalyticsClient(t)
 	analytics.EXPECT().Capture(mock.Anything, mock.Anything).
@@ -92,7 +90,7 @@ func newCreationHarness(t *testing.T) *creationHarness {
 			return nil
 		}).Maybe()
 	h.uc = usecase.NewConcertCreationUseCase(
-		h.candidate, h.venue, h.concert, h.series, h.suppressed,
+		h.candidate, h.venue, h.concert, h.series,
 		h.place, analytics, time.Now, newTestLogger(t),
 	)
 	return h
@@ -163,12 +161,6 @@ func (h *creationHarness) storedVenue(placeID, venueID string) {
 	h.venue.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(&entity.Venue{ID: venueID, GooglePlaceID: &placeID}, nil).Once()
 }
 
-// notSuppressed expects n events to be checked against the suppression set
-// and found absent.
-func (h *creationHarness) notSuppressed(n int) {
-	h.suppressed.EXPECT().Exists(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Times(n)
-}
-
 // slotsFree expects n events to find no stored Event at their venue and date.
 func (h *creationHarness) slotsFree(n int) {
 	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Times(n)
@@ -224,7 +216,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.createsSeries(1)
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"})
 		h.createsVenue("place-x", "Venue X")
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -264,7 +255,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		// "Venue Unknown" has no place: staged for review.
 		h.cannotResolvePlace("Venue Unknown")
-		h.notSuppressed(3)
 		h.slotsFree(3)
 		h.stages(1)
 		h.publishes(3)
@@ -292,13 +282,12 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.Len(t, h.staged, 1)
 		props, traces := h.ingestReports()
 		assert.Equal(t, []usecase.AnalyticsProperties{{
-			"artist_id":        "artist-1",
-			"outcome":          "completed",
-			"published_count":  3,
-			"staged_count":     1,
-			"filled_count":     0,
-			"suppressed_count": 0,
-			"conflict_count":   0,
+			"artist_id":       "artist-1",
+			"outcome":         "completed",
+			"published_count": 3,
+			"staged_count":    1,
+			"filled_count":    0,
+			"conflict_count":  0,
 		}}, props)
 		assert.Equal(t, []string{span.SpanContext().TraceID().String()}, traces)
 	})
@@ -319,7 +308,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
 			h.createsVenue("place-"+v, v)
 		}
-		h.notSuppressed(2)
 		h.slotsFree(2)
 		h.publishes(2)
 		data := entity.ConcertDiscoveredData{
@@ -347,13 +335,12 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.Len(t, h.createdConcerts, 2)
 		props, _ := h.ingestReports()
 		assert.Equal(t, []usecase.AnalyticsProperties{{
-			"artist_id":        "artist-1",
-			"outcome":          "failed",
-			"published_count":  2,
-			"staged_count":     0,
-			"filled_count":     0,
-			"suppressed_count": 0,
-			"conflict_count":   0,
+			"artist_id":       "artist-1",
+			"outcome":         "failed",
+			"published_count": 2,
+			"staged_count":    0,
+			"filled_count":    0,
+			"conflict_count":  0,
 		}}, props)
 	})
 
@@ -366,7 +353,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		// The place resolves to the stored venue-1, so no venue is created.
 		h.storedVenue("place-x", "venue-1")
-		h.notSuppressed(1)
 		// An existing published event at the resolved (venue, date, start) → conflict.
 		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime})
 		h.stages(1)
@@ -403,7 +389,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.createsSeries(1)
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		h.storedVenue("place-x", "venue-1")
-		h.notSuppressed(1)
 		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime})
 		h.stages(1)
 		h.sweepsOrphans()
@@ -428,7 +413,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.createsSeries(1)
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		h.storedVenue("place-x", "venue-1")
-		h.notSuppressed(1)
 		// Another artist's Event at the Venue and date, with no start time; the
 		// discovering Artist has no Event there, so nothing is filled (no
 		// FillEventStartTimes is expected).
@@ -479,15 +463,17 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		assert.Nil(t, h.staged[0].ResolvedPlaceID)
 	})
 
-	t.Run("skips a suppressed concert entirely (no publish, no stage)", func(t *testing.T) {
+	t.Run("publishes an event at a slot where a Concert was deleted", func(t *testing.T) {
 		t.Parallel()
-		// @spec stories/delete-a-wrong-concert "Discovery finds it again"
 		h := newCreationHarness(t)
 		h.findsNoArtistEvents(1)
 		h.createsSeries(1)
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		h.storedVenue("place-x", "venue-1")
-		h.suppressed.EXPECT().Exists(mock.Anything, "venue-1", localDate, &startTime).Return(true, nil).Once()
+		// An admin deleted the Concert that held this slot: no Event is left
+		// there, and nothing else records the delete.
+		h.slotHolds("venue-1", localDate)
+		h.publishes(1)
 		h.sweepsOrphans()
 
 		data := entity.ConcertDiscoveredData{
@@ -503,10 +489,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 				},
 			},
 		}
-
-		// Neither Upsert nor Concert.Create is expected: a suppressed concert is
-		// neither staged nor auto-published.
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		assert.Len(t, h.createdConcerts, 1, "the event is published")
+		assert.Empty(t, h.staged, "nothing is staged")
 	})
 
 	t.Run("known-start fill is routed to the publish path, not staged", func(t *testing.T) {
@@ -541,39 +527,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 	})
 
-	t.Run("a slot no longer suppressed is auto-published on re-discovery", func(t *testing.T) {
-		t.Parallel()
-		h := newCreationHarness(t)
-		h.findsNoArtistEvents(1)
-		h.createsSeries(1)
-		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
-		h.storedVenue("place-x", "venue-1")
-		// An admin removed the suppression entry (the deliberate un-suppress
-		// path), so the suppression set no longer holds the slot.
-		h.suppressed.EXPECT().Exists(mock.Anything, "venue-1", localDate, &startTime).Return(false, nil).Once()
-		h.slotHolds("venue-1", localDate)
-		h.publishes(1)
-		h.sweepsOrphans()
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID: "artist-6",
-			Series: []*entity.DiscoveredSeries{
-				{
-					Title:     "Concert A",
-					Type:      entity.SeriesTypeSingle,
-					SourceURL: "https://example.com/a",
-					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
-					},
-				},
-			},
-		}
-		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
-
-		// No longer suppressed → auto-published again.
-		assert.Len(t, h.createdConcerts, 1)
-	})
-
 	t.Run("skips a concert with empty venue name without poisoning the batch", func(t *testing.T) {
 		t.Parallel()
 		h := newCreationHarness(t)
@@ -581,7 +534,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.createsSeries(1)
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		h.createsVenue("place-x", "Venue X")
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -617,7 +569,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// Google Places is never asked for "TBA" (no SearchPlace expectation).
 		h.resolvesPlace("Venue X", &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"})
 		h.createsVenue("place-x", "Venue X")
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -674,7 +625,6 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		// Only the new date is created; no Series is (a Series.Create would fail the mock).
 		h.resolvesPlace(venueB, &entity.VenuePlace{ProviderUserID: "place-b", Name: venueB})
 		h.createsVenue("place-b", venueB)
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -698,7 +648,6 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		h.createsSeries(1)
 		h.resolvesPlace(venueA, &entity.VenuePlace{ProviderUserID: "place-a", Name: venueA})
 		h.createsVenue("place-a", venueA)
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -739,7 +688,6 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, nil).Once()
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, []*time.Time{&start13}, []*time.Time{nil}).Return(nil).Once()
 		// The venue is the matched Event's: no Places or venue lookup is expected.
-		h.notSuppressed(1)
 		h.slotHolds("venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: &start13})
 		h.publishes(1)
 		h.sweepsOrphans()
@@ -763,7 +711,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 		usecase.NewConcertCreationUseCase(
 			entitymocks.NewMockConcertCandidateRepository(t), entitymocks.NewMockVenueRepository(t),
 			entitymocks.NewMockConcertRepository(t), entitymocks.NewMockSeriesRepository(t),
-			entitymocks.NewMockSuppressedConcertRepository(t), nil, nil, time.Now, newTestLogger(t),
+			nil, nil, time.Now, newTestLogger(t),
 		)
 	})
 }
@@ -794,7 +742,6 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 			h.resolvesPlace("Venue "+v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: "Venue " + v + " Canonical"})
 			h.createsVenue("place-"+v, "Venue "+v)
 		}
-		h.notSuppressed(3)
 		h.slotsFree(3)
 		h.publishes(3)
 		h.sweepsOrphans()
@@ -912,7 +859,6 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 	t.Run("three events of a tour are created in one call", func(t *testing.T) {
 		t.Parallel()
 		h := newCreationUC(t, "Venue A", "Venue B", "Venue C")
-		h.notSuppressed(3)
 		h.slotsFree(3)
 		h.publishes(3)
 		h.sweepsOrphans()
@@ -949,7 +895,6 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 	t.Run("a failed create fails the batch", func(t *testing.T) {
 		t.Parallel()
 		h := newCreationUC(t, "Venue A")
-		h.notSuppressed(1)
 		h.slotsFree(1)
 		h.concert.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
 
@@ -968,7 +913,6 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 				require.Len(t, h.createdVenues, 1)
 				return h.createdVenues[0], nil
 			}).Once()
-		h.notSuppressed(2)
 		h.slotsFree(2)
 		h.stages(1)
 		h.publishes(1)
@@ -994,7 +938,6 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
 			h.createsVenue("place-"+v, v)
 		}
-		h.notSuppressed(2)
 		h.slotsFree(2)
 		h.publishes(1, 1)
 		h.sweepsOrphans()

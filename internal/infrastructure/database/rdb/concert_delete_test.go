@@ -13,76 +13,11 @@ import (
 	"uuid"
 )
 
-func TestSuppressedConcertRepository(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	repo := rdb.NewSuppressedConcertRepository(db)
-	ctx := context.Background()
-	localDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	start := time.Date(2026, 8, 1, 19, 0, 0, 0, time.UTC)
-
-	newEntry := func(venueID string, startTime *time.Time) *entity.SuppressedConcert {
-		return &entity.SuppressedConcert{
-			ID:             uuid.NewV7().String(),
-			VenueID:        venueID,
-			LocalEventDate: localDate,
-			StartTime:      startTime,
-		}
-	}
-
-	t.Run("insert then exists matches the key; delete un-suppresses", func(t *testing.T) {
-		cleanTables(t, db)
-		venueID := uuid.NewV7().String()
-
-		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start)))
-
-		got, err := repo.Exists(ctx, venueID, localDate, &start)
-		require.NoError(t, err)
-		assert.True(t, got)
-
-		// A different start time at the same venue/date is a distinct slot.
-		other := start.Add(3 * time.Hour)
-		got, err = repo.Exists(ctx, venueID, localDate, &other)
-		require.NoError(t, err)
-		assert.False(t, got)
-
-		// Un-suppress removes the entry.
-		require.NoError(t, repo.Delete(ctx, venueID, localDate, &start))
-		got, err = repo.Exists(ctx, venueID, localDate, &start)
-		require.NoError(t, err)
-		assert.False(t, got)
-	})
-
-	t.Run("nil start collapses the slot (NULLS NOT DISTINCT)", func(t *testing.T) {
-		cleanTables(t, db)
-		venueID := uuid.NewV7().String()
-		require.NoError(t, repo.Insert(ctx, newEntry(venueID, nil)))
-
-		got, err := repo.Exists(ctx, venueID, localDate, nil)
-		require.NoError(t, err)
-		assert.True(t, got, "a nil start must match a suppressed unknown-start slot")
-	})
-
-	t.Run("insert is idempotent on the natural key", func(t *testing.T) {
-		cleanTables(t, db)
-		venueID := uuid.NewV7().String()
-		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start)))
-		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start))) // ON CONFLICT DO NOTHING
-
-		var count int
-		require.NoError(t, db.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM suppressed_concerts WHERE venue_id = $1`, venueID).Scan(&count))
-		assert.Equal(t, 1, count)
-	})
-}
-
-func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
+func TestConcertRepository_Delete(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	repo := rdb.NewConcertRepository(db, testOutbox)
-	suppressedRepo := rdb.NewSuppressedConcertRepository(db)
 	ctx := context.Background()
-	localDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	exec := func(t *testing.T, query string, args ...any) {
 		t.Helper()
 		_, err := db.Pool.Exec(ctx, query, args...)
@@ -96,7 +31,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	}
 
 	t.Run("concert with fan journeys", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Concert with fan journeys"
+		// @spec components/entity/concert/delete "Concert with fan journeys"
 		cleanTables(t, db)
 		venueID := seedVenue(t, db, "Venue One")
 		artistID := seedArtist(t, db, "Artist One", uuid.NewV7().String())
@@ -104,17 +39,14 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		fan := saleFan(t, db)
 		exec(t, `INSERT INTO ticket_journeys (user_id, event_id, status) VALUES ($1, $2, 1)`, fan, eventID)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, eventID))
+		require.NoError(t, repo.Delete(ctx, eventID))
 
 		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM events WHERE id = $1`, eventID), "event")
 		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM ticket_journeys WHERE event_id = $1`, eventID), "ticket journeys")
-		got, err := suppressedRepo.Exists(ctx, venueID, localDate, nil)
-		require.NoError(t, err)
-		assert.True(t, got, "the slot is suppressed")
 	})
 
 	t.Run("series stays", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Series stays"
+		// @spec components/entity/concert/delete "Series stays"
 		cleanTables(t, db)
 		venueID := seedVenue(t, db, "Venue Two")
 		artistID := seedArtist(t, db, "Artist Two", uuid.NewV7().String())
@@ -127,11 +59,25 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		exec(t, `INSERT INTO ticket_sales (id, series_id, name, method, sale_start_time, sale_end_time, find_time)
 			VALUES ($1, $2, 'オフィシャル先行', 2, now(), now() + interval '1 day', now())`, discoveredID, seriesID)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, eventID))
+		require.NoError(t, repo.Delete(ctx, eventID))
 
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM series WHERE id = $1`, seriesID), "series")
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM ticket_sales WHERE id = $1`, discoveredID), "the series' discovered sale")
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM events WHERE id = $1`, otherEventID), "other event")
+	})
+
+	t.Run("last event of a discovered series", func(t *testing.T) {
+		// @spec components/entity/series "Discovered series left empty"
+		cleanTables(t, db)
+		venueID := seedVenue(t, db, "Venue Five")
+		artistID := seedArtist(t, db, "Artist Five", uuid.NewV7().String())
+		eventID := seedEvent(t, db, venueID, artistID, "Solo", "2026-08-01")
+		seriesID := seriesOf(t, db, eventID)
+
+		require.NoError(t, repo.Delete(ctx, eventID))
+
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, eventID), "event")
+		assert.True(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1 AND organizer_id IS NULL`, seriesID), "the discovered series remains with no event")
 	})
 
 	t.Run("an Organizer's sale left naming no event is removed", func(t *testing.T) {
@@ -144,7 +90,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		shared := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, saleWindowStart, saleWindowStart.Add(24*time.Hour), o.eventID, otherEventID))
 		otherStock := seedStockForEvent(t, db, otherEventID, entity.TicketSaleMethodFirstCome, 10, 4)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
+		require.NoError(t, repo.Delete(ctx, o.eventID))
 
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(o.stock.ID)), "the event's ticket stock")
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM lottery_entries WHERE id = $1`, entryID), "its lost entry")
@@ -156,40 +102,38 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	})
 
 	t.Run("concert with issued tickets", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Concert with issued tickets"
+		// @spec components/entity/concert/delete "Concert with issued tickets"
 		cleanTables(t, db)
 		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
 		seedIssuedTicketsOf(t, db, o.stock, saleFan(t, db), 1)
 
-		err := repo.DeleteAndSuppress(ctx, o.eventID)
+		err := repo.Delete(ctx, o.eventID)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM events WHERE id = $1`, o.eventID), "the event remains")
-		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "nothing is suppressed")
 	})
 
 	t.Run("concert with an abandoned checkout", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Concert with an abandoned checkout"
+		// @spec components/entity/concert/delete "Concert with an abandoned checkout"
 		cleanTables(t, db)
 		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
 		f := seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		checkoutID, orderID := insertStockCheckout(t, db, f, saleFan(t, db), entity.OrderStatusVoid, entity.CheckoutStatusExpired, 1, saleWindowStart, true)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
+		require.NoError(t, repo.Delete(ctx, o.eventID))
 
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "event")
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM ticket_stocks WHERE id = $1`, string(f.ID)), "ticket stock")
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, orderID), "void order")
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM checkouts WHERE id = $1`, checkoutID), "checkout")
-		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "the slot is suppressed")
 	})
 
 	t.Run("cancelled concert with refunded purchases", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Cancelled concert with refunded purchases"
+		// @spec components/entity/concert/delete "Cancelled concert with refunded purchases"
 		cleanTables(t, db)
 		e := seedRemovableEvent(t, db, entity.OrganizerStatusActive)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, e.eventID))
+		require.NoError(t, repo.Delete(ctx, e.eventID))
 
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, e.eventID), "event")
 		assertPurchaseRecords(t, db, e.lottery, false)
@@ -208,15 +152,15 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		} {
 			assert.False(t, rowExists(t, db, q.query, q.arg), what)
 		}
-		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "the slot is suppressed")
 	})
 
 	t.Run("last event of a first-party series", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Last event of a first-party series"
+		// @spec components/entity/concert/delete "Last event of a first-party series"
+		// @spec components/entity/series "First-party series left empty"
 		cleanTables(t, db)
 		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
+		require.NoError(t, repo.Delete(ctx, o.eventID))
 
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1`, o.seriesID), "series")
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM seat_types WHERE series_id = $1`, o.seriesID), "its seat types")
@@ -225,14 +169,15 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	})
 
 	t.Run("other events of a first-party series", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Other events of a first-party series"
+		// @spec components/entity/concert/delete "Other events of a first-party series"
+		// @spec components/entity/series "Series with events left"
 		cleanTables(t, db)
 		o := seedDeletableOrganizer(t, db, entity.OrganizerStatusActive)
 		otherEventID := uuid.NewV7().String()
 		exec(t, `INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state, per_account_limit)
 			SELECT $1, series_id, venue_id, '2026-11-21', 'PUBLISHED', 4 FROM events WHERE id = $2`, otherEventID, o.eventID)
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, o.eventID))
+		require.NoError(t, repo.Delete(ctx, o.eventID))
 
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "event")
 		assert.True(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1`, o.seriesID), "series")
@@ -245,14 +190,14 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		setup func(t *testing.T, o deletableOrganizer)
 	}{
 		{
-			// @spec components/entity/concert/delete-and-suppress "Concert with a held settlement"
+			// @spec components/entity/concert/delete "Concert with a held settlement"
 			name: "concert with a held settlement",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				seedPurchase(t, db, o, entity.OrderStatusRefunded, entity.SettlementStatusHeld, false)
 			},
 		},
 		{
-			// @spec components/entity/concert/delete-and-suppress "Concert with a checkout in progress"
+			// @spec components/entity/concert/delete "Concert with a checkout in progress"
 			name: "concert with a checkout in progress",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				f := seedStockForEvent(t, db, o.eventID, entity.TicketSaleMethodFirstCome, 10, 4)
@@ -267,14 +212,14 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/entity/concert/delete-and-suppress "Concert with an open lottery entry"
+			// @spec components/entity/concert/delete "Concert with an open lottery entry"
 			name: "concert with an open lottery entry",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				insertStockEntry(t, db, o.stock, saleFan(t, db), entity.OrderStatusPending, entity.LotteryEntryStateEntered, 1)
 			},
 		},
 		{
-			// @spec components/entity/concert/delete-and-suppress "Concert with a won entry awaiting its order"
+			// @spec components/entity/concert/delete "Concert with a won entry awaiting its order"
 			name: "concert with a won entry awaiting its order",
 			setup: func(t *testing.T, o deletableOrganizer) {
 				insertStockEntry(t, db, o.stock, saleFan(t, db), entity.OrderStatusPending, entity.LotteryEntryStateWon, 1)
@@ -309,36 +254,42 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 			tc.setup(t, o)
 			before := purchaseRecords(t, o.eventID)
 
-			err := repo.DeleteAndSuppress(ctx, o.eventID)
+			err := repo.Delete(ctx, o.eventID)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			assert.True(t, rowExists(t, db, `SELECT 1 FROM events WHERE id = $1`, o.eventID), "the event remains")
 			assert.Equal(t, before, purchaseRecords(t, o.eventID), "every purchase record remains")
-			assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM suppressed_concerts`), "nothing is suppressed")
 		})
 	}
 
 	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Unknown id"
+		// @spec components/entity/concert/delete "Unknown id"
 		cleanTables(t, db)
-		require.NoError(t, repo.DeleteAndSuppress(ctx, uuid.NewV7().String()))
-
-		assert.Equal(t, 0, count(t, `SELECT COUNT(*) FROM suppressed_concerts`))
+		require.NoError(t, repo.Delete(ctx, uuid.NewV7().String()))
 	})
 
-	t.Run("slot already suppressed", func(t *testing.T) {
-		// @spec components/entity/concert/delete-and-suppress "Slot already suppressed"
+	t.Run("same slot created again after the delete", func(t *testing.T) {
+		// @spec components/entity/concert/delete "Same slot created again after the delete"
 		cleanTables(t, db)
-		venueID := seedVenue(t, db, "Venue Four")
-		artistID := seedArtist(t, db, "Artist Four", uuid.NewV7().String())
-		eventID := seedEvent(t, db, venueID, artistID, "Again", "2026-08-01")
-		require.NoError(t, suppressedRepo.Insert(ctx, &entity.SuppressedConcert{
-			ID: uuid.NewV7().String(), VenueID: venueID, LocalEventDate: localDate,
-		}))
+		venueID := seedVenue(t, db, "Venue Three")
+		artistID := seedArtist(t, db, "Artist Three", uuid.NewV7().String())
+		eventID := seedEvent(t, db, venueID, artistID, "Once", "2026-08-01")
+		require.NoError(t, repo.Delete(ctx, eventID))
 
-		require.NoError(t, repo.DeleteAndSuppress(ctx, eventID))
+		seriesID := seedSeries(t, ctx, rdb.NewSeriesRepository(db, testOutbox), "Once Again")
+		newEventID := uuid.NewV7().String()
+		created, err := repo.Create(ctx, &entity.Concert{
+			ID: newEventID, VenueID: venueID, SeriesID: seriesID,
+			LocalDate: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			Series:    &entity.Series{ID: seriesID},
+			Artists:   []*entity.Artist{{ID: artistID}},
+		})
 
-		assert.Equal(t, 1, count(t, `SELECT COUNT(*) FROM suppressed_concerts WHERE venue_id = $1`, venueID))
+		require.NoError(t, err)
+		assert.Equal(t, []string{newEventID}, created, "a new event is created at the slot")
+		var gotVenueID string
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1 AND local_event_date = '2026-08-01'`, newEventID).Scan(&gotVenueID))
+		assert.Equal(t, venueID, gotVenueID, "the new event is at the deleted event's venue")
 	})
 }
 

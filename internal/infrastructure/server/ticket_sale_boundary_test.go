@@ -35,7 +35,7 @@ func newTestFanTicketSaleServer(t *testing.T, ticketSaleUC *usecasemocks.MockTic
 	logger, err := logging.New()
 	require.NoError(t, err)
 	validator := authmocks.NewMockTokenValidator(t)
-	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute, time.Now)
 	t.Cleanup(func() { _ = rateLimiter.Close() })
 	healthHandler := func(*connect.Server) {}
 	handlers := []server.RPCHandlerFunc{

@@ -75,6 +75,16 @@ func TestDerivePublishState(t *testing.T) {
 	}
 }
 
+func TestSeries_LeavesWithLastEvent(t *testing.T) {
+	t.Parallel()
+	organizerID := "019a0000-0000-7000-8000-000000000001"
+
+	// @spec components/entity/series "First-party series left empty"
+	assert.True(t, (&entity.Series{OrganizerID: &organizerID}).LeavesWithLastEvent())
+	// @spec components/entity/series "Discovered series left empty"
+	assert.False(t, (&entity.Series{}).LeavesWithLastEvent())
+}
+
 func TestSeries_CheckChange(t *testing.T) {
 	t.Parallel()
 
