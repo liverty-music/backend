@@ -33,11 +33,11 @@ func NewLotteryEntryRepository(db *Database, outbox Announcer) *LotteryEntryRepo
 // lotteryEntrySelect reads lottery entries (aliased le) with their orders
 // (aliased o), in the column order scanLotteryEntry expects; a WHERE follows.
 const lotteryEntrySelect = `
-	SELECT le.id, le.order_id, le.ticket_sale_id, le.state, le.draw_position, le.lost_reason, le.loss_email_send_at,
+	SELECT le.id, le.order_id, le.ticket_sale_id, le.state, le.draw_position, le.lost_reason, le.loss_email_send_time,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
-		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
+		o.status, o.amount, o.currency, o.pay_time, o.confirmation_send_time,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_time,
 		le.id, NULL::uuid, NULL::uuid
 	FROM lottery_entries le
 	JOIN orders o ON o.id = le.order_id
@@ -70,7 +70,7 @@ const (
 	lotteryEntryInsertQuery = `
 		INSERT INTO lottery_entries (id, order_id, ticket_sale_id, state)
 		SELECT $1, $2, ts.id, 1 FROM ticket_sales ts
-		WHERE ts.id = $3 AND clock_timestamp() < ts.sale_end_at
+		WHERE ts.id = $3 AND clock_timestamp() < ts.sale_end_time
 	`
 	lotteryEntryGetQuery                      = lotteryEntrySelect + ` WHERE le.id = $1`
 	lotteryEntryGetByCardAuthorizationIDQuery = lotteryEntrySelect + ` WHERE o.card_authorization_id = $1`
@@ -138,7 +138,7 @@ const (
 	// lotteryEntryMarkLossEmailSentQuery sets the loss email send time once
 	// and returns the row while the entry exists.
 	lotteryEntryMarkLossEmailSentQuery = `
-		UPDATE lottery_entries SET loss_email_send_at = COALESCE(loss_email_send_at, $2)
+		UPDATE lottery_entries SET loss_email_send_time = COALESCE(loss_email_send_time, $2)
 		WHERE id = $1
 		RETURNING id
 	`

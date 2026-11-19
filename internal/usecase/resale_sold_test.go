@@ -57,7 +57,7 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 		RunAndReturn(func(context.Context, entity.ResaleListingID) (*entity.ResaleListing, error) {
 			return &entity.ResaleListing{
 				ID: "l-1", OrderID: "order-1", UserID: "fan-1", EventID: "event-1", Price: 5000,
-				Status: entity.ResaleListingStatusSold, SoldTime: &soldAt, SoldEmailSendTime: f.emailSent,
+				Status: entity.ResaleListingStatusSold, SellTime: &soldAt, SoldEmailSendTime: f.emailSent,
 			}, nil
 		}).Maybe()
 	f.listings.EXPECT().MarkSoldEmailSent(mock.Anything, entity.ResaleListingID("l-1"), soldEmailNow).

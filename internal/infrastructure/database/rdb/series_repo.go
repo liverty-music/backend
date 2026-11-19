@@ -81,12 +81,12 @@ const (
 	// whatever its publish state, with its Venue (id, name, admin area, place
 	// id), so the editor can show and resend the picked place.
 	getAuthoredSeriesEventsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       e.per_account_limit, v.name, v.admin_area, v.google_place_id
 		FROM events e
 		JOIN venues v ON v.id = e.venue_id
 		WHERE e.series_id = $1
-		ORDER BY e.local_event_date, e.start_at NULLS LAST
+		ORDER BY e.local_event_date, e.start_time NULLS LAST
 	`
 
 	// getAuthoredSeriesPerformersQuery reads the performers of every event of

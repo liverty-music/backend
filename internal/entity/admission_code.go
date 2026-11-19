@@ -52,9 +52,9 @@ type AdmissionCode struct {
 	EventID string
 	// TicketIDs are the presented Tickets, distinct, in the fan's order.
 	TicketIDs []TicketID
-	// SignedTime is when the device signed the code, by its own clock (whole
+	// SignTime is when the device signed the code, by its own clock (whole
 	// seconds).
-	SignedTime time.Time
+	SignTime time.Time
 	// Signature is the device's signature over the payload before it.
 	Signature Signature
 }
@@ -149,7 +149,7 @@ func (c *AdmissionCode) Validate() error {
 		}
 		seen[u] = struct{}{}
 	}
-	if c.SignedTime.Unix() < 0 || c.SignedTime.Unix() > math.MaxUint32 {
+	if c.SignTime.Unix() < 0 || c.SignTime.Unix() > math.MaxUint32 {
 		return errInvalidAdmissionCode()
 	}
 	return nil
@@ -172,7 +172,7 @@ func (c *AdmissionCode) SignedPayload() ([]byte, error) {
 		t := uuid.MustParse(string(id))
 		out = append(out, t[:]...)
 	}
-	out = binary.BigEndian.AppendUint32(out, uint32(c.SignedTime.Unix()))
+	out = binary.BigEndian.AppendUint32(out, uint32(c.SignTime.Unix()))
 	return out, nil
 }
 
@@ -222,7 +222,7 @@ func DecodeAdmissionCode(text string) (code *AdmissionCode, ok bool) {
 		c.TicketIDs = append(c.TicketIDs, TicketID(uuid.UUID(raw[off:off+16]).String()))
 	}
 	signed := binary.BigEndian.Uint32(raw[signedLen-admissionCodeSignedTimeLen : signedLen])
-	c.SignedTime = time.Unix(int64(signed), 0).UTC()
+	c.SignTime = time.Unix(int64(signed), 0).UTC()
 	c.Signature = Signature(append([]byte(nil), raw[signedLen:]...))
 
 	if err := c.Validate(); err != nil {
@@ -234,7 +234,7 @@ func DecodeAdmissionCode(text string) (code *AdmissionCode, ok bool) {
 // IsFreshAt reports whether the code is fresh at now: its signed time is at
 // most 30 seconds before now and at most 15 seconds after it.
 func (c *AdmissionCode) IsFreshAt(now time.Time) bool {
-	age := now.Sub(c.SignedTime)
+	age := now.Sub(c.SignTime)
 	return age <= AdmissionCodeMaxAge && age >= -AdmissionCodeMaxClockAhead
 }
 

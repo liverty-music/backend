@@ -67,7 +67,7 @@ func TestDiscoveredMergeParity(t *testing.T) {
 				var gotStart, gotOpen *time.Time
 				var rows int
 				require.NoError(t, db.Pool.QueryRow(ctx,
-					`SELECT count(*), min(start_at), min(open_at) FROM events WHERE venue_id = $1 AND local_event_date = $2`, venueID, date).Scan(&rows, &gotStart, &gotOpen))
+					`SELECT count(*), min(start_time), min(open_time) FROM events WHERE venue_id = $1 AND local_event_date = $2`, venueID, date).Scan(&rows, &gotStart, &gotOpen))
 				name := fmt.Sprintf("start known %v, existing open %v, incoming open %v", withStart, existingOpen != nil, incomingOpen != nil)
 				assert.Equal(t, 1, rows, "one row stays: "+name)
 				assertSameInstant(t, wantStart, gotStart, "start time: "+name)

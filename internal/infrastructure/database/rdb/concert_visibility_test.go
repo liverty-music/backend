@@ -304,7 +304,7 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 		require.Len(t, events, 1, "discovery adds its own event beside the draft")
 		assert.NotEqual(t, draftOnly, events[0].ID)
 		var draftStart *time.Time
-		require.NoError(t, db.Pool.QueryRow(g.ctx, `SELECT start_at FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
+		require.NoError(t, db.Pool.QueryRow(g.ctx, `SELECT start_time FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
 		assert.Nil(t, draftStart, "the draft is left unchanged")
 		assert.Equal(t, []string{a}, sorted(performersOf(t, db, g.ctx, draftOnly)))
 	})

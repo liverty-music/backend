@@ -73,7 +73,7 @@ func insertSlotEvent(f *visibilityFixture, e *entity.Event) error {
 		state = &s
 	}
 	_, err := f.db.Pool.Exec(f.ctx,
-		`INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit)
+		`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit)
 		 VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, CASE WHEN $6::event_publish_state IS NULL THEN NULL ELSE 4 END)`,
 		entity.NewID(), series, e.VenueID, e.LocalDate, e.StartTime, state)
 	return err

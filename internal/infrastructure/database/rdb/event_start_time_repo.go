@@ -26,12 +26,12 @@ func NewEventStartTimeRepository(db *Database) *EventStartTimeRepository {
 }
 
 const getEventStartTimeQuery = `
-	SELECT start_at FROM events WHERE id = $1
+	SELECT start_time FROM events WHERE id = $1
 `
 
 // GetEventStartTime implements [usecase.EventStartTimeRepository].
 //
-// Returns nil when start_at is NULL (event time not yet published).
+// Returns nil when start_time is NULL (event time not yet published).
 func (r *EventStartTimeRepository) GetEventStartTime(ctx context.Context, eventID string) (*time.Time, error) {
 	var startAt sql.NullTime
 	row := r.db.Pool.QueryRow(ctx, getEventStartTimeQuery, eventID)

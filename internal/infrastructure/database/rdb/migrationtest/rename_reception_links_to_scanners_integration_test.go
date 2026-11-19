@@ -65,7 +65,7 @@ func TestMigration_RenameReceptionLinksToScanners(t *testing.T) {
 			boundAt  time.Time
 		)
 		require.NoError(t, conn.QueryRow(ctx,
-			`SELECT number, octet_length(bound_public_key), bound_at FROM scanners WHERE id = $1 AND status = 2`, inUseID).Scan(&number, &keyBytes, &boundAt))
+			`SELECT number, octet_length(bound_public_key), bind_time FROM scanners WHERE id = $1 AND status = 2`, inUseID).Scan(&number, &keyBytes, &boundAt))
 		assert.Equal(t, 2, number)
 		assert.Equal(t, 65, keyBytes)
 		assert.True(t, boundAt.Equal(at))
@@ -86,7 +86,7 @@ func TestMigration_RenameReceptionLinksToScanners(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "chk_scanners_link_token_only_unused")
 
-		_, err = conn.Exec(ctx, `INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scanned_at) VALUES ($1, $2, $3, 1, $4)`,
+		_, err = conn.Exec(ctx, `INSERT INTO rejected_scans (id, event_id, scanner_id, reason, scan_time) VALUES ($1, $2, $3, 1, $4)`,
 			id(73), eventID, id(99), at)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "rejected_scans_scanner_id_fkey")

@@ -293,7 +293,7 @@ func scheduledFireTime(stage entity.ReminderStage, sale *entity.TicketSale, tz *
 
 	// First-sight guard: a discovered sale whose anchor was already in the
 	// past when it was first stored does not fire retroactively.
-	if sale.DiscoveredTime != nil && base.Before(*sale.DiscoveredTime) {
+	if sale.FindTime != nil && base.Before(*sale.FindTime) {
 		return time.Time{}, time.Time{}, false
 	}
 

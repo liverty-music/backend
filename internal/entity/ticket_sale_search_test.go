@@ -47,7 +47,7 @@ func TestTicketSaleSearch_DueAt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, tt.want, (&entity.TicketSaleSearch{SearchedTime: searched}).DueAt(tt.now))
+			assert.Equal(t, tt.want, (&entity.TicketSaleSearch{SearchTime: searched}).DueAt(tt.now))
 		})
 	}
 }

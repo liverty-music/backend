@@ -19,11 +19,11 @@ const (
 	// ResolvedPlaceID is set the natural key is
 	// (artist_id, local_date, resolved_place_id). The ON CONFLICT target
 	// mirrors the partial index uq_concert_candidates_by_place. On conflict the
-	// mutable payload is refreshed but discovered_at is kept so queue order is
+	// mutable payload is refreshed but find_time is kept so queue order is
 	// stable.
 	upsertConcertCandidateByPlaceQuery = `
 		INSERT INTO concert_candidates (
-			id, artist_id, series_id, title, local_date, start_at, open_at,
+			id, artist_id, series_id, title, local_date, start_time, open_time,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
 			resolved_latitude, resolved_longitude
@@ -34,8 +34,8 @@ const (
 		DO UPDATE SET
 			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
-			start_at            = EXCLUDED.start_at,
-			open_at             = EXCLUDED.open_at,
+			start_time            = EXCLUDED.start_time,
+			open_time             = EXCLUDED.open_time,
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
 			resolved_venue_name = EXCLUDED.resolved_venue_name,
@@ -48,10 +48,10 @@ const (
 	// when ResolvedPlaceID is nil the natural key is
 	// (artist_id, local_date, listed_venue_name). The ON CONFLICT target
 	// mirrors the partial index uq_concert_candidates_by_listed_name. On conflict
-	// the mutable payload is refreshed but discovered_at is kept.
+	// the mutable payload is refreshed but find_time is kept.
 	upsertConcertCandidateByListedNameQuery = `
 		INSERT INTO concert_candidates (
-			id, artist_id, series_id, title, local_date, start_at, open_at,
+			id, artist_id, series_id, title, local_date, start_time, open_time,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
 			resolved_latitude, resolved_longitude
@@ -62,8 +62,8 @@ const (
 		DO UPDATE SET
 			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
-			start_at            = EXCLUDED.start_at,
-			open_at             = EXCLUDED.open_at,
+			start_time            = EXCLUDED.start_time,
+			open_time             = EXCLUDED.open_time,
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
 			resolved_place_id   = EXCLUDED.resolved_place_id,
@@ -74,19 +74,19 @@ const (
 	`
 
 	listPendingConcertCandidatesQuery = `
-		SELECT id, artist_id, series_id, title, local_date, start_at, open_at,
+		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
-		       resolved_latitude, resolved_longitude, discovered_at
+		       resolved_latitude, resolved_longitude, find_time
 		FROM concert_candidates
-		ORDER BY discovered_at ASC
+		ORDER BY find_time ASC
 	`
 
 	getConcertCandidateByIDQuery = `
-		SELECT id, artist_id, series_id, title, local_date, start_at, open_at,
+		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
-		       resolved_latitude, resolved_longitude, discovered_at
+		       resolved_latitude, resolved_longitude, find_time
 		FROM concert_candidates
 		WHERE id = $1
 	`
@@ -145,7 +145,7 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 	return nil
 }
 
-// ListPending returns all pending concert candidates ordered by discovered_at ASC.
+// ListPending returns all pending concert candidates ordered by find_time ASC.
 func (r *ConcertCandidateRepository) ListPending(ctx context.Context) ([]*entity.ConcertCandidate, error) {
 	rows, err := r.db.Pool.Query(ctx, listPendingConcertCandidatesQuery)
 	if err != nil {
@@ -241,7 +241,7 @@ func scanConcertCandidateRow(scan func(dest ...any) error) (*entity.ConcertCandi
 		&sc.ResolvedAdminArea,
 		&sc.ResolvedLatitude,
 		&sc.ResolvedLongitude,
-		&sc.DiscoveredTime,
+		&sc.FindTime,
 	)
 	if err != nil {
 		return nil, err

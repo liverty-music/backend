@@ -43,7 +43,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), key, mock.AnythingOfType("time.Time")).
 			Return(&usecase.RegisterWalletPublicKeyResult{
-				Key:              &entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered},
+				Key:              &entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisterTime: registered},
 				ReplacedOtherKey: true,
 			}, nil)
 
@@ -111,7 +111,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		registered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 		users.EXPECT().ResolveCaller(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).
-			Return(&entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered}, nil)
+			Return(&entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisterTime: registered}, nil)
 
 		resp, err := h.Get(ctx, &walletpublickeyv1.GetRequest{})
 		require.NoError(t, err)

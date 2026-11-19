@@ -81,7 +81,7 @@ func (f *authoredFixture) otherSeries(date time.Time, start *time.Time, state en
 	seriesID := entity.NewID()
 	f.exec(`INSERT INTO series (id, title, type, organizer_id, visibility) VALUES ($1, 'Other Tour', 'TOUR', $2, 'PUBLIC')`, seriesID, organizerID)
 	eventID := entity.NewID()
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_at, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, 4)`,
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, 4)`,
 		eventID, seriesID, f.venueID, date, start, string(state))
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
 	return eventID
@@ -94,7 +94,7 @@ func (f *authoredFixture) discovered(date time.Time, start *time.Time) (eventID,
 	seriesID := entity.NewID()
 	f.exec(`INSERT INTO series (id, title, type) VALUES ($1, 'Found Tour', 'TOUR')`, seriesID)
 	eventID = entity.NewID()
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_at) VALUES ($1, $2, $3, $4, $5)`,
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time) VALUES ($1, $2, $3, $4, $5)`,
 		eventID, seriesID, f.venueID, date, start)
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
 	fanID = seedUser(f.t, f.db, "Fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
@@ -104,7 +104,7 @@ func (f *authoredFixture) discovered(date time.Time, start *time.Time) (eventID,
 
 func (f *authoredFixture) suppress(date time.Time, start *time.Time) {
 	f.t.Helper()
-	f.exec(`INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at) VALUES ($1, $2, $3, $4)`,
+	f.exec(`INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_time) VALUES ($1, $2, $3, $4)`,
 		entity.NewID(), f.venueID, date, start)
 }
 

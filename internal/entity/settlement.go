@@ -93,7 +93,7 @@ type Settlement struct {
 	// joining through the lottery entry/ticket type/event chain.
 	OrganizerID string
 	// EventID is the event this settlement is for. Stored denormalized so the
-	// release-gate check can read events.start_at without joining through
+	// release-gate check can read events.start_time without joining through
 	// order → lottery entry or checkout → ticket type.
 	EventID string
 	// ProviderChargeID is the payment provider's ID for the charge (e.g. a Stripe "ch_..." id)

@@ -33,12 +33,12 @@ func NewResaleEntryRepository(db *Database, outbox Announcer) *ResaleEntryReposi
 // (aliased o) and their card authorization's expiry, in the column order
 // scanResaleEntry expects; a WHERE follows.
 const resaleEntrySelect = `
-	SELECT re.id, re.order_id, re.state, re.lost_reason, re.created_at, re.draw_at, re.withdraw_at, re.ended_email_send_at,
-		ca.expire_at,
+	SELECT re.id, re.order_id, re.state, re.lost_reason, re.create_time, re.draw_time, re.withdraw_time, re.ended_email_send_time,
+		ca.expire_time,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
-		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
+		o.status, o.amount, o.currency, o.pay_time, o.confirmation_send_time,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_time,
 		NULL::uuid, NULL::uuid, re.id
 	FROM resale_entries re
 	JOIN orders o ON o.id = re.order_id
@@ -56,7 +56,7 @@ const (
 	resaleEntryCreateLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('resale-entry-card-authorization:' || $1, 0))`
 	// resaleEntryEventQuery reads the start time, publish state and
 	// per-account limit of the event.
-	resaleEntryEventQuery = `SELECT start_at, publish_state, per_account_limit FROM events WHERE id = $1`
+	resaleEntryEventQuery = `SELECT start_time, publish_state, per_account_limit FROM events WHERE id = $1`
 	// resaleEntryEnteredForEventQuery reports whether the user ($1) has an
 	// Entered resale entry for a stock of the event ($2).
 	resaleEntryEnteredForEventQuery = `
@@ -67,10 +67,10 @@ const (
 			WHERE o.user_id = $1 AND s.event_id = $2 AND re.state = 1
 		)
 	`
-	resaleEntryInsertQuery = `INSERT INTO resale_entries (id, order_id, state, created_at) VALUES ($1, $2, 1, $3)`
+	resaleEntryInsertQuery = `INSERT INTO resale_entries (id, order_id, state, create_time) VALUES ($1, $2, 1, $3)`
 	// resaleEntryRecordExpiryQuery records the card authorization's expiry
 	// once.
-	resaleEntryRecordExpiryQuery             = `UPDATE card_authorizations SET expire_at = COALESCE(expire_at, $2) WHERE id = $1`
+	resaleEntryRecordExpiryQuery             = `UPDATE card_authorizations SET expire_time = COALESCE(expire_time, $2) WHERE id = $1`
 	resaleEntryGetQuery                      = resaleEntrySelect + ` WHERE re.id = $1`
 	resaleEntryGetByCardAuthorizationIDQuery = resaleEntrySelect + ` WHERE o.card_authorization_id = $1`
 	// resaleEntryListByUserQuery orders newest first: ids are UUIDv7, so id
@@ -78,12 +78,12 @@ const (
 	resaleEntryListByUserQuery  = resaleEntrySelect + ` WHERE o.user_id = $1 ORDER BY re.id DESC`
 	resaleEntryListEnteredQuery = resaleEntrySelect + ` WHERE o.ticket_stock_id = $1 AND re.state = 1`
 	// resaleEntryWinQuery makes the Entered entry Won at the draw time.
-	resaleEntryWinQuery = `UPDATE resale_entries SET state = 2, draw_at = $2 WHERE id = $1 AND state = 1`
+	resaleEntryWinQuery = `UPDATE resale_entries SET state = 2, draw_time = $2 WHERE id = $1 AND state = 1`
 	// resaleEntryEndQuery makes the Entered entry Lapsed or Lost ($2) with
 	// the lost reason $3 at the draw time $4 and voids its Pending Order.
 	resaleEntryEndQuery = `
 		WITH ended AS (
-			UPDATE resale_entries SET state = $2, lost_reason = $3, draw_at = $4
+			UPDATE resale_entries SET state = $2, lost_reason = $3, draw_time = $4
 			WHERE id = $1 AND state = 1
 			RETURNING order_id
 		)
@@ -104,7 +104,7 @@ const (
 	// no entry has the id.
 	resaleEntryStockQuery = `SELECT o.ticket_stock_id FROM resale_entries re JOIN orders o ON o.id = re.order_id WHERE re.id = $1`
 	// resaleEntryWithdrawQuery makes the Entered entry Withdrawn at $2.
-	resaleEntryWithdrawQuery  = `UPDATE resale_entries SET state = 5, withdraw_at = $2 WHERE id = $1 AND state = 1`
+	resaleEntryWithdrawQuery  = `UPDATE resale_entries SET state = 5, withdraw_time = $2 WHERE id = $1 AND state = 1`
 	resaleEntryVoidOrderQuery = `UPDATE orders SET status = 5 WHERE id = $1 AND status = 4`
 	// resaleEntryLockForRevertQuery locks the entry and its Order.
 	resaleEntryLockForRevertQuery = resaleEntrySelect + ` WHERE re.id = $1 FOR UPDATE OF re, o`
@@ -117,12 +117,12 @@ const (
 		SELECT rl.id FROM resale_listings rl
 		LEFT JOIN resale_entries x ON x.id = rl.resale_entry_id
 		WHERE rl.ticket_stock_id = $1 AND rl.status = 1 AND (rl.resale_entry_id IS NULL OR x.state = 3)
-		ORDER BY rl.created_at, rl.id
+		ORDER BY rl.create_time, rl.id
 	`
 	// resaleEntryStocksWithEnteredQuery lists the stocks with Entered
 	// entries, with their event and its start time.
 	resaleEntryStocksWithEnteredQuery = `
-		SELECT DISTINCT s.id, e.id, e.start_at
+		SELECT DISTINCT s.id, e.id, e.start_time
 		FROM resale_entries re
 		JOIN orders o ON o.id = re.order_id
 		JOIN ticket_stocks s ON s.id = o.ticket_stock_id
@@ -132,7 +132,7 @@ const (
 	// resaleEntryMarkEndedEmailSentQuery sets the ended email send time once
 	// and returns the row while the entry exists.
 	resaleEntryMarkEndedEmailSentQuery = `
-		UPDATE resale_entries SET ended_email_send_at = COALESCE(ended_email_send_at, $2)
+		UPDATE resale_entries SET ended_email_send_time = COALESCE(ended_email_send_time, $2)
 		WHERE id = $1
 		RETURNING id
 	`

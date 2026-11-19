@@ -111,7 +111,7 @@ const (
 	// to $1 that name no event any more.
 	removeEmptiedTicketSalesQuery = `
 		DELETE FROM ticket_sales ts
-		WHERE ts.id = ANY($1::uuid[]) AND ts.discovered_at IS NULL
+		WHERE ts.id = ANY($1::uuid[]) AND ts.find_time IS NULL
 		  AND NOT EXISTS (SELECT 1 FROM ticket_sale_events tse WHERE tse.ticket_sale_id = ts.id)
 	`
 	// removeEmptiedFirstPartySeriesQuery removes the first-party Series bound to

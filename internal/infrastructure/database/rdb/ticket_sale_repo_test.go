@@ -98,7 +98,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 		assert.Equal(t, entity.TicketSaleMethodLottery, stored.Method)
 		assert.True(t, stored.SaleStartTime.Equal(saleWindowStart))
 		assert.True(t, stored.SaleEndTime.Equal(end))
-		assert.Nil(t, stored.DiscoveredTime)
+		assert.Nil(t, stored.FindTime)
 		assert.ElementsMatch(t, []string{first, second}, stored.EventIDs)
 	})
 
@@ -289,7 +289,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	lottery := func(t *testing.T, end time.Time, states ...entity.LotteryEntryState) entity.TicketSaleID {
 		t.Helper()
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET sale_end_at = $2 WHERE id = $1`, string(f.SaleID), end)
+		_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET sale_end_time = $2 WHERE id = $1`, string(f.SaleID), end)
 		require.NoError(t, err)
 		for _, s := range states {
 			orderStatus := entity.OrderStatusPending

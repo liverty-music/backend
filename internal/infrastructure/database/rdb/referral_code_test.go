@@ -149,7 +149,7 @@ func TestOrderRepository_ListReferralStatsByEvent(t *testing.T) {
 
 		_, err = db.Pool.Exec(ctx, `UPDATE lottery_entries SET state = 2 WHERE id = $1`, string(entryID))
 		require.NoError(t, err)
-		_, err = db.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_paid_' || id, pay_at = now() WHERE id = $1`,
+		_, err = db.Pool.Exec(ctx, `UPDATE orders SET status = 1, provider_payment_id = 'pi_paid_' || id, pay_time = now() WHERE id = $1`,
 			string(entryOrderID(t, db, entryID)))
 		require.NoError(t, err)
 

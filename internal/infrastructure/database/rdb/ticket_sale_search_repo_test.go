@@ -30,7 +30,7 @@ func TestTicketSaleSearchRepository_ListBySeries(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, searches, 1)
 		assert.Equal(t, seriesA, searches[0].SeriesID)
-		assert.True(t, oct1.Equal(searches[0].SearchedTime))
+		assert.True(t, oct1.Equal(searches[0].SearchTime))
 	})
 
 	// @spec components/entity/ticket-sale-search/list-by-series "No series given"
@@ -61,7 +61,7 @@ func TestTicketSaleSearchRepository_Record(t *testing.T) {
 		searches, err := repo.ListBySeries(ctx, []string{seriesA})
 		require.NoError(t, err)
 		require.Len(t, searches, 1)
-		assert.True(t, oct1.Equal(searches[0].SearchedTime))
+		assert.True(t, oct1.Equal(searches[0].SearchTime))
 	})
 
 	// @spec components/entity/ticket-sale-search/record "Series searched for the first time"
@@ -74,7 +74,7 @@ func TestTicketSaleSearchRepository_Record(t *testing.T) {
 		searches, err := repo.ListBySeries(ctx, []string{seriesA})
 		require.NoError(t, err)
 		require.Len(t, searches, 1)
-		assert.True(t, oct1.Equal(searches[0].SearchedTime))
+		assert.True(t, oct1.Equal(searches[0].SearchTime))
 	})
 
 	// @spec components/entity/ticket-sale-search/record "Unknown series"

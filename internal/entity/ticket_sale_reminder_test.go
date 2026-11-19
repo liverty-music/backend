@@ -103,16 +103,16 @@ func TestTicketSaleSearch_Validate(t *testing.T) {
 	now := oct(13, 21, 0)
 
 	t.Run("future searched time", func(t *testing.T) {
-		// @spec components/entity/ticket-sale-search "Future searched time"
+		// @spec components/entity/ticket-sale-search "Future search time"
 		t.Parallel()
-		search := &entity.TicketSaleSearch{SeriesID: "series-1", SearchedTime: now.Add(time.Hour)}
+		search := &entity.TicketSaleSearch{SeriesID: "series-1", SearchTime: now.Add(time.Hour)}
 
 		assert.ErrorIs(t, search.Validate(now), apperr.ErrInvalidArgument)
 	})
 
 	t.Run("searched now", func(t *testing.T) {
 		t.Parallel()
-		search := &entity.TicketSaleSearch{SeriesID: "series-1", SearchedTime: now}
+		search := &entity.TicketSaleSearch{SeriesID: "series-1", SearchTime: now}
 
 		assert.NoError(t, search.Validate(now))
 	})
@@ -191,7 +191,7 @@ func TestTicketSale_ReminderAudience(t *testing.T) {
 
 	discovered := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1")
 	found := nov(1, 0, 0)
-	discovered.DiscoveredTime = &found
+	discovered.FindTime = &found
 	organizer := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1", "e-2")
 
 	assert.Equal(t, entity.ReminderAudience{SeriesID: "series-1"}, discovered.ReminderAudience(), "every fan tracking the series")

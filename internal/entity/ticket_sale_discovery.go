@@ -28,13 +28,13 @@ type DiscoveredTicketSale struct {
 // that stores d's values.
 func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 	sale := &TicketSale{
-		SeriesID:       d.SeriesID,
-		Name:           d.Name,
-		Method:         d.Method,
-		SaleStartTime:  d.SaleStartTime,
-		SaleEndTime:    d.SaleEndTime,
-		DiscoveredTime: &discovered,
-		ResultDate:     d.ResultDate,
+		SeriesID:      d.SeriesID,
+		Name:          d.Name,
+		Method:        d.Method,
+		SaleStartTime: d.SaleStartTime,
+		SaleEndTime:   d.SaleEndTime,
+		FindTime:      &discovered,
+		ResultDate:    d.ResultDate,
 	}
 	return sale
 }

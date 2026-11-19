@@ -26,9 +26,9 @@ type ConcertSearch struct {
 	SearchTime time.Time
 	// Status is the current state of the search job.
 	Status ConcertSearchStatus
-	// LastFoundTime is the timestamp of the most recent search that discovered
+	// LastFindTime is the timestamp of the most recent search that discovered
 	// at least one new concert. Zero means no discovery has ever been recorded.
-	LastFoundTime time.Time
+	LastFindTime time.Time
 }
 
 // IsFresh reports whether this concert search represents a recently completed search
@@ -45,13 +45,13 @@ func (sl *ConcertSearch) IsPending(now time.Time, timeout time.Duration) bool {
 
 // WasRecentlyDiscovered reports whether a new concert was discovered for this
 // artist within the given window. Returns false when no discovery has ever been
-// recorded (LastFoundTime is zero), so an artist that never yielded a concert is
+// recorded (LastFindTime is zero), so an artist that never yielded a concert is
 // never skipped on this basis.
 func (sl *ConcertSearch) WasRecentlyDiscovered(now time.Time, window time.Duration) bool {
-	if sl.LastFoundTime.IsZero() {
+	if sl.LastFindTime.IsZero() {
 		return false
 	}
-	return now.Sub(sl.LastFoundTime) < window
+	return now.Sub(sl.LastFindTime) < window
 }
 
 // ConcertSearchRepository defines the data access interface for concert searches.
@@ -80,7 +80,7 @@ type ConcertSearchRepository interface {
 	UpdateStatus(ctx context.Context, artistID string, status ConcertSearchStatus) error
 
 	// MarkFound records that a search discovered at least one new concert by
-	// setting the artist's last_found_at to the current time. It assumes the
+	// setting the artist's last_find_time to the current time. It assumes the
 	// row already exists (created by the pending Upsert before the search).
 	//
 	// # Possible errors

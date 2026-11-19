@@ -40,7 +40,7 @@ const ticketStockSelect = `
 			(o.status IN (1, 2) AND (c.id IS NOT NULL OR le.id IS NOT NULL))
 			OR (o.status = 4 AND (c.status = 2 OR le.state = 2))), 0)::int,
 		COALESCE(SUM(o.ticket_count) FILTER (WHERE
-			o.status = 4 AND c.status = 1 AND c.hold_expire_at > $1), 0)::int
+			o.status = 4 AND c.status = 1 AND c.hold_expire_time > $1), 0)::int
 	FROM ticket_stocks s
 	JOIN seat_types st ON st.id = s.seat_type_id
 	LEFT JOIN orders o ON o.ticket_stock_id = s.id

@@ -18,7 +18,7 @@ const (
 	// insertSuppressedConcertQuery records a suppression entry. ON CONFLICT on the
 	// NULLS NOT DISTINCT natural key makes a repeated suppression a no-op.
 	insertSuppressedConcertQuery = `
-		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
+		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_time)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT ON CONSTRAINT uq_suppressed_concerts_natural_key DO NOTHING
 	`
@@ -28,7 +28,7 @@ const (
 	existsSuppressedConcertQuery = `
 		SELECT EXISTS(
 			SELECT 1 FROM suppressed_concerts
-			WHERE venue_id = $1 AND local_event_date = $2 AND start_at IS NOT DISTINCT FROM $3
+			WHERE venue_id = $1 AND local_event_date = $2 AND start_time IS NOT DISTINCT FROM $3
 		)
 	`
 
@@ -36,7 +36,7 @@ const (
 	// matches the natural key NULL-safely and is idempotent on an absent row.
 	deleteSuppressedConcertQuery = `
 		DELETE FROM suppressed_concerts
-		WHERE venue_id = $1 AND local_event_date = $2 AND start_at IS NOT DISTINCT FROM $3
+		WHERE venue_id = $1 AND local_event_date = $2 AND start_time IS NOT DISTINCT FROM $3
 	`
 )
 

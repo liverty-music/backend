@@ -126,7 +126,7 @@ func TestExtractQueryMeta(t *testing.T) {
 		{name: "SELECT FROM", sql: "SELECT * FROM users WHERE id = $1", wantOp: "SELECT", wantTable: "users"},
 		{name: "INSERT INTO", sql: "INSERT INTO artists (id, name) VALUES ($1, $2)", wantOp: "INSERT", wantTable: "artists"},
 		{name: "UPDATE", sql: "UPDATE concerts SET name = $1 WHERE id = $2", wantOp: "UPDATE", wantTable: "concerts"},
-		{name: "DELETE FROM", sql: "DELETE FROM sessions WHERE expired_at < $1", wantOp: "DELETE", wantTable: "sessions"},
+		{name: "DELETE FROM", sql: "DELETE FROM sessions WHERE expire_time < $1", wantOp: "DELETE", wantTable: "sessions"},
 		{name: "schema prefix", sql: "SELECT * FROM app.venues WHERE id = $1", wantOp: "SELECT", wantTable: "venues"},
 		{name: "quoted table", sql: `SELECT * FROM "users" WHERE id = $1`, wantOp: "SELECT", wantTable: "users"},
 		{name: "WITH CTE no table", sql: "WITH cte AS (SELECT 1) SELECT * FROM cte", wantOp: "WITH", wantTable: ""},

@@ -64,8 +64,8 @@ func TestResaleListingHandler(t *testing.T) {
 				TicketStockID: tkStockID, Price: 5000, Status: entity.ResaleListingStatusListed,
 				CreateTime: created,
 			},
-			Deadline: deadline,
-			Status:   entity.ResaleListingStatusListed,
+			CloseTime: deadline,
+			Status:    entity.ResaleListingStatusListed,
 		}
 	}
 	createReq := func() *resalelistingv1.CreateRequest {
@@ -89,7 +89,7 @@ func TestResaleListingHandler(t *testing.T) {
 		assert.Equal(t, int64(500), got.GetFee())
 		assert.Equal(t, int64(4500), got.GetRefundAmount())
 		assert.Equal(t, entityv1.ResaleListingStatus_RESALE_LISTING_STATUS_LISTED, got.GetStatus())
-		assert.True(t, got.GetDeadlineTime().AsTime().Equal(deadline))
+		assert.True(t, got.GetCloseTime().AsTime().Equal(deadline))
 		assert.True(t, got.GetCreateTime().AsTime().Equal(created))
 	})
 
@@ -156,7 +156,7 @@ func TestResaleListingHandler(t *testing.T) {
 		sold := listed()
 		soldAt, refundAt := created.Add(time.Hour), created.Add(time.Hour+time.Minute)
 		sold.Listing.Status, sold.Status = entity.ResaleListingStatusSold, entity.ResaleListingStatusSold
-		sold.Listing.SoldTime, sold.Listing.RefundTime = &soldAt, &refundAt
+		sold.Listing.SellTime, sold.Listing.RefundTime = &soldAt, &refundAt
 		f.listings.EXPECT().List(mock.Anything, entity.UserID(tkFanUserID)).Return([]*usecase.ResaleListingAt{sold}, nil)
 
 		resp, err := f.client.List(ctx, &resalelistingv1.ListRequest{})
@@ -168,7 +168,7 @@ func TestResaleListingHandler(t *testing.T) {
 		assert.Equal(t, int64(5000), got.GetPrice().GetValue())
 		assert.Equal(t, int64(500), got.GetFee())
 		assert.Equal(t, int64(4500), got.GetRefundAmount())
-		assert.True(t, got.GetSoldTime().AsTime().Equal(soldAt))
+		assert.True(t, got.GetSellTime().AsTime().Equal(soldAt))
 		assert.True(t, got.GetRefundTime().AsTime().Equal(refundAt))
 		// The message has no field for the checkout or the purchasing fan, so
 		// nothing about them can reach the fan.

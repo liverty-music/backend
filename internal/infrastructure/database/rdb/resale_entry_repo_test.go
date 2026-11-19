@@ -31,7 +31,7 @@ var (
 func seedResaleStock(t *testing.T, db *rdb.Database, quantity, limit int) *stockFixture {
 	t.Helper()
 	f := seedStock(t, db, entity.TicketSaleMethodLottery, quantity, limit)
-	_, err := db.Pool.Exec(context.Background(), `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
+	_, err := db.Pool.Exec(context.Background(), `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleShowStart)
 	require.NoError(t, err)
 	seedPaidOrder(t, db, f, string(newUserID(t, db)), quantity, issuedTicketsTime)
 	return f
@@ -62,7 +62,7 @@ func setResaleEntryState(t *testing.T, db *rdb.Database, id entity.ResaleEntryID
 	if state == entity.ResaleEntryStateLost {
 		lostReason = int16(entity.ResaleEntryLostReasonNoTicketLeft)
 	}
-	_, err := db.Pool.Exec(ctx, `UPDATE resale_entries SET state = $2, draw_at = $3, lost_reason = $4 WHERE id = $1`,
+	_, err := db.Pool.Exec(ctx, `UPDATE resale_entries SET state = $2, draw_time = $3, lost_reason = $4 WHERE id = $1`,
 		string(id), int16(state), drawAt, lostReason)
 	require.NoError(t, err)
 	if state == entity.ResaleEntryStateLost || state == entity.ResaleEntryStateLapsed {
@@ -99,7 +99,7 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 	t.Run("resale not open", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Resale not open"
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 4, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleShowStart)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleShowStart)
 		require.NoError(t, err)
 		fan := newUserID(t, db)
 
@@ -115,7 +115,7 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 		// A TicketSale cannot name an Event without a start time, so a fan
 		// cannot reach this: it is Internal, not "resale not open".
 		f := seedResaleStock(t, db, 4, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = NULL WHERE id = $1`, f.EventID)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = NULL WHERE id = $1`, f.EventID)
 		require.NoError(t, err)
 		fan := newUserID(t, db)
 
@@ -153,7 +153,7 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 		fan := newUserID(t, db)
 		held := seedPaidOrder(t, db, f, string(fan), 3, issuedTicketsTime)
 		for range 3 {
-			_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+			_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 				entity.NewID(), string(held), string(fan), f.EventID, issuedTicketsTime)
 			require.NoError(t, err)
 		}

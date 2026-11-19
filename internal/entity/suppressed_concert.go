@@ -29,15 +29,15 @@ type SuppressedConcert struct {
 	// StartTime is the start time of the deleted event. Nil when unknown; a nil
 	// value collapses the slot under NULLS NOT DISTINCT.
 	StartTime *time.Time
-	// SuppressedTime is when the concert was suppressed (i.e. deleted).
-	SuppressedTime time.Time
+	// SuppressTime is when the concert was suppressed (i.e. deleted).
+	SuppressTime time.Time
 }
 
 // SuppressedConcertRepository is the data access interface for the moderation
 // suppression set consulted by discovery.
 type SuppressedConcertRepository interface {
 	// Insert records a suppression entry. It is idempotent on the natural key
-	// (venue_id, local_event_date, start_at): re-inserting an already-suppressed
+	// (venue_id, local_event_date, start_time): re-inserting an already-suppressed
 	// key is a no-op success.
 	//
 	// # Possible errors

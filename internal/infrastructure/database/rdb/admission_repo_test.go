@@ -256,12 +256,12 @@ func TestWalletPublicKeyRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, replaced)
 		assert.Equal(t, k2, got.PublicKey)
-		assert.True(t, got.RegisteredTime.Equal(nov20(10, 0)))
+		assert.True(t, got.RegisterTime.Equal(nov20(10, 0)))
 
 		stored, err := repo.GetByUser(ctx, user)
 		require.NoError(t, err)
 		assert.Equal(t, k2, stored.PublicKey)
-		assert.True(t, stored.RegisteredTime.Equal(nov20(10, 0)))
+		assert.True(t, stored.RegisterTime.Equal(nov20(10, 0)))
 	})
 
 	t.Run("same key again", func(t *testing.T) {
@@ -275,7 +275,7 @@ func TestWalletPublicKeyRepository(t *testing.T) {
 		got, replaced, err := repo.Register(ctx, user, k1, nov20(10, 0))
 		require.NoError(t, err)
 		assert.False(t, replaced)
-		assert.True(t, got.RegisteredTime.Equal(nov20(9, 0)), "nothing changes")
+		assert.True(t, got.RegisterTime.Equal(nov20(9, 0)), "nothing changes")
 	})
 
 	t.Run("invalid key", func(t *testing.T) {
@@ -465,15 +465,15 @@ func TestScannerRepository(t *testing.T) {
 		assert.Equal(t, entity.BindOutcomeBound, outcome)
 		assert.Equal(t, entity.ScannerStatusInUse, got.Status)
 		assert.Equal(t, p1, got.BoundPublicKey)
-		require.NotNil(t, got.BoundTime)
-		assert.True(t, got.BoundTime.Equal(nov20(14, 10)))
+		require.NotNil(t, got.BindTime)
+		assert.True(t, got.BindTime.Equal(nov20(14, 10)))
 		assert.Empty(t, got.LinkToken, "the token is not kept once bound")
 
 		// @spec components/entity/scanner/bind-device "Same device again"
 		outcome, got, err = repo.BindDevice(ctx, scanner.ID, p1, nov20(15, 0))
 		require.NoError(t, err)
 		assert.Equal(t, entity.BindOutcomeBound, outcome)
-		assert.True(t, got.BoundTime.Equal(nov20(14, 10)), "nothing changes")
+		assert.True(t, got.BindTime.Equal(nov20(14, 10)), "nothing changes")
 
 		// @spec components/entity/scanner/bind-device "Another device"
 		outcome, got, err = repo.BindDevice(ctx, scanner.ID, p2, nov20(15, 0))
@@ -533,13 +533,13 @@ func TestScannerRepository(t *testing.T) {
 		got, err := repo.Revoke(ctx, scanner.ID, nov20(18, 5))
 		require.NoError(t, err)
 		assert.Equal(t, entity.ScannerStatusRevoked, got.Status)
-		require.NotNil(t, got.RevokedTime)
-		assert.True(t, got.RevokedTime.Equal(nov20(18, 5)))
+		require.NotNil(t, got.RevokeTime)
+		assert.True(t, got.RevokeTime.Equal(nov20(18, 5)))
 
 		// @spec components/entity/scanner/revoke "Already revoked"
 		got, err = repo.Revoke(ctx, scanner.ID, nov20(18, 10))
 		require.NoError(t, err)
-		assert.True(t, got.RevokedTime.Equal(nov20(18, 5)), "the revoked time stays 18:05")
+		assert.True(t, got.RevokeTime.Equal(nov20(18, 5)), "the revoked time stays 18:05")
 
 		// @spec components/entity/scanner/revoke "Unknown scanner"
 		_, err = repo.Revoke(ctx, entity.ScannerID(entity.NewID()), nov20(18, 10))
@@ -662,7 +662,7 @@ func TestEventRepository_Get(t *testing.T) {
 		// @spec components/entity/event/get "Event with both times"
 		cleanTables(t, db)
 		eventID := seedAdmissionEvent(t, db)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, eventID, nov20(18, 0), nov20(19, 0))
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_time = $2, start_time = $3 WHERE id = $1`, eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
 
 		got, err := repo.Get(ctx, eventID)
@@ -683,7 +683,7 @@ func TestEventRepository_Get(t *testing.T) {
 		assert.Nil(t, before.StartTime)
 		assert.Nil(t, before.OpenTime)
 
-		_, err = db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
+		_, err = db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, eventID, nov20(19, 0))
 		require.NoError(t, err)
 		after, err := repo.Get(ctx, eventID)
 		require.NoError(t, err)

@@ -463,7 +463,7 @@ func (uc *concertUseCase) skipSearch(ctx context.Context, artistID string) (bool
 	if concertSearch.WasRecentlyDiscovered(now, uc.discoveryWindow) {
 		uc.logger.Debug(ctx, "skipping external search, recently discovered new concert",
 			slog.String("artist_id", artistID),
-			slog.Time("last_found_at", concertSearch.LastFoundTime),
+			slog.Time("last_find_time", concertSearch.LastFindTime),
 		)
 		return true, nil
 	}
@@ -744,7 +744,7 @@ func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID stri
 
 // markSearchFound records that the search discovered at least one new concert.
 // Failure is non-fatal and only logged: the discovery event was already
-// published, so a missed last_found_at update merely lets the next CronJob tick
+// published, so a missed last_find_time update merely lets the next CronJob tick
 // re-search this artist sooner than the discoveryWindow would otherwise allow.
 func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)

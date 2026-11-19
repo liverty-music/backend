@@ -63,7 +63,7 @@ func TestOrganizerScannerHandler(t *testing.T) {
 		bound := time.Date(2026, 11, 20, 5, 10, 0, 0, time.UTC)
 		orgs.EXPECT().ResolveCaller(ctx, "zorg-1").Return(&entity.Organizer{ID: "org-1"}, nil)
 		scanners.EXPECT().ListByEvent(ctx, "org-1", testEventID).Return([]*entity.Scanner{
-			{ID: testScannerID, EventID: testEventID, Number: 1, Status: entity.ScannerStatusInUse, BoundTime: &bound},
+			{ID: testScannerID, EventID: testEventID, Number: 1, Status: entity.ScannerStatusInUse, BindTime: &bound},
 		}, nil)
 
 		resp, err := h.ListByEvent(ctx, &organizerscannerv1.ListByEventRequest{EventId: &entityv1.EventId{Value: testEventID}})
@@ -111,7 +111,7 @@ func TestOrganizerScannerHandler(t *testing.T) {
 		orgs.EXPECT().ResolveCaller(ctx, "zorg-1").Return(&entity.Organizer{ID: "org-1"}, nil)
 		revoked := time.Now()
 		scanners.EXPECT().Revoke(ctx, "org-1", entity.ScannerID(testScannerID), mock.AnythingOfType("time.Time")).
-			Return(&entity.Scanner{ID: testScannerID, EventID: testEventID, Number: 1, Status: entity.ScannerStatusRevoked, RevokedTime: &revoked}, nil)
+			Return(&entity.Scanner{ID: testScannerID, EventID: testEventID, Number: 1, Status: entity.ScannerStatusRevoked, RevokeTime: &revoked}, nil)
 
 		resp, err := h.Revoke(ctx, &organizerscannerv1.RevokeRequest{ScannerId: &entityv1.ScannerId{Value: testScannerID}})
 		require.NoError(t, err)

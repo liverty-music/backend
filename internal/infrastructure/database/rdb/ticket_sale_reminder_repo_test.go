@@ -105,7 +105,7 @@ func TestTicketSaleReminderRepository_RecordSent(t *testing.T) {
 	sentAt := func(t *testing.T) []time.Time {
 		t.Helper()
 		rows, err := db.Pool.Query(ctx,
-			`SELECT sent_at FROM ticket_sale_reminders WHERE user_id = $1 AND ticket_sale_id = $2 AND stage = 1`,
+			`SELECT send_time FROM ticket_sale_reminders WHERE user_id = $1 AND ticket_sale_id = $2 AND stage = 1`,
 			userID, string(saleID))
 		require.NoError(t, err)
 		defer rows.Close()

@@ -75,11 +75,11 @@ type Scanner struct {
 	BoundPublicKey PublicKey
 	// Status is the lifecycle status.
 	Status ScannerStatus
-	// BoundTime is when a device first opened the link; nil until bound.
-	BoundTime *time.Time
-	// RevokedTime is when the Organizer revoked the Scanner; nil until
+	// BindTime is when a device first opened the link; nil until bound.
+	BindTime *time.Time
+	// RevokeTime is when the Organizer revoked the Scanner; nil until
 	// revoked.
-	RevokedTime *time.Time
+	RevokeTime *time.Time
 }
 
 // NewScanner returns a new Unused Scanner for eventID with a fresh id and a

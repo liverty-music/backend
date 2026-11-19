@@ -24,18 +24,18 @@ func NewTicketSaleSearchRepository(db *Database) *TicketSaleSearchRepository {
 
 const (
 	listTicketSaleSearchsBySeriesQuery = `
-		SELECT series_id, searched_at
+		SELECT series_id, search_time
 		FROM ticket_sale_searches
 		WHERE series_id = ANY($1::uuid[])
 	`
 
-	// recordTicketSaleSearchsQuery sets searched_at for every given series
+	// recordTicketSaleSearchsQuery sets search_time for every given series
 	// in one statement, so a foreign-key violation on any series rolls back
 	// the whole batch.
 	recordTicketSaleSearchsQuery = `
-		INSERT INTO ticket_sale_searches (series_id, searched_at)
+		INSERT INTO ticket_sale_searches (series_id, search_time)
 		SELECT series_id, $2 FROM unnest($1::uuid[]) AS t(series_id)
-		ON CONFLICT (series_id) DO UPDATE SET searched_at = EXCLUDED.searched_at
+		ON CONFLICT (series_id) DO UPDATE SET search_time = EXCLUDED.search_time
 	`
 )
 
@@ -54,7 +54,7 @@ func (r *TicketSaleSearchRepository) ListBySeries(ctx context.Context, seriesIDs
 	searches := make([]*entity.TicketSaleSearch, 0, len(seriesIDs))
 	for rows.Next() {
 		var l entity.TicketSaleSearch
-		if err := rows.Scan(&l.SeriesID, &l.SearchedTime); err != nil {
+		if err := rows.Scan(&l.SeriesID, &l.SearchTime); err != nil {
 			return nil, toAppErr(err, "failed to scan ticket sale search")
 		}
 		searches = append(searches, &l)
@@ -70,7 +70,7 @@ func (r *TicketSaleSearchRepository) Record(ctx context.Context, seriesIDs []str
 	if len(seriesIDs) == 0 {
 		return nil
 	}
-	search := &entity.TicketSaleSearch{SearchedTime: searchedTime}
+	search := &entity.TicketSaleSearch{SearchTime: searchedTime}
 	if err := search.Validate(time.Now()); err != nil {
 		return err
 	}

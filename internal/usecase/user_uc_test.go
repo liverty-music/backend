@@ -1354,7 +1354,7 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/user/list-deletion-blockers "Listed resale"
-			name: "counts a listed resale listing before its deadline",
+			name: "counts a listed resale listing before its close time",
 			reads: deletionReads{
 				events:   []*entity.Event{eventStartingIn("e1", 7*24*time.Hour)},
 				listings: []*entity.ResaleListing{listedFor("l1", "e1")},
@@ -1363,7 +1363,7 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/user/list-deletion-blockers "Expired listing"
-			name: "ignores a listed resale listing past its deadline",
+			name: "ignores a listed resale listing past its close time",
 			reads: deletionReads{
 				events:   []*entity.Event{eventStartingIn("e1", 2*time.Hour)},
 				listings: []*entity.ResaleListing{listedFor("l1", "e1")},

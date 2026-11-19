@@ -50,7 +50,7 @@ func TestResaleDraw_Worker(t *testing.T) {
 	expire := apply.Add(30 * 24 * time.Hour)
 	stock := func() (*stockFixture, *entity.ResaleEntry, entity.ResaleListingID) {
 		f := seedResaleStock(t, db, 2, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, start)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, start)
 		require.NoError(t, err)
 		l := seedListing(t, db, f)
 		e := newResaleEntry(db, f, newUserID(t, db), 1)

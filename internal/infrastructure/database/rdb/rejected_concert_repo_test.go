@@ -86,6 +86,33 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 		assert.Equal(t, 3, count)
 	})
 
+	// @spec components/entity/rejected-concert/append "Two rejections of the same concert"
+	t.Run("appending the same concert twice keeps two entries", func(t *testing.T) {
+		cleanTables(t, db)
+
+		artistID := uuid.NewV7().String()
+		concert := func() *entity.RejectedConcert {
+			return &entity.RejectedConcert{
+				ID:              uuid.NewV7().String(),
+				ArtistID:        artistID,
+				ArtistName:      "Test Artist",
+				Title:           "Show",
+				LocalDate:       time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC),
+				ListedVenueName: "Venue",
+				Reason:          "test rejection",
+			}
+		}
+		require.NoError(t, repo.Append(ctx, concert()))
+		require.NoError(t, repo.Append(ctx, concert()))
+
+		var count int
+		err := db.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM rejected_concerts WHERE artist_id = $1`, artistID,
+		).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+
 	t.Run("nil reviewed_by is stored as NULL", func(t *testing.T) {
 		cleanTables(t, db)
 

@@ -59,7 +59,7 @@ func TestOrderCountsParity(t *testing.T) {
 			}
 			id := entity.NewID()
 			_, err := db.Pool.Exec(ctx, `
-				INSERT INTO checkouts (id, order_id, ticket_sale_id, status, hold_expire_at, commit_at, capture_at)
+				INSERT INTO checkouts (id, order_id, ticket_sale_id, status, hold_expire_time, commit_time, capture_time)
 				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				id, string(orderID), string(f.SaleID), int16(cc.status), cc.expire, commitAt, captureAt)
 			require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestOrderCountsParity(t *testing.T) {
 			}
 			// The Order's status is the combination's own, not the one the
 			// entry's state would give it.
-			_, err := db.Pool.Exec(ctx, `INSERT INTO resale_entries (id, order_id, state, draw_at, lost_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+			_, err := db.Pool.Exec(ctx, `INSERT INTO resale_entries (id, order_id, state, draw_time, lost_reason, create_time) VALUES ($1, $2, $3, $4, $5, $6)`,
 				id, string(orderID), int16(state), drawAt, lostReason, now.Add(-2*time.Hour))
 			require.NoError(t, err)
 			return entity.OrderSourceState{ResaleEntry: &entity.ResaleEntry{State: state}}
@@ -111,7 +111,7 @@ func TestOrderCountsParity(t *testing.T) {
 					if i >= issued {
 						ticketStatus = 2
 					}
-					_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+					_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, $5, $6)`,
 						entity.NewID(), string(orderID), string(user), eventID, ticketStatus, issuedTicketsTime)
 					require.NoError(t, err, name)
 				}

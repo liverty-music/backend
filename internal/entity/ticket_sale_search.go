@@ -15,8 +15,8 @@ import (
 type TicketSaleSearch struct {
 	// SeriesID is the series that was searched. One search per series.
 	SeriesID string
-	// SearchedTime is when the series was last searched successfully.
-	SearchedTime time.Time
+	// SearchTime is when the series was last searched successfully.
+	SearchTime time.Time
 }
 
 // TicketSaleSearchIntervalDays is how many Japan-time dates a searched series
@@ -36,14 +36,14 @@ func (s *TicketSaleSearch) DueAt(now time.Time) bool {
 		local := t.In(ticketSaleSearchZone)
 		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, ticketSaleSearchZone)
 	}
-	return !date(now).Before(date(s.SearchedTime).AddDate(0, 0, TicketSaleSearchIntervalDays))
+	return !date(now).Before(date(s.SearchTime).AddDate(0, 0, TicketSaleSearchIntervalDays))
 }
 
 // Validate checks that the searched time is not after now. It fails with
 // InvalidArgument, which callers return as it is.
 func (s *TicketSaleSearch) Validate(now time.Time) error {
-	if s.SearchedTime.After(now) {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("searched time %s is in the future", s.SearchedTime.Format(time.RFC3339)))
+	if s.SearchTime.After(now) {
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("searched time %s is in the future", s.SearchTime.Format(time.RFC3339)))
 	}
 	return nil
 }

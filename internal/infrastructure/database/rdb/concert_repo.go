@@ -21,17 +21,17 @@ type ConcertRepository struct {
 
 const (
 	// upsertEventsQuery bulk-inserts discovered events (publish_state NULL) on
-	// the (venue_id, local_event_date, start_at) natural key, inferring the
+	// the (venue_id, local_event_date, start_time) natural key, inferring the
 	// partial unique index uq_events_natural_key, which skips DRAFT rows: a
 	// discovered event never collides with, or fills the times of, a draft. On natural-key conflict the existing row is preserved and only NULL
-	// open_at / start_at are filled in via COALESCE. The input id is discarded in that case;
+	// open_time / start_time are filled in via COALESCE. The input id is discarded in that case;
 	// callers detect this by re-querying with WHERE EXISTS on the input UUID.
 	upsertEventsQuery = `
-		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
+		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_time, open_time)
 		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[])
-		ON CONFLICT (venue_id, local_event_date, start_at) WHERE ` + notDraftPredicate + ` DO UPDATE SET
-			start_at = COALESCE(events.start_at, EXCLUDED.start_at),
-			open_at  = COALESCE(events.open_at, EXCLUDED.open_at)
+		ON CONFLICT (venue_id, local_event_date, start_time) WHERE ` + notDraftPredicate + ` DO UPDATE SET
+			start_time = COALESCE(events.start_time, EXCLUDED.start_time),
+			open_time  = COALESCE(events.open_time, EXCLUDED.open_time)
 	`
 
 	// insertConcertsQuery inserts placeholder concerts rows only for events that
@@ -67,11 +67,11 @@ const (
 		INSERT INTO concert_artists (event_id, artist_id)
 		SELECT e.id, perf.artist_id
 		FROM unnest($1::uuid[], $2::date[], $3::timestamptz[], $4::uuid[])
-			AS perf(venue_id, local_event_date, start_at, artist_id)
+			AS perf(venue_id, local_event_date, start_time, artist_id)
 		JOIN events e
 			ON e.venue_id = perf.venue_id
 			AND e.local_event_date = perf.local_event_date
-			AND e.start_at IS NOT DISTINCT FROM perf.start_at
+			AND e.start_time IS NOT DISTINCT FROM perf.start_time
 			AND ` + catalogEventCondition + `
 		ON CONFLICT DO NOTHING
 		RETURNING event_id, artist_id
@@ -82,7 +82,7 @@ const (
 	// array params. DISTINCT collapses duplicate input pairs. Projects only the
 	// fields discovery-time resolution needs (physical key + parent series).
 	findEventsByVenueDateQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.local_event_date, e.start_at
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.local_event_date, e.start_time
 		FROM events e
 		JOIN unnest($1::uuid[], $2::date[]) AS pairs(venue_id, local_event_date)
 			ON e.venue_id = pairs.venue_id
@@ -97,7 +97,7 @@ const (
 	// the discovery write path can both adopt the group's series and detect a
 	// per-event re-discovery (matching listed venue) that skips the Places API.
 	findEventsByArtistDateQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time
 		FROM events e
 		JOIN concert_artists ep ON ep.event_id = e.id
 		WHERE ep.artist_id = $1
@@ -106,25 +106,25 @@ const (
 	`
 
 	// listEventsBySeriesQuery returns every event of a series, ordered by
-	// local_event_date ascending and, for equal dates, by start_at ascending
-	// with a NULL start_at last (NULLS LAST). Projects only the physical-identity
+	// local_event_date ascending and, for equal dates, by start_time ascending
+	// with a NULL start_time last (NULLS LAST). Projects only the physical-identity
 	// fields a series-level notification link needs.
 	listEventsBySeriesQuery = `
-		SELECT e.id, e.series_id, e.local_event_date, e.start_at, e.publish_state
+		SELECT e.id, e.series_id, e.local_event_date, e.start_time, e.publish_state
 		FROM events e
 		WHERE e.series_id = $1
 		  AND ` + catalogEventCondition + `
-		ORDER BY e.local_event_date ASC, e.start_at ASC NULLS LAST
+		ORDER BY e.local_event_date ASC, e.start_time ASC NULLS LAST
 	`
 
-	// fillEventStartTimesQuery sets start_at / open_at on events by id, only
+	// fillEventStartTimesQuery sets start_time / open_time on events by id, only
 	// where currently NULL (COALESCE never overwrites a known time). The three
 	// arrays are zipped element-wise.
 	fillEventStartTimesQuery = `
 		UPDATE events e
-		SET start_at = COALESCE(e.start_at, u.start_at),
-		    open_at  = COALESCE(e.open_at, u.open_at)
-		FROM unnest($1::uuid[], $2::timestamptz[], $3::timestamptz[]) AS u(id, start_at, open_at)
+		SET start_time = COALESCE(e.start_time, u.start_time),
+		    open_time  = COALESCE(e.open_time, u.open_time)
+		FROM unnest($1::uuid[], $2::timestamptz[], $3::timestamptz[]) AS u(id, start_time, open_time)
 		WHERE e.id = u.id
 		  AND ` + catalogEventCondition + `
 	`
@@ -144,7 +144,7 @@ const (
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party
 	// events from this fan-facing surface.
 	listConcertsByArtistQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -165,7 +165,7 @@ const (
 	// (entity.CurrentDateAtVenue), never the database's own date, whose day
 	// is the server's.
 	listUpcomingConcertsByArtistQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -185,7 +185,7 @@ const (
 	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party events.
 	listConcertsByArtistsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -211,7 +211,7 @@ const (
 	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax, $7 admin_area.
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party events.
 	listConcertsByLocationQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -232,7 +232,7 @@ const (
 	// catalogConcertsSelect is the projection and joins of the admin catalog
 	// reads, scanned by scanConcertRow with coordinates.
 	catalogConcertsSelect = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -270,12 +270,12 @@ const (
 	// the suppression entry; DeleteAndSuppress reads it after
 	// lockAndCheckEventRemoval.
 	catalogEventSlotQuery = `
-		SELECT e.venue_id, e.local_event_date, e.start_at FROM events e
+		SELECT e.venue_id, e.local_event_date, e.start_time FROM events e
 		WHERE e.id = $1 AND ` + catalogEventCondition + `
 	`
 
 	insertSuppressionQuery = `
-		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
+		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_time)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT ON CONSTRAINT uq_suppressed_concerts_natural_key DO NOTHING
 	`
@@ -286,7 +286,7 @@ const (
 	// ProximityAway for every concert and HypeNearby followers are silently
 	// excluded from every new-concert push notification.
 	listConcertsByIDsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -313,7 +313,7 @@ const (
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party
 	// events from this fan-facing surface.
 	listConcertsByFollowerQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.publish_state,
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
@@ -856,8 +856,8 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 
 	// Compact the slice first AND dedup by the events physical natural key
-	// `(venue_id, local_event_date, start_at)` (NULLS NOT DISTINCT — an unknown
-	// start_at keys as empty so two unpublished-time rows collapse). PostgreSQL
+	// `(venue_id, local_event_date, start_time)` (NULLS NOT DISTINCT — an unknown
+	// start_time keys as empty so two unpublished-time rows collapse). PostgreSQL
 	// rejects `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
 	// statement target the same conflict row with:
 	//   ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time
@@ -880,7 +880,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			slog.String("concert_id", c.ID),
 			slog.String("venue_id", c.VenueID),
 			slog.String("local_date", c.LocalDate.Format("2006-01-02")),
-			slog.String("start_at", entity.StartKey(c.StartTime)),
+			slog.String("start_time", entity.StartKey(c.StartTime)),
 		)
 	}
 	if len(valid) == 0 {
@@ -940,7 +940,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 }
 
 // concertBatch is the columns of the concerts a Create inserts, one entry per
-// concert, and the (venue_id, local_event_date, start_at, artist_id) tuples of
+// concert, and the (venue_id, local_event_date, start_time, artist_id) tuples of
 // their performers.
 type concertBatch struct {
 	eventIDs         []string
@@ -955,7 +955,7 @@ type concertBatch struct {
 	// insertEventPerformersQuery JOIN onto the actual event row regardless of
 	// whether our input event UUID landed or lost the UPSERT race — this is
 	// what makes re-scrape lineup updates correctly attach to the existing
-	// event id instead of being silently dropped. start_at is matched with
+	// event id instead of being silently dropped. start_time is matched with
 	// IS NOT DISTINCT FROM so it both disambiguates 昼夜2公演 and matches NULLs.
 	performerVenueIDs   []string
 	performerEventDates []time.Time
@@ -1144,7 +1144,7 @@ func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artis
 }
 
 // ListEventsBySeries implements entity.ConcertRepository. It returns every
-// event of the given series that is not DRAFT, with its publish state, ordered by local_event_date then start_at
+// event of the given series that is not DRAFT, with its publish state, ordered by local_event_date then start_time
 // (NULLS LAST), projected to the fields series-level notification link
 // resolution needs.
 func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID string) ([]*entity.Event, error) {
@@ -1174,8 +1174,8 @@ func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID str
 	return events, nil
 }
 
-// FillEventStartTimes implements entity.ConcertRepository. It fills start_at /
-// open_at on existing events by id, using COALESCE so a known time is never
+// FillEventStartTimes implements entity.ConcertRepository. It fills start_time /
+// open_time on existing events by id, using COALESCE so a known time is never
 // overwritten.
 func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error {
 	if len(eventIDs) == 0 {

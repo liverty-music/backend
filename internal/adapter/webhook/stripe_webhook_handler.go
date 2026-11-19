@@ -128,7 +128,7 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		Type:              usecase.StripeEventType(event.Type),
 		ProviderChargeID:  providerChargeID,
 		ProviderPaymentID: providerPaymentID,
-		ReceivedAt:        time.Now().UTC(),
+		ReceiveTime:       time.Now().UTC(),
 	}
 
 	dispatchErr := h.webhookSvc.HandleEvent(ctx, parsed)

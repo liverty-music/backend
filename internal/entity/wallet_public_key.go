@@ -17,8 +17,8 @@ type WalletPublicKey struct {
 	UserID UserID
 	// PublicKey is the device's ECDSA P-256 public key.
 	PublicKey PublicKey
-	// RegisteredTime is when the device registered the key.
-	RegisteredTime time.Time
+	// RegisterTime is when the device registered the key.
+	RegisterTime time.Time
 }
 
 // WalletPublicKeyRepository defines the persistence contract for

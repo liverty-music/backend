@@ -30,7 +30,7 @@ const (
 		ON CONFLICT (organizer_id) DO UPDATE
 		  SET provider_account_id      = EXCLUDED.provider_account_id,
 		      status           = EXCLUDED.status,
-		      status_synced_at = NOW()
+		      status_sync_time = NOW()
 	`
 
 	getPayoutAccountQuery = `

@@ -21,7 +21,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number, u.last_login_at`
+	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number, u.last_login_time`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -129,8 +129,8 @@ const (
 	userExistsQuery       = `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`
 	// recordLoginQuery moves the last login time forward only.
 	recordLoginQuery = `
-		UPDATE users SET last_login_at = $2
-		WHERE id = $1 AND (last_login_at IS NULL OR last_login_at < $2)
+		UPDATE users SET last_login_time = $2
+		WHERE id = $1 AND (last_login_time IS NULL OR last_login_time < $2)
 	`
 )
 

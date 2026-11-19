@@ -24,17 +24,17 @@ func NewSettlementRepository(db *Database) *SettlementRepository {
 
 const (
 	getSettlementByOrderIDQuery = `
-		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_time, create_time
 		FROM settlements WHERE order_id = $1
 	`
 
 	// listHeldSettlementsQuery returns all settlements in Held status.
 	// The splits are fetched separately via listSplitsBySettlementIDsQuery.
 	listHeldSettlementsQuery = `
-		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_time, create_time
 		FROM settlements
 		WHERE status = 1
-		ORDER BY created_at
+		ORDER BY create_time
 	`
 
 	listSplitsBySettlementIDsQuery = `
@@ -45,7 +45,7 @@ const (
 	`
 
 	// markReleasedQuery atomically transitions a Held settlement to Released,
-	// records the provider_charge_id, sets release_at, and upserts each split's
+	// records the provider_charge_id, sets release_time, and upserts each split's
 	// provider_payout_id. The status = 1 guard ensures idempotency: a concurrent
 	// release attempt finds status != 1 and the UPDATE affects 0 rows, which
 	// surfaces as FailedPrecondition.
@@ -53,7 +53,7 @@ const (
 		UPDATE settlements
 		SET status      = 2,
 		    provider_charge_id  = $2,
-		    release_at = $3
+		    release_time = $3
 		WHERE id = $1 AND status = 1
 	`
 

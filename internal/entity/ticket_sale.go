@@ -82,12 +82,12 @@ const (
 
 // TicketSale (受付) is one sale opportunity of a Series: its name, method and
 // window. It is of one of two kinds, told apart by the Series' Organizer and
-// mirrored on the sale by DiscoveredTime:
+// mirrored on the sale by FindTime:
 //
-//   - An Organizer's sale (Series with an Organizer, DiscoveredTime nil) is
+//   - An Organizer's sale (Series with an Organizer, FindTime nil) is
 //     sold on the platform. It has a verification requirement and names the
 //     events it sells; it sells every [TicketStock] of those events.
-//   - A discovered sale (Series without an Organizer, DiscoveredTime set) was
+//   - A discovered sale (Series without an Organizer, FindTime set) was
 //     found on the artist's official pages and is only reported to fans. It
 //     names no event.
 //
@@ -112,9 +112,9 @@ type TicketSale struct {
 	// VerificationRequirement says whether a fan must hold an Active
 	// IdentityVerification. Always None on a discovered sale.
 	VerificationRequirement VerificationRequirement
-	// DiscoveredTime is when discovery first stored a discovered sale; nil on
+	// FindTime is when discovery first stored a discovered sale; nil on
 	// an Organizer's sale. It never changes once set.
-	DiscoveredTime *time.Time
+	FindTime *time.Time
 	// EventIDs are the events an Organizer's sale sells, at least one, each an
 	// event of its Series. A discovered sale names none.
 	EventIDs []string
@@ -143,7 +143,7 @@ func NewTicketSale(seriesID, name string, method TicketSaleMethod, saleStart, sa
 // IsDiscovered reports whether the sale is a discovered sale rather than an
 // Organizer's sale.
 func (s *TicketSale) IsDiscovered() bool {
-	return s.DiscoveredTime != nil
+	return s.FindTime != nil
 }
 
 // Validate reports whether the sale follows the TicketSale rules for its kind:

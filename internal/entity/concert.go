@@ -280,7 +280,7 @@ func NullableTime(t time.Time) *time.Time {
 // string; a known start is its UTC RFC3339 form. Two events share a physical
 // start time iff their StartKey values are equal — the single source of truth
 // the application-layer dedup/fill paths use to match the DB's
-// `(venue_id, local_event_date, start_at) NULLS NOT DISTINCT` constraint.
+// `(venue_id, local_event_date, start_time) NULLS NOT DISTINCT` constraint.
 func StartKey(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
@@ -290,7 +290,7 @@ func StartKey(t *time.Time) string {
 
 // NaturalKey is the physical identity of an event: its Venue, local date and
 // start time, where an unknown start time keys as the empty string
-// (`(venue_id, local_event_date, start_at) NULLS NOT DISTINCT`; see
+// (`(venue_id, local_event_date, start_time) NULLS NOT DISTINCT`; see
 // [StartKey]). Two events with the same key are the same show.
 func (c *Concert) NaturalKey() string {
 	return c.VenueID + "|" + c.LocalDate.Format("2006-01-02") + "|" + StartKey(c.StartTime)
@@ -343,7 +343,7 @@ func NotifiableEventIDs(inserted, linked []string) []string {
 // duplicate another event within this same batch) from each discovered series,
 // then drops any series left with no events. It is a best-effort upstream filter
 // aligned with the events physical natural key
-// `(venue_id, local_event_date, start_at)`, applied per event while preserving
+// `(venue_id, local_event_date, start_time)`, applied per event while preserving
 // the series grouping so a tour that partially overlaps known dates still
 // persists its new dates under one series.
 //
@@ -352,7 +352,7 @@ func NotifiableEventIDs(inserted, linked []string) []string {
 // upstream identity that survives both sides of the comparison. The name
 // component is compared through ListedVenueKey so Gemini's formatting drift
 // across runs (full/half-width, whitespace, middle dots, letter case,
-// "大阪・"/"大阪公演 ＠" location prefixes) does not defeat the match; the (date, start_at) components are unchanged.
+// "大阪・"/"大阪公演 ＠" location prefixes) does not defeat the match; the (date, start_time) components are unchanged.
 //
 // start_time disambiguates within a (date, venue), but asymmetrically so the
 // downstream resolution stays correct:
@@ -707,7 +707,7 @@ type ConcertRepository interface {
 	// element-wise into pairs; an event matches when its (venue_id,
 	// local_event_date) equals any supplied pair. Used by the discovery write
 	// path to (1) adopt a parent series from already-persisted member events and
-	// (2) detect a row first seen without a start_at so a later-announced time
+	// (2) detect a row first seen without a start_time so a later-announced time
 	// fills it instead of inserting a duplicate.
 	//
 	// Only physical-identity and parentage fields are populated (ID, SeriesID,
@@ -730,8 +730,8 @@ type ConcertRepository interface {
 	// matches.
 	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
 	// ListEventsBySeries retrieves every event belonging to the given series,
-	// ordered by local_event_date ascending and, for equal dates, by start_at
-	// ascending with a NULL start_at ordered last. Used to resolve which event
+	// ordered by local_event_date ascending and, for equal dates, by start_time
+	// ascending with a NULL start_time ordered last. Used to resolve which event
 	// of a series a series-level notification should deep-link to (see
 	// TicketSaleAnnouncementUseCase and TicketSaleReminderUseCase).
 	//
@@ -740,7 +740,7 @@ type ConcertRepository interface {
 	// Concert and is never returned. Returns an empty slice (no error) when
 	// the series has no such event.
 	ListEventsBySeries(ctx context.Context, seriesID string) ([]*Event, error)
-	// FillEventStartTimes sets start_at / open_at on existing events identified
+	// FillEventStartTimes sets start_time / open_time on existing events identified
 	// by eventIDs, only where the column is currently NULL (COALESCE), for the
 	// case where a later discovery supplies a time the first discovery lacked.
 	// The three slices are zipped element-wise; a nil time leaves the column
@@ -796,7 +796,7 @@ type ConcertRepository interface {
 	// event's first-party Series, with its SeatTypes, when it is left with no
 	// event. A discovered Series and its discovered TicketSales stay. In the
 	// same transaction it records a suppression entry for the event's
-	// (venue_id, local_event_date, start_at) so a later discovery run does not
+	// (venue_id, local_event_date, start_time) so a later discovery run does not
 	// auto-publish or re-stage it.
 	//
 	// It is idempotent: an id that no longer exists, or a DRAFT event, is a

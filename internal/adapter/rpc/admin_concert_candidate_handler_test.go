@@ -51,7 +51,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		ResolvedLatitude:  &lat,
 		ResolvedLongitude: &lon,
 		SourceURL:         &sourceURL,
-		DiscoveredTime:    time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
+		FindTime:          time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
 	}
 
 	candidateNoVenue := &entity.ConcertCandidate{
@@ -60,7 +60,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		Title:           "Single Show",
 		LocalDate:       time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
 		ListedVenueName: "Mystery Venue",
-		DiscoveredTime:  time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC),
+		FindTime:        time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC),
 	}
 
 	artistA := &entity.Artist{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}
@@ -107,7 +107,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 				assert.InDelta(t, 35.6762, pc.GetResolvedVenue().GetCoordinates().GetLatitude(), 1e-6)
 				assert.InDelta(t, 139.6503, pc.GetResolvedVenue().GetCoordinates().GetLongitude(), 1e-6)
 				assert.Equal(t, "https://example.com/concert", pc.GetSourceUrl().GetValue())
-				assert.NotNil(t, pc.GetDiscoveredTime())
+				assert.NotNil(t, pc.GetFindTime())
 			},
 		},
 		{

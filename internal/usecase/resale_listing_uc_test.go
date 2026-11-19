@@ -114,7 +114,7 @@ func TestResaleListingUseCase_Create(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.ResaleListingStatusListed, got.Status)
 		assert.Equal(t, int64(5000), got.Listing.Price)
-		assert.True(t, got.Deadline.Equal(resaleDeadline))
+		assert.True(t, got.CloseTime.Equal(resaleDeadline))
 	})
 
 	t.Run("stock not sold out", func(t *testing.T) {
@@ -291,7 +291,7 @@ func TestResaleListingUseCase_List(t *testing.T) {
 		assert.Equal(t, entity.ResaleListingStatusListed, got[0].Status)
 		assert.Equal(t, int64(500), got[0].Listing.Fee())
 		assert.Equal(t, int64(4500), got[0].Listing.RefundAmount())
-		assert.True(t, got[0].Deadline.Equal(resaleDeadline))
+		assert.True(t, got[0].CloseTime.Equal(resaleDeadline))
 	})
 
 	t.Run("listing that did not sell", func(t *testing.T) {
@@ -314,7 +314,7 @@ func TestResaleListingUseCase_List(t *testing.T) {
 		sold := fanListing(entity.ResaleListingStatusSold)
 		soldAt := resaleWeekBefore.Add(-time.Hour)
 		refundAt := soldAt.Add(time.Minute)
-		sold.SoldTime, sold.RefundTime = &soldAt, &refundAt
+		sold.SellTime, sold.RefundTime = &soldAt, &refundAt
 		f.listings.EXPECT().ListByUser(mock.Anything, entity.UserID("fan-1")).Return([]*entity.ResaleListing{sold}, nil)
 		f.expectEvent()
 
@@ -322,7 +322,7 @@ func TestResaleListingUseCase_List(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.ResaleListingStatusSold, got[0].Status)
-		assert.Equal(t, &soldAt, got[0].Listing.SoldTime)
+		assert.Equal(t, &soldAt, got[0].Listing.SellTime)
 		assert.Equal(t, &refundAt, got[0].Listing.RefundTime)
 	})
 
@@ -342,7 +342,7 @@ func TestResaleListingUseCase_List(t *testing.T) {
 func soldListing(id entity.ResaleListingID, soldAt time.Time) *entity.ResaleListing {
 	l := fanListing(entity.ResaleListingStatusSold)
 	l.ID = id
-	l.SoldTime = &soldAt
+	l.SellTime = &soldAt
 	return l
 }
 

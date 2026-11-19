@@ -104,7 +104,7 @@ type UserUseCase interface {
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming
-	// ticket, listed resale (open, before its deadline), pending lottery
+	// ticket, listed resale (open, before its close time), pending lottery
 	// entry, payment in progress (a Checkout being paid, or a Won entry with
 	// no Order yet), or an empty slice. Delete applies the same rule.
 	//
@@ -682,7 +682,7 @@ func (c *deletionBlockerCounter) countUpcomingTickets(ctx context.Context, userI
 }
 
 // countListedResales counts the listings that can still be bought. A Listed
-// listing past its deadline is expired: it can no longer be bought, and its
+// listing past its close time is expired: it can no longer be bought, and its
 // stored status never changes. An event without a start time has no resale,
 // so its listing is not open either.
 func (c *deletionBlockerCounter) countListedResales(ctx context.Context, userID entity.UserID) error {

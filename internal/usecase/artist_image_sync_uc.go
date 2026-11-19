@@ -48,7 +48,7 @@ func NewArtistImageSyncUseCase(
 // SyncArtistImage resolves images from the external provider and records them
 // on the artist.
 // When mbid is empty the artist has no MusicBrainz identity and image sync
-// is skipped. When ResolveImages returns nil (no images found), fanart_synced_at
+// is skipped. When ResolveImages returns nil (no images found), fanart_sync_time
 // is still updated to record that the artist was checked.
 func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID, mbid string) error {
 	if mbid == "" {

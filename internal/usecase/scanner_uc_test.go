@@ -124,7 +124,7 @@ func TestScannerUseCase_ListByEvent(t *testing.T) {
 		f.scanners.EXPECT().ListByEvent(mock.Anything, f.event.ID).Return([]*entity.Scanner{
 			// The link token of an InUse scanner is cleared by the usecase even if a
 			// store still returned one.
-			{ID: "l1", EventID: f.event.ID, Number: 1, LinkToken: "stale", Status: entity.ScannerStatusInUse, BoundTime: &bound},
+			{ID: "l1", EventID: f.event.ID, Number: 1, LinkToken: "stale", Status: entity.ScannerStatusInUse, BindTime: &bound},
 			{ID: "l2", EventID: f.event.ID, Number: 2, LinkToken: "tok-2", Status: entity.ScannerStatusUnused},
 		}, nil)
 
@@ -132,7 +132,7 @@ func TestScannerUseCase_ListByEvent(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 2)
 		assert.Equal(t, 1, got[0].Number)
-		assert.True(t, got[0].BoundTime.Equal(bound))
+		assert.True(t, got[0].BindTime.Equal(bound))
 		assert.Empty(t, got[0].LinkToken)
 		assert.Equal(t, "tok-2", got[1].LinkToken)
 	})
@@ -158,12 +158,12 @@ func TestScannerUseCase_Revoke(t *testing.T) {
 		scanner := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusInUse}
 		f.scanners.EXPECT().Get(mock.Anything, scanner.ID).Return(scanner, nil)
 		f.scanners.EXPECT().Revoke(mock.Anything, scanner.ID, now).
-			Return(&entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokedTime: &now}, nil)
+			Return(&entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokeTime: &now}, nil)
 
 		got, err := f.uc.Revoke(context.Background(), "org-owner", scanner.ID, now)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ScannerStatusRevoked, got.Status)
-		assert.True(t, got.RevokedTime.Equal(now))
+		assert.True(t, got.RevokeTime.Equal(now))
 		// The next scan through it is refused: see TestTicketUseCase_Admit_Caller
 		// "revoked scanner" and the store-level "scanner revoked before the
 		// admission" contract test.
@@ -174,13 +174,13 @@ func TestScannerUseCase_Revoke(t *testing.T) {
 		// @spec components/usecase/scanner/revoke "Revoked twice"
 		f := newScannerFixture(t)
 		earlier := evening(18, 5, 0)
-		revoked := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokedTime: &earlier}
+		revoked := &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusRevoked, RevokeTime: &earlier}
 		f.scanners.EXPECT().Get(mock.Anything, revoked.ID).Return(revoked, nil)
 		f.scanners.EXPECT().Revoke(mock.Anything, revoked.ID, now).Return(revoked, nil)
 
 		got, err := f.uc.Revoke(context.Background(), "org-owner", revoked.ID, now)
 		require.NoError(t, err)
-		assert.True(t, got.RevokedTime.Equal(earlier))
+		assert.True(t, got.RevokeTime.Equal(earlier))
 	})
 
 	t.Run("another organizer's scanner", func(t *testing.T) {
@@ -227,7 +227,7 @@ func TestScannerUseCase_Open(t *testing.T) {
 	}
 	boundTo := func(t *testing.T, f *scannerFixture, device *testutil.DeviceKey, at time.Time) *entity.Scanner {
 		t.Helper()
-		return &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusInUse, BoundPublicKey: device.PublicKey(t), BoundTime: &at}
+		return &entity.Scanner{ID: "l1", EventID: f.event.ID, Number: 1, Status: entity.ScannerStatusInUse, BoundPublicKey: device.PublicKey(t), BindTime: &at}
 	}
 
 	t.Run("staff open the link for the first time", func(t *testing.T) {
@@ -382,12 +382,12 @@ func TestWalletPublicKeyUseCase_Register(t *testing.T) {
 		keys := entitymocks.NewMockWalletPublicKeyRepository(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		keys.EXPECT().Register(mock.Anything, user, key, now).
-			Return(&entity.WalletPublicKey{UserID: user, PublicKey: key, RegisteredTime: now}, false, nil)
+			Return(&entity.WalletPublicKey{UserID: user, PublicKey: key, RegisterTime: now}, false, nil)
 
 		got, err := usecase.NewWalletPublicKeyUseCase(keys, newTestLogger(t)).Register(context.Background(), user, key, now)
 		require.NoError(t, err)
 		assert.Equal(t, key, got.Key.PublicKey)
-		assert.True(t, got.Key.RegisteredTime.Equal(now))
+		assert.True(t, got.Key.RegisterTime.Equal(now))
 		assert.False(t, got.ReplacedOtherKey)
 	})
 
@@ -397,7 +397,7 @@ func TestWalletPublicKeyUseCase_Register(t *testing.T) {
 		keys := entitymocks.NewMockWalletPublicKeyRepository(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		keys.EXPECT().Register(mock.Anything, user, key, now).
-			Return(&entity.WalletPublicKey{UserID: user, PublicKey: key, RegisteredTime: now}, true, nil)
+			Return(&entity.WalletPublicKey{UserID: user, PublicKey: key, RegisterTime: now}, true, nil)
 
 		got, err := usecase.NewWalletPublicKeyUseCase(keys, newTestLogger(t)).Register(context.Background(), user, key, now)
 		require.NoError(t, err)
@@ -431,12 +431,12 @@ func TestWalletPublicKeyUseCase_Get(t *testing.T) {
 		k2 := testutil.NewDeviceKey(t).PublicKey(t)
 		registered := evening(10, 0, 0)
 		keys.EXPECT().GetByUser(mock.Anything, user).
-			Return(&entity.WalletPublicKey{UserID: user, PublicKey: k2, RegisteredTime: registered}, nil)
+			Return(&entity.WalletPublicKey{UserID: user, PublicKey: k2, RegisterTime: registered}, nil)
 
 		got, err := usecase.NewWalletPublicKeyUseCase(keys, newTestLogger(t)).Get(context.Background(), user)
 		require.NoError(t, err)
 		assert.Equal(t, k2, got.PublicKey)
-		assert.True(t, got.RegisteredTime.Equal(registered))
+		assert.True(t, got.RegisterTime.Equal(registered))
 		keys.AssertNotCalled(t, "Register", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 

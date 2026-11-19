@@ -67,7 +67,7 @@ type passkeyEventPayload struct {
 	AggregateID   string          `json:"aggregateID"`
 	ResourceOwner string          `json:"resourceOwner"`
 	EventType     string          `json:"event_type"`
-	CreatedAt     time.Time       `json:"created_at"`
+	CreateTime    time.Time       `json:"created_at"`
 	EventPayload  json.RawMessage `json:"event_payload"`
 }
 
@@ -159,7 +159,7 @@ func (h *PasskeyEventHandler) passkeyChange(ctx context.Context, payload passkey
 		ProviderUserID:    payload.AggregateID,
 		ProviderPasskeyID: token.TokenID,
 		Kind:              string(kind),
-		ChangeTime:        payload.CreatedAt,
+		ChangeTime:        payload.CreateTime,
 	}
 	if kind == entity.PasskeyChangeAdded {
 		data.Name = token.TokenName

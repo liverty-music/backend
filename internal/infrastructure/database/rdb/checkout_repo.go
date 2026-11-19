@@ -30,11 +30,11 @@ var _ entity.CheckoutRepository = (*CheckoutRepository)(nil)
 // the column order scanCheckout expects; a WHERE on c or o follows.
 const checkoutSelect = `
 	SELECT c.id, c.order_id, c.ticket_sale_id, c.status,
-		c.hold_expire_at, c.commit_at, c.capture_at,
+		c.hold_expire_time, c.commit_time, c.capture_time,
 		o.id, o.user_id, o.ticket_stock_id, o.ticket_count, o.referral_code, o.card_authorization_id,
 		o.provider, o.provider_payment_id, o.provider_payment_method_id, o.card_brand, o.card_last4,
-		o.status, o.amount, o.currency, o.pay_at, o.confirmation_send_at,
-		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_at,
+		o.status, o.amount, o.currency, o.pay_time, o.confirmation_send_time,
+		orf.reason, orf.amount, orf.provider_refund_id, orf.refund_time,
 		NULL::uuid, c.id, NULL::uuid
 	FROM checkouts c
 	JOIN orders o ON o.id = c.order_id
@@ -67,7 +67,7 @@ const (
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, 4, $8, $9)
 	`
 	checkoutInsertQuery = `
-		INSERT INTO checkouts (id, order_id, ticket_sale_id, status, hold_expire_at)
+		INSERT INTO checkouts (id, order_id, ticket_sale_id, status, hold_expire_time)
 		VALUES ($1, $2, $3, 1, $4)
 	`
 	checkoutSetCardAuthorizationQuery = `
@@ -77,22 +77,22 @@ const (
 		  AND (o.card_authorization_id IS NULL OR o.card_authorization_id = $2)
 	`
 	checkoutCommitQuery = `
-		UPDATE checkouts SET status = 2, commit_at = $2
-		WHERE id = $1 AND status = 1 AND hold_expire_at > $2
+		UPDATE checkouts SET status = 2, commit_time = $2
+		WHERE id = $1 AND status = 1 AND hold_expire_time > $2
 	`
 	checkoutReleaseQuery = `
 		UPDATE checkouts SET status = 4
-		WHERE id = $1 AND status = 1 AND hold_expire_at <= $2
+		WHERE id = $1 AND status = 1 AND hold_expire_time <= $2
 		RETURNING order_id
 	`
 	checkoutRevertCommitQuery = `
 		UPDATE checkouts SET status = 5
-		WHERE id = $1 AND status = 2 AND capture_at IS NULL
+		WHERE id = $1 AND status = 2 AND capture_time IS NULL
 		RETURNING order_id
 	`
 	checkoutRecordCaptureQuery = `
-		UPDATE checkouts SET capture_at = $2
-		WHERE id = $1 AND status = 2 AND capture_at IS NULL
+		UPDATE checkouts SET capture_time = $2
+		WHERE id = $1 AND status = 2 AND capture_time IS NULL
 	`
 )
 

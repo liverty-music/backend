@@ -106,7 +106,7 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 		require.NoError(t, err)
 		settlementID := entity.NewID()
 		_, err = db.Pool.Exec(s.ctx, `
-			INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+			INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 			settlementID, orderID, organizerID, s.eventID, issuedTicketsTime)
 		require.NoError(t, err)
 		insertSettlementSplit(t, db, entity.SettlementID(settlementID), organizerID, 5400)

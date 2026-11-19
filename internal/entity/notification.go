@@ -172,7 +172,7 @@ type NotificationRepository interface {
 	//   - FailedPrecondition: the fan does not exist.
 	Create(ctx context.Context, n *Notification) error
 
-	// MarkRead sets read_at for the (userID, id) notification. It is idempotent:
+	// MarkRead sets read_time for the (userID, id) notification. It is idempotent:
 	// marking an already-read notification is a no-op success.
 	MarkRead(ctx context.Context, userID, id string) error
 

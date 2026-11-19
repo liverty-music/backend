@@ -24,12 +24,12 @@ func followArtist(t *testing.T, db *rdb.Database, userID, artistID string) {
 	require.NoError(t, err)
 }
 
-// officialSiteCheckTime reads artists.official_site_checked_at for artistID.
+// officialSiteCheckTime reads artists.official_site_check_time for artistID.
 func officialSiteCheckTime(t *testing.T, db *rdb.Database, artistID string) *time.Time {
 	t.Helper()
 	var checkedAt *time.Time
 	err := db.Pool.QueryRow(context.Background(),
-		"SELECT official_site_checked_at FROM artists WHERE id = $1", artistID,
+		"SELECT official_site_check_time FROM artists WHERE id = $1", artistID,
 	).Scan(&checkedAt)
 	require.NoError(t, err)
 	return checkedAt

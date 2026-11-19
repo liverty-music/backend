@@ -294,7 +294,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		require.NoError(t, err)
 
 		admit := func(ticket entity.TicketID, now time.Time) (*usecase.AdmitResult, error) {
-			code := fanKey.SignCode(t, &entity.AdmissionCode{UserID: fanID, EventID: eventID, TicketIDs: []entity.TicketID{ticket}, SignedTime: now})
+			code := fanKey.SignCode(t, &entity.AdmissionCode{UserID: fanID, EventID: eventID, TicketIDs: []entity.TicketID{ticket}, SignTime: now})
 			call := staff.SignCall(t, consoleAdmitProcedure, issued.LinkToken, code, now)
 			return s.tickets.Admit(s.ctx, usecase.AdmitInput{
 				Procedure: consoleAdmitProcedure, LinkToken: issued.LinkToken,

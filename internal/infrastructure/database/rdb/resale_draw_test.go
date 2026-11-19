@@ -28,10 +28,10 @@ func seedListing(t *testing.T, db *rdb.Database, f *stockFixture) entity.ResaleL
 	seller := newUserID(t, db)
 	orderID := seedPaidOrder(t, db, f, string(seller), 1, issuedTicketsTime)
 	ticketID, listingID := entity.NewID(), entity.NewID()
-	_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at) VALUES ($1, $2, $3, $4, 1, $5)`,
+	_, err := db.Pool.Exec(ctx, `INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time) VALUES ($1, $2, $3, $4, 1, $5)`,
 		ticketID, string(orderID), string(seller), f.EventID, issuedTicketsTime)
 	require.NoError(t, err)
-	_, err = db.Pool.Exec(ctx, `INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, created_at)
+	_, err = db.Pool.Exec(ctx, `INSERT INTO resale_listings (id, ticket_id, user_id, ticket_stock_id, price, status, create_time)
 		VALUES ($1, $2, $3, $4, 3000, 1, $5)`, listingID, ticketID, string(seller), string(f.ID), resaleApplyTime)
 	require.NoError(t, err)
 	return entity.ResaleListingID(listingID)
@@ -296,7 +296,7 @@ func TestResaleListingRepository_WithdrawFreeOnly(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Already sold"
 		f := seedResaleStock(t, db, 4, 4)
 		l := seedListing(t, db, f)
-		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l), resaleApplyTime)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sell_time = $2 WHERE id = $1`, string(l), resaleApplyTime)
 		require.NoError(t, err)
 
 		assert.ErrorIs(t, listings.Withdraw(ctx, l, resaleApplyTime), apperr.ErrFailedPrecondition)
@@ -461,8 +461,8 @@ func TestResaleEntryRepository_FreeListingsParity(t *testing.T) {
 	repo := rdb.NewResaleEntryRepository(db, testOutbox)
 	f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
 
-	// Expired is never stored: a Listed listing past its deadline reads as
-	// Expired, which a draw at its deadline or before does not meet.
+	// Expired is never stored: a Listed listing past its close time reads as
+	// Expired, which a draw at its close time or before does not meet.
 	statuses := []entity.ResaleListingStatus{
 		entity.ResaleListingStatusListed, entity.ResaleListingStatusSold,
 		entity.ResaleListingStatusWithdrawn, entity.ResaleListingStatusCancelled,
@@ -491,7 +491,7 @@ func TestResaleEntryRepository_FreeListingsParity(t *testing.T) {
 				if state == entity.ResaleEntryStateLost {
 					lostReason = int16(entity.ResaleEntryLostReasonNoTicketLeft)
 				}
-				_, err := db.Pool.Exec(ctx, `INSERT INTO resale_entries (id, order_id, state, draw_at, withdraw_at, lost_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				_, err := db.Pool.Exec(ctx, `INSERT INTO resale_entries (id, order_id, state, draw_time, withdraw_time, lost_reason, create_time) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 					id2, string(orderID), int16(state), drawAt, withdrawAt, lostReason, resaleApplyTime)
 				require.NoError(t, err)
 				entryID = id2
@@ -503,7 +503,7 @@ func TestResaleEntryRepository_FreeListingsParity(t *testing.T) {
 			case entity.ResaleListingStatusWithdrawn:
 				withdrawAt = resaleApplyTime.Add(time.Hour)
 			}
-			_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = $2, resale_entry_id = $3, sold_at = $4, withdraw_at = $5 WHERE id = $1`,
+			_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = $2, resale_entry_id = $3, sell_time = $4, withdraw_time = $5 WHERE id = $1`,
 				string(id), int16(status), entryID, soldAt, withdrawAt)
 			require.NoError(t, err, "status %s, entry state %s", status, state)
 

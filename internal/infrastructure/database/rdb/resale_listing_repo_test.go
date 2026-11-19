@@ -38,7 +38,7 @@ func seedSoldOutType(t *testing.T, db *rdb.Database, quantity int) *soldOutType 
 	t.Helper()
 	ctx := context.Background()
 	f := seedStock(t, db, entity.TicketSaleMethodFirstCome, quantity, quantity)
-	_, err := db.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, f.EventID, resaleEventStart)
+	_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleEventStart)
 	require.NoError(t, err)
 
 	seller := entity.UserID(saleFan(t, db))
@@ -136,7 +136,7 @@ func TestResaleListingRepository_Create(t *testing.T) {
 
 	t.Run("admitted ticket", func(t *testing.T) {
 		s := seedSoldOutType(t, db, 1)
-		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET admit_at = $2 WHERE id = $1`, string(s.tickets[0].ID), at)
+		_, err := db.Pool.Exec(ctx, `UPDATE tickets SET admit_time = $2 WHERE id = $1`, string(s.tickets[0].ID), at)
 		require.NoError(t, err)
 
 		_, err = repo.Create(ctx, s.newListing(0, at))
@@ -222,7 +222,7 @@ func TestResaleListingRepository_Withdraw(t *testing.T) {
 		// @spec components/entity/resale-listing/withdraw "Already sold"
 		s := seedSoldOutType(t, db, 1)
 		listed := s.list(t, 0, at)
-		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(listed.ID), at)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sell_time = $2 WHERE id = $1`, string(listed.ID), at)
 		require.NoError(t, err)
 
 		err = repo.Withdraw(ctx, listed.ID, at.Add(time.Minute))
@@ -302,7 +302,7 @@ func TestResaleListingRepository_RecordRefund(t *testing.T) {
 	s := seedSoldOutType(t, db, 5)
 	sell := func(l *entity.ResaleListing, soldAt time.Time) {
 		t.Helper()
-		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sold_at = $2 WHERE id = $1`, string(l.ID), soldAt)
+		_, err := db.Pool.Exec(ctx, `UPDATE resale_listings SET status = 2, sell_time = $2 WHERE id = $1`, string(l.ID), soldAt)
 		require.NoError(t, err)
 	}
 	justSold := s.list(t, 0, at)

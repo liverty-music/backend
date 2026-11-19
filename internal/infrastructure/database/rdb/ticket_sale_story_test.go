@@ -426,7 +426,7 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
 	})
 	require.NoError(t, err)
-	_, err = db.Pool.Exec(ctx, `UPDATE ticket_sales SET discovered_at = NOW() - INTERVAL '1 day' WHERE discovered_at IS NOT NULL`)
+	_, err = db.Pool.Exec(ctx, `UPDATE ticket_sales SET find_time = NOW() - INTERVAL '1 day' WHERE find_time IS NOT NULL`)
 	require.NoError(t, err)
 
 	scan := usecase.NewTicketSaleReminderUseCase(
@@ -521,7 +521,7 @@ func TestStory_LotteryClosingSoon(t *testing.T) {
 	require.NoError(t, err)
 	// Known since after the lotteries opened, so only the closing reminder of
 	// KICKOFF is due.
-	_, err = db.Pool.Exec(ctx, `UPDATE ticket_sales SET discovered_at = NOW() - INTERVAL '9 days' WHERE discovered_at IS NOT NULL`)
+	_, err = db.Pool.Exec(ctx, `UPDATE ticket_sales SET find_time = NOW() - INTERVAL '9 days' WHERE find_time IS NOT NULL`)
 	require.NoError(t, err)
 
 	scan := usecase.NewTicketSaleReminderUseCase(

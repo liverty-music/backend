@@ -202,7 +202,7 @@ func seedSale(t *testing.T, db *rdb.Database, eventID string, method entity.Tick
 	}
 	id := entity.NewID()
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO ticket_sales (id, series_id, name, method, sale_start_at, sale_end_at)
+		INSERT INTO ticket_sales (id, series_id, name, method, sale_start_time, sale_end_time)
 		SELECT $1, series_id, $3, $4, $5, $6 FROM events WHERE id = $2
 	`, id, eventID, name, int16(method), start, end)
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func seedPaidOrder(t *testing.T, db *rdb.Database, f *stockFixture, userID strin
 	orderID := entity.NewID()
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO orders (id, user_id, ticket_stock_id, ticket_count, card_authorization_id, provider,
-			provider_payment_id, status, amount, currency, pay_at)
+			provider_payment_id, status, amount, currency, pay_time)
 		VALUES ($1, $2, $3, $4, $5, 1, $6, 1, $7, 'JPY', $8)`,
 		orderID, userID, string(f.ID), n, newCardAuthorizationID(db), "pi_"+orderID, f.Price()*int64(n), payTime)
 	require.NoError(t, err)
@@ -253,7 +253,7 @@ func seedIssuedTicketsOf(t *testing.T, db *rdb.Database, f *stockFixture, userID
 	for i := range n {
 		id := entity.NewID()
 		_, err := db.Pool.Exec(context.Background(), `
-			INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at)
+			INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_time)
 			VALUES ($1, $2, $3, $4, 1, $5)`,
 			id, string(orderID), userID, f.EventID, issuedTicketsTime.Add(time.Duration(i)*time.Second))
 		require.NoError(t, err)

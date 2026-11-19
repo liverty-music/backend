@@ -69,9 +69,9 @@ type StripeWebhookEvent struct {
 	// Charge object inside the event data.
 	// May be empty when unavailable or for non-charge events.
 	ProviderPaymentID string
-	// ReceivedAt is the UTC time the webhook was received (not Stripe's event
+	// ReceiveTime is the UTC time the webhook was received (not Stripe's event
 	// created time). Used for audit.
-	ReceivedAt time.Time
+	ReceiveTime time.Time
 }
 
 // StripeWebhookService processes incoming Stripe webhook events idempotently.
@@ -294,7 +294,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	// Delegate to OrderUseCase.Refund with reason=DISPUTE. Idempotent: if the
 	// Order is already Refunded (e.g. admin ran RefundOrder before the webhook
 	// arrived) the call is a no-op that returns the existing order.
-	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute, event.ReceivedAt); err != nil {
+	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute, event.ReceiveTime); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Order disappeared between resolution and refund; very unlikely —
 			// accept without retry.

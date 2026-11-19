@@ -64,19 +64,19 @@ type RejectedScan struct {
 	TicketID TicketID
 	// Reason is why it was refused.
 	Reason RejectedScanReason
-	// ScannedTime is when the scan was decided.
-	ScannedTime time.Time
+	// ScanTime is when the scan was decided.
+	ScanTime time.Time
 }
 
 // NewRejectedScan returns a RejectedScan with a fresh id.
 func NewRejectedScan(eventID string, scannerID ScannerID, ticketID TicketID, reason RejectedScanReason, scannedTime time.Time) *RejectedScan {
 	return &RejectedScan{
-		ID:          NewID(),
-		EventID:     eventID,
-		ScannerID:   scannerID,
-		TicketID:    ticketID,
-		Reason:      reason,
-		ScannedTime: scannedTime,
+		ID:        NewID(),
+		EventID:   eventID,
+		ScannerID: scannerID,
+		TicketID:  ticketID,
+		Reason:    reason,
+		ScanTime:  scannedTime,
 	}
 }
 
@@ -85,7 +85,7 @@ func NewRejectedScan(eventID string, scannerID ScannerID, ticketID TicketID, rea
 // the reason is not Forged: a forged code proves nothing about the Tickets it
 // lists, while any other reason follows a verified signature.
 func (s *RejectedScan) Validate() error {
-	if s.EventID == "" || s.ScannerID == "" || s.ScannedTime.IsZero() {
+	if s.EventID == "" || s.ScannerID == "" || s.ScanTime.IsZero() {
 		return apperr.New(codes.InvalidArgument, "rejected scan needs an event, a scanner and a scanned time")
 	}
 	if !s.Reason.IsValid() {

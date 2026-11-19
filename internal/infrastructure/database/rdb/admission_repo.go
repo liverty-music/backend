@@ -22,7 +22,7 @@ func NewAdmissionRepository(db *Database) *AdmissionRepository {
 }
 
 const admissionGetByTicketQuery = `
-	SELECT a.ticket_id, a.event_id, a.scanner_id, l.number, a.admitted_at
+	SELECT a.ticket_id, a.event_id, a.scanner_id, l.number, a.admit_time
 	FROM admissions a
 	JOIN scanners l ON l.id = a.scanner_id
 	WHERE a.ticket_id = $1

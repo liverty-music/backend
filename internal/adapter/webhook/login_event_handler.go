@@ -71,8 +71,8 @@ func NewLoginEventHandler(
 type eventExecutionPayload struct {
 	EventType    string          `json:"event_type"`
 	EventPayload json.RawMessage `json:"event_payload"`
-	// CreatedAt is when Zitadel recorded the event, the time of the login.
-	CreatedAt time.Time `json:"created_at"`
+	// CreateTime is when Zitadel recorded the event, the time of the login.
+	CreateTime time.Time `json:"created_at"`
 }
 
 // sessionUserCheckedPayload is the decoded `event_payload` of a
@@ -117,7 +117,7 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.writeOK(ctx, w)
 		return
 	}
-	loginTime := payload.CreatedAt
+	loginTime := payload.CreateTime
 	if loginTime.IsZero() {
 		loginTime = time.Now()
 	}
