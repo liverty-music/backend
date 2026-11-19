@@ -3,7 +3,6 @@ package rpc_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
@@ -24,12 +23,11 @@ import (
 type refundUCStub struct {
 	called bool
 	reason usecase.RefundReason
-	now    time.Time
 	fn     func(entity.OrderID) (*entity.Order, error)
 }
 
-func (s *refundUCStub) Refund(_ context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
-	s.called, s.reason, s.now = true, reason, now
+func (s *refundUCStub) Refund(_ context.Context, orderID entity.OrderID, reason usecase.RefundReason) (*entity.Order, error) {
+	s.called, s.reason = true, reason
 	return s.fn(orderID)
 }
 
@@ -47,9 +45,11 @@ type orderWithRefund struct {
 	refunder usecase.OrderRefunder
 }
 
-func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
-	return o.refunder.Refund(ctx, orderID, reason, now)
+func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason) (*entity.Order, error) {
+	return o.refunder.Refund(ctx, orderID, reason)
 }
+
+const refundTestOrderID = "019a0000-0000-7000-8000-0000000000b1"
 
 func TestAdminOrderHandler_Refund(t *testing.T) {
 	t.Parallel()
@@ -60,15 +60,14 @@ func TestAdminOrderHandler_Refund(t *testing.T) {
 		uc := &refundUCStub{fn: func(id entity.OrderID) (*entity.Order, error) {
 			return &entity.Order{ID: id, Status: entity.OrderStatusRefunded, Currency: "JPY"}, nil
 		}}
-		before := time.Now()
-		resp, err := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc).Refund(context.Background(), &adminorderv1.RefundRequest{
-			OrderId: &entityv1.OrderId{Value: "order-1"},
+		h := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc)
+		resp, err := callThroughAdminPipeline(t, adminCtx(), &adminorderv1.RefundRequest{
+			OrderId: &entityv1.OrderId{Value: refundTestOrderID},
 			Reason:  adminorderv1.RefundReason_REFUND_REASON_CANCELLATION,
-		})
+		}, h.Refund)
 		require.NoError(t, err)
 		assert.Equal(t, usecase.RefundReasonCancellation, uc.reason)
-		assert.False(t, uc.now.Before(before), "the current time is passed")
-		assert.Equal(t, "order-1", resp.Order.Id.Value)
+		assert.Equal(t, refundTestOrderID, resp.Order.Id.Value)
 		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_REFUNDED, resp.Order.Status)
 	})
 
@@ -76,9 +75,10 @@ func TestAdminOrderHandler_Refund(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/order "Reason missing"
 		uc := &refundUCStub{}
-		_, err := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc).Refund(context.Background(), &adminorderv1.RefundRequest{
-			OrderId: &entityv1.OrderId{Value: "order-1"},
-		})
+		h := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc)
+		_, err := callThroughAdminPipeline(t, adminCtx(), &adminorderv1.RefundRequest{
+			OrderId: &entityv1.OrderId{Value: refundTestOrderID},
+		}, h.Refund)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		assert.False(t, uc.called, "nothing is refunded")
 	})
@@ -89,10 +89,11 @@ func TestAdminOrderHandler_Refund(t *testing.T) {
 		uc := &refundUCStub{fn: func(entity.OrderID) (*entity.Order, error) {
 			return nil, apperr.New(codes.NotFound, "order not found")
 		}}
-		_, err := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc).Refund(context.Background(), &adminorderv1.RefundRequest{
-			OrderId: &entityv1.OrderId{Value: "order-x"},
+		h := newAdminOrderHandler(t, ucmocks.NewMockOrderUseCase(t), uc)
+		_, err := callThroughAdminPipeline(t, adminCtx(), &adminorderv1.RefundRequest{
+			OrderId: &entityv1.OrderId{Value: refundTestOrderID},
 			Reason:  adminorderv1.RefundReason_REFUND_REASON_CANCELLATION,
-		})
+		}, h.Refund)
 		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
 	})
 }

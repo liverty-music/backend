@@ -420,8 +420,8 @@ func (_c *MockOrderUseCase_Place_Call) RunAndReturn(run func(ctx context.Context
 }
 
 // Refund provides a mock function for the type MockOrderUseCase
-func (_mock *MockOrderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
-	ret := _mock.Called(ctx, orderID, reason, now)
+func (_mock *MockOrderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason) (*entity.Order, error) {
+	ret := _mock.Called(ctx, orderID, reason)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Refund")
@@ -429,18 +429,18 @@ func (_mock *MockOrderUseCase) Refund(ctx context.Context, orderID entity.OrderI
 
 	var r0 *entity.Order
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error)); ok {
-		return returnFunc(ctx, orderID, reason, now)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID, usecase.RefundReason) (*entity.Order, error)); ok {
+		return returnFunc(ctx, orderID, reason)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID, usecase.RefundReason, time.Time) *entity.Order); ok {
-		r0 = returnFunc(ctx, orderID, reason, now)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.OrderID, usecase.RefundReason) *entity.Order); ok {
+		r0 = returnFunc(ctx, orderID, reason)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Order)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.OrderID, usecase.RefundReason, time.Time) error); ok {
-		r1 = returnFunc(ctx, orderID, reason, now)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.OrderID, usecase.RefundReason) error); ok {
+		r1 = returnFunc(ctx, orderID, reason)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -456,12 +456,11 @@ type MockOrderUseCase_Refund_Call struct {
 //   - ctx context.Context
 //   - orderID entity.OrderID
 //   - reason usecase.RefundReason
-//   - now time.Time
-func (_e *MockOrderUseCase_Expecter) Refund(ctx any, orderID any, reason any, now any) *MockOrderUseCase_Refund_Call {
-	return &MockOrderUseCase_Refund_Call{Call: _e.mock.On("Refund", ctx, orderID, reason, now)}
+func (_e *MockOrderUseCase_Expecter) Refund(ctx any, orderID any, reason any) *MockOrderUseCase_Refund_Call {
+	return &MockOrderUseCase_Refund_Call{Call: _e.mock.On("Refund", ctx, orderID, reason)}
 }
 
-func (_c *MockOrderUseCase_Refund_Call) Run(run func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time)) *MockOrderUseCase_Refund_Call {
+func (_c *MockOrderUseCase_Refund_Call) Run(run func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason)) *MockOrderUseCase_Refund_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -475,15 +474,10 @@ func (_c *MockOrderUseCase_Refund_Call) Run(run func(ctx context.Context, orderI
 		if args[2] != nil {
 			arg2 = args[2].(usecase.RefundReason)
 		}
-		var arg3 time.Time
-		if args[3] != nil {
-			arg3 = args[3].(time.Time)
-		}
 		run(
 			arg0,
 			arg1,
 			arg2,
-			arg3,
 		)
 	})
 	return _c
@@ -494,7 +488,7 @@ func (_c *MockOrderUseCase_Refund_Call) Return(order *entity.Order, err error) *
 	return _c
 }
 
-func (_c *MockOrderUseCase_Refund_Call) RunAndReturn(run func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error)) *MockOrderUseCase_Refund_Call {
+func (_c *MockOrderUseCase_Refund_Call) RunAndReturn(run func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason) (*entity.Order, error)) *MockOrderUseCase_Refund_Call {
 	_c.Call.Return(run)
 	return _c
 }

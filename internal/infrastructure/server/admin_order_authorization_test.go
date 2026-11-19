@@ -38,7 +38,7 @@ const (
 // unreachableRefundUC fails the test if a refund runs.
 type unreachableRefundUC struct{ t *testing.T }
 
-func (u unreachableRefundUC) Refund(context.Context, entity.OrderID, usecase.RefundReason, time.Time) (*entity.Order, error) {
+func (u unreachableRefundUC) Refund(context.Context, entity.OrderID, usecase.RefundReason) (*entity.Order, error) {
 	u.t.Error("Refund must not run")
 	return nil, nil
 }
@@ -50,8 +50,8 @@ type orderWithRefund struct {
 	refunder usecase.OrderRefunder
 }
 
-func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
-	return o.refunder.Refund(ctx, orderID, reason, now)
+func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason) (*entity.Order, error) {
+	return o.refunder.Refund(ctx, orderID, reason)
 }
 
 // newTestAdminOrderServer builds an admin Connect server, with the admin role

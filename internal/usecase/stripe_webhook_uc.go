@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -46,7 +45,7 @@ const (
 // satisfies it. Interfaces are defined where consumed (AGENTS.md rule).
 type OrderRefunder interface {
 	// Refund applies the refund policy for the reason; see [OrderUseCase].
-	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
+	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason) (*entity.Order, error)
 }
 
 // StripeWebhookEvent carries the parsed, signature-verified payload from a
@@ -69,9 +68,6 @@ type StripeWebhookEvent struct {
 	// Charge object inside the event data.
 	// May be empty when unavailable or for non-charge events.
 	ProviderPaymentID string
-	// ReceiveTime is the UTC time the webhook was received (not Stripe's event
-	// created time). Used for audit.
-	ReceiveTime time.Time
 }
 
 // StripeWebhookService processes incoming Stripe webhook events idempotently.
@@ -294,7 +290,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	// Delegate to OrderUseCase.Refund with reason=DISPUTE. Idempotent: if the
 	// Order is already Refunded (e.g. admin ran RefundOrder before the webhook
 	// arrived) the call is a no-op that returns the existing order.
-	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute, event.ReceiveTime); err != nil {
+	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Order disappeared between resolution and refund; very unlikely —
 			// accept without retry.

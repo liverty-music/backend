@@ -447,7 +447,7 @@ func TestResaleDrawStory_ListingCancelledAfterTheCharge(t *testing.T) {
 		s.checkoutCards.onCapture(nil)
 		_, err := db.Pool.Exec(ctx, `UPDATE events SET publish_state = 'CANCELLED' WHERE id = $1`, s.eventID)
 		if err == nil {
-			_, err = admin.Refund(ctx, sellerOrder, usecase.RefundReasonCancellation, s.now)
+			_, err = admin.Refund(ctx, sellerOrder, usecase.RefundReasonCancellation)
 		}
 		refunded <- err
 	})

@@ -5,10 +5,11 @@ import (
 
 	adminnotificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
 	adminnotificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/notification/v1"
-	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -45,27 +46,18 @@ func NewAdminNotificationHandler(
 // environment, so it cannot learn the environment; in production every other
 // caller fails with PermissionDenied and nothing is sent. Every concert must
 // belong to the artist; otherwise the whole request fails with
-// InvalidArgument (no partial delivery).
+// InvalidArgument (no partial delivery). The request is validated by the
+// protovalidate interceptor before this runs.
 func (h *AdminNotificationHandler) NotifyNewConcerts(ctx context.Context, req *adminnotificationv1.NotifyNewConcertsRequest) (*adminnotificationv1.NotifyNewConcertsResponse, error) {
 	if _, err := pb.GetExternalUserID(ctx); err != nil {
 		return nil, err
 	}
 	if h.isProduction {
-		return nil, connect.NewError(connect.CodePermissionDenied, "debug RPC is not available in production")
-	}
-
-	if req.GetArtistId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "artist_id is required")
-	}
-	if len(req.GetConcertIds()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "at least one concert_id is required")
+		return nil, apperr.New(codes.PermissionDenied, "debug RPC is not available in production")
 	}
 
 	concertIDs := make([]string, 0, len(req.GetConcertIds()))
 	for _, id := range req.GetConcertIds() {
-		if id.GetValue() == "" {
-			return nil, connect.NewError(connect.CodeInvalidArgument, "concert_id values must not be empty")
-		}
 		concertIDs = append(concertIDs, id.GetValue())
 	}
 

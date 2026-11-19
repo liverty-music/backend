@@ -2,16 +2,12 @@ package rpc
 
 import (
 	"context"
-	"errors"
-	"time"
 
 	adminorderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
-	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -75,38 +71,17 @@ func (h *AdminOrderHandler) ListByEvent(
 	return resp, nil
 }
 
-// Refund implements [adminorderv1connect.OrderServiceHandler].
-//
-// It maps the proto RefundReason to the domain RefundReason and delegates to
-// OrderUseCase.Refund. The handler applies no business logic; error mapping from
-// apperr to Connect codes is the sole responsibility here.
+// Refund implements [adminorderv1connect.OrderServiceHandler]. It maps the
+// proto RefundReason to the domain RefundReason and delegates to
+// OrderUseCase.Refund. The request is validated by the protovalidate
+// interceptor before this runs; errors from the use case are returned
+// unchanged.
 func (h *AdminOrderHandler) Refund(
 	ctx context.Context,
 	req *adminorderv1.RefundRequest,
 ) (*adminorderv1.RefundResponse, error) {
-	if req.GetOrderId() == nil || req.GetOrderId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "order_id is required")
-	}
-
-	protoReason := req.GetReason()
-	if protoReason == adminorderv1.RefundReason_REFUND_REASON_UNSPECIFIED {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "reason must be specified")
-	}
-
-	orderID := entity.OrderID(req.GetOrderId().GetValue())
-	reason := pb.ToRefundReason(protoReason)
-
-	order, err := h.orderUC.Refund(ctx, orderID, reason, time.Now())
+	order, err := h.orderUC.Refund(ctx, entity.OrderID(req.GetOrderId().GetValue()), pb.ToRefundReason(req.GetReason()))
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, "order not found")
-		}
-		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
-		}
-		if errors.Is(err, apperr.ErrInvalidArgument) {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
-		}
 		return nil, err
 	}
 

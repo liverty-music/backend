@@ -178,7 +178,6 @@ func (s *firstComeStory) place(checkout *entity.Checkout, fan entity.UserID, car
 		ProviderEventID:   "evt_" + uuid.NewV7().String(),
 		Type:              usecase.StripeEventPaymentIntentSucceeded,
 		ProviderPaymentID: cardAuthorizationID,
-		ReceiveTime:       s.now,
 	}))
 	var announced []entity.OrderPaidData
 	for _, paid := range s.takePaid() {

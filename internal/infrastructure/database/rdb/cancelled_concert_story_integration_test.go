@@ -219,7 +219,7 @@ func (s *cancelledConcertStory) cancel() {
 func (s *cancelledConcertStory) refundAll() {
 	s.t.Helper()
 	for _, o := range s.orders {
-		_, err := s.refunds.Refund(s.ctx, o, usecase.RefundReasonCancellation, time.Now())
+		_, err := s.refunds.Refund(s.ctx, o, usecase.RefundReasonCancellation)
 		require.NoError(s.t, err)
 	}
 	s.deliver(entity.SubjectOrderRefunded, s.consumer.HandleOrderRefunded, usecase.WorkflowNotifyOrderRefunded+":", entity.NotificationTypeOrderRefunded)
