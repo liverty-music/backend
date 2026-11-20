@@ -135,7 +135,7 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 		require.Len(t, pushes, 1)
 		assert.Equal(t, "[Vaundy] 新着ライブ発表!!", pushes[0].Title)
 		assert.Equal(t, "新しいライブが1件見つかりました\nROADSIDE", pushes[0].Body)
-		assert.Equal(t, "/concerts/"+ids[0], pushes[0].Data[entity.NotificationDataKeyURL])
+		assert.Equal(t, "/timetable?concert="+ids[0], pushes[0].Data[entity.NotificationDataKeyURL])
 		records := s.newConcertsOf(fan)
 		require.Len(t, records, 1)
 		assert.Equal(t, entity.NotificationSubject{ArtistID: artistID, EventIDs: ids}, records[0].Subject)
@@ -229,7 +229,7 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 			[]string{pushes[0].Title, pushes[1].Title})
 		for _, push := range pushes {
 			assert.Equal(t, "新しいライブが1件見つかりました\nStory Tour", push.Body)
-			assert.Equal(t, "/events/"+events[0].ID, push.Data[entity.NotificationDataKeyURL])
+			assert.Equal(t, "/concerts/"+events[0].ID, push.Data[entity.NotificationDataKeyURL])
 		}
 		records := s.newConcertsOf(fan)
 		require.Len(t, records, 2)
@@ -286,7 +286,7 @@ func TestStory_GetNotifiedOfNewConcerts(t *testing.T) {
 		require.Len(t, pushes, 1, "one message for the concerts added together")
 		assert.Equal(t, "[Vaundy] 新着ライブ発表!!", pushes[0].Title)
 		assert.Equal(t, "新しいライブが3件見つかりました\nROADSIDE", pushes[0].Body)
-		assert.Equal(t, "/concerts/"+ids[0], pushes[0].Data[entity.NotificationDataKeyURL], "it links to the earliest concert")
+		assert.Equal(t, "/timetable?concert="+ids[0], pushes[0].Data[entity.NotificationDataKeyURL], "it links to the earliest concert")
 		records := s.newConcertsOf(fan)
 		require.Len(t, records, 1)
 		assert.ElementsMatch(t, ids, records[0].Subject.EventIDs)

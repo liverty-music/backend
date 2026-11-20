@@ -53,7 +53,7 @@ func TestPostmarkPasskeyChangeSender_SendPasskeyChangeEmail(t *testing.T) {
 			"日時: 2026年10月22日 12:04（日本時間）\n\n"+
 			"ご自身で操作した場合は、対応は不要です。\n\n"+
 			"お心当たりがない場合は、第三者があなたのアカウントを操作した可能性があります。\n"+
-			"・サインインできない場合は、サインインヘルプから新しいパスキーを登録してください: https://liverty-music.app/passkey-recovery\n"+
+			"・サインインできない場合は、サインインヘルプから新しいパスキーを登録してください: https://liverty-music.app/sign-in-help\n"+
 			"・見覚えのないパスキーは、設定画面から削除してください: https://liverty-music.app/settings/passkeys\n\n"+
 			"Liverty Music\n",
 			sent["TextBody"])
@@ -93,7 +93,7 @@ func TestPostmarkPasskeyChangeSender_SendPasskeyChangeEmail(t *testing.T) {
 		body, _ := stub.sent[0]["TextBody"].(string)
 		assert.Contains(t, body, "Passkey: Google Pixel 9, Android, Chrome\n")
 		assert.Contains(t, body, "Time: Oct 22, 2026 12:04 (Japan time)\n")
-		assert.Contains(t, body, "https://liverty-music.app/passkey-recovery")
+		assert.Contains(t, body, "https://liverty-music.app/sign-in-help")
 		assert.Contains(t, body, "https://liverty-music.app/settings/passkeys")
 	})
 

@@ -84,7 +84,7 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 
 	// Repeated link preview requests from the same client all succeed.
 	for i := range 20 {
-		resp, err := ts.Client().Get(ts.URL + "/link-preview/events/019a0000-0000-7000-8000-0000000000e1")
+		resp, err := ts.Client().Get(ts.URL + "/link-preview/concerts/019a0000-0000-7000-8000-0000000000e1")
 		require.NoError(t, err)
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()

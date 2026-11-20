@@ -81,7 +81,7 @@ func TestConcertHandler_Get(t *testing.T) {
 	date := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
 
 	t.Run("return the concert with its first-party series to a guest", func(t *testing.T) {
-		// @spec components/adapter/fan/api/rpc/concert "Guest opens an event page"
+		// @spec components/adapter/fan/api/rpc/concert "Guest opens a concert page"
 		t.Parallel()
 		h, concertUC, _ := newEventPageHandler(t)
 		concertUC.EXPECT().Get(mock.Anything, eventID).Return(firstPartyConcert(eventID, date), nil).Once()

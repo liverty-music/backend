@@ -78,7 +78,7 @@ func (b *TagBuilder) Build(concert *entity.Concert, seriesConcerts []*entity.Con
 		Title:       title(concert),
 		Description: description(concert, seriesConcerts),
 		Image:       b.image(concert.Series),
-		URL:         b.siteBaseURL + "/events/" + concert.ID,
+		URL:         b.siteBaseURL + "/concerts/" + concert.ID,
 	}
 }
 

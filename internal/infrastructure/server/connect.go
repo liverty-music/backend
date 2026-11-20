@@ -49,7 +49,7 @@ const healthServicePath = "/" + grpchealth.HealthV1ServiceName + "/"
 // endpoints that return data already public through an RPC, such as the link
 // preview tags of an Event page.
 type PublicHTTPRoute struct {
-	// Pattern is the [http.ServeMux] pattern, e.g. "GET /link-preview/events/{id}".
+	// Pattern is the [http.ServeMux] pattern, e.g. "GET /link-preview/concerts/{id}".
 	Pattern string
 	// Handler serves the route; it is wrapped with the server's HandlerTimeout.
 	Handler http.Handler

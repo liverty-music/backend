@@ -83,7 +83,7 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 
 	t.Run("guest opens the event page", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/ticket-sale "Guest opens the event page"
+		// @spec components/adapter/fan/api/rpc/ticket-sale "Guest opens the concert page"
 		uc := usecasemocks.NewMockTicketSaleUseCase(t)
 		uc.EXPECT().ListByEvent(mock.Anything, saleEventID).Return(onSale(), nil)
 		ts := newTestFanTicketSaleServer(t, uc)

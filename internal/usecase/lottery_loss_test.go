@@ -209,7 +209,7 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 		r.concertsReadable(renderedConcert("event-1"))
 		msg := r.push(t, *started)
 		assert.Equal(t, "[Vaundy] 抽選結果のお知らせ", msg.Title)
-		assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+		assert.Equal(t, "/concerts/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
 	})
 
 	t.Run("concert cancelled email", func(t *testing.T) {
@@ -270,7 +270,7 @@ func TestNotificationUseCase_SendLotteryLoss(t *testing.T) {
 				msg := r.push(t, *started)
 				assert.Equal(t, tt.title, msg.Title)
 				assert.Contains(t, msg.Body, tt.body)
-				assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+				assert.Equal(t, "/concerts/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
 			})
 		}
 	})

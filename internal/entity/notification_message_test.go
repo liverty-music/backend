@@ -84,7 +84,7 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 			name: "new concerts", typ: entity.NotificationTypeNewConcerts,
 			subject:  entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"event-1", "event-2"}},
 			loaded:   entity.LoadedSubject{Artist: &entity.Artist{ID: "artist-1", Name: "ヨルシカ"}, Concerts: []*entity.Concert{messageConcert(), messageConcert()}},
-			wantLink: "/concerts/event-1", wantTag: "concert-artist-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "concert-artist-1",
 			jaTitle: "[ヨルシカ] 新着ライブ発表!!", jaBody: "新しいライブが2件見つかりました",
 			enTitle: "[ヨルシカ] New Concerts", enBody: "2 new concerts found",
 		},
@@ -92,7 +92,7 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 			name: "one new concert", typ: entity.NotificationTypeNewConcerts,
 			subject:  entity.NotificationSubject{ArtistID: "artist-1", EventIDs: []string{"event-1"}},
 			loaded:   entity.LoadedSubject{Artist: &entity.Artist{ID: "artist-1", Name: "ヨルシカ"}},
-			wantLink: "/concerts/event-1", wantTag: "concert-artist-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "concert-artist-1",
 			jaTitle: "[ヨルシカ] 新着ライブ発表!!", jaBody: "新しいライブが1件見つかりました",
 			enTitle: "[ヨルシカ] New Concerts", enBody: "1 new concert found",
 		},
@@ -148,21 +148,21 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 		{
 			name: "lottery loss not drawn", typ: entity.NotificationTypeLotteryLoss, subject: lotteryID,
 			loaded:   entity.LoadedSubject{LotteryEntry: lotteryEntry(entity.LotteryEntryLostReasonNotDrawn)},
-			wantLink: "/concerts/event-1", wantTag: "lottery_loss-entry-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "lottery_loss-entry-1",
 			jaTitle: "[ヨルシカ] 抽選結果のお知らせ", jaBody: "11/20のぴあアリーナMM公演のチケット抽選が落選となりました。",
 			enTitle: "[ヨルシカ] Ticket Lottery Result", enBody: "Your lottery entry for ぴあアリーナMM on Nov 20 was not drawn.",
 		},
 		{
 			name: "lottery loss card not charged", typ: entity.NotificationTypeLotteryLoss, subject: lotteryID,
 			loaded:   entity.LoadedSubject{LotteryEntry: lotteryEntry(entity.LotteryEntryLostReasonCardNotCharged)},
-			wantLink: "/concerts/event-1", wantTag: "lottery_loss-entry-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "lottery_loss-entry-1",
 			jaTitle: "[ヨルシカ] 当選を取り消しました", jaBody: "カードで決済できなかったため、11/20のぴあアリーナMM公演の当選を取り消しました。",
 			enTitle: "[ヨルシカ] Lottery Win Cancelled", enBody: "Your win for ぴあアリーナMM on Nov 20 was cancelled because your card could not be charged.",
 		},
 		{
 			name: "lottery loss concert cancelled", typ: entity.NotificationTypeLotteryLoss, subject: lotteryID,
 			loaded:   entity.LoadedSubject{LotteryEntry: lotteryEntry(entity.LotteryEntryLostReasonConcertCancelled)},
-			wantLink: "/concerts/event-1", wantTag: "lottery_loss-entry-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "lottery_loss-entry-1",
 			jaTitle: "[ヨルシカ] 公演が中止になりました", jaBody: "11/20のぴあアリーナMM公演が中止になったため、抽選のお申し込みは終了しました。請求はありません。",
 			enTitle: "[ヨルシカ] Concert Cancelled", enBody: "The concert at ぴあアリーナMM on Nov 20 was cancelled, so your lottery entry ended. You were not charged.",
 		},
@@ -211,7 +211,7 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 		{
 			name: "concert cancelled", typ: entity.NotificationTypeConcertCancelled, subject: order,
 			loaded:   entity.LoadedSubject{Order: &entity.Order{ID: "order-1"}},
-			wantLink: "/concerts/event-1", wantTag: "concert_cancelled-order-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "concert_cancelled-order-1",
 			jaTitle: "[ヨルシカ] 公演中止のお知らせ", jaBody: "11/20のぴあアリーナMM公演は中止となりました。チケット代金はカードに返金されます。",
 			enTitle: "[ヨルシカ] Concert Cancelled", enBody: "The concert at ぴあアリーナMM on Nov 20 has been cancelled. Your tickets will be refunded to your card.",
 		},
@@ -362,6 +362,6 @@ func TestNotification_Message(t *testing.T) {
 		c.Series.OrganizerID = &organizer
 		s := messageSubject(entity.LoadedSubject{Order: &entity.Order{ID: "order-1"}, Concerts: []*entity.Concert{c}})
 
-		assert.Equal(t, "/events/event-1", concertCancelled.Message("ja", s).Data[entity.NotificationDataKeyURL])
+		assert.Equal(t, "/concerts/event-1", concertCancelled.Message("ja", s).Data[entity.NotificationDataKeyURL])
 	})
 }

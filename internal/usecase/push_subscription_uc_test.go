@@ -769,7 +769,7 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 		usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c-late", "c-early"}})
 
 	require.Contains(t, messages, "user-away")
-	assert.Equal(t, "/concerts/c-early", payloadURL(messages["user-away"]))
+	assert.Equal(t, "/timetable?concert=c-early", payloadURL(messages["user-away"]))
 	assert.Equal(t, "2 new concerts found\nTour", messages["user-away"].Body)
 }
 
@@ -777,7 +777,7 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 // earliest matched concert belongs to an Organizer's Series, the message links
 // to its public event page instead of the dashboard detail sheet.
 //
-// @spec components/usecase/notification/notify-new-concerts "First-party concert links to its event page"
+// @spec components/usecase/notification/notify-new-concerts "First-party concert links to its concert page"
 func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
 	t.Parallel()
 
@@ -789,7 +789,7 @@ func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
 		usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"discovered-late", "first-party-early"}})
 
 	require.Contains(t, messages, "user-away")
-	assert.Equal(t, "/events/first-party-early", payloadURL(messages["user-away"]))
+	assert.Equal(t, "/concerts/first-party-early", payloadURL(messages["user-away"]))
 }
 
 // TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink verifies the spec's
@@ -815,7 +815,7 @@ func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 		usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
 
 	require.Contains(t, messages, "user-home-tokyo")
-	assert.Equal(t, "/concerts/tokyo-later", payloadURL(messages["user-home-tokyo"]))
+	assert.Equal(t, "/timetable?concert=tokyo-later", payloadURL(messages["user-home-tokyo"]))
 	assert.Equal(t, "1 new concert found\nTour", messages["user-home-tokyo"].Body)
 }
 
@@ -855,7 +855,7 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 		usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"a-late", "z-early"}})
 
 	require.Contains(t, messages, "user-away")
-	assert.Equal(t, "/concerts/z-early", payloadURL(messages["user-away"]))
+	assert.Equal(t, "/timetable?concert=z-early", payloadURL(messages["user-away"]))
 }
 
 // TestNotifyNewConcerts_RequestFailsForOneFollower runs the announcement again

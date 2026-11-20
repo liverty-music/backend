@@ -55,7 +55,7 @@ func TestConcertHandler_Get_Boundary(t *testing.T) {
 	const eventID = "019a0000-0000-7000-8000-0000000000e1"
 
 	t.Run("run Get for a guest", func(t *testing.T) {
-		// @spec components/adapter/fan/api/rpc/concert "Guest opens an event page"
+		// @spec components/adapter/fan/api/rpc/concert "Guest opens a concert page"
 		t.Parallel()
 		concertUC := mocks.NewMockConcertUseCase(t)
 		concertUC.EXPECT().Get(mock.Anything, eventID).
@@ -75,7 +75,7 @@ func TestConcertHandler_Get_Boundary(t *testing.T) {
 		req  *concertv1.GetRequest
 	}{
 		{
-			// @spec components/adapter/fan/api/rpc/concert "Event page without an id"
+			// @spec components/adapter/fan/api/rpc/concert "Concert page without an id"
 			name: "return INVALID_ARGUMENT without an event id",
 			req:  &concertv1.GetRequest{},
 		},
