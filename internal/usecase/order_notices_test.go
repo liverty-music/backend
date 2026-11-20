@@ -315,7 +315,7 @@ func TestNotificationUseCase_RunNotifyEventCancelled(t *testing.T) {
 		r.orderReadable(noticeOrder("order-a", entity.OrderStatusPaid), "event-1")
 		r.concertsReadable(renderedConcert("event-1"))
 		msg := r.push(t, push)
-		assert.Equal(t, "/events/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
+		assert.Equal(t, "/concerts/event-1", msg.Data[entity.NotificationDataKeyURL], "it opens the event's page")
 		assert.Equal(t, "11/20のZepp Shinjuku公演は中止となりました。チケット代金はカードに返金されます。\nLiverty Live 2026", msg.Body)
 	})
 

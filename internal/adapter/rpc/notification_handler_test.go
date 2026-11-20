@@ -69,7 +69,7 @@ func TestNotificationHandler_ListAndMarkRead(t *testing.T) {
 		created := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
 		uc.EXPECT().List(mock.Anything, mock.MatchedBy(func(u *entity.User) bool { return u.ID == userID })).Return([]*usecase.ListedNotification{{
 			Notification: &entity.Notification{ID: notifID, UserID: userID, Type: entity.NotificationTypeLotteryLoss, CreateTime: created},
-			Message:      entity.NewNotificationPayload("[A] 抽選結果のお知らせ", "body", "/events/e-1", "tag"),
+			Message:      entity.NewNotificationPayload("[A] 抽選結果のお知らせ", "body", "/concerts/e-1", "tag"),
 		}}, nil).Once()
 
 		resp, err := h.List(notificationAuthedCtx(extID), &notificationv1.ListRequest{})
@@ -80,7 +80,7 @@ func TestNotificationHandler_ListAndMarkRead(t *testing.T) {
 		assert.Equal(t, notifID, got.GetId().GetValue())
 		assert.Equal(t, entityv1.NotificationType_NOTIFICATION_TYPE_LOTTERY_LOSS, got.GetType())
 		assert.Equal(t, "[A] 抽選結果のお知らせ", got.GetMessage().GetTitle())
-		assert.Equal(t, "/events/e-1", got.GetMessage().GetData()[entity.NotificationDataKeyURL])
+		assert.Equal(t, "/concerts/e-1", got.GetMessage().GetData()[entity.NotificationDataKeyURL])
 		assert.True(t, created.Equal(got.GetCreateTime().AsTime()))
 		assert.Nil(t, got.GetReadTime())
 	})

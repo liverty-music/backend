@@ -15,8 +15,8 @@ import (
 )
 
 // Pattern is the route of the handler on the fan-api Connect server's mux.
-// The fan web's Caddy includes the response into the HTML of /events/{id}.
-const Pattern = "GET /link-preview/events/{id}"
+// The fan web's Caddy includes the response into the HTML of /concerts/{id}.
+const Pattern = "GET /link-preview/concerts/{id}"
 
 const (
 	// cacheTTL bounds how long an edit to the Series or Event takes to reach a

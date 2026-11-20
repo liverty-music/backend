@@ -153,7 +153,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 		day1, newConcert(day2ID, nov21, concertOpts{cover: true}),
 	}, nil).Once()
 
-	status, body := f.get(t, "/link-preview/events/"+eventID)
+	status, body := f.get(t, "/link-preview/concerts/"+eventID)
 
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ONE MAN LIVE | The Band", metaContent(t, body, "og:title"))
@@ -161,7 +161,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 		"2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都） 全2公演 11/20(金)・11/21(土) Two nights at Shibuya WWW.",
 		metaContent(t, body, "og:description"))
 	assert.Equal(t, cdnBaseURL+"/"+organizerID+"/"+seriesImageID+"/large", metaContent(t, body, "og:image"))
-	assert.Equal(t, siteBaseURL+"/events/"+eventID, metaContent(t, body, "og:url"))
+	assert.Equal(t, siteBaseURL+"/concerts/"+eventID, metaContent(t, body, "og:url"))
 	assert.Equal(t, "website", metaContent(t, body, "og:type"))
 	assert.Equal(t, "Liverty Music", metaContent(t, body, "og:site_name"))
 	assert.Equal(t, "ja_JP", metaContent(t, body, "og:locale"))
@@ -176,7 +176,7 @@ func TestHandler_SingleEventWithoutCover(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID)
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 
 	assert.Equal(t, "2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都）", metaContent(t, body, "og:description"))
 	assert.Equal(t, siteBaseURL+"/og-default.png", metaContent(t, body, "og:image"))
@@ -190,9 +190,9 @@ func TestHandler_LinkWithReferralCode(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID+"?ref=member-a")
+	_, body := f.get(t, "/link-preview/concerts/"+eventID+"?ref=member-a")
 
-	assert.Equal(t, siteBaseURL+"/events/"+eventID, metaContent(t, body, "og:url"))
+	assert.Equal(t, siteBaseURL+"/concerts/"+eventID, metaContent(t, body, "og:url"))
 	assert.NotContains(t, body, "member-a")
 }
 
@@ -204,7 +204,7 @@ func TestHandler_CancelledEvent(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID)
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 
 	assert.Equal(t, "【公演中止】ONE MAN LIVE | The Band", metaContent(t, body, "og:title"))
 }
@@ -220,18 +220,18 @@ func TestHandler_SiteDefaults(t *testing.T) {
 		{
 			// @spec components/infrastructure/fan/web/global/link-preview "Unlisted event link"
 			name: "return 200 with an empty body when the event has no page",
-			path: "/link-preview/events/" + eventID,
+			path: "/link-preview/concerts/" + eventID,
 			err:  apperr.New(codes.NotFound, "event page not found"),
 		},
 		{
 			// @spec components/infrastructure/fan/web/global/link-preview "Event read fails"
 			name: "return 200 with an empty body when the event cannot be read",
-			path: "/link-preview/events/" + eventID,
+			path: "/link-preview/concerts/" + eventID,
 			err:  apperr.New(codes.Unavailable, "db down"),
 		},
 		{
 			name: "return 200 with an empty body for an id that is not a UUID",
-			path: "/link-preview/events/not-a-uuid",
+			path: "/link-preview/concerts/not-a-uuid",
 		},
 	}
 
@@ -276,20 +276,20 @@ func TestHandler_SeriesCancelledWithinCacheTTL(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(published, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{published}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID)
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 	assert.Equal(t, "ONE MAN LIVE | The Band", metaContent(t, body, "og:title"))
 
 	// The organizer cancels; within the TTL the cached preview is served
 	// without reading the usecase again.
 	advance(30 * time.Second)
-	_, body = f.get(t, "/link-preview/events/"+eventID)
+	_, body = f.get(t, "/link-preview/concerts/"+eventID)
 	assert.Equal(t, "ONE MAN LIVE | The Band", metaContent(t, body, "og:title"))
 
 	// 60 seconds after the first read the preview reflects the cancellation.
 	advance(30 * time.Second)
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(cancelled, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{cancelled}, nil).Once()
-	_, body = f.get(t, "/link-preview/events/"+eventID)
+	_, body = f.get(t, "/link-preview/concerts/"+eventID)
 	assert.True(t, strings.HasPrefix(metaContent(t, body, "og:title"), "【公演中止】"))
 }
 
@@ -303,7 +303,7 @@ func TestHandler_EscapesOrganizerText(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID)
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 
 	assert.NotContains(t, body, "<script>")
 	assert.NotContains(t, body, "<img")
@@ -319,7 +319,7 @@ func TestHandler_DescriptionIsTruncated(t *testing.T) {
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
 
-	_, body := f.get(t, "/link-preview/events/"+eventID)
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 
 	desc := []rune(metaContent(t, body, "og:description"))
 	assert.Len(t, desc, 100)

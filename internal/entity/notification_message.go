@@ -322,9 +322,9 @@ func (n *Notification) link(s *LoadedSubject, c *Concert) string {
 	switch n.Type {
 	case NotificationTypeNewConcerts, NotificationTypeLotteryLoss, NotificationTypeConcertCancelled:
 		if c.Series != nil && c.Series.IsFirstParty() {
-			return "/events/" + c.ID
+			return "/concerts/" + c.ID
 		}
-		return "/concerts/" + c.ID
+		return "/timetable?concert=" + c.ID
 	case NotificationTypeTicketSaleAnnouncement, NotificationTypeSalesReminder:
 		return "/concerts/" + n.Subject.EventID
 	case NotificationTypeLotteryWin, NotificationTypeResaleWin:

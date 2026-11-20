@@ -67,7 +67,7 @@ func (s *PostmarkPasskeyChangeSender) SendPasskeyChangeEmail(ctx context.Context
 // (Japan time), and what to do when the reader did not make the change.
 func (s *PostmarkPasskeyChangeSender) passkeyChangeEmail(lang string, change entity.PasskeyChange) (subject, body string) {
 	at := change.ChangeTime.In(s.japanTime)
-	recoveryURL := s.fanWebBaseURL + "/passkey-recovery"
+	recoveryURL := s.fanWebBaseURL + "/sign-in-help"
 	passkeysURL := s.fanWebBaseURL + "/settings/passkeys"
 	added := change.Kind == entity.PasskeyChangeAdded
 
