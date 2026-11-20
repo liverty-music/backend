@@ -486,8 +486,9 @@ type GCPConfig struct {
 
 	// Model override for the Gemini searchers' grounded call (GoogleSearch +
 	// URLContext). Set per job; unset falls back to the searcher's built-in
-	// default: gemini-3.8-flash for both the concert searcher
-	// (ConcertSearchModel) and the published-sale searcher (PublishedSaleSearchModel).
+	// default: gemini-4-hydrogen for the concert searcher (ConcertSearchModel)
+	// and gemini-3.8-flash for the published-sale searcher
+	// (PublishedSaleSearchModel).
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
 
 	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
@@ -529,11 +530,15 @@ type GCPConfig struct {
 	SalesReminderWindow time.Duration `envconfig:"GCP_SALES_REMINDER_WINDOW"`
 }
 
-// Defaults for the concert searcher's single grounded call (evaluated in the
-// tune-concert-search-grounding change: thinking "medium" produced timeouts
-// and empty responses).
+// Defaults for the concert searcher's single grounded call. Thinking "medium"
+// produced timeouts and empty responses (tune-concert-search-grounding).
+// gemini-4-hydrogen replaced gemini-3.8-flash in
+// pass-tour-detail-pages-to-concert-search: on the A/B fixture it kept recall
+// and cut search queries per call from a median of 10 to 0 and the cost per
+// call by two thirds at the 2027-01-01 price, when 3.8 Flash doubles to
+// hydrogen's price.
 const (
-	defaultConcertSearchModel    = "gemini-3.8-flash"
+	defaultConcertSearchModel    = "gemini-4-hydrogen"
 	defaultConcertSearchThinking = "low"
 )
 

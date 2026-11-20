@@ -25,29 +25,101 @@ const (
 	abEvalEnvVar         = "GEMINI_AB_EVAL"
 	abEvalSmokeEnvVar    = "GEMINI_AB_EVAL_SMOKE"
 	abEvalAPIKeyVar      = "GCP_GEMINI_SEARCH_API_KEY" // REQUIRED: Gemini API direct is the only supported backend
-	abEvalModelsEnvVar   = "GEMINI_AB_EVAL_MODELS"     // CSV; empty = all built-in models
+	abEvalModelsEnvVar   = "GEMINI_AB_EVAL_MODELS"     // CSV of model IDs; empty = gemini-4-hydrogen
 	abEvalArtistsEnvVar  = "GEMINI_AB_EVAL_ARTISTS"    // CSV of artist names; empty = all fixture artists
 	abEvalThinkingEnvVar = "GEMINI_AB_EVAL_THINKING"   // thinking level; "" = default low
+	abEvalVariantsEnvVar = "GEMINI_AB_EVAL_VARIANTS"   // CSV of variants (see abVariant); empty = base
+	abEvalRepsEnvVar     = "GEMINI_AB_EVAL_REPS"       // repetitions per cell; empty = 3
+
+	// abSearchCapLine is the search-cap prompt line of the "cap" variant,
+	// appended to the production system instruction.
+	abSearchCapLine = "\nRun at most 10 Google Search queries; read the listed pages with url_context first.\n"
 
 	// resultsDir is relative to this package. Output filenames embed an
 	// RFC3339Nano UTC timestamp to disambiguate concurrent runs.
 	resultsDir = "testdata/ab_results"
 )
 
+// abVariant is one searcher setup of the A/B matrix, named by its options
+// joined with "+": "base" (production: the official top page's links listed
+// in the prompt), "cap" (abSearchCapLine added to the system instruction) and
+// "nosearch" (no Google Search tool; URL context only). For example
+// "cap+nosearch".
+//
+// pass-tour-detail-pages-to-concert-search also evaluated listing the links
+// of the first 3 concert pages ("detail"); it raised search queries and cost
+// and was removed (testdata/README.md, 2026-11-20).
+type abVariant struct {
+	Name     string
+	Cap      bool
+	NoSearch bool
+}
+
+// parseABVariant parses a variant name such as "cap+nosearch".
+func parseABVariant(name string) (abVariant, error) {
+	v := abVariant{Name: name}
+	for _, opt := range strings.Split(name, "+") {
+		switch strings.TrimSpace(opt) {
+		case "base":
+		case "cap":
+			v.Cap = true
+		case "nosearch":
+			v.NoSearch = true
+		default:
+			return abVariant{}, fmt.Errorf("unknown variant option %q in %q (want base, cap, nosearch)", opt, name)
+		}
+	}
+	return v, nil
+}
+
+// apply sets the searcher setup of v on cell.
+func (v abVariant) apply(cell *abCell) {
+	cell.Variant = v.Name
+	cell.PageLinks = true
+	if v.Cap {
+		p := gemini.DefaultPrompt
+		p.SystemInstruction += abSearchCapLine
+		cell.Prompt = &p
+	}
+	cell.WithoutGoogleSearch = v.NoSearch
+}
+
+// csvEnv returns the trimmed, non-empty entries of a CSV environment
+// variable, or def when it is unset.
+func csvEnv(name string, def ...string) []string {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return def
+	}
+	var out []string
+	for _, v := range strings.Split(raw, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // abMatrix returns the Cartesian product of the matrix axes plus repetitions.
 //
-// The default matrix runs the production configuration on every fixture
-// artist:
-//   - Model: gemini-3.8-flash
+// The default matrix runs the "base" variant on every fixture artist:
+//   - Model: gemini-4-hydrogen (production)
 //   - Temperature: not sent (Gemini 3.8 Flash migration guide)
 //   - Thinking: low
 //   - Repetitions: 3
 //
+// Every cell lists the official site's pages in the prompt and records the
+// search queries from the server-side tool calls.
+//
 // Environment overrides:
-//   - GEMINI_AB_EVAL_SMOKE=1 collapses to a single cell for an auth/API ping.
-//   - GEMINI_AB_EVAL_MODELS=csv intersects the model list.
+//   - GEMINI_AB_EVAL_SMOKE=1 collapses to a single cell for an auth/API ping:
+//     the first model, variant and artist.
+//   - GEMINI_AB_EVAL_MODELS=csv replaces the model list.
+//   - GEMINI_AB_EVAL_VARIANTS=csv replaces the variant list (abVariant).
+//   - GEMINI_AB_EVAL_REPS=n replaces the repetitions.
 //   - GEMINI_AB_EVAL_ARTISTS=csv intersects the artist list by Name.
-func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
+func abMatrix(t *testing.T, artists []gemini.GroundTruthArtist) []abCell {
+	t.Helper()
 	// Apply the artist filter BEFORE smoke collapse so smoke mode can
 	// target a specific artist (e.g. GEMINI_AB_EVAL_ARTISTS=Vaundy).
 	if filter := strings.TrimSpace(os.Getenv(abEvalArtistsEnvVar)); filter != "" {
@@ -64,59 +136,48 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 		artists = filtered
 	}
 
+	models := csvEnv(abEvalModelsEnvVar, "gemini-4-hydrogen")
+	thinks := csvEnv(abEvalThinkingEnvVar, "low")
+	var variants []abVariant
+	for _, name := range csvEnv(abEvalVariantsEnvVar, "base") {
+		v, err := parseABVariant(name)
+		if err != nil {
+			t.Fatalf("%s: %v", abEvalVariantsEnvVar, err)
+		}
+		variants = append(variants, v)
+	}
+	reps := 3
+	if v := strings.TrimSpace(os.Getenv(abEvalRepsEnvVar)); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			t.Fatalf("%s must be a positive integer (got %q)", abEvalRepsEnvVar, v)
+		}
+		reps = n
+	}
 	if os.Getenv(abEvalSmokeEnvVar) == "1" && len(artists) > 0 {
-		thinking := "low"
-		if t := strings.TrimSpace(os.Getenv(abEvalThinkingEnvVar)); t != "" {
-			thinking = t
-		}
-		model := "gemini-3.8-flash"
-		if filter := strings.TrimSpace(os.Getenv(abEvalModelsEnvVar)); filter != "" {
-			// First entry in the CSV is the smoke override.
-			model = strings.TrimSpace(strings.SplitN(filter, ",", 2)[0])
-		}
-		return []abCell{{
-			Model:           model,
-			OmitTemperature: true,
-			Thinking:        thinking,
-			Artist:          artists[0],
-			Repetition:      0,
-		}}
-	}
-	models := []string{
-		"gemini-3.8-flash", // production default
-	}
-	if filter := strings.TrimSpace(os.Getenv(abEvalModelsEnvVar)); filter != "" {
-		want := map[string]bool{}
-		for _, m := range strings.Split(filter, ",") {
-			want[strings.TrimSpace(m)] = true
-		}
-		filtered := models[:0:0]
-		for _, m := range models {
-			if want[m] {
-				filtered = append(filtered, m)
-			}
-		}
-		models = filtered
+		models, thinks, variants, artists, reps = models[:1], thinks[:1], variants[:1], artists[:1], 1
 	}
 
-	thinks := []string{"low"}
-	if t := strings.TrimSpace(os.Getenv(abEvalThinkingEnvVar)); t != "" {
-		thinks = []string{t}
-	}
-	const reps = 3
-
+	// Repetitions are the outer loop so that the variants of one artist and
+	// repetition run minutes apart, not one variant after another: the
+	// official pages and the search index then change for all variants alike.
 	var cells []abCell
-	for _, m := range models {
-		for _, th := range thinks {
-			for _, a := range artists {
-				for r := 0; r < reps; r++ {
-					cells = append(cells, abCell{
-						Model:           m,
-						OmitTemperature: true,
-						Thinking:        th,
-						Artist:          a,
-						Repetition:      r,
-					})
+	for r := 0; r < reps; r++ {
+		for _, a := range artists {
+			for _, m := range models {
+				for _, th := range thinks {
+					for _, v := range variants {
+						cell := abCell{
+							Model:                  m,
+							OmitTemperature:        true,
+							Thinking:               th,
+							Artist:                 a,
+							Repetition:             r,
+							IncludeToolInvocations: true,
+						}
+						v.apply(&cell)
+						cells = append(cells, cell)
+					}
 				}
 			}
 		}
@@ -145,6 +206,8 @@ type abCell struct {
 	// the production link profile.
 	PageLinks   bool
 	LinkProfile *gemini.LinkProfile
+	// WithoutGoogleSearch leaves the Google Search tool out of the call.
+	WithoutGoogleSearch bool
 }
 
 type cellResult struct {
@@ -214,7 +277,18 @@ type cellResult struct {
 	DiscoveredURLCount int      `json:"discovered_url_count"`
 	DiscoveredURLs     []string `json:"discovered_urls,omitempty"`
 	CostUSD            float64  `json:"cost_usd"`
-	Error              string   `json:"error,omitempty"`
+	// CostUSD2027 is the cost at the price from 2027-01-01 (Pricing2027),
+	// 0 for a model without one.
+	CostUSD2027 float64 `json:"cost_usd_2027"`
+	// RetryCount is the number of attempts of the grounded call.
+	RetryCount int `json:"retry_count"`
+	// EmptyResponse is true when the call answered with no candidate or
+	// ended without text.
+	EmptyResponse bool `json:"empty_response"`
+	// GroundingChunks is the number of groundingChunks of the response
+	// (backend #772: absent on some Gemini 3 responses).
+	GroundingChunks int    `json:"grounding_chunks"`
+	Error           string `json:"error,omitempty"`
 }
 
 type aggregateFieldAccuracy struct {
@@ -269,7 +343,10 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 		t.Fatalf("parse evaluation_from: %v", err)
 	}
 
-	cells := abMatrix(gt.Artists)
+	for i := range gt.Artists {
+		gt.Artists[i].Events = upcomingEvents(gt.Artists[i].Events)
+	}
+	cells := abMatrix(t, gt.Artists)
 	t.Logf("A/B matrix: %d cells across %d artists", len(cells), len(gt.Artists))
 
 	startedAt := time.Now().UTC()
@@ -310,10 +387,13 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 	t.Logf("raw responses → %s", rawDir)
 
 	for i, cell := range cells {
-		t.Logf("[%d/%d] model=%s temp=%.1f thinking=%s artist=%s rep=%d",
-			i+1, len(cells), cell.Model, cell.Temperature, cell.Thinking, cell.Artist.Name, cell.Repetition)
+		t.Logf("[%d/%d] model=%s thinking=%s variant=%s artist=%s rep=%d",
+			i+1, len(cells), cell.Model, cell.Thinking, cell.Variant, cell.Artist.Name, cell.Repetition)
 
 		res := runCell(ctx, t, logger, cell, from, rawDir, i+1)
+		t.Logf("  recall_public=%.2f queries=%d linked=%d cost_2027=$%.3f latency=%dms empty=%t chunks=%d err=%q",
+			res.RecallPublic, res.GroundingSearchQueries, res.LinkedPages, res.CostUSD2027, res.LatencyMillis,
+			res.EmptyResponse, res.GroundingChunks, res.Error)
 		results = append(results, res)
 		totalCost += res.CostUSD
 		snapshot()
@@ -383,6 +463,7 @@ func runCell(
 	if cell.LinkProfile != nil {
 		gemini.SetLinkProfile(s, *cell.LinkProfile)
 	}
+	gemini.SetWithoutGoogleSearch(s, cell.WithoutGoogleSearch)
 
 	artist := &entity.Artist{ID: cell.Artist.ID, Name: cell.Artist.Name}
 	site := &entity.OfficialSite{URL: cell.Artist.OfficialSiteURL}
@@ -414,6 +495,8 @@ func runCell(
 		res.URLContextCalls = pm.URLContextCalls
 		res.URLContextSucceeded = pm.URLContextSucceeded
 		res.LinkedPages = len(pm.LinkedPageURLs)
+		res.RetryCount = pm.RetryCount
+		res.GroundingChunks = len(pm.GroundingChunkURLs)
 		for _, u := range pm.URLContextRetrieved {
 			switch {
 			case strings.Contains(u.Status, "SUCCESS"):
@@ -434,11 +517,20 @@ func runCell(
 			pm.ToolUseTokens,
 			int32(pm.WebSearchQueries),
 		)
+		res.CostUSD2027 = gemini.Pricing2027.CostUSD(
+			cell.Model,
+			pm.PromptTokens,
+			pm.CandidatesTokens,
+			pm.ThinkingTokens,
+			pm.ToolUseTokens,
+			int32(pm.WebSearchQueries),
+		)
 	}
 
 	errMsg := ""
 	if err != nil {
 		errMsg = err.Error()
+		res.EmptyResponse = strings.Contains(errMsg, "no candidates") || strings.Contains(errMsg, "without text")
 	}
 	writeRawResponse(t, rawDir, cellIdx, cell, md, got, errMsg)
 
@@ -683,7 +775,7 @@ func writeOutputs(t *testing.T, rf runFile) error {
 	defer w.Flush()
 
 	if err := w.Write([]string{
-		"model", "temperature", "thinking_level", "artist", "rep",
+		"model", "temperature", "thinking_level", "variant", "artist", "rep",
 		"precision", "recall_public", "recall_all", "f1_public", "f1_all",
 		"returned", "matched", "false_positives", "festival_leaks",
 		"tours_count", "standalones_count",
@@ -694,7 +786,7 @@ func writeOutputs(t *testing.T, rf runFile) error {
 		"discovered_url_count",
 		"venue_acc", "admin_area_acc", "local_date_acc", "start_time_acc", "open_time_acc", "source_url_acc",
 		"prompt_tokens", "candidates_tokens", "thinking_tokens", "tool_use_tokens", "total_tokens",
-		"latency_ms", "cost_usd", "error",
+		"latency_ms", "cost_usd", "cost_usd_2027", "retry_count", "empty_response", "grounding_chunks", "error",
 	}); err != nil {
 		return err
 	}
@@ -703,6 +795,7 @@ func writeOutputs(t *testing.T, rf runFile) error {
 			c.Model,
 			strconv.FormatFloat(float64(c.Temperature), 'f', 2, 32),
 			c.ThinkingLevel,
+			c.Variant,
 			c.ArtistName,
 			strconv.Itoa(c.Repetition),
 			strconv.FormatFloat(c.Precision, 'f', 4, 64),
@@ -745,6 +838,10 @@ func writeOutputs(t *testing.T, rf runFile) error {
 			strconv.Itoa(int(c.TotalTokens)),
 			strconv.FormatInt(c.LatencyMillis, 10),
 			strconv.FormatFloat(c.CostUSD, 'f', 6, 64),
+			strconv.FormatFloat(c.CostUSD2027, 'f', 6, 64),
+			strconv.Itoa(c.RetryCount),
+			strconv.FormatBool(c.EmptyResponse),
+			strconv.Itoa(c.GroundingChunks),
 			c.Error,
 		}
 		if err := w.Write(row); err != nil {

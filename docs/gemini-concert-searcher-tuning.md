@@ -511,6 +511,24 @@ K8s 環境では:
 
 `ConcertSearcher.Search` is a **2-step** LLM pipeline plus Go-side parsing. The architecture below is the one currently on disk; the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
 
+### 10.0 Evaluation log: pass-tour-detail-pages-to-concert-search (2026-11)
+
+Acceptance criteria (design D4 of the OpenSpec change), against the configuration a variant replaces, over the 7 fixture artists with 3 reps each: recall of public events not lower by more than 0.02; median search queries per call on the many-query artists (BIGMAMA, go!go!vanillas, [Alexandros]) falls and cost per call (2027-01-01 price) does not rise; no new empty responses, `TOO_MANY_TOOL_CALLS` stops or 120 s timeouts; a model switch also needs p90 latency under 90 s. Per-artist tables: `internal/infrastructure/gcp/gemini/testdata/README.md`.
+
+| run | variant vs baseline | recall | median queries (many-query) | cost / call | p90 latency | verdict |
+|---|---|---|---|---|---|---|
+| 1 | links of the first 3 concert pages vs top-page links (`gemini-3.8-flash`, `low`) | 0.959 vs 0.882 | 16 vs 10 (30 vs 16) | $0.477 vs $0.246 | 86 s vs 72 s | **rejected**: queries and cost rose |
+| 2 | `gemini-4-hydrogen` vs `gemini-3.8-flash` (top-page links, `low`) | 0.877 vs 0.882 (event-weighted 0.922 vs 0.906) | 0 vs 10 (3 vs 16) | $0.080 vs $0.246 | 36 s vs 72 s | **adopted** |
+| 3 | search-cap prompt line vs none (`gemini-4-hydrogen`, `low`) | 0.883 vs 0.877 | 0 vs 0 (3 vs 3) | $0.091 vs $0.080 | 41 s vs 36 s | **rejected**: queries did not fall, cost rose |
+| 3 | thinking `minimal` (`gemini-4-hydrogen`) | — | — | — | — | not available: the API answers 400 "Thinking level MINIMAL is not supported for this model"; `low` stays |
+| 3 | no Google Search tool, URL context only (`gemini-4-hydrogen`, `low`) | 0.702 vs 0.877 | 0 vs 0 (0 vs 3) | $0.058 vs $0.080 | 38 s vs 36 s | reported only: recall fell ([Alexandros] 0.00, go!go!vanillas 0.61), one 120 s timeout |
+
+Run 1: the second link level (URL context does not follow links, so read the concert pages and list their same-domain links) raised recall but filled the 20 URL slots with the wrong pages: on [Alexandros] 11 of them were the region filters of the schedule page, and the tour pages behind page 2 of the list were still missing, so queries went from 16 to 63. Searches for tour detail pages remain the cost driver; a selection that finds them (pagination, or the detail links whose text names a tour) would have to be evaluated again.
+
+Run 2: `gemini-4-hydrogen` read the listed pages and issued almost no searches (1.1 per call on average against 10.0); per-artist recall moved both ways (BIGMAMA 0.68 → 1.00, [Alexandros] 0.77 → 0.65, go!go!vanillas 1.00 → 0.87) within the 0.02 overall margin. No empty responses or invalid JSON with structured output plus both tools. Neither model returned `groundingChunks` in any call, including the calls that searched (backend #772).
+
+Run 3 settled the prompt and thinking level on `gemini-4-hydrogen`: the cap line changes nothing on a model that barely searches, `low` is the lowest level it accepts, and URL context alone loses the tours whose pages the top page does not link to, so Google Search stays. One `cap` call failed on a reset connection, not on the model. Shipped: `gemini-4-hydrogen`, thinking `low`, the production prompt (`pkg/config` `defaultConcertSearchModel`).
+
 ### 10.1 End-to-end call flow
 
 ```
@@ -636,7 +654,7 @@ Switching the key to `(local_date, venue)` only would fold each (1st, 2nd) pair 
 
 ### 10.7 Model selection per step (defaults + env overrides)
 
-> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `PublishedSaleSearchModel()` (formerly `SalesPhaseSearchModel()`) (default `gemini-3.8-flash`). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
+> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `PublishedSaleSearchModel()` (formerly `SalesPhaseSearchModel()`) (defaults `gemini-4-hydrogen` for concert search since pass-tour-detail-pages-to-concert-search, `gemini-3.8-flash` for published sales). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
 
 `pkg/config.GCPConfig` had two per-step model fields:
 

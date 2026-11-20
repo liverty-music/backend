@@ -26,7 +26,7 @@ const (
 	groundingEvalToolCallsEnv  = "GEMINI_GROUNDING_EVAL_TOOL_CALLS" // "1" returns server-side tool calls (search queries)
 
 	groundingEvalArtist   = "Vaundy"
-	groundingEvalModel    = "gemini-3.8-flash"
+	groundingEvalModel    = "gemini-4-hydrogen"
 	groundingEvalThinking = "low"
 	groundingEvalReps     = 3
 )
@@ -200,16 +200,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		}
 		artist = gemini.GroundTruthArtist{ID: "unscored-" + artistName, Name: artistName, OfficialSiteURL: site}
 	}
-	// The prompt's start date is today (JST), so fixture dates that have
-	// already passed are no longer expected.
-	today := time.Now().In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02")
-	upcoming := artist.Events[:0:0]
-	for _, e := range artist.Events {
-		if e.LocalDate >= today {
-			upcoming = append(upcoming, e)
-		}
-	}
-	artist.Events = upcoming
+	artist.Events = upcomingEvents(artist.Events)
 	ctx := context.Background()
 	logger, err := logging.New()
 	if err != nil {
@@ -262,6 +253,20 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	}
 	t.Logf("variant %s complete: %d cells, started %s, finished %s (match against billing-export hour)",
 		variant, len(results), meta.StartTime, meta.FinishTime)
+}
+
+// upcomingEvents returns the fixture events dated today (JST) or later. The
+// prompt's start date is today, so fixture dates that have already passed are
+// no longer expected.
+func upcomingEvents(events []gemini.GroundTruthEvent) []gemini.GroundTruthEvent {
+	today := time.Now().In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02")
+	upcoming := events[:0:0]
+	for _, e := range events {
+		if e.LocalDate >= today {
+			upcoming = append(upcoming, e)
+		}
+	}
+	return upcoming
 }
 
 // tempLabel renders the temperature for logs ("unset" when not sent).

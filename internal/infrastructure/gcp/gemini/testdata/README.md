@@ -7,28 +7,65 @@ workload. Not a CI test — runs only when `GEMINI_AB_EVAL=1` is set.
 
 | Path | Purpose |
 |---|---|
-| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER / BRADIO — 111 events), as of `evaluation_from = 2026-10-01`. Vaundy was captured on 2026-10-01 and the other artists on 2026-10-03, from official sources only. |
+| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist, as of `evaluation_from = 2026-11-20`, captured on 2026-11-20 from public official pages only (see "Fixture artists"). |
 | `ab_results/` | Per-run outputs (`<RFC3339-utc>.json` + `.csv`). Generated files are gitignored; force-add the most recent run when committing for PR review. |
+
+## Fixture artists
+
+Captured 2026-11-20. In-scope events are the recall denominator; out-of-scope
+entries (festivals, shows organized by other artists, members' solo shows)
+are negative samples (`excluded_per_spec`). Events dated before the day of a
+run are dropped from scoring, since the prompt's start date is today.
+
+| artist | events (in scope / out of scope) | sources | why in the fixture |
+|---|---|---|---|
+| UVERworld | 20 / 1 | `feature/2026_live`, `feature/2027_live`, news articles | since 2026-10 |
+| Vaundy | 32 / 0 | `member.vaundy.jp/feature/ARENATOUR_2728` (multilingual) | since 2026-10 |
+| SUPER BEAVER | 42 / 1 | `sp.super-beaver.com/feature/tour2627`, `tour2728`, `budokan2027` | since 2026-10 |
+| BRADIO | 3 / 3 | `show/` list | since 2026-10 |
+| BIGMAMA | 24 / 3 | `shows/<id>/` detail pages | prod 2026-10-21..11-20: 36.7 queries per call (max 46) |
+| go!go!vanillas | 18 / 0 | tour sites on other domains (`ggv-livehousetour2627.jp`, `ggv-backhometour2027.jp`) | prod: max 35 queries; detail pages are off the official domain |
+| [Alexandros] | 20 / 11 | `contents/schedule` list, `contents/<id>` detail pages | prod: 34.0 queries per call (max 58); opaque detail paths |
+
+BUMP OF CHICKEN (prod max 46 queries) was left out: its live pages render in
+JavaScript and carry no dates in their HTML, so no ground truth could be
+captured from them (nor read with URL context).
 
 ## How to run
 
 Both harnesses call the production `ConcertSearcher`: one grounded call
-(Google Search + URL context) returning JSON, `gemini-3.8-flash`, thinking
+(Google Search + URL context) returning JSON, `gemini-4-hydrogen`, thinking
 `low`, temperature not sent, Google Search limited to the last 2 months.
 
-Full matrix (every fixture artist × 3 reps of the production configuration):
+`TestConcertSearcher_ABEval` lists the official site's pages in every cell and
+records the search queries from the server-side tool calls. Its variants
+(`GEMINI_AB_EVAL_VARIANTS`, CSV; options joined with `+`):
+
+| option | searcher setup |
+|---|---|
+| `base` | production: the concert and news pages the official top page links to |
+| `cap` | adds "Run at most 10 Google Search queries; read the listed pages with url_context first." to the system instruction |
+| `nosearch` | no Google Search tool; URL context only |
+
+`GEMINI_AB_EVAL_MODELS` (CSV, default `gemini-4-hydrogen`) and
+`GEMINI_AB_EVAL_THINKING` (CSV, default `low`) set the model and thinking
+axes, `GEMINI_AB_EVAL_REPS` the repetitions (default 3). Repetitions are the
+outer loop, so the variants of one artist run minutes apart.
+
+Full matrix (every fixture artist × 3 reps; here base vs cap):
 
 ```bash
-GEMINI_AB_EVAL=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_VARIANTS=base,cap \
+  GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
   go test -tags=integration -timeout=3h -v \
   -run TestConcertSearcher_ABEval \
   ./internal/infrastructure/gcp/gemini/...
 ```
 
-Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,BRADIO`, `GEMINI_AB_EVAL_MODELS=<csv>`
-(intersected with the built-in list) and `GEMINI_AB_EVAL_THINKING=<level>`.
+Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,BRADIO`.
 
-Smoke run (1 cell — for auth + API sanity check):
+Smoke run (1 cell: the first model, variant and artist — for auth + API
+sanity check):
 
 ```bash
 GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
@@ -64,7 +101,73 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-10-07, steer-concert-search-to-official-pages)
+## Latest result (2026-11-20, pass-tour-detail-pages-to-concert-search)
+
+`gemini-3.8-flash`, thinking `low`, temperature unset, 3 reps per artist and
+variant, all 7 fixture artists, cost at the 2027-01-01 price
+(`ab_results/20261120T101506Z.*`). Run 1 compared production (`base`) with
+`detail`: the links of the first 3 concert pages the top page links to,
+other than the top page's own links, appended to the listed pages (at most 20).
+
+| artist | base queries (recall) | detail queries (recall) | linked pages base → detail |
+|---|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 2, 0 (1.00) | 8 → 20 |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 8 → 20 |
+| SUPER BEAVER | 0, 0, 2 (0.95) | 6, 4, 8 (1.00) | 8 → 20 |
+| BRADIO | 17, 4, 17 (0.78) | 23, 33, 16 (0.78) | 8 → 11 |
+| BIGMAMA | 23, 23, 10 (0.68) | 30, 21, 9 (1.00) | 8 → 20 |
+| go!go!vanillas | 12, 36, 16 (1.00) | 35, 24, 22 (1.00) | 8 → 8 |
+| [Alexandros] | 16, 18, 15 (0.77) | 55, 63, 70 (0.93) | 2 → 20 |
+| **all** | median 10, cost $0.246 | median 16, cost $0.477 | |
+
+`detail` raised recall of public events from 0.882 to 0.959, but search
+queries per call rose (median 10 → 16; 16 → 30 on the three many-query
+artists) and cost per call nearly doubled, so it failed the acceptance
+criteria (design D4) and was removed. The listed pages were mostly not tour
+detail pages: [Alexandros]'s 20 slots went to 11 region filters of its
+schedule page and the side projects on its first list page, so the model
+still searched for each tour, now with 20 pages of URL context input.
+go!go!vanillas's tour pages sit on other domains and gained nothing.
+BIGMAMA's one base miss (recall 0.04) was a single rep. No empty responses,
+errors or timeouts in either variant; p90 latency 72 s (base), 86 s (detail).
+
+Run 2 (`ab_results/20261120T102609Z.*`) ran production (`base`) on
+`gemini-4-hydrogen`, thinking `low`:
+
+| artist | gemini-3.8-flash queries (recall) | gemini-4-hydrogen queries (recall) |
+|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) |
+| SUPER BEAVER | 0, 0, 2 (0.95) | 0, 0, 0 (0.95) |
+| BRADIO | 17, 4, 17 (0.78) | 0, 0, 0 (0.67) |
+| BIGMAMA | 23, 23, 10 (0.68) | 1, 0, 0 (1.00) |
+| go!go!vanillas | 12, 36, 16 (1.00) | 3, 7, 4 (0.87) |
+| [Alexandros] | 16, 18, 15 (0.77) | 3, 3, 3 (0.65) |
+| **all** | median 10, cost $0.246, p90 72 s | median 0, cost $0.080, p90 36 s |
+
+Recall 0.877 against 0.882 (0.922 against 0.906 weighted by events), within
+the 0.02 margin; queries and cost fell by two thirds or more, so the model
+switch meets D4. Neither model returned `groundingChunks` (backend #772).
+
+Run 3 (`ab_results/20261120T104756Z.*`, `gemini-4-hydrogen`, thinking `low`)
+against run 2:
+
+| artist | base queries (recall) | cap queries (recall) | nosearch recall |
+|---|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 1.00 |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 1.00 |
+| SUPER BEAVER | 0, 0, 0 (0.95) | 0, 0, 0 (0.95) | 0.63 (one 120 s timeout) |
+| BRADIO | 0, 0, 0 (0.67) | 0, 0, 2 (0.44; one connection reset) | 0.67 |
+| BIGMAMA | 1, 0, 0 (1.00) | 2, 2, 3 (1.00) | 1.00 |
+| go!go!vanillas | 3, 7, 4 (0.87) | 4, 6, 8 (1.00) | 0.61 |
+| [Alexandros] | 3, 3, 3 (0.65) | 3, 3, 3 (0.78) | 0.00 |
+| **all** | recall 0.877, cost $0.080 | recall 0.883, cost $0.091 | recall 0.702, cost $0.058 |
+
+The search-cap line did not lower queries and raised cost, so it was not
+adopted; Google Search off loses the tours the listed pages do not reach.
+Thinking `minimal` is rejected by `gemini-4-hydrogen` with 400.
+
+## Earlier result (2026-10-07, steer-concert-search-to-official-pages)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset, tool calls on, 3 reps
 per artist and variant. `LINKS` lists the top page's concert pages only;
@@ -117,11 +220,12 @@ responses; temperature 0.3 increased searches on 3 of 4 artists.
 
 | Axis | Values |
 |---|---|
-| Model | `gemini-3.8-flash` (cell.Model) |
+| Model | `gemini-4-hydrogen` (`GEMINI_AB_EVAL_MODELS`) |
 | Temperature | not sent |
-| ThinkingLevel | `low` (override with `GEMINI_AB_EVAL_THINKING`) |
-| Artist | UVERworld, Vaundy, SUPER BEAVER, BRADIO |
-| Repetitions | 3 |
+| ThinkingLevel | `low` (`GEMINI_AB_EVAL_THINKING`) |
+| Variant | `base` (`GEMINI_AB_EVAL_VARIANTS`) |
+| Artist | the 7 fixture artists (`GEMINI_AB_EVAL_ARTISTS`) |
+| Repetitions | 3 (`GEMINI_AB_EVAL_REPS`) |
 
 ## How to refresh the fixture
 
@@ -145,9 +249,12 @@ The fixture's `evaluation_from` is frozen at capture time. To re-curate:
 - `run_metadata` — SDK version, timestamps, total cost.
 - `cells` — array of per-cell records.
 
-Each cell record carries `precision`, `recall_public`, `recall_all`,
-`f1_*`, `field_accuracy.*`, token counts, search-query count, latency,
-finish reason, and USD cost.
+Each cell record carries `variant`, `precision`, `recall_public`,
+`recall_all`, `f1_*`, `field_accuracy.*`, token counts, search-query count,
+`linked_pages`, latency, finish reason, `retry_count`, `empty_response` (no
+candidate, or no text), `grounding_chunks` (backend #772), and USD cost:
+`cost_usd` at the current price and `cost_usd_2027` at the price from
+2027-01-01 (`Pricing2027`), which model decisions compare.
 
 `<timestamp>.csv` is the same data flattened for spreadsheet analysis.
 

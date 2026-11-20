@@ -474,7 +474,7 @@ func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
 		{
 			name: "defaults applied when unset",
 			cfg:  GCPConfig{},
-			want: want{model: "gemini-3.8-flash", thinking: "low"},
+			want: want{model: "gemini-4-hydrogen", thinking: "low"},
 		},
 		{
 			name: "extract overrides take precedence",
@@ -484,7 +484,7 @@ func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
 		{
 			name: "shared thinking level used when extract level unset",
 			cfg:  GCPConfig{GeminiSearchThinkingLevel: "high"},
-			want: want{model: "gemini-3.8-flash", thinking: "high"},
+			want: want{model: "gemini-4-hydrogen", thinking: "high"},
 		},
 	}
 	for _, tt := range tests {

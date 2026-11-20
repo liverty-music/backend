@@ -24,6 +24,10 @@ func TestNormalizeFixtureVenue(t *testing.T) {
 		// Parenthesised prefecture suffix
 		{"paren_chiba", "幕張メッセ 9・11ホール（千葉県）", "幕張メッセ911ホール"},
 		{"paren_ascii", "Zepp Haneda (東京都)", "zepphaneda"},
+		{"paren_short_fullwidth", "八王子 Match Vox（東京）", "八王子matchvox"},
+		{"paren_short_ascii", "仙台 MACANA(宮城)", "仙台macana"},
+		{"paren_short_spaced", "郡山HIPSHOT JAPAN (福島)", "郡山hipshotjapan"},
+		{"paren_non_prefecture_kept", "盛岡タカヤアリーナ（盛岡市総合アリーナ）", "盛岡タカヤアリーナ盛岡市総合アリーナ"},
 
 		// Both — prefix and inner paren (rare but possible)
 		{"prefix_and_paren", "大阪府・京セラドーム大阪（大阪府）", "京セラドーム大阪"},
