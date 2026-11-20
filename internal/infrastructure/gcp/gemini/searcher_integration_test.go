@@ -25,7 +25,7 @@ const (
 	abEvalEnvVar         = "GEMINI_AB_EVAL"
 	abEvalSmokeEnvVar    = "GEMINI_AB_EVAL_SMOKE"
 	abEvalAPIKeyVar      = "GCP_GEMINI_SEARCH_API_KEY" // REQUIRED: Gemini API direct is the only supported backend
-	abEvalModelsEnvVar   = "GEMINI_AB_EVAL_MODELS"     // CSV of model IDs; empty = gemini-3.8-flash
+	abEvalModelsEnvVar   = "GEMINI_AB_EVAL_MODELS"     // CSV of model IDs; empty = gemini-4-hydrogen
 	abEvalArtistsEnvVar  = "GEMINI_AB_EVAL_ARTISTS"    // CSV of artist names; empty = all fixture artists
 	abEvalThinkingEnvVar = "GEMINI_AB_EVAL_THINKING"   // thinking level; "" = default low
 	abEvalVariantsEnvVar = "GEMINI_AB_EVAL_VARIANTS"   // CSV of variants (see abVariant); empty = base
@@ -103,7 +103,7 @@ func csvEnv(name string, def ...string) []string {
 // abMatrix returns the Cartesian product of the matrix axes plus repetitions.
 //
 // The default matrix runs the "base" variant on every fixture artist:
-//   - Model: gemini-3.8-flash
+//   - Model: gemini-4-hydrogen (production)
 //   - Temperature: not sent (Gemini 3.8 Flash migration guide)
 //   - Thinking: low
 //   - Repetitions: 3
@@ -136,7 +136,7 @@ func abMatrix(t *testing.T, artists []gemini.GroundTruthArtist) []abCell {
 		artists = filtered
 	}
 
-	models := csvEnv(abEvalModelsEnvVar, "gemini-3.8-flash")
+	models := csvEnv(abEvalModelsEnvVar, "gemini-4-hydrogen")
 	thinks := csvEnv(abEvalThinkingEnvVar, "low")
 	var variants []abVariant
 	for _, name := range csvEnv(abEvalVariantsEnvVar, "base") {

@@ -34,7 +34,7 @@ captured from them (nor read with URL context).
 ## How to run
 
 Both harnesses call the production `ConcertSearcher`: one grounded call
-(Google Search + URL context) returning JSON, `gemini-3.8-flash`, thinking
+(Google Search + URL context) returning JSON, `gemini-4-hydrogen`, thinking
 `low`, temperature not sent, Google Search limited to the last 2 months.
 
 `TestConcertSearcher_ABEval` lists the official site's pages in every cell and
@@ -47,7 +47,7 @@ records the search queries from the server-side tool calls. Its variants
 | `cap` | adds "Run at most 10 Google Search queries; read the listed pages with url_context first." to the system instruction |
 | `nosearch` | no Google Search tool; URL context only |
 
-`GEMINI_AB_EVAL_MODELS` (CSV, default `gemini-3.8-flash`) and
+`GEMINI_AB_EVAL_MODELS` (CSV, default `gemini-4-hydrogen`) and
 `GEMINI_AB_EVAL_THINKING` (CSV, default `low`) set the model and thinking
 axes, `GEMINI_AB_EVAL_REPS` the repetitions (default 3). Repetitions are the
 outer loop, so the variants of one artist run minutes apart.
@@ -149,6 +149,24 @@ Recall 0.877 against 0.882 (0.922 against 0.906 weighted by events), within
 the 0.02 margin; queries and cost fell by two thirds or more, so the model
 switch meets D4. Neither model returned `groundingChunks` (backend #772).
 
+Run 3 (`ab_results/20261120T104756Z.*`, `gemini-4-hydrogen`, thinking `low`)
+against run 2:
+
+| artist | base queries (recall) | cap queries (recall) | nosearch recall |
+|---|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 1.00 |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 1.00 |
+| SUPER BEAVER | 0, 0, 0 (0.95) | 0, 0, 0 (0.95) | 0.63 (one 120 s timeout) |
+| BRADIO | 0, 0, 0 (0.67) | 0, 0, 2 (0.44; one connection reset) | 0.67 |
+| BIGMAMA | 1, 0, 0 (1.00) | 2, 2, 3 (1.00) | 1.00 |
+| go!go!vanillas | 3, 7, 4 (0.87) | 4, 6, 8 (1.00) | 0.61 |
+| [Alexandros] | 3, 3, 3 (0.65) | 3, 3, 3 (0.78) | 0.00 |
+| **all** | recall 0.877, cost $0.080 | recall 0.883, cost $0.091 | recall 0.702, cost $0.058 |
+
+The search-cap line did not lower queries and raised cost, so it was not
+adopted; Google Search off loses the tours the listed pages do not reach.
+Thinking `minimal` is rejected by `gemini-4-hydrogen` with 400.
+
 ## Earlier result (2026-10-07, steer-concert-search-to-official-pages)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset, tool calls on, 3 reps
@@ -202,7 +220,7 @@ responses; temperature 0.3 increased searches on 3 of 4 artists.
 
 | Axis | Values |
 |---|---|
-| Model | `gemini-3.8-flash` (`GEMINI_AB_EVAL_MODELS`) |
+| Model | `gemini-4-hydrogen` (`GEMINI_AB_EVAL_MODELS`) |
 | Temperature | not sent |
 | ThinkingLevel | `low` (`GEMINI_AB_EVAL_THINKING`) |
 | Variant | `base` (`GEMINI_AB_EVAL_VARIANTS`) |

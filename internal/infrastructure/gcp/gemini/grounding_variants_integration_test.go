@@ -26,7 +26,7 @@ const (
 	groundingEvalToolCallsEnv  = "GEMINI_GROUNDING_EVAL_TOOL_CALLS" // "1" returns server-side tool calls (search queries)
 
 	groundingEvalArtist   = "Vaundy"
-	groundingEvalModel    = "gemini-3.8-flash"
+	groundingEvalModel    = "gemini-4-hydrogen"
 	groundingEvalThinking = "low"
 	groundingEvalReps     = 3
 )
