@@ -40,7 +40,7 @@ require (
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/connect/v2 v2.0.2
 	connectrpc.com/cors v0.1.0
-	connectrpc.com/grpchealth/v2 v2.0.0
+	connectrpc.com/grpchealth/v2 v2.1.0
 	connectrpc.com/otelconnect v0.12.0
 	connectrpc.com/validate v0.9.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
