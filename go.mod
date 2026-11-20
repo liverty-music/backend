@@ -68,7 +68,7 @@ require (
 	github.com/stripe/stripe-go/v87 v87.1.0
 	github.com/voi-oss/watermill-opentelemetry v0.1.3
 	github.com/zitadel/oidc/v3 v3.52.0
-	github.com/zitadel/zitadel-go/v3 v3.30.0
+	github.com/zitadel/zitadel-go/v3 v3.30.1
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0
