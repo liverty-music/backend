@@ -518,8 +518,11 @@ Acceptance criteria (design D4 of the OpenSpec change), against the configuratio
 | run | variant vs baseline | recall | median queries (many-query) | cost / call | p90 latency | verdict |
 |---|---|---|---|---|---|---|
 | 1 | links of the first 3 concert pages vs top-page links (`gemini-3.8-flash`, `low`) | 0.959 vs 0.882 | 16 vs 10 (30 vs 16) | $0.477 vs $0.246 | 86 s vs 72 s | **rejected**: queries and cost rose |
+| 2 | `gemini-4-hydrogen` vs `gemini-3.8-flash` (top-page links, `low`) | 0.877 vs 0.882 (event-weighted 0.922 vs 0.906) | 0 vs 10 (3 vs 16) | $0.080 vs $0.246 | 36 s vs 72 s | **adopted** |
 
 Run 1: the second link level (URL context does not follow links, so read the concert pages and list their same-domain links) raised recall but filled the 20 URL slots with the wrong pages: on [Alexandros] 11 of them were the region filters of the schedule page, and the tour pages behind page 2 of the list were still missing, so queries went from 16 to 63. Searches for tour detail pages remain the cost driver; a selection that finds them (pagination, or the detail links whose text names a tour) would have to be evaluated again.
+
+Run 2: `gemini-4-hydrogen` read the listed pages and issued almost no searches (1.1 per call on average against 10.0); per-artist recall moved both ways (BIGMAMA 0.68 → 1.00, [Alexandros] 0.77 → 0.65, go!go!vanillas 1.00 → 0.87) within the 0.02 overall margin. No empty responses or invalid JSON with structured output plus both tools. Neither model returned `groundingChunks` in any call, including the calls that searched (backend #772).
 
 ### 10.1 End-to-end call flow
 

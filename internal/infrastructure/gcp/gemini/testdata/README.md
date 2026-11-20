@@ -131,6 +131,24 @@ go!go!vanillas's tour pages sit on other domains and gained nothing.
 BIGMAMA's one base miss (recall 0.04) was a single rep. No empty responses,
 errors or timeouts in either variant; p90 latency 72 s (base), 86 s (detail).
 
+Run 2 (`ab_results/20261120T102609Z.*`) ran production (`base`) on
+`gemini-4-hydrogen`, thinking `low`:
+
+| artist | gemini-3.8-flash queries (recall) | gemini-4-hydrogen queries (recall) |
+|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) |
+| SUPER BEAVER | 0, 0, 2 (0.95) | 0, 0, 0 (0.95) |
+| BRADIO | 17, 4, 17 (0.78) | 0, 0, 0 (0.67) |
+| BIGMAMA | 23, 23, 10 (0.68) | 1, 0, 0 (1.00) |
+| go!go!vanillas | 12, 36, 16 (1.00) | 3, 7, 4 (0.87) |
+| [Alexandros] | 16, 18, 15 (0.77) | 3, 3, 3 (0.65) |
+| **all** | median 10, cost $0.246, p90 72 s | median 0, cost $0.080, p90 36 s |
+
+Recall 0.877 against 0.882 (0.922 against 0.906 weighted by events), within
+the 0.02 margin; queries and cost fell by two thirds or more, so the model
+switch meets D4. Neither model returned `groundingChunks` (backend #772).
+
 ## Earlier result (2026-10-07, steer-concert-search-to-official-pages)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset, tool calls on, 3 reps
