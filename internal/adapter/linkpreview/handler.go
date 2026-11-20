@@ -27,7 +27,7 @@ const (
 	maxCacheEntries = 10_000
 )
 
-// Handler serves the preview tag block of one Event page. It always answers
+// Handler serves the preview tag block of one concert page. It always answers
 // 200: on NotFound or any error the body is empty, so the site-default tags
 // in the fan web's index.html stand.
 type Handler struct {
@@ -88,7 +88,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	write(w, body)
 }
 
-// render reads the Event page's Concert and its Series' Concerts and renders
+// render reads the concert page's Concert and its Series' Concerts and renders
 // the tag block.
 func (h *Handler) render(ctx context.Context, eventID string) ([]byte, error) {
 	concert, err := h.concerts.Get(ctx, eventID)

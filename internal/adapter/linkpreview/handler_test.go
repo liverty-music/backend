@@ -221,7 +221,7 @@ func TestHandler_SiteDefaults(t *testing.T) {
 			// @spec components/infrastructure/fan/web/global/link-preview "Unlisted event link"
 			name: "return 200 with an empty body when the event has no page",
 			path: "/link-preview/concerts/" + eventID,
-			err:  apperr.New(codes.NotFound, "event page not found"),
+			err:  apperr.New(codes.NotFound, "concert page not found"),
 		},
 		{
 			// @spec components/infrastructure/fan/web/global/link-preview "Event read fails"

@@ -773,12 +773,12 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 	assert.Equal(t, "2 new concerts found\nTour", messages["user-away"].Body)
 }
 
-// TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage verifies that when the
+// TestNotifyNewConcerts_FirstPartyDeepLinksToConcertPage verifies that when the
 // earliest matched concert belongs to an Organizer's Series, the message links
-// to its public event page instead of the dashboard detail sheet.
+// to its public concert page instead of the timetable's concert sheet.
 //
 // @spec components/usecase/notification/notify-new-concerts "First-party concert links to its concert page"
-func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
+func TestNotifyNewConcerts_FirstPartyDeepLinksToConcertPage(t *testing.T) {
 	t.Parallel()
 
 	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }

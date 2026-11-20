@@ -144,7 +144,7 @@ func TestConcertHandler_Get(t *testing.T) {
 	t.Run("return the usecase error unchanged", func(t *testing.T) {
 		t.Parallel()
 		h, concertUC, _ := newEventPageHandler(t)
-		concertUC.EXPECT().Get(mock.Anything, eventID).Return(nil, apperr.New(codes.NotFound, "event page not found")).Once()
+		concertUC.EXPECT().Get(mock.Anything, eventID).Return(nil, apperr.New(codes.NotFound, "concert page not found")).Once()
 
 		resp, err := h.Get(context.Background(), &concertv1.GetRequest{
 			EventId: &entityv1.EventId{Value: eventID},

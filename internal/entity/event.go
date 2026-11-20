@@ -208,8 +208,8 @@ func (e *Event) IsPubliclyVisible(series *Series) bool {
 	return e.HasPublishState(PublishStatePublished) && series.IsPublic()
 }
 
-// HasEventPage reports whether the event has a public event page
-// (/events/:id): its series is first-party and PUBLIC, and the event is
+// HasEventPage reports whether the event has a public concert page
+// (/concerts/:id): its series is first-party and PUBLIC, and the event is
 // PUBLISHED or CANCELLED. Unlike [Event.IsPubliclyVisible], a CANCELLED event
 // keeps its page so a shared link can still explain the cancellation.
 func (e *Event) HasEventPage(series *Series) bool {

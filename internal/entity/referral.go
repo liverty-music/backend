@@ -7,7 +7,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// ReferralCode is the code a link to an event page carries in `?ref=`: 1 to
+// ReferralCode is the code a link to a concert page carries in `?ref=`: 1 to
 // 32 characters, each a lowercase ASCII letter, a digit or a hyphen. It is
 // free-form: not registered in advance, it grants no access and pays no
 // reward. An Order keeps it as its referral code, set when the fan applies.

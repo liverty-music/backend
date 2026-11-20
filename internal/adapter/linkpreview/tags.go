@@ -1,5 +1,5 @@
 // Package linkpreview renders the Open Graph and X card tags that the fan web
-// serves with an Event page (/events/:id), so social networks and messengers
+// serves with a concert page (/concerts/:id), so social networks and messengers
 // can show a preview card without running the app's scripts.
 //
 // It mirrors internal/adapter/rpc with its pb conversions: the handler only calls
@@ -43,7 +43,7 @@ var tagsTemplateText string
 // markup into the served HTML.
 var tagsTemplate = template.Must(template.New("tags").Parse(tagsTemplateText))
 
-// Tags holds the values of one Event page's preview.
+// Tags holds the values of one concert page's preview.
 type Tags struct {
 	// Title is og:title.
 	Title string

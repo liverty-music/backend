@@ -355,7 +355,7 @@ func TestNotification_Message(t *testing.T) {
 		assert.Equal(t, tag("event-1"), tag("event-2"))
 	})
 
-	t.Run("first-party concert links to its event page", func(t *testing.T) {
+	t.Run("first-party concert links to its concert page", func(t *testing.T) {
 		t.Parallel()
 		c := messageConcert()
 		organizer := "org-1"

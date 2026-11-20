@@ -35,7 +35,7 @@ func NewConcertHandler(
 	}
 }
 
-// Get returns the Concert of one Event whose Series has an event page.
+// Get returns the Concert of one Event whose Series has a concert page.
 // Authentication is not required.
 func (h *ConcertHandler) Get(ctx context.Context, req *concertv1.GetRequest) (*concertv1.GetResponse, error) {
 	concert, err := h.concertUseCase.Get(ctx, req.GetEventId().GetValue())
@@ -50,7 +50,7 @@ func (h *ConcertHandler) Get(ctx context.Context, req *concertv1.GetRequest) (*c
 	}, nil
 }
 
-// ListBySeries returns the Concerts of one Series that has an event page, in
+// ListBySeries returns the Concerts of one Series that has a concert page, in
 // date and start-time order. Authentication is not required.
 func (h *ConcertHandler) ListBySeries(ctx context.Context, req *concertv1.ListBySeriesRequest) (*concertv1.ListBySeriesResponse, error) {
 	concerts, err := h.concertUseCase.ListBySeries(ctx, req.GetSeriesId().GetValue())

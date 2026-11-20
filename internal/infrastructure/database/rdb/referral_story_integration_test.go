@@ -13,7 +13,7 @@ import (
 // first come with the code the fan app sends to CheckoutUseCase.Start and read
 // the Organizer's Sales tab with TicketSaleUseCase.ListOwnByEvent, over the
 // first-come story's wiring (real Postgres, real Stripe test API). Which code
-// the fan app sends is decided on the device: the Event page keeps the code
+// the fan app sends is decided on the device: the concert page keeps the code
 // of the last link opened with its Series for 7 days and the checkout sends it
 // only for an event of that Series (frontend
 // src/adapter/storage/referral-storage.ts). The tests of "Last link wins",
@@ -45,7 +45,7 @@ func TestReferralStory_GuestFromAMembersLinkBuysAfterSigningUp(t *testing.T) {
 	stock := s.stock("S席", 3000, 150)
 	s.openFirstCome()
 
-	// The guest signs up from the Event page and buys with the kept code.
+	// The guest signs up from the concert page and buys with the kept code.
 	fan := s.newFan()
 	code := referralCode("member-a")
 	checkout := s.hold(stock.ID, fan, 2, code)

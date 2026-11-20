@@ -57,7 +57,7 @@ const (
 	// when its series is PUBLIC.
 	PublishStatePublished PublishState = "PUBLISHED"
 	// PublishStateCancelled means the published event was cancelled. It is
-	// terminal: the event keeps its slot and its event page but is dropped
+	// terminal: the event keeps its slot and its concert page but is dropped
 	// from fan lists.
 	PublishStateCancelled PublishState = "CANCELLED"
 )
@@ -224,7 +224,7 @@ func (s *Series) CheckChange(next *Series, events []*Event) error {
 	return nil
 }
 
-// HasAnyEventPage reports whether the series has an event page: at least one
+// HasAnyEventPage reports whether the series has a concert page: at least one
 // of its Events has one (see [Event.HasEventPage]).
 func (s *Series) HasAnyEventPage(events []*Event) bool {
 	for _, e := range events {

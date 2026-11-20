@@ -1146,7 +1146,7 @@ func TestConcertUseCase_ListByLocation(t *testing.T) {
 		assert.Len(t, groups, 1, "only date1 has HOME/NEARBY concerts; date2 (AWAY-only) is stripped")
 		assert.Len(t, groups[0].Home, 1, "JP-40 venue is HOME")
 		assert.Len(t, groups[0].Nearby, 1, "Kumamoto venue within 200km is NEARBY")
-		assert.Empty(t, groups[0].Away, "AWAY must never be surfaced in the All Nearby response")
+		assert.Empty(t, groups[0].Away, "AWAY must never be surfaced in the Concerts view response")
 	})
 
 	t.Run("rejects a date range exceeding 30 days", func(t *testing.T) {

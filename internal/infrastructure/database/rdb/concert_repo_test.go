@@ -1335,7 +1335,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 	// Regression test for liverty-music/backend#475: listConcertsByFollowerQuery
 	// omitted firstPartyVisibilityGuard, so DRAFT/UNLISTED/CANCELLED first-party
-	// series leaked onto a follower's dashboard.
+	// series leaked onto a follower's timetable.
 	t.Run("excludes DRAFT, UNLISTED and CANCELLED first-party series", func(t *testing.T) {
 		cleanTables(t, db)
 
@@ -1399,7 +1399,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
 		assert.Equal(t, entity.PublishStatePublished, *got[0].Series.PublishState)
-		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the event page does")
+		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the concert page does")
 		assert.Equal(t, coverID, got[0].Series.CoverImage.ID)
 		assert.Equal(t, organizerID, got[0].Series.CoverImage.OrganizerID)
 
