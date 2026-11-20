@@ -775,7 +775,7 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 
 // TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage verifies that when the
 // earliest matched concert belongs to an Organizer's Series, the message links
-// to its public event page instead of the dashboard detail sheet.
+// to its public concert page instead of the dashboard detail sheet.
 //
 // @spec components/usecase/notification/notify-new-concerts "First-party concert links to its concert page"
 func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {

@@ -47,7 +47,7 @@ const healthServicePath = "/" + grpchealth.HealthV1ServiceName + "/"
 // mux, beside the health check and outside the authn middleware and the
 // Connect interceptor chain (so no per-IP rate limit applies). It is only for
 // endpoints that return data already public through an RPC, such as the link
-// preview tags of an Event page.
+// preview tags of a concert page.
 type PublicHTTPRoute struct {
 	// Pattern is the [http.ServeMux] pattern, e.g. "GET /link-preview/concerts/{id}".
 	Pattern string

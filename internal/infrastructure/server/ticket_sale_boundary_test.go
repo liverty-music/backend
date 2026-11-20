@@ -81,7 +81,7 @@ func TestFanServer_TicketSaleListByEvent(t *testing.T) {
 		return ticketsalev1connect.NewTicketSaleServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL))).ListByEvent(context.Background(), req)
 	}
 
-	t.Run("guest opens the event page", func(t *testing.T) {
+	t.Run("guest opens the concert page", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/ticket-sale "Guest opens the concert page"
 		uc := usecasemocks.NewMockTicketSaleUseCase(t)

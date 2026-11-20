@@ -11,7 +11,7 @@ import (
 
 // FanPublicProcedures returns the consumer (fan) Connect procedures that are
 // accessible without authentication: read-only endpoints that return publicly
-// available data (artist charts, concert schedules, public event pages) and
+// available data (artist charts, concert schedules, public concert pages) and
 // are called during onboarding or by guests, UserService.RequestPasskeyRecovery,
 // which serves people who cannot sign in and is limited per client
 // ([FanClientLimitedProcedures]), and UserService.VerifyEmail, which serves

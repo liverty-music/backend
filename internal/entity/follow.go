@@ -7,7 +7,7 @@ import "context"
 type Hype string
 
 const (
-	// HypeWatch indicates dashboard-only display, no push notifications. Lowest tier.
+	// HypeWatch indicates timetable-only display, no push notifications. Lowest tier.
 	HypeWatch Hype = "watch"
 	// HypeHome indicates notifications only for concerts in the user's home area.
 	HypeHome Hype = "home"
@@ -46,7 +46,7 @@ func (h Hype) IsValid() bool {
 // so it must reflect exactly what the recipient's hype tier promised them.
 //
 // Selection rules:
-//  1. HypeWatch → empty (dashboard-only, no push).
+//  1. HypeWatch → empty (timetable-only, no push).
 //  2. HypeHome → concerts whose venue admin area matches the recipient's home
 //     area (ProximityHome); empty when home is nil or home.Level1 is empty.
 //  3. HypeNearby → concerts within range of the home centroid (ProximityHome or

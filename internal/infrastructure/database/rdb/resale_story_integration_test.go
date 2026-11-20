@@ -47,7 +47,7 @@ func (s *firstComeStory) assertValidForEntry(fan entity.UserID, count int) {
 	}
 }
 
-// resaleOpenOnEventPage reports whether the event page offers resale for the
+// resaleOpenOnEventPage reports whether the concert page offers resale for the
 // stock, as TicketSaleUseCase.ListByEvent shows it.
 func (s *firstComeStory) resaleOpenOnEventPage(stockID entity.TicketStockID) bool {
 	s.t.Helper()
@@ -58,7 +58,7 @@ func (s *firstComeStory) resaleOpenOnEventPage(stockID entity.TicketStockID) boo
 			return v.ResaleOpen
 		}
 	}
-	s.t.Fatalf("stock %s is not on the event page", stockID)
+	s.t.Fatalf("stock %s is not on the concert page", stockID)
 	return false
 }
 
@@ -148,7 +148,7 @@ func TestResaleStory_UnsoldAtTheDeadline(t *testing.T) {
 	listings := s.ownListings(fan)
 	require.Len(t, listings, 1)
 	assert.Equal(t, entity.ResaleListingStatusExpired, listings[0].Status, "the listing is no longer offered")
-	assert.False(t, s.resaleOpenOnEventPage(stock.ID), "the event page offers no resale")
+	assert.False(t, s.resaleOpenOnEventPage(stock.ID), "the concert page offers no resale")
 
 	// No ticket is listed any more.
 	tickets := s.eventTickets(fan)

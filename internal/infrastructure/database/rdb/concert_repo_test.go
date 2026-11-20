@@ -1399,7 +1399,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
 		assert.Equal(t, entity.PublishStatePublished, *got[0].Series.PublishState)
-		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the event page does")
+		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the concert page does")
 		assert.Equal(t, coverID, got[0].Series.CoverImage.ID)
 		assert.Equal(t, organizerID, got[0].Series.CoverImage.OrganizerID)
 

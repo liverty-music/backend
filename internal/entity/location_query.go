@@ -14,7 +14,7 @@ import (
 const MaxLocationDateRange = 30 * 24 * time.Hour
 
 // LocationQuery asks for the concerts near a reference point on the dates
-// From to To (the All Nearby view).
+// From to To (the Concerts view).
 type LocationQuery struct {
 	// Location is the reference point.
 	Location *GeoLocation
@@ -42,7 +42,7 @@ func (q LocationQuery) Check() error {
 }
 
 // NearbyGroups groups concerts by date and proximity to the reference point
-// and keeps only what the All Nearby view shows: the HOME and NEARBY concerts
+// and keeps only what the Concerts view shows: the HOME and NEARBY concerts
 // of each date. A date with neither is dropped, and AWAY concerts are never
 // returned (the bounding-box prefilter of the search admits venues the
 // distance cut then classifies as AWAY).

@@ -353,7 +353,7 @@ func NewConcertRepository(db *Database, outbox Announcer) *ConcertRepository {
 //
 // The Series carries its first-party attributes (organizer, description,
 // visibility, publish state) and its cover image's identity, so every read
-// returns the same Series shape as the event page. The share token is never
+// returns the same Series shape as the concert page. The share token is never
 // read here.
 func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
 	var (

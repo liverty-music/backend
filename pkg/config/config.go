@@ -206,7 +206,7 @@ type ServerConfig struct {
 
 	// FanWebBaseURL is the fan web origin (scheme and host only, e.g.
 	// "https://liverty-music.app") used for the canonical og:url and the
-	// default og:image of an Event page's link preview. Required with no
+	// default og:image of a concert page's link preview. Required with no
 	// default: a wrong origin would publish links to another environment in
 	// every shared preview, so a missing value must stop the server.
 	FanWebBaseURL string `envconfig:"FAN_WEB_BASE_URL" required:"true"`

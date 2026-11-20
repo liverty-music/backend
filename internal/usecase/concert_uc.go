@@ -124,7 +124,7 @@ type ConcertUseCase interface {
 	//  - Internal: concert search lookup or search failure.
 	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
 
-	// Get returns the Concert of one Event when that Event has an event page
+	// Get returns the Concert of one Event when that Event has a concert page
 	// (see [entity.Event.HasEventPage]). The returned Concert carries its own
 	// publish state and its Series as every Concert read returns it, including
 	// its description, cover image, visibility and publish state. No signed-in
@@ -132,13 +132,13 @@ type ConcertUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If no Concert has the id, or its Event has no event page.
+	//  - NotFound: If no Concert has the id, or its Event has no concert page.
 	//    The same error is returned in every case so a caller cannot learn
 	//    whether a DRAFT or UNLISTED event exists.
 	//  - Any other repository error, returned unchanged.
 	Get(ctx context.Context, eventID string) (*entity.Concert, error)
 
-	// ListBySeries returns every Concert of one Series that has an event page,
+	// ListBySeries returns every Concert of one Series that has a concert page,
 	// ordered by local date and then by start time (as
 	// ConcertRepository.ListEventsBySeries orders them). Each Concert carries
 	// its Series as every Concert read returns it. No signed-in caller is
@@ -146,7 +146,7 @@ type ConcertUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If no Series has the id, or the Series has no event page.
+	//  - NotFound: If no Series has the id, or the Series has no concert page.
 	//  - Any other repository error, returned unchanged.
 	ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error)
 }
@@ -154,7 +154,7 @@ type ConcertUseCase interface {
 // errNoEventPage is the single NotFound returned by Get and ListBySeries for
 // every miss, so the response never reveals why an event has no page.
 func errNoEventPage() error {
-	return apperr.New(codes.NotFound, "event page not found")
+	return apperr.New(codes.NotFound, "concert page not found")
 }
 
 // concertUseCase implements ConcertUseCase; concertCandidateUseCase builds on
@@ -249,7 +249,7 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 	return concerts, nil
 }
 
-// Get returns the Concert of one Event when the Event has an event page.
+// Get returns the Concert of one Event when the Event has a concert page.
 func (uc *concertUseCase) Get(ctx context.Context, eventID string) (*entity.Concert, error) {
 	concerts, err := uc.concertRepo.ListByIDs(ctx, []string{eventID})
 	if err != nil {
@@ -265,7 +265,7 @@ func (uc *concertUseCase) Get(ctx context.Context, eventID string) (*entity.Conc
 	return concert, nil
 }
 
-// ListBySeries returns the Concerts of one Series that has an event page, in
+// ListBySeries returns the Concerts of one Series that has a concert page, in
 // ListEventsBySeries order.
 func (uc *concertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error) {
 	series, err := uc.seriesRepo.Get(ctx, seriesID)
@@ -276,7 +276,7 @@ func (uc *concertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]
 		return nil, err
 	}
 
-	// ListEventsBySeries leaves DRAFT events out, so a Series has an event page
+	// ListEventsBySeries leaves DRAFT events out, so a Series has a concert page
 	// exactly when one of these events has one.
 	events, err := uc.concertRepo.ListEventsBySeries(ctx, seriesID)
 	if err != nil {
