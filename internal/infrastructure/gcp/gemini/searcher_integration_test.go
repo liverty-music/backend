@@ -55,7 +55,7 @@ type abVariant struct {
 	NoSearch bool
 }
 
-// parseABVariant parses a variant name such as "detail+cap".
+// parseABVariant parses a variant name such as "cap+nosearch".
 func parseABVariant(name string) (abVariant, error) {
 	v := abVariant{Name: name}
 	for _, opt := range strings.Split(name, "+") {

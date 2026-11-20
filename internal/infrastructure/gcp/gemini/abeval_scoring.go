@@ -166,6 +166,7 @@ var DefaultPricing = PricingTable{
 	"gemini-3.6-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 	"gemini-3.7-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 	"gemini-3.8-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
+	"gemini-4-hydrogen":      {InputPerM: 1.50, OutputPerM: 7.50, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
 }
 
 // Pricing2027 is the standard-tier price from 2027-01-01, when

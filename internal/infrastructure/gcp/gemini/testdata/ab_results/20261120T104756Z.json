@@ -5,7 +5,7 @@
     "started_at": "2026-11-20T10:26:50Z",
     "finished_at": "2026-11-20T10:47:56Z",
     "cells_executed": 42,
-    "total_cost_usd": 0
+    "total_cost_usd": 3.1327365
   },
   "cells": [
     {
@@ -67,7 +67,7 @@
         "https://secure.plusmember.jp/uverworld/1/login/",
         "https://www.uverworld.jp/news/detail/3251"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0747225,
       "cost_usd_2027": 0.0747225,
       "retry_count": 1,
       "empty_response": false,
@@ -128,7 +128,7 @@
         "https://www.uverworld.jp/feature/2026_live",
         "https://www.uverworld.jp/news/detail/3251"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0650925,
       "cost_usd_2027": 0.0650925,
       "retry_count": 1,
       "empty_response": false,
@@ -193,7 +193,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.120297,
       "cost_usd_2027": 0.120297,
       "retry_count": 1,
       "empty_response": false,
@@ -258,7 +258,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.120834,
       "cost_usd_2027": 0.120834,
       "retry_count": 1,
       "empty_response": false,
@@ -314,7 +314,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://sp.super-beaver.com/live_information/list/?range=future\u0026sort=asc",
+        "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
         "https://sp.super-beaver.com/feature/tour2728",
         "https://sp.super-beaver.com/feature/tour2627",
         "https://sp.super-beaver.com/live_information/calendar/",
@@ -323,7 +323,7 @@
         "https://sp.super-beaver.com/live_information/detail/6051",
         "https://sp.super-beaver.com/live_information/detail/6052"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.08537700000000001,
       "cost_usd_2027": 0.08537700000000001,
       "retry_count": 1,
       "empty_response": false,
@@ -379,7 +379,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://sp.super-beaver.com/live_information/list/?range=future\u0026sort=asc",
+        "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
         "https://sp.super-beaver.com/feature/tour2728",
         "https://sp.super-beaver.com/feature/tour2627",
         "https://sp.super-beaver.com/live_information/calendar/",
@@ -388,7 +388,7 @@
         "https://sp.super-beaver.com/live_information/detail/6051",
         "https://sp.super-beaver.com/live_information/detail/6052"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0852375,
       "cost_usd_2027": 0.0852375,
       "retry_count": 1,
       "empty_response": false,
@@ -453,7 +453,7 @@
         "https://bradio.jp/news/detail/2066",
         "https://bradio.jp/news/detail/2081"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0415275,
       "cost_usd_2027": 0.0415275,
       "retry_count": 1,
       "empty_response": false,
@@ -518,7 +518,7 @@
         "https://bradio.jp/news/detail/2066",
         "https://bradio.jp/news/detail/2081"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.038943,
       "cost_usd_2027": 0.038943,
       "retry_count": 1,
       "empty_response": false,
@@ -582,7 +582,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.07452099999999999,
       "cost_usd_2027": 0.07452099999999999,
       "retry_count": 1,
       "empty_response": false,
@@ -645,7 +645,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0420885,
       "cost_usd_2027": 0.0420885,
       "retry_count": 1,
       "empty_response": false,
@@ -701,7 +701,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -710,7 +710,7 @@
         "https://gogovanillas.com/news/detail/5596",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFdi7phnZmF5yhZe4NzZ9tLI0XCdF4dDTNud7VhLyGMyW4QpuwEpmP_2PkD_WB1qWt_RPDWGoWzDxePhjGFm5nWO62z_Br1d9pvh_bLDA9G2_nFN0MLIE03-rV-7_Y2xERorlfpUiZNf6PKqK3Bymr8mblk5HPZ1VvxjZL3yLZ-a-ipQk-mjqlNWNI="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.1302995,
       "cost_usd_2027": 0.1302995,
       "retry_count": 1,
       "empty_response": false,
@@ -767,7 +767,7 @@
       "discovered_url_count": 8,
       "discovered_urls": [
         "https://gogovanillas.com/news/1/",
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -775,7 +775,7 @@
         "https://gogovanillas.com/news/detail/5595",
         "https://gogovanillas.com/news/detail/5596"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0675225,
       "cost_usd_2027": 0.0675225,
       "retry_count": 1,
       "empty_response": false,
@@ -837,7 +837,7 @@
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUnCXhrdEvTYMLcobTIMIPwyzEr3CKk2NRTq5-aKLnefrQYwjfgcdLAQnhfkLi7DAWoEvxSPAB_WAHjmfvnTEbKFRPRwW65QeaZmwwsnHTLAln3nQAsp5Rmjl3Qw==",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHCF0PkNMxCxLmknYxJWJh-3K5QK0XvNoEwFaPKq7fFrYGm3zdnkpBN-NVReMYvbETvyQzZifEDnb_2rXOoRI7uffYN5JWxeyjYJHtalEdkxqESkm8JBmbeFzSTvg=="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.08617649999999999,
       "cost_usd_2027": 0.08617649999999999,
       "retry_count": 1,
       "empty_response": false,
@@ -896,7 +896,7 @@
         "https://alexandros.jp/contents/schedule",
         "https://alexandros.jp/contents/news"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0194565,
       "cost_usd_2027": 0.0194565,
       "retry_count": 1,
       "empty_response": false,
@@ -959,7 +959,7 @@
         "https://secure.plusmember.jp/uverworld/1/login/",
         "https://www.uverworld.jp/news/detail/3251"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.068229,
       "cost_usd_2027": 0.068229,
       "retry_count": 1,
       "empty_response": false,
@@ -1021,7 +1021,7 @@
         "https://www.uverworld.jp/news/detail/3251",
         "https://secure.plusmember.jp/uverworld/1/login/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0568965,
       "cost_usd_2027": 0.0568965,
       "retry_count": 1,
       "empty_response": false,
@@ -1086,7 +1086,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.119823,
       "cost_usd_2027": 0.119823,
       "retry_count": 1,
       "empty_response": false,
@@ -1151,7 +1151,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.13828800000000002,
       "cost_usd_2027": 0.13828800000000002,
       "retry_count": 1,
       "empty_response": false,
@@ -1207,7 +1207,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://sp.super-beaver.com/live_information/list/?range=future\u0026sort=asc",
+        "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
         "https://sp.super-beaver.com/feature/tour2728",
         "https://sp.super-beaver.com/feature/tour2627",
         "https://sp.super-beaver.com/live_information/calendar/",
@@ -1216,7 +1216,7 @@
         "https://sp.super-beaver.com/live_information/detail/6051",
         "https://sp.super-beaver.com/live_information/detail/6052"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.087273,
       "cost_usd_2027": 0.087273,
       "retry_count": 1,
       "empty_response": false,
@@ -1332,7 +1332,7 @@
       "retry_count": 1,
       "empty_response": false,
       "grounding_chunks": 0,
-      "error": "failed to call Gemini API: backoff: permanent error (last error: doRequest: error sending request: Post \"https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent\": read tcp 100.64.254.126:48578-\u003e172.217.118.4:443: read: connection reset by peer) (unknown)"
+      "error": "failed to call Gemini API: backoff: permanent error (last error: doRequest: error sending request: Post \"https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent\": read tcp 100.64.254.126:48578->172.217.118.4:443: read: connection reset by peer) (unknown)"
     },
     {
       "model": "gemini-4-hydrogen",
@@ -1393,7 +1393,7 @@
         "https://bradio.jp/news/detail/2066",
         "https://bradio.jp/news/detail/2081"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0374745,
       "cost_usd_2027": 0.0374745,
       "retry_count": 1,
       "empty_response": false,
@@ -1457,7 +1457,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.073177,
       "cost_usd_2027": 0.073177,
       "retry_count": 1,
       "empty_response": false,
@@ -1520,7 +1520,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.041662500000000005,
       "cost_usd_2027": 0.041662500000000005,
       "retry_count": 1,
       "empty_response": false,
@@ -1577,7 +1577,7 @@
       "discovered_url_count": 11,
       "discovered_urls": [
         "https://gogovanillas.com/news/1/",
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -1588,7 +1588,7 @@
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGsf2DkoXVY5hVGdL47ittaqFznNxt6v3l4zsroEdMpokK20C6sskCA6lQigX0yXKFuv29vaTFvHR3qAycihMO229PBF27o8cbxh-DsDq495cn_sbxXjjM=",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGng6VY6TDTk3_H59gkn9DO2sjImQ_uvVULNPouUfgY1nRkhhtH4FKSVH4WTutotIn_SPOALxfHycfeNd_0YVvV1fHPBbEuZfpHXpKPylVGb9BAhKh1AEMxXtFxRnj0dQ=="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.15646350000000003,
       "cost_usd_2027": 0.15646350000000003,
       "retry_count": 1,
       "empty_response": false,
@@ -1644,7 +1644,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 7,
       "discovered_urls": [
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -1652,7 +1652,7 @@
         "https://gogovanillas.com/news/detail/5595",
         "https://gogovanillas.com/news/detail/5596"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.055551,
       "cost_usd_2027": 0.055551,
       "retry_count": 1,
       "empty_response": false,
@@ -1714,7 +1714,7 @@
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG-XjXkRAZ2hnjCGemIiNAHRCvnm1EK9Vhzk7QyFYYX3Qnk4OXNICHveZeSn7n1b4Ad65ZyTCeLRNIoGRfUT8RDfAZU7wJYp0_Ljis37_tRnilPLuxcTpqIDKZYvw==",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEfm8EeiCnEJVyCAP_bQQE3HilpqXVymAcQQ2tyX4iT8SCrrYj6lxZ914Ub0oQ9u6wuKyy89hlpL41dWj7UYQT3-DxvPC-PBh83tUIbDWPzDq6QtgOQ_DNir_NvOg=="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.09261,
       "cost_usd_2027": 0.09261,
       "retry_count": 1,
       "empty_response": false,
@@ -1773,7 +1773,7 @@
         "https://alexandros.jp/contents/schedule",
         "https://alexandros.jp/contents/news"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0284745,
       "cost_usd_2027": 0.0284745,
       "retry_count": 1,
       "empty_response": false,
@@ -1836,7 +1836,7 @@
         "https://secure.plusmember.jp/uverworld/1/login/",
         "https://www.uverworld.jp/news/detail/2778"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.058881,
       "cost_usd_2027": 0.058881,
       "retry_count": 1,
       "empty_response": false,
@@ -1899,7 +1899,7 @@
         "https://secure.plusmember.jp/uverworld/1/login/",
         "https://www.uverworld.jp/news/detail/2778"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.057336,
       "cost_usd_2027": 0.057336,
       "retry_count": 1,
       "empty_response": false,
@@ -1964,7 +1964,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.11073,
       "cost_usd_2027": 0.11073,
       "retry_count": 1,
       "empty_response": false,
@@ -2029,7 +2029,7 @@
         "https://vaundy.jp/news/3/",
         "https://member.vaundy.jp/news/4/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.1199835,
       "cost_usd_2027": 0.1199835,
       "retry_count": 1,
       "empty_response": false,
@@ -2085,7 +2085,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://sp.super-beaver.com/live_information/list/?range=future\u0026sort=asc",
+        "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
         "https://sp.super-beaver.com/feature/tour2728",
         "https://sp.super-beaver.com/feature/tour2627",
         "https://sp.super-beaver.com/live_information/calendar/",
@@ -2094,7 +2094,7 @@
         "https://sp.super-beaver.com/live_information/detail/6051",
         "https://sp.super-beaver.com/live_information/detail/6052"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0858825,
       "cost_usd_2027": 0.0858825,
       "retry_count": 1,
       "empty_response": false,
@@ -2150,7 +2150,7 @@
       "avg_logprobs": 0,
       "discovered_url_count": 8,
       "discovered_urls": [
-        "https://sp.super-beaver.com/live_information/list/?range=future\u0026sort=asc",
+        "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
         "https://sp.super-beaver.com/feature/tour2728",
         "https://sp.super-beaver.com/feature/tour2627",
         "https://sp.super-beaver.com/live_information/calendar/",
@@ -2159,7 +2159,7 @@
         "https://sp.super-beaver.com/live_information/detail/6051",
         "https://sp.super-beaver.com/live_information/detail/6052"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.08669550000000001,
       "cost_usd_2027": 0.08669550000000001,
       "retry_count": 1,
       "empty_response": false,
@@ -2224,7 +2224,7 @@
         "https://bradio.jp/news/detail/2066",
         "https://bradio.jp/news/detail/2081"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0688495,
       "cost_usd_2027": 0.0688495,
       "retry_count": 1,
       "empty_response": false,
@@ -2289,7 +2289,7 @@
         "https://bradio.jp/news/detail/2066",
         "https://bradio.jp/news/detail/2081"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.039762,
       "cost_usd_2027": 0.039762,
       "retry_count": 1,
       "empty_response": false,
@@ -2352,7 +2352,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0996795,
       "cost_usd_2027": 0.0996795,
       "retry_count": 1,
       "empty_response": false,
@@ -2415,7 +2415,7 @@
         "https://bigmama-web.com/news/13429/",
         "https://bigmama-web.com/news/13440/"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.0408675,
       "cost_usd_2027": 0.0408675,
       "retry_count": 1,
       "empty_response": false,
@@ -2472,7 +2472,7 @@
       "discovered_url_count": 11,
       "discovered_urls": [
         "https://gogovanillas.com/news/1/",
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -2483,7 +2483,7 @@
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF8VtpC_l8mt9ga3QWsfsuQ-a9Q2gRajKeZTTgLAI3dtH3HESF2l3IyJgFwUzAjhISRiFdLcjBtCX44BeCt4JCpQIcL1tZP9TzfoxfPlXrVzR4I",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHhpUQUzAtdGgFsf5B9N-QA_ZvMlu1kv1vhM2tAswXQTRPr0FrG_pW42KnbbKhIuSYuSUjUckZTyg5c9txgsSVweS4QwSvFvKa00wvmyG1jjW7skVmu3Q=="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.19378299999999998,
       "cost_usd_2027": 0.19378299999999998,
       "retry_count": 1,
       "empty_response": false,
@@ -2540,7 +2540,7 @@
       "discovered_url_count": 8,
       "discovered_urls": [
         "https://gogovanillas.com/news/1/",
-        "https://gogovanillas.com/news/15/?range=future_event_end_time\u0026sort=asc",
+        "https://gogovanillas.com/news/15/?range=future_event_end_time&sort=asc",
         "https://gogovanillas.com/news/detail/5642",
         "https://gogovanillas.com/news/detail/5733?lang=ja",
         "https://gogovanillas.com/news/detail/5731",
@@ -2548,7 +2548,7 @@
         "https://gogovanillas.com/news/detail/5595",
         "https://gogovanillas.com/news/detail/5596"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.06921749999999999,
       "cost_usd_2027": 0.06921749999999999,
       "retry_count": 1,
       "empty_response": false,
@@ -2610,7 +2610,7 @@
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGckMuIat2kLxilddbUjVNfiN832JgapSr0AYHg97bVXbt1nfnZzHAqW_T4Twd5l5tpFMqY9WogM6OzYGdV3eX2fJnOW0ZrjaFFJ99w6X67m-miRy_aEfCZ0FsYJg==",
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE9W7kLPwE1zPqxb27AKub079CSeH_WOcCfrn-9CIsC9K2_zFAxwm9GAnuROOmXxdNEZ3C1d_JChfVTsjWphw0cZdZGZK1nnMGl1KebDxBT3x7gPAorG5zOyp4pPw=="
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.07938300000000001,
       "cost_usd_2027": 0.07938300000000001,
       "retry_count": 1,
       "empty_response": false,
@@ -2669,7 +2669,7 @@
         "https://alexandros.jp/contents/schedule",
         "https://alexandros.jp/contents/news"
       ],
-      "cost_usd": 0,
+      "cost_usd": 0.013668,
       "cost_usd_2027": 0.013668,
       "retry_count": 1,
       "empty_response": false,
