@@ -3,10 +3,12 @@ package gemini_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -51,6 +53,19 @@ func htmlPage(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprintf(w, "<!doctype html><html><body>%s</body></html>", body)
+	}
+}
+
+// sitePaths answers each path of paths with its handler and any other path
+// with 404.
+func sitePaths(paths map[string]http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h, ok := paths[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		h(w, r)
 	}
 }
 
@@ -164,7 +179,7 @@ func TestOfficialPageLinks(t *testing.T) {
 				"vaundy.jp": func(w http.ResponseWriter, r *http.Request) {
 					http.Redirect(w, r, "http://www.vaundy.jp/top/", http.StatusMovedPermanently)
 				},
-				"www.vaundy.jp": htmlPage(anchors("live/")),
+				"www.vaundy.jp": sitePaths(map[string]http.HandlerFunc{"/top/": htmlPage(anchors("live/"))}),
 			},
 			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
 			want: []string{"http://www.vaundy.jp/top/live/"},
@@ -329,4 +344,144 @@ func TestNewOfficialPageClient_RefusesNonPublicAddresses(t *testing.T) {
 	t.Cleanup(func() {
 		assert.Zero(t, hits.Load(), "a refused address is never requested")
 	})
+}
+
+// TestOfficialPageLinks_ConcertPages covers the second level: the links of
+// the concert pages the top page links to.
+func TestOfficialPageLinks_ConcertPages(t *testing.T) {
+	t.Parallel()
+
+	numbered := func(format string, from, to int) []string {
+		var out []string
+		for i := from; i <= to; i++ {
+			out = append(out, fmt.Sprintf(format, i))
+		}
+		return out
+	}
+	fiveLive := numbered("/live/%d/", 1, 5)
+	fiveLivePages := map[string]http.HandlerFunc{"/": htmlPage(anchors(fiveLive...))}
+	for i, p := range fiveLive {
+		fiveLivePages[p] = htmlPage(anchors(fmt.Sprintf("/contents/%d", i+1)))
+	}
+	thirtyPages := numbered("/contents/%d", 1, 30)
+
+	tests := []struct {
+		name  string
+		paths map[string]http.HandlerFunc
+		// other hosts besides example.jp
+		hosts      map[string]http.HandlerFunc
+		want       []string
+		notFetched []string
+	}{
+		{
+			// @spec components/entity/concert/search "Tour detail pages behind a live page"
+			name: "Tour detail pages behind a live page",
+			paths: map[string]http.HandlerFunc{
+				"/":      htmlPage(anchors("http://example.jp/live/", "http://example.jp/goods/")),
+				"/live/": htmlPage(anchors("http://example.jp/live/tour-a/", "http://example.jp/contents/123", "http://example.jp/goods/")),
+			},
+			want: []string{"http://example.jp/live/", "http://example.jp/live/tour-a/", "http://example.jp/contents/123"},
+		},
+		{
+			// @spec components/entity/concert/search "Only the first 3 concert pages followed"
+			name:  "Only the first 3 concert pages followed",
+			paths: fiveLivePages,
+			want: append(numbered("http://example.jp/live/%d/", 1, 5),
+				"http://example.jp/contents/1", "http://example.jp/contents/2", "http://example.jp/contents/3"),
+			notFetched: []string{"/live/4/", "/live/5/"},
+		},
+		{
+			// @spec components/entity/concert/search "News page not followed"
+			name: "News page not followed",
+			paths: map[string]http.HandlerFunc{
+				"/":      htmlPage(anchors("/live/", "/news/")),
+				"/live/": htmlPage(anchors("/")),
+				"/news/": htmlPage(anchors(numbered("/news/%d", 1, 10)...)),
+			},
+			want:       []string{"http://example.jp/live/", "http://example.jp/news/"},
+			notFetched: []string{"/news/"},
+		},
+		{
+			// @spec components/entity/concert/search "Concert page link to another domain ignored"
+			name: "Concert page link to another domain ignored",
+			paths: map[string]http.HandlerFunc{
+				"/":      htmlPage(anchors("/live/")),
+				"/live/": htmlPage(anchors("https://eplus.jp/sf/live/example-tour/", "/live/tour-a/")),
+			},
+			want: []string{"http://example.jp/live/", "http://example.jp/live/tour-a/"},
+		},
+		{
+			// @spec components/entity/concert/search "At most 20 pages"
+			name: "At most 20 pages",
+			paths: map[string]http.HandlerFunc{
+				"/":       htmlPage(anchors("/live/", "/tour/", "/news/1", "/news/2")),
+				"/live/":  htmlPage(anchors(thirtyPages[:20]...)),
+				"/tour/":  htmlPage(anchors(thirtyPages[20:]...)),
+				"/news/1": htmlPage(""),
+			},
+			want: append([]string{"http://example.jp/live/", "http://example.jp/tour/", "http://example.jp/news/1", "http://example.jp/news/2"},
+				numbered("http://example.jp/contents/%d", 1, 16)...),
+		},
+		{
+			// @spec components/entity/concert/search "Concert page unavailable"
+			name: "Concert page unavailable",
+			paths: map[string]http.HandlerFunc{
+				"/":          htmlPage(anchors("/live/", "/schedule/")),
+				"/live/":     func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+				"/schedule/": htmlPage(anchors("/schedule/2027")),
+			},
+			want: []string{"http://example.jp/live/", "http://example.jp/schedule/", "http://example.jp/schedule/2027"},
+		},
+		{
+			name: "concert page redirected to another domain skipped",
+			paths: map[string]http.HandlerFunc{
+				"/": htmlPage(anchors("/live/")),
+				"/live/": func(w http.ResponseWriter, r *http.Request) {
+					http.Redirect(w, r, "http://linktr.ee/example", http.StatusFound)
+				},
+			},
+			hosts: map[string]http.HandlerFunc{"linktr.ee": htmlPage(anchors("http://linktr.ee/tour/"))},
+			want:  []string{"http://example.jp/live/"},
+		},
+		{
+			name: "top page, top-page links and repeats dropped; detail pages not followed",
+			paths: map[string]http.HandlerFunc{
+				"/":       htmlPage(anchors("/live/", "/tour/", "/profile/")),
+				"/live/":  htmlPage(anchors("/", "/#top", "/profile/", "/tour/a", "/tour/a#dates", "/tour/b")),
+				"/tour/":  htmlPage(anchors("/tour/b", "https://fc.example.jp/tour/c")),
+				"/tour/a": htmlPage(anchors("/tour/z")),
+			},
+			want: []string{
+				"http://example.jp/live/", "http://example.jp/tour/",
+				"http://example.jp/tour/a", "http://example.jp/tour/b", "https://fc.example.jp/tour/c",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var mu sync.Mutex
+			fetched := map[string]int{}
+			site := sitePaths(tt.paths)
+			hosts := map[string]http.HandlerFunc{"example.jp": func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				fetched[r.URL.Path]++
+				mu.Unlock()
+				site(w, r)
+			}}
+			maps.Copy(hosts, tt.hosts)
+			client := newSiteClient(t, hosts)
+
+			got, err := gemini.OfficialPageLinks(context.Background(), client, "http://example.jp/", gemini.ConcertSearchProfile)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			mu.Lock()
+			defer mu.Unlock()
+			for _, p := range tt.notFetched {
+				assert.Zero(t, fetched[p], "%s is not read", p)
+			}
+		})
+	}
 }

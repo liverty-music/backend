@@ -509,9 +509,35 @@ K8s 環境では:
 
 ## 10. Concert Search Pipeline (shipped architecture)
 
-`ConcertSearcher.Search` is a **2-step** LLM pipeline plus Go-side parsing. The architecture below is the one currently on disk; the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
+`ConcertSearcher.Search` makes **one** grounded Gemini call (Google Search with a 2-month `TimeRangeFilter`, URL context, and a JSON response schema); Go then drops past events, removes repeats and groups the events into series. Before the call it reads the official site to list the pages the model should read with URL context (10.0). Sections 10.1–10.7 record the earlier **2-step** pipeline, and the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
 
-### 10.1 End-to-end call flow
+### 10.0 Pages listed in the prompt (official page link discovery)
+
+URL context reads only the URLs in the request, never the pages they link to, and at most 20 URLs per request. Without a list the model guesses tour URLs and rebuilds dates from search snippets, so Search reads the official site itself, in two levels, through the guarded client `NewOfficialPageClient` (5 s per page, the first 2 MB, public addresses only, at most 3 redirects, same registrable domain after redirects):
+
+```
+official top page ──> top-page links (concert keywords first, then news; at most 8)
+        │
+        └─ first 3 concert-keyword links (not news), fetched in parallel
+                 └──> their same-domain links that are neither the top page
+                      nor a top-page link, de-duplicated, in page order
+                                                     │
+          prompt block "Concert pages linked from …" <┘  top-page links, then detail links; at most 20 pages
+```
+
+| Level | Pages read | Links taken | Cap |
+|---|---|---|---|
+| 1 | the official top page (the apex host when the `www.` host does not resolve) | same-domain links whose path contains `live`, `schedule`, `tour`, `concert` or `show`, then `news` | 8 |
+| 2 | the first 3 level-1 links of the concert tier | every same-domain link not on the top page, whatever its path | 20 pages in total |
+
+- Leaving out the top page's links drops the site navigation every page repeats (goods, profile, news index), so level 2 adds the concert page's own content: tour detail pages, ticket pages, articles. No keyword filter applies at level 2, because detail pages often have opaque paths (`/contents/123`).
+- News pages are not followed: an index links dozens of articles that would fill the 20 slots.
+- A top page that cannot be read means a search without listed pages; a concert page that cannot be read is skipped. Neither fails Search.
+- The list goes into the prompt and into the generation report's `linked_page_urls`.
+
+Why level 2: in prod over 2026-10-21..11-20, calls with more than 20 search queries were 13% of the concert searches but used 48% of their queries, issuing `site:<official domain> "<tour name>"` / `"<date>"` one tour and one date at a time to find the detail pages behind a live list page (OpenSpec change `pass-tour-detail-pages-to-concert-search`).
+
+### 10.1 End-to-end call flow (earlier 2-step pipeline)
 
 ```
                     ┌─────────────── Step 1 (grounded extract) ──────────────┐
