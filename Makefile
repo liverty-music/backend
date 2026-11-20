@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema modernize fix mocks refresh-aaguid-names test test-db-clean test-integration test-stripe-e2e check
+.PHONY: lint lint-schema modernize fix mocks refresh-aaguid-names test test-db-clean test-integration test-stripe-e2e check pre-commit pre-push
 
 # Every binary links both the Pocket Sign and the Zitadel SDKs, which register
 # the same protobuf extension number; protobuf panics at init unless this is
@@ -89,3 +89,11 @@ test-stripe-e2e:
 
 ## check: full local pre-commit check (lint + schema lint + test)
 check: lint lint-schema modernize test
+
+## pre-commit: the commit hook's checks, lint and test of the changed packages
+## only (scripts/pre-commit.sh)
+pre-commit: $(GOLANGCI_LINT)
+	GOLANGCI_LINT=$(GOLANGCI_LINT) scripts/pre-commit.sh
+
+## pre-push: the push hook's checks, the whole of `make check`
+pre-push: check
