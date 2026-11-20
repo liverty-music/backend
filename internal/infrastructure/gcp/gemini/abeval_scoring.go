@@ -168,6 +168,14 @@ var DefaultPricing = PricingTable{
 	"gemini-3.8-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 }
 
+// Pricing2027 is the standard-tier price from 2027-01-01, when
+// gemini-3.8-flash doubles to the price of gemini-4-hydrogen (Gemini API
+// pricing page, read 2026-11-20). Model decisions compare cost at this price.
+var Pricing2027 = PricingTable{
+	"gemini-3.8-flash":  {InputPerM: 1.50, OutputPerM: 7.50, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
+	"gemini-4-hydrogen": {InputPerM: 1.50, OutputPerM: 7.50, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
+}
+
 // CostUSD returns the standard-tier dollar cost for a single call.
 // Thinking tokens bill as output; tool-use tokens (e.g. URLContext fetches)
 // bill as input. searchQueries is the number of GoogleSearch grounding

@@ -208,6 +208,11 @@ type ConcertSearcher struct {
 	// link discovery. Nil disables link discovery.
 	pageClient  *http.Client
 	linkProfile linkProfile
+
+	// withoutGoogleSearch leaves the Google Search tool out of the grounded
+	// call, so the model reads only the listed pages with URL context. Only
+	// the A/B harness sets it (export_test.go); production always searches.
+	withoutGoogleSearch bool
 }
 
 // PassMetadata captures observation data for a single Gemini call.
@@ -444,12 +449,16 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links
 		},
 	}
 	urlCtxTool := &genai.Tool{URLContext: &genai.URLContext{}}
+	tools := []*genai.Tool{searchTool, urlCtxTool}
+	if s.withoutGoogleSearch {
+		tools = []*genai.Tool{urlCtxTool}
+	}
 
 	cfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: s.prompt.SystemInstruction}},
 		},
-		Tools:              []*genai.Tool{searchTool, urlCtxTool},
+		Tools:              tools,
 		Temperature:        s.config.temperature(),
 		MaxOutputTokens:    maxOutputTokens,
 		ResponseMIMEType:   "application/json",

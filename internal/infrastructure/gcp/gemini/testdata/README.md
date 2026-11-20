@@ -7,8 +7,29 @@ workload. Not a CI test — runs only when `GEMINI_AB_EVAL=1` is set.
 
 | Path | Purpose |
 |---|---|
-| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER / BRADIO — 111 events), as of `evaluation_from = 2026-10-01`. Vaundy was captured on 2026-10-01 and the other artists on 2026-10-03, from official sources only. |
+| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist, as of `evaluation_from = 2026-11-20`, captured on 2026-11-20 from public official pages only (see "Fixture artists"). |
 | `ab_results/` | Per-run outputs (`<RFC3339-utc>.json` + `.csv`). Generated files are gitignored; force-add the most recent run when committing for PR review. |
+
+## Fixture artists
+
+Captured 2026-11-20. In-scope events are the recall denominator; out-of-scope
+entries (festivals, shows organized by other artists, members' solo shows)
+are negative samples (`excluded_per_spec`). Events dated before the day of a
+run are dropped from scoring, since the prompt's start date is today.
+
+| artist | events (in scope / out of scope) | sources | why in the fixture |
+|---|---|---|---|
+| UVERworld | 20 / 1 | `feature/2026_live`, `feature/2027_live`, news articles | since 2026-10 |
+| Vaundy | 32 / 0 | `member.vaundy.jp/feature/ARENATOUR_2728` (multilingual) | since 2026-10 |
+| SUPER BEAVER | 42 / 1 | `sp.super-beaver.com/feature/tour2627`, `tour2728`, `budokan2027` | since 2026-10 |
+| BRADIO | 3 / 3 | `show/` list | since 2026-10 |
+| BIGMAMA | 24 / 3 | `shows/<id>/` detail pages | prod 2026-10-21..11-20: 36.7 queries per call (max 46) |
+| go!go!vanillas | 18 / 0 | tour sites on other domains (`ggv-livehousetour2627.jp`, `ggv-backhometour2027.jp`) | prod: max 35 queries; detail pages are off the official domain |
+| [Alexandros] | 20 / 11 | `contents/schedule` list, `contents/<id>` detail pages | prod: 34.0 queries per call (max 58); opaque detail paths |
+
+BUMP OF CHICKEN (prod max 46 queries) was left out: its live pages render in
+JavaScript and carry no dates in their HTML, so no ground truth could be
+captured from them (nor read with URL context).
 
 ## How to run
 
@@ -16,19 +37,36 @@ Both harnesses call the production `ConcertSearcher`: one grounded call
 (Google Search + URL context) returning JSON, `gemini-3.8-flash`, thinking
 `low`, temperature not sent, Google Search limited to the last 2 months.
 
-Full matrix (every fixture artist × 3 reps of the production configuration):
+`TestConcertSearcher_ABEval` lists the official site's pages in every cell and
+records the search queries from the server-side tool calls. Its variants
+(`GEMINI_AB_EVAL_VARIANTS`, CSV; options joined with `+`):
+
+| option | searcher setup |
+|---|---|
+| `base` | the top page's links only (production before pass-tour-detail-pages-to-concert-search) |
+| `detail` | the top page's links and the links of its first 3 concert pages (production) |
+| `cap` | adds "Run at most 10 Google Search queries; read the listed pages with url_context first." to the system instruction |
+| `nosearch` | no Google Search tool; URL context only |
+
+`GEMINI_AB_EVAL_MODELS` (CSV, default `gemini-3.8-flash`) and
+`GEMINI_AB_EVAL_THINKING` (CSV, default `low`) set the model and thinking
+axes, `GEMINI_AB_EVAL_REPS` the repetitions (default 3). Repetitions are the
+outer loop, so the variants of one artist run minutes apart.
+
+Full matrix (every fixture artist × 3 reps; here base vs detail):
 
 ```bash
-GEMINI_AB_EVAL=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_VARIANTS=base,detail \
+  GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
   go test -tags=integration -timeout=3h -v \
   -run TestConcertSearcher_ABEval \
   ./internal/infrastructure/gcp/gemini/...
 ```
 
-Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,BRADIO`, `GEMINI_AB_EVAL_MODELS=<csv>`
-(intersected with the built-in list) and `GEMINI_AB_EVAL_THINKING=<level>`.
+Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,BRADIO`.
 
-Smoke run (1 cell — for auth + API sanity check):
+Smoke run (1 cell: the first model, variant and artist — for auth + API
+sanity check):
 
 ```bash
 GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
@@ -39,8 +77,8 @@ GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-ke
 
 Prompt variants (`TestConcertSearcher_GroundingVariants`, one artist per run):
 `FINAL` (production prompt without linked pages, default), `LINKS`
-(production: the concert and news pages the official top page links to are
-listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
+(production: the concert and news pages the official top page links to,
+then the links of its first 3 concert pages, are listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
 (E2UJ with a mandatory first url_context step). An artist outside the fixture
 runs unscored (search queries, URL context use and cost only) when
 `GEMINI_GROUNDING_EVAL_SITE` gives its official site. Set
@@ -117,11 +155,12 @@ responses; temperature 0.3 increased searches on 3 of 4 artists.
 
 | Axis | Values |
 |---|---|
-| Model | `gemini-3.8-flash` (cell.Model) |
+| Model | `gemini-3.8-flash` (`GEMINI_AB_EVAL_MODELS`) |
 | Temperature | not sent |
-| ThinkingLevel | `low` (override with `GEMINI_AB_EVAL_THINKING`) |
-| Artist | UVERworld, Vaundy, SUPER BEAVER, BRADIO |
-| Repetitions | 3 |
+| ThinkingLevel | `low` (`GEMINI_AB_EVAL_THINKING`) |
+| Variant | `base` (`GEMINI_AB_EVAL_VARIANTS`) |
+| Artist | the 7 fixture artists (`GEMINI_AB_EVAL_ARTISTS`) |
+| Repetitions | 3 (`GEMINI_AB_EVAL_REPS`) |
 
 ## How to refresh the fixture
 
@@ -145,9 +184,12 @@ The fixture's `evaluation_from` is frozen at capture time. To re-curate:
 - `run_metadata` — SDK version, timestamps, total cost.
 - `cells` — array of per-cell records.
 
-Each cell record carries `precision`, `recall_public`, `recall_all`,
-`f1_*`, `field_accuracy.*`, token counts, search-query count, latency,
-finish reason, and USD cost.
+Each cell record carries `variant`, `precision`, `recall_public`,
+`recall_all`, `f1_*`, `field_accuracy.*`, token counts, search-query count,
+`linked_pages`, latency, finish reason, `retry_count`, `empty_response` (no
+candidate, or no text), `grounding_chunks` (backend #772), and USD cost:
+`cost_usd` at the current price and `cost_usd_2027` at the price from
+2027-01-01 (`Pricing2027`), which model decisions compare.
 
 `<timestamp>.csv` is the same data flattened for spreadsheet analysis.
 

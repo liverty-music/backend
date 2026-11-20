@@ -89,8 +89,8 @@ func groundingVariant(t *testing.T, name string) groundingSetup {
 		return groundingSetup{}
 	case "LINKS":
 		// Production configuration: the concert and news pages the official
-		// top page links to are listed in the prompt. (Evaluated as
-		// LINKS_NEWS on 2026-10-07; see testdata/README.md.)
+		// top page links to, then the links of its first 3 concert pages,
+		// are listed in the prompt (see testdata/README.md).
 		return groundingSetup{PageLinks: true}
 	case "E2UJ":
 		// Explicit url_context-first tool-usage and extraction rules.
@@ -200,16 +200,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		}
 		artist = gemini.GroundTruthArtist{ID: "unscored-" + artistName, Name: artistName, OfficialSiteURL: site}
 	}
-	// The prompt's start date is today (JST), so fixture dates that have
-	// already passed are no longer expected.
-	today := time.Now().In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02")
-	upcoming := artist.Events[:0:0]
-	for _, e := range artist.Events {
-		if e.LocalDate >= today {
-			upcoming = append(upcoming, e)
-		}
-	}
-	artist.Events = upcoming
+	artist.Events = upcomingEvents(artist.Events)
 	ctx := context.Background()
 	logger, err := logging.New()
 	if err != nil {
@@ -262,6 +253,20 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	}
 	t.Logf("variant %s complete: %d cells, started %s, finished %s (match against billing-export hour)",
 		variant, len(results), meta.StartTime, meta.FinishTime)
+}
+
+// upcomingEvents returns the fixture events dated today (JST) or later. The
+// prompt's start date is today, so fixture dates that have already passed are
+// no longer expected.
+func upcomingEvents(events []gemini.GroundTruthEvent) []gemini.GroundTruthEvent {
+	today := time.Now().In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02")
+	upcoming := events[:0:0]
+	for _, e := range events {
+		if e.LocalDate >= today {
+			upcoming = append(upcoming, e)
+		}
+	}
+	return upcoming
 }
 
 // tempLabel renders the temperature for logs ("unset" when not sent).

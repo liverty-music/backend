@@ -42,3 +42,10 @@ func WithoutFollow(p LinkProfile) LinkProfile {
 	p.follow = 0
 	return p
 }
+
+// DefaultPrompt exports the production prompt for A/B variants built on it.
+var DefaultPrompt = defaultPrompt
+
+// SetWithoutGoogleSearch leaves the Google Search tool out of the grounded
+// call of s, for A/B variant runs.
+func SetWithoutGoogleSearch(s *ConcertSearcher, without bool) { s.withoutGoogleSearch = without }
