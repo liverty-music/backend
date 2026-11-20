@@ -1335,7 +1335,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 	// Regression test for liverty-music/backend#475: listConcertsByFollowerQuery
 	// omitted firstPartyVisibilityGuard, so DRAFT/UNLISTED/CANCELLED first-party
-	// series leaked onto a follower's dashboard.
+	// series leaked onto a follower's timetable.
 	t.Run("excludes DRAFT, UNLISTED and CANCELLED first-party series", func(t *testing.T) {
 		cleanTables(t, db)
 
