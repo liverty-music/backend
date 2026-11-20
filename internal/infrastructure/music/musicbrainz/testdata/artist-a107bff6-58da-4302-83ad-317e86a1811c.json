@@ -1,0 +1,40 @@
+{
+  "area": {
+    "disambiguation": "",
+    "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+    "iso-3166-1-codes": [
+      "JP"
+    ],
+    "name": "Japan",
+    "sort-name": "Japan",
+    "type": null,
+    "type-id": null
+  },
+  "begin-area": {
+    "disambiguation": "",
+    "id": "d835a6af-e21b-4c1e-a3ad-be2c4080f09f",
+    "name": "Kusatsu",
+    "sort-name": "Kusatsu",
+    "type": null,
+    "type-id": null
+  },
+  "country": "JP",
+  "disambiguation": "",
+  "end-area": null,
+  "gender": null,
+  "gender-id": null,
+  "id": "a107bff6-58da-4302-83ad-317e86a1811c",
+  "ipis": [
+    "00587391993"
+  ],
+  "isnis": [],
+  "life-span": {
+    "begin": "2003",
+    "end": null,
+    "ended": false
+  },
+  "name": "UVERworld",
+  "sort-name": "UVERworld",
+  "type": "Group",
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+}
