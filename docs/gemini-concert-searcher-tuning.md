@@ -509,35 +509,19 @@ K8s 環境では:
 
 ## 10. Concert Search Pipeline (shipped architecture)
 
-`ConcertSearcher.Search` makes **one** grounded Gemini call (Google Search with a 2-month `TimeRangeFilter`, URL context, and a JSON response schema); Go then drops past events, removes repeats and groups the events into series. Before the call it reads the official site to list the pages the model should read with URL context (10.0). Sections 10.1–10.7 record the earlier **2-step** pipeline, and the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
+`ConcertSearcher.Search` is a **2-step** LLM pipeline plus Go-side parsing. The architecture below is the one currently on disk; the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
 
-### 10.0 Pages listed in the prompt (official page link discovery)
+### 10.0 Evaluation log: pass-tour-detail-pages-to-concert-search (2026-11)
 
-URL context reads only the URLs in the request, never the pages they link to, and at most 20 URLs per request. Without a list the model guesses tour URLs and rebuilds dates from search snippets, so Search reads the official site itself, in two levels, through the guarded client `NewOfficialPageClient` (5 s per page, the first 2 MB, public addresses only, at most 3 redirects, same registrable domain after redirects):
+Acceptance criteria (design D4 of the OpenSpec change), against the configuration a variant replaces, over the 7 fixture artists with 3 reps each: recall of public events not lower by more than 0.02; median search queries per call on the many-query artists (BIGMAMA, go!go!vanillas, [Alexandros]) falls and cost per call (2027-01-01 price) does not rise; no new empty responses, `TOO_MANY_TOOL_CALLS` stops or 120 s timeouts; a model switch also needs p90 latency under 90 s. Per-artist tables: `internal/infrastructure/gcp/gemini/testdata/README.md`.
 
-```
-official top page ──> top-page links (concert keywords first, then news; at most 8)
-        │
-        └─ first 3 concert-keyword links (not news), fetched in parallel
-                 └──> their same-domain links that are neither the top page
-                      nor a top-page link, de-duplicated, in page order
-                                                     │
-          prompt block "Concert pages linked from …" <┘  top-page links, then detail links; at most 20 pages
-```
+| run | variant vs baseline | recall | median queries (many-query) | cost / call | p90 latency | verdict |
+|---|---|---|---|---|---|---|
+| 1 | links of the first 3 concert pages vs top-page links (`gemini-3.8-flash`, `low`) | 0.959 vs 0.882 | 16 vs 10 (30 vs 16) | $0.477 vs $0.246 | 86 s vs 72 s | **rejected**: queries and cost rose |
 
-| Level | Pages read | Links taken | Cap |
-|---|---|---|---|
-| 1 | the official top page (the apex host when the `www.` host does not resolve) | same-domain links whose path contains `live`, `schedule`, `tour`, `concert` or `show`, then `news` | 8 |
-| 2 | the first 3 level-1 links of the concert tier | every same-domain link not on the top page, whatever its path | 20 pages in total |
+Run 1: the second link level (URL context does not follow links, so read the concert pages and list their same-domain links) raised recall but filled the 20 URL slots with the wrong pages: on [Alexandros] 11 of them were the region filters of the schedule page, and the tour pages behind page 2 of the list were still missing, so queries went from 16 to 63. Searches for tour detail pages remain the cost driver; a selection that finds them (pagination, or the detail links whose text names a tour) would have to be evaluated again.
 
-- Leaving out the top page's links drops the site navigation every page repeats (goods, profile, news index), so level 2 adds the concert page's own content: tour detail pages, ticket pages, articles. No keyword filter applies at level 2, because detail pages often have opaque paths (`/contents/123`).
-- News pages are not followed: an index links dozens of articles that would fill the 20 slots.
-- A top page that cannot be read means a search without listed pages; a concert page that cannot be read is skipped. Neither fails Search.
-- The list goes into the prompt and into the generation report's `linked_page_urls`.
-
-Why level 2: in prod over 2026-10-21..11-20, calls with more than 20 search queries were 13% of the concert searches but used 48% of their queries, issuing `site:<official domain> "<tour name>"` / `"<date>"` one tour and one date at a time to find the detail pages behind a live list page (OpenSpec change `pass-tour-detail-pages-to-concert-search`).
-
-### 10.1 End-to-end call flow (earlier 2-step pipeline)
+### 10.1 End-to-end call flow
 
 ```
                     ┌─────────────── Step 1 (grounded extract) ──────────────┐

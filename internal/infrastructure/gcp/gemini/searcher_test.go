@@ -623,9 +623,8 @@ func promptOf(t *testing.T, body map[string]any) string {
 }
 
 // TestConcertSearcher_Search_LinkedPages asserts that the concert pages the
-// official top page links to are listed in the prompt, followed by the links
-// of those concert pages, and that the prompt is the plain one when the top
-// page has none or cannot be read.
+// official top page links to are listed in the prompt, and that the prompt is
+// the plain one when the page has none or cannot be read.
 func TestConcertSearcher_Search_LinkedPages(t *testing.T) {
 	t.Parallel()
 
@@ -639,22 +638,7 @@ func TestConcertSearcher_Search_LinkedPages(t *testing.T) {
 		wantLinks []string
 	}{
 		{
-			name: "concert pages with detail links listed after the top-page links",
-			page: sitePaths(map[string]http.HandlerFunc{
-				"/":      htmlPage(anchors("/live/", "/news/", "/goods/")),
-				"/live/": htmlPage(anchors("/goods/", "/live/tour-a/", "/contents/123")),
-			}),
-			wantLinks: []string{
-				"http://vaundy.jp/live/",
-				"http://vaundy.jp/news/",
-				"http://vaundy.jp/live/tour-a/",
-				"http://vaundy.jp/contents/123",
-			},
-		},
-		{
-			// Every page answers with the top page, so the concert pages
-			// yield no link the top page does not carry.
-			name: "top page with concert links, concert pages without links of their own",
+			name: "top page with concert links",
 			page: htmlPage(anchors("/live/", "https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "/news/")),
 			wantLinks: []string{
 				"http://vaundy.jp/live/",

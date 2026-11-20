@@ -41,15 +41,16 @@ const (
 )
 
 // abVariant is one searcher setup of the A/B matrix, named by its options
-// joined with "+": "base" (the official top page's links, as production did
-// before pass-tour-detail-pages-to-concert-search), "detail" (the top page's
-// links and the links of its first 3 concert pages, production since that
-// change), "cap" (abSearchCapLine added to the system instruction) and
+// joined with "+": "base" (production: the official top page's links listed
+// in the prompt), "cap" (abSearchCapLine added to the system instruction) and
 // "nosearch" (no Google Search tool; URL context only). For example
-// "detail+cap".
+// "cap+nosearch".
+//
+// pass-tour-detail-pages-to-concert-search also evaluated listing the links
+// of the first 3 concert pages ("detail"); it raised search queries and cost
+// and was removed (testdata/README.md, 2026-11-20).
 type abVariant struct {
 	Name     string
-	Detail   bool
 	Cap      bool
 	NoSearch bool
 }
@@ -60,14 +61,12 @@ func parseABVariant(name string) (abVariant, error) {
 	for _, opt := range strings.Split(name, "+") {
 		switch strings.TrimSpace(opt) {
 		case "base":
-		case "detail":
-			v.Detail = true
 		case "cap":
 			v.Cap = true
 		case "nosearch":
 			v.NoSearch = true
 		default:
-			return abVariant{}, fmt.Errorf("unknown variant option %q in %q (want base, detail, cap, nosearch)", opt, name)
+			return abVariant{}, fmt.Errorf("unknown variant option %q in %q (want base, cap, nosearch)", opt, name)
 		}
 	}
 	return v, nil
@@ -77,10 +76,6 @@ func parseABVariant(name string) (abVariant, error) {
 func (v abVariant) apply(cell *abCell) {
 	cell.Variant = v.Name
 	cell.PageLinks = true
-	if !v.Detail {
-		p := gemini.WithoutFollow(gemini.ConcertSearchProfile)
-		cell.LinkProfile = &p
-	}
 	if v.Cap {
 		p := gemini.DefaultPrompt
 		p.SystemInstruction += abSearchCapLine

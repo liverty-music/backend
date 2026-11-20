@@ -30,19 +30,6 @@ var NewOfficialPageClientWithDial = newOfficialPageClient
 // SetLinkProfile overrides the link profile of s for A/B variant runs.
 func SetLinkProfile(s *ConcertSearcher, p LinkProfile) { s.linkProfile = p }
 
-// NewFollowingLinkProfile builds a linkProfile that also reads the first
-// follow first-tier pages, for testing.
-func NewFollowingLinkProfile(max, follow, total int, tiers ...[]string) LinkProfile {
-	return linkProfile{tiers: tiers, max: max, follow: follow, total: total}
-}
-
-// WithoutFollow returns p without reading first-tier pages, as the
-// pre-change searcher did.
-func WithoutFollow(p LinkProfile) LinkProfile {
-	p.follow = 0
-	return p
-}
-
 // DefaultPrompt exports the production prompt for A/B variants built on it.
 var DefaultPrompt = defaultPrompt
 

@@ -148,8 +148,7 @@ Official site: %[3]s
 `
 
 	// linkedPagesHeader opens the prompt block that lists the concert pages
-	// the official top page links to, then the pages those concert pages
-	// link to (tour detail pages), one URL per line. Without it the model
+	// the official top page links to, one URL per line. Without it the model
 	// guesses tour URLs, fails to fetch them and rebuilds dates from search
 	// snippets; with it, search queries fell from 22.3 to 4.4 per call in
 	// evaluation (backend #543).
@@ -204,8 +203,8 @@ type ConcertSearcher struct {
 	logger *logging.Logger
 	prompt Prompt
 
-	// pageClient fetches the official top page and its concert pages for
-	// link discovery. Nil disables link discovery.
+	// pageClient fetches the official top page for link discovery. Nil
+	// disables link discovery.
 	pageClient  *http.Client
 	linkProfile linkProfile
 
@@ -248,8 +247,8 @@ type PassMetadata struct {
 	// URL_RETRIEVAL_STATUS_SUCCESS.
 	URLContextSucceeded int
 
-	// LinkedPageURLs are the official site's pages listed in the prompt:
-	// the concert pages of the top page, then the pages they link to.
+	// LinkedPageURLs are the official site's concert pages listed in the
+	// prompt.
 	LinkedPageURLs []string
 
 	// ToolReportDropped is true when the request was rejected as invalid and
@@ -298,7 +297,7 @@ type URLRetrieval struct {
 // would only surface as an opaque API error on the first Search call.
 //
 // httpClient carries the Gemini API calls. pageClient fetches the official
-// top page and its concert pages, whose links go into the prompt; pass
+// top page whose concert links go into the prompt; pass
 // NewOfficialPageClient(), or nil to search without links.
 func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
 	if cfg.APIKey == "" {
@@ -410,10 +409,9 @@ func (s *ConcertSearcher) SearchExt(
 	return discovered, md, nil
 }
 
-// linkedPages returns the concert pages the official top page links to and
-// the pages they link to, or nil when there is no official site, link
-// discovery is disabled, or the top page cannot be read. A page that cannot
-// be read never fails Search.
+// linkedPages returns the concert pages the official top page links to, or
+// nil when there is no official site, link discovery is disabled, or the page
+// cannot be read. A page that cannot be read never fails Search.
 func (s *ConcertSearcher) linkedPages(ctx context.Context, officialSiteURL string, attrs []slog.Attr) []string {
 	if officialSiteURL == "" || s.pageClient == nil {
 		return nil

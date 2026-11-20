@@ -89,8 +89,8 @@ func groundingVariant(t *testing.T, name string) groundingSetup {
 		return groundingSetup{}
 	case "LINKS":
 		// Production configuration: the concert and news pages the official
-		// top page links to, then the links of its first 3 concert pages,
-		// are listed in the prompt (see testdata/README.md).
+		// top page links to are listed in the prompt. (Evaluated as
+		// LINKS_NEWS on 2026-10-07; see testdata/README.md.)
 		return groundingSetup{PageLinks: true}
 	case "E2UJ":
 		// Explicit url_context-first tool-usage and extraction rules.

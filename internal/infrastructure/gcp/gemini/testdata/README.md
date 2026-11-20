@@ -43,8 +43,7 @@ records the search queries from the server-side tool calls. Its variants
 
 | option | searcher setup |
 |---|---|
-| `base` | the top page's links only (production before pass-tour-detail-pages-to-concert-search) |
-| `detail` | the top page's links and the links of its first 3 concert pages (production) |
+| `base` | production: the concert and news pages the official top page links to |
 | `cap` | adds "Run at most 10 Google Search queries; read the listed pages with url_context first." to the system instruction |
 | `nosearch` | no Google Search tool; URL context only |
 
@@ -53,10 +52,10 @@ records the search queries from the server-side tool calls. Its variants
 axes, `GEMINI_AB_EVAL_REPS` the repetitions (default 3). Repetitions are the
 outer loop, so the variants of one artist run minutes apart.
 
-Full matrix (every fixture artist × 3 reps; here base vs detail):
+Full matrix (every fixture artist × 3 reps; here base vs cap):
 
 ```bash
-GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_VARIANTS=base,detail \
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_VARIANTS=base,cap \
   GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
   go test -tags=integration -timeout=3h -v \
   -run TestConcertSearcher_ABEval \
@@ -77,8 +76,8 @@ GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-ke
 
 Prompt variants (`TestConcertSearcher_GroundingVariants`, one artist per run):
 `FINAL` (production prompt without linked pages, default), `LINKS`
-(production: the concert and news pages the official top page links to,
-then the links of its first 3 concert pages, are listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
+(production: the concert and news pages the official top page links to are
+listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
 (E2UJ with a mandatory first url_context step). An artist outside the fixture
 runs unscored (search queries, URL context use and cost only) when
 `GEMINI_GROUNDING_EVAL_SITE` gives its official site. Set
@@ -102,7 +101,37 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-10-07, steer-concert-search-to-official-pages)
+## Latest result (2026-11-20, pass-tour-detail-pages-to-concert-search)
+
+`gemini-3.8-flash`, thinking `low`, temperature unset, 3 reps per artist and
+variant, all 7 fixture artists, cost at the 2027-01-01 price
+(`ab_results/20261120T101506Z.*`). Run 1 compared production (`base`) with
+`detail`: the links of the first 3 concert pages the top page links to,
+other than the top page's own links, appended to the listed pages (at most 20).
+
+| artist | base queries (recall) | detail queries (recall) | linked pages base → detail |
+|---|---|---|---|
+| UVERworld | 0, 0, 0 (1.00) | 0, 2, 0 (1.00) | 8 → 20 |
+| Vaundy | 0, 0, 0 (1.00) | 0, 0, 0 (1.00) | 8 → 20 |
+| SUPER BEAVER | 0, 0, 2 (0.95) | 6, 4, 8 (1.00) | 8 → 20 |
+| BRADIO | 17, 4, 17 (0.78) | 23, 33, 16 (0.78) | 8 → 11 |
+| BIGMAMA | 23, 23, 10 (0.68) | 30, 21, 9 (1.00) | 8 → 20 |
+| go!go!vanillas | 12, 36, 16 (1.00) | 35, 24, 22 (1.00) | 8 → 8 |
+| [Alexandros] | 16, 18, 15 (0.77) | 55, 63, 70 (0.93) | 2 → 20 |
+| **all** | median 10, cost $0.246 | median 16, cost $0.477 | |
+
+`detail` raised recall of public events from 0.882 to 0.959, but search
+queries per call rose (median 10 → 16; 16 → 30 on the three many-query
+artists) and cost per call nearly doubled, so it failed the acceptance
+criteria (design D4) and was removed. The listed pages were mostly not tour
+detail pages: [Alexandros]'s 20 slots went to 11 region filters of its
+schedule page and the side projects on its first list page, so the model
+still searched for each tour, now with 20 pages of URL context input.
+go!go!vanillas's tour pages sit on other domains and gained nothing.
+BIGMAMA's one base miss (recall 0.04) was a single rep. No empty responses,
+errors or timeouts in either variant; p90 latency 72 s (base), 86 s (detail).
+
+## Earlier result (2026-10-07, steer-concert-search-to-official-pages)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset, tool calls on, 3 reps
 per artist and variant. `LINKS` lists the top page's concert pages only;
