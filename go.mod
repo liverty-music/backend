@@ -57,7 +57,7 @@ require (
 	github.com/lestrrat-go/httprc/v3 v3.0.6
 	github.com/lestrrat-go/jwx/v4 v4.6.0
 	github.com/nats-io/nats-server/v2 v2.15.3
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/pannpers/go-apperr v1.3.0
 	github.com/pannpers/go-logging v1.3.0
 	github.com/peterldowns/pgtestdb v0.1.1
