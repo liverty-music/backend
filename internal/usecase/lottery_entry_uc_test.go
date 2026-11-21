@@ -275,7 +275,7 @@ func TestLotteryEntryUseCase_AuthorizeCard(t *testing.T) {
 
 		_, err := f.uc.AuthorizeCard(ctx, "sale-l", "stock-1", "fan-1", 5, name, phone, nil)
 
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("presale winner reaches the limit", func(t *testing.T) {

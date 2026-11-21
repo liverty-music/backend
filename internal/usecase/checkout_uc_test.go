@@ -299,6 +299,18 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "stock-1", 5, nil)
 
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("no tickets", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/checkout/start "No tickets"
+		f := newCheckoutFixture(t, now)
+		expectStartReads(f, coStock(150, 0, 0), coSale())
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(coEvent(4), nil)
+
+		_, err := f.uc.Start(context.Background(), "fan-1", "stock-1", 0, nil)
+
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 

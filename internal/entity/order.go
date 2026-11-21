@@ -277,11 +277,19 @@ func NewPendingOrder(userID UserID, stock *TicketStock, count int, referralCode 
 }
 
 // ValidateTicketCount reports whether count is at least 1 and at most the
-// per-account limit of the event. It fails with InvalidArgument, which callers
-// return as it is.
+// per-account limit of the event. Callers return its error as it is.
+//
+// # Possible errors
+//
+//   - InvalidArgument: count is below 1, wrong whatever the event.
+//   - FailedPrecondition: count is above the event's per-account limit, which
+//     the event's Organizer sets.
 func ValidateTicketCount(count int, event *Event) error {
-	if count < 1 || count > event.Limit() {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("ticket count must be 1 to %d", event.Limit()))
+	if count < 1 {
+		return apperr.New(codes.InvalidArgument, "ticket count must be at least 1")
+	}
+	if count > event.Limit() {
+		return apperr.New(codes.FailedPrecondition, fmt.Sprintf("ticket count is above the event's per-account limit of %d", event.Limit()))
 	}
 	return nil
 }

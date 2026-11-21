@@ -41,13 +41,13 @@ type ResaleEntryUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the TicketStock does not exist.
-	//  - InvalidArgument: the count is not 1 to the event's per-account limit,
-	//    or the name or phone number is missing or breaks the personal details
-	//    rule.
+	//  - InvalidArgument: the count is below 1, or the name or phone number is
+	//    missing or breaks the personal details rule.
 	//  - FailedPrecondition: the stock's resale is not open now, its event is
-	//    not published (as for a 中止 concert), the application does not fit
-	//    the event, or a sale of the event requires verification and the fan
-	//    holds no Active IdentityVerification.
+	//    not published (as for a 中止 concert), the count is above the event's
+	//    per-account limit, the application does not fit the event, or a sale
+	//    of the event requires verification and the fan holds no Active
+	//    IdentityVerification.
 	//  - Unavailable: card payments cannot be reached.
 	AuthorizeCard(ctx context.Context, stockID entity.TicketStockID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error)
 

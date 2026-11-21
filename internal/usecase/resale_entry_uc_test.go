@@ -156,6 +156,31 @@ func TestResaleEntryUseCase_AuthorizeCard(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
+	t.Run("count over the limit", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/authorize-card "Count over the limit"
+		f := newResaleEntryFixture(t)
+		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-s"), reNow).Return(soldOutStock("stock-s", reSeatS, true), nil)
+		f.events.EXPECT().Get(mock.Anything, "event-1").Return(resaleEvent(), nil)
+
+		_, err := f.uc.AuthorizeCard(ctx, "stock-s", "fan-1", 5, "山田 太郎", "+819012345678", nil)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("missing identity details", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/resale-entry/authorize-card "Missing identity details"
+		f := newResaleEntryFixture(t)
+		f.stocks.EXPECT().Get(mock.Anything, entity.TicketStockID("stock-s"), reNow).Return(soldOutStock("stock-s", reSeatS, true), nil)
+		f.events.EXPECT().Get(mock.Anything, "event-1").Return(resaleEvent(), nil)
+
+		_, err := f.uc.AuthorizeCard(ctx, "stock-s", "fan-1", 2, "", "+819012345678", nil)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		_, err = f.uc.AuthorizeCard(ctx, "stock-s", "fan-1", 2, "山田 太郎", "", nil)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
 	t.Run("concert cancelled", func(t *testing.T) {
 		t.Parallel()
 		f := newResaleEntryFixture(t)
