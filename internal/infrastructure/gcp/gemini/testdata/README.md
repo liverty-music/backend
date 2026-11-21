@@ -12,24 +12,23 @@ workload. Not a CI test — runs only when `GEMINI_AB_EVAL=1` is set.
 
 ## Fixture artists
 
-Captured 2026-11-20. In-scope events are the recall denominator; out-of-scope
-entries (festivals, shows organized by other artists, members' solo shows)
-are negative samples (`excluded_per_spec`). Events dated before the day of a
-run are dropped from scoring, since the prompt's start date is today.
+One artist per official-site structure, captured 2026-11-20. In-scope events
+are the recall denominator; out-of-scope entries (festivals, shows organized
+by other artists, members' solo shows) are negative samples
+(`excluded_per_spec`). Events dated before the day of a run are dropped from
+scoring, since the prompt's start date is today.
 
-| artist | events (in scope / out of scope) | sources | why in the fixture |
+| artist | events (in scope / out of scope) | site structure | sources |
 |---|---|---|---|
-| UVERworld | 20 / 1 | `feature/2026_live`, `feature/2027_live`, news articles | since 2026-10 |
-| Vaundy | 32 / 0 | `member.vaundy.jp/feature/ARENATOUR_2728` (multilingual) | since 2026-10 |
-| SUPER BEAVER | 42 / 1 | `sp.super-beaver.com/feature/tour2627`, `tour2728`, `budokan2027` | since 2026-10 |
-| BRADIO | 3 / 3 | `show/` list | since 2026-10 |
-| BIGMAMA | 24 / 3 | `shows/<id>/` detail pages | prod 2026-10-21..11-20: 36.7 queries per call (max 46) |
-| go!go!vanillas | 18 / 0 | tour sites on other domains (`ggv-livehousetour2627.jp`, `ggv-backhometour2027.jp`) | prod: max 35 queries; detail pages are off the official domain |
-| [Alexandros] | 20 / 11 | `contents/schedule` list, `contents/<id>` detail pages | prod: 34.0 queries per call (max 58); opaque detail paths |
+| Vaundy | 32 / 0 | the listed pages carry every show; multilingual tour page | `member.vaundy.jp/feature/ARENATOUR_2728` |
+| SUPER BEAVER | 42 / 1 | a show page whose path has no concert word (`feature/budokan2027`, a banner on the top page) | `sp.super-beaver.com/feature/tour2627`, `tour2728`, `budokan2027` |
+| [Alexandros] | 20 / 11 | detail pages (`contents/<id>`) behind page 2 of the schedule list | `contents/schedule`, `contents/<id>` |
+| go!go!vanillas | 18 / 0 | tour sites on other domains, linked from the top page | `ggv-livehousetour2627.jp`, `ggv-backhometour2027.jp` |
 
-BUMP OF CHICKEN (prod max 46 queries) was left out: its live pages render in
-JavaScript and carry no dates in their HTML, so no ground truth could be
-captured from them (nor read with URL context).
+UVERworld, BRADIO, BIGMAMA and 10-FEET were evaluated on 2026-11-20..21 and
+dropped to keep runs cheap: their structures repeat the four above.
+[Alexandros]'s 2027-05-12 venue is "福岡 UNITEDLAB" in the fixture; the model
+writes "UNITEDLAB", which the scorer counts as a miss.
 
 ## How to run
 
@@ -43,7 +42,7 @@ records the search queries from the server-side tool calls. Its variants
 
 | option | searcher setup |
 |---|---|
-| `base` | production: the concert and news pages the official top page links to |
+| `base` | production: the official top page's links with their labels |
 | `cap` | adds "Run at most 10 Google Search queries; read the listed pages with url_context first." to the system instruction |
 | `nosearch` | no Google Search tool; URL context only |
 
@@ -62,7 +61,10 @@ GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_VARIANTS=base,cap \
   ./internal/infrastructure/gcp/gemini/...
 ```
 
-Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,BRADIO`.
+Narrow with `GEMINI_AB_EVAL_ARTISTS=Vaundy,SUPER BEAVER`. Override an
+artist's official site for a run with `GEMINI_AB_EVAL_SITES=<name>=<url>`
+(CSV); a variable with spaces or `!` needs `env` in zsh
+(`env 'GEMINI_AB_EVAL_ARTISTS=go!go!vanillas' go test ...`).
 
 Smoke run (1 cell: the first model, variant and artist — for auth + API
 sanity check):
@@ -76,8 +78,8 @@ GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-ke
 
 Prompt variants (`TestConcertSearcher_GroundingVariants`, one artist per run):
 `FINAL` (production prompt without linked pages, default), `LINKS`
-(production: the concert and news pages the official top page links to are
-listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
+(production: the official top page's links are listed in the prompt with
+their labels), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
 (E2UJ with a mandatory first url_context step). An artist outside the fixture
 runs unscored (search queries, URL context use and cost only) when
 `GEMINI_GROUNDING_EVAL_SITE` gives its official site. Set
@@ -87,7 +89,7 @@ hourly "search query" SKU count (one variant per clock hour).
 
 ```bash
 GEMINI_GROUNDING_EVAL=1 GEMINI_GROUNDING_EVAL_VARIANT=FINAL \
-  GEMINI_GROUNDING_EVAL_ARTIST=UVERworld GEMINI_GROUNDING_EVAL_TOOL_CALLS=1 \
+  GEMINI_GROUNDING_EVAL_ARTIST=Vaundy GEMINI_GROUNDING_EVAL_TOOL_CALLS=1 \
   GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
   go test -tags=integration -timeout=1h -v \
   -run TestConcertSearcher_GroundingVariants \
@@ -101,7 +103,27 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-11-20, pass-tour-detail-pages-to-concert-search)
+## Latest result (2026-11-21, pass-tour-detail-pages-to-concert-search)
+
+`gemini-4-hydrogen`, thinking `low`, 3 reps per artist and variant, cost at
+the 2027-01-01 price. Raw outputs: `ab_results/20261121T*`.
+
+Prompt (runs 4–5, 8 artists): the goal-and-done prompt (now production)
+against the procedural one. Dates of the tours the listed pages did not
+reach ([Alexandros] FC TOUR, go!go!vanillas BACK HOME TOUR): 47/48 against
+33/48 (the procedural prompt dropped the whole tour once in 3 runs on each);
+the other artists unchanged; cost $0.087 against $0.070 per call (run 5).
+
+Links (runs 6–10, the 4 fixture artists, goal prompt):
+
+| variant | Vaundy | SUPER BEAVER Budokan | [Alexandros] FC TOUR | go!go!vanillas BACK HOME TOUR | queries / call | cost / call |
+|---|---|---|---|---|---|---|
+| keyword-selected concert pages | 32/32 | 0/2 ×3 | 8, 8, 7 /8 | 8/8 ×3 (4–8 queries) | 2.3 | $0.113 |
+| + same-site links with labels | 32/32 | 2/2 ×3 | 8/8 ×3 | 8/8 ×3 (4–8 queries) | 1.3 | $0.094 |
+| + "follow the top page's links" instruction | — | 2/2 in 2 of 3 runs, via search | — | — | — | — |
+| links of any domain with labels, blocked domains out, no keyword list (production) | 32/32 ×3 | 2/2 ×3 | 8/8 ×3 | 8/8 ×3 (0 queries) | 0 | $0.075 |
+
+## Earlier result (2026-11-20, pass-tour-detail-pages-to-concert-search)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset, 3 reps per artist and
 variant, all 7 fixture artists, cost at the 2027-01-01 price
@@ -224,7 +246,7 @@ responses; temperature 0.3 increased searches on 3 of 4 artists.
 | Temperature | not sent |
 | ThinkingLevel | `low` (`GEMINI_AB_EVAL_THINKING`) |
 | Variant | `base` (`GEMINI_AB_EVAL_VARIANTS`) |
-| Artist | the 7 fixture artists (`GEMINI_AB_EVAL_ARTISTS`) |
+| Artist | the 4 fixture artists (`GEMINI_AB_EVAL_ARTISTS`) |
 | Repetitions | 3 (`GEMINI_AB_EVAL_REPS`) |
 
 ## How to refresh the fixture
