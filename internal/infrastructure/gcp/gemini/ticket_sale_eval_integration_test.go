@@ -35,7 +35,12 @@ import (
 //	GEMINI_SP_EVAL_REPS          repetitions per case (default 3)
 //
 // Results go to testdata/ab_results/ticket_sale_<UTC time>.csv and .json,
-// one row per search (see spEvalCall).
+// one row per search (see spEvalCall). A full run is 27 serial calls of up
+// to a minute each, longer than go test's default 10-minute timeout:
+//
+//	GEMINI_SP_EVAL=1 GCP_GEMINI_SEARCH_API_KEY=<key> \
+//	  go test -tags=integration -count=1 -timeout=1h -v \
+//	  -run TestTicketSaleSearchEval ./internal/infrastructure/gcp/gemini/
 //
 // The fixture was captured on 2026-11-21 from public pages, with the current
 // time frozen to 2026-11-06 12:00 JST, before every expected sale opened: on
@@ -409,9 +414,11 @@ func (r *spEvalReporter) fill(c *spEvalCall) {
 		c.CostUSD2027 += Pricing2027.CostUSD(c.Model,
 			int32(g.Usage.PromptTokens), int32(g.Usage.CandidatesTokens), int32(g.Usage.ThinkingTokens),
 			int32(g.Usage.ToolUseTokens), int32(len(g.WebSearchQueries)))
-		if g.ErrorKind != "" {
-			c.ErrorKind = g.ErrorKind
-		}
+	}
+	// Only the last request decides the search: a request rejected as invalid
+	// is sent once more, and a retry that succeeds leaves no error.
+	if n := len(r.gens); n > 0 {
+		c.ErrorKind = r.gens[n-1].ErrorKind
 	}
 	switch c.ErrorKind {
 	case errorKindNoCandidates, errorKindNoText, errorKindIncomplete:
@@ -421,8 +428,10 @@ func (r *spEvalReporter) fill(c *spEvalCall) {
 
 // TestTicketSaleSearchEval runs the production searcher on the fixtures and
 // writes one row per search to testdata/ab_results/ticket_sale_<time>.csv and
-// .json. Zero extra sales across the fixtures also shows that no ticket trade
-// or resale on the artists' pages was returned.
+// .json. It fails on an extra sale or a wrong value: the artists with two
+// series have upcoming sales on one only, the pages list ticket trades and
+// sales that opened before the frozen time, and several lotteries state a
+// result day. A missed sale does not fail it; recall is compared across runs.
 //
 // @spec components/entity/ticket-sale/search-published-sales "Artist with two tours"
 // @spec components/entity/ticket-sale/search-published-sales "Official ticket trade"
@@ -466,7 +475,11 @@ func TestTicketSaleSearchEval(t *testing.T) {
 	}
 	s.now = func() time.Time { return spEvalNow }
 
+	// The files are rewritten after every search, so a run cut off by the
+	// test timeout (which skips deferred calls) keeps the calls paid for.
+	base := filepath.Join("testdata/ab_results", "ticket_sale_"+time.Now().UTC().Format("20060102T150405Z"))
 	var calls []spEvalCall
+	t.Logf("writing %s.json and .csv", base)
 	for rep := 1; rep <= reps; rep++ {
 		for _, c := range spEvalCases {
 			if len(caseFilter) > 0 && !caseFilter[c.Name] {
@@ -494,22 +507,27 @@ func TestTicketSaleSearchEval(t *testing.T) {
 				c.Name, rep, len(call.Found), call.Missed, call.Extra, call.Wrong, len(call.SearchQueries),
 				call.CostUSD2027, float64(call.LatencyMS)/1000, call.ErrorKind)
 			calls = append(calls, call)
+			if err := writeSPEvalResults(base, calls); err != nil {
+				t.Fatalf("write results: %v", err)
+			}
+			// A miss is a recall result, compared across runs; an extra sale
+			// (a trade, a resale, a sale of the other series, an opened one)
+			// or a wrong end time or result date breaks the spec.
+			for _, x := range call.Extra {
+				t.Errorf("%s #%d: extra sale %s", c.Name, rep, x)
+			}
+			for _, w := range call.Wrong {
+				t.Errorf("%s #%d: wrong value %s", c.Name, rep, w)
+			}
 		}
-	}
-	if err := writeSPEvalResults(t, calls); err != nil {
-		t.Fatalf("write results: %v", err)
 	}
 }
 
-// writeSPEvalResults writes the calls to testdata/ab_results as
-// ticket_sale_<UTC time>.json and .csv.
-func writeSPEvalResults(t *testing.T, calls []spEvalCall) error {
-	t.Helper()
-	const dir = "testdata/ab_results"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// writeSPEvalResults writes the calls to base + ".json" and ".csv".
+func writeSPEvalResults(base string, calls []spEvalCall) error {
+	if err := os.MkdirAll(filepath.Dir(base), 0o755); err != nil {
 		return err
 	}
-	base := filepath.Join(dir, "ticket_sale_"+time.Now().UTC().Format("20060102T150405Z"))
 	jb, err := json.MarshalIndent(map[string]any{
 		"now":   spEvalNow.Format(time.RFC3339),
 		"calls": calls,
@@ -545,11 +563,7 @@ func writeSPEvalResults(t *testing.T, calls []spEvalCall) error {
 			strconv.FormatBool(c.Empty), c.ErrorKind, c.Error,
 		})
 	}
-	if err := w.WriteAll(rows); err != nil {
-		return err
-	}
-	t.Logf("wrote %s.json and .csv", base)
-	return nil
+	return w.WriteAll(rows)
 }
 
 func envOr(key, fallback string) string {
