@@ -15,7 +15,7 @@ Find every place the change touches, from the code, not from memory:
 
 - Callers of `google.golang.org/genai` under `internal/infrastructure/gcp/gemini` and the config resolvers in `pkg/config` (`*SearchModel()`, `*Thinking*()`).
 - Every process that builds each searcher (`internal/di`: the jobs, the event consumer, the API server) and whether it reports usage. A model change reaches all of them; checking only the job misses the consumer's searches.
-- The prod pins: `GCP_GEMINI_SEARCH_MODEL_EXTRACT` / `GCP_GEMINI_SEARCH_THINKING_EXTRACT` in cloud-provisioning's `k8s/namespaces/backend` ConfigMaps (base and prod overlay), and processes that run on the code default because they have no pin.
+- The prod pins in cloud-provisioning's `k8s/namespaces/backend` ConfigMaps (base and prod overlay), resolved the way `pkg/config` resolves them: the model from `GCP_GEMINI_SEARCH_MODEL_EXTRACT`, then the code default; the thinking level from `GCP_GEMINI_SEARCH_THINKING_EXTRACT`, then `GCP_GEMINI_SEARCH_THINKING_LEVEL`, then the code default. Read the rendered ConfigMap of each process (`kustomize build`), since a base value and an overlay value combine; a process with neither variable runs the code default.
 - Prod usage per process from PostHog `$ai_generation` (`properties.process`): calls, search queries, errors, over the last month. This is the baseline any result is compared with.
 
 ## 2. Read the official documentation for the target model
@@ -33,7 +33,9 @@ A page that cannot be read is reported as unread; never fill its content from me
 
 - **Fixture freshness.** A fixture compares the model against what official pages say at capture time. Check its capture date; if events or sales have since passed or left the pages, re-capture from public pages before measuring anything.
 - **Fixture coverage.** One case per site or page structure that behaves differently (pages listed in the prompt suffice; a show page the list misses; detail pages behind pagination; tour sites on other domains), rather than many cases of one structure. More cases of the same structure add cost, not information.
-- **Recorded per call:** per-entity recall (each artist's or sale's expected items found), search queries from the server-side tool calls, tokens, cost at the current price and at any announced future price, latency, empty or failed responses. The harness in `internal/infrastructure/gcp/gemini/searcher_integration_test.go` and `ticket_sale_eval_integration_test.go` records these; its README has the commands.
+- **Recorded per call:** per-entity recall (each artist's or sale's expected items found), search queries from the server-side tool calls, tokens, cost at the current price and at any announced future price, latency, empty or failed responses. What the harnesses record differs; check before relying on a column:
+  - the concert harness (`searcher_integration_test.go`) records all of these and writes them to `testdata/ab_results/`; `testdata/README.md` has its commands and variants;
+  - the ticket sale harness (`ticket_sale_eval_integration_test.go`, commands in its header comment) logs found, missed and extra sales per case and repetition and the wall-clock time, with search queries only in the searcher's "gemini response metadata" log line; it records no tokens or cost and writes no result file. Extend it before an evaluation that compares cost or queries.
 - **Acceptance criteria** written before the runs, with the comparison made **per entity**, not only on totals: an average can hide an artist whose tour is dropped every time while another artist's outlier lifts the mean.
 
 ## 4. Run and diagnose
@@ -56,4 +58,4 @@ Thinking level and other settings that change cost are the owner's decision; as 
 
 - Change the code default and the prod pin of a model or thinking level in the same release window, and confirm afterwards that every process running the workload runs the new image and config (kubectl), not only the one you were looking at.
 - A behavior change that a spec states (what is sent, what is returned) goes through an OpenSpec delta; a model or prompt change that leaves the spec's requirements intact does not.
-- Record the runs, the per-entity tables, the decision and the documentation you relied on in `docs/gemini-concert-searcher-tuning.md` §10 and the harness README, and commit the result files under `testdata/ab_results/`.
+- Record the runs, the per-entity tables, the decision and the documentation you relied on in `docs/gemini-concert-searcher-tuning.md` §10 and the harness README, and force-add the runs' result files under `testdata/ab_results/` (`git add -f`: that directory's `.gitignore` ignores `*.json` and `*.csv`, so a plain `git add` commits nothing).
