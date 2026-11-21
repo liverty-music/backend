@@ -89,25 +89,25 @@ func TestValidateTicketCount(t *testing.T) {
 	limit := 4
 	event := &entity.Event{PerAccountLimit: &limit}
 	tests := []struct {
-		name  string
-		count int
-		valid bool
+		name    string
+		count   int
+		wantErr error
 	}{
 		// @spec components/entity/order "Count within the limit"
-		{name: "2 of a limit of 4", count: 2, valid: true},
+		{name: "2 of a limit of 4", count: 2},
 		// @spec components/entity/order "Zero tickets"
-		{name: "0 tickets", count: 0},
+		{name: "0 tickets", count: 0, wantErr: apperr.ErrInvalidArgument},
 		// @spec components/entity/order "Count over the limit"
-		{name: "5 of a limit of 4", count: 5},
+		{name: "5 of a limit of 4", count: 5, wantErr: apperr.ErrFailedPrecondition},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := entity.ValidateTicketCount(tt.count, event)
-			if tt.valid {
+			if tt.wantErr == nil {
 				assert.NoError(t, err)
 			} else {
-				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+				assert.ErrorIs(t, err, tt.wantErr)
 			}
 		})
 	}

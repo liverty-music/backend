@@ -65,15 +65,14 @@ type LotteryEntryUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the sale or the TicketStock does not exist.
-	//  - InvalidArgument: the count is not 1 to the event's per-account limit,
-	//    or the name or phone number is missing or breaks the personal details
-	//    rule.
+	//  - InvalidArgument: the count is below 1, or the name or phone number is
+	//    missing or breaks the personal details rule.
 	//  - FailedPrecondition: the sale is not a Lottery or does not name the
 	//    stock's event, its window is not open, the stock's event is not
-	//    PUBLISHED (a 中止 (cancelled) concert), the fan has no Active
-	//    IdentityVerification when the sale requires one, the application
-	//    does not fit the event, or the fan already has an entry in the sale
-	//    for the stock's event.
+	//    PUBLISHED (a 中止 (cancelled) concert), the count is above the event's
+	//    per-account limit, the fan has no Active IdentityVerification when
+	//    the sale requires one, the application does not fit the event, or the
+	//    fan already has an entry in the sale for the stock's event.
 	//  - Unavailable: card payments cannot be reached.
 	AuthorizeCard(ctx context.Context, saleID entity.TicketSaleID, stockID entity.TicketStockID, userID entity.UserID, count int, fullName, phoneNumber string, code *entity.ReferralCode) (*entity.CardAuthorization, error)
 

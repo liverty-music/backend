@@ -32,10 +32,10 @@ type CheckoutUseCase interface {
 	//  - FailedPrecondition: the event is not published, no FirstCome sale of
 	//    the event is open, a closed Lottery sale of the event still has
 	//    Entered entries for the stock, the sale requires verification and the
-	//    fan has no Active IdentityVerification, or the application does not
-	//    fit the event (the per-account limit or another seat type).
-	//  - InvalidArgument: count is below 1 or above the event's per-account
-	//    limit.
+	//    fan has no Active IdentityVerification, count is above the event's
+	//    per-account limit, or the application does not fit the event (the
+	//    per-account limit or another seat type).
+	//  - InvalidArgument: count is below 1.
 	//  - ResourceExhausted: not enough tickets remain.
 	Start(ctx context.Context, userID entity.UserID, stockID entity.TicketStockID, count int, code *entity.ReferralCode) (*entity.Checkout, error)
 
