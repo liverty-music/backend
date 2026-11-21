@@ -10,15 +10,16 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -57,22 +58,76 @@ func errTooManyRedirects() error {
 	return apperr.New(codes.FailedPrecondition, "official top page redirected too many times")
 }
 
-// linkProfile selects the links of an official top page for one searcher.
-// Tiers are keyword lists in priority order: a link belongs to the first tier
-// with a keyword its path contains, and the cap is filled tier by tier so a
-// lower tier never displaces a higher one.
-type linkProfile struct {
-	tiers [][]string
-	max   int
+// pageLink is one link of the official top page listed in the prompt: its
+// URL and its label, the link text or else the alternative text of an image
+// inside the link.
+type pageLink struct {
+	URL   string
+	Label string
 }
 
-// concertSearchProfile selects the pages for ConcertSearcher: concert pages
-// first, then news indexes and articles. News pages announce tours whose own
-// pages sit on another domain (e.g. go!go!vanillas), and in evaluation the
-// news tier cut search queries by a further 13% against concert pages alone.
-var concertSearchProfile = linkProfile{
-	tiers: [][]string{{"live", "schedule", "tour", "concert", "show"}, {"news"}},
-	max:   8,
+// maxPageLinks caps the links listed from one top page. After the two
+// exclusions below, 80 production top pages carried at most 58 links
+// (median 22, 2026-11-21); the cap drops links from the end of the page,
+// where the footer is, if a page carries more.
+const maxPageLinks = 60
+
+// maxLabelRunes caps a label: a card-style link makes every text inside it
+// the label, and page text is untrusted, so only its start goes into the
+// prompt. maxLinkURLLen leaves out links whose URL is longer, such as
+// tracking redirects.
+const (
+	maxLabelRunes = 100
+	maxLinkURLLen = 500
+)
+
+// blockedLinkDomains are registrable domains that never carry an artist's
+// official show announcements: social networks, music streaming, link hubs,
+// shops, ticket vendors, fan-club and login platforms, and lyrics sites,
+// taken from the links of 80 production official top pages (2026-11-21).
+// Record labels, management companies and artist-owned domains are not
+// blocked: some artists' official pages live there. A domain missing here
+// only adds a line to the prompt; the model decides which links announce
+// shows.
+var blockedLinkDomains = setOf(
+	// Social networks and video.
+	"instagram.com", "youtube.com", "youtu.be", "youtube-nocookie.com", "twitter.com", "x.com", "tiktok.com",
+	"facebook.com", "line.me", "lin.ee", "weibo.com", "threads.net",
+	// Music streaming and stores.
+	"apple.com", "itunes.com", "spotify.com", "soundcloud.com", "tidal.com", "amazon.com", "amazon.co.jp",
+	"amzn.to", "bandcamp.com", "deezer.com",
+	// Link hubs.
+	"lnk.to", "ffm.to", "linkco.re", "bio.to", "linktr.ee", "lit.link", "lsnto.me",
+	// Merchandise shops.
+	"official-goods-store.jp", "stores.jp", "shop-pro.jp", "official.ec", "official-store.jp", "theshop.jp",
+	"thebase.in", "gum.co", "printful.com",
+	// Ticket vendors.
+	"eplus.jp", "pia.jp", "l-tike.com", "ticketmaster.com", "livenation.com", "tixplus.jp", "dice.fm", "laylo.com",
+	// Fan-club, login and site platforms.
+	"plusmember.jp", "fanplus.co.jp", "skiyaki.com", "bitfan.id", "weverse.io", "google.com",
+	// Lyrics.
+	"uta-net.com", "lyrical-nonsense.com",
+)
+
+// siteInfoPathSegments are path segments that name an official site's own
+// site-information, legal, artist-profile, discography or membership pages,
+// which every site links from its navigation and none uses for show
+// announcements. On 80 production top pages they matched 318 links and no
+// show page (2026-11-21). "entry" is left out: some blogs use it for
+// articles.
+var siteInfoPathSegments = setOf(
+	"privacy", "privacy-policy", "terms", "deals", "law", "customer_harassment",
+	"about", "device", "environment", "faq", "qa", "help", "contact", "sitemap",
+	"profile", "profiles", "biography", "bio", "discography", "disc", "company",
+	"signup", "signin", "login", "membership", "account", "payment", "cart", "wallpaper",
+)
+
+func setOf(items ...string) map[string]struct{} {
+	m := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		m[it] = struct{}{}
+	}
+	return m
 }
 
 // NewOfficialPageClient returns the HTTP client for official top pages. It
@@ -130,138 +185,231 @@ func refuseNonPublicAddress(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// officialPageLinks reads the official site's top page and returns the
-// links profile selects, at most profile.max of them. When the site's
-// www. host does not resolve, the apex host is read instead, once. An error
-// means the page could not be read; callers search without links.
-func officialPageLinks(ctx context.Context, client *http.Client, siteURL string, profile linkProfile) ([]string, error) {
+// officialPageLinks reads the official site's top page and returns the links
+// to list in the prompt (see listedLinks) and the URL the page was read
+// from. When the site's www. host does not resolve, the apex host is read
+// instead, once. An error means the page could not be read; callers search
+// without links.
+func officialPageLinks(ctx context.Context, client *http.Client, siteURL string) ([]pageLink, string, error) {
 	page, err := url.Parse(siteURL)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if page.Scheme != "http" && page.Scheme != "https" {
-		return nil, fmt.Errorf("unsupported scheme %q", page.Scheme)
+		return nil, "", fmt.Errorf("unsupported scheme %q", page.Scheme)
 	}
 
-	links, err := fetchPageLinks(ctx, client, page, profile)
+	links, final, err := fetchPageLinks(ctx, client, page)
 	if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound && strings.HasPrefix(page.Hostname(), "www.") {
 		apex := *page
 		apex.Host = strings.TrimPrefix(page.Host, "www.")
-		return fetchPageLinks(ctx, client, &apex, profile)
+		return fetchPageLinks(ctx, client, &apex)
 	}
-	return links, err
+	return links, final, err
 }
 
-// fetchPageLinks fetches page and selects its links. The registrable domain
-// of page, not of a redirect target, is the official site's domain.
-func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL, profile linkProfile) ([]string, error) {
+// fetchPageLinks fetches page and returns its listed links and the URL it
+// was served from. The registrable domain of page, not of a redirect target,
+// is the official site's domain.
+func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL) ([]pageLink, string, error) {
 	domain := registrableDomain(page.Hostname())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, page.String(), nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("User-Agent", officialPageUserAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("official top page answered %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("official top page answered %d", resp.StatusCode)
 	}
 	if mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err != nil ||
 		(mediaType != "text/html" && mediaType != "application/xhtml+xml") {
-		return nil, fmt.Errorf("official top page is not HTML: %q", resp.Header.Get("Content-Type"))
+		return nil, "", fmt.Errorf("official top page is not HTML: %q", resp.Header.Get("Content-Type"))
 	}
 	final := resp.Request.URL
 	if registrableDomain(final.Hostname()) != domain {
-		return nil, errOffSiteRedirect(final.Host)
+		return nil, "", errOffSiteRedirect(final.Host)
 	}
 
-	return selectLinks(io.LimitReader(resp.Body, officialPageMaxBytes), final, domain, profile), nil
+	// Labels are text the model reads, so the page is decoded to UTF-8 from
+	// its declared charset (Content-Type, then <meta charset>): older
+	// Japanese artist sites serve Shift_JIS or EUC-JP.
+	body, err := charset.NewReader(io.LimitReader(resp.Body, officialPageMaxBytes), resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, "", fmt.Errorf("official top page charset: %w", err)
+	}
+	return listedLinks(anchors(body), final, domain), final.String(), nil
 }
 
-// anchorHrefs returns the href attribute of every <a> tag of the HTML, in
-// document order.
-func anchorHrefs(r io.Reader) []string {
-	var hrefs []string
+// anchor is one <a> tag: its href and its label.
+type anchor struct {
+	href  string
+	label string
+}
+
+// anchors returns the <a> tags of the HTML in document order, each with its
+// href and its label: the text inside the tag, or else the alternative text
+// of the first image inside it, with whitespace collapsed.
+func anchors(r io.Reader) []anchor {
+	var sc anchorScanner
 	z := html.NewTokenizer(r)
 	for {
-		tt := z.Next()
-		if tt == html.ErrorToken {
-			return hrefs
-		}
-		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
-			continue
-		}
-		name, hasAttr := z.TagName()
-		if string(name) != "a" || !hasAttr {
-			continue
-		}
-		for {
-			key, val, more := z.TagAttr()
-			if string(key) == "href" {
-				hrefs = append(hrefs, string(val))
-			}
-			if !more {
-				break
+		switch z.Next() {
+		case html.ErrorToken:
+			return sc.out
+		case html.StartTagToken, html.SelfClosingTagToken:
+			sc.startTag(z)
+		case html.TextToken:
+			sc.text(z.Text())
+		case html.EndTagToken:
+			if name, _ := z.TagName(); string(name) == "a" {
+				sc.endAnchor()
 			}
 		}
 	}
 }
 
-// selectLinks returns the <a href> links of an HTML document that point to
-// domain and match profile, resolved against base, normalized, de-duplicated
-// and filled tier by tier in page order up to profile.max.
-func selectLinks(r io.Reader, base *url.URL, domain string, profile linkProfile) []string {
-	seen := make(map[string]struct{})
-	byTier := make([][]string, len(profile.tiers))
+// anchorScanner collects anchors from a tokenizer's events.
+type anchorScanner struct {
+	out       []anchor
+	cur       *anchor
+	textBuf   strings.Builder
+	altBuf    strings.Builder
+	altFilled bool
+}
 
-	for _, href := range anchorHrefs(r) {
-		if link, tier, ok := matchLink(href, base, domain, profile); ok {
-			if _, dup := seen[link]; !dup {
-				seen[link] = struct{}{}
-				byTier[tier] = append(byTier[tier], link)
-			}
+// startTag opens an anchor at <a> and records the first image's alt text
+// inside an open anchor.
+func (sc *anchorScanner) startTag(z *html.Tokenizer) {
+	name, hasAttr := z.TagName()
+	switch {
+	case string(name) == "a":
+		sc.cur = &anchor{href: tagAttr(z, hasAttr, "href")}
+		sc.textBuf.Reset()
+		sc.altBuf.Reset()
+		sc.altFilled = false
+	case string(name) == "img" && sc.cur != nil && !sc.altFilled:
+		if alt := tagAttr(z, hasAttr, "alt"); alt != "" {
+			sc.altBuf.WriteString(alt)
+			sc.altFilled = true
 		}
 	}
+}
 
-	var links []string
-	for _, tier := range byTier {
-		for _, link := range tier {
-			if len(links) == profile.max {
-				return links
-			}
-			links = append(links, link)
+// text adds text inside an open anchor to its label.
+func (sc *anchorScanner) text(b []byte) {
+	if sc.cur != nil {
+		sc.textBuf.Write(b)
+		sc.textBuf.WriteByte(' ')
+	}
+}
+
+// endAnchor closes the open anchor, labeling it with its text or else its
+// image's alt text.
+func (sc *anchorScanner) endAnchor() {
+	if sc.cur == nil {
+		return
+	}
+	sc.cur.label = strings.Join(strings.Fields(sc.textBuf.String()), " ")
+	if sc.cur.label == "" {
+		sc.cur.label = strings.Join(strings.Fields(sc.altBuf.String()), " ")
+	}
+	sc.out = append(sc.out, *sc.cur)
+	sc.cur = nil
+}
+
+// tagAttr returns the value of the current tag's attribute key, or "".
+func tagAttr(z *html.Tokenizer, hasAttr bool, key string) string {
+	for hasAttr {
+		var k, v []byte
+		k, v, hasAttr = z.TagAttr()
+		if string(k) == key {
+			return string(v)
 		}
+	}
+	return ""
+}
+
+// listedLinks returns the links of an HTML page to list in the prompt:
+// http(s) links resolved against base and normalized, each once, in page
+// order, at most maxPageLinks, each label cut to maxLabelRunes. It leaves
+// out links to the page itself (an <a> without href or with href="#"),
+// URLs longer than maxLinkURLLen, links to blockedLinkDomains other than
+// the official site's own (an official site on a blocked platform's domain,
+// such as sites.google.com, keeps its links), and links to pages of domain
+// whose path has a siteInfoPathSegments segment. A link that appears again
+// keeps its first label unless that was empty.
+func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
+	var links []pageLink
+	index := make(map[string]int)
+	self := ""
+	if u, ok := normalizeLink("", base); ok {
+		self = u.String()
+	}
+	for _, a := range as {
+		u, ok := normalizeLink(a.href, base)
+		if !ok || u.String() == self || len(u.String()) > maxLinkURLLen {
+			continue
+		}
+		linkDomain := registrableDomain(u.Hostname())
+		if _, blocked := blockedLinkDomains[linkDomain]; blocked && linkDomain != domain {
+			continue
+		}
+		if linkDomain == domain && hasSiteInfoSegment(u.Path) {
+			continue
+		}
+		link, label := u.String(), truncateRunes(a.label, maxLabelRunes)
+		if i, dup := index[link]; dup {
+			if links[i].Label == "" {
+				links[i].Label = label
+			}
+			continue
+		}
+		if len(links) == maxPageLinks {
+			break
+		}
+		index[link] = len(links)
+		links = append(links, pageLink{URL: link, Label: label})
 	}
 	return links
 }
 
-// matchLink resolves href against base and returns the normalized link and
-// its tier when it is an http(s) link to domain whose path contains a
-// keyword of profile. Normalizing drops the fragment, a default port and the
-// lang / _normalbrowse_* query parameters.
-func matchLink(href string, base *url.URL, domain string, profile linkProfile) (string, int, bool) {
-	u, err := base.Parse(strings.TrimSpace(href))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", 0, false
+// truncateRunes returns s cut to at most n runes.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
 	}
-	if registrableDomain(u.Hostname()) != domain {
-		return "", 0, false
-	}
-	path := strings.ToLower(u.Path)
-	tier := slices.IndexFunc(profile.tiers, func(keywords []string) bool {
-		return slices.ContainsFunc(keywords, func(kw string) bool { return strings.Contains(path, kw) })
-	})
-	if tier < 0 {
-		return "", 0, false
-	}
+	return string([]rune(s)[:n])
+}
 
+// hasSiteInfoSegment reports whether a path segment, without a .html, .htm
+// or .php extension, is one of siteInfoPathSegments.
+func hasSiteInfoSegment(path string) bool {
+	for seg := range strings.SplitSeq(strings.ToLower(path), "/") {
+		seg = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(seg, ".html"), ".htm"), ".php")
+		if _, ok := siteInfoPathSegments[seg]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeLink resolves href against base and returns it normalized when it
+// is an http(s) link. Normalizing drops the fragment, a default port and the
+// lang / _normalbrowse_* query parameters.
+func normalizeLink(href string, base *url.URL) (*url.URL, bool) {
+	u, err := base.Parse(strings.TrimSpace(href))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, false
+	}
 	u.Fragment = ""
 	u.RawFragment = ""
 	if port := u.Port(); (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
@@ -276,7 +424,7 @@ func matchLink(href string, base *url.URL, domain string, profile linkProfile) (
 		}
 		u.RawQuery = q.Encode()
 	}
-	return u.String(), tier, true
+	return u, true
 }
 
 // registrableDomain returns the registrable domain (eTLD+1) of host, or host

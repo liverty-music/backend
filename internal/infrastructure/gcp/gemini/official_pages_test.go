@@ -14,6 +14,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/japanese"
 )
 
 // newSiteClient starts one local server for every host in pages and returns
@@ -54,97 +55,104 @@ func htmlPage(body string) http.HandlerFunc {
 	}
 }
 
-func anchors(hrefs ...string) string {
-	var b strings.Builder
-	for _, h := range hrefs {
-		fmt.Fprintf(&b, `<a href="%s">link</a>`, h)
-	}
-	return b.String()
+// link renders an <a> tag with text label; banner renders one wrapping an
+// image whose alternative text is alt.
+func link(href, label string) string { return fmt.Sprintf(`<a href="%s">%s</a>`, href, label) }
+func banner(href, alt string) string {
+	return fmt.Sprintf(`<a href="%s"><figure><img src="/b.jpg" alt="%s"/></figure></a>`, href, alt)
 }
 
 func TestOfficialPageLinks(t *testing.T) {
 	t.Parallel()
 
-	twelveLive := make([]string, 0, 12)
-	for i := 1; i <= 12; i++ {
-		twelveLive = append(twelveLive, fmt.Sprintf("/live/detail/%d", i))
+	seventy := make([]string, 0, 70)
+	var seventyWant []gemini.PageLink
+	for i := 1; i <= 70; i++ {
+		href := fmt.Sprintf("http://example.jp/news/detail/%d", i)
+		seventy = append(seventy, link(href, fmt.Sprintf("news %d", i)))
+		if i <= 60 {
+			seventyWant = append(seventyWant, gemini.PageLink{URL: href, Label: fmt.Sprintf("news %d", i)})
+		}
 	}
 
-	type args struct {
-		siteURL string
-		profile gemini.LinkProfile
-	}
 	tests := []struct {
-		name    string
-		pages   map[string]http.HandlerFunc
-		args    args
-		want    []string
-		wantErr error
+		name     string
+		pages    map[string]http.HandlerFunc
+		siteURL  string
+		want     []gemini.PageLink
+		wantRead string
+		wantErr  error
 	}{
 		{
-			// @spec components/entity/concert/search "Concert pages linked from the top page"
-			name: "Concert pages linked from the top page",
+			// @spec components/entity/concert/search "Links listed with their labels"
+			name: "Links listed with their labels",
 			pages: map[string]http.HandlerFunc{
-				"vaundy.jp": htmlPage(anchors(
-					"https://vaundy.jp/live/",
-					"https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-					"https://vaundy.jp/news/",
-				)),
+				"vaundy.jp": htmlPage(link("/live/", "LIVE") +
+					banner("https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "ASIA ARENA TOUR 2026") +
+					link("/news/", " NEWS\n ")),
 			},
-			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{
-				"https://vaundy.jp/live/",
-				"https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-				"https://vaundy.jp/news/",
+			siteURL: "http://vaundy.jp/",
+			want: []gemini.PageLink{
+				{URL: "http://vaundy.jp/live/", Label: "LIVE"},
+				{URL: "https://member.vaundy.jp/feature/ASIAARENATOUR_2026", Label: "ASIA ARENA TOUR 2026"},
+				{URL: "http://vaundy.jp/news/", Label: "NEWS"},
 			},
+			wantRead: "http://vaundy.jp/",
 		},
 		{
-			// @spec components/entity/concert/search "News pages after concert pages"
-			name: "News pages after concert pages",
+			// @spec components/entity/concert/search "Special show page without a concert word in its path"
+			name: "Special show page without a concert word in its path",
 			pages: map[string]http.HandlerFunc{
-				"vaundy.jp": htmlPage(anchors(append([]string{"/news/detail/11310"}, twelveLive[:8]...)...)),
+				"super-beaver.com": htmlPage(banner("https://sp.super-beaver.com/feature/budokan2027?_normalbrowse_=1", "武道館2027")),
 			},
-			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{
-				"http://vaundy.jp/live/detail/1", "http://vaundy.jp/live/detail/2", "http://vaundy.jp/live/detail/3",
-				"http://vaundy.jp/live/detail/4", "http://vaundy.jp/live/detail/5", "http://vaundy.jp/live/detail/6",
-				"http://vaundy.jp/live/detail/7", "http://vaundy.jp/live/detail/8",
-			},
+			siteURL: "http://super-beaver.com/",
+			want:    []gemini.PageLink{{URL: "https://sp.super-beaver.com/feature/budokan2027", Label: "武道館2027"}},
+		},
+		{
+			// @spec components/entity/concert/search "Official tour site on another domain"
+			name:    "Official tour site on another domain",
+			pages:   map[string]http.HandlerFunc{"gogovanillas.com": htmlPage(banner("https://ggv-backhometour2027.jp", "BACK HOME TOUR 2027"))},
+			siteURL: "http://gogovanillas.com/",
+			want:    []gemini.PageLink{{URL: "https://ggv-backhometour2027.jp", Label: "BACK HOME TOUR 2027"}},
 		},
 		{
 			// @spec components/entity/concert/search "Link to another domain ignored"
 			name: "Link to another domain ignored",
 			pages: map[string]http.HandlerFunc{
-				"vaundy.jp": htmlPage(anchors(
-					"https://eplus.jp/sf/live/vaundy-tour/",
-					"https://x.com/vaundy_live",
-					"/live/",
-				)),
+				"vaundy.jp": htmlPage(link("https://eplus.jp/sf/live/vaundy-tour/", "チケット") +
+					link("https://x.com/vaundy_live", "X") + link("https://www.instagram.com/vaundy/", "Instagram") +
+					link("/live/", "LIVE")),
 			},
-			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{"http://vaundy.jp/live/"},
+			siteURL: "http://vaundy.jp/",
+			want:    []gemini.PageLink{{URL: "http://vaundy.jp/live/", Label: "LIVE"}},
 		},
 		{
-			// @spec components/entity/concert/search "More than 8 concert links"
-			name:  "More than 8 concert links",
-			pages: map[string]http.HandlerFunc{"vaundy.jp": htmlPage(anchors(twelveLive...))},
-			args:  args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{
-				"http://vaundy.jp/live/detail/1", "http://vaundy.jp/live/detail/2", "http://vaundy.jp/live/detail/3",
-				"http://vaundy.jp/live/detail/4", "http://vaundy.jp/live/detail/5", "http://vaundy.jp/live/detail/6",
-				"http://vaundy.jp/live/detail/7", "http://vaundy.jp/live/detail/8",
+			// @spec components/entity/concert/search "Site information page left out"
+			name: "Site information page left out",
+			pages: map[string]http.HandlerFunc{
+				"vaundy.jp": htmlPage(link("/privacy/", "プライバシーポリシー") + link("/about/terms", "利用規約") +
+					link("/discography/detail/58/", "人生") + link("/faq.html", "FAQ") + link("/schedule/", "SCHEDULE")),
 			},
+			siteURL: "http://vaundy.jp/",
+			want:    []gemini.PageLink{{URL: "http://vaundy.jp/schedule/", Label: "SCHEDULE"}},
+		},
+		{
+			// @spec components/entity/concert/search "More than 60 links"
+			name:    "More than 60 links",
+			pages:   map[string]http.HandlerFunc{"example.jp": htmlPage(strings.Join(seventy, ""))},
+			siteURL: "http://example.jp/",
+			want:    seventyWant,
 		},
 		{
 			// @spec components/entity/concert/search "Top page larger than 2 MB"
 			name: "Top page larger than 2 MB",
 			pages: map[string]http.HandlerFunc{
-				"vaundy.jp": htmlPage(anchors("https://vaundy.jp/live/") +
+				"vaundy.jp": htmlPage(link("https://vaundy.jp/live/", "LIVE") +
 					strings.Repeat("<p>padding</p>", 3<<20/len("<p>padding</p>")) +
-					anchors("https://vaundy.jp/tour/beyond-the-cap/")),
+					link("https://vaundy.jp/tour/beyond-the-cap/", "TOUR")),
 			},
-			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{"https://vaundy.jp/live/"},
+			siteURL: "http://vaundy.jp/",
+			want:    []gemini.PageLink{{URL: "https://vaundy.jp/live/", Label: "LIVE"}},
 		},
 		{
 			// @spec components/entity/concert/search "Redirect to another domain"
@@ -153,21 +161,22 @@ func TestOfficialPageLinks(t *testing.T) {
 				"vaundy.jp": func(w http.ResponseWriter, r *http.Request) {
 					http.Redirect(w, r, "http://linktr.ee/vaundy", http.StatusFound)
 				},
-				"linktr.ee": htmlPage(anchors("http://linktr.ee/live/")),
+				"linktr.ee": htmlPage(link("http://linktr.ee/live/", "LIVE")),
 			},
-			args:    args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
+			siteURL: "http://vaundy.jp/",
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
-			name: "redirect within the site is followed",
+			name: "redirect within the site is followed and its URL returned",
 			pages: map[string]http.HandlerFunc{
 				"vaundy.jp": func(w http.ResponseWriter, r *http.Request) {
 					http.Redirect(w, r, "http://www.vaundy.jp/top/", http.StatusMovedPermanently)
 				},
-				"www.vaundy.jp": htmlPage(anchors("live/")),
+				"www.vaundy.jp": htmlPage(link("live/", "LIVE")),
 			},
-			args: args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
-			want: []string{"http://www.vaundy.jp/top/live/"},
+			siteURL:  "http://vaundy.jp/",
+			want:     []gemini.PageLink{{URL: "http://www.vaundy.jp/top/live/", Label: "LIVE"}},
+			wantRead: "http://www.vaundy.jp/top/",
 		},
 		{
 			// @spec components/entity/concert/search "Top page unavailable"
@@ -175,7 +184,7 @@ func TestOfficialPageLinks(t *testing.T) {
 			pages: map[string]http.HandlerFunc{
 				"vaundy.jp": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
 			},
-			args:    args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
+			siteURL: "http://vaundy.jp/",
 			wantErr: assert.AnError,
 		},
 		{
@@ -186,67 +195,71 @@ func TestOfficialPageLinks(t *testing.T) {
 					_, _ = w.Write([]byte(`{"href":"/live/"}`))
 				},
 			},
-			args:    args{siteURL: "http://vaundy.jp/", profile: gemini.ConcertSearchProfile},
+			siteURL: "http://vaundy.jp/",
 			wantErr: assert.AnError,
 		},
 		{
 			// @spec components/entity/concert/search "www host without DNS"
-			name: "www host without DNS",
-			pages: map[string]http.HandlerFunc{
-				"super-beaver.com": htmlPage(anchors("/live_information/list/", "/news/")),
-			},
-			args: args{siteURL: "http://www.super-beaver.com/", profile: gemini.ConcertSearchProfile},
-			want: []string{"http://super-beaver.com/live_information/list/", "http://super-beaver.com/news/"},
+			name:     "www host without DNS",
+			pages:    map[string]http.HandlerFunc{"super-beaver.com": htmlPage(link("/live_information/list/", "LIVE"))},
+			siteURL:  "http://www.super-beaver.com/",
+			want:     []gemini.PageLink{{URL: "http://super-beaver.com/live_information/list/", Label: "LIVE"}},
+			wantRead: "http://super-beaver.com/",
 		},
 		{
 			name:    "apex host without DNS has no fallback",
 			pages:   map[string]http.HandlerFunc{},
-			args:    args{siteURL: "http://super-beaver.com/", profile: gemini.ConcertSearchProfile},
+			siteURL: "http://super-beaver.com/",
 			wantErr: assert.AnError,
 		},
 		{
-			name: "fragments, default ports and language parameters dropped, repeats removed",
+			name: "fragments, default ports and language parameters dropped, repeats and the page itself removed",
 			pages: map[string]http.HandlerFunc{
-				"gogovanillas.com": htmlPage(anchors(
-					"/live/?lang=ja",
-					"/live/#top",
-					"/live/",
-					"http://gogovanillas.com:80/live/",
-					"https://sp.gogovanillas.com:443/feature/tour2728",
-					"https://sp.gogovanillas.com/feature/tour2728?_normalbrowse_=1",
-					"/schedule/?range=future&amp;sort=asc&amp;lang=en",
-					"mailto:live@gogovanillas.com",
-				)),
+				"gogovanillas.com": htmlPage(
+					banner("/live/?lang=ja", "") + link("/live/#top", "LIVE") + link("/live/", "other label") +
+						link("http://gogovanillas.com:80/live/", "LIVE") + link("#", "MENU") + `<a>no href</a>` + link("/", "TOP") +
+						link("https://sp.gogovanillas.com:443/feature/tour2728?_normalbrowse_=1", "TOUR") +
+						link("mailto:live@gogovanillas.com", "mail") + link("javascript:void(0)", "menu")),
 			},
-			args: args{siteURL: "http://gogovanillas.com/", profile: gemini.ConcertSearchProfile},
-			want: []string{
-				"http://gogovanillas.com/live/",
-				"https://sp.gogovanillas.com/feature/tour2728",
-				"http://gogovanillas.com/schedule/?range=future&sort=asc",
+			siteURL: "http://gogovanillas.com/",
+			want: []gemini.PageLink{
+				{URL: "http://gogovanillas.com/live/", Label: "LIVE"},
+				{URL: "https://sp.gogovanillas.com/feature/tour2728", Label: "TOUR"},
 			},
 		},
 		{
-			name: "a lower tier never displaces a higher one",
+			name: "Shift_JIS page decoded from its declared charset",
 			pages: map[string]http.HandlerFunc{
-				"novelbright.jp": htmlPage(anchors(
-					"/news/detail/1", "/news/detail/2", "/news/detail/3",
-					"/schedule/list/", "/feature/arenatour2026",
-				)),
+				"example.jp": func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "text/html; charset=Shift_JIS")
+					sjis, _ := japanese.ShiftJIS.NewEncoder().String(`<a href="/live/">ライブ情報</a>`)
+					_, _ = w.Write([]byte(sjis))
+				},
 			},
-			args: args{
-				siteURL: "http://novelbright.jp/",
-				profile: gemini.NewLinkProfile(3, []string{"schedule", "tour"}, []string{"news"}),
+			siteURL: "http://example.jp/",
+			want:    []gemini.PageLink{{URL: "http://example.jp/live/", Label: "ライブ情報"}},
+		},
+		{
+			name: "official site on a blocked platform keeps its own links",
+			pages: map[string]http.HandlerFunc{
+				"sites.google.com": htmlPage(link("/view/artist/live", "LIVE") + link("https://www.youtube.com/@artist", "YouTube")),
 			},
-			want: []string{
-				"http://novelbright.jp/schedule/list/",
-				"http://novelbright.jp/feature/arenatour2026",
-				"http://novelbright.jp/news/detail/1",
+			siteURL: "http://sites.google.com/view/artist/",
+			want:    []gemini.PageLink{{URL: "http://sites.google.com/view/artist/live", Label: "LIVE"}},
+		},
+		{
+			name: "long labels cut and over-long URLs left out",
+			pages: map[string]http.HandlerFunc{
+				"example.jp": htmlPage(link("/news/1", strings.Repeat("あ", 150)) +
+					link("/r?u="+strings.Repeat("x", 600), "tracking")),
 			},
+			siteURL: "http://example.jp/",
+			want:    []gemini.PageLink{{URL: "http://example.jp/news/1", Label: strings.Repeat("あ", 100)}},
 		},
 		{
 			name:    "unsupported scheme",
 			pages:   map[string]http.HandlerFunc{},
-			args:    args{siteURL: "ftp://vaundy.jp/", profile: gemini.ConcertSearchProfile},
+			siteURL: "ftp://vaundy.jp/",
 			wantErr: assert.AnError,
 		},
 	}
@@ -256,7 +269,7 @@ func TestOfficialPageLinks(t *testing.T) {
 			t.Parallel()
 			client := newSiteClient(t, tt.pages)
 
-			got, err := gemini.OfficialPageLinks(context.Background(), client, tt.args.siteURL, tt.args.profile)
+			got, read, err := gemini.OfficialPageLinks(context.Background(), client, tt.siteURL)
 
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -268,6 +281,9 @@ func TestOfficialPageLinks(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			if tt.wantRead != "" {
+				assert.Equal(t, tt.wantRead, read)
+			}
 		})
 	}
 }
@@ -283,7 +299,7 @@ func TestOfficialPageLinks_TooManyRedirects(t *testing.T) {
 		},
 	})
 
-	got, err := gemini.OfficialPageLinks(context.Background(), client, "http://vaundy.jp/", gemini.ConcertSearchProfile)
+	got, _, err := gemini.OfficialPageLinks(context.Background(), client, "http://vaundy.jp/")
 
 	require.Error(t, err)
 	assert.Empty(t, got)
@@ -320,7 +336,7 @@ func TestNewOfficialPageClient_RefusesNonPublicAddresses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := gemini.OfficialPageLinks(context.Background(), gemini.NewOfficialPageClient(), tt.siteURL, gemini.ConcertSearchProfile)
+			got, _, err := gemini.OfficialPageLinks(context.Background(), gemini.NewOfficialPageClient(), tt.siteURL)
 
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			assert.Empty(t, got)

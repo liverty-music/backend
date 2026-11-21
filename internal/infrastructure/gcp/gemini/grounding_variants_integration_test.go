@@ -70,13 +70,11 @@ var systemInstructionJSONReadFirst = strings.Replace(systemInstructionJSON,
 		"MANDATORY FIRST STEP: before any google_search call, read the official site URL given in the prompt with the url_context tool. Then read, with url_context, the official pages it links to that list concerts (live, schedule, tour, or news pages). Call google_search only if a page you still need cannot be reached this way.\n", 1)
 
 // groundingSetup is how a variant configures the searcher: Prompt, when
-// non-nil, replaces the production prompt; PageLinks lists the official
-// site's concert pages in the prompt; LinkProfile, when non-nil, replaces the
-// production link profile.
+// non-nil, replaces the production prompt; PageLinks lists the official top
+// page's links in the prompt.
 type groundingSetup struct {
-	Prompt      *gemini.Prompt
-	PageLinks   bool
-	LinkProfile *gemini.LinkProfile
+	Prompt    *gemini.Prompt
+	PageLinks bool
 }
 
 // groundingVariant returns the searcher setup of a variant.
@@ -88,16 +86,15 @@ func groundingVariant(t *testing.T, name string) groundingSetup {
 		// steer-concert-search-to-official-pages).
 		return groundingSetup{}
 	case "LINKS":
-		// Production configuration: the concert and news pages the official
-		// top page links to are listed in the prompt. (Evaluated as
-		// LINKS_NEWS on 2026-10-07; see testdata/README.md.)
+		// Production configuration: the official top page's links are listed
+		// in the prompt with their labels (see testdata/README.md).
 		return groundingSetup{PageLinks: true}
 	case "E2UJ":
 		// Explicit url_context-first tool-usage and extraction rules.
-		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSON, Template: promptMinimal}}
+		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSON, Template: promptMinimal, LinkedPagesHeader: gemini.DefaultPrompt.LinkedPagesHeader}}
 	case "E2UJA":
 		// E2UJ with the url_context-first instruction at the top.
-		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSONReadFirst, Template: promptMinimal}}
+		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSONReadFirst, Template: promptMinimal, LinkedPagesHeader: gemini.DefaultPrompt.LinkedPagesHeader}}
 	default:
 		t.Fatalf("%s must be FINAL, LINKS, E2UJ, or E2UJA (got %q)", groundingEvalVariantEnvVar, name)
 		return groundingSetup{}
@@ -229,7 +226,6 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 
 			IncludeToolInvocations: os.Getenv(groundingEvalToolCallsEnv) == "1",
 			PageLinks:              setup.PageLinks,
-			LinkProfile:            setup.LinkProfile,
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
 		t.Logf("artist=%s variant=%s temp=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d queries=%d linked=%d url_ctx=%d/%d cost=$%.3f latency=%dms err=%q",
