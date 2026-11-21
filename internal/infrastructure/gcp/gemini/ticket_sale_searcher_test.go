@@ -167,6 +167,9 @@ func TestTicketSaleSearcher_BuildsRequest(t *testing.T) {
 	require.NotNil(t, cfg.ThinkingConfig)
 	assert.Equal(t, genai.ThinkingLevelLow, cfg.ThinkingConfig.ThinkingLevel)
 	assert.Equal(t, systemInstructionPublishedSales, cfg.SystemInstruction.Parts[0].Text)
+	assert.Contains(t, cfg.SystemInstruction.Parts[0].Text,
+		"You are done when every sale that the sources announce for each series and that has not started at the current time is in the answer.",
+		"the completion criterion keeps gemini-4-hydrogen searching after the first sale it finds")
 
 	schema, ok := cfg.ResponseJsonSchema.(map[string]any)
 	require.True(t, ok)

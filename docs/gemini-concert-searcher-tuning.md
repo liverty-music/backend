@@ -660,7 +660,7 @@ Switching the key to `(local_date, venue)` only would fold each (1st, 2nd) pair 
 
 ### 10.7 Model selection per step (defaults + env overrides)
 
-> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `PublishedSaleSearchModel()` (formerly `SalesPhaseSearchModel()`) (defaults `gemini-4-hydrogen` for concert search since pass-tour-detail-pages-to-concert-search, `gemini-3.8-flash` for published sales). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
+> **Superseded.** The concert searcher (tune-concert-search-grounding) and the sales-phase searcher (tune-sales-phase-search) each make one grounded call that returns JSON, so there is no Step 2. `pkg/config` keeps only `GeminiSearchModelExtract` (`GCP_GEMINI_SEARCH_MODEL_EXTRACT`), resolved by `ConcertSearchModel()` and `PublishedSaleSearchModel()` (formerly `SalesPhaseSearchModel()`) (default `gemini-4-hydrogen` for both: concert search since pass-tour-detail-pages-to-concert-search, published sales since move-ticket-sale-search-to-gemini-4-hydrogen). `GCP_GEMINI_SEARCH_MODEL_PARSE`, `GCP_GEMINI_SEARCH_THINKING_PARSE`, `GCP_GEMINI_SEARCH_TEMPERATURE` and the `SearchModelExtract()` / `SearchModelParse()` resolvers were removed in shorten-sales-phase-search-interval. The rest of this section records the earlier two-step setup.
 
 `pkg/config.GCPConfig` had two per-step model fields:
 
@@ -688,6 +688,33 @@ Three architectures were prototyped on this worktree before the shipped grounded
 **Grounded-extract `flash × {Search + URLContext} → lite × schema`** (this design, shipped). Keeps flash on the grounded call, collapses URL discovery and verbatim extraction into a single Gemini call with both tools enabled together, lifts verbatim fields into Go, and runs lite on a pure no-tools coercion step where `responseJsonSchema` is safe. A 4-artist smoke (95 in-scope events) records 92/95 effective matches at 100% precision, ~$0.20 / artist, ~75 s / artist.
 
 ---
+
+### 10.9 Evaluation log: published-sale searcher, move-ticket-sale-search-to-gemini-4-hydrogen (2026-11)
+
+`TicketSaleSearcher.SearchPublishedSales` moved from `gemini-3.8-flash` to `gemini-4-hydrogen` (thinking `low`), with a completion criterion added to `systemInstructionPublishedSales`. Harness: `TestTicketSaleSearchEval` (`ticket_sale_eval_integration_test.go`), 9 artists and 14 sales from prod's series, captured on 2026-11-21 with the current time frozen to 2026-11-06 12:00 JST (on the capture day, few announced sales had not opened yet; the fixture's doc comment lists the artists and pages). Results: `internal/infrastructure/gcp/gemini/testdata/ab_results/ticket_sale_*.{csv,json}`.
+
+Acceptance criteria (design D3 of the OpenSpec change), against `gemini-3.8-flash` over 14 sales × 3 reps: every sale it finds is found in at least 2 of 3 runs and the overall found rate is not lower; no more wrong values or extra sales; no new empty responses, failures or timeouts, and p90 latency under 90 s; cost per call at the 2027-01-01 price not higher.
+
+| run | file | found | wrong / extra | errors / empty | p90 latency | queries / call | cost / call (2027) | verdict |
+|---|---|---|---|---|---|---|---|---|
+| `gemini-3.8-flash`, production instruction | `ticket_sale_20261121T124841Z` | 34/42 | 0 / 0 | 0 / 0 | 53 s | 18.7 | $0.345 | baseline |
+| `gemini-4-hydrogen`, production instruction | `ticket_sale_20261121T124522Z` | 38/42 | 0 / 0 | 0 / 0 | 30 s | 3.0 | $0.056 | **rejected**: WurtS △プレオーダー 1/3 against 2/3 |
+| `gemini-4-hydrogen`, with the completion criterion | `ticket_sale_20261121T131939Z` | 40/42 | 0 / 0 | 0 / 0 | 22 s | 3.7 | $0.067 | **adopted** |
+
+Sales found in fewer than 3 of 3 runs:
+
+| sale | flash | hydrogen | hydrogen + completion |
+|---|---|---|---|
+| ずとまよ プレミアム席 Upgrade | 1/3 | 3/3 | 3/3 |
+| Mrs. GREEN APPLE Ringo Jam 全会員先行 | 2/3 | 3/3 | 3/3 |
+| Creepy Nuts アップグレード1次受付 | 0/3 | 3/3 | 3/3 |
+| WurtS ぴあプレリザーブ | 2/3 | 2/3 | 2/3 |
+| WurtS △プレオーダー | 2/3 | 1/3 | 2/3 |
+| Novelbright ローソンチケット抽選先行 | 3/3 | 2/3 | 3/3 |
+
+Without the completion criterion, `gemini-4-hydrogen` returned only one of WurtS's two sales in every run (ぴあプレリザーブ twice, △プレオーダー once): it stopped after the first sale it found, as concert search's runs 4–5 showed (§10.0). WurtS is the hardest case: prod's official site for it (`universal-music.co.jp/wurts/`) stopped updating in July, so both sales are reachable only by searching. The criterion ("You are done when every sale that the sources announce for each series and that has not started at the current time is in the answer", plus a reminder to check every source) raised search queries from 3.0 to 3.7 per call and cost by $0.011. `gemini-3.8-flash` searched six times as much and still missed the upgrade sales, which only the official tour pages list. No returned sale that passed the searcher's own checks was a ticket trade or a sale of the other series, and no stored start time, end time or result date was wrong, scored as prod stores a series' sales that share a method and start day (the last one returned wins). Sales the checks dropped (one that had opened at the frozen time, one with no end time) were not recorded in these runs; the harness now counts them per reason (`dropped`). 10-FEET's lottery returned a result date of 2026-12-04 in some runs; the ticket board page that would state it renders with JavaScript, so that date is not scored.
+
+Fixture bias shared by both models: Google Search is limited to the 30 days before the frozen time, so an announcement published after 2026-11-06 is reachable only through URL context, and the pages already mark these sales 受付中 or 受付終了. A first `gemini-4-hydrogen` run found WurtS's ぴあプレリザーブ, which the fixture had missed; it was added and both models were run again.
 
 ## 11. References
 

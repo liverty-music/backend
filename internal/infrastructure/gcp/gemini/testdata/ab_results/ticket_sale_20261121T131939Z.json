@@ -1,0 +1,842 @@
+{
+  "calls": [
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "kinggnu",
+      "rep": 1,
+      "found": [
+        "King Gnu CLUB GNU 2次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c6a-9e24-701e-88c6-158d7639b711 「CLUB GNU」チケット2次先行受付 method=2 2026-11-10T18:00:00+09:00..2026-11-19T23:59:00+09:00 result=2026-12-02"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:kinggnu.jp KICKOFF",
+        "\"King Gnu 10th Anniversary Opening Live\" \"KICKOFF\""
+      ],
+      "prompt_tokens": 1718,
+      "candidates_tokens": 562,
+      "thinking_tokens": 997,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0422695,
+      "latency_ms": 12865,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "zutomayo",
+      "rep": 1,
+      "found": [
+        "ずとまよ PREMIUM会員二次先行",
+        "ずとまよ 一般最速先行",
+        "ずとまよ プレミアム席 Upgrade"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd ZUTOMAYO PREMIUM会員二次先行 method=2 2026-11-07T20:00:00+09:00..2026-11-09T23:59:00+09:00 result=2026-11-17",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd 一般最速先行 method=2 2026-11-17T20:00:00+09:00..2026-11-29T23:59:00+09:00 result=2026-12-05",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd プレミアム席 Upgrade method=2 2026-12-01T20:00:00+09:00..2026-12-06T23:59:00+09:00 result=2026-12-12"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:zutomayo.net アピクラ電機",
+        "ずっと真夜中でいいのに アピクラ電機 チケット"
+      ],
+      "prompt_tokens": 1717,
+      "candidates_tokens": 763,
+      "thinking_tokens": 892,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.042988,
+      "latency_ms": 12685,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "mrsgreenapple",
+      "rep": 1,
+      "found": [
+        "Mrs. GREEN APPLE Ringo Jam 全会員先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f31-6468-7140-afae-a3cd25a1c3ad OFFICIAL FAN CLUB「Ringo Jam」全会員先行 method=2 2026-11-11T20:00:00+09:00..2026-11-23T23:59:00+09:00 result=2026-12-05"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "\"Mrs. GREEN APPLE on Harmony2\" 先行",
+        "\"Mrs. GREEN APPLE on Harmony2\" チケット",
+        "\"Mrs. GREEN APPLE\" \"Harmony2\" site:mrsgreenapple.com",
+        "\"Mrs. GREEN APPLE on Harmony2\" チケットぴあ OR ローチケ OR イープラス"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 508,
+      "thinking_tokens": 826,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.068561,
+      "latency_ms": 12780,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "suchmos",
+      "rep": 1,
+      "found": [
+        "Suchmos チケットオフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "019f8cd5-e9b2-7019-ae6a-a0358d768a42 「Suchmos」オフィシャル5次先行 method=2 2026-11-19T12:00:00+09:00..2026-11-30T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "Suchmos BAY SIDE TOUR 2027 site:suchmos.com",
+        "Suchmos BAY SIDE TOUR 2027 チケット"
+      ],
+      "prompt_tokens": 1710,
+      "candidates_tokens": 378,
+      "thinking_tokens": 674,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.038455,
+      "latency_ms": 10297,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "10feet",
+      "rep": 1,
+      "found": [
+        "10-FEET ORCHESTRA オフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 10-FEET MOBILE会員先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-23T23:59:00+09:00",
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 オフィシャル先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-30T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "\"10-FEET HISTORY\" 日本武道館 site:10-feet.kyoto",
+        "\"10-FEET\" \"THE ORCHESTRA\" site:10-feet.kyoto",
+        "\"10-FEET THE ORCHESTRA\" チケット",
+        "\"10-FEET HISTORY\" 日本武道館 チケット"
+      ],
+      "prompt_tokens": 1863,
+      "candidates_tokens": 443,
+      "thinking_tokens": 1345,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0722045,
+      "latency_ms": 19046,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "superbeaver",
+      "rep": 1,
+      "found": [
+        "SUPER BEAVER 2次プレオーダー先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f3b-0408-7539-b206-bdecbc08f98c プレオーダー先行 method=2 2026-11-21T13:00:00+09:00..2026-11-29T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:super-beaver.com ラクダムーンと、サンサンサンライズ",
+        "site:super-beaver.com ラクダフロムトウキョウジャパン",
+        "SUPER BEAVER 都会のラクダSP at 日本武道館 ラクダフロムトウキョウジャパン チケット",
+        "SUPER BEAVER 都会のラクダ TOUR 2027-2028 チケット"
+      ],
+      "prompt_tokens": 1862,
+      "candidates_tokens": 613,
+      "thinking_tokens": 856,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0698105,
+      "latency_ms": 12412,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "creepynuts",
+      "rep": 1,
+      "found": [
+        "Creepy Nuts オフィシャル4次先行",
+        "Creepy Nuts アップグレード1次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 オフィシャル4次先行 method=2 2026-11-13T12:00:00+09:00..2026-11-29T23:59:00+09:00",
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 アップグレード1次受付(抽選) method=2 2026-12-11T18:00:00+09:00..2026-12-20T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:creepynuts.com ONEMAN TOUR 2027",
+        "Creepy Nuts ONEMAN TOUR 2027 チケット"
+      ],
+      "prompt_tokens": 1711,
+      "candidates_tokens": 606,
+      "thinking_tokens": 721,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.040519,
+      "latency_ms": 11375,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "wurts",
+      "rep": 1,
+      "found": [
+        "WurtS ぴあプレリザーブ"
+      ],
+      "missed": [
+        "WurtS △プレオーダー"
+      ],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c7a-ca1e-7174-bfea-cfda7dac33be ぴあプレリザーブ先行受付 method=2 2026-11-09T12:00:00+09:00..2026-11-15T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "WurtS LIVE TOUR SPARK NIGHT PROM ADDITIONAL チケット",
+        "WurtS LIVE TOUR SPARK NIGHT PROM ADDITIONAL 先行",
+        "\"WurtS LIVE TOUR\" \"SPARK NIGHT PROM\" \"ADDITIONAL\" 一般発売",
+        "site:eplus.jp/wurts/",
+        "\"WurtS LIVE TOUR\" \"SPARK NIGHT PROM\" \"ADDITIONAL\" \"プレリクエスト\"",
+        "\"イープラスプレオーダー\" \"SPARK NIGHT PROM\" \"ADDITIONAL\"",
+        "\"wurts-livetour\" pia",
+        "\"WurtS LIVE TOUR\" \"SPARK NIGHT PROM\" \"ADDITIONAL\" \"プレリザーブ\""
+      ],
+      "prompt_tokens": 1707,
+      "candidates_tokens": 437,
+      "thinking_tokens": 1094,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.12604300000000002,
+      "latency_ms": 29355,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "novelbright",
+      "rep": 1,
+      "found": [
+        "Novelbright NOVELCITY 抽選先行",
+        "Novelbright ローソンチケット抽選先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 オフィシャルファンクラブ「NOVELCITY」抽選先行 method=2 2026-11-17T18:00:00+09:00..2026-11-21T23:59:00+09:00",
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 ローソンチケット抽選先行 method=2 2026-11-22T13:00:00+09:00..2026-12-03T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:novelbright.jp 2027 ARENA TOUR",
+        "Novelbright 2027 ARENA TOUR チケット"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 603,
+      "thinking_tokens": 673,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.040126,
+      "latency_ms": 11608,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "kinggnu",
+      "rep": 2,
+      "found": [
+        "King Gnu CLUB GNU 2次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c6a-9e24-701e-88c6-158d7639b711 「CLUB GNU」チケット2次先行受付 method=2 2026-11-10T18:00:00+09:00..2026-11-19T23:59:00+09:00 result=2026-12-02"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "King Gnu 10th Anniversary Opening Live KICKOFF チケット",
+        "site:kinggnu.jp KICKOFF",
+        "\"KICKOFF\" \"King Gnu\" (\"オフィシャル先行\" OR \"プレリクエスト\" OR \"一般発売\")"
+      ],
+      "prompt_tokens": 1718,
+      "candidates_tokens": 388,
+      "thinking_tokens": 871,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0540195,
+      "latency_ms": 11657,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "zutomayo",
+      "rep": 2,
+      "found": [
+        "ずとまよ PREMIUM会員二次先行",
+        "ずとまよ 一般最速先行",
+        "ずとまよ プレミアム席 Upgrade"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd ZUTOMAYO PREMIUM会員二次先行 method=2 2026-11-07T20:00:00+09:00..2026-11-09T23:59:00+09:00 result=2026-11-17",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd 一般最速先行 method=2 2026-11-17T20:00:00+09:00..2026-11-29T23:59:00+09:00 result=2026-12-05",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd プレミアム席 Upgrade method=2 2026-12-01T20:00:00+09:00..2026-12-06T23:59:00+09:00 result=2026-12-12"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "ずっと真夜中でいいのに アピクラ電機 チケット",
+        "site:zutomayo.net アピクラ電機"
+      ],
+      "prompt_tokens": 1717,
+      "candidates_tokens": 762,
+      "thinking_tokens": 986,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0436855,
+      "latency_ms": 13807,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "mrsgreenapple",
+      "rep": 2,
+      "found": [
+        "Mrs. GREEN APPLE Ringo Jam 全会員先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f31-6468-7140-afae-a3cd25a1c3ad OFFICIAL FAN CLUB「Ringo Jam」全会員先行 method=2 2026-11-11T20:00:00+09:00..2026-11-23T23:59:00+09:00 result=2026-12-05"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:mrsgreenapple.com \"Harmony\" 2027",
+        "\"Mrs. GREEN APPLE on Harmony2\" チケット",
+        "\"Mrs. GREEN APPLE\" \"Harmony2\" OR \"Harmony 2\" チケット 先行"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 397,
+      "thinking_tokens": 889,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.054201,
+      "latency_ms": 11378,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "suchmos",
+      "rep": 2,
+      "found": [
+        "Suchmos チケットオフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "019f8cd5-e9b2-7019-ae6a-a0358d768a42 チケットオフィシャル先行 method=2 2026-11-19T12:00:00+09:00..2026-11-30T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:suchmos.com BAY SIDE TOUR 2027",
+        "Suchmos BAY SIDE TOUR 2027",
+        "Suchmos BAY SIDE TOUR 2027 チケット",
+        "\"チケットオフィシャル先行\" \"Suchmos\" 抽選 OR 先着",
+        "\"2026/11/19\" \"Suchmos\"",
+        "\"2026/11/30\" \"Suchmos\""
+      ],
+      "prompt_tokens": 1710,
+      "candidates_tokens": 578,
+      "thinking_tokens": 1243,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.1002225,
+      "latency_ms": 24981,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "10feet",
+      "rep": 2,
+      "found": [
+        "10-FEET ORCHESTRA オフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 10-FEET MOBILE会員先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-23T23:59:00+09:00",
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 オフィシャル先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-30T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "\"10-FEET HISTORY\" 日本武道館 チケット 先行 一般発売",
+        "\"10-FEET THE ORCHESTRA\" チケット 先行 一般発売",
+        "site:10-feet.kyoto \"10-FEET THE ORCHESTRA\" チケット",
+        "site:10-feet.kyoto \"10-FEET HISTORY\" 日本武道館 チケット",
+        "\"10-FEET HISTORY\" \"2次先行\" OR \"二次先行\" OR \"一般発売\"",
+        "\"10-FEET_ORCHESTRA_of\""
+      ],
+      "prompt_tokens": 1863,
+      "candidates_tokens": 543,
+      "thinking_tokens": 1486,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.102012,
+      "latency_ms": 20078,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "superbeaver",
+      "rep": 2,
+      "found": [
+        "SUPER BEAVER 2次プレオーダー先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f3b-0408-7539-b206-bdecbc08f98c プレオーダー先行 method=2 2026-11-21T13:00:00+09:00..2026-11-29T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:super-beaver.com ラクダフロムトウキョウジャパン",
+        "SUPER BEAVER 都会のラクダSP at 日本武道館 ラクダフロムトウキョウジャパン チケット",
+        "SUPER BEAVER 都会のラクダ TOUR 2027-2028 ラクダムーンと、サンサンサンライズ チケット",
+        "site:super-beaver.com ラクダムーンと、サンサンサンライズ"
+      ],
+      "prompt_tokens": 1862,
+      "candidates_tokens": 633,
+      "thinking_tokens": 1457,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.074468,
+      "latency_ms": 15007,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "creepynuts",
+      "rep": 2,
+      "found": [
+        "Creepy Nuts オフィシャル4次先行",
+        "Creepy Nuts アップグレード1次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 オフィシャル4次先行 method=2 2026-11-13T12:00:00+09:00..2026-11-29T23:59:00+09:00",
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 アップグレード1次受付(抽選) method=2 2026-12-11T18:00:00+09:00..2026-12-20T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "Creepy Nuts ONEMAN TOUR 2027 先行 一般発売",
+        "Creepy Nuts ONEMAN TOUR 2027 チケット site:creepynuts.com",
+        "\"オフィシャル4次先行\" \"Creepy Nuts\" 結果発表 OR 当落発表 site:pia.jp"
+      ],
+      "prompt_tokens": 1711,
+      "candidates_tokens": 656,
+      "thinking_tokens": 1199,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.058479,
+      "latency_ms": 18981,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "wurts",
+      "rep": 2,
+      "found": [
+        "WurtS △プレオーダー"
+      ],
+      "missed": [
+        "WurtS ぴあプレリザーブ"
+      ],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c7a-ca1e-7174-bfea-cfda7dac33be △プレオーダー受付 method=2 2026-11-18T12:00:00+09:00..2026-11-29T23:59:00+09:00",
+        "01a05c7a-ca1e-7174-bfea-cfda7dac33be ◎インバウンド1次プレオーダー受付 method=2 2026-11-18T12:00:00+09:00..2026-11-29T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "WurtS SPARK NIGHT PROM ADDITIONAL チケット",
+        "WurtS LIVE TOUR SPARK NIGHT PROM ADDITIONAL",
+        "site:universal-music.co.jp/wurts/ SPARK NIGHT PROM",
+        "site:wurts.jp SPARK NIGHT PROM ADDITIONAL",
+        "site:eplus.jp WurtS SPARK NIGHT PROM ADDITIONAL",
+        "WurtS SPARK NIGHT PROM ADDITIONAL イープラスプレオーダー",
+        "site:t.pia.jp WurtS SPARK NIGHT PROM ADDITIONAL",
+        "site:l-tike.com WurtS SPARK NIGHT PROM ADDITIONAL"
+      ],
+      "prompt_tokens": 1707,
+      "candidates_tokens": 762,
+      "thinking_tokens": 1536,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.1317955,
+      "latency_ms": 19725,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "novelbright",
+      "rep": 2,
+      "found": [
+        "Novelbright NOVELCITY 抽選先行",
+        "Novelbright ローソンチケット抽選先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 オフィシャルファンクラブ「NOVELCITY」抽選先行 method=2 2026-11-17T18:00:00+09:00..2026-11-21T23:59:00+09:00",
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 ローソンチケット抽選先行 method=2 2026-11-22T13:00:00+09:00..2026-12-03T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:novelbright.jp 2027 ARENA TOUR",
+        "Novelbright 2027 ARENA TOUR チケット"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 605,
+      "thinking_tokens": 535,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.039106,
+      "latency_ms": 10869,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "kinggnu",
+      "rep": 3,
+      "found": [
+        "King Gnu CLUB GNU 2次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c6a-9e24-701e-88c6-158d7639b711 「CLUB GNU」チケット2次先行受付 method=2 2026-11-10T18:00:00+09:00..2026-11-19T23:59:00+09:00 result=2026-12-02"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "\"King Gnu 10th Anniversary Opening Live\" KICKOFF チケット",
+        "\"King Gnu\" \"KICKOFF\" チケット site:kinggnu.jp"
+      ],
+      "prompt_tokens": 1718,
+      "candidates_tokens": 472,
+      "thinking_tokens": 764,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.039847,
+      "latency_ms": 12809,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "zutomayo",
+      "rep": 3,
+      "found": [
+        "ずとまよ PREMIUM会員二次先行",
+        "ずとまよ 一般最速先行",
+        "ずとまよ プレミアム席 Upgrade"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd ZUTOMAYO PREMIUM会員二次先行 method=2 2026-11-07T20:00:00+09:00..2026-11-09T23:59:00+09:00 result=2026-11-17",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd 一般最速先行 method=2 2026-11-17T20:00:00+09:00..2026-11-29T23:59:00+09:00 result=2026-12-05",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd プレミアム席 Upgrade method=2 2026-12-01T20:00:00+09:00..2026-12-06T23:59:00+09:00 result=2026-12-12"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:zutomayo.net アピクラ電機",
+        "ずっと真夜中でいいのに アピクラ電機 チケット"
+      ],
+      "prompt_tokens": 1717,
+      "candidates_tokens": 778,
+      "thinking_tokens": 1107,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.044713,
+      "latency_ms": 13221,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "mrsgreenapple",
+      "rep": 3,
+      "found": [
+        "Mrs. GREEN APPLE Ringo Jam 全会員先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f31-6468-7140-afae-a3cd25a1c3ad OFFICIAL FAN CLUB「Ringo Jam」 全会員先行 method=2 2026-11-11T20:00:00+09:00..2026-11-23T23:59:00+09:00 result=2026-12-05"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:mrsgreenapple.com Harmony2",
+        "Mrs. GREEN APPLE on Harmony2 チケット",
+        "Mrs. GREEN APPLE on Harmony 2 チケット 先行",
+        "site:mrsgreenapple.com Harmony 2"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 382,
+      "thinking_tokens": 695,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0666335,
+      "latency_ms": 11915,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "suchmos",
+      "rep": 3,
+      "found": [
+        "Suchmos チケットオフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "019f8cd5-e9b2-7019-ae6a-a0358d768a42 チケットオフィシャル先行 method=2 2026-11-19T12:00:00+09:00..2026-11-30T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:suchmos.com BAY SIDE TOUR 2027",
+        "Suchmos BAY SIDE TOUR 2027 チケット",
+        "\"2026/11/19\" \"Suchmos\" \"オフィシャル先行\"",
+        "\"Suchmos BAY SIDE TOUR 2027\" 抽選 OR 先着 2026/11/19"
+      ],
+      "prompt_tokens": 1710,
+      "candidates_tokens": 417,
+      "thinking_tokens": 576,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0660125,
+      "latency_ms": 14618,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "10feet",
+      "rep": 3,
+      "found": [
+        "10-FEET ORCHESTRA オフィシャル先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 10-FEET MOBILE会員先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-23T23:59:00+09:00",
+        "01a1f845-eb24-7f1c-9966-0a2d23659504 オフィシャル先行(抽選) method=2 2026-11-16T20:00:00+09:00..2026-11-30T23:59:00+09:00 result=2026-12-04"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "site:10-feet.kyoto 10-FEET HISTORY 日本武道館",
+        "site:10-feet.kyoto X-ORCHESTRA PRESENTS 10-FEET THE ORCHESTRA",
+        "\"10-FEET THE ORCHESTRA\" チケット 先行 一般発売",
+        "\"10-FEET HISTORY\" 日本武道館 チケット 先行 一般発売",
+        "\"10-FEET THE ORCHESTRA\" \"11.16\" \"11.23\" OR \"11.30\" 当落 OR 抽選結果 OR 発表"
+      ],
+      "prompt_tokens": 1863,
+      "candidates_tokens": 711,
+      "thinking_tokens": 1135,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.08663950000000001,
+      "latency_ms": 15272,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "superbeaver",
+      "rep": 3,
+      "found": [
+        "SUPER BEAVER 2次プレオーダー先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a10f3b-0408-7539-b206-bdecbc08f98c プレオーダー先行 method=2 2026-11-21T13:00:00+09:00..2026-11-29T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "\"都会のラクダ TOUR 2027-2028\" \"ラクダムーンと、サンサンサンライズ\" チケット 先行",
+        "\"都会のラクダSP at 日本武道館\" \"ラクダフロムトウキョウジャパン\" チケット 先行",
+        "site:super-beaver.com 都会のラクダSP at 日本武道館",
+        "site:super-beaver.com ラクダムーンと、サンサンサンライズ",
+        "site:eplus.jp \"都会のラクダ TOUR 2027-2028\"",
+        "site:eplus.jp \"ラクダムーンと、サンサンサンライズ\""
+      ],
+      "prompt_tokens": 1862,
+      "candidates_tokens": 578,
+      "thinking_tokens": 1528,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.10258800000000001,
+      "latency_ms": 17537,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "creepynuts",
+      "rep": 3,
+      "found": [
+        "Creepy Nuts オフィシャル4次先行",
+        "Creepy Nuts アップグレード1次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 オフィシャル4次先行 method=2 2026-11-13T12:00:00+09:00..2026-11-29T23:59:00+09:00",
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 アップグレード1次受付(抽選) method=2 2026-12-11T18:00:00+09:00..2026-12-20T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "Creepy Nuts ONEMAN TOUR 2027 チケット",
+        "site:creepynuts.com ONEMAN TOUR 2027"
+      ],
+      "prompt_tokens": 1711,
+      "candidates_tokens": 599,
+      "thinking_tokens": 719,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0404515,
+      "latency_ms": 10593,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "wurts",
+      "rep": 3,
+      "found": [
+        "WurtS ぴあプレリザーブ",
+        "WurtS △プレオーダー"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c7a-ca1e-7174-bfea-cfda7dac33be ぴあプレリザーブ先行 method=2 2026-11-09T12:00:00+09:00..2026-11-15T23:59:00+09:00",
+        "01a05c7a-ca1e-7174-bfea-cfda7dac33be イープラスプレオーダー method=2 2026-11-18T12:00:00+09:00..2026-11-29T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "WurtS SPARK NIGHT PROM チケット",
+        "WurtS LIVE TOUR SPARK NIGHT PROM ADDITIONAL",
+        "site:universal-music.co.jp/wurts SPARK NIGHT PROM",
+        "\"SPARK NIGHT PROM\" \"+ADDITIONAL\" \"11/18\" OR \"11月18日\"",
+        "\"SPARK NIGHT PROM\" \"+ADDITIONAL\" \"一般発売\"",
+        "\"eplus.jp/wurts\"",
+        "\"SPARK NIGHT PROM\" \"+ADDITIONAL\" \"イープラス\""
+      ],
+      "prompt_tokens": 1707,
+      "candidates_tokens": 662,
+      "thinking_tokens": 1407,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.116078,
+      "latency_ms": 22206,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "instruction": "complete",
+      "case": "novelbright",
+      "rep": 3,
+      "found": [
+        "Novelbright NOVELCITY 抽選先行",
+        "Novelbright ローソンチケット抽選先行"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 オフィシャルファンクラブ「NOVELCITY」抽選先行 method=2 2026-11-17T18:00:00+09:00..2026-11-21T23:59:00+09:00",
+        "01a15369-33f2-7ddc-9ccc-777f00b39524 ローソンチケット抽選先行 method=2 2026-11-22T13:00:00+09:00..2026-12-03T23:59:00+09:00"
+      ],
+      "requests": 1,
+      "search_queries": [
+        "Novelbright 2027 ARENA TOUR チケット",
+        "site:novelbright.jp 2027 ARENA TOUR"
+      ],
+      "prompt_tokens": 1704,
+      "candidates_tokens": 613,
+      "thinking_tokens": 693,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.040351,
+      "latency_ms": 14194,
+      "empty": false
+    }
+  ],
+  "now": "2026-11-06T12:00:00+09:00"
+}

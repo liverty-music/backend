@@ -4,14 +4,21 @@ package gemini
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,19 +31,49 @@ import (
 //
 //	GEMINI_SP_EVAL=1             enable
 //	GCP_GEMINI_SEARCH_API_KEY    Gemini API key (dev project)
-//	GEMINI_SP_EVAL_MODEL         model (default gemini-3.8-flash)
+//	GEMINI_SP_EVAL_MODEL         model (default gemini-4-hydrogen)
 //	GEMINI_SP_EVAL_THINKING      thinking level (default low)
 //	GEMINI_SP_EVAL_CASES         comma list of case names (default: all)
-//	GEMINI_SP_EVAL_REPS          repetitions per case (default 3; 5 sales x 3 = 15)
+//	GEMINI_SP_EVAL_REPS          repetitions per case (default 3)
 //
-// The search queries of each call are in the searcher's
-// "gemini response metadata" log line.
+// Results go to testdata/ab_results/ticket_sale_<UTC time>.csv and .json,
+// one row per search (see spEvalCall). A full run is 27 serial calls of up
+// to a minute each, longer than go test's default 10-minute timeout:
+//
+//	GEMINI_SP_EVAL=1 GCP_GEMINI_SEARCH_API_KEY=<key> \
+//	  go test -tags=integration -count=1 -timeout=1h -v \
+//	  -run TestTicketSaleSearchEval ./internal/infrastructure/gcp/gemini/
+//
+// The fixture was captured on 2026-11-21 from public pages, with the current
+// time frozen to 2026-11-06 12:00 JST, before every expected sale opened: on
+// the capture day few announced sales had not opened yet, while the sales
+// opened in November were still listed with their dates (OpenSpec change
+// move-ticket-sale-search-to-gemini-4-hydrogen, design D1). Google Search is
+// limited to the 30 days before the frozen time, so a later announcement is
+// reachable only through URL context. Artists and series are prod's, with
+// prod's official site URLs:
+//
+//   - King Gnu, "KICKOFF": CLUB GNU 2次受付 (a later round with a result date).
+//   - ずっと真夜中でいいのに。, Hall Tour「アピクラ電機」: three sales of one
+//     series; the page writes 当落発表 for each, not 抽選.
+//   - Mrs. GREEN APPLE, "on Harmony2": 全会員先行.
+//   - Suchmos, BAY SIDE TOUR 2027: オフィシャル先行 (ぴあ 5次, 抽選).
+//   - 10-FEET, THE ORCHESTRA and the Budokan show (two series, sales only on
+//     the first; its two lotteries share a start day and count as one).
+//   - SUPER BEAVER, TOUR 2027-2028 and the Budokan shows (two series, sales
+//     only on the first).
+//   - Creepy Nuts, ONEMAN TOUR 2027: オフィシャル4次先行 and アップグレード1次受付.
+//   - WurtS, SPARK NIGHT PROM +ADDITIONAL: ぴあプレリザーブ and e+ △プレオーダー.
+//   - Novelbright, 2027 ARENA TOUR: NOVELCITY and ローチケ lotteries.
 
 // spEvalNow freezes "current time" for the prompt and the checks so every run
-// is scored against the same ground truth (captured 2026-10-05 15:00 JST).
-var spEvalNow = time.Date(2026, 10, 5, 15, 0, 0, 0, jst)
+// is scored against the same ground truth.
+var spEvalNow = time.Date(2026, 11, 6, 12, 0, 0, 0, jst)
 
 type spEvalExpected struct {
+	// Name identifies the sale in the results: the artist and the sale's
+	// name on its page.
+	Name           string
 	SeriesID       string
 	Method         entity.TicketSaleMethod
 	ApplyStartTime string
@@ -44,6 +81,13 @@ type spEvalExpected struct {
 	// ResultDate is the expected result date (YYYY-MM-DD); empty means the
 	// sale must have none.
 	ResultDate string
+	// OtherApplyEndTime is the end time of a second sale on the same page
+	// with the same series, method and start day; prod stores one of the two,
+	// whichever the model returns last, so either end time is right.
+	OtherApplyEndTime string
+	// ResultDateUnchecked leaves the result date out of the score when no
+	// page that could be read states whether there is one.
+	ResultDateUnchecked bool
 }
 
 type spEvalCase struct {
@@ -64,74 +108,178 @@ func spEvalDates(dates ...string) []time.Time {
 	return out
 }
 
-// spEvalCases are verified against official pages on 2026-10-05.
+func spEvalSeries(id, title string, first, last string) *entity.SalesSeriesRef {
+	return &entity.SalesSeriesRef{SeriesID: id, Title: title, EventDates: spEvalDates(first, last)}
+}
+
+const (
+	spKingGnuKickoff  = "01a05c6a-9e24-701e-88c6-158d7639b711"
+	spZutomayoApicula = "01a15368-3dbe-7f95-b7eb-2b29e01c27fd"
+	spMGAHarmony2     = "01a10f31-6468-7140-afae-a3cd25a1c3ad"
+	spSuchmosBaySide  = "019f8cd5-e9b2-7019-ae6a-a0358d768a42"
+	sp10FeetOrchestra = "01a1f845-eb24-7f1c-9966-0a2d23659504"
+	sp10FeetBudokan   = "01a1966a-7b9e-781e-a07e-c98599a5a032"
+	spBeaverTour2728  = "01a10f3b-0408-7539-b206-bdecbc08f98c"
+	spBeaverBudokan   = "01a1c4c0-1c64-799f-a490-1170e52a556f"
+	spCreepyTour2027  = "01a05c49-6a32-7795-bc34-7a9b8be922c3"
+	spWurtSAdditional = "01a05c7a-ca1e-7174-bfea-cfda7dac33be"
+	spNovelArena2027  = "01a15369-33f2-7ddc-9ccc-777f00b39524"
+)
+
+// spEvalCases were checked on the pages named in each case on 2026-11-21.
 var spEvalCases = []spEvalCase{
 	{
 		Name: "kinggnu",
 		Input: &entity.PublishedSaleSearchInput{
-			ArtistName:      "King Gnu",
-			OfficialSiteURL: "https://kinggnu.jp/",
-			Series: []*entity.SalesSeriesRef{{
-				SeriesID:   "01a05c6a-9e24-701e-88c6-158d7639b711",
-				Title:      "King Gnu 10th Anniversary Opening Live “KICKOFF”",
-				EventDates: spEvalDates("2027-02-17", "2027-02-18", "2027-03-13", "2027-03-14"),
-			}},
+			ArtistName: "King Gnu", OfficialSiteURL: "https://kinggnu.jp/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spKingGnuKickoff,
+				"King Gnu 10th Anniversary Opening Live “KICKOFF”", "2027-02-17", "2027-03-14")},
 		},
-		// clubgnu.com/10th_KICKOFF/: CLUB GNU 最速先行 and 2次受付 (lottery).
-		// Each states 「抽選結果確認/入金期間」 starting 11月3日(火・祝)15:00 and
-		// 12月2日(水)15:00 (checked 2026-11-03).
+		// clubgnu.com/10th_KICKOFF/: 「CLUB GNU」チケット2次受付 (抽選制),
+		// 抽選結果確認／入金期間 12月2日(水)15:00～. The 最速先行 opened on
+		// 10月5日 and must not be returned.
 		Expected: []spEvalExpected{
-			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-10-05T18:00:00+09:00", ApplyEndTime: "2026-10-22T23:59:00+09:00",
-				ResultDate: "2026-11-03"},
-			{SeriesID: "01a05c6a-9e24-701e-88c6-158d7639b711", Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00",
-				ResultDate: "2026-12-02"},
+			{Name: "King Gnu CLUB GNU 2次受付", SeriesID: spKingGnuKickoff, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-10T18:00:00+09:00", ApplyEndTime: "2026-11-19T23:59:00+09:00", ResultDate: "2026-12-02"},
 		},
 	},
 	{
-		Name: "tuki",
+		Name: "zutomayo",
 		Input: &entity.PublishedSaleSearchInput{
-			ArtistName:      "tuki.",
-			OfficialSiteURL: "https://tuki-official.net/",
-			Series: []*entity.SalesSeriesRef{
-				{
-					SeriesID:   "01a06ba9-ef6a-7d7d-81de-d1b11b945026",
-					Title:      "初の5都市ホールツアー『秋の修学旅行〜天体観測〜』",
-					EventDates: spEvalDates("2026-10-11", "2026-10-12", "2026-11-03", "2026-11-22", "2026-11-26", "2026-12-02"),
-				},
-				{
-					SeriesID:   "01a06ba9-f4c6-7e6e-ba1f-28cac928dcde",
-					Title:      "''tuki.''と''星街すいせい''の 一夜限りの対バンライブ『星降る晩餐会』",
-					EventDates: spEvalDates("2026-12-20"),
-				},
-			},
+			ArtistName: "ずっと真夜中でいいのに。", OfficialSiteURL: "https://zutomayo.net/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spZutomayoApicula,
+				"Hall Tour「アピクラ電機」LÚ.NIM.LÀL", "2027-01-15", "2027-05-23")},
 		},
-		// eplus.jp/sf/detail/4594420001-P0030001P021001: オフィシャル先着先行 on e+;
-		// a first-come sale has no result date.
+		// zutomayo.net/apicula/ (受付期間 and 当落発表・入金期間 of each sale);
+		// w.pia.jp/v/zutomayo27hall-is/ for 一般最速先行 (結果発表 2026年12月05日).
 		Expected: []spEvalExpected{
-			{SeriesID: "01a06ba9-f4c6-7e6e-ba1f-28cac928dcde", Method: entity.TicketSaleMethodFirstCome,
-				ApplyStartTime: "2026-10-06T19:00:00+09:00", ApplyEndTime: "2026-10-25T23:59:00+09:00"},
+			{Name: "ずとまよ PREMIUM会員二次先行", SeriesID: spZutomayoApicula, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-07T20:00:00+09:00", ApplyEndTime: "2026-11-09T23:59:00+09:00", ResultDate: "2026-11-17"},
+			{Name: "ずとまよ 一般最速先行", SeriesID: spZutomayoApicula, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-17T20:00:00+09:00", ApplyEndTime: "2026-11-29T23:59:00+09:00", ResultDate: "2026-12-05"},
+			{Name: "ずとまよ プレミアム席 Upgrade", SeriesID: spZutomayoApicula, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-12-01T20:00:00+09:00", ApplyEndTime: "2026-12-06T23:59:00+09:00", ResultDate: "2026-12-12"},
 		},
 	},
 	{
 		Name: "mrsgreenapple",
 		Input: &entity.PublishedSaleSearchInput{
-			ArtistName:      "Mrs. GREEN APPLE",
-			OfficialSiteURL: "http://mrsgreenapple.com/",
-			Series: []*entity.SalesSeriesRef{{
-				SeriesID: "019f8cd8-774e-77ea-9047-973899a4b6a6",
-				Title:    "Mrs. GREEN APPLE Ringo Jam Tour “SHADOWS”",
-				EventDates: spEvalDates("2026-10-06", "2026-10-07", "2026-10-14", "2026-10-15", "2026-10-23", "2026-10-24",
-					"2026-10-28", "2026-10-29", "2026-11-04", "2026-11-05", "2026-11-13", "2026-11-14", "2026-11-18",
-					"2026-11-19", "2026-11-28", "2026-11-29", "2026-12-02", "2026-12-03", "2026-12-09", "2026-12-10",
-					"2026-12-15", "2026-12-16", "2026-12-19", "2026-12-20", "2026-12-27", "2026-12-28"),
-			}},
+			ArtistName: "Mrs. GREEN APPLE", OfficialSiteURL: "http://mrsgreenapple.com/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spMGAHarmony2,
+				"Mrs. GREEN APPLE on Harmony2", "2027-02-20", "2027-06-02")},
 		},
-		// Both upcoming sales (2026-10-05 18:30 and 2026-10-06 14:00) are
-		// first-come "until sold out" with no stated end, so neither is
-		// returned (search-published-sales "First-come sale until sold out").
-		Expected: []spEvalExpected{},
+		// mrsgreenapple.com/feature/harmony_2: 「Ringo Jam」全会員先行,
+		// 当落発表・入金期間 2026年12月5日(土)20:00～. The 全会員＋CD購入者限定先行
+		// opened on 2026年10月27日.
+		Expected: []spEvalExpected{
+			{Name: "Mrs. GREEN APPLE Ringo Jam 全会員先行", SeriesID: spMGAHarmony2, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-11T20:00:00+09:00", ApplyEndTime: "2026-11-23T23:59:00+09:00", ResultDate: "2026-12-05"},
+		},
+	},
+	{
+		Name: "suchmos",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "Suchmos", OfficialSiteURL: "http://www.suchmos.com/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spSuchmosBaySide,
+				"Suchmos BAY SIDE TOUR 2027", "2027-03-13", "2027-05-02")},
+		},
+		// suchmos.com/live: チケットオフィシャル先行 2026/11/19(木) 正午12:00～
+		// 2026/11/30(月) 23:59; w.pia.jp/t/suchmos-tour2027/ lists it as 抽選.
+		Expected: []spEvalExpected{
+			{Name: "Suchmos チケットオフィシャル先行", SeriesID: spSuchmosBaySide, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-19T12:00:00+09:00", ApplyEndTime: "2026-11-30T23:59:00+09:00"},
+		},
+	},
+	{
+		Name: "10feet",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "10-FEET", OfficialSiteURL: "https://10-feet.kyoto/",
+			Series: []*entity.SalesSeriesRef{
+				spEvalSeries(sp10FeetOrchestra, "X-ORCHESTRA PRESENTS 10-FEET THE ORCHESTRA", "2027-03-05", "2027-03-16"),
+				spEvalSeries(sp10FeetBudokan, "10-FEET 30th Anniversary ONE-MAN LIVE『10-FEET HISTORY』〜日本武道館〜", "2027-04-27", "2027-04-27"),
+			},
+		},
+		// 10-feet.kyoto/pages/orchestra: 10-FEET MOBILE会員先行(抽選) until
+		// 11.23 and オフィシャル先行(抽選) until 11.30, both from 11.16(月)
+		// 20:00, one sale as prod stores them. Neither states a result day
+		// there; the ticket board page renders its 当選発表 date with
+		// JavaScript, so it is not checked. The Budokan show's sales
+		// (10-feet.kyoto/pages/budokan) opened on 10.29 and 11.4.
+		Expected: []spEvalExpected{
+			{Name: "10-FEET ORCHESTRA オフィシャル先行", SeriesID: sp10FeetOrchestra, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-16T20:00:00+09:00", ApplyEndTime: "2026-11-30T23:59:00+09:00",
+				OtherApplyEndTime: "2026-11-23T23:59:00+09:00", ResultDateUnchecked: true},
+		},
+	},
+	{
+		Name: "superbeaver",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "SUPER BEAVER", OfficialSiteURL: "http://www.super-beaver.com/",
+			Series: []*entity.SalesSeriesRef{
+				spEvalSeries(spBeaverBudokan, "都会のラクダSP at 日本武道館 〜ラクダフロムトウキョウジャパン〜", "2027-03-31", "2027-04-01"),
+				spEvalSeries(spBeaverTour2728, "都会のラクダ TOUR 2027-2028 〜 ラクダムーンと、サンサンサンライズ 〜", "2027-09-24", "2028-03-19"),
+			},
+		},
+		// eplus.jp/sb27-28/arena/: 抽選 ◆<日付公演>2次プレオーダー先行
+		// 2026/11/21(土)13:00～2026/11/29(日)23:59, one row per show. The
+		// ファミリーマート先行 opened on 2026/11/3; the Budokan shows' 友の会
+		// sales (sp.super-beaver.com/feature/budokan2027) ended on 11月1日.
+		Expected: []spEvalExpected{
+			{Name: "SUPER BEAVER 2次プレオーダー先行", SeriesID: spBeaverTour2728, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-21T13:00:00+09:00", ApplyEndTime: "2026-11-29T23:59:00+09:00"},
+		},
+	},
+	{
+		Name: "creepynuts",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "Creepy Nuts", OfficialSiteURL: "https://creepynuts.com/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spCreepyTour2027,
+				"Creepy Nuts ONEMAN TOUR 2027", "2027-02-27", "2027-05-30")},
+		},
+		// creepynuts.com/onemantour2027/: オフィシャル4次先行 11.13(金)12:00 ～
+		// 11.29(日)23:59 (抽選 on t.pia.jp eventCd=2629575) and アップグレード1次受付
+		// (抽選) 12.11(金)18:00 ～ 12.20(日)23:59. The 3次先行 opened on 10.23.
+		Expected: []spEvalExpected{
+			{Name: "Creepy Nuts オフィシャル4次先行", SeriesID: spCreepyTour2027, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-13T12:00:00+09:00", ApplyEndTime: "2026-11-29T23:59:00+09:00"},
+			{Name: "Creepy Nuts アップグレード1次受付", SeriesID: spCreepyTour2027, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-12-11T18:00:00+09:00", ApplyEndTime: "2026-12-20T23:59:00+09:00"},
+		},
+	},
+	{
+		Name: "wurts",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "WurtS", OfficialSiteURL: "https://www.universal-music.co.jp/wurts/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spWurtSAdditional,
+				"WurtS LIVE TOUR – SPARK NIGHT PROM – +ADDITIONAL", "2027-03-05", "2027-03-16")},
+		},
+		// wurts.jp/3238/, published 2026-11-09 12:00: ぴあプレリザーブ(抽選)
+		// opens 「只今より」 until 11/15(日)23:59. eplus.jp/wurts/: 抽選
+		// ◆△プレオーダー受付 2026/11/18(水)12:00～2026/11/29(日)23:59 (also
+		// wurts.jp/3240/). The 〇プレオーダー opened on 2026/10/20.
+		Expected: []spEvalExpected{
+			{Name: "WurtS ぴあプレリザーブ", SeriesID: spWurtSAdditional, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-09T12:00:00+09:00", ApplyEndTime: "2026-11-15T23:59:00+09:00"},
+			{Name: "WurtS △プレオーダー", SeriesID: spWurtSAdditional, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-18T12:00:00+09:00", ApplyEndTime: "2026-11-29T23:59:00+09:00"},
+		},
+	},
+	{
+		Name: "novelbright",
+		Input: &entity.PublishedSaleSearchInput{
+			ArtistName: "Novelbright", OfficialSiteURL: "https://novelbright.jp/",
+			Series: []*entity.SalesSeriesRef{spEvalSeries(spNovelArena2027,
+				"Novelbright 2027 ARENA TOUR", "2027-04-17", "2027-10-17")},
+		},
+		// novelbright.jp/news/detail/2551 (「NOVELCITY」抽選先行) and
+		// novelbright.jp/news/detail/2555 (ローソンチケット抽選先行); neither
+		// states a result day.
+		Expected: []spEvalExpected{
+			{Name: "Novelbright NOVELCITY 抽選先行", SeriesID: spNovelArena2027, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-17T18:00:00+09:00", ApplyEndTime: "2026-11-21T23:59:00+09:00"},
+			{Name: "Novelbright ローソンチケット抽選先行", SeriesID: spNovelArena2027, Method: entity.TicketSaleMethodLottery,
+				ApplyStartTime: "2026-11-22T13:00:00+09:00", ApplyEndTime: "2026-12-03T23:59:00+09:00"},
+		},
 	},
 }
 
@@ -145,49 +293,177 @@ func spEvalSame(want string, got time.Time) bool {
 	return err == nil && w.Equal(got)
 }
 
-// spEvalScore matches the returned sales to the expected ones on series,
-// method and apply start time, and returns found, missed, extra and the
-// wrong values on found sales.
-func spEvalScore(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) (found, missed, extra int, wrong []string) {
-	used := make([]bool, len(got))
-	for _, e := range expected {
-		idx := -1
-		for i, c := range got {
-			if !used[i] && c.SeriesID == e.SeriesID && c.Method == e.Method && spEvalSame(e.ApplyStartTime, c.SaleStartTime) {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			missed++
-			continue
-		}
-		used[idx] = true
-		found++
-		c := got[idx]
-		if !spEvalSame(e.ApplyEndTime, c.SaleEndTime) {
-			wrong = append(wrong, e.ApplyStartTime+" apply_end="+c.SaleEndTime.Format(time.RFC3339)+" want "+e.ApplyEndTime)
-		}
-		gotResult := ""
-		if c.ResultDate != nil {
-			gotResult = c.ResultDate.Format(time.DateOnly)
-		}
-		if gotResult != e.ResultDate {
-			wrong = append(wrong, e.ApplyStartTime+" result_date="+gotResult+" want "+e.ResultDate)
-		}
-	}
-	for _, u := range used {
-		if !u {
-			extra++
-		}
-	}
-	return found, missed, extra, wrong
+// spEvalScore is the score of one search against a case's expected sales.
+type spEvalScore struct {
+	// Found and Missed name the expected sales (spEvalExpected.Name) the
+	// search returned and did not return, so runs compare sale by sale.
+	Found  []string `json:"found"`
+	Missed []string `json:"missed"`
+	// Extra describes each returned sale that matches no expected one.
+	Extra []string `json:"extra"`
+	// Wrong describes each wrong end time or result date on a found sale.
+	Wrong []string `json:"wrong"`
 }
 
-// TestTicketSaleSearchEval runs the production searcher on the fixtures.
-// The tuki. case has two tours, and only one of them has an upcoming sale.
-// Zero extra sales across the fixtures also shows that no ticket trade or
-// resale on the artists' pages was returned.
+// spEvalDescribe returns a one-line description of a returned sale.
+func spEvalDescribe(c *entity.DiscoveredTicketSale) string {
+	result := ""
+	if c.ResultDate != nil {
+		result = " result=" + c.ResultDate.Format(time.DateOnly)
+	}
+	return fmt.Sprintf("%s %s method=%d %s..%s%s", c.SeriesID, c.Name, c.Method,
+		c.SaleStartTime.Format(time.RFC3339), c.SaleEndTime.Format(time.RFC3339), result)
+}
+
+// spEvalStartDay is the Japan-time day a sale opens: prod stores one sale per
+// series, method and that day (uq_ticket_sales_discovered_convergence).
+func spEvalStartDay(t time.Time) string { return t.In(jst).Format(time.DateOnly) }
+
+// spEvalStored returns the sale prod stores for a group of returned sales
+// that share series, method and Japan-time start day, as UpsertDiscovered
+// applies them in order: the last one's name and times, and the last result
+// date given, kept while it is no earlier than the stored end day.
+func spEvalStored(group []*entity.DiscoveredTicketSale) *entity.DiscoveredTicketSale {
+	stored := *group[0]
+	for _, c := range group[1:] {
+		result := stored.ResultDate
+		stored = *c
+		if c.ResultDate == nil && (result == nil || !entity.IsResultDateOnOrAfterEnd(*result, c.SaleEndTime)) {
+			result = nil
+		} else if c.ResultDate != nil {
+			result = c.ResultDate
+		}
+		stored.ResultDate = result
+	}
+	return &stored
+}
+
+// scoreSales scores the returned sales as prod stores them: the returned
+// sales with an expected sale's series, method and Japan-time start day are
+// one stored sale (spEvalStored), which must carry the expected start time,
+// end time and result date. An expected sale with no such returned sale is
+// missed; a returned sale that belongs to no expected sale is extra.
+func scoreSales(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) spEvalScore {
+	sc := spEvalScore{Found: []string{}, Missed: []string{}, Extra: []string{}, Wrong: []string{}}
+	used := make([]bool, len(got))
+	for _, e := range expected {
+		want, err := time.Parse(time.RFC3339, e.ApplyStartTime)
+		if err != nil {
+			panic(err)
+		}
+		var group []*entity.DiscoveredTicketSale
+		for i, c := range got {
+			if c.SeriesID == e.SeriesID && c.Method == e.Method && spEvalStartDay(want) == spEvalStartDay(c.SaleStartTime) {
+				group = append(group, c)
+				used[i] = true
+			}
+		}
+		if len(group) == 0 {
+			sc.Missed = append(sc.Missed, e.Name)
+			continue
+		}
+		sc.Found = append(sc.Found, e.Name)
+		stored := spEvalStored(group)
+		if !stored.SaleStartTime.Equal(want) {
+			sc.Wrong = append(sc.Wrong, e.Name+" apply_start="+stored.SaleStartTime.Format(time.RFC3339)+" want "+e.ApplyStartTime)
+		}
+		if !spEvalSame(e.ApplyEndTime, stored.SaleEndTime) &&
+			(e.OtherApplyEndTime == "" || !spEvalSame(e.OtherApplyEndTime, stored.SaleEndTime)) {
+			sc.Wrong = append(sc.Wrong, e.Name+" apply_end="+stored.SaleEndTime.Format(time.RFC3339)+" want "+e.ApplyEndTime)
+		}
+		gotResult := ""
+		if stored.ResultDate != nil {
+			gotResult = stored.ResultDate.Format(time.DateOnly)
+		}
+		if !e.ResultDateUnchecked && gotResult != e.ResultDate {
+			sc.Wrong = append(sc.Wrong, e.Name+" result_date="+gotResult+" want "+e.ResultDate)
+		}
+	}
+	for i, u := range used {
+		if !u {
+			sc.Extra = append(sc.Extra, spEvalDescribe(got[i]))
+		}
+	}
+	return sc
+}
+
+// spEvalCall is one search of the evaluation: its score and what it cost.
+// The token counts, search queries and cost add up every request the search
+// sent (a request rejected as invalid is sent once more).
+type spEvalCall struct {
+	Model    string `json:"model"`
+	Thinking string `json:"thinking"`
+	Case     string `json:"case"`
+	Rep      int    `json:"rep"`
+	spEvalScore
+	// Returned is every sale the search kept, for checking a miss or an
+	// extra against the pages.
+	Returned []string `json:"returned"`
+	// Dropped counts, by reason, the sales the model returned that the
+	// searcher's checks dropped before scoring (an opened sale, no end time).
+	Dropped          map[string]int `json:"dropped"`
+	Requests         int            `json:"requests"`
+	SearchQueries    []string       `json:"search_queries"`
+	PromptTokens     int            `json:"prompt_tokens"`
+	CandidatesTokens int            `json:"candidates_tokens"`
+	ThinkingTokens   int            `json:"thinking_tokens"`
+	ToolUseTokens    int            `json:"tool_use_tokens"`
+	// CostUSD2027 is the cost at the price from 2027-01-01 (Pricing2027).
+	CostUSD2027 float64 `json:"cost_usd_2027"`
+	LatencyMS   int64   `json:"latency_ms"`
+	// Empty is true when the model answered with no candidate, no text or an
+	// unfinished response; ErrorKind is the generation error kind of a
+	// failed search, Error its message.
+	Empty     bool   `json:"empty"`
+	ErrorKind string `json:"error_kind,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// spEvalReporter collects the generations of the current search.
+type spEvalReporter struct {
+	gens []posthog.LLMGeneration
+}
+
+func (r *spEvalReporter) ReportGeneration(_ context.Context, g posthog.LLMGeneration) {
+	r.gens = append(r.gens, g)
+}
+
+// fill adds the collected generations' usage, queries and cost to c.
+func (r *spEvalReporter) fill(c *spEvalCall) {
+	c.Requests = len(r.gens)
+	c.SearchQueries = []string{}
+	for _, g := range r.gens {
+		c.SearchQueries = append(c.SearchQueries, g.WebSearchQueries...)
+		c.PromptTokens += g.Usage.PromptTokens
+		c.CandidatesTokens += g.Usage.CandidatesTokens
+		c.ThinkingTokens += g.Usage.ThinkingTokens
+		c.ToolUseTokens += g.Usage.ToolUseTokens
+		c.CostUSD2027 += Pricing2027.CostUSD(c.Model,
+			int32(g.Usage.PromptTokens), int32(g.Usage.CandidatesTokens), int32(g.Usage.ThinkingTokens),
+			int32(g.Usage.ToolUseTokens), int32(len(g.WebSearchQueries)))
+	}
+	// Only the last request decides the search: a request rejected as invalid
+	// is sent once more, and a retry that succeeds leaves no error.
+	if n := len(r.gens); n > 0 {
+		last := r.gens[n-1]
+		c.ErrorKind = last.ErrorKind
+		if last.Sales != nil {
+			c.Dropped = last.Sales.Dropped
+		}
+	}
+	switch c.ErrorKind {
+	case errorKindNoCandidates, errorKindNoText, errorKindIncomplete:
+		c.Empty = true
+	}
+}
+
+// TestTicketSaleSearchEval runs the production searcher on the fixtures and
+// writes one row per search to testdata/ab_results/ticket_sale_<time>.csv and
+// .json. It fails on an extra sale or a wrong value: the artists with two
+// series have upcoming sales on one only, the pages list ticket trades, and
+// several lotteries state a result day. Sales that opened before the frozen
+// time are dropped by the searcher's own checks and only counted (Dropped).
+// A missed sale does not fail it; recall is compared across runs.
 //
 // @spec components/entity/ticket-sale/search-published-sales "Artist with two tours"
 // @spec components/entity/ticket-sale/search-published-sales "Official ticket trade"
@@ -200,7 +476,7 @@ func TestTicketSaleSearchEval(t *testing.T) {
 	if apiKey == "" {
 		t.Fatal("GCP_GEMINI_SEARCH_API_KEY is required")
 	}
-	model := envOr("GEMINI_SP_EVAL_MODEL", "gemini-3.8-flash")
+	model := envOr("GEMINI_SP_EVAL_MODEL", "gemini-4-hydrogen")
 	thinking := envOr("GEMINI_SP_EVAL_THINKING", "low")
 	reps := 3
 	if v := os.Getenv("GEMINI_SP_EVAL_REPS"); v != "" {
@@ -222,35 +498,113 @@ func TestTicketSaleSearchEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
-	s, err := NewTicketSaleSearcher(ctx, TicketSaleSearcherConfig{APIKey: apiKey, Model: model, Thinking: thinking}, http.DefaultClient, logger)
+	reporter := &spEvalReporter{}
+	s, err := NewTicketSaleSearcher(ctx, TicketSaleSearcherConfig{
+		APIKey: apiKey, Model: model, Thinking: thinking, Reporter: reporter,
+	}, http.DefaultClient, logger)
 	if err != nil {
 		t.Fatalf("searcher: %v", err)
 	}
 	s.now = func() time.Time { return spEvalNow }
 
-	var totalFound, totalExpected, totalWrong, failures int
-	for _, c := range spEvalCases {
-		if len(caseFilter) > 0 && !caseFilter[c.Name] {
-			continue
-		}
-		for rep := 1; rep <= reps; rep++ {
-			started := time.Now()
-			got, err := s.SearchPublishedSales(ctx, c.Input)
-			if err != nil {
-				failures++
-				t.Logf("%-14s #%d error=%v", c.Name, rep, err)
+	// The files are rewritten after every search, so a run cut off by the
+	// test timeout (which skips deferred calls) keeps the calls paid for.
+	base := filepath.Join("testdata/ab_results", "ticket_sale_"+time.Now().UTC().Format("20060102T150405Z"))
+	var calls []spEvalCall
+	t.Logf("writing %s.json and .csv", base)
+	for rep := 1; rep <= reps; rep++ {
+		for _, c := range spEvalCases {
+			if len(caseFilter) > 0 && !caseFilter[c.Name] {
 				continue
 			}
-			found, missed, extra, wrong := spEvalScore(got, c.Expected)
-			totalFound += found
-			totalExpected += len(c.Expected)
-			totalWrong += len(wrong) + extra
-			t.Logf("%-14s #%d found=%d missed=%d extra=%d wrong=%v %.0fs",
-				c.Name, rep, found, missed, extra, wrong, time.Since(started).Seconds())
+			reporter.gens = nil
+			call := spEvalCall{Model: model, Thinking: thinking, Case: c.Name, Rep: rep}
+			started := time.Now()
+			got, err := s.SearchPublishedSales(ctx, c.Input)
+			call.LatencyMS = time.Since(started).Milliseconds()
+			reporter.fill(&call)
+			if err != nil {
+				call.Error = err.Error()
+				call.spEvalScore = spEvalScore{Found: []string{}, Missed: []string{}, Extra: []string{}, Wrong: []string{}}
+				for _, e := range c.Expected {
+					call.Missed = append(call.Missed, e.Name)
+				}
+			} else {
+				call.spEvalScore = scoreSales(got, c.Expected)
+				for _, g := range got {
+					call.Returned = append(call.Returned, spEvalDescribe(g))
+				}
+			}
+			t.Logf("%-14s #%d found=%d missed=%v extra=%v wrong=%v queries=%d cost_2027=$%.4f %.0fs err=%s",
+				c.Name, rep, len(call.Found), call.Missed, call.Extra, call.Wrong, len(call.SearchQueries),
+				call.CostUSD2027, float64(call.LatencyMS)/1000, call.ErrorKind)
+			calls = append(calls, call)
+			if err := writeSPEvalResults(base, calls); err != nil {
+				t.Fatalf("write results: %v", err)
+			}
+			// A miss is a recall result, compared across runs; an extra sale
+			// that passed the searcher's checks (a trade, a resale, a sale of
+			// the other series) or a wrong stored value breaks the spec.
+			for _, x := range call.Extra {
+				t.Errorf("%s #%d: extra sale %s", c.Name, rep, x)
+			}
+			for _, w := range call.Wrong {
+				t.Errorf("%s #%d: wrong value %s", c.Name, rep, w)
+			}
 		}
 	}
-	t.Logf("SUMMARY model=%s thinking=%s found=%d/%d wrong_or_extra=%d failures=%d",
-		model, thinking, totalFound, totalExpected, totalWrong, failures)
+}
+
+// spEvalDroppedCSV renders dropped counts as "reason=n" pairs in reason order.
+func spEvalDroppedCSV(dropped map[string]int) string {
+	pairs := make([]string, 0, len(dropped))
+	for _, reason := range slices.Sorted(maps.Keys(dropped)) {
+		pairs = append(pairs, reason+"="+strconv.Itoa(dropped[reason]))
+	}
+	return strings.Join(pairs, "; ")
+}
+
+// writeSPEvalResults writes the calls to base + ".json" and ".csv".
+func writeSPEvalResults(base string, calls []spEvalCall) error {
+	if err := os.MkdirAll(filepath.Dir(base), 0o755); err != nil {
+		return err
+	}
+	jb, err := json.MarshalIndent(map[string]any{
+		"now":   spEvalNow.Format(time.RFC3339),
+		"calls": calls,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(base+".json", jb, 0o644); err != nil {
+		return err
+	}
+
+	f, err := os.Create(base + ".csv")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	w := csv.NewWriter(f)
+	rows := [][]string{{
+		"model", "thinking", "case", "rep", "found", "missed", "extra", "wrong",
+		"missed_sales", "requests", "search_queries", "search_query_count",
+		"prompt_tokens", "candidates_tokens", "thinking_tokens", "tool_use_tokens",
+		"cost_usd_2027", "latency_ms", "dropped", "empty", "error_kind", "error",
+	}}
+	for _, c := range calls {
+		rows = append(rows, []string{
+			c.Model, c.Thinking, c.Case, strconv.Itoa(c.Rep),
+			strconv.Itoa(len(c.Found)), strconv.Itoa(len(c.Missed)), strconv.Itoa(len(c.Extra)), strconv.Itoa(len(c.Wrong)),
+			strings.Join(c.Missed, "; "), strconv.Itoa(c.Requests),
+			strings.Join(c.SearchQueries, "; "), strconv.Itoa(len(c.SearchQueries)),
+			strconv.Itoa(c.PromptTokens), strconv.Itoa(c.CandidatesTokens),
+			strconv.Itoa(c.ThinkingTokens), strconv.Itoa(c.ToolUseTokens),
+			strconv.FormatFloat(c.CostUSD2027, 'f', 6, 64), strconv.FormatInt(c.LatencyMS, 10),
+			spEvalDroppedCSV(c.Dropped), strconv.FormatBool(c.Empty), c.ErrorKind, c.Error,
+		})
+	}
+	return w.WriteAll(rows)
 }
 
 func envOr(key, fallback string) string {

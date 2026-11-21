@@ -470,7 +470,7 @@ func TestGCPConfig_SalesPhaseSearchResolution(t *testing.T) {
 	})
 	t.Run("defaults applied when unset", func(t *testing.T) {
 		c := GCPConfig{}
-		assert.Equal(t, "gemini-3.8-flash", c.PublishedSaleSearchModel())
+		assert.Equal(t, "gemini-4-hydrogen", c.PublishedSaleSearchModel())
 		assert.Equal(t, "low", c.PublishedSaleSearchThinking())
 	})
 }
