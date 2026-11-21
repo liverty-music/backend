@@ -134,24 +134,7 @@ make lint
 
 ### Gemini Integration Testing
 
-To verify the Gemini-based concert extraction with real GCP resources:
-
-1. **Set Environment Variables**:
-
-```bash
-export GCP_PROJECT_ID="liverty-music-dev"
-export GCP_LOCATION="global"
-export GCP_GEMINI_MODEL="gemini-3-flash-preview"
-export GCP_VERTEX_AI_SEARCH_DATA_STORE="projects/liverty-music-dev/locations/global/collections/default_collection/dataStores/official-artist-site"
-```
-
-2. **Run Test**:
-
-```bash
-# Run the integration test for UVERworld
-# Requires Google Application Default Credentials (ADC)
-go test -v -count=1 -run TestGeminiConcertSearcher_Search_Real ./internal/infrastructure/gcp/gemini/...
-```
+The Gemini searchers are evaluated against real pages with the A/B harnesses in `internal/infrastructure/gcp/gemini`; [AGENTS.md](internal/infrastructure/gcp/gemini/AGENTS.md) there points to how to run them.
 
 ### Testing the API with buf curl
 

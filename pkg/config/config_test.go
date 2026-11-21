@@ -28,13 +28,12 @@ func TestLoad_ServerConfig(t *testing.T) {
 		{
 			name: "load with default values",
 			envVars: map[string]string{
-				"ENVIRONMENT":                     "local",
-				"DATABASE_NAME":                   "defaultdb",
-				"DATABASE_USER":                   "defaultuser",
-				"GCP_PROJECT_ID":                  "test-project",
-				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
-				"OIDC_ISSUER_URL":                 "https://test-issuer.com",
-				"FAN_WEB_BASE_URL":                "http://localhost:9000",
+				"ENVIRONMENT":      "local",
+				"DATABASE_NAME":    "defaultdb",
+				"DATABASE_USER":    "defaultuser",
+				"GCP_PROJECT_ID":   "test-project",
+				"OIDC_ISSUER_URL":  "https://test-issuer.com",
+				"FAN_WEB_BASE_URL": "http://localhost:9000",
 			},
 			want: &ServerConfig{
 				Environment:     "local",
@@ -94,9 +93,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
-					ProjectID:   "test-project",
-					Location:    "us-central1",
-					GeminiModel: "gemini-3-flash-preview",
+					ProjectID: "test-project",
+					Location:  "us-central1",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -119,25 +117,24 @@ func TestLoad_ServerConfig(t *testing.T) {
 		{
 			name: "load with custom values",
 			envVars: map[string]string{
-				"ENVIRONMENT":                     "production",
-				"SHUTDOWN_TIMEOUT":                "15s",
-				"SERVER_PORT":                     "9090",
-				"SERVER_HOST":                     "0.0.0.0",
-				"SERVER_READ_HEADER_TIMEOUT":      "200ms",
-				"SERVER_READ_TIMEOUT":             "2s",
-				"SERVER_HANDLER_TIMEOUT":          "10s",
-				"SERVER_IDLE_TIMEOUT":             "45s",
-				"ADMIN_SERVER_PORT":               "9190",
-				"ADMIN_CORS_ALLOWED_ORIGINS":      "https://admin.example.com",
-				"DATABASE_NAME":                   "testdb",
-				"DATABASE_USER":                   "testuser",
-				"LOGGING_LEVEL":                   "debug",
-				"LOGGING_FORMAT":                  "text",
-				"GCP_PROJECT_ID":                  "custom-project",
-				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
-				"OIDC_ISSUER_URL":                 "https://custom-issuer.com",
-				"JWKS_REFRESH_INTERVAL":           "30m",
-				"FAN_WEB_BASE_URL":                "https://liverty-music.app",
+				"ENVIRONMENT":                "production",
+				"SHUTDOWN_TIMEOUT":           "15s",
+				"SERVER_PORT":                "9090",
+				"SERVER_HOST":                "0.0.0.0",
+				"SERVER_READ_HEADER_TIMEOUT": "200ms",
+				"SERVER_READ_TIMEOUT":        "2s",
+				"SERVER_HANDLER_TIMEOUT":     "10s",
+				"SERVER_IDLE_TIMEOUT":        "45s",
+				"ADMIN_SERVER_PORT":          "9190",
+				"ADMIN_CORS_ALLOWED_ORIGINS": "https://admin.example.com",
+				"DATABASE_NAME":              "testdb",
+				"DATABASE_USER":              "testuser",
+				"LOGGING_LEVEL":              "debug",
+				"LOGGING_FORMAT":             "text",
+				"GCP_PROJECT_ID":             "custom-project",
+				"OIDC_ISSUER_URL":            "https://custom-issuer.com",
+				"JWKS_REFRESH_INTERVAL":      "30m",
+				"FAN_WEB_BASE_URL":           "https://liverty-music.app",
 			},
 			want: &ServerConfig{
 				Environment:     "production",
@@ -197,9 +194,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
-					ProjectID:   "custom-project",
-					Location:    "us-central1",
-					GeminiModel: "gemini-3-flash-preview",
+					ProjectID: "custom-project",
+					Location:  "us-central1",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
@@ -423,40 +419,6 @@ func TestConsumerConfig_Validate(t *testing.T) {
 		}
 		assert.Error(t, cfg.Validate())
 	})
-}
-
-func TestGCPConfig_ParserModelResolution(t *testing.T) {
-	tests := []struct {
-		name           string
-		geminiModel    string
-		parserOverride string
-		wantParser     string
-	}{
-		{
-			name:           "workload-specific var takes precedence",
-			geminiModel:    "gemini-3-flash-preview",
-			parserOverride: "gemini-3.1-flash-lite",
-			wantParser:     "gemini-3.1-flash-lite",
-		},
-		{
-			name:        "legacy fallback to GeminiModel when override empty",
-			geminiModel: "gemini-3-flash-preview",
-			wantParser:  "gemini-3-flash-preview",
-		},
-		{
-			name:       "all empty leaves it empty (caller must default elsewhere)",
-			wantParser: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := GCPConfig{
-				GeminiModel:       tt.geminiModel,
-				GeminiParserModel: tt.parserOverride,
-			}
-			assert.Equal(t, tt.wantParser, c.ParserModel())
-		})
-	}
 }
 
 func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
