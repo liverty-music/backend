@@ -483,8 +483,8 @@ type GCPConfig struct {
 
 	// Model override for the Gemini searchers' grounded call (GoogleSearch +
 	// URLContext). Set per job; unset falls back to the searcher's built-in
-	// default: gemini-4-hydrogen for the concert searcher (ConcertSearchModel)
-	// and gemini-3.8-flash for the published-sale searcher
+	// default: gemini-4-hydrogen for both the concert searcher
+	// (ConcertSearchModel) and the published-sale searcher
 	// (PublishedSaleSearchModel).
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
 
@@ -548,8 +548,11 @@ const (
 // Defaults for the ticket sale discovery and reminder jobs.
 const (
 	// defaultPublishedSaleSearchModel is the grounded model of the single-call
-	// published-sale searcher.
-	defaultPublishedSaleSearchModel = "gemini-3.8-flash"
+	// published-sale searcher. gemini-4-hydrogen replaced gemini-3.8-flash in
+	// move-ticket-sale-search-to-gemini-4-hydrogen: with a completion
+	// criterion in the system instruction it found more of the fixture's sales
+	// at a fifth of the cost per call at the 2027-01-01 price.
+	defaultPublishedSaleSearchModel = "gemini-4-hydrogen"
 	// defaultPublishedSaleSearchThinking is the published-sale searcher's thinking
 	// level.
 	defaultPublishedSaleSearchThinking = "low"

@@ -50,10 +50,16 @@ const (
 // tzdata dependency.
 var jst = time.FixedZone("JST", 9*60*60)
 
-// systemInstructionPublishedSales is the evaluated system instruction (design D2).
+// systemInstructionPublishedSales is the evaluated system instruction (design
+// D2 of tune-sales-phase-search). The completion criterion after the task line
+// was added with gemini-4-hydrogen, which at thinking low otherwise stopped
+// after the first sale of a series it found (OpenSpec change
+// move-ticket-sale-search-to-gemini-4-hydrogen, design D4).
 const systemInstructionPublishedSales = `You extract ticket sales for concerts from official web pages, for a service that tells fans about upcoming sales.
 
 Task: for each series in the user prompt, find the ticket sales whose application period has not started at the current time.
+
+You are done when every sale that the sources announce for each series and that has not started at the current time is in the answer. One sale found does not mean the others are absent: check the official site, the official tour pages and each ticketing service that sells the series.
 
 A sale is one application period under one method: for example a fan-club lottery, a playguide presale, or a general on-sale. Include lotteries and first-come sales, presales and general on-sales, and every later round of a series (2次, 3次, ...) that has not started yet. Do not include ticket trades or resales between fans.
 
