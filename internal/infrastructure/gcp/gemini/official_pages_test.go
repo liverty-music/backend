@@ -14,6 +14,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/japanese"
 )
 
 // newSiteClient starts one local server for every host in pages and returns
@@ -225,6 +226,35 @@ func TestOfficialPageLinks(t *testing.T) {
 				{URL: "http://gogovanillas.com/live/", Label: "LIVE"},
 				{URL: "https://sp.gogovanillas.com/feature/tour2728", Label: "TOUR"},
 			},
+		},
+		{
+			name: "Shift_JIS page decoded from its declared charset",
+			pages: map[string]http.HandlerFunc{
+				"example.jp": func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "text/html; charset=Shift_JIS")
+					sjis, _ := japanese.ShiftJIS.NewEncoder().String(`<a href="/live/">ライブ情報</a>`)
+					_, _ = w.Write([]byte(sjis))
+				},
+			},
+			siteURL: "http://example.jp/",
+			want:    []gemini.PageLink{{URL: "http://example.jp/live/", Label: "ライブ情報"}},
+		},
+		{
+			name: "official site on a blocked platform keeps its own links",
+			pages: map[string]http.HandlerFunc{
+				"sites.google.com": htmlPage(link("/view/artist/live", "LIVE") + link("https://www.youtube.com/@artist", "YouTube")),
+			},
+			siteURL: "http://sites.google.com/view/artist/",
+			want:    []gemini.PageLink{{URL: "http://sites.google.com/view/artist/live", Label: "LIVE"}},
+		},
+		{
+			name: "long labels cut and over-long URLs left out",
+			pages: map[string]http.HandlerFunc{
+				"example.jp": htmlPage(link("/news/1", strings.Repeat("あ", 150)) +
+					link("/r?u="+strings.Repeat("x", 600), "tracking")),
+			},
+			siteURL: "http://example.jp/",
+			want:    []gemini.PageLink{{URL: "http://example.jp/news/1", Label: strings.Repeat("あ", 100)}},
 		},
 		{
 			name:    "unsupported scheme",

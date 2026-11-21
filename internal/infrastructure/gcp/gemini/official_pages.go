@@ -13,11 +13,13 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -69,6 +71,15 @@ type pageLink struct {
 // (median 22, 2026-11-21); the cap drops links from the end of the page,
 // where the footer is, if a page carries more.
 const maxPageLinks = 60
+
+// maxLabelRunes caps a label: a card-style link makes every text inside it
+// the label, and page text is untrusted, so only its start goes into the
+// prompt. maxLinkURLLen leaves out links whose URL is longer, such as
+// tracking redirects.
+const (
+	maxLabelRunes = 100
+	maxLinkURLLen = 500
+)
 
 // blockedLinkDomains are registrable domains that never carry an artist's
 // official show announcements: social networks, music streaming, link hubs,
@@ -228,7 +239,14 @@ func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL) ([]
 		return nil, "", errOffSiteRedirect(final.Host)
 	}
 
-	return listedLinks(anchors(io.LimitReader(resp.Body, officialPageMaxBytes)), final, domain), final.String(), nil
+	// Labels are text the model reads, so the page is decoded to UTF-8 from
+	// its declared charset (Content-Type, then <meta charset>): older
+	// Japanese artist sites serve Shift_JIS or EUC-JP.
+	body, err := charset.NewReader(io.LimitReader(resp.Body, officialPageMaxBytes), resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, "", fmt.Errorf("official top page charset: %w", err)
+	}
+	return listedLinks(anchors(body), final, domain), final.String(), nil
 }
 
 // anchor is one <a> tag: its href and its label.
@@ -322,10 +340,13 @@ func tagAttr(z *html.Tokenizer, hasAttr bool, key string) string {
 
 // listedLinks returns the links of an HTML page to list in the prompt:
 // http(s) links resolved against base and normalized, each once, in page
-// order, at most maxPageLinks, leaving out links to the page itself (an
-// <a> without href or with href="#"), links to blockedLinkDomains and links
-// to pages of domain whose path has a siteInfoPathSegments segment. A link
-// that appears again keeps its first label unless that was empty.
+// order, at most maxPageLinks, each label cut to maxLabelRunes. It leaves
+// out links to the page itself (an <a> without href or with href="#"),
+// URLs longer than maxLinkURLLen, links to blockedLinkDomains other than
+// the official site's own (an official site on a blocked platform's domain,
+// such as sites.google.com, keeps its links), and links to pages of domain
+// whose path has a siteInfoPathSegments segment. A link that appears again
+// keeps its first label unless that was empty.
 func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
 	var links []pageLink
 	index := make(map[string]int)
@@ -335,20 +356,20 @@ func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
 	}
 	for _, a := range as {
 		u, ok := normalizeLink(a.href, base)
-		if !ok || u.String() == self {
+		if !ok || u.String() == self || len(u.String()) > maxLinkURLLen {
 			continue
 		}
 		linkDomain := registrableDomain(u.Hostname())
-		if _, blocked := blockedLinkDomains[linkDomain]; blocked {
+		if _, blocked := blockedLinkDomains[linkDomain]; blocked && linkDomain != domain {
 			continue
 		}
 		if linkDomain == domain && hasSiteInfoSegment(u.Path) {
 			continue
 		}
-		link := u.String()
+		link, label := u.String(), truncateRunes(a.label, maxLabelRunes)
 		if i, dup := index[link]; dup {
 			if links[i].Label == "" {
-				links[i].Label = a.label
+				links[i].Label = label
 			}
 			continue
 		}
@@ -356,9 +377,17 @@ func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
 			break
 		}
 		index[link] = len(links)
-		links = append(links, pageLink{URL: link, Label: a.label})
+		links = append(links, pageLink{URL: link, Label: label})
 	}
 	return links
+}
+
+// truncateRunes returns s cut to at most n runes.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // hasSiteInfoSegment reports whether a path segment, without a .html, .htm
