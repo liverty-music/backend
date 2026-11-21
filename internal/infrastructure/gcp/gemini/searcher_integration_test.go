@@ -30,6 +30,7 @@ const (
 	abEvalThinkingEnvVar = "GEMINI_AB_EVAL_THINKING"   // thinking level; "" = default low
 	abEvalVariantsEnvVar = "GEMINI_AB_EVAL_VARIANTS"   // CSV of variants (see abVariant); empty = base
 	abEvalRepsEnvVar     = "GEMINI_AB_EVAL_REPS"       // repetitions per cell; empty = 3
+	abEvalSitesEnvVar    = "GEMINI_AB_EVAL_SITES"      // CSV of name=url overriding fixture official sites for this run
 
 	// abSearchCapLine is the search-cap prompt line of the "cap" variant,
 	// appended to the production system instruction.
@@ -201,11 +202,9 @@ type abCell struct {
 	// IncludeToolInvocations returns the server-side tool calls (search
 	// queries) in the response.
 	IncludeToolInvocations bool
-	// PageLinks lists the concert pages the official top page links to in
-	// the prompt, as production does. LinkProfile, when non-nil, replaces
-	// the production link profile.
-	PageLinks   bool
-	LinkProfile *gemini.LinkProfile
+	// PageLinks lists the official top page's links in the prompt, as
+	// production does.
+	PageLinks bool
 	// WithoutGoogleSearch leaves the Google Search tool out of the call.
 	WithoutGoogleSearch bool
 }
@@ -343,8 +342,17 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 		t.Fatalf("parse evaluation_from: %v", err)
 	}
 
+	sites := map[string]string{}
+	for _, kv := range csvEnv(abEvalSitesEnvVar) {
+		if name, url, ok := strings.Cut(kv, "="); ok {
+			sites[name] = url
+		}
+	}
 	for i := range gt.Artists {
 		gt.Artists[i].Events = upcomingEvents(gt.Artists[i].Events)
+		if url, ok := sites[gt.Artists[i].Name]; ok {
+			gt.Artists[i].OfficialSiteURL = url
+		}
 	}
 	cells := abMatrix(t, gt.Artists)
 	t.Logf("A/B matrix: %d cells across %d artists", len(cells), len(gt.Artists))
@@ -459,9 +467,6 @@ func runCell(
 	}
 	if cell.Prompt != nil {
 		gemini.SetPrompt(s, *cell.Prompt)
-	}
-	if cell.LinkProfile != nil {
-		gemini.SetLinkProfile(s, *cell.LinkProfile)
 	}
 	gemini.SetWithoutGoogleSearch(s, cell.WithoutGoogleSearch)
 

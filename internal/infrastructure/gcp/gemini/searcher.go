@@ -119,61 +119,75 @@ func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
 }
 
 const (
-	// systemInstruction states only scope, sources and the output contract.
-	// The default-language rule keeps multilingual official pages (e.g. a
-	// tour page with ?lang=en) from yielding romanized venue names. The
-	// tour-page rule keeps the model from rebuilding a tour's dates from search
-	// snippets: runs that never used url_context issued 25-80 queries and
-	// misread dates and venues.
-	// Field formats and verbatim rules live in singleStepResponseSchema;
-	// repeat removal is done in Go. Reading the top page is not forced: that
-	// made the model read it every time but did not reduce searches, because
-	// URL context does not follow links.
-	systemInstruction = `You are a data-extraction agent for a live-music information system.
+	// systemInstruction states the purpose, the task, the official sources
+	// and when the answer is complete, and nothing about how to use the
+	// tools. It is written for gemini-4-hydrogen at thinking "low", which
+	// answers from the pages it has read and stops searching unless it is
+	// told what complete means: with the earlier procedural prompt it dropped
+	// a whole tour in 1 of 3 runs on [Alexandros] and go!go!vanillas, and with
+	// this one it found 47 of 48 such dates (OpenSpec change
+	// pass-tour-detail-pages-to-concert-search; Gemini 4 Carbon developer
+	// guide: state measurable goals and success criteria). The default-language
+	// rule keeps multilingual official pages (e.g. a tour page with ?lang=en)
+	// from yielding romanized venue names. Official tour sites on other
+	// domains are named as sources because some artists publish tours there
+	// (go!go!vanillas). Field formats and verbatim rules live in
+	// singleStepResponseSchema; repeat removal is done in Go.
+	systemInstruction = `Purpose: the shows you return are published as concert listings that fans use to find and buy tickets. A show you miss is a show a fan misses; a wrong date or venue misleads them.
 
-Extract the tours and shows of the given artist taking place on or after the given start date: tours, one-off shows, and co-headliner bills (対バン) organized by the artist. Exclude music festivals and cancelled shows. Return each tour or show as one series with one event per date.
+Task: return every tour and show of the given artist taking place on or after the given start date: tours, one-off shows, and co-headliner bills (対バン) organized by the artist. Exclude music festivals and cancelled shows. Return each tour or show as one series with one event per date.
 
-Use only the artist's official site and official tour pages as sources. Do not use third-party sites. When a tour has a dedicated page, read that page with url_context and take every date of the tour from it. When a page is offered in several languages, read its default-language version (the URL without a language parameter such as ?lang=) and copy text in that language.
+Sources: use only official sources: the artist's official site, including its subdomains, and the official tour sites it links to, which may be on other domains. Do not use third-party sites such as ticket vendors or news media. When a page is offered in several languages, read its default-language version (the URL without a language parameter such as ?lang=) and copy text in that language.
 
-Respond with JSON that follows the response schema.
+Done when: every tour that the official sources mention has all of its announced dates in your answer.
 `
 
 	// promptTemplate carries the per-call variables: %[1]s the start date
 	// (YYYY-MM-DD), %[2]s the artist name, %[3]s the official-site URL. The
 	// URL is passed in full because URL context only fetches URLs with a
 	// scheme.
-	promptTemplate = `Extract the tours and shows of %[2]s taking place on or after %[1]s.
+	promptTemplate = `Return every tour and show of %[2]s taking place on or after %[1]s.
 
 Official site: %[3]s
 `
 
-	// linkedPagesHeader opens the prompt block that lists the concert pages
-	// the official top page links to, one URL per line. Without it the model
-	// guesses tour URLs, fails to fetch them and rebuilds dates from search
-	// snippets; with it, search queries fell from 22.3 to 4.4 per call in
-	// evaluation (backend #543).
-	linkedPagesHeader = "\nConcert pages linked from the official site (read these with url_context):\n"
+	// linkedPagesHeader opens the prompt block that lists the official top
+	// page's links, one "label: URL" per line (see officialPageLinks). URL
+	// context fetches only URLs given in the request or found by search, so
+	// listing them lets the model open the show pages among them without
+	// searching; it tells them apart by their labels, including pages a
+	// keyword rule missed (SUPER BEAVER's "武道館2027" banner) and official
+	// tour sites on other domains (go!go!vanillas). In evaluation every
+	// fixture show was found with no search query (OpenSpec change
+	// pass-tour-detail-pages-to-concert-search).
+	linkedPagesHeader = "\nLinks on the official top page (label: URL):\n"
 
 	// searchWindowMonths bounds the GoogleSearch TimeRangeFilter to pages
 	// from the last 2 months.
 	searchWindowMonths = 2
 
-	// maxOutputTokens is the default response cap.
-	maxOutputTokens = int32(16384)
+	// maxOutputTokens caps thinking and response tokens together, which
+	// gemini-4-hydrogen counts against one budget. Its migration checklist
+	// says to drop low caps or raise them to 65,536; only the tokens used are
+	// billed.
+	maxOutputTokens = int32(65536)
 
 	maxRawTextLogLen  = 1000
 	geminiCallTimeout = 120 * time.Second
 )
 
 // Prompt is the system instruction and user prompt template of the grounded
-// call. Template carries the indexed verbs described on promptTemplate.
+// call. Template carries the indexed verbs described on promptTemplate;
+// LinkedPagesHeader opens the list of the official top page's links that
+// follows it when there are any (see linkedPagesHeader).
 type Prompt struct {
 	SystemInstruction string
 	Template          string
+	LinkedPagesHeader string
 }
 
 // defaultPrompt is the production prompt.
-var defaultPrompt = Prompt{SystemInstruction: systemInstruction, Template: promptTemplate}
+var defaultPrompt = Prompt{SystemInstruction: systemInstruction, Template: promptTemplate, LinkedPagesHeader: linkedPagesHeader}
 
 // EventDraft is one event of the grounded call's JSON response, flattened
 // with its series-level fields, before the past-date filter, repeat removal
@@ -205,8 +219,7 @@ type ConcertSearcher struct {
 
 	// pageClient fetches the official top page for link discovery. Nil
 	// disables link discovery.
-	pageClient  *http.Client
-	linkProfile linkProfile
+	pageClient *http.Client
 
 	// withoutGoogleSearch leaves the Google Search tool out of the grounded
 	// call, so the model reads only the listed pages with URL context. Only
@@ -247,8 +260,8 @@ type PassMetadata struct {
 	// URL_RETRIEVAL_STATUS_SUCCESS.
 	URLContextSucceeded int
 
-	// LinkedPageURLs are the official site's concert pages listed in the
-	// prompt.
+	// LinkedPageURLs are the URLs of the official top page's links listed in
+	// the prompt.
 	LinkedPageURLs []string
 
 	// ToolReportDropped is true when the request was rejected as invalid and
@@ -297,7 +310,7 @@ type URLRetrieval struct {
 // would only surface as an opaque API error on the first Search call.
 //
 // httpClient carries the Gemini API calls. pageClient fetches the official
-// top page whose concert links go into the prompt; pass
+// top page whose links go into the prompt; pass
 // NewOfficialPageClient(), or nil to search without links.
 func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
 	if cfg.APIKey == "" {
@@ -319,12 +332,11 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient 
 	}
 
 	return &ConcertSearcher{
-		client:      client,
-		config:      cfg,
-		logger:      logger,
-		prompt:      defaultPrompt,
-		pageClient:  pageClient,
-		linkProfile: concertSearchProfile,
+		client:     client,
+		config:     cfg,
+		logger:     logger,
+		prompt:     defaultPrompt,
+		pageClient: pageClient,
 	}, nil
 }
 
@@ -362,8 +374,9 @@ func (s *ConcertSearcher) SearchExt(
 
 	md := &SearchMetadata{}
 
-	links := s.linkedPages(ctx, officialSiteURL, attrs)
-	attrs = append(attrs, slog.Int("linked_pages", len(links)), slog.Any("linked_page_urls", links))
+	links, promptSiteURL := s.linkedPages(ctx, officialSiteURL, attrs)
+	linkURLs := pageLinkURLs(links)
+	attrs = append(attrs, slog.Int("linked_pages", len(links)), slog.Any("linked_page_urls", linkURLs))
 
 	// Every request sent below is reported once, after the response is
 	// parsed so the last one carries the parse result.
@@ -372,15 +385,15 @@ func (s *ConcertSearcher) SearchExt(
 		Request: posthog.LLMRequest{
 			ArtistID:        artist.ID,
 			OfficialSiteURL: officialSiteURL,
-			LinkedPageURLs:  links,
+			LinkedPageURLs:  linkURLs,
 			SearchFrom:      from.Format(time.DateOnly),
 		},
 	}
 	var gens []posthog.LLMGeneration
 	defer func() { reportAll(ctx, s.config.Reporter, gens) }()
 
-	pm, rawText, transient, err := s.groundedPass(ctx, artist.Name, officialSiteURL, links, attrs, base, &gens)
-	pm.LinkedPageURLs = links
+	pm, rawText, transient, err := s.groundedPass(ctx, artist.Name, promptSiteURL, links, attrs, base, &gens)
+	pm.LinkedPageURLs = linkURLs
 	md.Grounded = pm
 	recordDiscoveredURLs(md, pm)
 	if err := checkGroundedPass(ctx, pm, transient, err, attrs, s.logger); err != nil {
@@ -409,30 +422,54 @@ func (s *ConcertSearcher) SearchExt(
 	return discovered, md, nil
 }
 
-// linkedPages returns the concert pages the official top page links to, or
-// nil when there is no official site, link discovery is disabled, or the page
-// cannot be read. A page that cannot be read never fails Search.
-func (s *ConcertSearcher) linkedPages(ctx context.Context, officialSiteURL string, attrs []slog.Attr) []string {
+// linkedPages returns the official top page's links to list in the prompt
+// and the official-site URL to pass in it: the URL the top page was read
+// from, which differs from officialSiteURL after a redirect or the www.
+// fallback (a registered www. host that does not resolve would otherwise
+// send the model to a dead URL). With no official site, link discovery
+// disabled, or a page that cannot be read, it returns no links and
+// officialSiteURL. A page that cannot be read never fails Search.
+func (s *ConcertSearcher) linkedPages(ctx context.Context, officialSiteURL string, attrs []slog.Attr) ([]pageLink, string) {
 	if officialSiteURL == "" || s.pageClient == nil {
-		return nil
+		return nil, officialSiteURL
 	}
-	links, err := officialPageLinks(ctx, s.pageClient, officialSiteURL, s.linkProfile)
+	links, readURL, err := officialPageLinks(ctx, s.pageClient, officialSiteURL)
 	if err != nil {
 		s.logger.Info(ctx, "official top page could not be read, searching without linked pages",
 			append(attrs, slog.String("error", err.Error()))...)
+		return nil, officialSiteURL
+	}
+	return links, readURL
+}
+
+// pageLinkURLs returns the URLs of links, for logs and the generation report.
+func pageLinkURLs(links []pageLink) []string {
+	if links == nil {
 		return nil
 	}
-	return links
+	urls := make([]string, len(links))
+	for i, l := range links {
+		urls[i] = l.URL
+	}
+	return urls
 }
 
 // buildRequest returns the user prompt and the request config of the
 // grounded call. links are listed after the official site when present; with
 // none the prompt is the plain template. now anchors the prompt's start date
 // and the GoogleSearch time range.
-func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links []string, now time.Time) (string, *genai.GenerateContentConfig) {
+func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links []pageLink, now time.Time) (string, *genai.GenerateContentConfig) {
 	prompt := fmt.Sprintf(s.prompt.Template, now.Format("2006-01-02"), artistName, officialSiteURL)
 	if len(links) > 0 {
-		prompt += linkedPagesHeader + strings.Join(links, "\n") + "\n"
+		var b strings.Builder
+		b.WriteString(s.prompt.LinkedPagesHeader)
+		for _, l := range links {
+			if l.Label != "" {
+				b.WriteString(l.Label + ": ")
+			}
+			b.WriteString(l.URL + "\n")
+		}
+		prompt += b.String()
 	}
 
 	// The API rejects sub-second precision in time_range_filter
@@ -512,7 +549,7 @@ func checkGroundedPass(ctx context.Context, pm *PassMetadata, transient bool, er
 func (s *ConcertSearcher) groundedPass(
 	ctx context.Context,
 	artistName, officialSiteURL string,
-	links []string,
+	links []pageLink,
 	attrs []slog.Attr,
 	base posthog.LLMGeneration,
 	gens *[]posthog.LLMGeneration,

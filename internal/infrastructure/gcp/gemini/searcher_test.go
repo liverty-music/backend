@@ -395,11 +395,11 @@ func TestConcertSearcher_Search_Request(t *testing.T) {
 
 				prompt := body["contents"].([]any)[0].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
 				assert.Contains(t, prompt, "Official site: https://www.example.com/artist/\n", "the full official-site URL is passed")
-				assert.Contains(t, prompt, "Extract the tours and shows of Test Artist taking place on or after ")
+				assert.Contains(t, prompt, "Return every tour and show of Test Artist taking place on or after ")
 
 				sys := body["systemInstruction"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
 				assert.Contains(t, sys, "Exclude music festivals and cancelled shows.")
-				assert.Contains(t, sys, "When a tour has a dedicated page, read that page with url_context")
+				assert.Contains(t, sys, "Done when: every tour that the official sources mention has all of its announced dates in your answer.")
 			},
 		},
 		{
@@ -622,77 +622,91 @@ func promptOf(t *testing.T, body map[string]any) string {
 	return body["contents"].([]any)[0].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
 }
 
-// TestConcertSearcher_Search_LinkedPages asserts that the concert pages the
-// official top page links to are listed in the prompt, and that the prompt is
-// the plain one when the page has none or cannot be read.
+// TestConcertSearcher_Search_LinkedPages asserts that the official top page's
+// links are listed in the prompt with their labels, that the official site
+// in the prompt is the URL the top page was read from, and that the prompt
+// is the plain one when the top page has no link to list or cannot be read.
 func TestConcertSearcher_Search_LinkedPages(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{ID: "artist-1", Name: "Vaundy"}
-	site := &entity.OfficialSite{URL: "http://vaundy.jp/"}
 
 	tests := []struct {
 		name      string
-		page      http.HandlerFunc
+		site      string
+		pages     map[string]http.HandlerFunc
+		wantSite  string
 		wantLinks []string
+		wantURLs  []string
 	}{
 		{
-			name: "top page with concert links",
-			page: htmlPage(anchors("/live/", "https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "/news/")),
+			name: "top page links listed with their labels",
+			site: "http://vaundy.jp/",
+			pages: map[string]http.HandlerFunc{"vaundy.jp": htmlPage(link("/live/", "LIVE") +
+				banner("https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "ASIA ARENA TOUR 2026") +
+				link("/news/", "NEWS") + link("/profile/", "PROFILE"))},
+			wantSite: "http://vaundy.jp/",
 			wantLinks: []string{
-				"http://vaundy.jp/live/",
-				"https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-				"http://vaundy.jp/news/",
+				"LIVE: http://vaundy.jp/live/",
+				"ASIA ARENA TOUR 2026: https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
+				"NEWS: http://vaundy.jp/news/",
 			},
+			wantURLs: []string{"http://vaundy.jp/live/", "https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "http://vaundy.jp/news/"},
 		},
 		{
-			name: "top page without concert or news links",
-			page: htmlPage(anchors("/profile/", "/discography/")),
+			name:      "registered www host without DNS: the apex URL is passed",
+			site:      "http://www.vaundy.jp/",
+			pages:     map[string]http.HandlerFunc{"vaundy.jp": htmlPage(link("/live/", "LIVE"))},
+			wantSite:  "http://vaundy.jp/",
+			wantLinks: []string{"LIVE: http://vaundy.jp/live/"},
+			wantURLs:  []string{"http://vaundy.jp/live/"},
+		},
+		{
+			name:     "top page with only site information links",
+			site:     "http://vaundy.jp/",
+			pages:    map[string]http.HandlerFunc{"vaundy.jp": htmlPage(link("/profile/", "PROFILE") + link("/discography/", "DISCOGRAPHY"))},
+			wantSite: "http://vaundy.jp/",
 		},
 		{
 			name: "top page unavailable",
-			page: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+			site: "http://vaundy.jp/",
+			pages: map[string]http.HandlerFunc{
+				"vaundy.jp": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+			},
+			wantSite: "http://vaundy.jp/",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			capture := func(dst *map[string]any, mu *sync.Mutex) func(int32, map[string]any) (int, string) {
-				return func(_ int32, body map[string]any) (int, string) {
-					mu.Lock()
-					*dst = body
-					mu.Unlock()
-					return http.StatusOK, geminiResponse(`{"series":[]}`, "STOP")
-				}
-			}
 			var (
-				mu               sync.Mutex
-				withPages, plain map[string]any
-				pageClient       = newSiteClient(t, map[string]http.HandlerFunc{"vaundy.jp": tt.page})
-				linked, _        = newTestSearcherWithPages(t, gemini.Config{}, nil, pageClient, capture(&withPages, &mu))
-				withoutClient, _ = newTestSearcher(t, gemini.Config{}, nil, capture(&plain, &mu))
+				mu   sync.Mutex
+				body map[string]any
 			)
+			pageClient := newSiteClient(t, tt.pages)
+			s, _ := newTestSearcherWithPages(t, gemini.Config{}, nil, pageClient, func(_ int32, b map[string]any) (int, string) {
+				mu.Lock()
+				body = b
+				mu.Unlock()
+				return http.StatusOK, geminiResponse(`{"series":[]}`, "STOP")
+			})
 
-			_, md, err := linked.SearchExt(context.Background(), artist, site, from)
-			require.NoError(t, err)
-			_, err = withoutClient.Search(context.Background(), artist, site, from)
+			_, md, err := s.SearchExt(context.Background(), artist, &entity.OfficialSite{URL: tt.site}, from)
 			require.NoError(t, err)
 
 			mu.Lock()
 			defer mu.Unlock()
-			got, base := promptOf(t, withPages), promptOf(t, plain)
-			require.NotNil(t, md.Grounded)
-			if tt.wantLinks == nil {
-				assert.Equal(t, base, got, "the prompt is unchanged without linked pages")
-				assert.Empty(t, md.Grounded.LinkedPageURLs)
-				return
+			got := promptOf(t, body)
+			want := fmt.Sprintf("Return every tour and show of Vaundy taking place on or after %s.\n\nOfficial site: %s\n",
+				time.Now().UTC().Format("2006-01-02"), tt.wantSite)
+			if tt.wantLinks != nil {
+				want += "\nLinks on the official top page (label: URL):\n" + strings.Join(tt.wantLinks, "\n") + "\n"
 			}
-			want := base + "\nConcert pages linked from the official site (read these with url_context):\n" +
-				strings.Join(tt.wantLinks, "\n") + "\n"
 			assert.Equal(t, want, got)
-			assert.Equal(t, tt.wantLinks, md.Grounded.LinkedPageURLs)
+			require.NotNil(t, md.Grounded)
+			assert.Equal(t, tt.wantURLs, md.Grounded.LinkedPageURLs)
 		})
 	}
 }
@@ -721,7 +735,7 @@ func TestConcertSearcher_Search_LogsURLContextCounts(t *testing.T) {
 	var buf syncBuffer
 	logger, err := logging.New(logging.WithWriter(&buf), logging.WithFormat(logging.FormatJSON))
 	require.NoError(t, err)
-	pageClient := newSiteClient(t, map[string]http.HandlerFunc{"vaundy.jp": htmlPage(anchors("/live/"))})
+	pageClient := newSiteClient(t, map[string]http.HandlerFunc{"vaundy.jp": htmlPage(link("/live/", "LIVE"))})
 	s, _ := newTestSearcherWithPages(t, gemini.Config{IncludeServerSideToolInvocations: true}, logger, pageClient,
 		func(int32, map[string]any) (int, string) { return http.StatusOK, response })
 
