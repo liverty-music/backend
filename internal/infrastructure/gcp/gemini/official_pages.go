@@ -364,7 +364,7 @@ func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
 // hasSiteInfoSegment reports whether a path segment, without a .html, .htm
 // or .php extension, is one of siteInfoPathSegments.
 func hasSiteInfoSegment(path string) bool {
-	for _, seg := range strings.Split(strings.ToLower(path), "/") {
+	for seg := range strings.SplitSeq(strings.ToLower(path), "/") {
 		seg = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(seg, ".html"), ".htm"), ".php")
 		if _, ok := siteInfoPathSegments[seg]; ok {
 			return true
