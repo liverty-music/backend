@@ -322,15 +322,20 @@ func tagAttr(z *html.Tokenizer, hasAttr bool, key string) string {
 
 // listedLinks returns the links of an HTML page to list in the prompt:
 // http(s) links resolved against base and normalized, each once, in page
-// order, at most maxPageLinks, leaving out links to blockedLinkDomains and
-// links to pages of domain whose path has a siteInfoPathSegments segment.
-// A link that appears again keeps its first label unless that was empty.
+// order, at most maxPageLinks, leaving out links to the page itself (an
+// <a> without href or with href="#"), links to blockedLinkDomains and links
+// to pages of domain whose path has a siteInfoPathSegments segment. A link
+// that appears again keeps its first label unless that was empty.
 func listedLinks(as []anchor, base *url.URL, domain string) []pageLink {
 	var links []pageLink
 	index := make(map[string]int)
+	self := ""
+	if u, ok := normalizeLink("", base); ok {
+		self = u.String()
+	}
 	for _, a := range as {
 		u, ok := normalizeLink(a.href, base)
-		if !ok {
+		if !ok || u.String() == self {
 			continue
 		}
 		linkDomain := registrableDomain(u.Hostname())

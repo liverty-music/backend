@@ -212,11 +212,11 @@ func TestOfficialPageLinks(t *testing.T) {
 			wantErr: assert.AnError,
 		},
 		{
-			name: "fragments, default ports and language parameters dropped, repeats removed",
+			name: "fragments, default ports and language parameters dropped, repeats and the page itself removed",
 			pages: map[string]http.HandlerFunc{
 				"gogovanillas.com": htmlPage(
 					banner("/live/?lang=ja", "") + link("/live/#top", "LIVE") + link("/live/", "other label") +
-						link("http://gogovanillas.com:80/live/", "LIVE") +
+						link("http://gogovanillas.com:80/live/", "LIVE") + link("#", "MENU") + `<a>no href</a>` + link("/", "TOP") +
 						link("https://sp.gogovanillas.com:443/feature/tour2728?_normalbrowse_=1", "TOUR") +
 						link("mailto:live@gogovanillas.com", "mail") + link("javascript:void(0)", "menu")),
 			},
