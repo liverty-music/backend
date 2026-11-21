@@ -7,9 +7,11 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -79,6 +81,13 @@ type spEvalExpected struct {
 	// ResultDate is the expected result date (YYYY-MM-DD); empty means the
 	// sale must have none.
 	ResultDate string
+	// OtherApplyEndTime is the end time of a second sale on the same page
+	// with the same series, method and start day; prod stores one of the two,
+	// whichever the model returns last, so either end time is right.
+	OtherApplyEndTime string
+	// ResultDateUnchecked leaves the result date out of the score when no
+	// page that could be read states whether there is one.
+	ResultDateUnchecked bool
 }
 
 type spEvalCase struct {
@@ -192,11 +201,14 @@ var spEvalCases = []spEvalCase{
 		},
 		// 10-feet.kyoto/pages/orchestra: 10-FEET MOBILE会員先行(抽選) until
 		// 11.23 and オフィシャル先行(抽選) until 11.30, both from 11.16(月)
-		// 20:00, one sale as prod stores them. The Budokan show's sales
+		// 20:00, one sale as prod stores them. Neither states a result day
+		// there; the ticket board page renders its 当選発表 date with
+		// JavaScript, so it is not checked. The Budokan show's sales
 		// (10-feet.kyoto/pages/budokan) opened on 10.29 and 11.4.
 		Expected: []spEvalExpected{
 			{Name: "10-FEET ORCHESTRA オフィシャル先行", SeriesID: sp10FeetOrchestra, Method: entity.TicketSaleMethodLottery,
-				ApplyStartTime: "2026-11-16T20:00:00+09:00", ApplyEndTime: "2026-11-30T23:59:00+09:00"},
+				ApplyStartTime: "2026-11-16T20:00:00+09:00", ApplyEndTime: "2026-11-30T23:59:00+09:00",
+				OtherApplyEndTime: "2026-11-23T23:59:00+09:00", ResultDateUnchecked: true},
 		},
 	},
 	{
@@ -307,52 +319,64 @@ func spEvalDescribe(c *entity.DiscoveredTicketSale) string {
 // series, method and that day (uq_ticket_sales_discovered_convergence).
 func spEvalStartDay(t time.Time) string { return t.In(jst).Format(time.DateOnly) }
 
-// scoreSales matches the returned sales to the expected ones as prod stores
-// them: an expected sale is found when a returned sale has its series, method
-// and apply start time, and the other returned sales of the same series,
-// method and start day are the same stored sale, not extras. The end time and
-// result date are right when one sale of that group carries them.
+// spEvalStored returns the sale prod stores for a group of returned sales
+// that share series, method and Japan-time start day, as UpsertDiscovered
+// applies them in order: the last one's name and times, and the last result
+// date given, kept while it is no earlier than the stored end day.
+func spEvalStored(group []*entity.DiscoveredTicketSale) *entity.DiscoveredTicketSale {
+	stored := *group[0]
+	for _, c := range group[1:] {
+		result := stored.ResultDate
+		stored = *c
+		if c.ResultDate == nil && (result == nil || !entity.IsResultDateOnOrAfterEnd(*result, c.SaleEndTime)) {
+			result = nil
+		} else if c.ResultDate != nil {
+			result = c.ResultDate
+		}
+		stored.ResultDate = result
+	}
+	return &stored
+}
+
+// scoreSales scores the returned sales as prod stores them: the returned
+// sales with an expected sale's series, method and Japan-time start day are
+// one stored sale (spEvalStored), which must carry the expected start time,
+// end time and result date. An expected sale with no such returned sale is
+// missed; a returned sale that belongs to no expected sale is extra.
 func scoreSales(got []*entity.DiscoveredTicketSale, expected []spEvalExpected) spEvalScore {
 	sc := spEvalScore{Found: []string{}, Missed: []string{}, Extra: []string{}, Wrong: []string{}}
 	used := make([]bool, len(got))
 	for _, e := range expected {
+		want, err := time.Parse(time.RFC3339, e.ApplyStartTime)
+		if err != nil {
+			panic(err)
+		}
 		var group []*entity.DiscoveredTicketSale
-		matched := false
 		for i, c := range got {
-			if c.SeriesID != e.SeriesID || c.Method != e.Method {
-				continue
-			}
-			if spEvalSame(e.ApplyStartTime, c.SaleStartTime) {
-				matched = true
-			}
-			if want, err := time.Parse(time.RFC3339, e.ApplyStartTime); err == nil &&
-				spEvalStartDay(want) == spEvalStartDay(c.SaleStartTime) {
+			if c.SeriesID == e.SeriesID && c.Method == e.Method && spEvalStartDay(want) == spEvalStartDay(c.SaleStartTime) {
 				group = append(group, c)
 				used[i] = true
 			}
 		}
-		if !matched {
+		if len(group) == 0 {
 			sc.Missed = append(sc.Missed, e.Name)
 			continue
 		}
 		sc.Found = append(sc.Found, e.Name)
-		endOK, resultOK := false, false
-		var ends, results []string
-		for _, c := range group {
-			gotResult := ""
-			if c.ResultDate != nil {
-				gotResult = c.ResultDate.Format(time.DateOnly)
-			}
-			endOK = endOK || spEvalSame(e.ApplyEndTime, c.SaleEndTime)
-			resultOK = resultOK || gotResult == e.ResultDate
-			ends = append(ends, c.SaleEndTime.Format(time.RFC3339))
-			results = append(results, gotResult)
+		stored := spEvalStored(group)
+		if !stored.SaleStartTime.Equal(want) {
+			sc.Wrong = append(sc.Wrong, e.Name+" apply_start="+stored.SaleStartTime.Format(time.RFC3339)+" want "+e.ApplyStartTime)
 		}
-		if !endOK {
-			sc.Wrong = append(sc.Wrong, e.Name+" apply_end="+strings.Join(ends, ",")+" want "+e.ApplyEndTime)
+		if !spEvalSame(e.ApplyEndTime, stored.SaleEndTime) &&
+			(e.OtherApplyEndTime == "" || !spEvalSame(e.OtherApplyEndTime, stored.SaleEndTime)) {
+			sc.Wrong = append(sc.Wrong, e.Name+" apply_end="+stored.SaleEndTime.Format(time.RFC3339)+" want "+e.ApplyEndTime)
 		}
-		if !resultOK {
-			sc.Wrong = append(sc.Wrong, e.Name+" result_date="+strings.Join(results, ",")+" want "+e.ResultDate)
+		gotResult := ""
+		if stored.ResultDate != nil {
+			gotResult = stored.ResultDate.Format(time.DateOnly)
+		}
+		if !e.ResultDateUnchecked && gotResult != e.ResultDate {
+			sc.Wrong = append(sc.Wrong, e.Name+" result_date="+gotResult+" want "+e.ResultDate)
 		}
 	}
 	for i, u := range used {
@@ -374,13 +398,16 @@ type spEvalCall struct {
 	spEvalScore
 	// Returned is every sale the search kept, for checking a miss or an
 	// extra against the pages.
-	Returned         []string `json:"returned"`
-	Requests         int      `json:"requests"`
-	SearchQueries    []string `json:"search_queries"`
-	PromptTokens     int      `json:"prompt_tokens"`
-	CandidatesTokens int      `json:"candidates_tokens"`
-	ThinkingTokens   int      `json:"thinking_tokens"`
-	ToolUseTokens    int      `json:"tool_use_tokens"`
+	Returned []string `json:"returned"`
+	// Dropped counts, by reason, the sales the model returned that the
+	// searcher's checks dropped before scoring (an opened sale, no end time).
+	Dropped          map[string]int `json:"dropped"`
+	Requests         int            `json:"requests"`
+	SearchQueries    []string       `json:"search_queries"`
+	PromptTokens     int            `json:"prompt_tokens"`
+	CandidatesTokens int            `json:"candidates_tokens"`
+	ThinkingTokens   int            `json:"thinking_tokens"`
+	ToolUseTokens    int            `json:"tool_use_tokens"`
 	// CostUSD2027 is the cost at the price from 2027-01-01 (Pricing2027).
 	CostUSD2027 float64 `json:"cost_usd_2027"`
 	LatencyMS   int64   `json:"latency_ms"`
@@ -418,7 +445,11 @@ func (r *spEvalReporter) fill(c *spEvalCall) {
 	// Only the last request decides the search: a request rejected as invalid
 	// is sent once more, and a retry that succeeds leaves no error.
 	if n := len(r.gens); n > 0 {
-		c.ErrorKind = r.gens[n-1].ErrorKind
+		last := r.gens[n-1]
+		c.ErrorKind = last.ErrorKind
+		if last.Sales != nil {
+			c.Dropped = last.Sales.Dropped
+		}
 	}
 	switch c.ErrorKind {
 	case errorKindNoCandidates, errorKindNoText, errorKindIncomplete:
@@ -429,9 +460,10 @@ func (r *spEvalReporter) fill(c *spEvalCall) {
 // TestTicketSaleSearchEval runs the production searcher on the fixtures and
 // writes one row per search to testdata/ab_results/ticket_sale_<time>.csv and
 // .json. It fails on an extra sale or a wrong value: the artists with two
-// series have upcoming sales on one only, the pages list ticket trades and
-// sales that opened before the frozen time, and several lotteries state a
-// result day. A missed sale does not fail it; recall is compared across runs.
+// series have upcoming sales on one only, the pages list ticket trades, and
+// several lotteries state a result day. Sales that opened before the frozen
+// time are dropped by the searcher's own checks and only counted (Dropped).
+// A missed sale does not fail it; recall is compared across runs.
 //
 // @spec components/entity/ticket-sale/search-published-sales "Artist with two tours"
 // @spec components/entity/ticket-sale/search-published-sales "Official ticket trade"
@@ -511,8 +543,8 @@ func TestTicketSaleSearchEval(t *testing.T) {
 				t.Fatalf("write results: %v", err)
 			}
 			// A miss is a recall result, compared across runs; an extra sale
-			// (a trade, a resale, a sale of the other series, an opened one)
-			// or a wrong end time or result date breaks the spec.
+			// that passed the searcher's checks (a trade, a resale, a sale of
+			// the other series) or a wrong stored value breaks the spec.
 			for _, x := range call.Extra {
 				t.Errorf("%s #%d: extra sale %s", c.Name, rep, x)
 			}
@@ -521,6 +553,15 @@ func TestTicketSaleSearchEval(t *testing.T) {
 			}
 		}
 	}
+}
+
+// spEvalDroppedCSV renders dropped counts as "reason=n" pairs in reason order.
+func spEvalDroppedCSV(dropped map[string]int) string {
+	pairs := make([]string, 0, len(dropped))
+	for _, reason := range slices.Sorted(maps.Keys(dropped)) {
+		pairs = append(pairs, reason+"="+strconv.Itoa(dropped[reason]))
+	}
+	return strings.Join(pairs, "; ")
 }
 
 // writeSPEvalResults writes the calls to base + ".json" and ".csv".
@@ -549,7 +590,7 @@ func writeSPEvalResults(base string, calls []spEvalCall) error {
 		"model", "thinking", "case", "rep", "found", "missed", "extra", "wrong",
 		"missed_sales", "requests", "search_queries", "search_query_count",
 		"prompt_tokens", "candidates_tokens", "thinking_tokens", "tool_use_tokens",
-		"cost_usd_2027", "latency_ms", "empty", "error_kind", "error",
+		"cost_usd_2027", "latency_ms", "dropped", "empty", "error_kind", "error",
 	}}
 	for _, c := range calls {
 		rows = append(rows, []string{
@@ -560,7 +601,7 @@ func writeSPEvalResults(base string, calls []spEvalCall) error {
 			strconv.Itoa(c.PromptTokens), strconv.Itoa(c.CandidatesTokens),
 			strconv.Itoa(c.ThinkingTokens), strconv.Itoa(c.ToolUseTokens),
 			strconv.FormatFloat(c.CostUSD2027, 'f', 6, 64), strconv.FormatInt(c.LatencyMS, 10),
-			strconv.FormatBool(c.Empty), c.ErrorKind, c.Error,
+			spEvalDroppedCSV(c.Dropped), strconv.FormatBool(c.Empty), c.ErrorKind, c.Error,
 		})
 	}
 	return w.WriteAll(rows)
