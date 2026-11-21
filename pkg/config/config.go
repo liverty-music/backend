@@ -481,18 +481,12 @@ type GCPConfig struct {
 	// GCP Location (e.g., us-central1)
 	Location string `envconfig:"GCP_LOCATION" default:"us-central1"`
 
-	// Gemini Model Name (legacy, fallback when workload-specific vars are unset).
-	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
-
 	// Model override for the Gemini searchers' grounded call (GoogleSearch +
 	// URLContext). Set per job; unset falls back to the searcher's built-in
 	// default: gemini-4-hydrogen for the concert searcher (ConcertSearchModel)
 	// and gemini-3.8-flash for the published-sale searcher
 	// (PublishedSaleSearchModel).
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
-
-	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
-	GeminiParserModel string `envconfig:"GCP_GEMINI_PARSER_MODEL"`
 
 	// Thinking level for the concert searcher (Gemini 3 series). Empty leaves the SDK/model
 	// default in place. Accepted: "", "low", "medium", "high".
@@ -635,15 +629,6 @@ func (c *GCPConfig) ConcertSearchThinkingLevel() string {
 		return c.GeminiSearchThinkingLevel
 	}
 	return defaultConcertSearchThinking
-}
-
-// ParserModel returns the model name for the email parser workload,
-// applying the resolution order: workload-specific → legacy → built-in default.
-func (c *GCPConfig) ParserModel() string {
-	if c.GeminiParserModel != "" {
-		return c.GeminiParserModel
-	}
-	return c.GeminiModel
 }
 
 // VAPIDConfig holds the Web Push VAPID key pair and contact information.
