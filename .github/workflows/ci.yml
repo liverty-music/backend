@@ -25,13 +25,13 @@ name: CI
 # Pull requests are the gate. `main` is not re-checked on every push: from
 # 2026-08-21 to 2026-10-21 those runs found no merge that broke `main`, and
 # nobody was told when one failed (cloud-provisioning#666). Instead a daily
-# run checks `main` with every job, Benchmark included, and opens or updates
-# an Issue labelled `ci` when it fails.
+# run checks `main` with every job, Benchmark included; report-main-ci opens
+# an Issue labelled `ci` when it fails and closes it when it passes.
 
 on:
   pull_request:
   schedule:
-    - cron: "0 19 * * *" # 04:00 JST
+    - cron: "17 19 * * *" # 04:17 JST; off minute 0, where GitHub delays and drops scheduled runs
   workflow_dispatch:
 
 permissions:
@@ -433,27 +433,16 @@ jobs:
           allowed-skips: schema-lint, vulnerability-check, series-image-consumer-test, benchmark, atlas-ci
           jobs: ${{ toJSON(needs) }}
 
-  # Without this a failure on `main` reaches nobody: Benchmark failed on every
-  # `main` push for 11 days before #669.
-  report-main-failure:
-    name: Report main failure
+  # Keeps the Issue "CI failing on main" in step with this nightly run: a
+  # failure opens it or comments, a green run closes it. A new Issue starts
+  # the Claude routine that triages the failure (liverty-music/.github
+  # routines/fix-main-ci.md).
+  report-main-ci:
+    name: Report main CI
     needs: ci-success
-    if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'schedule'
     permissions:
       issues: write
-    steps:
-      - name: Open or update the main CI failure Issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          title="CI failing on main"
-          body="The daily CI run on \`main\` (${GITHUB_SHA::8}) failed: ${RUN_URL}"
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label ci --state open \
-            --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --label ci --label bug --title "$title" --body "$body"
-          fi
+    uses: liverty-music/.github/.github/workflows/report-main-ci.yml@main
+    with:
+      result: ${{ needs.ci-success.result }}
