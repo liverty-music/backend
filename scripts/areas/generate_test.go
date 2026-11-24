@@ -268,3 +268,31 @@ func TestSeed_SQLOrdersReferencesFirst(t *testing.T) {
 	}
 	assert.Contains(t, seed.SQL(), "ON CONFLICT (code) DO UPDATE")
 }
+
+func TestSeed_SinceWritesOnlyChangedRows(t *testing.T) {
+	seed, _ := generate(t, fixture(), nil)
+	snap := seed.Snapshot()
+
+	t.Run("an unchanged run writes nothing", func(t *testing.T) {
+		again, _ := generate(t, fixture(), &snap)
+		assert.True(t, again.Since(&snap).Empty())
+	})
+	t.Run("a second run writes only the rows that changed", func(t *testing.T) {
+		in := fixture()
+		in.ManualZoneNames["Asia/Taipei"] = ZoneName{EN: "Taipei", JA: "台北"}
+		in.ManualAreaZones["US-TX"] = "America/Chicago"
+		next, _ := generate(t, in, &snap)
+		delta := next.Since(&snap)
+
+		require.Len(t, delta.Areas, 1)
+		assert.Equal(t, "US-TX", delta.Areas[0].Code)
+		require.Len(t, delta.TimeZones, 1)
+		assert.Equal(t, "Asia/Taipei", delta.TimeZones[0].Name)
+		assert.Empty(t, delta.CountryZones)
+		assert.Empty(t, delta.Memberships)
+		assert.NotContains(t, delta.SQL(), "INSERT INTO country_time_zones")
+	})
+	t.Run("without a previous snapshot every row is written", func(t *testing.T) {
+		assert.Equal(t, seed, seed.Since(nil))
+	})
+}

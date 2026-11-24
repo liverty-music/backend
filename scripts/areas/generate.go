@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -133,23 +135,79 @@ type Seed struct {
 }
 
 // Snapshot is what a previous run generated, kept to refuse a run that would
-// lose a referenced value.
+// lose a referenced value and to write only what changed.
 type Snapshot struct {
 	// Areas maps every area code to whether it was first-level.
 	Areas     map[string]bool `json:"areas"`
 	TimeZones []string        `json:"time_zones"`
+	// Rows maps every row the seed wrote ("area JP-13", "zone Asia/Tokyo",
+	// "country_zone JP Asia/Tokyo", "membership JP-KANTO JP-13") to a hash
+	// of its values.
+	Rows map[string]string `json:"rows"`
 }
 
 // Snapshot returns what a later run compares itself with.
 func (s *Seed) Snapshot() Snapshot {
-	snap := Snapshot{Areas: map[string]bool{}}
+	snap := Snapshot{Areas: map[string]bool{}, Rows: map[string]string{}}
 	for _, a := range s.Areas {
 		snap.Areas[a.Code] = a.FirstLevel()
+		snap.Rows["area "+a.Code] = rowHash(areaValues(a))
 	}
 	for _, z := range s.TimeZones {
 		snap.TimeZones = append(snap.TimeZones, z.Name)
+		snap.Rows["zone "+z.Name] = rowHash(zoneValues(z))
+	}
+	for _, z := range s.CountryZones {
+		snap.Rows["country_zone "+z.Country+" "+z.Zone] = ""
+	}
+	for _, m := range s.Memberships {
+		snap.Rows["membership "+m[0]+" "+m[1]] = ""
 	}
 	return snap
+}
+
+// Since returns the rows of s that are new or differ from prev, in the same
+// order. Without a previous snapshot every row is new.
+func (s *Seed) Since(prev *Snapshot) *Seed {
+	if prev == nil || prev.Rows == nil {
+		return s
+	}
+	changed := func(key, hash string) bool {
+		old, ok := prev.Rows[key]
+		return !ok || old != hash
+	}
+	out := &Seed{}
+	for _, a := range s.Areas {
+		if changed("area "+a.Code, rowHash(areaValues(a))) {
+			out.Areas = append(out.Areas, a)
+		}
+	}
+	for _, z := range s.TimeZones {
+		if changed("zone "+z.Name, rowHash(zoneValues(z))) {
+			out.TimeZones = append(out.TimeZones, z)
+		}
+	}
+	for _, z := range s.CountryZones {
+		if changed("country_zone "+z.Country+" "+z.Zone, "") {
+			out.CountryZones = append(out.CountryZones, z)
+		}
+	}
+	for _, m := range s.Memberships {
+		if changed("membership "+m[0]+" "+m[1], "") {
+			out.Memberships = append(out.Memberships, m)
+		}
+	}
+	return out
+}
+
+// Empty reports whether the seed writes nothing.
+func (s *Seed) Empty() bool {
+	return len(s.Areas) == 0 && len(s.TimeZones) == 0 && len(s.CountryZones) == 0 && len(s.Memberships) == 0
+}
+
+func rowHash(values string) string {
+	sum := sha256.Sum256([]byte(values))
+	return hex.EncodeToString(sum[:8])
 }
 
 // cldrCode turns a CLDR code into an area code: "fr33" → "FR-33",
