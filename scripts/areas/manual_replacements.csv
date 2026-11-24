@@ -1,0 +1,56 @@
+# Codes the product decides. decision is one of:
+#   replace  - the code becomes a replacement of target (target must exist)
+#   omit     - the code gets no row (no Area can be named by it)
+#   distinct - the code and the same-named territory are different places,
+#              or the territory has no row of its own; both stay as generated
+# A place CLDR lists both as a territory without subdivisions and as a
+# subdivision of another country is one Area, the territory's row (design
+# Decision 2). The generator fails on such a code until it is decided here.
+code,decision,target
+# Withdrawn: Paris became FR-75C, inside Île-de-France.
+FR-75,replace,FR-IDF
+# China
+CN-HK,replace,HK
+CN-MO,replace,MO
+# Taiwan has subdivisions of its own (TW-TPE, ...), so CN-TW has no single
+# first-level Area to point to.
+CN-TW,omit,
+# Finland
+FI-01,replace,AX
+# France: overseas departments and collectivities
+FR-971,replace,GP
+FR-972,replace,MQ
+FR-973,replace,GF
+FR-974,replace,RE
+FR-976,replace,YT
+FR-BL,replace,BL
+FR-MF,replace,MF
+FR-NC,replace,NC
+FR-PF,replace,PF
+FR-PM,replace,PM
+FR-TF,replace,TF
+# WF has subdivisions of its own (WF-AL, WF-SG, WF-UV), like CN-TW.
+FR-WF,omit,
+# Clipperton has no time zone in tzdata, so CP has no row.
+FR-CP,distinct,
+# Netherlands: constituent countries, and the Caribbean Netherlands, whose
+# islands are first-level Areas of BQ
+NL-AW,replace,AW
+NL-CW,replace,CW
+NL-SX,replace,SX
+NL-BQ1,replace,BQ-BO
+NL-BQ2,replace,BQ-SA
+NL-BQ3,replace,BQ-SE
+# Norway: Svalbard and Jan Mayen are one territory
+NO-21,replace,SJ
+NO-22,replace,SJ
+# Saint Helena: TA (Tristan da Cunha) is no ISO 3166-1 territory with a row.
+SH-TA,distinct,
+# United States: insular areas
+US-AS,replace,AS
+US-GU,replace,GU
+US-MP,replace,MP
+US-PR,replace,PR
+US-VI,replace,VI
+# UM has subdivisions of its own (UM-67, ...), like CN-TW.
+US-UM,omit,

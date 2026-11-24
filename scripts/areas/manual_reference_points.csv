@@ -1,0 +1,10 @@
+# Reference points for first-level Areas that no earlier source covers. A
+# reference point is where NEARBY measures from: the main city, not a centroid.
+code,latitude,longitude
+CZ-10,50.0755,14.4378
+GR-I,37.9838,23.7275
+MX-CMX,19.4326,-99.1332
+PE-LMA,-12.0464,-77.0428
+PL-12,50.0647,19.945
+HK,22.3193,114.1694
+MO,22.1987,113.5439
