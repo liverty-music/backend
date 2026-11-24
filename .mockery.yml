@@ -133,6 +133,7 @@ packages:
       SeatTypeUseCase: {}
       SeriesImageUseCase: {}
       SeriesUseCase: {}
+      SettlementUseCase: {}
       TicketJourneyUseCase: {}
       TicketSaleAnnouncementUseCase: {}
       TicketSaleDiscoveryUseCase: {}
