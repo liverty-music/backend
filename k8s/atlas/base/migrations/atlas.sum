@@ -1,4 +1,4 @@
-h1:Cjb5/owFYNLdr+/l6XZH1k9xK3cELCv+9YEUZx5t4GI=
+h1:rtgeI5RvkHHC0y9ixya6VmS/x4teCNkVzX4/DHuCF8U=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -141,3 +141,4 @@ h1:Cjb5/owFYNLdr+/l6XZH1k9xK3cELCv+9YEUZx5t4GI=
 20261119070000_unify_timestamp_naming.sql h1:rrviqxddTNXdaH3Qz6Jd8lxPgzhFQaP/Um7YDiYx+2U=
 20261119090000_delete_ticket_stock_void_orders_only.sql h1:rBkMDbmvaEm9rvpgeZujzHcmz/Z4grYPSUx+/KbitsI=
 20261119100000_drop_suppressed_concerts.sql h1:/xzkU36UXJNA6XHqYQQMIrVRAF/2bR36BK4pwnkDvBg=
+20261124100811_add_area_reference_data.sql h1:aZfjgP/kTYjDNCySsFbGVGwvnqoMoG4aEuLiRjsx6L4=

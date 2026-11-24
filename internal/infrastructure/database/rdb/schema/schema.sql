@@ -1311,3 +1311,86 @@ COMMENT ON COLUMN watermill_events_outbox.payload IS 'The forwarder envelope as 
 COMMENT ON COLUMN watermill_events_outbox.metadata IS 'Envelope metadata as JSON (empty; the announcement metadata is inside payload)';
 COMMENT ON COLUMN watermill_events_outbox.acked IS 'Unused with DeleteOnAck; kept because the watermill-sql queue schema selects by it';
 COMMENT ON COLUMN watermill_events_outbox.create_time IS 'When the announcement was recorded; the age of the oldest row is reported as event_delivery.oldest_undelivered_age_seconds';
+
+-- Area reference data (OpenSpec change globalize-venues, Decision 1). Seeded by
+-- the generator scripts/areas from pinned CLDR and IANA releases; rows are
+-- upserted and never deleted.
+
+-- Time zones
+CREATE TABLE IF NOT EXISTS time_zones (
+    name TEXT PRIMARY KEY,
+    name_en TEXT NOT NULL,
+    name_ja TEXT
+);
+
+COMMENT ON TABLE time_zones IS 'IANA time zones a venue or ticket sale can have, with the names a screen shows for them';
+COMMENT ON COLUMN time_zones.name IS 'IANA time zone name (e.g., Asia/Seoul)';
+COMMENT ON COLUMN time_zones.name_en IS 'English display name, the CLDR exemplar city (e.g., Seoul) unless manual_time_zone_names.csv overrides it';
+COMMENT ON COLUMN time_zones.name_ja IS 'Japanese display name (e.g., ソウル); NULL when the reference data has none';
+
+-- Time zones of each country
+CREATE TABLE IF NOT EXISTS country_time_zones (
+    country_code TEXT NOT NULL,
+    time_zone TEXT NOT NULL REFERENCES time_zones (name),
+    PRIMARY KEY (country_code, time_zone),
+    CONSTRAINT chk_country_time_zones_country_code CHECK (country_code ~ '^[A-Z]{2}$')
+);
+
+COMMENT ON TABLE country_time_zones IS 'The time zones that venues in a country can have, from the IANA zone.tab';
+COMMENT ON COLUMN country_time_zones.country_code IS 'ISO 3166-1 alpha-2 country or territory code (e.g., KR)';
+COMMENT ON COLUMN country_time_zones.time_zone IS 'IANA time zone name of one of the country''s zones';
+
+-- Areas
+CREATE TABLE IF NOT EXISTS areas (
+    code TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    country_code TEXT NOT NULL,
+    parent_code TEXT REFERENCES areas (code),
+    replaced_by_code TEXT REFERENCES areas (code),
+    name_en TEXT NOT NULL,
+    name_ja TEXT,
+    reference_latitude DOUBLE PRECISION,
+    reference_longitude DOUBLE PRECISION,
+    reference_point_source TEXT,
+    time_zone TEXT,
+    is_first_level BOOLEAN GENERATED ALWAYS AS (kind <> 'region' AND parent_code IS NULL AND replaced_by_code IS NULL) STORED,
+    CONSTRAINT uq_areas_code_first_level UNIQUE (code, is_first_level),
+    CONSTRAINT fk_areas_time_zone FOREIGN KEY (country_code, time_zone) REFERENCES country_time_zones (country_code, time_zone),
+    CONSTRAINT chk_areas_kind CHECK (kind IN ('subdivision', 'country', 'region')),
+    CONSTRAINT chk_areas_code CHECK ((kind = 'subdivision' AND code ~ '^[A-Z]{2}-[A-Z0-9]{1,3}$') OR (kind = 'country' AND code ~ '^[A-Z]{2}$') OR (kind = 'region' AND code ~ '^[A-Z]{2}-[A-Z]{4,}$')),
+    CONSTRAINT chk_areas_country CHECK (left(code, 2) = country_code),
+    CONSTRAINT chk_areas_reference_point CHECK ((reference_latitude IS NULL) = (reference_longitude IS NULL) AND (reference_latitude IS NULL) = (reference_point_source IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_areas_name_en ON areas (lower(name_en));
+CREATE INDEX IF NOT EXISTS idx_areas_name_ja ON areas (name_ja);
+
+COMMENT ON TABLE areas IS 'Places named by a standard code: first-level subdivisions, countries without subdivisions, regions that group first-level areas, and lower-level or replaced codes kept only so a code can be resolved to its first-level area';
+COMMENT ON COLUMN areas.code IS 'The area code: ISO 3166-2 (JP-13), ISO 3166-1 for a country without subdivisions (HK), or a region (JP-KANTO, suffix of four or more letters)';
+COMMENT ON COLUMN areas.kind IS 'subdivision, country or region';
+COMMENT ON COLUMN areas.country_code IS 'ISO 3166-1 alpha-2 code of the country the area belongs to; the first two letters of the code';
+COMMENT ON COLUMN areas.parent_code IS 'The area that contains this one; NULL for a first-level area and for a region';
+COMMENT ON COLUMN areas.replaced_by_code IS 'The area that replaced this code; NULL while the code is current';
+COMMENT ON COLUMN areas.name_en IS 'English name';
+COMMENT ON COLUMN areas.name_ja IS 'Japanese name; NULL when the reference data has none';
+COMMENT ON COLUMN areas.reference_latitude IS 'WGS 84 latitude of the reference point proximity is measured from; NULL when the area has none';
+COMMENT ON COLUMN areas.reference_longitude IS 'WGS 84 longitude of the reference point proximity is measured from; NULL when the area has none';
+COMMENT ON COLUMN areas.reference_point_source IS 'Where the reference point comes from: legacy_prefecture_table, natural_earth_label, natural_earth_children or manual; NULL when the area has no reference point';
+COMMENT ON COLUMN areas.time_zone IS 'The IANA time zone of the whole area; NULL when the area spans several zones or the reference data names none';
+COMMENT ON COLUMN areas.is_first_level IS 'True for a current subdivision or country that has no parent: the only areas a venue or a home can name. Stored so that foreign keys can require it';
+COMMENT ON INDEX idx_areas_name_en IS 'Case-insensitive lookup of an area by its English name in Area.Resolve';
+COMMENT ON INDEX idx_areas_name_ja IS 'Lookup of an area by its Japanese name in Area.Resolve';
+
+-- Region membership
+CREATE TABLE IF NOT EXISTS area_memberships (
+    region_code TEXT NOT NULL REFERENCES areas (code),
+    member_code TEXT NOT NULL,
+    member_first_level BOOLEAN NOT NULL DEFAULT TRUE CHECK (member_first_level),
+    PRIMARY KEY (region_code, member_code),
+    CONSTRAINT fk_area_memberships_member FOREIGN KEY (member_code, member_first_level) REFERENCES areas (code, is_first_level)
+);
+
+COMMENT ON TABLE area_memberships IS 'The first-level areas each region groups (JP-KANTO contains JP-13); a region is a grouping, not an administrative parent';
+COMMENT ON COLUMN area_memberships.region_code IS 'The region';
+COMMENT ON COLUMN area_memberships.member_code IS 'A first-level area the region contains';
+COMMENT ON COLUMN area_memberships.member_first_level IS 'Always true; with member_code it lets the foreign key require a first-level member';
