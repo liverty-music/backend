@@ -195,7 +195,6 @@ type apiWiring struct {
 	orderUC                    usecase.OrderUseCase
 	resaleListingUC            usecase.ResaleListingUseCase
 	stripeWebhookSvc           usecase.StripeWebhookService
-	payoutSweeperUC            usecase.SettlementUseCase
 	payoutAccountUC            usecase.PayoutAccountUseCase
 	followUC                   usecase.FollowUseCase
 	ticketJourneyUC            usecase.TicketJourneyUseCase
@@ -485,10 +484,11 @@ func (w *apiWiring) buildTicketing() error {
 	return nil
 }
 
-// buildPayments builds the Stripe webhook service and the payout usecases, and
-// starts the payment sweepers on the workload that runs them.
+// buildPayments builds the Stripe webhook service and the payout usecases. The
+// payout itself, releasing the held Settlements, is not run here: it is a
+// schedule of the workflow worker (OpenSpec change add-prod-preview-release,
+// design D10), so no API process carries a payout job.
 func (w *apiWiring) buildPayments() error {
-	ctx := w.ctx
 	cfg, logger := w.cfg, w.logger
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
 	// w.settlementRepo removed from constructor: it was previously injected but
@@ -505,39 +505,12 @@ func (w *apiWiring) buildPayments() error {
 	)
 
 	// Settlement / payout pipeline (ticket-settlement-and-payout).
-	disputeBuffer := time.Duration(cfg.Stripe.SettlementDisputeBufferDays) * 24 * time.Hour
-	w.payoutSweeperUC = usecase.NewSettlementUseCase(
-		w.settlementRepo,
-		w.orderRepo,
-		w.payoutAccountRepo,
-		w.eventStartTimeRepo,
-		disputeBuffer,
-		time.Now,
-		logger,
-	)
 	w.payoutAccountUC = usecase.NewPayoutAccountUseCase(
 		w.payoutAccountRepo,
 		w.organizerRepo,
 		cfg.Stripe.OnboardingReturnURL,
 		logger,
 	)
-
-	// Start the payment sweepers only on the workload that runs them: the fan
-	// workload outside local, or local with a Stripe key (see
-	// config.ServerConfig.RunsPaymentSweepers). The lottery draw and its
-	// issuance run as w.workflows in the workflow worker. The gate used to be
-	// the presence of the key, which kept it off the consoles only because
-	// they lacked one; it is now explicit, so the consoles can carry the key
-	// for refunds and payout onboarding.
-	if cfg.RunsPaymentSweepers() {
-		// The settlement sweeper releases held funds after the event + dispute
-		// buffer. It also requires a real Stripe key (Transfer creation). It runs
-		// on the same (fan-api) workload and is idempotent across pods.
-		startSettlementSweeper(ctx, w.payoutSweeperUC, logger)
-	} else {
-		logger.Info(ctx, "settlement sweeper disabled on this workload",
-			slog.String("workload", cfg.Workload))
-	}
 	return nil
 }
 
