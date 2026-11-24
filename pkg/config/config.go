@@ -108,6 +108,12 @@ type WorkerConfig struct {
 	// local worker without it uses the noop card authorizations, whose calls
 	// fail with Unavailable and are tried again until the deadline.
 	StripeSecretKey string `envconfig:"STRIPE_SECRET_KEY"`
+
+	// SettlementDisputeBufferDays is the number of days after an event's start
+	// before the release-due-settlements schedule pays out its Settlements, as
+	// for the API's StripeConfig.SettlementDisputeBufferDays (same variable,
+	// default 7 days).
+	SettlementDisputeBufferDays int `envconfig:"STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS" default:"7"`
 }
 
 // Validate checks the worker configuration: the base settings, and outside

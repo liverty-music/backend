@@ -260,6 +260,29 @@ func TestLoad_JobConfig(t *testing.T) {
 	})
 }
 
+func TestLoad_WorkerConfig_SettlementDisputeBufferDays(t *testing.T) {
+	t.Run("defaults to the 7 days of the API", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "local")
+		t.Setenv("DATABASE_NAME", "testdb")
+		t.Setenv("DATABASE_USER", "testuser")
+
+		got, err := Load[WorkerConfig]()
+		require.NoError(t, err)
+		assert.Equal(t, 7, got.SettlementDisputeBufferDays)
+	})
+
+	t.Run("reads the variable the API reads", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "local")
+		t.Setenv("DATABASE_NAME", "testdb")
+		t.Setenv("DATABASE_USER", "testuser")
+		t.Setenv("STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS", "14")
+
+		got, err := Load[WorkerConfig]()
+		require.NoError(t, err)
+		assert.Equal(t, 14, got.SettlementDisputeBufferDays)
+	})
+}
+
 func TestLoad_ConsumerConfig(t *testing.T) {
 	t.Run("loads without OIDC_ISSUER_URL", func(t *testing.T) {
 		t.Setenv("ENVIRONMENT", "local")

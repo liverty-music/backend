@@ -115,7 +115,27 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 	if err := registerLotteryWorkflows(ctx, rt, cfg, db, outbox, logger); err != nil {
 		return err
 	}
+	registerSettlementWorkflows(rt, cfg, db, logger)
 	return registerCreateFromDiscovered(ctx, rt, cfg, db, outbox, logger)
+}
+
+// registerSettlementWorkflows registers the schedule that pays out the held
+// Settlements whose release gate has passed (OpenSpec change
+// add-prod-preview-release, design D10). It used to run as a sweeper in every
+// fan API process. Without a Stripe key (a local worker) the payment adapters
+// are the no-ops that fail with Unavailable, so a sweep pays nothing.
+func registerSettlementWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, logger *logging.Logger) {
+	payments := newPaymentProviders(cfg.StripeSecretKey, logger)
+	uc := usecase.NewSettlementUseCase(
+		repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payments.settlements),
+		repository.NewOrderRepository(rdb.NewOrderRepository(db), payments.orders),
+		repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(db), payments.payoutAccounts),
+		rdb.NewEventStartTimeRepository(db),
+		time.Duration(cfg.SettlementDisputeBufferDays)*24*time.Hour,
+		time.Now,
+		logger,
+	)
+	workflow.RegisterSchedule(rt, usecase.WorkflowReleaseDueSettlements, usecase.ReleaseDueSettlementsSchedule, usecase.ReleaseDueSettlementsWorkflow(uc))
 }
 
 // registerNotificationWorkflows registers the delivery of a notification and
