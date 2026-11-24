@@ -2,7 +2,7 @@
   <responsibilities>Go API server following Clean Architecture. Connect-RPC services,
   pgx for PostgreSQL, manual factory functions for DI, Atlas for DB migrations.</responsibilities>
   <essential-commands>
-    atlas migrate diff --env local &lt;name&gt;  # Generate DB migration
+    scripts/atlas-dev.sh atlas migrate diff --env local &lt;name&gt;  # Generate DB migration
     atlas migrate apply --env local            # Apply migrations locally
   </essential-commands>
 </poly-repo-context>

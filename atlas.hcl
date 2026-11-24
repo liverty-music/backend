@@ -6,12 +6,18 @@ env "local" {
   // table in app.atlas_schema_revisions.
   url = "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app"
 
-  // A temporary database for schema analysis (diffing, linting), in a fresh
-  // container. Database scope, like the dev database of atlas-ci: Atlas reads
-  // search_path as the one schema to inspect, so "app,public" names a schema
-  // that does not exist and "app" one the replayed migrations have not
-  // created yet.
-  dev = "docker://postgres/18/dev"
+  // A temporary database for schema analysis (diffing, validating), scoped to
+  // schema app with search_path=app, so the replay puts every table in app as
+  // production does and Atlas writes unqualified names. The schema must exist
+  // before Atlas reads it, which its docker:// driver cannot arrange without
+  // `atlas login`; scripts/atlas-dev.sh starts a fresh container, creates
+  // schema app and sets ATLAS_DEV_URL. Run `migrate diff` and `migrate
+  // validate` through it:
+  //
+  //   scripts/atlas-dev.sh atlas migrate diff --env local <name>
+  //
+  // `migrate apply`, `migrate hash` and `migrate new` need no dev database.
+  dev = getenv("ATLAS_DEV_URL")
 
   // This is the "desired state" of the database, generated from models.
   schema {

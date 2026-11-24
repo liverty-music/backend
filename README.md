@@ -191,24 +191,24 @@ This project uses Atlas for database schema management with versioned migrations
 
 #### Generating a New Migration (Recommended)
 
-To generate a new migration file from your models, use `go tool atlas` with the configured arguments:
+To generate a new migration file from your models, run Atlas through `scripts/atlas-dev.sh`. It starts a throwaway PostgreSQL container with an empty schema `app` (Docker is required), uses it as Atlas's dev database and removes it afterwards:
 
 ```bash
-# This command compares your SQL schema (schema.sql) with the database state.
-atlas migrate diff --env local <migration_name>
+# This command compares your SQL schema (schema.sql) with the migration directory.
+scripts/atlas-dev.sh atlas migrate diff --env local <migration_name>
 
 # Example:
-atlas migrate diff --env local create_users_table
+scripts/atlas-dev.sh atlas migrate diff --env local create_users_table
 ```
 
 #### Atlas Migration Commands
 
 ```bash
 # Generate migration from schema changes
-atlas migrate diff --env local
+scripts/atlas-dev.sh atlas migrate diff --env local <migration_name>
 
 # Validate migrations
-atlas migrate validate --env local
+scripts/atlas-dev.sh atlas migrate validate --env local
 
 # Apply migrations (local development only)
 atlas migrate apply --env local

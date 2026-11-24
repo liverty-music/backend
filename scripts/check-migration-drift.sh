@@ -85,7 +85,7 @@ check_schema_in_sync() {
   if $migration_changed && ! $schema_changed; then
     echo "FAIL: Migration files changed but schema.sql was not updated." >&2
     echo "  Atlas best practice: edit schema.sql (desired state) FIRST," >&2
-    echo "  then run 'atlas migrate diff --env local <name>' to generate migrations." >&2
+    echo "  then run 'scripts/atlas-dev.sh atlas migrate diff --env local <name>' to generate migrations." >&2
     echo "  If this is a data-only migration, update schema.sql to match the final state." >&2
     errors=$((errors + 1))
   fi
@@ -98,9 +98,9 @@ check_atlas_hash() {
   fi
 
   local output
-  if ! output=$(cd "$REPO_ROOT" && atlas migrate validate --env local 2>&1); then
+  if ! output=$(cd "$REPO_ROOT" && bash scripts/atlas-dev.sh atlas migrate validate --env local 2>&1); then
     # Skip if the failure is due to Docker/DB not being available
-    if echo "$output" | grep -qE "timeout|connect:|connection refused|no route to host"; then
+    if echo "$output" | grep -qE "atlas-dev: |timeout|connect:|connection refused|no route to host"; then
       echo "SKIP: atlas migrate validate (dev database not available)" >&2
       return 0
     fi

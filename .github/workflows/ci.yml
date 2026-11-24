@@ -406,10 +406,18 @@ jobs:
       - name: Check Migration Ordering
         run: bash scripts/check-migration-drift.sh --check-ordering
 
+      # The dev database is scoped to schema app, like the one of
+      # scripts/atlas-dev.sh: the replay puts every table in app as production
+      # does, so a migration without `SET search_path` (what `migrate diff`
+      # now generates) resolves its tables. Atlas reads the schema before the
+      # replay, so it has to exist first.
+      - name: Create schema app in the dev database
+        run: psql "${{ env.DATABASE_URL }}" -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA app;'
+
       - name: Atlas Migrate Validate
         run: |
           atlas migrate validate \
-            --dev-url "${{ env.DATABASE_URL }}" \
+            --dev-url "${{ env.DATABASE_URL }}&search_path=app" \
             --dir "file://k8s/atlas/base/migrations"
 
   ci-success:
