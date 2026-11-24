@@ -43,7 +43,10 @@ if [ -z "$image" ]; then
 fi
 
 name="atlas-dev-$$-$RANDOM"
-cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+# -v removes the anonymous volume the postgres image declares for its data
+# directory. --rm would remove it too, but the removal started here wins the
+# race against it and, without -v, leaves the volume behind.
+cleanup() { docker rm -fv "$name" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 docker run -d --rm --name "$name" \
