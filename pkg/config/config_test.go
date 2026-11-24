@@ -105,9 +105,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				},
 				NATS:          NATSConfig{},
 				FanWebBaseURL: "http://localhost:9000",
-				Stripe: StripeConfig{
-					SettlementDisputeBufferDays: 7,
-				},
+				Stripe:        StripeConfig{},
 				Postmark: PostmarkConfig{
 					FromAddress:   "Liverty Music <noreply@mail.liverty-music.app>",
 					MessageStream: "outbound",
@@ -206,9 +204,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				},
 				NATS:          NATSConfig{},
 				FanWebBaseURL: "https://liverty-music.app",
-				Stripe: StripeConfig{
-					SettlementDisputeBufferDays: 7,
-				},
+				Stripe:        StripeConfig{},
 				Postmark: PostmarkConfig{
 					FromAddress:   "Liverty Music <noreply@mail.liverty-music.app>",
 					MessageStream: "outbound",
@@ -1009,22 +1005,20 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 	tests := []struct {
 		name             string
 		cfg              *ServerConfig
-		wantSweepers     bool
 		wantProvisioning bool
 		wantWorkflows    bool
 	}{
-		{name: "fan runs the payment sweepers and starts workflows", cfg: validNonLocalServerConfig(WorkloadFan), wantSweepers: true, wantWorkflows: true},
+		{name: "fan starts workflows", cfg: validNonLocalServerConfig(WorkloadFan), wantWorkflows: true},
 		{name: "admin provisions organizers and starts workflows", cfg: validNonLocalServerConfig(WorkloadAdmin), wantProvisioning: true, wantWorkflows: true},
 		{name: "organizer does none of them", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
 		{name: "reception does none of them", cfg: validNonLocalServerConfig(WorkloadReception)},
 		{
-			name: "local with the Stripe key and the identity service does both",
+			name: "local with the identity service provisions organizers and starts workflows",
 			cfg: &ServerConfig{
 				Environment:        "local",
 				Stripe:             StripeConfig{SecretKey: "sk_test_x"},
 				IdentityServiceURL: "http://localhost:9101",
 			},
-			wantSweepers:     true,
 			wantProvisioning: true,
 			wantWorkflows:    true,
 		},
@@ -1040,7 +1034,6 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.wantSweepers, tt.cfg.RunsPaymentSweepers())
 			assert.Equal(t, tt.wantProvisioning, tt.cfg.ProvisionsOrganizers())
 			assert.Equal(t, tt.wantWorkflows, tt.cfg.StartsWorkflows())
 		})

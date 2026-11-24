@@ -109,10 +109,13 @@ type WorkerConfig struct {
 	// fail with Unavailable and are tried again until the deadline.
 	StripeSecretKey string `envconfig:"STRIPE_SECRET_KEY"`
 
-	// SettlementDisputeBufferDays is the number of days after an event's start
-	// before the release-due-settlements schedule pays out its Settlements, as
-	// for the API's StripeConfig.SettlementDisputeBufferDays (same variable,
-	// default 7 days).
+	// SettlementDisputeBufferDays is the minimum number of calendar days that
+	// must elapse after the event's start_time before the release-due-settlements
+	// schedule releases funds to the Organizer. This dispute-safety buffer
+	// ensures the platform retains the funds long enough to respond to
+	// chargebacks. The gate condition is load-bearing for the 収納代行
+	// characterisation (the gate matters, not a bright-line duration). Default
+	// 7 days.
 	SettlementDisputeBufferDays int `envconfig:"STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS" default:"7"`
 }
 
@@ -146,8 +149,8 @@ type ServerConfig struct {
 	// Workload names the API deployment this process runs as: fan, admin,
 	// organizer or reception. Every deployment runs the same binary with all
 	// five listeners, so this, not the presence of a credential, decides the
-	// work only one deployment may do: the payment sweepers run on fan, and
-	// Organization provisioning for Organizers (with its reconciler) runs on admin.
+	// work only one deployment may do: Organization provisioning for
+	// Organizers (with its reconciler) runs on admin.
 	// Required outside local; local runs as every workload at once.
 	Workload string `envconfig:"API_WORKLOAD"`
 
@@ -1205,17 +1208,6 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 	return nil
 }
 
-// RunsPaymentSweepers reports whether this process runs the lottery draw,
-// issuance and settlement sweepers. Outside local only the fan workload does:
-// every API workload carries the Stripe key, and the sweepers must still run
-// on one deployment. Local runs them whenever a Stripe key is configured.
-func (c *ServerConfig) RunsPaymentSweepers() bool {
-	if c.IsLocal() {
-		return c.Stripe.SecretKey != ""
-	}
-	return c.Workload == WorkloadFan
-}
-
 // ProvisionsOrganizers reports whether this process provisions Organizers'
 // Organizations (and runs the provisioning reconciler). Outside local only the admin
 // workload does; local does whenever the identity service's URL is set.
@@ -1451,14 +1443,6 @@ type StripeConfig struct {
 	// sk_live_* key in production and sk_test_* in dev/staging. Left empty in
 	// local development to disable payment processing.
 	SecretKey string `envconfig:"STRIPE_SECRET_KEY"`
-
-	// SettlementDisputeBufferDays is the minimum number of calendar days that
-	// must elapse after the event's start_time before funds are released to
-	// the Organizer. This dispute-safety buffer ensures the platform retains
-	// the funds long enough to respond to chargebacks. The gate condition is
-	// load-bearing for the 収納代行 characterisation (the gate matters, not a
-	// bright-line duration). Default 7 days.
-	SettlementDisputeBufferDays int `envconfig:"STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS" default:"7"`
 
 	// OnboardingReturnURL is the URL the Stripe-hosted Connect onboarding flow
 	// redirects the Organizer to after completing (or abandoning) verification.
