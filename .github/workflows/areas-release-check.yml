@@ -1,0 +1,77 @@
+name: Area data release check
+
+# The area and time zone reference data (scripts/areas) is generated from a
+# pinned CLDR release and a pinned IANA tzdata release. This weekly check
+# compares the pins with the latest releases and opens one issue, assigned to
+# the repository owner, when either is newer. An open issue with the same
+# title is not opened again. Upgrading means changing the pins in
+# scripts/areas/sources.go and running the generator (OpenSpec change
+# globalize-venues, design Decision 2).
+
+on:
+  workflow_dispatch:
+    inputs:
+      cldr_pin:
+        description: "Pretend this CLDR tag is pinned (to test the check)"
+        required: false
+      tzdata_pin:
+        description: "Pretend this tzdata version is pinned (to test the check)"
+        required: false
+  schedule:
+    # 00:00 UTC Monday == 09:00 JST Monday.
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Compare the pins with the latest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLDR_PIN_OVERRIDE: ${{ inputs.cldr_pin }}
+          TZDATA_PIN_OVERRIDE: ${{ inputs.tzdata_pin }}
+          ASSIGNEE: pannpers
+        run: |
+          set -euo pipefail
+          pin() { sed -n "s/^[[:space:]]*$1[[:space:]]*= \"\(.*\)\"/\1/p" scripts/areas/sources.go; }
+          cldr_pin="${CLDR_PIN_OVERRIDE:-$(pin cldrTag)}"
+          tz_pin="${TZDATA_PIN_OVERRIDE:-$(pin tzdataVersion)}"
+          test -n "$cldr_pin" && test -n "$tz_pin"
+
+          # CLDR publishes numbered releases (release-49) beside other tags.
+          cldr_latest=$(gh api 'repos/unicode-org/cldr/releases?per_page=50' \
+            --jq '[.[] | select(.prerelease | not) | .tag_name | select(test("^release-[0-9]+$")) | ltrimstr("release-") | tonumber] | max | "release-\(.)"')
+          tz_latest=$(curl -fsS https://data.iana.org/time-zones/tzdb/version)
+          echo "CLDR pinned $cldr_pin, latest $cldr_latest; tzdata pinned $tz_pin, latest $tz_latest"
+
+          newer=()
+          if [ "${cldr_latest#release-}" -gt "${cldr_pin#release-}" ]; then newer+=("CLDR $cldr_latest"); fi
+          # tzdata versions (2026f) sort as strings.
+          if [[ "$tz_latest" > "$tz_pin" ]]; then newer+=("tzdata $tz_latest"); fi
+          if [ ${#newer[@]} -eq 0 ]; then
+            echo "The pins are current."
+            exit 0
+          fi
+
+          title="Area data: $(IFS=', '; echo "${newer[*]}") released"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json title --jq '.[].title' | grep -Fxq "$title"; then
+            echo "An open issue already says so: $title"
+            exit 0
+          fi
+          body=$(printf '%s\n' \
+            "A newer release of the area reference data sources exists." \
+            "" \
+            "- CLDR: pinned \`$cldr_pin\`, latest \`$cldr_latest\`" \
+            "- IANA tzdata: pinned \`$tz_pin\`, latest \`$tz_latest\`" \
+            "" \
+            "To upgrade, change the pins in \`scripts/areas/sources.go\` and run the generator (see the comment at the top of \`scripts/areas/main.go\`). It fails when a code or zone that the current seed has would be lost, or a first-level code stops being first-level; the upgrading change then remaps the affected venues, homes and sales." \
+            "" \
+            "A tzdata release also needs the Go toolchain (\`time/tzdata\`) and Cloud SQL upgraded so that computed instants follow the new rules.")
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --assignee "$ASSIGNEE"
