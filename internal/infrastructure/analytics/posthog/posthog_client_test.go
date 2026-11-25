@@ -9,7 +9,7 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
-	posthogsdk "github.com/posthog/posthog-go"
+	posthogsdk "github.com/posthog/posthog-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace"
