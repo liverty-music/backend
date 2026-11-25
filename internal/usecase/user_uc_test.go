@@ -1310,6 +1310,14 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 			want: []entity.DeletionBlocker{},
 		},
 		{
+			// @spec components/usecase/user/list-deletion-blockers "Resold listing awaiting its refund"
+			name: "ignores a sold listing that is not refunded yet",
+			reads: deletionReads{
+				listings: []*entity.ResaleListing{{ID: "l1", EventID: "e1", Status: entity.ResaleListingStatusSold}},
+			},
+			want: []entity.DeletionBlocker{},
+		},
+		{
 			// @spec components/usecase/user/list-deletion-blockers "Finished entries and withdrawn listings"
 			name: "ignores a lost entry and a withdrawn listing",
 			reads: deletionReads{
@@ -1463,6 +1471,18 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name:    "refuses a user with a won entry that has no order yet",
 			reads:   &deletionReads{entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}}},
 			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/user/delete "User with a resold listing awaiting its refund"
+			// The listing is Sold and has no refund time: the user is removed.
+			// That the refund runs without the user is covered where it runs:
+			// ResaleListingUseCase.RefundSold reads no User (TestResaleListingUseCase_RefundSold),
+			// and SendResaleSold skips the email of a deleted user (the "listing's user deleted" test).
+			name: "removes a user whose only resale listing is sold and not refunded yet",
+			reads: &deletionReads{
+				listings: []*entity.ResaleListing{{ID: "l1", EventID: "e1", Status: entity.ResaleListingStatusSold}},
+			},
+			setup: removed,
 		},
 		{
 			// @spec components/usecase/user/delete "User with only refunded purchases"
