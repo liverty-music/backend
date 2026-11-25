@@ -41,7 +41,7 @@ const (
 	// It is its own statement on purpose: the read that follows takes a new
 	// snapshot and sees what the other transaction stored. FOR UPDATE on
 	// getUserQuery itself would not: after the lock wait PostgreSQL re-reads
-	// only the locked users row, and joins it to homes as of the statement's
+	// only the locked users row, and joins it to user_home_areas as of the statement's
 	// start, where the Home just stored does not exist yet.
 	lockUserRowQuery = `SELECT id FROM users WHERE id = $1 FOR UPDATE`
 
