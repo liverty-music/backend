@@ -71,6 +71,9 @@ func (tp *TracedPool) registerPoolMetrics(pool *pgxpool.Pool) {
 // Query executes a query that returns rows, with tracing and traceparent injection.
 // The span is ended when the returned Rows is closed, covering the full row iteration.
 func (tp *TracedPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if tx, ok := boundTx(ctx); ok {
+		return tx.Query(ctx, sql, args...)
+	}
 	ctx, span := tp.startSpan(ctx, sql)
 
 	rows, err := tp.inner.Query(ctx, InjectTraceparent(ctx, sql), args...)
@@ -85,6 +88,9 @@ func (tp *TracedPool) Query(ctx context.Context, sql string, args ...any) (pgx.R
 // QueryRow executes a query that returns at most one row, with tracing and traceparent injection.
 // A runtime finalizer ensures the span is eventually ended even if Scan is never called.
 func (tp *TracedPool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if tx, ok := boundTx(ctx); ok {
+		return tx.QueryRow(ctx, sql, args...)
+	}
 	ctx, span := tp.startSpan(ctx, sql)
 
 	row := tp.inner.QueryRow(ctx, InjectTraceparent(ctx, sql), args...)
@@ -95,6 +101,9 @@ func (tp *TracedPool) QueryRow(ctx context.Context, sql string, args ...any) pgx
 
 // Exec executes a query that doesn't return rows, with tracing and traceparent injection.
 func (tp *TracedPool) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if tx, ok := boundTx(ctx); ok {
+		return tx.Exec(ctx, sql, args...)
+	}
 	ctx, span := tp.startSpan(ctx, sql)
 	defer span.End()
 

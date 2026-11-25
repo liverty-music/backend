@@ -25,6 +25,12 @@ import (
 // max_connections. It is closed when the test ends.
 func newTestDB(t *testing.T) *rdb.Database {
 	t.Helper()
+	return newTestDBWithPool(t, 4)
+}
+
+// newTestDBWithPool is newTestDB with a pool of at most maxConns connections.
+func newTestDBWithPool(t *testing.T, maxConns int) *rdb.Database {
+	t.Helper()
 	clone := testutil.NewDatabase(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -36,7 +42,7 @@ func newTestDB(t *testing.T) *rdb.Database {
 		SSLMode: "disable",
 		// Same search_path as production (app, public).
 		Schema:            "app",
-		MaxOpenConns:      4,
+		MaxOpenConns:      maxConns,
 		MaxIdleConns:      2,
 		ConnMaxLifetime:   1800,
 		MaxConnIdleTime:   600,

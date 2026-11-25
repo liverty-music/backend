@@ -294,7 +294,10 @@ type UserRepository interface {
 	// store, and store nothing once the user is gone, so a deletion that
 	// checks what blocks it inside fn never misses a record created
 	// concurrently. The lock is released when fn returns, and also when the
-	// process holding it dies.
+	// process holding it dies. The context passed to fn is bound to the
+	// transaction that holds the lock, so fn's database work runs on that one
+	// connection, one query at a time; the transaction commits when fn
+	// returns nil, and fn's writes are rolled back when it fails.
 	//
 	// # Possible errors
 	//
