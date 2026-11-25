@@ -6,6 +6,9 @@
 #   2. If migrations/ changed in git, schema.sql must also be changed
 #   3. atlas migrate validate (hash integrity) — skipped if atlas not available
 #   4. Out-of-order migration timestamp detection (compares branch files against origin/main)
+#   5. The reference data directory (reference-data/, applied by the
+#      backend-reference-data AtlasMigration): kustomization.yaml lists every
+#      file, and its atlas.sum matches the files
 #
 # Exit codes:
 #   0  all checks passed
@@ -21,6 +24,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MIGRATIONS_DIR="$REPO_ROOT/k8s/atlas/base/migrations"
+REFERENCE_DIR="$REPO_ROOT/k8s/atlas/base/reference-data"
 KUSTOMIZATION="$REPO_ROOT/k8s/atlas/base/kustomization.yaml"
 MODE="${1:-}"
 errors=0
@@ -280,9 +284,41 @@ fix_migration_ordering() {
   echo "Migration ordering fixed." >&2
 }
 
+# ── Check 5: reference data directory ─────────────────────────────────
+# Its files only insert rows into tables the schema migrations create, so
+# `atlas migrate validate` (which replays the directory on an empty dev
+# database) cannot run on it; the hash is recomputed in a copy instead.
+check_reference_data() {
+  [ -d "$REFERENCE_DIR" ] || return 0
+  local missing=()
+  for f in "$REFERENCE_DIR"/*.sql "$REFERENCE_DIR"/atlas.sum; do
+    [ -f "$f" ] || continue
+    if ! grep -qF "reference-data/$(basename "$f")" "$KUSTOMIZATION"; then
+      missing+=("$(basename "$f")")
+    fi
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    echo "FAIL: Reference data files missing from kustomization.yaml (atlas-reference-data-dir):" >&2
+    printf '  - %s\n' "${missing[@]}" >&2
+    errors=$((errors + 1))
+  fi
+
+  command -v atlas &>/dev/null || return 0
+  local tmp
+  tmp="$(mktemp -d)"
+  cp "$REFERENCE_DIR"/*.sql "$tmp"/
+  if ! (atlas migrate hash --dir "file://$tmp" >/dev/null 2>&1 && cmp -s "$tmp/atlas.sum" "$REFERENCE_DIR/atlas.sum"); then
+    echo "FAIL: k8s/atlas/base/reference-data/atlas.sum does not match its files." >&2
+    echo "  Run: atlas migrate hash --dir file://k8s/atlas/base/reference-data" >&2
+    errors=$((errors + 1))
+  fi
+  rm -rf "$tmp"
+}
+
 # ── Run checks ────────────────────────────────────────────────────────
 check_kustomization
 check_migration_ordering
+check_reference_data
 if [ "$MODE" != "--check-ordering" ]; then
   check_schema_in_sync
   check_atlas_hash

@@ -44,6 +44,14 @@ When adding a new migration:
 5. Run `scripts/check-migration-drift.sh` (kustomization listing, `schema.sql` changed with the migrations, `atlas migrate validate` through `scripts/atlas-dev.sh`, timestamp order against `origin/main`) and `make lint-schema`.
 6. All of these changes go in the same PR.
 
+#### Reference data (areas and time zones)
+
+The area and time zone rows (`areas`, `time_zones`, `country_time_zones`, `area_memberships`) are not written by schema migrations. `scripts/areas` generates them from pinned CLDR, IANA tzdata and Natural Earth releases into `k8s/atlas/base/reference-data/`, a second migration directory: the seed is too large for the schema migrations' ConfigMap (1 MiB). The `backend-reference-data` AtlasMigration applies it after the schema migrations (sync wave 2), database-scoped, with its history in the schema `atlas_reference_data` and `20261124120000_baseline.sql` as its baseline. The tables themselves stay in `schema.sql` and the schema migrations.
+
+- To change the data, edit the pins or the hand-kept CSV files in `scripts/areas`, run `go run ./scripts/areas -out k8s/atlas/base/reference-data/<version>_seed_areas.sql` (it writes only the rows that changed since `scripts/areas/seed.json`), run `atlas migrate hash --dir file://k8s/atlas/base/reference-data`, and add the file to the `atlas-reference-data-dir` ConfigMap in `k8s/atlas/base/kustomization.yaml`.
+- A schema migration that depends on new reference rows (a foreign key to a new code) goes in a later merge: both directories apply in the same sync, schema first.
+- `testutil.NewDatabase`, CI and `scripts/check-migration-drift.sh` cover the directory too.
+
 #### Function migrations
 
 Atlas Community (the CLI without `atlas login`, which this repository uses) cannot read functions, procedures, triggers or views from the desired state: a `CREATE FUNCTION` in `schema.sql` makes `migrate diff` fail with `functions and procedures are available to logged-in users only`. It also skips them when it inspects a database, so a diff never drops one. Keep them out of `schema.sql`:

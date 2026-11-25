@@ -5,6 +5,7 @@ namespace: atlas-operator
 
 resources:
 - atlas-migration.yaml
+- reference-data-migration.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -155,3 +156,11 @@ configMapGenerator:
   - migrations/20261119070000_unify_timestamp_naming.sql
   - migrations/20261119090000_delete_ticket_stock_void_orders_only.sql
   - migrations/20261119100000_drop_suppressed_concerts.sql
+  - migrations/20261124100811_add_area_reference_data.sql
+# The reference data directory (see reference-data-migration.yaml). The keys
+# are the bare file names, as Atlas reads the directory from the ConfigMap.
+- name: atlas-reference-data-dir
+  files:
+  - reference-data/atlas.sum
+  - reference-data/20261124120000_baseline.sql
+  - reference-data/20261124120100_seed_areas.sql
