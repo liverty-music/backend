@@ -49,7 +49,7 @@ require (
 	github.com/ThreeDotsLabs/watermill-sql/v4 v4.1.5
 	github.com/cenkalti/backoff/v7 v7.0.3
 	github.com/davidbyttow/govips/v2 v2.20.0
-	github.com/dbos-inc/dbos-transact-golang v1.8.0
+	github.com/dbos-inc/dbos-transact-golang v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/jwx-go/jwkfetch/v4 v4.0.4
@@ -174,7 +174,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.3 // indirect
+	github.com/jackc/puddle/v2 v2.2.4 // indirect
 	github.com/jdx/go-netrc v1.0.0 // indirect
 	github.com/jedib0t/go-pretty/v6 v6.7.8 // indirect
 	github.com/klauspost/compress v1.20.4 // indirect
@@ -224,7 +224,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
@@ -248,7 +248,7 @@ require (
 	go.uber.org/mock v0.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/arch v0.28.0 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
