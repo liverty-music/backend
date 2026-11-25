@@ -343,7 +343,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	require.Len(t, pushes, 1, "the tracking fan's browser receives one push")
 	assert.Equal(t, "[tuki.] 先着販売のお知らせ", pushes[0].Title)
 	assert.Equal(t, "10/6(火) 19:00から先着販売スタート!!\n星降る晩餐会", pushes[0].Body)
-	assert.Equal(t, "/concerts/"+banquetEvent, pushes[0].Data[entity.NotificationDataKeyURL],
+	assert.Equal(t, "/timetable?concert="+banquetEvent, pushes[0].Data[entity.NotificationDataKeyURL],
 		"tapping the push opens the tracked 20 December event")
 	records := d.notificationList(t, tracking, entity.NotificationTypeTicketSaleAnnouncement)
 	require.Len(t, records, 1)
@@ -367,7 +367,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 	require.Len(t, listed, 1)
 	assert.Equal(t, entity.NotificationTypeTicketSaleAnnouncement, listed[0].Notification.Type)
 	assert.Equal(t, "[tuki.] 先着販売のお知らせ", listed[0].Message.Title)
-	assert.Equal(t, "/concerts/"+banquetEvent, listed[0].Message.Data[entity.NotificationDataKeyURL])
+	assert.Equal(t, "/timetable?concert="+banquetEvent, listed[0].Message.Data[entity.NotificationDataKeyURL])
 
 	// The next day the same presale is found again (the search log is cleared
 	// so the series is searched): it is not announced again.
@@ -447,12 +447,12 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	firstCome, ok := byTitle["[story-artist] まもなく先着販売開始"]
 	require.True(t, ok, "first-come reminder arrives before the sale opens")
 	assert.True(t, strings.HasSuffix(firstCome.Body, "から先着販売スタート!!\nSHADOWS"), firstCome.Body)
-	assert.Equal(t, "/concerts/"+shadowsEvent, firstCome.Data[entity.NotificationDataKeyURL])
+	assert.Equal(t, "/timetable?concert="+shadowsEvent, firstCome.Data[entity.NotificationDataKeyURL])
 	lottery, ok := byTitle["[story-artist] 抽選受付スタート"]
 	require.True(t, ok, "lottery open reminder")
 	assert.True(t, strings.HasPrefix(lottery.Body, "抽選申し込みがスタートしました!! 締切は"), lottery.Body)
 	assert.True(t, strings.HasSuffix(lottery.Body, "\nKICKOFF"), lottery.Body)
-	assert.Equal(t, "/concerts/"+kickoffEvent, lottery.Data[entity.NotificationDataKeyURL])
+	assert.Equal(t, "/timetable?concert="+kickoffEvent, lottery.Data[entity.NotificationDataKeyURL])
 	assert.Equal(t, 2, d.notificationsOf(t, fan, entity.NotificationTypeSalesReminder))
 
 	assert.Empty(t, d.push.to(appliedFan), "a fan who has applied gets no reminder")
@@ -538,7 +538,7 @@ func TestStory_LotteryClosingSoon(t *testing.T) {
 	assert.Equal(t, "[story-artist] 抽選締切が近づいています", pushes[0].Title)
 	assert.True(t, strings.HasPrefix(pushes[0].Body, "抽選申し込みの締切は"), pushes[0].Body)
 	assert.True(t, strings.HasSuffix(pushes[0].Body, "!!\nKICKOFF"), pushes[0].Body)
-	assert.Equal(t, "/concerts/"+kickoffEvent, pushes[0].Data[entity.NotificationDataKeyURL])
+	assert.Equal(t, "/timetable?concert="+kickoffEvent, pushes[0].Data[entity.NotificationDataKeyURL])
 	records := d.notificationList(t, tracking, entity.NotificationTypeSalesReminder)
 	require.Len(t, records, 1)
 	assert.Equal(t, entity.NotificationSubject{
