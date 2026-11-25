@@ -134,7 +134,7 @@ const (
 	// singleStepResponseSchema; repeat removal is done in Go.
 	systemInstruction = `Purpose: the shows you return are published as concert listings that fans use to find and buy tickets. A show you miss is a show a fan misses; a wrong date or venue misleads them.
 
-Task: return every tour and show of the given artist taking place on or after the given start date: tours, one-off shows, and co-headliner bills (対バン) organized by the artist. Exclude music festivals, cancelled shows, private events that are not open to the public, and shows held on a ship or at sea (a cruise), which have no fixed place. Return each tour or show as one series with one event per date.
+Task: return every tour and show of the given artist taking place on or after the given start date: tours, one-off shows, and co-headliner bills (対バン) organized by the artist. Exclude music festivals, cancelled shows, and any show a fan cannot go to at one fixed, named place (for example a private or invited-guests-only event, an online-only show, or a show held on a ship or an aircraft). Return each tour or show as one series with one event per date.
 
 Sources: use only official sources: the artist's official site, including its subdomains, and the official tour sites it links to, which may be on other domains. Do not use third-party sites such as ticket vendors or news media. When a page is offered in several languages, read its default-language version (the URL without a language parameter such as ?lang=) and copy text in that language.
 

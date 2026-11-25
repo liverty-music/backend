@@ -418,7 +418,7 @@ func TestConcertSearcher_Search_Request(t *testing.T) {
 
 				sys := body["systemInstruction"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
 				// The instruction asks for the exclusion; the model's judgement is not unit-testable.
-				assert.Contains(t, sys, "Exclude music festivals, cancelled shows, private events that are not open to the public, and shows held on a ship or at sea (a cruise), which have no fixed place.")
+				assert.Contains(t, sys, "Exclude music festivals, cancelled shows, and any show a fan cannot go to at one fixed, named place (for example a private or invited-guests-only event, an online-only show, or a show held on a ship or an aircraft).")
 				assert.Contains(t, sys, "Done when: every tour that the official sources mention has all of its announced dates in your answer.")
 			},
 		},

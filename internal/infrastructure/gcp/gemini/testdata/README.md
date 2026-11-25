@@ -103,6 +103,35 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
+## Latest result (2026-11-26, globalize-venues: shows with no fixed place)
+
+The Task sentence of the system instruction now excludes any show a fan cannot
+go to at one fixed, named place (private or invited-guests-only events,
+online-only shows, shows on a ship or an aircraft are examples), where it
+listed two cases before. Runs: `ab_results/20261125T170844Z.*` (4 artists × 3
+reps, final wording) and, on [Alexandros] only, 6 reps of each wording:
+`20261125T165827Z.*` (before the change), `20261125T170144Z.*` (the two-case
+list), `20261125T170153Z.*` (final) and `20261125T165813Z.*` (final plus one
+sentence in Purpose saying a show is listed under its venue's city and time
+zone).
+
+| [Alexandros], 6 reps | recall |
+|---|---|
+| before the change | 0.85 ×6 |
+| two-case list | 0.85 ×6 |
+| final wording | 0.85 ×6 |
+| final plus the Purpose sentence | 0.55, 0.50 and 0.85 ×4 (one run returned 12 dates) |
+
+The Purpose sentence was dropped. With the final wording the full run gave
+1.00 ×3 on Vaundy, SUPER BEAVER and go!go!vanillas, and 0.85, 0.55, 0.85 on
+[Alexandros]; the 0.55 run returned the same 20 dates with 8 venue names
+carrying the prefecture, the noise recorded below, so it is not an effect of
+the exclusion. Venue and area accuracy were 1.00 in every run, no run was empty
+or failed, and the mean cost was $0.093 per call. The fixture holds no private,
+online-only or ship show, so the exclusion itself is not measured; the next
+discovery run's candidates are read for one (OpenSpec change globalize-venues,
+Decision 18).
+
 ## Latest result (2026-11-25, globalize-venues)
 
 The response schema gains a required `time_zone` per event, and
