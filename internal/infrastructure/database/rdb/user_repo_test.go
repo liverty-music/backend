@@ -3,7 +3,6 @@ package rdb_test
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 	"time"
 
@@ -112,7 +111,6 @@ func TestUserRepository_Create(t *testing.T) {
 
 			if tt.args.params.Home != nil {
 				require.NotNil(t, got.Home)
-				assert.NotEmpty(t, got.Home.ID)
 				assert.Equal(t, tt.args.params.Home.CountryCode, got.Home.CountryCode)
 				assert.Equal(t, tt.args.params.Home.Level1, got.Home.Level1)
 			} else {
@@ -396,6 +394,26 @@ func TestUserRepository_Delete(t *testing.T) {
 		assert.False(t, rowExists(t, db, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "identity_verification")
 	})
 
+	t.Run("home goes with the user", func(t *testing.T) {
+		// @spec components/entity/user/delete "Home goes with the user"
+		cleanTables(t, db)
+		deleted, err := repo.Create(ctx, newTestUser("ext-del-h1", "delh1@example.com", "DelH1"))
+		require.NoError(t, err)
+		other, err := repo.Create(ctx, newTestUser("ext-del-h2", "delh2@example.com", "DelH2"))
+		require.NoError(t, err)
+		for _, id := range []string{deleted.ID, other.ID} {
+			_, err = repo.UpdateHome(ctx, id, &entity.Home{CountryCode: "JP", Level1: "JP-40"})
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, repo.Delete(ctx, deleted.ID))
+
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM user_home_areas WHERE user_id = $1`, deleted.ID))
+		got, err := repo.Get(ctx, other.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "JP-40", got.Home.Level1)
+	})
+
 	t.Run("purchases outlive the user", func(t *testing.T) {
 		// @spec components/entity/user/delete "Purchases outlive the user"
 		cleanTables(t, db)
@@ -439,165 +457,118 @@ func TestUserRepository_Delete(t *testing.T) {
 	})
 }
 
+// areaPoint reads the reference point of an Area from the seeded reference
+// data.
+func areaPoint(t *testing.T, db *rdb.Database, code string) *entity.Coordinates {
+	t.Helper()
+	var lat, lng float64
+	require.NoError(t, db.Pool.QueryRow(context.Background(),
+		`SELECT reference_latitude, reference_longitude FROM areas WHERE code = $1`, code).Scan(&lat, &lng))
+	return &entity.Coordinates{Latitude: lat, Longitude: lng}
+}
+
+func TestUserRepository_CreateHome(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
+	ctx := context.Background()
+
+	t.Run("Japanese prefecture", func(t *testing.T) {
+		// @spec components/entity/user/create "Japanese prefecture"
+		user, err := repo.Create(ctx, newTestUserWithHome("ext-ch-1", "ch1@example.com", "CH1"))
+		require.NoError(t, err)
+		assert.Equal(t, &entity.Home{CountryCode: "JP", Level1: "JP-13", ReferencePoint: areaPoint(t, db, "JP-13")}, user.Home)
+
+		// @spec components/entity/user/get "User with a home"
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, user.Home, got.Home)
+	})
+	t.Run("Area without a reference point", func(t *testing.T) {
+		// @spec components/entity/user/create "Area without a reference point"
+		_, err := db.Pool.Exec(ctx, `INSERT INTO areas (code, kind, country_code, name_en) VALUES ('XA', 'country', 'XA', 'Nowhere')`)
+		require.NoError(t, err)
+		params := newTestUser("ext-ch-2", "ch2@example.com", "CH2")
+		params.Home = &entity.Home{CountryCode: "XA", Level1: "XA"}
+
+		user, err := repo.Create(ctx, params)
+		require.NoError(t, err)
+		assert.Equal(t, &entity.Home{CountryCode: "XA", Level1: "XA"}, user.Home)
+	})
+	t.Run("Level 1 that is no first-level Area", func(t *testing.T) {
+		// @spec components/entity/user/create "Level 1 that is no first-level Area"
+		params := newTestUser("ext-ch-3", "ch3@example.com", "CH3")
+		params.Home = &entity.Home{CountryCode: "FR", Level1: "FR-33"}
+
+		_, err := repo.Create(ctx, params)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		_, err = repo.GetByProviderUserID(ctx, "ext-ch-3")
+		assert.ErrorIs(t, err, apperr.ErrNotFound, "no User is stored")
+	})
+}
+
 func TestUserRepository_UpdateHome(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	repo := rdb.NewUserRepository(db, testOutbox)
 	ctx := context.Background()
 
-	t.Run("creates home for user without one", func(t *testing.T) {
-		cleanTables(t, db)
+	t.Run("First home", func(t *testing.T) {
+		// @spec components/entity/user/update-home "First home"
 		user, err := repo.Create(ctx, newTestUser("ext-uh-1", "uh1@example.com", "UH1"))
 		require.NoError(t, err)
 		assert.Nil(t, user.Home)
 
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
-
-		updated, err := repo.UpdateHome(ctx, user.ID, home)
+		updated, err := repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "JP", Level1: "JP-13"})
 
 		require.NoError(t, err)
-		require.NotNil(t, updated.Home)
-		assert.NotEmpty(t, updated.Home.ID)
-		assert.Equal(t, "JP", updated.Home.CountryCode)
-		assert.Equal(t, "JP-13", updated.Home.Level1)
-		assert.Nil(t, updated.Home.Level2)
+		assert.Equal(t, &entity.Home{CountryCode: "JP", Level1: "JP-13", ReferencePoint: areaPoint(t, db, "JP-13")}, updated.Home)
 	})
-
-	t.Run("updates existing home", func(t *testing.T) {
-		cleanTables(t, db)
+	t.Run("Changing the home", func(t *testing.T) {
+		// @spec components/entity/user/update-home "Changing the home"
 		user, err := repo.Create(ctx, newTestUserWithHome("ext-uh-2", "uh2@example.com", "UH2"))
 		require.NoError(t, err)
-		require.NotNil(t, user.Home)
-		assert.Equal(t, "JP-13", user.Home.Level1)
 
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-40",
-		}
-
-		updated, err := repo.UpdateHome(ctx, user.ID, home)
+		updated, err := repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "KR", Level1: "KR-11"})
 
 		require.NoError(t, err)
-		require.NotNil(t, updated.Home)
-		assert.Equal(t, "JP", updated.Home.CountryCode)
-		assert.Equal(t, "JP-40", updated.Home.Level1)
+		assert.Equal(t, &entity.Home{CountryCode: "KR", Level1: "KR-11", ReferencePoint: areaPoint(t, db, "KR-11")}, updated.Home)
+		var homes int
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM user_home_areas WHERE user_id = $1`, user.ID).Scan(&homes))
+		assert.Equal(t, 1, homes, "the User has no other Home")
 	})
+	t.Run("Level 1 that is no first-level Area", func(t *testing.T) {
+		// @spec components/entity/user/update-home "Level 1 that is no first-level Area"
+		user, err := repo.Create(ctx, newTestUserWithHome("ext-uh-3", "uh3@example.com", "UH3"))
+		require.NoError(t, err)
 
-	t.Run("empty ID returns error", func(t *testing.T) {
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
-
-		_, err := repo.UpdateHome(ctx, "", home)
+		_, err = repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "JP", Level1: "JP-99"})
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-}
-
-// Two first UpdateHome calls for one User at the same time store one Home:
-// the second waits for the first and updates the Home it stored. Without the
-// row lock both insert a Home and one is left that no User refers to.
-func TestUserRepository_UpdateHome_ConcurrentFirstCalls(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	repo := rdb.NewUserRepository(db, testOutbox)
-	ctx := context.Background()
-
-	// The window between the read and the insert is short, so the race is
-	// run for several Users.
-	const users = 20
-	for i := range users {
-		user, err := repo.Create(ctx, newTestUser(fmt.Sprintf("ext-race-%d", i), fmt.Sprintf("race-%d@example.com", i), "Racer"))
-		require.NoError(t, err)
-
-		start := make(chan struct{})
-		errs := make(chan error, 2)
-		for _, level1 := range []string{"JP-13", "JP-27"} {
-			go func() {
-				<-start
-				_, err := repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "JP", Level1: level1})
-				errs <- err
-			}()
-		}
-		close(start)
-		require.NoError(t, <-errs)
-		require.NoError(t, <-errs)
-	}
-
-	var homes, unreferenced int
-	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*) FROM homes`).Scan(&homes))
-	require.NoError(t, db.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM homes h WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.home_id = h.id)`).Scan(&unreferenced))
-	assert.Equal(t, users, homes, "one Home per User")
-	assert.Zero(t, unreferenced, "no Home is left that no User refers to")
-}
-
-func TestUserRepository_CentroidRoundTrip(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	repo := rdb.NewUserRepository(db, testOutbox)
-	ctx := context.Background()
-
-	// The repository stores the position it is given; computing it is the
-	// usecase's (entity.Home.ResolveCentroid).
-	t.Run("a given position is stored on Create and persists through Get", func(t *testing.T) {
-		cleanTables(t, db)
-		params := newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1")
-		params.Home.Centroid = &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917}
-		user, err := repo.Create(ctx, params)
-		require.NoError(t, err)
-		require.NotNil(t, user.Home)
-		require.NotNil(t, user.Home.Centroid)
-		assert.InDelta(t, 35.6894, user.Home.Centroid.Latitude, 0.01)
-		assert.InDelta(t, 139.6917, user.Home.Centroid.Longitude, 0.01)
-
-		// Verify round-trip through Get
 		got, err := repo.Get(ctx, user.ID)
 		require.NoError(t, err)
-		require.NotNil(t, got.Home)
-		require.NotNil(t, got.Home.Centroid, "Centroid should persist through Get")
-		assert.InDelta(t, 35.6894, got.Home.Centroid.Latitude, 0.01)
-		assert.InDelta(t, 139.6917, got.Home.Centroid.Longitude, 0.01)
+		assert.Equal(t, "JP-13", got.Home.Level1)
 	})
-
-	t.Run("a given position is stored on UpdateHome", func(t *testing.T) {
-		cleanTables(t, db)
-		user, err := repo.Create(ctx, newTestUser("ext-crt-2", "crt2@example.com", "CRT2"))
+	t.Run("Area's reference point changed", func(t *testing.T) {
+		// @spec components/entity/user "Area's reference point changed"
+		user, err := repo.Create(ctx, newTestUser("ext-uh-4", "uh4@example.com", "UH4"))
+		require.NoError(t, err)
+		_, err = repo.UpdateHome(ctx, user.ID, &entity.Home{CountryCode: "KR", Level1: "KR-11"})
+		require.NoError(t, err)
+		_, err = db.Pool.Exec(ctx, `UPDATE areas SET reference_latitude = 37.5, reference_longitude = 127.0 WHERE code = 'KR-11'`)
 		require.NoError(t, err)
 
-		updated, err := repo.UpdateHome(ctx, user.ID, &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-27",
-			Centroid:    &entity.Coordinates{Latitude: 34.6863, Longitude: 135.5200},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, updated.Home)
-		require.NotNil(t, updated.Home.Centroid)
-		assert.InDelta(t, 34.6863, updated.Home.Centroid.Latitude, 0.01)
-		assert.InDelta(t, 135.5200, updated.Home.Centroid.Longitude, 0.01)
-	})
-
-	t.Run("no position is stored when none is given", func(t *testing.T) {
-		cleanTables(t, db)
-		u := newTestUser("ext-crt-3", "crt3@example.com", "CRT3")
-		u.Home = &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
-		user, err := repo.Create(ctx, u)
-		require.NoError(t, err)
-		require.NotNil(t, user.Home)
-		assert.Nil(t, user.Home.Centroid, "the repository does not look a position up")
-
-		// Verify nil Centroid persists through Get
 		got, err := repo.Get(ctx, user.ID)
 		require.NoError(t, err)
-		require.NotNil(t, got.Home)
-		assert.Nil(t, got.Home.Centroid, "Centroid should remain nil through Get")
+		assert.Equal(t, &entity.Coordinates{Latitude: 37.5, Longitude: 127.0}, got.Home.ReferencePoint)
+	})
+	t.Run("unknown user", func(t *testing.T) {
+		_, err := repo.UpdateHome(ctx, entity.NewID(), &entity.Home{CountryCode: "JP", Level1: "JP-13"})
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+	t.Run("empty ID returns error", func(t *testing.T) {
+		_, err := repo.UpdateHome(ctx, "", &entity.Home{CountryCode: "JP", Level1: "JP-13"})
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
 

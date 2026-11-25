@@ -40,7 +40,7 @@ func newTicketJourneyTestDeps(t *testing.T) *ticketJourneyTestDeps {
 // Nearby).
 var (
 	tokyoLevel1  = "JP-13"
-	tokyoHome    = &entity.Home{CountryCode: "JP", Level1: tokyoLevel1, Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}
+	tokyoHome    = &entity.Home{CountryCode: "JP", Level1: tokyoLevel1, ReferencePoint: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}
 	fukuokaLevel = "JP-40"
 	yokohamaArea = "JP-14"
 )

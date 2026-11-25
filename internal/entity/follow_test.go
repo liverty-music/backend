@@ -79,9 +79,9 @@ func hypeTestFixture() (tokyoHome *entity.Home, tokyo, yokohama, osaka *entity.C
 	osakaCoords := &entity.Coordinates{Latitude: 34.6937, Longitude: 135.5023}
 
 	tokyoHome = &entity.Home{
-		CountryCode: "JP",
-		Level1:      tokyoLevel1,
-		Centroid:    tokyoCentroid,
+		CountryCode:    "JP",
+		Level1:         tokyoLevel1,
+		ReferencePoint: tokyoCentroid,
 	}
 
 	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)

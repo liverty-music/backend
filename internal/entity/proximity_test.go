@@ -17,10 +17,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 	osakaLevel1 := "JP-27"
 
 	home := &entity.Home{
-		ID:          "home-1",
-		CountryCode: "JP",
-		Level1:      tokyoLevel1,
-		Centroid:    &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
+		CountryCode:    "JP",
+		Level1:         tokyoLevel1,
+		ReferencePoint: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
 	}
 
 	tests := []struct {
@@ -105,10 +104,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 		{
 			name: "AWAY: home centroid is nil (unsupported country)",
 			home: &entity.Home{
-				ID:          "home-2",
-				CountryCode: "JP",
-				Level1:      tokyoLevel1,
-				Centroid:    nil,
+				CountryCode:    "JP",
+				Level1:         tokyoLevel1,
+				ReferencePoint: nil,
 			},
 			c: &entity.Concert{
 				Venue: &entity.Venue{

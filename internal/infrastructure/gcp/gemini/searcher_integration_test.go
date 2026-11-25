@@ -459,7 +459,7 @@ func runCell(
 		ThinkingLevel:   cell.Thinking,
 
 		IncludeServerSideToolInvocations: cell.IncludeToolInvocations,
-	}, nil, pageClient, logger)
+	}, nil, pageClient, testAreas(t), logger)
 	if err != nil {
 		res.Error = "construct searcher: " + err.Error()
 		writeRawResponse(t, rawDir, cellIdx, cell, nil, nil, res.Error)

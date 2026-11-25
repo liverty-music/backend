@@ -23,12 +23,15 @@ type UserRepository struct {
 const (
 	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number, u.last_login_time`
 
-	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
+	// homeColumns are the user's home Area and, from the Area, its country
+	// and reference point; homeJoin reaches them.
+	homeColumns = `uh.area_code, ha.country_code, ha.reference_latitude, ha.reference_longitude`
+	homeJoin    = `LEFT JOIN user_home_areas uh ON uh.user_id = u.id LEFT JOIN areas ha ON ha.code = uh.area_code`
 
 	getUserQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
+		` + homeJoin + `
 		WHERE u.id = $1
 	`
 
@@ -38,14 +41,14 @@ const (
 	// It is its own statement on purpose: the read that follows takes a new
 	// snapshot and sees what the other transaction stored. FOR UPDATE on
 	// getUserQuery itself would not: after the lock wait PostgreSQL re-reads
-	// only the locked users row, and joins it to homes as of the statement's
+	// only the locked users row, and joins it to user_home_areas as of the statement's
 	// start, where the Home just stored does not exist yet.
 	lockUserRowQuery = `SELECT id FROM users WHERE id = $1 FOR UPDATE`
 
 	getUserByProviderUserIDQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
+		` + homeJoin + `
 		WHERE u.provider_user_id = $1
 	`
 
@@ -56,7 +59,7 @@ const (
 	getUsersByEmailQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
+		` + homeJoin + `
 		WHERE lower(u.email) = lower($1)
 		LIMIT 2
 	`
@@ -73,7 +76,7 @@ const (
 		)
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM updated u
-		LEFT JOIN homes h ON u.home_id = h.id
+		` + homeJoin + `
 	`
 
 	// updatePersonalDetailsQuery sets both personal details columns in one
@@ -87,28 +90,19 @@ const (
 		)
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM updated u
-		LEFT JOIN homes h ON u.home_id = h.id
+		` + homeJoin + `
 	`
 
-	insertHomeQuery = `
-		INSERT INTO homes (id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id
+	// upsertUserHomeQuery stores the user's home Area; the foreign key
+	// refuses a code that is no first-level Area.
+	upsertUserHomeQuery = `
+		INSERT INTO user_home_areas (user_id, area_code) VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET area_code = EXCLUDED.area_code
 	`
 
-	updateHomeQuery = `
-		UPDATE homes SET
-			country_code = $2,
-			level_1 = $3,
-			level_2 = $4,
-			centroid_latitude = $5,
-			centroid_longitude = $6
-		WHERE id = $1
-		RETURNING id
-	`
-
-	setUserHomeIDQuery = `
-		UPDATE users SET home_id = $2 WHERE id = $1
+	getHomeQuery = `
+		SELECT a.code, a.country_code, a.reference_latitude, a.reference_longitude
+		FROM areas a WHERE a.code = $1
 	`
 
 	insertUserQuery = `
@@ -166,14 +160,14 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	var timeZone sql.NullString
 	var fullName, phoneNumber sql.NullString
 	var lastLoginAt sql.NullTime
-	var homeID, countryCode, level1, level2 sql.NullString
-	var centroidLat, centroidLng sql.NullFloat64
+	var homeArea, homeCountry sql.NullString
+	var homeLat, homeLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ProviderUserID, &user.Email, &user.Name,
 		&user.PreferredLanguage, &timeZone,
 		&fullName, &phoneNumber, &lastLoginAt,
-		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
+		&homeArea, &homeCountry, &homeLat, &homeLng,
 	)
 	if err != nil {
 		return nil, err
@@ -192,74 +186,37 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 		user.LastLoginTime = &t
 	}
 
-	if homeID.Valid {
-		user.Home = &entity.Home{
-			ID:          homeID.String,
-			CountryCode: countryCode.String,
-			Level1:      level1.String,
-		}
-		if centroidLat.Valid && centroidLng.Valid {
-			user.Home.Centroid = &entity.Coordinates{
-				Latitude:  centroidLat.Float64,
-				Longitude: centroidLng.Float64,
-			}
-		}
-		if level2.Valid {
-			user.Home.Level2 = &level2.String
-		}
+	if homeArea.Valid {
+		user.Home = homeOf(homeArea.String, homeCountry.String, homeLat, homeLng)
 	}
 
 	return user, nil
 }
 
-// insertUserHome inserts the home record of a new user from the area the
-// caller gave, at the position the caller computed, and links it to the user.
-func insertUserHome(ctx context.Context, tx pgx.Tx, userID string, area *entity.Home) (*entity.Home, error) {
-	home := entity.NewHome(area.CountryCode, area.Level1, area.Level2)
-	home.Centroid = area.Centroid
-	centroidLat, centroidLng := centroidColumns(area.Centroid)
-
-	var homeID string
-	if err := tx.QueryRow(ctx, insertHomeQuery,
-		home.ID, home.CountryCode, home.Level1, home.Level2,
-		centroidLat, centroidLng,
-	).Scan(&homeID); err != nil {
-		return nil, toAppErr(err, "failed to create home", slog.String("user_id", userID))
+// homeOf builds a Home from its Area's code, country and reference point.
+func homeOf(area, country string, lat, lng sql.NullFloat64) *entity.Home {
+	home := &entity.Home{CountryCode: country, Level1: area}
+	if lat.Valid && lng.Valid {
+		home.ReferencePoint = &entity.Coordinates{Latitude: lat.Float64, Longitude: lng.Float64}
 	}
-	home.ID = homeID
-
-	if _, err := tx.Exec(ctx, setUserHomeIDQuery, userID, homeID); err != nil {
-		return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", userID))
-	}
-	return home, nil
+	return home
 }
 
-// writeUserHome stores the area as the user's home: it updates the home record
-// the user has (current), or inserts one and links it to the user. The
-// position is the one the caller computed; it is stored as given.
-func writeUserHome(ctx context.Context, tx pgx.Tx, userID string, current, area *entity.Home) error {
-	centroidLat, centroidLng := centroidColumns(area.Centroid)
-	if current != nil {
-		if _, err := tx.Exec(ctx, updateHomeQuery,
-			current.ID, area.CountryCode, area.Level1, area.Level2,
-			centroidLat, centroidLng,
-		); err != nil {
-			return toAppErr(err, "failed to update home", slog.String("user_id", userID))
+// writeUserHome stores the Area as the user's home and returns the Home with
+// its country and reference point read from the Area.
+func writeUserHome(ctx context.Context, tx pgx.Tx, userID, area string) (*entity.Home, error) {
+	if _, err := tx.Exec(ctx, upsertUserHomeQuery, userID, area); err != nil {
+		if IsForeignKeyViolation(err) {
+			return nil, apperr.Wrap(err, codes.InvalidArgument, "the home is no first-level Area", slog.String("area", area))
 		}
-		return nil
+		return nil, toAppErr(err, "failed to store home", slog.String("user_id", userID), slog.String("area", area))
 	}
-	newHome := entity.NewHome(area.CountryCode, area.Level1, area.Level2)
-	var homeID string
-	if err := tx.QueryRow(ctx, insertHomeQuery,
-		newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
-		centroidLat, centroidLng,
-	).Scan(&homeID); err != nil {
-		return toAppErr(err, "failed to insert home", slog.String("user_id", userID))
+	var code, country string
+	var lat, lng sql.NullFloat64
+	if err := tx.QueryRow(ctx, getHomeQuery, area).Scan(&code, &country, &lat, &lng); err != nil {
+		return nil, toAppErr(err, "failed to read home area", slog.String("area", area))
 	}
-	if _, err := tx.Exec(ctx, setUserHomeIDQuery, userID, homeID); err != nil {
-		return toAppErr(err, "failed to set user home_id", slog.String("user_id", userID))
-	}
-	return nil
+	return homeOf(code, country, lat, lng), nil
 }
 
 // Create creates a new user in the database.
@@ -313,7 +270,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	var home *entity.Home
 	if params.Home != nil {
-		if home, err = insertUserHome(ctx, tx, user.ID, params.Home); err != nil {
+		if home, err = writeUserHome(ctx, tx, user.ID, params.Home.Level1); err != nil {
 			return nil, err
 		}
 	}
@@ -501,9 +458,7 @@ func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang s
 	return user, nil
 }
 
-// UpdateHome sets or changes the user's home area.
-// If the user already has a home record it is updated in place; otherwise a new
-// home record is inserted and linked to the user via users.home_id.
+// UpdateHome sets or changes the user's home Area.
 func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
@@ -515,19 +470,13 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Lock the user's row, then read the user to decide whether a home
-	// record already exists: two concurrent first calls would otherwise both
-	// find none and both insert one, leaving a Home no user refers to.
+	// Lock the user's row, so a user deleted meanwhile is NotFound here
+	// rather than a foreign key failure of the insert.
 	var lockedID string
 	if err := tx.QueryRow(ctx, lockUserRowQuery, id).Scan(&lockedID); err != nil {
 		return nil, toAppErr(err, "failed to lock user for home update", slog.String("user_id", id))
 	}
-	current, err := scanUser(tx.QueryRow(ctx, getUserQuery, id))
-	if err != nil {
-		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
-	}
-
-	if err := writeUserHome(ctx, tx, id, current.Home, home); err != nil {
+	if _, err := writeUserHome(ctx, tx, id, home.Level1); err != nil {
 		return nil, err
 	}
 
@@ -602,13 +551,4 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
-}
-
-// centroidColumns returns the latitude and longitude columns of a Home's
-// position: both nil when it has none.
-func centroidColumns(c *entity.Coordinates) (lat, lng *float64) {
-	if c == nil {
-		return nil, nil
-	}
-	return &c.Latitude, &c.Longitude
 }

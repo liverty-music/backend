@@ -6,8 +6,10 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -45,6 +47,148 @@ type MockVenueUseCase_Expecter struct {
 
 func (_m *MockVenueUseCase) EXPECT() *MockVenueUseCase_Expecter {
 	return &MockVenueUseCase_Expecter{mock: &_m.Mock}
+}
+
+// RefreshCoordinates provides a mock function for the type MockVenueUseCase
+func (_mock *MockVenueUseCase) RefreshCoordinates(ctx context.Context, start time.Time) (*usecase.CoordinatesRefreshSummary, error) {
+	ret := _mock.Called(ctx, start)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RefreshCoordinates")
+	}
+
+	var r0 *usecase.CoordinatesRefreshSummary
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) (*usecase.CoordinatesRefreshSummary, error)); ok {
+		return returnFunc(ctx, start)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) *usecase.CoordinatesRefreshSummary); ok {
+		r0 = returnFunc(ctx, start)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*usecase.CoordinatesRefreshSummary)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time) error); ok {
+		r1 = returnFunc(ctx, start)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueUseCase_RefreshCoordinates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RefreshCoordinates'
+type MockVenueUseCase_RefreshCoordinates_Call struct {
+	*mock.Call
+}
+
+// RefreshCoordinates is a helper method to define mock.On call
+//   - ctx context.Context
+//   - start time.Time
+func (_e *MockVenueUseCase_Expecter) RefreshCoordinates(ctx any, start any) *MockVenueUseCase_RefreshCoordinates_Call {
+	return &MockVenueUseCase_RefreshCoordinates_Call{Call: _e.mock.On("RefreshCoordinates", ctx, start)}
+}
+
+func (_c *MockVenueUseCase_RefreshCoordinates_Call) Run(run func(ctx context.Context, start time.Time)) *MockVenueUseCase_RefreshCoordinates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 time.Time
+		if args[1] != nil {
+			arg1 = args[1].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueUseCase_RefreshCoordinates_Call) Return(coordinatesRefreshSummary *usecase.CoordinatesRefreshSummary, err error) *MockVenueUseCase_RefreshCoordinates_Call {
+	_c.Call.Return(coordinatesRefreshSummary, err)
+	return _c
+}
+
+func (_c *MockVenueUseCase_RefreshCoordinates_Call) RunAndReturn(run func(ctx context.Context, start time.Time) (*usecase.CoordinatesRefreshSummary, error)) *MockVenueUseCase_RefreshCoordinates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ResolvePlace provides a mock function for the type MockVenueUseCase
+func (_mock *MockVenueUseCase) ResolvePlace(ctx context.Context, callerOrgID string, placeID string) (*usecase.ResolvedPlace, error) {
+	ret := _mock.Called(ctx, callerOrgID, placeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolvePlace")
+	}
+
+	var r0 *usecase.ResolvedPlace
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*usecase.ResolvedPlace, error)); ok {
+		return returnFunc(ctx, callerOrgID, placeID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *usecase.ResolvedPlace); ok {
+		r0 = returnFunc(ctx, callerOrgID, placeID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*usecase.ResolvedPlace)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, callerOrgID, placeID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueUseCase_ResolvePlace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolvePlace'
+type MockVenueUseCase_ResolvePlace_Call struct {
+	*mock.Call
+}
+
+// ResolvePlace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - callerOrgID string
+//   - placeID string
+func (_e *MockVenueUseCase_Expecter) ResolvePlace(ctx any, callerOrgID any, placeID any) *MockVenueUseCase_ResolvePlace_Call {
+	return &MockVenueUseCase_ResolvePlace_Call{Call: _e.mock.On("ResolvePlace", ctx, callerOrgID, placeID)}
+}
+
+func (_c *MockVenueUseCase_ResolvePlace_Call) Run(run func(ctx context.Context, callerOrgID string, placeID string)) *MockVenueUseCase_ResolvePlace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueUseCase_ResolvePlace_Call) Return(resolvedPlace *usecase.ResolvedPlace, err error) *MockVenueUseCase_ResolvePlace_Call {
+	_c.Call.Return(resolvedPlace, err)
+	return _c
+}
+
+func (_c *MockVenueUseCase_ResolvePlace_Call) RunAndReturn(run func(ctx context.Context, callerOrgID string, placeID string) (*usecase.ResolvedPlace, error)) *MockVenueUseCase_ResolvePlace_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // Search provides a mock function for the type MockVenueUseCase

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -115,10 +117,21 @@ type ConcertCandidateUseCase interface {
 	//
 	// reviewerID is the calling reviewer's identity (used only by KeepExisting).
 	//
+	// Before any change, Approve decides the Venue's first-level Area and time
+	// zone: the Area that area (a code or a name the admin typed) resolves to,
+	// else the one the candidate's admin area resolves to; the time zone
+	// timeZone when given, else the Area's own, else the candidate's when it
+	// is one of the Area's country's zones. A Venue that must be created for
+	// a resolved place reads the place's coordinates from the map catalog.
+	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: If no Area or no time zone can be decided, or the
+	//    given time zone is not one a Venue in that Area may have.
+	//  - Unavailable: If the map catalog cannot be reached for a new Venue's
+	//    coordinates.
 	//  - Internal: If the venue, series, or event mutation fails.
-	Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error)
+	Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, area, timeZone *string, reviewerID string) (*ApproveResult, error)
 
 	// Reject records the concert candidate in the rejection log and deletes the
 	// concert candidate. It is idempotent: if the concert candidate is already gone, the
@@ -136,14 +149,17 @@ type ConcertCandidateUseCase interface {
 // concert use case's repositories and venue/duplicate helpers.
 type concertCandidateUseCase struct {
 	*concertUseCase
+	// places reads a new Venue's coordinates by its place id.
+	places entity.VenueMapCatalog
 }
 
 var _ ConcertCandidateUseCase = (*concertCandidateUseCase)(nil)
 
 // NewConcertCandidateUseCase creates the ConcertCandidate review use case on
-// the dependencies of concerts.
-func NewConcertCandidateUseCase(concerts *concertUseCase) ConcertCandidateUseCase {
-	return &concertCandidateUseCase{concertUseCase: concerts}
+// the dependencies of concerts and the map catalog that gives a new Venue
+// its coordinates.
+func NewConcertCandidateUseCase(concerts *concertUseCase, places entity.VenueMapCatalog) ConcertCandidateUseCase {
+	return &concertCandidateUseCase{concertUseCase: concerts, places: places}
 }
 
 // List returns all concert candidates awaiting review, each paired with
@@ -197,7 +213,7 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 
 // Approve promotes a pending concert candidate to a published event, reconciling a
 // duplicate existing event per the resolution when one is detected.
-func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, area, timeZone *string, reviewerID string) (*ApproveResult, error) {
 	sc, err := uc.concertCandidateRepo.GetByID(ctx, concertCandidateID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -212,8 +228,11 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 		return nil, fmt.Errorf("get concert candidate: %w", err)
 	}
 
-	// Resolve or create the venues row from the candidate's resolved fields.
-	venueID, err := resolveOrCreateVenue(ctx, sc, uc.venueRepo, uc.logger)
+	spec, err := uc.decideVenue(ctx, sc, area, timeZone)
+	if err != nil {
+		return nil, err
+	}
+	venueID, err := findOrCreateVenue(ctx, spec, uc.venueRepo, uc.logger)
 	if err != nil {
 		return nil, fmt.Errorf("resolve or create venue for concert candidate %q: %w", concertCandidateID, err)
 	}
@@ -266,6 +285,78 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 	)...)
 
 	return &ApproveResult{}, nil
+}
+
+// decideVenue decides, before any change, the first-level Area and time zone
+// of the candidate's Venue (see Approve) and returns what the Venue is found
+// by or created with.
+func (uc *concertCandidateUseCase) decideVenue(ctx context.Context, sc *entity.ConcertCandidate, area, timeZone *string) (venueSpec, error) {
+	text := sc.AdminArea
+	if area != nil {
+		text = area
+	}
+	if text == nil {
+		return venueSpec{}, apperr.New(codes.InvalidArgument, "the concert candidate has no admin area; give one",
+			slog.String("concert_candidate_id", sc.ID))
+	}
+	resolved, err := uc.areas.Resolve(ctx, *text, nil)
+	if errors.Is(err, apperr.ErrNotFound) || errors.Is(err, apperr.ErrInvalidArgument) {
+		return venueSpec{}, apperr.New(codes.InvalidArgument, "the admin area is no first-level Area",
+			slog.String("concert_candidate_id", sc.ID), slog.String("admin_area", *text))
+	}
+	if err != nil {
+		return venueSpec{}, fmt.Errorf("resolve the admin area: %w", err)
+	}
+	country, err := uc.areas.ListByCountry(ctx, resolved.CountryCode)
+	if err != nil {
+		return venueSpec{}, fmt.Errorf("list the time zones of %s: %w", resolved.CountryCode, err)
+	}
+	zones := make([]string, 0, len(country.TimeZones))
+	for _, z := range country.TimeZones {
+		zones = append(zones, z.Name)
+	}
+
+	zone := decideZone(timeZone, resolved, sc.TimeZone, zones)
+	if zone == nil {
+		return venueSpec{}, apperr.New(codes.InvalidArgument, "the venue's time zone is unknown; give one",
+			slog.String("concert_candidate_id", sc.ID), slog.String("admin_area", resolved.Code))
+	}
+	venue := &entity.Venue{AdminArea: &resolved.Code, TimeZone: zone}
+	if err := venue.CheckArea(resolved, zones); err != nil {
+		return venueSpec{}, err
+	}
+
+	spec := venueSpec{listedName: sc.ListedVenueName, adminArea: resolved.Code, timeZone: *zone, placeID: sc.ResolvedPlaceID}
+	if sc.ResolvedPlaceID != nil {
+		spec.coordinates = uc.placeCoordinates(*sc.ResolvedPlaceID)
+	}
+	return spec, nil
+}
+
+// decideZone is the admin's zone when given, else the Area's own, else the
+// candidate's when it is one of the country's zones; nil when none applies.
+func decideZone(given *string, area *entity.Area, discovered *string, zones []string) *string {
+	switch {
+	case given != nil:
+		return given
+	case area.TimeZone != nil:
+		return area.TimeZone
+	case discovered != nil && slices.Contains(zones, *discovered):
+		return discovered
+	}
+	return nil
+}
+
+// placeCoordinates reads a place's coordinates from the map catalog; a place
+// the catalog no longer has gives none.
+func (uc *concertCandidateUseCase) placeCoordinates(placeID string) func(context.Context) (*entity.PlaceCoordinates, error) {
+	return func(ctx context.Context) (*entity.PlaceCoordinates, error) {
+		c, err := uc.places.GetPlaceCoordinates(ctx, placeID)
+		if errors.Is(err, apperr.ErrNotFound) {
+			return nil, nil
+		}
+		return c, err
+	}
 }
 
 // detectDuplicateEvent returns the already-published event a concert candidate
@@ -452,21 +543,20 @@ func (uc *concertCandidateUseCase) appendRejectionLog(ctx context.Context, sc *e
 	}
 
 	logEntry := &entity.RejectedConcert{
-		ID:                logID,
-		ArtistID:          sc.ArtistID,
-		ArtistName:        artist.Name,
-		Title:             sc.Title,
-		LocalDate:         sc.LocalDate,
-		StartTime:         sc.StartTime,
-		OpenTime:          sc.OpenTime,
-		ListedVenueName:   sc.ListedVenueName,
-		AdminArea:         sc.AdminArea,
-		SourceURL:         sc.SourceURL,
-		ResolvedPlaceID:   sc.ResolvedPlaceID,
-		ResolvedVenueName: sc.ResolvedVenueName,
-		ResolvedAdminArea: sc.ResolvedAdminArea,
-		Reason:            reason,
-		ReviewedBy:        rbPtr,
+		ID:              logID,
+		ArtistID:        sc.ArtistID,
+		ArtistName:      artist.Name,
+		Title:           sc.Title,
+		LocalDate:       sc.LocalDate,
+		StartTime:       sc.StartTime,
+		OpenTime:        sc.OpenTime,
+		ListedVenueName: sc.ListedVenueName,
+		AdminArea:       sc.AdminArea,
+		SourceURL:       sc.SourceURL,
+		ResolvedPlaceID: sc.ResolvedPlaceID,
+		TimeZone:        sc.TimeZone,
+		Reason:          reason,
+		ReviewedBy:      rbPtr,
 	}
 
 	if err := uc.rejectedConcertRepo.Append(ctx, logEntry); err != nil {
@@ -475,36 +565,43 @@ func (uc *concertCandidateUseCase) appendRejectionLog(ctx context.Context, sc *e
 	return nil
 }
 
-// resolveOrCreateVenue is an idempotent get-or-create over the venues row,
-// place_id-authoritative: resolve by place_id, then by (listed_venue_name,
-// admin_area), and only create when neither matches. Returns the venues.id to
-// use for event insertion.
-func resolveOrCreateVenue(ctx context.Context, sc *entity.ConcertCandidate, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
-	adminArea := sc.VenueAdminArea()
+// venueSpec is what a Venue is found by, or created with when none is
+// found: its listed venue name, its first-level Area and time zone, and the
+// map place it was resolved to.
+type venueSpec struct {
+	listedName string
+	adminArea  string
+	timeZone   string
+	placeID    *string
+	// coordinates reads the place's coordinates; it runs only when the
+	// Venue is created, and is nil for a venue without a place.
+	coordinates func(ctx context.Context) (*entity.PlaceCoordinates, error)
+}
 
-	// Step 1: if the venue was resolved via Google Places at staging time, look
-	// up an existing venues row by place_id first.
-	if sc.ResolvedPlaceID != nil {
-		existing, err := venueRepo.GetByPlaceID(ctx, *sc.ResolvedPlaceID)
+// findOrCreateVenue is an idempotent get-or-create over the venues row,
+// place_id-authoritative: by place id, then by (listed venue name, admin
+// area), giving that Venue the place id when it has none, and only creating
+// when neither matches. A created Venue is named by its listed venue name,
+// never by a name read from the map catalog. A Venue that is found keeps its
+// own name, area and time zone.
+func findOrCreateVenue(ctx context.Context, spec venueSpec, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
+	if spec.placeID != nil {
+		existing, err := venueRepo.GetByPlaceID(ctx, *spec.placeID)
 		if err == nil {
 			return existing.ID, nil
 		}
 		if !errors.Is(err, apperr.ErrNotFound) {
 			return "", fmt.Errorf("get venue by place ID: %w", err)
 		}
-		// place_id miss: fall through to the listed-name lookup. Google Places can
-		// return a DIFFERENT place_id for a venue that already exists under
-		// (listed_venue_name, admin_area), so creating here would collide on
-		// idx_venues_listed_name_admin_area (the observed 和歌山ビッグホエール case).
+		// A place id miss falls through to the listed-name lookup: the catalog
+		// can return a different place id for a venue that already exists
+		// under (listed_venue_name, admin_area).
 	}
 
-	// Step 2: look up by (listed_venue_name, admin_area).
-	existing, err := venueRepo.GetByListedName(ctx, sc.ListedVenueName, adminArea)
+	existing, err := venueRepo.GetByListedName(ctx, spec.listedName, spec.adminArea)
 	if err == nil {
-		// Backfill place_id when the found venue lacks one and the concert candidate
-		// carries a resolved value — never overwrite a non-NULL place_id.
-		if sc.ShouldBackfillPlaceID(existing) {
-			if err := venueRepo.BackfillPlaceID(ctx, existing.ID, *sc.ResolvedPlaceID); err != nil {
+		if spec.placeID != nil && existing.GooglePlaceID == nil {
+			if err := venueRepo.BackfillPlaceID(ctx, existing.ID, *spec.placeID); err != nil {
 				return "", fmt.Errorf("backfill venue place ID: %w", err)
 			}
 		}
@@ -514,28 +611,37 @@ func resolveOrCreateVenue(ctx context.Context, sc *entity.ConcertCandidate, venu
 		return "", fmt.Errorf("get venue by listed name: %w", err)
 	}
 
-	// Step 3: neither key matched — create. Create absorbs a concurrent-insert
-	// conflict on either index and re-SELECTs the survivor.
-	return createVenueFromCandidate(ctx, sc, venueRepo, logger)
-}
-
-// createVenueFromCandidate creates a new venues row from the denormalised fields
-// on the concert candidate row.
-func createVenueFromCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
-	venue := sc.NewVenue()
-
-	// Create returns the surviving row id: the one we generated on a real insert,
-	// or an existing row's id when a concurrent create won the race.
+	listed, area, zone := spec.listedName, spec.adminArea, spec.timeZone
+	venue := &entity.Venue{
+		ID:              entity.NewID(),
+		Name:            listed,
+		AdminArea:       &area,
+		TimeZone:        &zone,
+		GooglePlaceID:   spec.placeID,
+		ListedVenueName: &listed,
+	}
+	if spec.coordinates != nil {
+		c, err := spec.coordinates(ctx)
+		if err != nil {
+			return "", fmt.Errorf("read the place's coordinates: %w", err)
+		}
+		if c != nil && c.Coordinates != nil {
+			fetch := c.FetchTime
+			venue.Coordinates, venue.CoordinatesFetchTime = c.Coordinates, &fetch
+		}
+	}
+	// Create returns the surviving row id: the one generated here on a real
+	// insert, or an existing row's id when a concurrent create won the race.
 	venueID, err := venueRepo.Create(ctx, venue)
 	if err != nil {
-		return "", fmt.Errorf("create venue from concert candidate: %w", err)
+		return "", fmt.Errorf("create venue: %w", err)
 	}
-
-	logger.Info(ctx, "created venue from concert candidate",
+	logger.Info(ctx, "created venue",
 		slog.String("venue_id", venueID),
 		slog.String("venue_name", venue.Name),
+		slog.String("admin_area", area),
+		slog.String("time_zone", zone),
 	)
-
 	return venueID, nil
 }
 

@@ -26,37 +26,34 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 		reviewedBy := "admin@example.com"
 		localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 		placeID := "place-test"
-		venueName := "Test Venue Canonical"
 		adminArea := "JP-13"
 		sourceURL := "https://example.com/show"
 		reason := "wrong date"
 
 		entry := &entity.RejectedConcert{
-			ID:                uuid.NewV7().String(),
-			ArtistID:          artistID,
-			ArtistName:        "Test Artist",
-			Title:             "Rejected Show",
-			LocalDate:         localDate,
-			ListedVenueName:   "Test Venue",
-			AdminArea:         &adminArea,
-			SourceURL:         &sourceURL,
-			ResolvedPlaceID:   &placeID,
-			ResolvedVenueName: &venueName,
-			ResolvedAdminArea: &adminArea,
-			Reason:            reason,
-			ReviewedBy:        &reviewedBy,
+			ID:              uuid.NewV7().String(),
+			ArtistID:        artistID,
+			ArtistName:      "Test Artist",
+			Title:           "Rejected Show",
+			LocalDate:       localDate,
+			ListedVenueName: "Test Venue",
+			AdminArea:       &adminArea,
+			SourceURL:       &sourceURL,
+			ResolvedPlaceID: &placeID,
+			TimeZone:        new("Asia/Tokyo"),
+			Reason:          reason,
+			ReviewedBy:      &reviewedBy,
 		}
 
 		err := repo.Append(ctx, entry)
 		require.NoError(t, err)
 
-		// Verify the row was inserted by counting rows in the table.
-		var count int
+		var zone string
 		err = db.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM rejected_concerts WHERE id = $1`, entry.ID,
-		).Scan(&count)
+			`SELECT time_zone FROM rejected_concerts WHERE id = $1`, entry.ID,
+		).Scan(&zone)
 		require.NoError(t, err)
-		assert.Equal(t, 1, count)
+		assert.Equal(t, "Asia/Tokyo", zone, "the candidate's time zone is kept")
 	})
 
 	t.Run("appends multiple entries for the same artist independently", func(t *testing.T) {

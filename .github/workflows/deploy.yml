@@ -6,10 +6,11 @@ name: Deploy Backend
 #                         One job (`build-dev-images`) decides "build vs
 #                         inherit" over the pushed range (event.before..sha):
 #                           * build:   one Bake run (docker-bake.hcl) builds
-#                                      all 11 images (api, consumer, identity,
+#                                      all 12 images (api, consumer, identity,
 #                                      worker, concert-discovery, artist-image-sync,
 #                                      official-site-refresh, artist-refresh,
 #                                      sales-phase-discovery, sales-reminders,
+#                                      venue-coordinates-refresh,
 #                                      series-image-consumer), pushing
 #                                      :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy each parent
@@ -76,7 +77,7 @@ jobs:
       SERVICE_ACCOUNT: ${{ vars.SERVICE_ACCOUNT }}
       # The images of docker-bake.hcl, and of the release matrix below. The
       # inherit path copies exactly these.
-      IMAGES: api consumer identity worker concert-discovery artist-image-sync official-site-refresh artist-refresh sales-phase-discovery sales-reminders series-image-consumer
+      IMAGES: api consumer identity worker concert-discovery artist-image-sync official-site-refresh artist-refresh sales-phase-discovery sales-reminders venue-coordinates-refresh series-image-consumer
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -319,6 +320,8 @@ jobs:
             target: sales-phase-discovery
           - name: sales-reminders
             target: sales-reminders
+          - name: venue-coordinates-refresh
+            target: venue-coordinates-refresh
           # series-image-consumer: the KEDA scale-to-zero JetStream worker. Its Dockerfile
           # target links libvips (CGO, `-tags vips`) and runs on Alpine, unlike the
           # CGO-off distroless targets, but the build/push/retag path is

@@ -137,15 +137,15 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *concertv1.ListB
 	}, nil
 }
 
-// ListByLocation returns all concerts near the given reference point within a
-// date range, grouped by date and classified by proximity (HOME/NEARBY only).
-// Authentication is not required.
+// ListByLocation returns all concerts in or near the given first-level Area
+// within a date range, grouped by date and classified by proximity
+// (HOME/NEARBY only). Authentication is not required.
 func (h *ConcertHandler) ListByLocation(ctx context.Context, req *concertv1.ListByLocationRequest) (*concertv1.ListByLocationResponse, error) {
-	location := pb.ToGeoLocation(req.GetLocation())
+	area := req.GetAdminArea().GetValue()
 	from := pb.DateToTime(req.GetFrom().GetValue())
 	to := pb.DateToTime(req.GetTo().GetValue())
 
-	groups, err := h.concertUseCase.ListByLocation(ctx, location, from, to)
+	groups, err := h.concertUseCase.ListByLocation(ctx, area, from, to)
 	if err != nil {
 		return nil, err
 	}

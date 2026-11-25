@@ -26,9 +26,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 	osakaCoords := &entity.Coordinates{Latitude: 34.6937, Longitude: 135.5023}
 
 	tokyoHome := &entity.Home{
-		CountryCode: "JP",
-		Level1:      tokyoLevel1,
-		Centroid:    tokyoCoords,
+		CountryCode:    "JP",
+		Level1:         tokyoLevel1,
+		ReferencePoint: tokyoCoords,
 	}
 
 	type args struct {
@@ -125,9 +125,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 					},
 				},
 				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      tokyoLevel1,
-					Centroid:    nil,
+					CountryCode:    "JP",
+					Level1:         tokyoLevel1,
+					ReferencePoint: nil,
 				},
 			},
 			want: entity.ProximityAway,
@@ -183,9 +183,9 @@ func TestGroupByDateAndProximity(t *testing.T) {
 	osakaCoords := &entity.Coordinates{Latitude: 34.6937, Longitude: 135.5023}
 
 	tokyoHome := &entity.Home{
-		CountryCode: "JP",
-		Level1:      tokyoLevel1,
-		Centroid:    tokyoCoords,
+		CountryCode:    "JP",
+		Level1:         tokyoLevel1,
+		ReferencePoint: tokyoCoords,
 	}
 
 	date1 := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)

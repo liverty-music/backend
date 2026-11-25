@@ -2,7 +2,11 @@ package entity
 
 import (
 	"context"
+	"slices"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // Venue represents a physical location where events are hosted.
@@ -11,15 +15,24 @@ import (
 type Venue struct {
 	// ID is the unique identifier for the venue (UUID).
 	ID string
-	// Name is the canonical name of the venue (from Google Places API).
+	// Name is the name its source listed or the name a member saved; never a
+	// name read from the map catalog that no member saved.
 	Name string
-	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
-	// It is nil when the area could not be determined with confidence.
+	// AdminArea is the code of the venue's first-level Area (JP-13, HK). Nil
+	// only for a venue stored before its area was known.
 	AdminArea *string
+	// TimeZone is the IANA zone of the venue: its Area's zone when the Area
+	// has one, otherwise one of its country's. Nil only for a venue stored
+	// before its zone was known.
+	TimeZone *string
 	// GooglePlaceID is the Google Maps Place ID for the canonical venue record.
 	GooglePlaceID *string
-	// Coordinates is the WGS 84 geographic position of the venue.
+	// Coordinates is the WGS 84 geographic position of the venue, read from
+	// the map catalog at CoordinatesFetchTime.
 	Coordinates *Coordinates
+	// CoordinatesFetchTime is when the coordinates were read from the map
+	// catalog; set exactly when Coordinates is.
+	CoordinatesFetchTime *time.Time
 	// ListedVenueName is the raw scraped venue name as returned by Gemini.
 	// Used for DB-first lookup to avoid redundant Places API calls.
 	// Nil for venues created before this field was introduced.
@@ -65,15 +78,30 @@ type MapPlaceCandidate struct {
 type MapPlace struct {
 	// PlaceID is the map catalog's place id (a Google Maps Place ID).
 	PlaceID string
-	// Name is the place's canonical name, in Japanese when the catalog has one.
+	// Name is the place's name, in Japanese when the catalog has one.
 	Name string
+	// CountryCode is the ISO 3166-1 alpha-2 code of the place's country.
+	CountryCode string
 	// Coordinates is the WGS 84 position of the place. Nil when the catalog
 	// gives none.
 	Coordinates *Coordinates
-	// AdminArea is the ISO 3166-2 code of the subdivision the place lies in
-	// (e.g. "JP-13"). Nil when the catalog names no subdivision that maps to a
-	// code.
-	AdminArea *string
+	// CoordinatesFetchTime is when the place was read.
+	CoordinatesFetchTime time.Time
+	// SuggestedAdminArea is the code of the first-level Area the region of
+	// the place's address stands for within its country, or the country
+	// itself when it is its own first-level Area (HK). Nil when neither
+	// applies.
+	SuggestedAdminArea *string
+	// TimeZone is the place's IANA time zone as the catalog gives it; nil
+	// when it gives none.
+	TimeZone *string
+}
+
+// PlaceCoordinates are the coordinates of a map place and when they were
+// read; Coordinates is nil when the catalog gives the place no location.
+type PlaceCoordinates struct {
+	Coordinates *Coordinates
+	FetchTime   time.Time
 }
 
 // VenueMapCatalog is the external map catalog a member picks a
@@ -90,6 +118,16 @@ type VenueMapCatalog interface {
 	//  - Unavailable: If the catalog cannot be reached.
 	SearchPlaces(ctx context.Context, text string) ([]*MapPlaceCandidate, error)
 
+	// GetPlaceCoordinates reads only the coordinates of a place, with the
+	// time it read them. Coordinates is nil when the catalog gives the place
+	// no location.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the catalog has no place with that id.
+	//  - Unavailable: If the catalog cannot be reached.
+	GetPlaceCoordinates(ctx context.Context, placeID string) (*PlaceCoordinates, error)
+
 	// GetPlace reads one place by its place id.
 	//
 	// # Possible errors
@@ -104,11 +142,15 @@ type VenueRepository interface {
 	// Create inserts a new venue and returns the id of the surviving row. It is an
 	// idempotent get-or-create: the insert absorbs a conflict on either
 	// place_id or (listed_venue_name, admin_area) and re-SELECTs the existing row,
-	// so a lost race never surfaces a unique violation to the caller.
+	// so a lost race never surfaces a unique violation to the caller. Before
+	// that it checks the admin area and time zone ([Venue.CheckArea]) and that
+	// coordinates come with their fetch time.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the venue name is invalid.
+	//  - InvalidArgument: If the venue name is invalid, the admin area is
+	//    no first-level Area, the time zone is missing or not one the Area
+	//    allows, or coordinates come without their fetch time.
 	Create(ctx context.Context, venue *Venue) (string, error)
 
 	// BackfillPlaceID sets google_place_id on a venue that currently has none.
@@ -134,14 +176,106 @@ type VenueRepository interface {
 	//  - NotFound: If no venue with that place ID exists.
 	GetByPlaceID(ctx context.Context, placeID string) (*Venue, error)
 
-	// GetByListedName retrieves a venue by its exact listed venue name and optional admin area.
-	// This is used for a DB-first lookup to avoid redundant Google Places API calls
-	// when the same venue has been resolved in a previous discovery batch.
+	// GetByListedName retrieves a venue by its exact listed venue name and
+	// admin area, both required. This is used for a DB-first lookup to avoid
+	// redundant Google Places API calls when the same venue has been resolved
+	// in a previous discovery batch.
 	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: If the name or the admin area is empty.
 	//  - NotFound: If no venue with that listed name and admin area combination exists.
-	GetByListedName(ctx context.Context, listedVenueName string, adminArea *string) (*Venue, error)
+	GetByListedName(ctx context.Context, listedVenueName, adminArea string) (*Venue, error)
+
+	// SetCoordinates replaces a venue's coordinates and their fetch time with
+	// coords, or removes both when coords is nil. Nothing else on the venue
+	// changes.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: coords has no coordinates.
+	//  - NotFound: No venue has the id.
+	SetCoordinates(ctx context.Context, venueID string, coords *PlaceCoordinates) error
+
+	// ListCoordinatesDue returns at most limit venues with a place id whose
+	// coordinates are missing or were fetched more than
+	// [CoordinatesRefreshAge] before at: those without coordinates first,
+	// then by fetch time, oldest first.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: limit is below 1.
+	ListCoordinatesDue(ctx context.Context, at time.Time, limit int) ([]*Venue, error)
+
+	// ClearExpiredCoordinates removes the coordinates and fetch time of every
+	// venue whose coordinates were fetched more than [CoordinatesMaxAge]
+	// before at, and returns how many venues it changed.
+	ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error)
+}
+
+// CoordinatesRefreshAge is the age after which a venue's coordinates are read
+// again from the map catalog, ahead of [CoordinatesMaxAge].
+const CoordinatesRefreshAge = 20 * 24 * time.Hour
+
+// CoordinatesMaxAge is how long coordinates read from the map catalog may
+// be kept.
+const CoordinatesMaxAge = 30 * 24 * time.Hour
+
+// CheckArea checks the venue's admin area and time zone against area, what
+// its admin area resolved to, and zones, the time zones of the Area's
+// country: the admin area is present and names that first-level Area, and the
+// time zone is the Area's own when it has one, otherwise one of the
+// country's.
+//
+// # Possible errors
+//
+//   - InvalidArgument: a rule does not hold.
+func (v *Venue) CheckArea(area *Area, zones []string) error {
+	if v.AdminArea == nil || area == nil || area.Code != *v.AdminArea || !area.IsFirstLevel() {
+		return apperr.New(codes.InvalidArgument, "a venue's admin area must be a first-level Area")
+	}
+	if v.TimeZone == nil {
+		return apperr.New(codes.InvalidArgument, "a venue must have a time zone")
+	}
+	if area.TimeZone != nil && *area.TimeZone != *v.TimeZone {
+		return apperr.New(codes.InvalidArgument, "a venue's time zone must be its Area's own")
+	}
+	if !slices.Contains(zones, *v.TimeZone) {
+		return apperr.New(codes.InvalidArgument, "a venue's time zone must be one of its country's")
+	}
+	return nil
+}
+
+// CheckCoordinates checks that the coordinates come with their fetch time.
+//
+// # Possible errors
+//
+//   - InvalidArgument: coordinates without a fetch time, or a fetch time
+//     without coordinates.
+func (v *Venue) CheckCoordinates() error {
+	if (v.Coordinates == nil) != (v.CoordinatesFetchTime == nil) {
+		return apperr.New(codes.InvalidArgument, "a venue's coordinates and their fetch time go together")
+	}
+	return nil
+}
+
+// CoordinatesExpired reports whether the coordinates were fetched more than
+// [CoordinatesMaxAge] before now.
+func (v *Venue) CoordinatesExpired(now time.Time) bool {
+	return v.CoordinatesFetchTime != nil && now.Sub(*v.CoordinatesFetchTime) > CoordinatesMaxAge
+}
+
+// Location returns the venue's time zone, loaded from the binary's embedded
+// zone data; nil when the venue has none or the name is unknown.
+func (v *Venue) Location() *time.Location {
+	if v.TimeZone == nil {
+		return nil
+	}
+	loc, err := time.LoadLocation(*v.TimeZone)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
 
 // VenueTimeZone returns the time zone of every Venue, which is Asia/Tokyo: a

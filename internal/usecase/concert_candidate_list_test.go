@@ -34,7 +34,7 @@ func newCandidateListDeps(t *testing.T) *candidateListDeps {
 	d.uc = usecase.NewConcertCandidateUseCase(usecase.NewConcertUseCase(
 		d.artists, nil, nil, nil, nil, nil, d.candidates, nil, nil, nil,
 		ucmocks.NewMockWorkflows(t), anyConcertMetrics(t), nil, 0, 0, time.Now, newTestLogger(t),
-	))
+	), nil)
 	return d
 }
 

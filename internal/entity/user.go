@@ -50,8 +50,9 @@ func ValidatePersonalDetails(fullName, phoneNumber *string) error {
 // countryCodeRe validates ISO 3166-1 alpha-2 country codes (e.g., "JP", "US").
 var countryCodeRe = regexp.MustCompile(`^[A-Z]{2}$`)
 
-// iso31662Re validates ISO 3166-2 subdivision codes (e.g., "JP-13", "US-CA").
-var iso31662Re = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
+// homeAreaRe is the form of a first-level Area code a Home can name: a
+// subdivision code (JP-13) or a country code (HK).
+var homeAreaRe = regexp.MustCompile(`^[A-Z]{2}(-[A-Z0-9]{1,3})?$`)
 
 // languageCodeRe validates ISO 639-1 two-letter lowercase codes (e.g., "ja", "en").
 // Mirrors the protovalidate constraint on the proto wire types
@@ -69,52 +70,64 @@ func IsValidLanguageCode(s string) bool {
 	return languageCodeRe.MatchString(s)
 }
 
-// Validate checks that the Home has a valid CountryCode, Level1, and optional
-// Level2. It returns a non-nil error describing the first validation failure.
-// It fails with InvalidArgument, which callers return as it is.
+// Validate checks the form of the Home: a country code of two uppercase
+// letters and a level 1 in the form of a first-level Area code of that
+// country. Whether the code names a first-level Area is [Home.CheckArea]'s.
+//
+// # Possible errors
+//
+//   - InvalidArgument: the form does not hold.
 func (h *Home) Validate() error {
 	if !countryCodeRe.MatchString(h.CountryCode) {
 		return apperr.New(codes.InvalidArgument, fmt.Sprintf("country_code must be a valid ISO 3166-1 alpha-2 code (e.g., JP), got %q", h.CountryCode))
 	}
-	if !iso31662Re.MatchString(h.Level1) {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 must be a valid ISO 3166-2 code (e.g., JP-13), got %q", h.Level1))
+	if !homeAreaRe.MatchString(h.Level1) {
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 must be a first-level Area code (e.g., JP-13 or HK), got %q", h.Level1))
 	}
 	if h.Level1[:2] != h.CountryCode {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 prefix %q does not match country_code %q", h.Level1[:2], h.CountryCode))
-	}
-	if h.Level2 != nil && (len(*h.Level2) == 0 || len(*h.Level2) > 20) {
-		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_2 must be between 1 and 20 characters when provided, got length %d", len(*h.Level2)))
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 %q is not in country_code %q", h.Level1, h.CountryCode))
 	}
 	return nil
 }
 
-// Home represents the user's home area as a structured geographic location.
+// CheckArea checks that area, what the Home's level 1 resolved to, is the
+// first-level Area the level 1 names, in the Home's country. A nil area
+// (nothing resolved) fails.
+//
+// # Possible errors
+//
+//   - InvalidArgument: the level 1 names no first-level Area of the country.
+func (h *Home) CheckArea(area *Area) error {
+	if area == nil || area.Code != h.Level1 || !area.IsFirstLevel() || area.CountryCode != h.CountryCode {
+		return apperr.New(codes.InvalidArgument, fmt.Sprintf("level_1 %q is no first-level Area of %q", h.Level1, h.CountryCode))
+	}
+	return nil
+}
+
+// HomeOf returns the Home of a first-level Area, with the Area's reference
+// point.
+func HomeOf(area *Area) *Home {
+	return &Home{CountryCode: area.CountryCode, Level1: area.Code, ReferencePoint: area.ReferencePoint}
+}
+
+// Home is the user's home Area: the first-level Area where the user
+// regularly attends live events without considering it a trip (遠征).
 //
 // Corresponds to liverty_music.entity.v1.Home.
 //
 // The home area determines proximity classification:
-//   - HOME: event venue matches the user's home at the applicable level.
-//   - NEARBY: event is within 200km of the user's home centroid.
-//   - AWAY: event is beyond 200km, has no known area, or the user has no home set.
-//
-// Code system contract:
-//   - Level1 is always an ISO 3166-2 subdivision code, worldwide.
-//   - Level2 uses a country-specific standard determined by CountryCode
-//     (e.g., US → FIPS county code, DE → AGS). Phase 1 always omits Level2.
+//   - HOME: the event's venue is in the home Area.
+//   - NEARBY: the event is within 200km of the home Area's reference point.
+//   - AWAY: the event is beyond 200km, has no known area, or the user has no home set.
 type Home struct {
-	// ID is the unique identifier for the home record (UUID).
-	ID string
-	// CountryCode is the ISO 3166-1 alpha-2 country code (e.g., "JP", "US").
+	// CountryCode is the ISO 3166-1 alpha-2 code of the home Area's country.
 	CountryCode string
-	// Level1 is the ISO 3166-2 subdivision code (e.g., "JP-13", "US-NY").
+	// Level1 is the code of the home's first-level Area (JP-13, HK).
 	Level1 string
-	// Level2 is an optional finer-grained area code within the Level1 subdivision.
-	// The code system depends on CountryCode. Nil in Phase 1 (Japan-only).
-	Level2 *string
-	// Centroid is the approximate geographic center of the home area.
-	// Resolved at write time from the Level1 code.
-	// Nil when the country is unsupported and no centroid could be resolved.
-	Centroid *Coordinates
+	// ReferencePoint is the current reference point of the home Area, read
+	// with the Home; nil when the Area has none. A Home keeps no point of
+	// its own.
+	ReferencePoint *Coordinates
 }
 
 // User represents a user who registers for concert notifications.
@@ -205,16 +218,6 @@ func (u *User) EmailLanguage() string {
 		return "en"
 	}
 	return "ja"
-}
-
-// NewHome creates a new Home with an auto-generated UUIDv7 ID.
-func NewHome(countryCode, level1 string, level2 *string) *Home {
-	return &Home{
-		ID:          NewID(),
-		CountryCode: countryCode,
-		Level1:      level1,
-		Level2:      level2,
-	}
 }
 
 // UserRepository defines the interface for user data access.

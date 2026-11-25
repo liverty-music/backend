@@ -379,8 +379,8 @@ func (_c *MockConcertUseCase_ListByArtists_Call) RunAndReturn(run func(ctx conte
 }
 
 // ListByLocation provides a mock function for the type MockConcertUseCase
-func (_mock *MockConcertUseCase) ListByLocation(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time) ([]*entity.ProximityGroup, error) {
-	ret := _mock.Called(ctx, location, from, to)
+func (_mock *MockConcertUseCase) ListByLocation(ctx context.Context, area string, from time.Time, to time.Time) ([]*entity.ProximityGroup, error) {
+	ret := _mock.Called(ctx, area, from, to)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByLocation")
@@ -388,18 +388,18 @@ func (_mock *MockConcertUseCase) ListByLocation(ctx context.Context, location *e
 
 	var r0 []*entity.ProximityGroup
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) ([]*entity.ProximityGroup, error)); ok {
-		return returnFunc(ctx, location, from, to)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time, time.Time) ([]*entity.ProximityGroup, error)); ok {
+		return returnFunc(ctx, area, from, to)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) []*entity.ProximityGroup); ok {
-		r0 = returnFunc(ctx, location, from, to)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time, time.Time) []*entity.ProximityGroup); ok {
+		r0 = returnFunc(ctx, area, from, to)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.ProximityGroup)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) error); ok {
-		r1 = returnFunc(ctx, location, from, to)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time, time.Time) error); ok {
+		r1 = returnFunc(ctx, area, from, to)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -413,22 +413,22 @@ type MockConcertUseCase_ListByLocation_Call struct {
 
 // ListByLocation is a helper method to define mock.On call
 //   - ctx context.Context
-//   - location *entity.GeoLocation
+//   - area string
 //   - from time.Time
 //   - to time.Time
-func (_e *MockConcertUseCase_Expecter) ListByLocation(ctx any, location any, from any, to any) *MockConcertUseCase_ListByLocation_Call {
-	return &MockConcertUseCase_ListByLocation_Call{Call: _e.mock.On("ListByLocation", ctx, location, from, to)}
+func (_e *MockConcertUseCase_Expecter) ListByLocation(ctx any, area any, from any, to any) *MockConcertUseCase_ListByLocation_Call {
+	return &MockConcertUseCase_ListByLocation_Call{Call: _e.mock.On("ListByLocation", ctx, area, from, to)}
 }
 
-func (_c *MockConcertUseCase_ListByLocation_Call) Run(run func(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time)) *MockConcertUseCase_ListByLocation_Call {
+func (_c *MockConcertUseCase_ListByLocation_Call) Run(run func(ctx context.Context, area string, from time.Time, to time.Time)) *MockConcertUseCase_ListByLocation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *entity.GeoLocation
+		var arg1 string
 		if args[1] != nil {
-			arg1 = args[1].(*entity.GeoLocation)
+			arg1 = args[1].(string)
 		}
 		var arg2 time.Time
 		if args[2] != nil {
@@ -453,7 +453,7 @@ func (_c *MockConcertUseCase_ListByLocation_Call) Return(proximityGroups []*enti
 	return _c
 }
 
-func (_c *MockConcertUseCase_ListByLocation_Call) RunAndReturn(run func(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByLocation_Call {
+func (_c *MockConcertUseCase_ListByLocation_Call) RunAndReturn(run func(ctx context.Context, area string, from time.Time, to time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByLocation_Call {
 	_c.Call.Return(run)
 	return _c
 }

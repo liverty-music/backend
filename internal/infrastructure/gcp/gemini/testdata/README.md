@@ -103,7 +103,25 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-11-21, pass-tour-detail-pages-to-concert-search)
+## Latest result (2026-11-25, globalize-venues)
+
+The response schema gains a required `time_zone` per event, and
+`admin_area` is resolved to a first-level Area code
+(`ab_results/20261125T024319Z.*`, production prompt with links,
+`gemini-4-hydrogen`, thinking `low`, the 4 fixture artists × 3 reps).
+
+| | Vaundy | SUPER BEAVER Budokan | [Alexandros] FC TOUR | go!go!vanillas BACK HOME TOUR | queries / call | cost / call |
+|---|---|---|---|---|---|---|
+| 2026-11-21 production | 32/32 ×3 | 2/2 ×3 | 8/8 ×3 | 8/8 ×3 | 0 | $0.075 |
+| with `time_zone` | 32/32 ×3 | 2/2 ×3 | 8/8 ×3 | 8/8 ×3 | 0 | $0.077 |
+
+Every returned event's area and time zone were right (all Japanese venues,
+`Asia/Tokyo`). [Alexandros]'s recall was 0.85, 0.85 and 0.55 against 0.85 ×3:
+the 0.55 run returned the same 20 dates but copied the prefecture in front of
+8 venue names as the show page prints them (「北海道 サッポロファクトリーホール」),
+the noise already seen with BRADIO below, so the change was accepted.
+
+## Earlier result (2026-11-21, pass-tour-detail-pages-to-concert-search)
 
 `gemini-4-hydrogen`, thinking `low`, 3 reps per artist and variant, cost at
 the 2027-01-01 price. Raw outputs: `ab_results/20261121T*`.
@@ -256,7 +274,7 @@ The fixture's `evaluation_from` is frozen at capture time. To re-curate:
 1. Pick a new `evaluation_from` date.
 2. For each artist, visit the `official_site_url` and walk the schedule pages.
 3. For each upcoming event on/after the new date, capture: `event_name`,
-   `venue`, `admin_area` (都道府県; empty for overseas), `local_date`,
+   `venue`, `admin_area` (the code of the first-level Area, e.g. `JP-27`; empty when the page names none), `local_date`,
    `open_time` / `start_time` (ISO 8601 with timezone, or empty string),
    `source_url`, `confidence` (`confirmed` / `tentative`), `visibility`
    (`public` / `members-only`).

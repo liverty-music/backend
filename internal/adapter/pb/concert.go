@@ -198,6 +198,9 @@ func FromVenue(v *entity.Venue) *entityv1.Venue {
 	if v.AdminArea != nil {
 		result.AdminArea = &entityv1.AdminArea{Value: *v.AdminArea}
 	}
+	if v.TimeZone != nil {
+		result.TimeZone = &entityv1.TimeZone{Value: *v.TimeZone}
+	}
 	if v.GooglePlaceID != nil && *v.GooglePlaceID != "" {
 		result.PlaceId = &entityv1.PlaceId{Value: *v.GooglePlaceID}
 	}
@@ -236,17 +239,4 @@ func DateToTimePtr(d *date.Date) *time.Time {
 	}
 	t := DateToTime(d)
 	return &t
-}
-
-// ToGeoLocation converts a liverty_music.entity.v1.GeoLocation proto to
-// the domain GeoLocation. Returns nil when the input is nil.
-func ToGeoLocation(pb *entityv1.GeoLocation) *entity.GeoLocation {
-	if pb == nil {
-		return nil
-	}
-	return &entity.GeoLocation{
-		Latitude:  pb.GetLatitude(),
-		Longitude: pb.GetLongitude(),
-		AdminArea: pb.GetAdminArea(),
-	}
 }

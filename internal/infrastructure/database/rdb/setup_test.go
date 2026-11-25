@@ -95,17 +95,14 @@ func seedVenue(t *testing.T, db *rdb.Database, name string) string {
 	return id
 }
 
-// seedHome inserts a minimal home record and returns its ID.
-func seedHome(t *testing.T, db *rdb.Database, countryCode, level1 string) string {
+// seedUserHome sets the user's home to the first-level Area with the code.
+func seedUserHome(t *testing.T, db *rdb.Database, userID, areaCode string) {
 	t.Helper()
-	ctx := context.Background()
-	id := uuid.NewV7().String()
-	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO homes (id, country_code, level_1) VALUES ($1, $2, $3)`,
-		id, countryCode, level1,
+	_, err := db.Pool.Exec(context.Background(),
+		`INSERT INTO user_home_areas (user_id, area_code) VALUES ($1, $2)`,
+		userID, areaCode,
 	)
 	require.NoError(t, err)
-	return id
 }
 
 // seedEvent inserts a minimal series + event record and links the given artist
@@ -349,4 +346,21 @@ func providerCardAuthorizationID(t *testing.T, db *rdb.Database, id string) stri
 	require.NoError(t, db.Pool.QueryRow(context.Background(),
 		`SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`, id).Scan(&providerID))
 	return providerID
+}
+
+// storable completes a test venue so that VenueRepository.Create accepts it:
+// a venue without an area is put in JP-13 with Japan's zone, one in another
+// Japanese prefecture gets Japan's zone, and coordinates get a fetch time.
+// It returns v.
+func storable(v *entity.Venue) *entity.Venue {
+	if v.AdminArea == nil {
+		v.AdminArea = new("JP-13")
+	}
+	if v.TimeZone == nil && strings.HasPrefix(*v.AdminArea, "JP-") {
+		v.TimeZone = new("Asia/Tokyo")
+	}
+	if v.Coordinates != nil && v.CoordinatesFetchTime == nil {
+		v.CoordinatesFetchTime = new(time.Now())
+	}
+	return v
 }

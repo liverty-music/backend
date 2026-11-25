@@ -9,6 +9,7 @@ packages:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       AdmissionRepository: {}
+      AreaRepository: {}
       ArtistIdentityManager: {}
       ArtistImageResolver: {}
       ArtistRepository: {}
@@ -92,9 +93,9 @@ packages:
     interfaces:
       AnalyticsClient: {}
       AnalyticsConsumerMetrics: {}
+      AreaUseCase: {}
       ArtistImageSyncUseCase: {}
       ArtistUseCase: {}
-      CentroidResolver: {}
       CheckoutUseCase: {}
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}

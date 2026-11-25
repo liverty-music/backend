@@ -131,7 +131,7 @@ func TestClient_SearchText(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
+			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), nil, testLogger(t))
 			client.SetBaseURL(server.URL)
 
 			places, err := client.SearchText(context.Background(), tt.venueName, tt.adminArea)
@@ -218,7 +218,7 @@ func TestClient_SearchText_Coordinates(t *testing.T) {
 			}))
 			defer server.Close()
 
-			c := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
+			c := google.NewClient(staticTokenSource(), "test-project", server.Client(), nil, testLogger(t))
 			c.SetBaseURL(server.URL)
 
 			places, err := c.SearchText(context.Background(), "test", "")

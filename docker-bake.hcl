@@ -29,6 +29,7 @@ variable "images" {
     { name = "artist-refresh", target = "artist-refresh" },
     { name = "sales-phase-discovery", target = "sales-phase-discovery" },
     { name = "sales-reminders", target = "sales-reminders" },
+    { name = "venue-coordinates-refresh", target = "venue-coordinates-refresh" },
     { name = "series-image-consumer", target = "series-image-consumer" },
   ]
 }
