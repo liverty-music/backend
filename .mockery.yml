@@ -93,6 +93,7 @@ packages:
     interfaces:
       AnalyticsClient: {}
       AnalyticsConsumerMetrics: {}
+      AreaUseCase: {}
       ArtistImageSyncUseCase: {}
       ArtistUseCase: {}
       CheckoutUseCase: {}

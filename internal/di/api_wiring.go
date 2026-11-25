@@ -3,6 +3,7 @@ package di
 import (
 	"io"
 
+	adminareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/area/v1/areav1connect"
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
@@ -19,6 +20,7 @@ import (
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
 	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/official_site/v1/official_sitev1connect"
 	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/order/v1/orderv1connect"
+	organizerareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/area/v1/areav1connect"
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
 	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
@@ -760,6 +762,11 @@ func (w *apiWiring) adminServer() *server.ConnectServer {
 		func(s *connect.Server) {
 			adminconcertcandidateconnect.RegisterConcertCandidateServiceHandler(s, rpc.NewAdminConcertCandidateHandler(w.concertCandidateUC, logger))
 		},
+		// Admin AreaService: Resolve and ListByCountry, to confirm a
+		// discovered concert's area and time zone in the approval queue.
+		func(s *connect.Server) {
+			adminareaconnect.RegisterAreaServiceHandler(s, rpc.NewAdminAreaHandler(usecase.NewAreaUseCase(w.areaRepo)))
+		},
 		// Admin ArtistService: ListByOrganizer.
 		func(s *connect.Server) {
 			adminartistconnect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(w.artistUC, logger))
@@ -794,9 +801,15 @@ func (w *apiWiring) organizerHandlers() []server.RPCHandlerFunc {
 		func(s *connect.Server) {
 			organizerseriesconnect.RegisterSeriesServiceHandler(s, rpc.NewOrganizerSeriesHandler(w.seriesUC, w.organizerUC, w.seriesImageURLBuilder, logger))
 		},
-		// Organizer-facing VenueService: Search (map catalog venue lookup).
+		// Organizer-facing VenueService: Search (map catalog venue lookup) and
+		// ResolvePlace (the Venue or place draft of a picked place).
 		func(s *connect.Server) {
-			organizervenueconnect.RegisterVenueServiceHandler(s, rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(w.mapCatalog), w.organizerUC))
+			organizervenueconnect.RegisterVenueServiceHandler(s, rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(w.mapCatalog, w.venueRepo, w.areaRepo), w.organizerUC))
+		},
+		// Organizer-facing AreaService: ListCountries and ListByCountry, to
+		// confirm a new place's area and time zone.
+		func(s *connect.Server) {
+			organizerareaconnect.RegisterAreaServiceHandler(s, rpc.NewOrganizerAreaHandler(usecase.NewAreaUseCase(w.areaRepo), w.organizerUC))
 		},
 		// Organizer-facing SeriesImageService: CreateUploadUrl.
 		func(s *connect.Server) {

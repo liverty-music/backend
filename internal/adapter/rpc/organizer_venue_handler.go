@@ -18,10 +18,6 @@ var _ organizervenuev1connect.VenueServiceHandler = (*OrganizerVenueHandler)(nil
 // OrganizerVenueHandler implements the organizer-facing VenueService Connect
 // interface. It resolves the caller's organizer and delegates to the use case.
 type OrganizerVenueHandler struct {
-	// ResolvePlace answers Unimplemented until the place confirmation lands
-	// (OpenSpec change globalize-venues, section 8).
-	organizervenuev1connect.UnimplementedVenueServiceHandler
-
 	venueUC     usecase.VenueUseCase
 	organizerUC usecase.OrganizerUseCase
 }
@@ -62,5 +58,30 @@ func (h *OrganizerVenueHandler) Search(
 
 	return &organizervenuev1.SearchResponse{
 		Candidates: pb.FromVenueCandidates(candidates),
+	}, nil
+}
+
+// ResolvePlace tells the caller's own active Organizer what a picked place
+// will be: the Venue holding it, or a place draft to confirm.
+func (h *OrganizerVenueHandler) ResolvePlace(
+	ctx context.Context,
+	req *organizervenuev1.ResolvePlaceRequest,
+) (*organizervenuev1.ResolvePlaceResponse, error) {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := h.venueUC.ResolvePlace(ctx, organizer.ID, req.GetPlaceId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+	if resolved.Venue != nil {
+		return &organizervenuev1.ResolvePlaceResponse{
+			Result: &organizervenuev1.ResolvePlaceResponse_Venue{Venue: pb.FromVenue(resolved.Venue)},
+		}, nil
+	}
+	return &organizervenuev1.ResolvePlaceResponse{
+		Result: &organizervenuev1.ResolvePlaceResponse_Draft{Draft: pb.FromPlaceDraft(resolved.Draft)},
 	}, nil
 }
