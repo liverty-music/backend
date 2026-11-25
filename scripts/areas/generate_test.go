@@ -229,6 +229,19 @@ func TestGenerate_PreviousSeed(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "JP-14 was first-level in the previous seed")
 	})
+	t.Run("a region membership or a country's zone missing from the previous seed fails", func(t *testing.T) {
+		before := fixture()
+		before.ZoneTab = append(before.ZoneTab, ZoneEntry{"CN", "Asia/Hong_Kong"})
+		seed, _ := generate(t, before, nil)
+		snap := seed.Snapshot()
+
+		in := fixture()
+		in.Regions[0].Members = []string{"JP-13"}
+		_, err := Generate(in, &snap)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "membership JP-KANTO JP-14 was in the previous seed")
+		assert.ErrorContains(t, err, "country_zone CN Asia/Hong_Kong was in the previous seed")
+	})
 	t.Run("the same sources against their own snapshot pass", func(t *testing.T) {
 		seed, _ := generate(t, fixture(), nil)
 		snap := seed.Snapshot()

@@ -43,7 +43,8 @@ jobs:
           pin() { sed -n "s/^[[:space:]]*$1[[:space:]]*= \"\(.*\)\"/\1/p" scripts/areas/sources.go; }
           cldr_pin="${CLDR_PIN_OVERRIDE:-$(pin cldrTag)}"
           tz_pin="${TZDATA_PIN_OVERRIDE:-$(pin tzdataVersion)}"
-          test -n "$cldr_pin" && test -n "$tz_pin"
+          test -n "$cldr_pin"
+          test -n "$tz_pin"
 
           # CLDR publishes numbered releases (release-49) beside other tags.
           cldr_latest=$(gh api 'repos/unicode-org/cldr/releases?per_page=50' \
