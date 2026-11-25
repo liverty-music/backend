@@ -387,3 +387,53 @@ func TestClient_GetPlace(t *testing.T) {
 		}
 	})
 }
+
+func TestClient_GetPlaceCoordinates(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/entity/venue/get-place-coordinates "Known place"
+	t.Run("return the coordinates of Zepp Haneda with the time they were read, asking for the location only", func(t *testing.T) {
+		t.Parallel()
+		var gotMask string
+		c := catalogServer(t, http.StatusOK, recordedResponse(t, "place_details_zepp_haneda.json"), func(r *http.Request, _ []byte) {
+			gotMask = r.Header.Get("X-Goog-FieldMask")
+		})
+		before := time.Now()
+
+		got, err := c.GetPlaceCoordinates(context.Background(), zeppHanedaPlaceID)
+
+		require.NoError(t, err)
+		assert.Equal(t, &entity.Coordinates{Latitude: 35.5473958, Longitude: 139.7565213}, got.Coordinates)
+		assert.WithinRange(t, got.FetchTime, before, time.Now())
+		assert.Equal(t, "id,location", gotMask)
+	})
+
+	// @spec components/entity/venue/get-place-coordinates "Place without a location"
+	t.Run("return no coordinates and no error when the place has no location", func(t *testing.T) {
+		t.Parallel()
+		c := catalogServer(t, http.StatusOK, []byte(`{"id":"ChIJx"}`), nil)
+
+		got, err := c.GetPlaceCoordinates(context.Background(), "ChIJx")
+
+		require.NoError(t, err)
+		assert.Nil(t, got.Coordinates)
+	})
+
+	// @spec components/entity/venue/get-place-coordinates "Place no longer exists"
+	t.Run("fail with NOT_FOUND when the catalog has no place with the id", func(t *testing.T) {
+		t.Parallel()
+		c := catalogServer(t, http.StatusNotFound, []byte(`{"error":{"code":404,"status":"NOT_FOUND"}}`), nil)
+
+		_, err := c.GetPlaceCoordinates(context.Background(), "ChIJgone")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	// @spec components/entity/venue/get-place-coordinates "Catalog down"
+	t.Run("fail with UNAVAILABLE when the catalog cannot be reached", func(t *testing.T) {
+		t.Parallel()
+		_, err := unreachableClient(t).GetPlaceCoordinates(context.Background(), zeppHanedaPlaceID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}

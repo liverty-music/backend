@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -106,6 +107,72 @@ func (_c *MockVenueRepository_BackfillPlaceID_Call) Return(err error) *MockVenue
 }
 
 func (_c *MockVenueRepository_BackfillPlaceID_Call) RunAndReturn(run func(ctx context.Context, venueID string, placeID string) error) *MockVenueRepository_BackfillPlaceID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ClearExpiredCoordinates provides a mock function for the type MockVenueRepository
+func (_mock *MockVenueRepository) ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error) {
+	ret := _mock.Called(ctx, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClearExpiredCoordinates")
+	}
+
+	var r0 int64
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) (int64, error)); ok {
+		return returnFunc(ctx, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) int64); ok {
+		r0 = returnFunc(ctx, at)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time) error); ok {
+		r1 = returnFunc(ctx, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueRepository_ClearExpiredCoordinates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClearExpiredCoordinates'
+type MockVenueRepository_ClearExpiredCoordinates_Call struct {
+	*mock.Call
+}
+
+// ClearExpiredCoordinates is a helper method to define mock.On call
+//   - ctx context.Context
+//   - at time.Time
+func (_e *MockVenueRepository_Expecter) ClearExpiredCoordinates(ctx any, at any) *MockVenueRepository_ClearExpiredCoordinates_Call {
+	return &MockVenueRepository_ClearExpiredCoordinates_Call{Call: _e.mock.On("ClearExpiredCoordinates", ctx, at)}
+}
+
+func (_c *MockVenueRepository_ClearExpiredCoordinates_Call) Run(run func(ctx context.Context, at time.Time)) *MockVenueRepository_ClearExpiredCoordinates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 time.Time
+		if args[1] != nil {
+			arg1 = args[1].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_ClearExpiredCoordinates_Call) Return(n int64, err error) *MockVenueRepository_ClearExpiredCoordinates_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockVenueRepository_ClearExpiredCoordinates_Call) RunAndReturn(run func(ctx context.Context, at time.Time) (int64, error)) *MockVenueRepository_ClearExpiredCoordinates_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -382,6 +449,143 @@ func (_c *MockVenueRepository_GetByPlaceID_Call) Return(venue *entity.Venue, err
 }
 
 func (_c *MockVenueRepository_GetByPlaceID_Call) RunAndReturn(run func(ctx context.Context, placeID string) (*entity.Venue, error)) *MockVenueRepository_GetByPlaceID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListCoordinatesDue provides a mock function for the type MockVenueRepository
+func (_mock *MockVenueRepository) ListCoordinatesDue(ctx context.Context, at time.Time, limit int) ([]*entity.Venue, error) {
+	ret := _mock.Called(ctx, at, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListCoordinatesDue")
+	}
+
+	var r0 []*entity.Venue
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, int) ([]*entity.Venue, error)); ok {
+		return returnFunc(ctx, at, limit)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time, int) []*entity.Venue); ok {
+		r0 = returnFunc(ctx, at, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Venue)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time, int) error); ok {
+		r1 = returnFunc(ctx, at, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueRepository_ListCoordinatesDue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCoordinatesDue'
+type MockVenueRepository_ListCoordinatesDue_Call struct {
+	*mock.Call
+}
+
+// ListCoordinatesDue is a helper method to define mock.On call
+//   - ctx context.Context
+//   - at time.Time
+//   - limit int
+func (_e *MockVenueRepository_Expecter) ListCoordinatesDue(ctx any, at any, limit any) *MockVenueRepository_ListCoordinatesDue_Call {
+	return &MockVenueRepository_ListCoordinatesDue_Call{Call: _e.mock.On("ListCoordinatesDue", ctx, at, limit)}
+}
+
+func (_c *MockVenueRepository_ListCoordinatesDue_Call) Run(run func(ctx context.Context, at time.Time, limit int)) *MockVenueRepository_ListCoordinatesDue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 time.Time
+		if args[1] != nil {
+			arg1 = args[1].(time.Time)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_ListCoordinatesDue_Call) Return(venues []*entity.Venue, err error) *MockVenueRepository_ListCoordinatesDue_Call {
+	_c.Call.Return(venues, err)
+	return _c
+}
+
+func (_c *MockVenueRepository_ListCoordinatesDue_Call) RunAndReturn(run func(ctx context.Context, at time.Time, limit int) ([]*entity.Venue, error)) *MockVenueRepository_ListCoordinatesDue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetCoordinates provides a mock function for the type MockVenueRepository
+func (_mock *MockVenueRepository) SetCoordinates(ctx context.Context, venueID string, coords *entity.PlaceCoordinates) error {
+	ret := _mock.Called(ctx, venueID, coords)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetCoordinates")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.PlaceCoordinates) error); ok {
+		r0 = returnFunc(ctx, venueID, coords)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockVenueRepository_SetCoordinates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetCoordinates'
+type MockVenueRepository_SetCoordinates_Call struct {
+	*mock.Call
+}
+
+// SetCoordinates is a helper method to define mock.On call
+//   - ctx context.Context
+//   - venueID string
+//   - coords *entity.PlaceCoordinates
+func (_e *MockVenueRepository_Expecter) SetCoordinates(ctx any, venueID any, coords any) *MockVenueRepository_SetCoordinates_Call {
+	return &MockVenueRepository_SetCoordinates_Call{Call: _e.mock.On("SetCoordinates", ctx, venueID, coords)}
+}
+
+func (_c *MockVenueRepository_SetCoordinates_Call) Run(run func(ctx context.Context, venueID string, coords *entity.PlaceCoordinates)) *MockVenueRepository_SetCoordinates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 *entity.PlaceCoordinates
+		if args[2] != nil {
+			arg2 = args[2].(*entity.PlaceCoordinates)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_SetCoordinates_Call) Return(err error) *MockVenueRepository_SetCoordinates_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockVenueRepository_SetCoordinates_Call) RunAndReturn(run func(ctx context.Context, venueID string, coords *entity.PlaceCoordinates) error) *MockVenueRepository_SetCoordinates_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -186,7 +186,36 @@ type VenueRepository interface {
 	//  - InvalidArgument: If the name or the admin area is empty.
 	//  - NotFound: If no venue with that listed name and admin area combination exists.
 	GetByListedName(ctx context.Context, listedVenueName, adminArea string) (*Venue, error)
+
+	// SetCoordinates replaces a venue's coordinates and their fetch time with
+	// coords, or removes both when coords is nil. Nothing else on the venue
+	// changes.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: coords has no coordinates.
+	//  - NotFound: No venue has the id.
+	SetCoordinates(ctx context.Context, venueID string, coords *PlaceCoordinates) error
+
+	// ListCoordinatesDue returns at most limit venues with a place id whose
+	// coordinates are missing or were fetched more than
+	// [CoordinatesRefreshAge] before at: those without coordinates first,
+	// then by fetch time, oldest first.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: limit is below 1.
+	ListCoordinatesDue(ctx context.Context, at time.Time, limit int) ([]*Venue, error)
+
+	// ClearExpiredCoordinates removes the coordinates and fetch time of every
+	// venue whose coordinates were fetched more than [CoordinatesMaxAge]
+	// before at, and returns how many venues it changed.
+	ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error)
 }
+
+// CoordinatesRefreshAge is the age after which a venue's coordinates are read
+// again from the map catalog, ahead of [CoordinatesMaxAge].
+const CoordinatesRefreshAge = 20 * 24 * time.Hour
 
 // CoordinatesMaxAge is how long coordinates read from the map catalog may
 // be kept.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
@@ -47,6 +48,21 @@ const (
 		FROM venues
 		WHERE listed_venue_name = $1 AND admin_area = $2
 		LIMIT 1
+	`
+	setVenueCoordinatesQuery = `
+		UPDATE venues SET latitude = $2, longitude = $3, coordinates_fetch_time = $4 WHERE id = $1
+	`
+	listVenueCoordinatesDueQuery = `
+		SELECT ` + venueColumns + `
+		FROM venues
+		WHERE google_place_id IS NOT NULL
+		  AND (coordinates_fetch_time IS NULL OR coordinates_fetch_time < $1)
+		ORDER BY coordinates_fetch_time ASC NULLS FIRST, id
+		LIMIT $2
+	`
+	clearExpiredVenueCoordinatesQuery = `
+		UPDATE venues SET latitude = NULL, longitude = NULL, coordinates_fetch_time = NULL
+		WHERE coordinates_fetch_time < $1
 	`
 	// venueAreaQuery reads the Area a venue names and the time zones of its
 	// country, for Venue.CheckArea.
@@ -148,6 +164,59 @@ func (r *VenueRepository) BackfillPlaceID(ctx context.Context, venueID, placeID 
 		return toAppErr(err, "failed to backfill venue place ID", slog.String("venue_id", venueID), slog.String("place_id", placeID))
 	}
 	return nil
+}
+
+// SetCoordinates implements entity.VenueRepository.
+func (r *VenueRepository) SetCoordinates(ctx context.Context, venueID string, coords *entity.PlaceCoordinates) error {
+	var lat, lng *float64
+	var fetch *time.Time
+	if coords != nil {
+		if coords.Coordinates == nil {
+			return apperr.New(codes.InvalidArgument, "coordinates to set must be given; pass nil to remove them")
+		}
+		lat, lng, fetch = &coords.Coordinates.Latitude, &coords.Coordinates.Longitude, &coords.FetchTime
+	}
+	tag, err := r.db.Pool.Exec(ctx, setVenueCoordinatesQuery, venueID, lat, lng, fetch)
+	if err != nil {
+		return toAppErr(err, "failed to set venue coordinates", slog.String("venue_id", venueID))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "venue not found")
+	}
+	return nil
+}
+
+// ListCoordinatesDue implements entity.VenueRepository.
+func (r *VenueRepository) ListCoordinatesDue(ctx context.Context, at time.Time, limit int) ([]*entity.Venue, error) {
+	if limit < 1 {
+		return nil, apperr.New(codes.InvalidArgument, "the maximum count must be at least 1")
+	}
+	rows, err := r.db.Pool.Query(ctx, listVenueCoordinatesDueQuery, at.Add(-entity.CoordinatesRefreshAge), limit)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list venues due for coordinates")
+	}
+	defer rows.Close()
+	venues := []*entity.Venue{}
+	for rows.Next() {
+		v, err := scanVenue(rows)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan venue due for coordinates")
+		}
+		venues = append(venues, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to list venues due for coordinates")
+	}
+	return venues, nil
+}
+
+// ClearExpiredCoordinates implements entity.VenueRepository.
+func (r *VenueRepository) ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error) {
+	tag, err := r.db.Pool.Exec(ctx, clearExpiredVenueCoordinatesQuery, at.Add(-entity.CoordinatesMaxAge))
+	if err != nil {
+		return 0, toAppErr(err, "failed to clear expired venue coordinates")
+	}
+	return tag.RowsAffected(), nil
 }
 
 // checkArea reads the Area the venue names and its country's time zones,

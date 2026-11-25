@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -71,6 +72,40 @@ type VenueUseCase interface {
 	//  - NotFound: The map catalog has no place with the id.
 	//  - Unavailable: The map catalog cannot be reached.
 	ResolvePlace(ctx context.Context, callerOrgID, placeID string) (*ResolvedPlace, error)
+
+	// RefreshCoordinates keeps the Venues' coordinates, a cache of the map
+	// catalog, within [entity.CoordinatesMaxAge]. It lists up to
+	// [CoordinatesRefreshBatch] Venues due at start, reads each one's
+	// coordinates again one at a time and stores them (or removes them when
+	// the place no longer exists), then removes every coordinate fetched more
+	// than [entity.CoordinatesMaxAge] before start, also when listing failed.
+	// A Venue whose place has no coordinates or whose read fails is left
+	// unchanged for the next run.
+	//
+	// # Possible errors
+	//
+	// The first failure of listing, of removing expired coordinates, or of a
+	// read other than NotFound, returned after the rest of the run is done.
+	RefreshCoordinates(ctx context.Context, start time.Time) (*CoordinatesRefreshSummary, error)
+}
+
+// CoordinatesRefreshBatch is the most Venues one RefreshCoordinates run reads
+// from the map catalog.
+const CoordinatesRefreshBatch = 1000
+
+// CoordinatesRefreshSummary counts what one RefreshCoordinates run did.
+type CoordinatesRefreshSummary struct {
+	// Due is how many Venues were listed for a refresh.
+	Due int
+	// Refreshed is how many got coordinates just read.
+	Refreshed int
+	// Removed is how many lost their coordinates because the place no longer
+	// exists.
+	Removed int
+	// Failed is how many could not be refreshed and were left unchanged.
+	Failed int
+	// Expired is how many lost coordinates older than the maximum age.
+	Expired int64
 }
 
 // venueUseCase implements [VenueUseCase].
@@ -147,4 +182,57 @@ func (uc *venueUseCase) Search(ctx context.Context, _ string, text string) ([]*e
 		return nil, fmt.Errorf("search places in map catalog: %w", err)
 	}
 	return candidates, nil
+}
+
+// RefreshCoordinates implements [VenueUseCase].
+func (uc *venueUseCase) RefreshCoordinates(ctx context.Context, start time.Time) (*CoordinatesRefreshSummary, error) {
+	summary := &CoordinatesRefreshSummary{}
+	var errs []error
+	due, err := uc.venues.ListCoordinatesDue(ctx, start, CoordinatesRefreshBatch)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("list venues due for coordinates: %w", err))
+	}
+	summary.Due = len(due)
+	for _, v := range due {
+		if err := uc.refreshVenueCoordinates(ctx, v, summary); err != nil {
+			summary.Failed++
+			errs = append(errs, fmt.Errorf("refresh coordinates of venue %s: %w", v.ID, err))
+		}
+	}
+	expired, err := uc.venues.ClearExpiredCoordinates(ctx, start)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("clear expired coordinates: %w", err))
+	}
+	summary.Expired = expired
+	if len(errs) > 0 {
+		return summary, errs[0]
+	}
+	return summary, nil
+}
+
+// refreshVenueCoordinates reads one Venue's coordinates again and stores
+// them, removes them when the place no longer exists, and leaves the Venue
+// unchanged when the place has no coordinates.
+func (uc *venueUseCase) refreshVenueCoordinates(ctx context.Context, v *entity.Venue, summary *CoordinatesRefreshSummary) error {
+	if v.GooglePlaceID == nil {
+		return nil
+	}
+	coords, err := uc.mapCatalog.GetPlaceCoordinates(ctx, *v.GooglePlaceID)
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		if err := uc.venues.SetCoordinates(ctx, v.ID, nil); err != nil {
+			return fmt.Errorf("remove coordinates: %w", err)
+		}
+		summary.Removed++
+		return nil
+	case err != nil:
+		return fmt.Errorf("read place coordinates: %w", err)
+	case coords.Coordinates == nil:
+		return nil
+	}
+	if err := uc.venues.SetCoordinates(ctx, v.ID, coords); err != nil {
+		return fmt.Errorf("store coordinates: %w", err)
+	}
+	summary.Refreshed++
+	return nil
 }
