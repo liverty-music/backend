@@ -54,6 +54,8 @@ var tbdVenueMarkers = map[string]struct{}{
 	"tba":           {},
 	"tbd":           {},
 	"未定":            {},
+	"private":       {},
+	"privateevent":  {},
 	"後日発表":          {},
 	"comingsoon":    {},
 	"announced":     {}, // "to be announced"-style truncated remainders

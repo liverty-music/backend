@@ -59,6 +59,8 @@ var unannouncedVenueMarkers = map[string]struct{}{
 	"staytuned":     {},
 	"未定":            {},
 	"後日発表":          {},
+	"private":       {},
+	"privateevent":  {},
 }
 
 // undisclosedPlace marks a venue that is decided but not made public, as in

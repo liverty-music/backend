@@ -417,7 +417,8 @@ func TestConcertSearcher_Search_Request(t *testing.T) {
 				assert.Contains(t, prompt, "Return every tour and show of Test Artist taking place on or after ")
 
 				sys := body["systemInstruction"].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
-				assert.Contains(t, sys, "Exclude music festivals and cancelled shows.")
+				// The instruction asks for the exclusion; the model's judgement is not unit-testable.
+				assert.Contains(t, sys, "Exclude music festivals, cancelled shows, private events that are not open to the public, and shows held on a ship or at sea (a cruise), which have no fixed place.")
 				assert.Contains(t, sys, "Done when: every tour that the official sources mention has all of its announced dates in your answer.")
 			},
 		},
