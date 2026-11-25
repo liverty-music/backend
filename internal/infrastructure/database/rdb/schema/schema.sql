@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS homes (
 
 ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
 
+
 COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
 COMMENT ON COLUMN homes.id IS 'Unique home record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
@@ -1407,3 +1408,17 @@ COMMENT ON TABLE area_memberships IS 'The first-level areas each region groups (
 COMMENT ON COLUMN area_memberships.region_code IS 'The region';
 COMMENT ON COLUMN area_memberships.member_code IS 'A first-level area the region contains';
 COMMENT ON COLUMN area_memberships.member_first_level IS 'Always true; with member_code it lets the foreign key require a first-level member';
+
+-- The home Area of each user (OpenSpec change globalize-venues, Decision 8).
+-- It replaces homes, which stays until the code that reads it is gone.
+CREATE TABLE IF NOT EXISTS user_home_areas (
+    user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    area_code TEXT NOT NULL,
+    area_first_level BOOLEAN NOT NULL DEFAULT TRUE CHECK (area_first_level),
+    CONSTRAINT fk_user_home_areas_area FOREIGN KEY (area_code, area_first_level) REFERENCES areas (code, is_first_level)
+);
+
+COMMENT ON TABLE user_home_areas IS 'The home Area of each user: the first-level Area where the user attends live events without considering it a trip. One row per user; deleted with the user';
+COMMENT ON COLUMN user_home_areas.user_id IS 'The user whose home this is';
+COMMENT ON COLUMN user_home_areas.area_code IS 'Code of the first-level Area of the home (e.g., JP-13, HK)';
+COMMENT ON COLUMN user_home_areas.area_first_level IS 'Always true; with area_code it lets the foreign key require a first-level Area';
