@@ -229,7 +229,7 @@ type CountryAreas struct {
 type AreaRepository interface {
 	// Resolve returns the one first-level Area a code or a name stands for.
 	// The text is trimmed. A text in the form of an Area code, in any letter
-	// case, matches that code; any other text matches an English name with
+	// case, matches that code; every text also matches an English name with
 	// letter case ignored, or a Japanese name with or without its 都, 道, 府 or
 	// 県, within country when it is given. A region never matches. Each match
 	// leads to a first-level Area through its replacement and then its

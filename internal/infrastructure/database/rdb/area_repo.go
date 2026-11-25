@@ -37,15 +37,14 @@ const (
 	// distinct first-level codes.
 	//
 	// $1 is the upper-cased text when it is code-like, else NULL; $2 the
-	// trimmed text when it is not code-like, else NULL; $3 the country.
+	// trimmed text, matched as a name; $3 the country, which narrows names.
 	resolveAreaQuery = `
 		WITH RECURSIVE matched AS (
 			SELECT code FROM areas
 			WHERE kind <> 'region'
 			  AND (
 			    code = $1
-			    OR ($2::text IS NOT NULL
-			        AND ($3::text IS NULL OR country_code = $3)
+			    OR (($3::text IS NULL OR country_code = $3)
 			        AND (lower(name_en) = lower($2)
 			             OR name_ja = $2
 			             OR name_ja IN ($2 || '都', $2 || '道', $2 || '府', $2 || '県')))
@@ -105,13 +104,14 @@ func (r *AreaRepository) Resolve(ctx context.Context, text string, country *stri
 	if country != nil && !countryCode.MatchString(*country) {
 		return nil, apperr.New(codes.InvalidArgument, "country code must be two uppercase letters")
 	}
-	var code, name *string
+	// A text in the form of a code is also looked up as a name: a name can
+	// have that form ("Al-Anbar"), and no code equals a name.
+	var code *string
 	if areaCodeText.MatchString(text) {
 		upper := strings.ToUpper(text)
 		code = &upper
-	} else {
-		name = &text
 	}
+	name := &text
 
 	rows, err := r.db.Pool.Query(ctx, resolveAreaQuery, code, name, country)
 	if err != nil {

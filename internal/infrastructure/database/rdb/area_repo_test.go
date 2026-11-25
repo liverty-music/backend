@@ -45,6 +45,7 @@ func TestAreaRepository_Resolve(t *testing.T) {
 		// @spec components/entity/area/resolve "Shared name with a country"
 		{name: "Shared name with a country", text: "Victoria", country: new("AU"), want: "AU-VIC"},
 		{name: "Spaces around the text", text: "  JP-13 ", want: "JP-13"},
+		{name: "Name in the form of a code", text: "al-qassim", want: "SA-05"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
