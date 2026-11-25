@@ -641,6 +641,9 @@ func (g *generator) seed() *Seed {
 	return s
 }
 
+// resolveByHand is what the upgrading change does when compare refuses.
+const resolveByHand = "write a migration that remaps or deletes it, and in the same change remove it from scripts/areas/seed.json"
+
 // compare refuses a seed that loses a code, a zone, a region membership or a
 // country's zone of the previous one, or in which a first-level code stops
 // being first-level: stored venues, homes and sales may reference them, and
@@ -651,14 +654,14 @@ func (g *generator) compare(s *Seed, prev Snapshot) {
 		first, ok := now.Areas[code]
 		switch {
 		case !ok:
-			g.fail("%s was in the previous seed and is missing now", code)
+			g.fail("%s was in the previous seed and is missing now: %s", code, resolveByHand)
 		case prev.Areas[code] && !first:
-			g.fail("%s was first-level in the previous seed and is not now", code)
+			g.fail("%s was first-level in the previous seed and is not now: %s", code, resolveByHand)
 		}
 	}
 	for _, z := range prev.TimeZones {
 		if !slices.Contains(now.TimeZones, z) {
-			g.fail("time zone %s was in the previous seed and is missing now", z)
+			g.fail("time zone %s was in the previous seed and is missing now: %s", z, resolveByHand)
 		}
 	}
 	// The seed never deletes, so a region membership or a country's zone
@@ -667,7 +670,7 @@ func (g *generator) compare(s *Seed, prev Snapshot) {
 	for _, key := range slices.Sorted(maps.Keys(prev.Rows)) {
 		if strings.HasPrefix(key, "membership ") || strings.HasPrefix(key, "country_zone ") {
 			if _, ok := now.Rows[key]; !ok {
-				g.fail("%s was in the previous seed and is missing now: delete it in the upgrading change", key)
+				g.fail("%s was in the previous seed and is missing now: %s", key, resolveByHand)
 			}
 		}
 	}

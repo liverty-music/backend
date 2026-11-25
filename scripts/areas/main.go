@@ -14,8 +14,11 @@
 // then run `atlas migrate hash --dir file://k8s/atlas/base/reference-data` and
 // add the file to k8s/atlas/base/kustomization.yaml. It refuses to write when a code or zone
 // of the previous run (seed.json) would be lost, or when a first-level code
-// would stop being first-level; the upgrading change must then remap the
-// venues, homes and sales that use it.
+// would stop being first-level, or when a region membership or a country's
+// zone would disappear, because the seed never deletes. The upgrading change
+// then writes a migration that remaps or deletes the value (the venues,
+// homes and sales that use a code), and removes its key from seed.json in
+// the same change, so the next run passes.
 package main
 
 import (
