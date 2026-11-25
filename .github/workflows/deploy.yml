@@ -556,9 +556,13 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           TAG: ${{ github.event.release.tag_name }}
           SHA: ${{ github.sha }}
+          # A GitHub pre-release moves only the candidate pin (the preview
+          # address); the owner promotes it afterwards (cloud-provisioning
+          # bump-prod-pin.yml, OpenSpec change add-prod-preview-release).
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
-          payload=$(jq -nc --arg t "$TAG" --arg s "$SHA" \
-            '{event_type:"bump-prod-pin",client_payload:{component:"backend",tag:$t,sha:$s}}')
+          payload=$(jq -nc --arg t "$TAG" --arg s "$SHA" --argjson p "${PRERELEASE:-false}" \
+            '{event_type:"bump-prod-pin",client_payload:{component:"backend",tag:$t,sha:$s,prerelease:$p}}')
           echo "Dispatching: $payload"
           echo "$payload" | gh api "repos/${OWNER}/cloud-provisioning/dispatches" --input -
