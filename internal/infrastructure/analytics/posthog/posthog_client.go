@@ -16,7 +16,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
-	posthogsdk "github.com/posthog/posthog-go"
+	posthogsdk "github.com/posthog/posthog-go/v2"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/liverty-music/backend/internal/usecase"
