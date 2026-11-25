@@ -96,7 +96,7 @@ func TestNormalizeVenueName_UnannouncedVenue(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/entity/venue "Venue not yet announced is missing"
-	for _, in := range []string{"TBA", "-STAY TUNED-", "未定", "横浜某所", "tbd", "To Be Announced", "Coming Soon!", "後日発表", "ＴＢＡ"} {
+	for _, in := range []string{"TBA", "-STAY TUNED-", "未定", "横浜某所", "tbd", "To Be Announced", "Coming Soon!", "後日発表", "ＴＢＡ", "PRIVATE", "Private Event"} {
 		t.Run("missing: "+in, func(t *testing.T) {
 			t.Parallel()
 			assert.Empty(t, entity.NormalizeVenueName(in))
