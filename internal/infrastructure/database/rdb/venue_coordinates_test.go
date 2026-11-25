@@ -210,3 +210,42 @@ func TestVenueRepository_ClearExpiredCoordinates(t *testing.T) {
 		assert.NotNil(t, got.Coordinates)
 	})
 }
+
+func TestVenueRepository_ListWithoutAreaOrZone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
+	insert := func(name string, listed, area, zone *string) string {
+		t.Helper()
+		id := uuid.NewV7().String()
+		_, err := db.Pool.Exec(ctx, `INSERT INTO venues (id, name, listed_venue_name, admin_area, time_zone) VALUES ($1, $2, $3, $4, $5)`,
+			id, name, listed, area, zone)
+		require.NoError(t, err)
+		return id
+	}
+	complete := insert("Zepp Haneda", new("Zepp Haneda"), new("JP-13"), new("Asia/Tokyo"))
+	noZone := insert("Stubb's BBQ", new("Stubb's"), new("US-TX"), nil)
+	noArea := insert("Legacy Hall", nil, nil, nil)
+	artist := seedArtist(t, db, "Backfill Artist", "a5000000-0000-0000-0000-0000000000b1")
+	oldEvent := seedEvent(t, db, noZone, artist, "Old Show", "2026-01-10")
+	newEvent := seedEvent(t, db, noZone, artist, "New Show", "2026-06-10")
+	seedEvent(t, db, complete, artist, "Tokyo Show", "2026-06-11")
+	for event, url := range map[string]string{oldEvent: "https://example.com/old", newEvent: "https://example.com/new"} {
+		_, err := db.Pool.Exec(ctx, `UPDATE series SET source_url = $1 WHERE id = (SELECT series_id FROM events WHERE id = $2)`, url, event)
+		require.NoError(t, err)
+	}
+
+	got, err := repo.ListWithoutAreaOrZone(ctx)
+
+	require.NoError(t, err)
+	byID := map[string]*entity.VenueToBackfill{}
+	for _, v := range got {
+		byID[v.VenueID] = v
+	}
+	assert.Len(t, got, 2, "the venue with an area and a zone is left out")
+	assert.Equal(t, &entity.VenueToBackfill{VenueID: noZone, ListedName: "Stubb's", AdminArea: "US-TX", SourceURL: "https://example.com/new"}, byID[noZone],
+		"the listed name and the latest event's source page")
+	assert.Equal(t, &entity.VenueToBackfill{VenueID: noArea, ListedName: "Legacy Hall"}, byID[noArea],
+		"the name when there is no listed name, and no source page")
+}

@@ -66,6 +66,7 @@ packages:
       UserRepository: {}
       VenueMapCatalog: {}
       VenuePlaceSearcher: {}
+      VenueAreaAsker: {}
       VenueRepository: {}
       WalletPublicKeyRepository: {}
   github.com/liverty-music/backend/internal/adapter/rpc:
