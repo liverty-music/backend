@@ -9,6 +9,7 @@ packages:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       AdmissionRepository: {}
+      AreaRepository: {}
       ArtistIdentityManager: {}
       ArtistImageResolver: {}
       ArtistRepository: {}

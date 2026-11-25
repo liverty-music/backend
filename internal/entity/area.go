@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"context"
 	"regexp"
 	"slices"
 
@@ -195,4 +196,63 @@ func localName(language, en string, ja *string) string {
 		return *ja
 	}
 	return en
+}
+
+// Country is a country or territory that has first-level Areas, as offered
+// in a country select.
+//
+// Corresponds to liverty_music.entity.v1.Country.
+type Country struct {
+	// Code is the ISO 3166-1 alpha-2 code: KR.
+	Code string
+	// NameEN is the English territory name: South Korea.
+	NameEN string
+	// NameJA is the Japanese territory name (韓国); nil when none is
+	// published.
+	NameJA *string
+}
+
+// CountryAreas is what a venue in one country is confirmed from: the
+// country's first-level Areas, its regions and its time zones.
+type CountryAreas struct {
+	// Areas are the first-level Areas, in code order, each with its region
+	// codes.
+	Areas []*Area
+	// Regions are the regions, in code order.
+	Regions []*Area
+	// TimeZones are the zones some part of the country lies in, in name
+	// order.
+	TimeZones []*AreaTimeZone
+}
+
+// AreaRepository reads the Area reference data.
+type AreaRepository interface {
+	// Resolve returns the one first-level Area a code or a name stands for.
+	// The text is trimmed. A text in the form of an Area code, in any letter
+	// case, matches that code; any other text matches an English name with
+	// letter case ignored, or a Japanese name with or without its 都, 道, 府 or
+	// 県, within country when it is given. A region never matches. Each match
+	// leads to a first-level Area through its replacement and then its
+	// parents.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: the text is empty after trimming, or country is
+	//     not two uppercase letters.
+	//   - NotFound: nothing matches, or the matches lead to more than one
+	//     first-level Area.
+	Resolve(ctx context.Context, text string, country *string) (*Area, error)
+
+	// ListByCountry returns the country's first-level Areas with their
+	// region codes, its regions and its time zones. A country with none of
+	// them yields three empty lists.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: country is not two uppercase letters.
+	ListByCountry(ctx context.Context, country string) (*CountryAreas, error)
+
+	// ListCountries returns, in code order, every country or territory that
+	// has first-level Areas, with its names.
+	ListCountries(ctx context.Context) ([]*Country, error)
 }
