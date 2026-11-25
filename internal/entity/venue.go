@@ -211,6 +211,42 @@ type VenueRepository interface {
 	// venue whose coordinates were fetched more than [CoordinatesMaxAge]
 	// before at, and returns how many venues it changed.
 	ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error)
+
+	// ListWithoutAreaOrZone returns every venue that has no admin area or no
+	// time zone, with its listed name (its name when it has none) and the
+	// source page of one of its events' series (the latest, empty when none
+	// has one), for the one-off backfill of areas and zones.
+	ListWithoutAreaOrZone(ctx context.Context) ([]*VenueToBackfill, error)
+}
+
+// VenueToBackfill is a venue without an admin area or a time zone, and what
+// the backfill asks about it.
+type VenueToBackfill struct {
+	VenueID    string
+	ListedName string
+	// SourceURL is the page that listed one of the venue's events; empty when
+	// none is known.
+	SourceURL string
+}
+
+// VenueAreaAnswer is what an external model answered for a venue: an area
+// code and an IANA time zone, each empty when it could not tell. Neither is
+// checked.
+type VenueAreaAnswer struct {
+	AdminArea string
+	TimeZone  string
+}
+
+// VenueAreaAsker asks an external model where a venue is, from its listed
+// name and the page that listed it.
+type VenueAreaAsker interface {
+	// AskVenueArea returns the model's answer for the venue.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: The model cannot be reached.
+	//  - Any other failure of the call or of its answer.
+	AskVenueArea(ctx context.Context, venueName, sourceURL string) (*VenueAreaAnswer, error)
 }
 
 // CoordinatesRefreshAge is the age after which a venue's coordinates are read
