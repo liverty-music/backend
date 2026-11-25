@@ -99,35 +99,35 @@ func TestNotification_Message_CopyTable(t *testing.T) {
 		{
 			name: "announcement first come", typ: entity.NotificationTypeTicketSaleAnnouncement, subject: saleSubject,
 			loaded:   entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodFirstCome)},
-			wantLink: "/concerts/event-1", wantTag: "ticket-sale-sale-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "ticket-sale-sale-1",
 			jaTitle: "[ヨルシカ] 先着販売のお知らせ", jaBody: "10/6(火) 19:00から先着販売スタート!!",
 			enTitle: "[ヨルシカ] First-Come Ticket Sale", enBody: "Ticket sale (first come) starts Oct 6 (Tue) 19:00!",
 		},
 		{
 			name: "announcement lottery", typ: entity.NotificationTypeTicketSaleAnnouncement, subject: saleSubject,
 			loaded:   entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodLottery)},
-			wantLink: "/concerts/event-1", wantTag: "ticket-sale-sale-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "ticket-sale-sale-1",
 			jaTitle: "[ヨルシカ] 抽選受付のお知らせ", jaBody: "10/6(火) 19:00から抽選申し込みスタート!!",
 			enTitle: "[ヨルシカ] Ticket Lottery", enBody: "Ticket lottery entry starts Oct 6 (Tue) 19:00!",
 		},
 		{
 			name: "reminder apply open first come", typ: entity.NotificationTypeSalesReminder, subject: reminder(entity.ReminderStageApplyOpen),
 			loaded:   entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodFirstCome)},
-			wantLink: "/concerts/event-1", wantTag: "ticket-sale-sale-1-stage-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "ticket-sale-sale-1-stage-1",
 			jaTitle: "[ヨルシカ] まもなく先着販売開始", jaBody: "10/6(火) 19:00から先着販売スタート!!",
 			enTitle: "[ヨルシカ] First-Come Sale Starting Soon", enBody: "Ticket sale (first come) starts Oct 6 (Tue) 19:00!",
 		},
 		{
 			name: "reminder apply open lottery", typ: entity.NotificationTypeSalesReminder, subject: reminder(entity.ReminderStageApplyOpen),
 			loaded:   entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodLottery)},
-			wantLink: "/concerts/event-1", wantTag: "ticket-sale-sale-1-stage-1",
+			wantLink: "/timetable?concert=event-1", wantTag: "ticket-sale-sale-1-stage-1",
 			jaTitle: "[ヨルシカ] 抽選受付スタート", jaBody: "抽選申し込みがスタートしました!! 締切は10/22(木) 23:59",
 			enTitle: "[ヨルシカ] Ticket Lottery Open", enBody: "Ticket lottery entry is open! Closes Oct 22 (Thu) 23:59.",
 		},
 		{
 			name: "reminder apply close", typ: entity.NotificationTypeSalesReminder, subject: reminder(entity.ReminderStageApplyClose24H),
 			loaded:   entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodLottery)},
-			wantLink: "/concerts/event-1", wantTag: "ticket-sale-sale-1-stage-2",
+			wantLink: "/timetable?concert=event-1", wantTag: "ticket-sale-sale-1-stage-2",
 			jaTitle: "[ヨルシカ] 抽選締切が近づいています", jaBody: "抽選申し込みの締切は10/22(木) 23:59!!",
 			enTitle: "[ヨルシカ] Ticket Lottery Closing Soon", enBody: "Ticket lottery entry closes Oct 22 (Thu) 23:59!",
 		},
@@ -353,6 +353,31 @@ func TestNotification_Message(t *testing.T) {
 		}
 
 		assert.Equal(t, tag("event-1"), tag("event-2"))
+	})
+
+	t.Run("ticket sale push of a discovered concert opens the timetable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/notification "Ticket sale push for a discovered concert"
+		s := messageSubject(entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodLottery)})
+		announcement := &entity.Notification{Type: entity.NotificationTypeTicketSaleAnnouncement, Subject: entity.NotificationSubject{TicketSaleID: "sale-1", EventID: "event-1"}}
+		reminder := &entity.Notification{Type: entity.NotificationTypeSalesReminder, Subject: entity.NotificationSubject{TicketSaleID: "sale-1", EventID: "event-1", Stage: entity.ReminderStageApplyOpen}}
+
+		assert.Equal(t, "/timetable?concert=event-1", announcement.Message("ja", s).Data[entity.NotificationDataKeyURL])
+		assert.Equal(t, "/timetable?concert=event-1", reminder.Message("ja", s).Data[entity.NotificationDataKeyURL])
+	})
+
+	t.Run("ticket sale push of a first-party concert opens its concert page", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/notification "Ticket sale push for a first-party concert"
+		c := messageConcert()
+		organizer := "org-1"
+		c.Series.OrganizerID = &organizer
+		s := messageSubject(entity.LoadedSubject{TicketSale: messageSale(entity.TicketSaleMethodLottery), Concerts: []*entity.Concert{c}})
+		announcement := &entity.Notification{Type: entity.NotificationTypeTicketSaleAnnouncement, Subject: entity.NotificationSubject{TicketSaleID: "sale-1", EventID: "event-1"}}
+		reminder := &entity.Notification{Type: entity.NotificationTypeSalesReminder, Subject: entity.NotificationSubject{TicketSaleID: "sale-1", EventID: "event-1", Stage: entity.ReminderStageApplyOpen}}
+
+		assert.Equal(t, "/concerts/event-1", announcement.Message("ja", s).Data[entity.NotificationDataKeyURL])
+		assert.Equal(t, "/concerts/event-1", reminder.Message("ja", s).Data[entity.NotificationDataKeyURL])
 	})
 
 	t.Run("first-party concert links to its concert page", func(t *testing.T) {

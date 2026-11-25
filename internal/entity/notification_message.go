@@ -320,13 +320,14 @@ func (s *LoadedSubject) fill(lang, detail string, c *Concert) string {
 // language.
 func (n *Notification) link(s *LoadedSubject, c *Concert) string {
 	switch n.Type {
-	case NotificationTypeNewConcerts, NotificationTypeLotteryLoss, NotificationTypeConcertCancelled:
+	case NotificationTypeNewConcerts, NotificationTypeLotteryLoss, NotificationTypeConcertCancelled,
+		NotificationTypeTicketSaleAnnouncement, NotificationTypeSalesReminder:
+		// A first-party concert has a concert page; a discovered one has
+		// none, so it opens on the timetable.
 		if c.Series != nil && c.Series.IsFirstParty() {
 			return "/concerts/" + c.ID
 		}
 		return "/timetable?concert=" + c.ID
-	case NotificationTypeTicketSaleAnnouncement, NotificationTypeSalesReminder:
-		return "/concerts/" + n.Subject.EventID
 	case NotificationTypeLotteryWin, NotificationTypeResaleWin:
 		return ticketsLink
 	case NotificationTypeResaleEntryLapsed, NotificationTypeResaleEntryLost:
