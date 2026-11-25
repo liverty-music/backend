@@ -20,6 +20,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -186,11 +188,81 @@ func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
 		_, err := client.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{
-			Location: &entityv1.GeoLocation{Latitude: 35.68, Longitude: 139.76, AdminArea: "JP-13"},
-			From:     &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 2}},
-			To:       &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
+			Reference: &concertv1.ListByLocationRequest_AdminArea{AdminArea: &entityv1.AdminArea{Value: "JP-13"}},
+			From:      &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 2}},
+			To:        &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
 		})
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	week := func() (*entityv1.LocalDate, *entityv1.LocalDate) {
+		return &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
+			&entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 7}}
+	}
+
+	t.Run("return INVALID_ARGUMENT for a location search without an area", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Location search without an area"
+		t.Parallel()
+		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
+		from, to := week()
+
+		_, err := client.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{From: from, To: to})
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("return INVALID_ARGUMENT for a free-text area", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Free-text area"
+		t.Parallel()
+		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
+		from, to := week()
+
+		_, err := client.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{
+			Reference: &concertv1.ListByLocationRequest_AdminArea{AdminArea: &entityv1.AdminArea{Value: "Tokyo"}},
+			From:      from, To: to,
+		})
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("pass the requested area to the usecase", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Guest searches near a prefecture"
+		t.Parallel()
+		uc := mocks.NewMockConcertUseCase(t)
+		uc.EXPECT().ListByLocation(mock.Anything, "JP-13",
+			time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)).
+			Return(nil, nil).Once()
+		client := newConcertBoundaryClient(t, uc)
+		from, to := week()
+
+		resp, err := client.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{
+			Reference: &concertv1.ListByLocationRequest_AdminArea{AdminArea: &entityv1.AdminArea{Value: "JP-13"}},
+			From:      from, To: to,
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, resp.GetGroups())
+	})
+
+	t.Run("return the usecase's INVALID_ARGUMENT for an area that is no first-level Area", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Area that is no first-level Area"
+		t.Parallel()
+		uc := mocks.NewMockConcertUseCase(t)
+		uc.EXPECT().ListByLocation(mock.Anything, "JP-99", mock.Anything, mock.Anything).
+			Return(nil, apperr.New(codes.InvalidArgument, "no first-level Area")).Once()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		h := rpc.NewConcertHandler(uc, mocks.NewMockUserUseCase(t), cdnURLs(t), logger)
+		from, to := week()
+
+		// The handler returns the usecase's error as it is; the server's error
+		// interceptor maps its code.
+		_, err = h.ListByLocation(context.Background(), &concertv1.ListByLocationRequest{
+			Reference: &concertv1.ListByLocationRequest_AdminArea{AdminArea: &entityv1.AdminArea{Value: "JP-99"}},
+			From:      from, To: to,
+		})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

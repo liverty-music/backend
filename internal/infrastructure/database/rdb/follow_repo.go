@@ -308,7 +308,7 @@ func (r *FollowRepository) ListFollowers(ctx context.Context, artistID string) (
 		if homeLevel1 != "" {
 			user.Home = &entity.Home{Level1: homeLevel1}
 			if centroidLat.Valid && centroidLng.Valid {
-				user.Home.Centroid = &entity.Coordinates{
+				user.Home.ReferencePoint = &entity.Coordinates{
 					Latitude:  centroidLat.Float64,
 					Longitude: centroidLng.Float64,
 				}

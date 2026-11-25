@@ -52,7 +52,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -112,6 +111,7 @@ type apiRepos struct {
 	processedWebhookEventRepo *rdb.ProcessedWebhookEventRepository
 	resaleEntryRepo           *rdb.ResaleEntryRepository
 	notificationRepo          *rdb.NotificationRepository
+	areaRepo                  *rdb.AreaRepository
 }
 
 // newAPIRepos builds the repositories of the API server. The Order,
@@ -121,6 +121,7 @@ func newAPIRepos(db *rdb.Database, cfg *config.ServerConfig, logger *logging.Log
 	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
 	return apiRepos{
 		userRepo:                  rdb.NewUserRepository(db, newOutbox(logger)),
+		areaRepo:                  rdb.NewAreaRepository(db),
 		artistRepo:                rdb.NewArtistRepository(db, newOutbox(logger)),
 		followRepo:                rdb.NewFollowRepository(db, newOutbox(logger)),
 		concertRepo:               rdb.NewConcertRepository(db, newOutbox(logger)),
@@ -245,7 +246,7 @@ func (w *apiWiring) buildCatalogue() error {
 	// elsewhere and in local dev without the identity service.
 	identityRemover, emailCodes := provideIdentityClients(ctx, cfg, logger)
 
-	w.userUC = usecase.NewUserUseCase(w.userRepo, usecase.DeletionBlockerReads{
+	w.userUC = usecase.NewUserUseCase(w.userRepo, w.areaRepo, usecase.DeletionBlockerReads{
 		Tickets:        w.ticketRepo,
 		Events:         w.eventRepo,
 		ResaleListings: w.resaleListingRepo,
@@ -255,8 +256,8 @@ func (w *apiWiring) buildCatalogue() error {
 		Now:            time.Now,
 	}, w.workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
 	w.passkeyUC = usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), w.userRepo, w.workflows, time.Now, logger)
-	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, centroidResolver, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
+
+	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 	w.concertUC = concertUC
 	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC)
 	w.artistUC = usecase.NewArtistUseCase(w.artistRepo, w.organizerRepo, lastfmClient, musicbrainzClient, w.artistCache, time.Now, logger)

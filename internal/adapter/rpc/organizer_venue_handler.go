@@ -18,6 +18,10 @@ var _ organizervenuev1connect.VenueServiceHandler = (*OrganizerVenueHandler)(nil
 // OrganizerVenueHandler implements the organizer-facing VenueService Connect
 // interface. It resolves the caller's organizer and delegates to the use case.
 type OrganizerVenueHandler struct {
+	// ResolvePlace answers Unimplemented until the place confirmation lands
+	// (OpenSpec change globalize-venues, section 8).
+	organizervenuev1connect.UnimplementedVenueServiceHandler
+
 	venueUC     usecase.VenueUseCase
 	organizerUC usecase.OrganizerUseCase
 }

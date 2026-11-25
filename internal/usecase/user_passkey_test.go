@@ -34,7 +34,7 @@ func newUserPasskeyTestDeps(t *testing.T) *userPasskeyTestDeps {
 		links:        entitymocks.NewMockPasskeyRegistrationLinkSender(t),
 		changeEmails: entitymocks.NewMockPasskeyChangeEmailSender(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, d.workflows, nil, nil, nil,
+	d.uc = usecase.NewUserUseCase(d.repo, nil, usecase.DeletionBlockerReads{}, d.workflows, nil, nil, nil,
 		usecase.PasskeyMailers{RegistrationLinks: d.links, ChangeEmails: d.changeEmails}, time.Now, newTestLogger(t))
 	usecase.RunPasskeyRecoverySynchronously(d.uc)
 	return d

@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -74,8 +73,8 @@ func provideJobConcertUseCase(ctx context.Context, cfg *config.JobConfig, db *rd
 	}
 
 	// Use Cases
-	centroidResolver := geo.NewCentroidResolver()
-	return usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger), nil
+
+	return usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, rdb.NewAreaRepository(db), workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger), nil
 }
 
 // InitializeJobApp creates a JobApp with only the dependencies needed for batch processing.

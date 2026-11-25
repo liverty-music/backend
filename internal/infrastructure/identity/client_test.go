@@ -298,7 +298,7 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		users := mocks.NewMockUserRepository(t)
 		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, usecase.DeletionBlockerReads{}, nil, nil, client, nil, usecase.PasskeyMailers{}, time.Now, logger)
+		uc := usecase.NewUserUseCase(users, nil, usecase.DeletionBlockerReads{}, nil, nil, client, nil, usecase.PasskeyMailers{}, time.Now, logger)
 
 		require.NoError(t, uc.VerifyEmail(ctx, fan.ID, "ABC123"))
 
@@ -346,7 +346,7 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		checkouts := mocks.NewMockCheckoutRepository(t)
 		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
-		uc := usecase.NewUserUseCase(users, usecase.DeletionBlockerReads{
+		uc := usecase.NewUserUseCase(users, nil, usecase.DeletionBlockerReads{
 			Tickets: tickets, ResaleListings: listings, LotteryEntries: entries, Checkouts: checkouts, Now: time.Now,
 		}, nil, nil, nil, client, usecase.PasskeyMailers{}, time.Now, logger)
 

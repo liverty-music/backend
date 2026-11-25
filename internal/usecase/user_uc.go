@@ -341,6 +341,7 @@ type DeletionBlockerReads struct {
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
 	userRepo        entity.UserRepository
+	areas           entity.AreaRepository
 	deletionReads   DeletionBlockerReads
 	workflows       Workflows
 	emailVerifier   entity.EmailVerifier
@@ -371,7 +372,8 @@ type userUseCase struct {
 var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
-// It requires a user repository for data persistence, the reads that deletion
+// It requires a user repository for data persistence, the Areas a Home is
+// checked against, the reads that deletion
 // checks for activity in progress, the workflows the resend and recovery
 // requests start, an email verifier for triggering verification emails and an
 // identity remover for deletion (both nil when the Zitadel API client is not
@@ -380,6 +382,7 @@ var _ UserUseCase = (*userUseCase)(nil)
 // codes; it is nil outside the fan API.
 func NewUserUseCase(
 	userRepo entity.UserRepository,
+	areas entity.AreaRepository,
 	deletionReads DeletionBlockerReads,
 	workflows Workflows,
 	emailVerifier entity.EmailVerifier,
@@ -391,6 +394,7 @@ func NewUserUseCase(
 ) UserUseCase {
 	return &userUseCase{
 		userRepo:               userRepo,
+		areas:                  areas,
 		deletionReads:          deletionReads,
 		workflows:              workflows,
 		emailVerifier:          emailVerifier,
@@ -413,10 +417,9 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		return nil, err
 	}
 	if params.Home != nil {
-		if err := params.Home.Validate(); err != nil {
+		if err := uc.checkHome(ctx, params.Home); err != nil {
 			return nil, err
 		}
-		withCentroid(params.Home)
 	}
 	// preferred_language is required and MUST match the ISO 639-1 pattern;
 	// otherwise a value like "EN" or "english" would round-trip into the
@@ -535,21 +538,30 @@ func (uc *userUseCase) SetPreferredLanguage(ctx context.Context, id, lang string
 	return user, nil
 }
 
-// withCentroid sets the Home's position to the centroid of its level-1 area,
-// when the lookup table has one. The repository stores the position it is
-// given.
-func withCentroid(home *entity.Home) {
-	if c, ok := home.ResolveCentroid(); ok {
-		home.Centroid = &c
+// checkHome checks that the Home is well-formed and that its level 1, resolved
+// within its country, is that same first-level Area. A level 1 that resolves
+// to nothing or to another Area (a lower-level or withdrawn code) fails with
+// InvalidArgument.
+func (uc *userUseCase) checkHome(ctx context.Context, home *entity.Home) error {
+	if err := home.Validate(); err != nil {
+		return err
 	}
+	area, err := uc.areas.Resolve(ctx, home.Level1, &home.CountryCode)
+	if errors.Is(err, apperr.ErrNotFound) {
+		area, err = nil, nil
+	}
+	if err != nil {
+		return err
+	}
+	return home.CheckArea(area)
 }
 
-// SetHome sets or changes the user's home area after validating the structured Home.
+// SetHome sets or changes the user's home Area after checking it names a
+// first-level Area.
 func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
-	if err := home.Validate(); err != nil {
+	if err := uc.checkHome(ctx, home); err != nil {
 		return nil, err
 	}
-	withCentroid(home)
 
 	user, err := uc.userRepo.UpdateHome(ctx, id, home)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect/v2"
 	"github.com/liverty-music/backend/internal/adapter/pb"
@@ -11,6 +12,7 @@ import (
 	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestGetExternalUserID(t *testing.T) {
@@ -144,12 +146,12 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/user "User with home and language"
 		pb := pb.FromUser(&entity.User{
 			ID: "u-1", PreferredLanguage: "ja",
-			Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"},
+			Home: &entity.Home{CountryCode: "JP", Level1: "JP-13", ReferencePoint: &entity.Coordinates{Latitude: 35.69, Longitude: 139.69}},
 		})
 
 		assert.Equal(t, "ja", pb.GetPreferredLanguage())
-		assert.Equal(t, "JP", pb.GetHome().GetCountryCode())
-		assert.Equal(t, "JP-13", pb.GetHome().GetLevel_1())
+		// The Home carries its codes only; the reference point stays on the server.
+		assert.True(t, proto.Equal(&entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}, pb.GetHome()))
 	})
 
 	t.Run("user without optional values", func(t *testing.T) {

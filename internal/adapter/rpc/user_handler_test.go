@@ -429,6 +429,31 @@ func TestUserHandler_SetHome(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	// @spec components/adapter/fan/api/rpc/user "Well-formed code that is no first-level Area"
+	t.Run("return the usecase's INVALID_ARGUMENT for a code that is no first-level Area", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		userUC.EXPECT().SetHome(mock.Anything, testCallerUserID, mock.Anything).
+			Return(nil, apperr.New(apperr.ErrInvalidArgument.Code, "no first-level Area")).Once()
+
+		_, err := h.SetHome(authedCtx(testCallerExtID), &userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "JP", Level_1: "JP-99"}})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("accept a territory as the home", func(t *testing.T) {
+		t.Parallel()
+		h, userUC := newUserHandler(t)
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
+		userUC.EXPECT().SetHome(mock.Anything, testCallerUserID,
+			mock.MatchedBy(func(home *entity.Home) bool { return home.Level1 == "HK" })).Return(callerUser(), nil).Once()
+
+		_, err := newUserBoundaryClient(t, h).SetHome(withFanToken(&userv1.SetHomeRequest{Home: &entitypb.Home{CountryCode: "HK", Level_1: "HK"}}))
+
+		require.NoError(t, err)
+	})
+
 	t.Run("return NOT_FOUND when the caller has no User", func(t *testing.T) {
 		t.Parallel()
 		h, userUC := newUserHandler(t)

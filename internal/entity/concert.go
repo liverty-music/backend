@@ -507,11 +507,11 @@ func (c *Concert) ProximityTo(home *Home) Proximity {
 	}
 
 	// NEARBY: requires venue coordinates and home centroid.
-	if venue.Coordinates == nil || home.Centroid == nil {
+	if venue.Coordinates == nil || home.ReferencePoint == nil {
 		return ProximityAway
 	}
 
-	dist := geo.Haversine(home.Centroid.Latitude, home.Centroid.Longitude, venue.Coordinates.Latitude, venue.Coordinates.Longitude)
+	dist := geo.Haversine(home.ReferencePoint.Latitude, home.ReferencePoint.Longitude, venue.Coordinates.Latitude, venue.Coordinates.Longitude)
 	if dist <= NearbyThresholdKm {
 		return ProximityNearby
 	}

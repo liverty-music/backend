@@ -237,16 +237,3 @@ func DateToTimePtr(d *date.Date) *time.Time {
 	t := DateToTime(d)
 	return &t
 }
-
-// ToGeoLocation converts a liverty_music.entity.v1.GeoLocation proto to
-// the domain GeoLocation. Returns nil when the input is nil.
-func ToGeoLocation(pb *entityv1.GeoLocation) *entity.GeoLocation {
-	if pb == nil {
-		return nil
-	}
-	return &entity.GeoLocation{
-		Latitude:  pb.GetLatitude(),
-		Longitude: pb.GetLongitude(),
-		AdminArea: pb.GetAdminArea(),
-	}
-}

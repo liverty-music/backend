@@ -13,7 +13,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -40,6 +39,7 @@ type consumerBuilder struct {
 	concertRepo       *rdb.ConcertRepository
 	followRepo        *rdb.FollowRepository
 	userRepo          *rdb.UserRepository
+	areaRepo          *rdb.AreaRepository
 	ticketJourneyRepo *rdb.TicketJourneyRepository
 	ticketStockRepo   *rdb.TicketStockRepository
 	lotteryEntryRepo  *rdb.LotteryEntryRepository
@@ -68,6 +68,7 @@ func newConsumerBuilder(ctx context.Context, cfg *config.ConsumerConfig, db *rdb
 		concertRepo:       rdb.NewConcertRepository(db, newOutbox(logger)),
 		followRepo:        rdb.NewFollowRepository(db, newOutbox(logger)),
 		userRepo:          rdb.NewUserRepository(db, newOutbox(logger)),
+		areaRepo:          rdb.NewAreaRepository(db),
 		ticketJourneyRepo: rdb.NewTicketJourneyRepository(db, newOutbox(logger)),
 		ticketStockRepo:   rdb.NewTicketStockRepository(db),
 		lotteryEntryRepo:  rdb.NewLotteryEntryRepository(db, newOutbox(logger)),
@@ -136,7 +137,7 @@ func (b *consumerBuilder) useCases(extHTTPClient *http.Client, identities entity
 		ticketSaleAnnounce: usecase.NewTicketSaleAnnouncementUseCase(b.userRepo, b.ticketJourneyRepo, b.workflows, logger),
 		// The consumer's UserUseCase starts the verification and passkey change
 		// emails, which the workflow worker sends; it never deletes users.
-		user: usecase.NewUserUseCase(b.userRepo, usecase.DeletionBlockerReads{}, b.workflows, nil, nil, nil,
+		user: usecase.NewUserUseCase(b.userRepo, b.areaRepo, usecase.DeletionBlockerReads{}, b.workflows, nil, nil, nil,
 			usecase.PasskeyMailers{}, time.Now, logger),
 	}, nil
 }
@@ -205,7 +206,7 @@ func (b *consumerBuilder) concertUseCase(extHTTPClient *http.Client) (usecase.Co
 		rdb.NewConcertCandidateRepository(db),
 		rdb.NewRejectedConcertRepository(db),
 		geminiSearcher,
-		geo.NewCentroidResolver(),
+		b.areaRepo,
 		b.workflows,
 		infratelemetry.NewBusinessMetrics(),
 		b.analyticsClient,

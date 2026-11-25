@@ -2,7 +2,9 @@ package rdb_test
 
 import (
 	"context"
+	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -193,7 +195,7 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 			return concertIDs(got)
 		}, fanVisible},
 		"ListByLocation": {func(t *testing.T) []string {
-			got, err := f.repo.ListByLocation(f.ctx, &entity.GeoLocation{Latitude: lat, Longitude: lng, AdminArea: "JP-13"}, dates[0], dates[4])
+			got, err := f.repo.ListByLocation(f.ctx, &entity.GeoLocation{AdminArea: "JP-13", Point: &entity.Coordinates{Latitude: lat, Longitude: lng}}, dates[0], dates[4])
 			require.NoError(t, err)
 			return concertIDs(got)
 		}, fanVisible},
@@ -650,7 +652,7 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 	db := newTestDB(t)
 	// The point is Tokyo Station; Hamamatsu is about 210 km away and Shizuoka
 	// about 150 km.
-	tokyo := &entity.GeoLocation{Latitude: 35.681, Longitude: 139.767, AdminArea: "JP-13"}
+	tokyo := &entity.GeoLocation{AdminArea: "JP-13", Point: &entity.Coordinates{Latitude: 35.681, Longitude: 139.767}}
 	shizuokaLat, shizuokaLng := 34.975, 138.383
 	sapporoLat, sapporoLng := 43.062, 141.354
 
@@ -776,48 +778,96 @@ func TestConcertRepository_ListByLocationParity(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	f := newVisibilityFixture(t, db)
-	point := &entity.GeoLocation{Latitude: 35.681, Longitude: 139.767, AdminArea: "JP-13"}
-	box := point.Box()
 	const step = 1e-6
 
-	coords := map[string]*entity.Coordinates{
-		"none":            nil,
-		"center":          {Latitude: point.Latitude, Longitude: point.Longitude},
-		"north edge":      {Latitude: box.LatMax, Longitude: point.Longitude},
-		"past north":      {Latitude: box.LatMax + step, Longitude: point.Longitude},
-		"south edge":      {Latitude: box.LatMin, Longitude: point.Longitude},
-		"past south":      {Latitude: box.LatMin - step, Longitude: point.Longitude},
-		"east edge":       {Latitude: point.Latitude, Longitude: box.LngMax},
-		"past east":       {Latitude: point.Latitude, Longitude: box.LngMax + step},
-		"west edge":       {Latitude: point.Latitude, Longitude: box.LngMin},
-		"past west":       {Latitude: point.Latitude, Longitude: box.LngMin - step},
-		"corner":          {Latitude: box.LatMax, Longitude: box.LngMax},
-		"past the corner": {Latitude: box.LatMax + step, Longitude: box.LngMax + step},
-	}
-	want := map[string]bool{}
-	names := map[string]string{}
-	artist := f.artist()
-	for name, c := range coords {
-		for _, area := range []string{"JP-13", "JP-01"} {
-			venue := &entity.Venue{AdminArea: &area, Coordinates: c}
-			var lat, lng *float64
-			if c != nil {
-				lat, lng = &c.Latitude, &c.Longitude
+	// Tokyo, and a point in Fiji whose box crosses ±180°.
+	for _, point := range []*entity.GeoLocation{
+		{AdminArea: "JP-13", Point: &entity.Coordinates{Latitude: 35.681, Longitude: 139.767}},
+		{AdminArea: "FJ-C", Point: &entity.Coordinates{Latitude: -18.14, Longitude: 178.44}},
+	} {
+		box, ok := point.Box()
+		require.True(t, ok)
+		p := point.Point
+		east, west := box.Lng[0][1], box.Lng[0][0]
+		if len(box.Lng) == 2 {
+			east = box.Lng[1][1]
+		}
+		coords := map[string]*entity.Coordinates{
+			"none":       nil,
+			"center":     {Latitude: p.Latitude, Longitude: p.Longitude},
+			"north edge": {Latitude: box.LatMax, Longitude: p.Longitude},
+			"past north": {Latitude: box.LatMax + step, Longitude: p.Longitude},
+			"south edge": {Latitude: box.LatMin, Longitude: p.Longitude},
+			"past south": {Latitude: box.LatMin - step, Longitude: p.Longitude},
+			"east edge":  {Latitude: p.Latitude, Longitude: east},
+			"past east":  {Latitude: p.Latitude, Longitude: east + step},
+			"west edge":  {Latitude: p.Latitude, Longitude: west},
+			"past west":  {Latitude: p.Latitude, Longitude: west - step},
+		}
+		want := map[string]bool{}
+		names := map[string]string{}
+		artist := f.artist()
+		for name, c := range coords {
+			for _, area := range []string{point.AdminArea, "JP-01"} {
+				venue := &entity.Venue{AdminArea: &area, Coordinates: c}
+				var lat, lng *float64
+				if c != nil {
+					lat, lng = &c.Latitude, &c.Longitude
+				}
+				id := f.event(f.discoveredSeries(), f.venue(area, lat, lng), 2, "", artist)
+				want[id] = point.MayBeNear(venue)
+				names[id] = name + " in " + area + " around " + point.AdminArea
 			}
-			id := f.event(f.discoveredSeries(), f.venue(area, lat, lng), 2, "", artist)
-			want[id] = point.MayBeNear(venue)
-			names[id] = name + " in " + area
+		}
+
+		got, err := f.repo.ListByLocation(f.ctx, point, f.today, f.today.AddDate(0, 0, 7))
+		require.NoError(t, err)
+
+		returned := map[string]bool{}
+		for _, id := range concertIDs(got) {
+			returned[id] = true
+		}
+		for id, w := range want {
+			assert.Equal(t, w, returned[id], names[id])
 		}
 	}
+}
 
-	got, err := f.repo.ListByLocation(f.ctx, point, f.today, f.today.AddDate(0, 0, 7))
-	require.NoError(t, err)
+// TestConcertRepository_ListByLocation_Latitude checks the box at any
+// latitude: a venue 190 km from the reference point is read at 60°N, at
+// 35°N and across the antimeridian, and one 250 km away is not.
+func TestConcertRepository_ListByLocation_Latitude(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
 
-	returned := map[string]bool{}
-	for _, id := range concertIDs(got) {
-		returned[id] = true
+	// destination moves km due east of (lat, lng) along the parallel.
+	east := func(lat, lng, km float64) (float64, float64) {
+		return lat, lng + km/(111.32*math.Cos(lat*math.Pi/180))
 	}
-	for id, w := range want {
-		assert.Equal(t, w, returned[id], names[id])
+	for _, tc := range []struct {
+		name     string
+		area     string
+		lat, lng float64
+		km       float64
+		want     bool
+	}{
+		{name: "190 km at 60°N", area: "FI-18", lat: 60.17, lng: 24.94, km: 190, want: true},
+		{name: "190 km at 35°N", area: "JP-13", lat: 35.68, lng: 139.77, km: 190, want: true},
+		{name: "190 km across the antimeridian near Fiji", area: "FJ-C", lat: -18.14, lng: 179.2, km: 190, want: true},
+		{name: "250 km away", area: "JP-13", lat: 35.68, lng: 139.77, km: 250, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newVisibilityFixture(t, db)
+			vlat, vlng := east(tc.lat, tc.lng, tc.km)
+			if vlng > 180 {
+				vlng -= 360
+			}
+			id := f.event(f.discoveredSeries(), f.venue("JP-01", &vlat, &vlng), 2, "", f.artist())
+			point := &entity.GeoLocation{AdminArea: tc.area, Point: &entity.Coordinates{Latitude: tc.lat, Longitude: tc.lng}}
+
+			got, err := f.repo.ListByLocation(f.ctx, point, f.today, f.today.AddDate(0, 0, 7))
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, slices.Contains(concertIDs(got), id))
+		})
 	}
 }

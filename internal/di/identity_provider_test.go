@@ -67,7 +67,7 @@ func TestProvideIdentityClients_None(t *testing.T) {
 	assert.Equal(t, "identity-provider clients built", entries[0]["msg"])
 	assert.Equal(t, "none", entries[0]["clients"])
 
-	userUC := usecase.NewUserUseCase(nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
+	userUC := usecase.NewUserUseCase(nil, nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
 	server := connect.NewServer()
 	assert.NotPanics(t, func() {
 		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, nil, logger))

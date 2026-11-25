@@ -45,9 +45,10 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		Title:             "Tour 2026",
 		LocalDate:         time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		ListedVenueName:   "Budokan",
+		AdminArea:         &adminArea,
+		TimeZone:          new("Asia/Tokyo"),
 		ResolvedPlaceID:   &placeID,
 		ResolvedVenueName: &venueName,
-		ResolvedAdminArea: &adminArea,
 		ResolvedLatitude:  &lat,
 		ResolvedLongitude: &lon,
 		SourceURL:         &sourceURL,
@@ -83,6 +84,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 	}{
 		{
 			// @spec components/adapter/admin/api/rpc/concert-candidate "Admin lists pending concerts"
+			// @spec components/adapter/admin/api/rpc/concert-candidate "Candidate with a resolved place"
 			name: "return pending concerts with resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
@@ -100,17 +102,15 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 				assert.Equal(t, "Artist Alpha", pc.GetPerformer().GetName().GetValue())
 				assert.Equal(t, "Tour 2026", pc.GetTitle().GetValue())
 				assert.Equal(t, "Budokan", pc.GetListedVenueName().GetValue())
-				assert.NotNil(t, pc.GetResolvedVenue())
-				assert.Equal(t, "武道館", pc.GetResolvedVenue().GetName().GetValue())
-				assert.Equal(t, "ChIJM...", pc.GetResolvedVenue().GetPlaceId().GetValue())
-				assert.Equal(t, "JP-13", pc.GetResolvedVenue().GetAdminArea().GetValue())
-				assert.InDelta(t, 35.6762, pc.GetResolvedVenue().GetCoordinates().GetLatitude(), 1e-6)
-				assert.InDelta(t, 139.6503, pc.GetResolvedVenue().GetCoordinates().GetLongitude(), 1e-6)
+				assert.Equal(t, "JP-13", pc.GetAdminArea().GetValue())
+				assert.Equal(t, "Asia/Tokyo", pc.GetTimeZone().GetValue())
+				assert.Equal(t, "ChIJM...", pc.GetResolvedPlaceId().GetValue())
 				assert.Equal(t, "https://example.com/concert", pc.GetSourceUrl().GetValue())
 				assert.NotNil(t, pc.GetFindTime())
 			},
 		},
 		{
+			// @spec components/adapter/admin/api/rpc/concert-candidate "Candidate without an area"
 			name: "return pending concerts without resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
@@ -125,7 +125,9 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 				require.Len(t, resp.ConcertCandidates, 1)
 				pc := resp.ConcertCandidates[0]
 				assert.Equal(t, "candidate-2", pc.GetId().GetValue())
-				assert.Nil(t, pc.GetResolvedVenue())
+				assert.Nil(t, pc.GetAdminArea())
+				assert.Nil(t, pc.GetTimeZone())
+				assert.Nil(t, pc.GetResolvedPlaceId())
 				assert.Nil(t, pc.GetSourceUrl())
 			},
 		},

@@ -95,7 +95,6 @@ packages:
       AnalyticsConsumerMetrics: {}
       ArtistImageSyncUseCase: {}
       ArtistUseCase: {}
-      CentroidResolver: {}
       CheckoutUseCase: {}
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}

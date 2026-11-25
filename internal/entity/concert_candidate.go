@@ -49,6 +49,10 @@ type ConcertCandidate struct {
 	// SourceURL is the source URL where the concert was found. Nil when not
 	// provided.
 	SourceURL *string
+	// TimeZone is the IANA time zone of the venue as discovery resolved it:
+	// the Area's zone, else the source's when it is one of the country's
+	// zones. Nil when neither is known.
+	TimeZone *string
 	// ResolvedPlaceID is the Google Places place id of the resolved venue.
 	// Nil when the listed name could not be resolved.
 	ResolvedPlaceID *string

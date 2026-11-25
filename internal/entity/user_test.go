@@ -1,7 +1,6 @@
 package entity_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -51,147 +50,69 @@ func TestCreateUser(t *testing.T) {
 	})
 }
 
-func TestNewHome(t *testing.T) {
+func TestHome_NamesFirstLevelArea(t *testing.T) {
 	t.Parallel()
 
-	t.Run("set CountryCode, Level1, and Level2 with generated ID", func(t *testing.T) {
-		t.Parallel()
-
-		level2 := "13"
-		got := entity.NewHome("JP", "JP-13", &level2)
-
-		assert.NotEmpty(t, got.ID)
-		assert.Equal(t, "JP", got.CountryCode)
-		assert.Equal(t, "JP-13", got.Level1)
-		assert.Equal(t, &level2, got.Level2)
-	})
-
-	t.Run("set nil Level2 when not provided", func(t *testing.T) {
-		t.Parallel()
-
-		got := entity.NewHome("US", "US-NY", nil)
-
-		assert.NotEmpty(t, got.ID)
-		assert.Equal(t, "US", got.CountryCode)
-		assert.Equal(t, "US-NY", got.Level1)
-		assert.Nil(t, got.Level2)
-	})
-
-	t.Run("generate different IDs on successive calls", func(t *testing.T) {
-		t.Parallel()
-
-		first := entity.NewHome("JP", "JP-13", nil)
-		second := entity.NewHome("JP", "JP-13", nil)
-
-		assert.NotEqual(t, first.ID, second.ID)
-	})
-}
-
-func TestHome_Validate(t *testing.T) {
-	t.Parallel()
-
-	level2Valid := "13"
-	level2Empty := ""
-	level2TooLong := "123456789012345678901" // 21 chars
-
-	type args struct {
-		home *entity.Home
+	area := func(code string) *entity.Area {
+		return &entity.Area{Code: code, Kind: entity.AreaKindSubdivision, CountryCode: code[:2], NameEN: code}
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantErr error
+		name     string
+		home     entity.Home
+		resolved *entity.Area // what the level 1 resolves to; nil for nothing
+		wantErr  bool
 	}{
-		{
-			name: "return nil for valid home with no level2",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "JP-13",
-					Level2:      nil,
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "return nil for valid home with level2",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "JP-13",
-					Level2:      &level2Valid,
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "return error when country code format is invalid",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "jp",
-					Level1:      "JP-13",
-				},
-			},
-			wantErr: assert.AnError,
-		},
-		{
-			name: "return error when level1 format is invalid",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "13",
-				},
-			},
-			wantErr: assert.AnError,
-		},
-		{
-			name: "return error when level1 prefix does not match country code",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "US",
-					Level1:      "JP-13",
-				},
-			},
-			wantErr: assert.AnError,
-		},
-		{
-			name: "return error when level2 is an empty string",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "JP-13",
-					Level2:      &level2Empty,
-				},
-			},
-			wantErr: assert.AnError,
-		},
-		{
-			name: "return error when level2 exceeds 20 characters",
-			args: args{
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "JP-13",
-					Level2:      &level2TooLong,
-				},
-			},
-			wantErr: assert.AnError,
-		},
+		// @spec components/entity/user "Prefecture"
+		{name: "Prefecture", home: entity.Home{CountryCode: "JP", Level1: "JP-13"}, resolved: area("JP-13")},
+		// @spec components/entity/user "Territory without subdivisions"
+		{name: "Territory without subdivisions", home: entity.Home{CountryCode: "HK", Level1: "HK"},
+			resolved: &entity.Area{Code: "HK", Kind: entity.AreaKindCountry, CountryCode: "HK", NameEN: "Hong Kong"}},
+		// @spec components/entity/user "Malformed country code"
+		{name: "Malformed country code, one letter", home: entity.Home{CountryCode: "j", Level1: "JP-13"}, resolved: area("JP-13"), wantErr: true},
+		{name: "Malformed country code, lower case", home: entity.Home{CountryCode: "jp", Level1: "JP-13"}, resolved: area("JP-13"), wantErr: true},
+		// @spec components/entity/user "Not an Area code"
+		{name: "Not an Area code", home: entity.Home{CountryCode: "JP", Level1: "INVALID"}, wantErr: true},
+		// @spec components/entity/user "Level 1 in another country"
+		{name: "Level 1 in another country", home: entity.Home{CountryCode: "JP", Level1: "US-CA"}, resolved: area("US-CA"), wantErr: true},
+		// @spec components/entity/user "Well-formed code that is no Area"
+		{name: "Well-formed code that is no Area", home: entity.Home{CountryCode: "JP", Level1: "JP-99"}, wantErr: true},
+		// @spec components/entity/user "Lower-level Area"
+		{name: "Lower-level Area", home: entity.Home{CountryCode: "FR", Level1: "FR-33"}, resolved: area("FR-NAQ"), wantErr: true},
+		// @spec components/entity/user "Region"
+		{name: "Region", home: entity.Home{CountryCode: "JP", Level1: "JP-KANTO"}, wantErr: true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			err := tt.args.home.Validate()
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-				return
+			err := tt.home.Validate()
+			if err == nil {
+				err = tt.home.CheckArea(tt.resolved)
 			}
-
-			assert.NoError(t, err)
+			if tt.wantErr {
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
+}
+
+func TestHomeOf_ReferencePoint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Prefecture with a reference point", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/user "Prefecture with a reference point"
+		fukuoka := &entity.Coordinates{Latitude: 33.6064, Longitude: 130.4181}
+		home := entity.HomeOf(&entity.Area{Code: "JP-40", Kind: entity.AreaKindSubdivision, CountryCode: "JP", NameEN: "Fukuoka", ReferencePoint: fukuoka})
+		assert.Equal(t, &entity.Home{CountryCode: "JP", Level1: "JP-40", ReferencePoint: fukuoka}, home)
+	})
+	t.Run("Area without a reference point", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/user "Area without a reference point"
+		home := entity.HomeOf(&entity.Area{Code: "HK", Kind: entity.AreaKindCountry, CountryCode: "HK", NameEN: "Hong Kong"})
+		assert.Nil(t, home.ReferencePoint)
+	})
 }
 
 func TestValidatePersonalDetails(t *testing.T) {
@@ -275,29 +196,6 @@ func TestNewUser_ValidateEmail(t *testing.T) {
 
 	assert.NoError(t, (&entity.NewUser{Email: email(165)}).ValidateEmail())
 	assert.ErrorIs(t, (&entity.NewUser{Email: email(166)}).ValidateEmail(), apperr.ErrInvalidArgument)
-}
-
-func TestHome_ResolveCentroid(t *testing.T) {
-	t.Parallel()
-
-	for _, code := range []string{"JP-01", "JP-13", "JP-47"} {
-		c, ok := (&entity.Home{CountryCode: "JP", Level1: code}).ResolveCentroid()
-		assert.True(t, ok, code)
-		assert.NotZero(t, c.Latitude, code)
-		assert.NotZero(t, c.Longitude, code)
-	}
-	tokyo, _ := (&entity.Home{Level1: "JP-13"}).ResolveCentroid()
-	assert.InDelta(t, 35.6894, tokyo.Latitude, 0.01)
-	assert.InDelta(t, 139.6917, tokyo.Longitude, 0.01)
-
-	for _, code := range []string{"US-NY", "", "XX-99"} {
-		_, ok := (&entity.Home{Level1: code}).ResolveCentroid()
-		assert.False(t, ok, "no centroid for %q", code)
-	}
-	for i := 1; i <= 47; i++ {
-		_, ok := (&entity.Home{Level1: fmt.Sprintf("JP-%02d", i)}).ResolveCentroid()
-		assert.True(t, ok, "every prefecture has one: JP-%02d", i)
-	}
 }
 
 func TestUser_EmailLanguage(t *testing.T) {

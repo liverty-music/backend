@@ -573,9 +573,9 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				t.Helper()
 				require.Len(t, got, 1)
 				require.NotNil(t, got[0].User.Home)
-				require.NotNil(t, got[0].User.Home.Centroid, "Centroid should be populated for a home with coordinates")
-				assert.InDelta(t, 35.6762, got[0].User.Home.Centroid.Latitude, 0.0001)
-				assert.InDelta(t, 139.6503, got[0].User.Home.Centroid.Longitude, 0.0001)
+				require.NotNil(t, got[0].User.Home.ReferencePoint, "Centroid should be populated for a home with coordinates")
+				assert.InDelta(t, 35.6762, got[0].User.Home.ReferencePoint.Latitude, 0.0001)
+				assert.InDelta(t, 139.6503, got[0].User.Home.ReferencePoint.Longitude, 0.0001)
 			},
 		},
 		{

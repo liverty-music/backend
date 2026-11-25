@@ -46,7 +46,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		artistRepo:      entitymocks.NewMockArtistRepository(t),
 	}
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
-	// concertSearchRepo, concertSearcher, centroidResolver, and metrics.
+	// concertSearchRepo, concertSearcher, areas, and metrics.
 	concerts := usecase.NewConcertUseCase(
 		d.artistRepo,
 		d.concertRepo,
@@ -57,7 +57,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		d.candidateRepo,
 		d.rejectedConcert,
 		nil, // concertSearcher — not used by admin methods
-		nil, // centroidResolver — not used by admin methods
+		nil, // areas — not used by admin methods
 		ucmocks.NewMockWorkflows(t),
 		anyConcertMetrics(t),
 		nil,         // analytics — not used by admin methods
