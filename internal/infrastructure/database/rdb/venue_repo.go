@@ -65,7 +65,7 @@ const (
 		WHERE coordinates_fetch_time < $1
 	`
 	listVenuesWithoutAreaOrZoneQuery = `
-		SELECT v.id, COALESCE(NULLIF(v.listed_venue_name, ''), v.name),
+		SELECT v.id, COALESCE(NULLIF(v.listed_venue_name, ''), v.name), COALESCE(v.admin_area, ''),
 		       COALESCE((
 		           SELECT s.source_url FROM events e JOIN series s ON s.id = e.series_id
 		           WHERE e.venue_id = v.id AND s.source_url IS NOT NULL AND s.source_url <> ''
@@ -240,7 +240,7 @@ func (r *VenueRepository) ListWithoutAreaOrZone(ctx context.Context) ([]*entity.
 	venues := []*entity.VenueToBackfill{}
 	for rows.Next() {
 		v := &entity.VenueToBackfill{}
-		if err := rows.Scan(&v.VenueID, &v.ListedName, &v.SourceURL); err != nil {
+		if err := rows.Scan(&v.VenueID, &v.ListedName, &v.AdminArea, &v.SourceURL); err != nil {
 			return nil, toAppErr(err, "failed to scan a venue without an area or a zone")
 		}
 		venues = append(venues, v)

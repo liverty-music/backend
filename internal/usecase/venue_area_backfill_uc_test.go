@@ -22,7 +22,7 @@ func TestVenueAreaBackfill_Run(t *testing.T) {
 
 	venues := []*entity.VenueToBackfill{
 		{VenueID: "v-tokyo", ListedName: "Zepp Haneda", SourceURL: "https://example.com/tour"},
-		{VenueID: "v-texas", ListedName: "Stubb's", SourceURL: "https://example.com/us"},
+		{VenueID: "v-texas", ListedName: "Stubb's", AdminArea: "US-TX", SourceURL: "https://example.com/us"},
 		{VenueID: "v-wrongzone", ListedName: "Gocheok Sky Dome", SourceURL: "https://example.com/kr"},
 		{VenueID: "v-unknown", ListedName: "Somewhere", SourceURL: "https://example.com/x"},
 		{VenueID: "v-nosource", ListedName: "Legacy Hall"},
@@ -66,11 +66,37 @@ func TestVenueAreaBackfill_Run(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Equal(t, [][]string{
 		usecase.VenueAreaBackfillColumns,
-		{"v-tokyo", "Zepp Haneda", "東京都", "JP-13", "Asia/Tokyo", "Asia/Tokyo"},
-		{"v-texas", "Stubb's", "US-TX", "US-TX", "America/Chicago", "America/Chicago"},
-		{"v-wrongzone", "Gocheok Sky Dome", "KR-11", "KR-11", "Asia/Tokyo", ""},
-		{"v-unknown", "Somewhere", "Atlantis", "", "Europe/Atlantis", ""},
-		{"v-nosource", "Legacy Hall", "", "", "", ""},
-		{"v-down", "Down Hall", "", "", "", ""},
+		{"v-tokyo", "Zepp Haneda", "", "東京都", "JP-13", "Asia/Tokyo", "Asia/Tokyo"},
+		{"v-texas", "Stubb's", "US-TX", "US-TX", "US-TX", "America/Chicago", "America/Chicago"},
+		{"v-wrongzone", "Gocheok Sky Dome", "", "KR-11", "KR-11", "Asia/Tokyo", ""},
+		{"v-unknown", "Somewhere", "", "Atlantis", "", "Europe/Atlantis", ""},
+		{"v-nosource", "Legacy Hall", "", "", "", "", ""},
+		{"v-down", "Down Hall", "", "", "", "", ""},
 	}, rows)
+}
+
+func TestVenueAreaBackfill_Run_StopsWithEveryRowWritten(t *testing.T) {
+	t.Parallel()
+
+	repo := mocks.NewMockVenueRepository(t)
+	repo.EXPECT().ListWithoutAreaOrZone(mock.Anything).Return([]*entity.VenueToBackfill{
+		{VenueID: "v-1", ListedName: "Legacy Hall"},
+		{VenueID: "v-2", ListedName: "Zepp Haneda", SourceURL: "https://example.com/tour"},
+	}, nil).Once()
+	areas := mocks.NewMockAreaRepository(t)
+	areas.EXPECT().Resolve(mock.Anything, "東京都", (*string)(nil)).Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+	asker := mocks.NewMockVenueAreaAsker(t)
+	asker.EXPECT().AskVenueArea(mock.Anything, "Zepp Haneda", "https://example.com/tour").
+		Return(&entity.VenueAreaAnswer{AdminArea: "東京都", TimeZone: "Asia/Tokyo"}, nil).Once()
+	logger, err := logging.New()
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	err = usecase.NewVenueAreaBackfill(repo, areas, asker, logger).Run(context.Background(), &out)
+
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	rows, readErr := csv.NewReader(&out).ReadAll()
+	require.NoError(t, readErr)
+	assert.Equal(t, [][]string{usecase.VenueAreaBackfillColumns, {"v-1", "Legacy Hall", "", "", "", "", ""}}, rows,
+		"the rows before the failure are flushed")
 }

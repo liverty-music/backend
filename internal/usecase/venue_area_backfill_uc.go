@@ -15,7 +15,7 @@ import (
 )
 
 // VenueAreaBackfillColumns are the columns of the backfill's CSV.
-var VenueAreaBackfillColumns = []string{"venue_id", "listed_venue_name", "answer_area", "resolved_code", "answer_zone", "valid_zone"}
+var VenueAreaBackfillColumns = []string{"venue_id", "listed_venue_name", "stored_area", "answer_area", "resolved_code", "answer_zone", "valid_zone"}
 
 // VenueAreaBackfill asks an external model where each Venue without an
 // admin area or a time zone is, checks the answers against the Area
@@ -36,6 +36,8 @@ func NewVenueAreaBackfill(venues entity.VenueRepository, areas entity.AreaReposi
 // Run writes the CSV header and one row per Venue without an area or a
 // zone:
 //
+//   - stored_area: the area the Venue already has, empty when none, so a
+//     reviewer sees an answer that disagrees with it;
 //   - answer_area and answer_zone: what the model answered (empty for a venue
 //     with no known source page, or when the call failed);
 //   - resolved_code: the first-level Area code the answered area resolves
@@ -58,6 +60,8 @@ func (uc *VenueAreaBackfill) Run(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("list venues without an area or a zone: %w", err)
 	}
 	w := csv.NewWriter(out)
+	// Every row written reaches the output, also when the run stops early.
+	defer w.Flush()
 	if err := w.Write(VenueAreaBackfillColumns); err != nil {
 		return fmt.Errorf("write the CSV header: %w", err)
 	}
@@ -89,7 +93,7 @@ func (uc *VenueAreaBackfill) Run(ctx context.Context, out io.Writer) error {
 var errAskFailed = errors.New("asking the model failed")
 
 func (uc *VenueAreaBackfill) row(ctx context.Context, v *entity.VenueToBackfill) ([]string, error) {
-	empty := []string{v.VenueID, v.ListedName, "", "", "", ""}
+	empty := []string{v.VenueID, v.ListedName, v.AdminArea, "", "", "", ""}
 	if v.SourceURL == "" {
 		return empty, nil
 	}
@@ -102,7 +106,7 @@ func (uc *VenueAreaBackfill) row(ctx context.Context, v *entity.VenueToBackfill)
 	if err != nil {
 		return nil, err
 	}
-	return []string{v.VenueID, v.ListedName, answer.AdminArea, code, answer.TimeZone, zone}, nil
+	return []string{v.VenueID, v.ListedName, v.AdminArea, answer.AdminArea, code, answer.TimeZone, zone}, nil
 }
 
 // check resolves the answered area and returns its first-level code and the

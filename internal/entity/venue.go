@@ -224,6 +224,8 @@ type VenueRepository interface {
 type VenueToBackfill struct {
 	VenueID    string
 	ListedName string
+	// AdminArea is the area the venue already has; empty when it has none.
+	AdminArea string
 	// SourceURL is the page that listed one of the venue's events; empty when
 	// none is known.
 	SourceURL string
