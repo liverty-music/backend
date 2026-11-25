@@ -70,7 +70,17 @@ const (
 		           SELECT s.source_url FROM events e JOIN series s ON s.id = e.series_id
 		           WHERE e.venue_id = v.id AND s.source_url IS NOT NULL AND s.source_url <> ''
 		           ORDER BY e.local_event_date DESC LIMIT 1
-		       ), '')
+		       ), ''),
+		       COALESCE((
+		           SELECT string_agg(x.name, ' / ' ORDER BY x.name) FROM (
+		               SELECT DISTINCT a.name FROM events e
+		               JOIN concert_artists ca ON ca.event_id = e.id
+		               JOIN artists a ON a.id = ca.artist_id
+		               WHERE e.venue_id = v.id ORDER BY a.name LIMIT 3
+		           ) x
+		       ), ''),
+		       (SELECT count(*) FROM events e WHERE e.venue_id = v.id),
+		       COALESCE((SELECT min(e.local_event_date)::text FROM events e WHERE e.venue_id = v.id), '')
 		FROM venues v
 		WHERE v.admin_area IS NULL OR v.time_zone IS NULL
 		ORDER BY v.id
@@ -240,7 +250,7 @@ func (r *VenueRepository) ListWithoutAreaOrZone(ctx context.Context) ([]*entity.
 	venues := []*entity.VenueToBackfill{}
 	for rows.Next() {
 		v := &entity.VenueToBackfill{}
-		if err := rows.Scan(&v.VenueID, &v.ListedName, &v.AdminArea, &v.SourceURL); err != nil {
+		if err := rows.Scan(&v.VenueID, &v.ListedName, &v.AdminArea, &v.SourceURL, &v.Artists, &v.EventCount, &v.FirstEventDate); err != nil {
 			return nil, toAppErr(err, "failed to scan a venue without an area or a zone")
 		}
 		venues = append(venues, v)

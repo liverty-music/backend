@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -15,7 +16,10 @@ import (
 )
 
 // VenueAreaBackfillColumns are the columns of the backfill's CSV.
-var VenueAreaBackfillColumns = []string{"venue_id", "listed_venue_name", "stored_area", "answer_area", "resolved_code", "answer_zone", "valid_zone"}
+var VenueAreaBackfillColumns = []string{
+	"venue_id", "listed_venue_name", "stored_area", "source_url", "artists", "event_count", "first_event_date",
+	"answer_area", "resolved_code", "answer_zone", "valid_zone",
+}
 
 // VenueAreaBackfill asks an external model where each Venue without an
 // admin area or a time zone is, checks the answers against the Area
@@ -38,6 +42,10 @@ func NewVenueAreaBackfill(venues entity.VenueRepository, areas entity.AreaReposi
 //
 //   - stored_area: the area the Venue already has, empty when none, so a
 //     reviewer sees an answer that disagrees with it;
+//   - source_url, artists, event_count and first_event_date: what the
+//     reviewer needs to judge the answer or to fill a row the model could
+//     not. A venue with no event (event_count 0) is unused and is not asked
+//     about: nothing refers to it, so it needs no area and can be removed;
 //   - answer_area and answer_zone: what the model answered (empty for a venue
 //     with no known source page, or when the call failed);
 //   - resolved_code: the first-level Area code the answered area resolves
@@ -93,8 +101,9 @@ func (uc *VenueAreaBackfill) Run(ctx context.Context, out io.Writer) error {
 var errAskFailed = errors.New("asking the model failed")
 
 func (uc *VenueAreaBackfill) row(ctx context.Context, v *entity.VenueToBackfill) ([]string, error) {
-	empty := []string{v.VenueID, v.ListedName, v.AdminArea, "", "", "", ""}
-	if v.SourceURL == "" {
+	context := []string{v.VenueID, v.ListedName, v.AdminArea, v.SourceURL, v.Artists, strconv.Itoa(v.EventCount), v.FirstEventDate}
+	empty := append(slices.Clone(context), "", "", "", "")
+	if v.SourceURL == "" || v.EventCount == 0 {
 		return empty, nil
 	}
 	answer, err := uc.asker.AskVenueArea(ctx, v.ListedName, v.SourceURL)
@@ -106,7 +115,7 @@ func (uc *VenueAreaBackfill) row(ctx context.Context, v *entity.VenueToBackfill)
 	if err != nil {
 		return nil, err
 	}
-	return []string{v.VenueID, v.ListedName, v.AdminArea, answer.AdminArea, code, answer.TimeZone, zone}, nil
+	return append(context, answer.AdminArea, code, answer.TimeZone, zone), nil
 }
 
 // check resolves the answered area and returns its first-level code and the
