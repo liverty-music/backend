@@ -1316,6 +1316,19 @@ COMMENT ON COLUMN watermill_events_outbox.create_time IS 'When the announcement 
 -- the generator scripts/areas from pinned CLDR and IANA releases; rows are
 -- upserted and never deleted.
 
+-- Countries
+CREATE TABLE IF NOT EXISTS countries (
+    code TEXT PRIMARY KEY,
+    name_en TEXT NOT NULL,
+    name_ja TEXT,
+    CONSTRAINT chk_countries_code CHECK (code ~ '^[A-Z]{2}$')
+);
+
+COMMENT ON TABLE countries IS 'Countries and territories that have first-level areas, with their CLDR territory names, for the country select of the organizer console';
+COMMENT ON COLUMN countries.code IS 'ISO 3166-1 alpha-2 country or territory code (e.g., KR)';
+COMMENT ON COLUMN countries.name_en IS 'CLDR English territory name (e.g., South Korea)';
+COMMENT ON COLUMN countries.name_ja IS 'CLDR Japanese territory name (e.g., 韓国); NULL when CLDR has none';
+
 -- Time zones
 CREATE TABLE IF NOT EXISTS time_zones (
     name TEXT PRIMARY KEY,

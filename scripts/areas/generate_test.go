@@ -39,8 +39,9 @@ func fixture() Inputs {
 			"ja": {"jp13": "東京都", "jp14": "神奈川県"},
 		},
 		TerritoryNames: map[string]map[string]string{
-			"en": {"HK": "Hong Kong", "PR": "Puerto Rico", "NL": "Netherlands", "BE": "Belgium", "GP": "Guadeloupe", "GE": "Georgia", "VI": "U.S. Virgin Islands"},
-			"ja": {"HK": "香港"},
+			"en": {"JP": "Japan", "FR": "France", "US": "United States", "CN": "China", "TW": "Taiwan", "LU": "Luxembourg",
+				"HK": "Hong Kong SAR China", "PR": "Puerto Rico", "NL": "Netherlands", "BE": "Belgium", "GP": "Guadeloupe", "GE": "Georgia", "VI": "U.S. Virgin Islands"},
+			"ja": {"JP": "日本", "HK": "中華人民共和国香港特別行政区"},
 		},
 		ZoneTab: []ZoneEntry{
 			{"JP", "Asia/Tokyo"}, {"FR", "Europe/Paris"},
@@ -315,4 +316,19 @@ func TestSeed_SinceWritesOnlyChangedRows(t *testing.T) {
 	t.Run("without a previous snapshot every row is written", func(t *testing.T) {
 		assert.Equal(t, seed, seed.Since(nil))
 	})
+}
+
+func TestGenerate_Countries(t *testing.T) {
+	seed, _ := generate(t, fixture(), nil)
+	byCode := map[string]Country{}
+	for _, c := range seed.Countries {
+		byCode[c.Code] = c
+	}
+
+	assert.Equal(t, Country{Code: "JP", NameEN: "Japan", NameJA: "日本"}, byCode["JP"], "a country with subdivisions is listed with its territory names")
+	assert.Equal(t, Country{Code: "HK", NameEN: "Hong Kong SAR China", NameJA: "中華人民共和国香港特別行政区"}, byCode["HK"], "a territory that is its own Area is listed once")
+	_, ok := byCode["GE"]
+	assert.True(t, ok)
+	_, ok = byCode["LU"]
+	assert.False(t, ok, "a country without first-level areas is not listed")
 }

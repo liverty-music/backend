@@ -185,8 +185,8 @@ func readSubdivisionNames(path string) (map[string]string, error) {
 // both lead to the same first-level Area.
 const superscripts = "⁰¹²³⁴⁵⁶⁷⁸⁹"
 
-// readLocale reads territory names (the short form where CLDR has one, e.g.
-// "Hong Kong" rather than "Hong Kong SAR China") and exemplar cities.
+// readLocale reads territory names (the standard form, e.g. "Hong Kong SAR
+// China", not CLDR's alt="short" "Hong Kong") and exemplar cities.
 func readLocale(path string) (map[string]string, map[string]string, error) {
 	var doc struct {
 		Territories []struct {
@@ -208,11 +208,6 @@ func readLocale(path string) (map[string]string, map[string]string, error) {
 			if _, ok := territories[t.Type]; !ok {
 				territories[t.Type] = strings.TrimSpace(t.Name)
 			}
-		}
-	}
-	for _, t := range doc.Territories {
-		if t.Alt == "short" {
-			territories[t.Type] = strings.TrimSpace(t.Name)
 		}
 	}
 	cities := map[string]string{}
