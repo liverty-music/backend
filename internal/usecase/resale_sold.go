@@ -2,7 +2,9 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -39,6 +41,14 @@ func (uc *notificationUseCase) SendResaleSold(ctx context.Context, refunded enti
 		return nil
 	}
 	user, err := d.Users.Get(ctx, refunded.UserID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		// The user deleted their account after the sale (a Sold listing does
+		// not block the deletion). The refund is made without the user, and
+		// there is no one left to tell: running again would find the same.
+		uc.logger.Info(ctx, "skipped the sold email: the listing's user no longer exists",
+			slog.String("resale_listing_id", string(listing.ID)))
+		return nil
+	}
 	if err != nil {
 		return err
 	}

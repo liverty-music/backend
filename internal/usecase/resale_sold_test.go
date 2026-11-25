@@ -27,6 +27,8 @@ type resaleSoldFixture struct {
 	// emailSent is the listing's sold email send time, set when the send is
 	// recorded; nil while none was sent.
 	emailSent *time.Time
+	// userGone makes the listing's user read as deleted.
+	userGone bool
 }
 
 var resaleRefunded = entity.ResaleListingRefundedData{ResaleListingID: "l-1", UserID: "fan-1", OrderID: "order-1", EventID: "event-1"}
@@ -65,7 +67,13 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 			f.emailSent = new(soldEmailNow)
 			return nil
 		}).Maybe()
-	f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: lang}, nil).Maybe()
+	f.users.EXPECT().Get(mock.Anything, "fan-1").
+		RunAndReturn(func(context.Context, string) (*entity.User, error) {
+			if f.userGone {
+				return nil, apperr.New(codes.NotFound, "user not found")
+			}
+			return &entity.User{ID: "fan-1", Email: "fan@example.com", PreferredLanguage: lang}, nil
+		}).Maybe()
 	f.orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).Return(&entity.Order{
 		ID: "order-1", Payment: entity.Payment{CardBrand: "visa", CardLast4: "4242"},
 	}, nil).Maybe()
@@ -123,6 +131,17 @@ func TestNotificationUseCase_SendResaleSold(t *testing.T) {
 
 		require.NoError(t, f.uc.SendResaleSold(ctx, resaleRefunded))
 		require.NoError(t, f.uc.SendResaleSold(ctx, resaleRefunded))
+	})
+
+	t.Run("listing's user deleted", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/notification/send-resale-sold "Listing's user deleted"
+		f := newResaleSoldFixture(t, "")
+		f.userGone = true
+
+		// No SendSoldEmail expectation: sending one would fail the test.
+		require.NoError(t, f.uc.SendResaleSold(ctx, resaleRefunded))
+		assert.Nil(t, f.emailSent, "no email was sent, so none is recorded")
 	})
 
 	t.Run("mail unavailable", func(t *testing.T) {

@@ -500,21 +500,30 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 }
 
 // SerializeDeletion runs fn while holding the user's deletion lock
-// exclusively, taken in a transaction on its own connection. fn's own reads
-// and writes run on other connections, so they never wait for this lock.
+// exclusively, in a transaction that fn's own reads and writes run on too:
+// the context passed to fn is bound to it, so a deletion holds one connection,
+// not one for the lock and one for each query of fn. The transaction commits
+// when fn succeeds, which is what makes fn's writes stick, and rolls back when
+// fn fails. fn must run its queries one at a time.
 func (r *UserRepository) SerializeDeletion(ctx context.Context, id string, fn func(ctx context.Context) error) error {
 	attrs := slog.String("user_id", id)
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin user deletion lock", attrs)
 	}
-	// Rollback releases the lock; it is the only way the transaction ends.
+	// Rollback releases the lock when fn fails; after a commit it is a no-op.
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	if _, err := tx.Exec(ctx, userDeletionLockQuery, id); err != nil {
 		return toAppErr(err, "failed to lock user deletion", attrs)
 	}
-	return fn(ctx)
+	if err := fn(withBoundTx(ctx, tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit user deletion", attrs)
+	}
+	return nil
 }
 
 // lockUserForCreate holds the user's deletion lock shared for the rest of tx

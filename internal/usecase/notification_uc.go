@@ -82,6 +82,8 @@ type NotificationUseCase interface {
 	// # Possible errors
 	//
 	//   - Any read or send failure, unchanged; the announcement is redelivered.
+	//
+	// A listing whose user no longer exists sends nothing and returns nil.
 	SendResaleSold(ctx context.Context, refunded entity.ResaleListingRefundedData) error
 
 	// SendLotteryLoss tells the fan of a Lost lottery entry that it lost and

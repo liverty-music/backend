@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -128,4 +129,61 @@ func countUserRows(db *rdb.Database, ctx context.Context, t *testing.T, query st
 	var n int
 	require.NoError(t, db.Pool.QueryRow(ctx, query, args...).Scan(&n))
 	return n
+}
+
+// TestUserRepository_SerializeDeletion_OneConnection checks that a deletion
+// holds one connection: with a pool of one, the reads and the delete that run
+// under the lock use the lock's connection instead of waiting for another one,
+// and the delete is stored when fn succeeds and dropped when it fails.
+func TestUserRepository_SerializeDeletion_OneConnection(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithPool(t, 1)
+	users := rdb.NewUserRepository(db, testOutbox)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+
+	t.Run("fn succeeds", func(t *testing.T) {
+		userID := seedFanUser(t, db)
+
+		err := users.SerializeDeletion(ctx, userID, func(ctx context.Context) error {
+			if _, err := users.Get(ctx, userID); err != nil {
+				return err
+			}
+			// The reads of the deletion blockers, which iterate rows.
+			uid := entity.UserID(userID)
+			if _, err := rdb.NewTicketRepository(db, testOutbox).ListByUser(ctx, uid); err != nil {
+				return err
+			}
+			if _, err := rdb.NewResaleListingRepository(db, testOutbox).ListByUser(ctx, uid); err != nil {
+				return err
+			}
+			if _, err := rdb.NewLotteryEntryRepository(db, testOutbox).ListByUser(ctx, uid); err != nil {
+				return err
+			}
+			if _, err := rdb.NewCheckoutRepository(db, testOutbox).ListByUser(ctx, uid); err != nil {
+				return err
+			}
+			return users.Delete(ctx, userID)
+		})
+
+		require.NoError(t, err)
+		_, err = users.Get(ctx, userID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("fn fails", func(t *testing.T) {
+		userID := seedFanUser(t, db)
+		failure := apperr.New(codes.FailedPrecondition, "blocked")
+
+		err := users.SerializeDeletion(ctx, userID, func(ctx context.Context) error {
+			if err := users.Delete(ctx, userID); err != nil {
+				return err
+			}
+			return failure
+		})
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		_, err = users.Get(ctx, userID)
+		assert.NoError(t, err, "the delete is rolled back with the failed fn")
+	})
 }
