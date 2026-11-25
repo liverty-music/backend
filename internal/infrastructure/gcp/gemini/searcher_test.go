@@ -17,7 +17,10 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/testutil"
+	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -52,6 +55,22 @@ func geminiResponse(bodyText, finishReason string) string {
 			"totalTokenCount": 20
 		}
 	}`, strconv.Quote(bodyText), finishReason)
+}
+
+// testAreas returns the Area reference data of a test database of the
+// test's own, so the searcher resolves admin areas as in production.
+func testAreas(t *testing.T) entity.AreaRepository {
+	t.Helper()
+	clone := testutil.NewDatabase(t)
+	logger, err := logging.New()
+	require.NoError(t, err)
+	db, err := rdb.New(context.Background(), config.DatabaseConfig{
+		Host: "localhost", Port: clone.Port, Name: clone.Name, User: "test-user", SSLMode: "disable",
+		Schema: "app", MaxOpenConns: 2, MaxIdleConns: 1, ConnMaxLifetime: 1800, MaxConnIdleTime: 600, HealthCheckPeriod: 60,
+	}, true, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return rdb.NewAreaRepository(db)
 }
 
 // newTestSearcher starts a mock Gemini server that answers every request with
@@ -90,7 +109,7 @@ func newTestSearcherWithPages(t *testing.T, cfg gemini.Config, logger *logging.L
 		require.NoError(t, err)
 	}
 	s, err := gemini.NewConcertSearcher(context.Background(), cfg,
-		&http.Client{Transport: &rewriteTransport{URL: ts.URL}}, pageClient, logger)
+		&http.Client{Transport: &rewriteTransport{URL: ts.URL}}, pageClient, testAreas(t), logger)
 	require.NoError(t, err)
 	return s, &calls
 }
@@ -751,4 +770,77 @@ func TestConcertSearcher_Search_LogsURLContextCounts(t *testing.T) {
 	assert.EqualValues(t, 1, entry["url_context_retrieved"])
 	assert.EqualValues(t, 1, entry["linked_pages"])
 	assert.Equal(t, []any{"http://vaundy.jp/live/"}, entry["linked_page_urls"])
+}
+
+// TestConcertSearcher_AreaAndTimeZone checks how Search resolves the admin
+// area the model returns to a first-level Area, and picks each event's time
+// zone, against the seeded reference data.
+func TestConcertSearcher_AreaAndTimeZone(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	site := &entity.OfficialSite{URL: "https://www.example.com/"}
+
+	tests := []struct {
+		name, area, zone string
+		wantArea         string // "" for none
+		wantZone         string // "" for none
+	}{
+		// @spec components/entity/concert/search "Prefecture in Japanese"
+		// @spec components/entity/concert/search "Area with one time zone"
+		{name: "Prefecture in Japanese", area: "愛知県", wantArea: "JP-23", wantZone: "Asia/Tokyo"},
+		// @spec components/entity/concert/search "Prefecture in English"
+		{name: "Prefecture in English", area: "tokyo", wantArea: "JP-13", wantZone: "Asia/Tokyo"},
+		// @spec components/entity/concert/search "Overseas venue"
+		{name: "Overseas venue", area: "TW-TPE", wantArea: "TW-TPE", wantZone: "Asia/Taipei"},
+		// @spec components/entity/concert/search "State name"
+		{name: "State name", area: "California", wantArea: "US-CA", wantZone: "America/Los_Angeles"},
+		// @spec components/entity/concert/search "Lower-level code"
+		{name: "Lower-level code", area: "FR-33", wantArea: "FR-NAQ", wantZone: "Europe/Paris"},
+		// @spec components/entity/concert/search "Territory without subdivisions"
+		{name: "Territory by its own code", area: "HK", wantArea: "HK", wantZone: "Asia/Hong_Kong"},
+		{name: "Territory by its subdivision code", area: "CN-HK", wantArea: "HK", wantZone: "Asia/Hong_Kong"},
+		// @spec components/entity/concert/search "Unrecognized area"
+		{name: "Unrecognized name", area: "Atlantis"},
+		{name: "Well-formed code that is no Area", area: "JP-99"},
+		// @spec components/entity/concert/search "Name of areas in two countries"
+		{name: "Name of areas in two countries", area: "Victoria"},
+		// @spec components/entity/concert/search "Area without a single time zone"
+		{name: "Area without a single time zone", area: "US-TX", zone: "America/Chicago", wantArea: "US-TX", wantZone: "America/Chicago"},
+		// @spec components/entity/concert/search "Zone of another country"
+		{name: "Zone of another country", area: "US-TX", zone: "Europe/London", wantArea: "US-TX"},
+		// @spec components/entity/concert/search "Area unknown"
+		{name: "Area unknown", area: "", zone: "Asia/Tokyo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			body := fmt.Sprintf(`{"series": [{"title": "Show", "source_url": "https://www.example.com/s", "events": [
+				{"venue": "Hall", "country": "", "admin_area": %q, "time_zone": %q, "local_date": "2026-05-01", "open_time": "", "start_time": ""}]}]}`,
+				tt.area, tt.zone)
+			s, _ := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+				return http.StatusOK, geminiResponse(body, "STOP")
+			})
+
+			got, err := s.Search(context.Background(), artist, site, from)
+
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			require.Len(t, got[0].Events, 1)
+			ev := got[0].Events[0]
+			if tt.wantArea == "" {
+				assert.Nil(t, ev.AdminArea)
+			} else {
+				require.NotNil(t, ev.AdminArea)
+				assert.Equal(t, tt.wantArea, *ev.AdminArea)
+			}
+			if tt.wantZone == "" {
+				assert.Nil(t, ev.TimeZone)
+			} else {
+				require.NotNil(t, ev.TimeZone)
+				assert.Equal(t, tt.wantZone, *ev.TimeZone)
+			}
+		})
+	}
 }

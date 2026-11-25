@@ -34,11 +34,10 @@ func buildConcertCandidate(t *testing.T, db *rdb.Database, artistID string) *ent
 }
 
 // buildConcertCandidateWithPlace returns a ConcertCandidate with a resolved place ID.
-func buildConcertCandidateWithPlace(t *testing.T, db *rdb.Database, artistID, placeID, venueName string) *entity.ConcertCandidate {
+func buildConcertCandidateWithPlace(t *testing.T, db *rdb.Database, artistID, placeID string) *entity.ConcertCandidate {
 	t.Helper()
 	sc := buildConcertCandidate(t, db, artistID)
 	sc.ResolvedPlaceID = &placeID
-	sc.ResolvedVenueName = &venueName
 	return sc
 }
 
@@ -113,7 +112,7 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByPlaceID(t *testin
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "Place ID Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000003")
 
-		first := buildConcertCandidateWithPlace(t, db, artistID, "place-abc", "Canonical Venue")
+		first := buildConcertCandidateWithPlace(t, db, artistID, "place-abc")
 		err := repo.Upsert(ctx, first)
 		require.NoError(t, err)
 		// Staged yesterday.
@@ -125,7 +124,7 @@ func TestConcertCandidateRepository_Upsert_RefreshOnConflict_ByPlaceID(t *testin
 		originalDiscovered := firstRow.FindTime
 
 		// Second upsert: same (artist, date, place_id) but new title.
-		second := buildConcertCandidateWithPlace(t, db, artistID, "place-abc", "Canonical Venue Updated")
+		second := buildConcertCandidateWithPlace(t, db, artistID, "place-abc")
 		second.Title = "Refreshed Title"
 
 		err = repo.Upsert(ctx, second)
@@ -151,11 +150,11 @@ func TestConcertCandidateRepository_Upsert_OtherStartTimeRefreshes(t *testing.T)
 	matinee := time.Date(2026, 6, 15, 13, 0, 0, 0, jst)
 	evening := time.Date(2026, 6, 15, 18, 0, 0, 0, jst)
 
-	first := buildConcertCandidateWithPlace(t, db, artistID, "place-start", "Start Venue")
+	first := buildConcertCandidateWithPlace(t, db, artistID, "place-start")
 	first.StartTime = &matinee
 	require.NoError(t, repo.Upsert(ctx, first))
 
-	second := buildConcertCandidateWithPlace(t, db, artistID, "place-start", "Start Venue")
+	second := buildConcertCandidateWithPlace(t, db, artistID, "place-start")
 	second.StartTime = &evening
 	require.NoError(t, repo.Upsert(ctx, second))
 
@@ -177,7 +176,8 @@ func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "Place Path Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000004")
 
-		sc := buildConcertCandidateWithPlace(t, db, artistID, "place-xyz", "Venue XYZ")
+		sc := buildConcertCandidateWithPlace(t, db, artistID, "place-xyz")
+		sc.AdminArea, sc.TimeZone = new("JP-13"), new("Asia/Tokyo")
 		err := repo.Upsert(ctx, sc)
 		require.NoError(t, err)
 
@@ -185,8 +185,16 @@ func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, got.ResolvedPlaceID)
 		assert.Equal(t, "place-xyz", *got.ResolvedPlaceID)
-		require.NotNil(t, got.ResolvedVenueName)
-		assert.Equal(t, "Venue XYZ", *got.ResolvedVenueName)
+		assert.Equal(t, "Asia/Tokyo", *got.TimeZone, "the time zone discovery resolved is kept")
+	})
+
+	t.Run("a time zone without an admin area is refused", func(t *testing.T) {
+		cleanTables(t, db)
+		artistID := seedArtist(t, db, "Zone Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000006")
+
+		sc := buildConcertCandidate(t, db, artistID)
+		sc.AdminArea, sc.TimeZone = nil, new("Asia/Tokyo")
+		assert.ErrorIs(t, repo.Upsert(ctx, sc), apperr.ErrInvalidArgument)
 	})
 
 	t.Run("null place id fallback path", func(t *testing.T) {

@@ -3,6 +3,9 @@ package entity
 import (
 	"context"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ConcertCandidate is a concert discovered by the Gemini pipeline that is held in
@@ -43,8 +46,10 @@ type ConcertCandidate struct {
 	OpenTime *time.Time
 	// ListedVenueName is the raw venue name exactly as scraped from the source.
 	ListedVenueName string
-	// AdminArea is the administrative area extracted by Gemini. Nil when not
-	// extracted.
+	// AdminArea is the admin area as discovery found it: a first-level Area
+	// code, or for a candidate staged before areas were resolved, possibly a
+	// lower-level or unknown code. It is resolved to a first-level Area only on
+	// approval. Nil when not found.
 	AdminArea *string
 	// SourceURL is the source URL where the concert was found. Nil when not
 	// provided.
@@ -56,18 +61,6 @@ type ConcertCandidate struct {
 	// ResolvedPlaceID is the Google Places place id of the resolved venue.
 	// Nil when the listed name could not be resolved.
 	ResolvedPlaceID *string
-	// ResolvedVenueName is the canonical venue name resolved via Google Places.
-	// Nil when unresolved.
-	ResolvedVenueName *string
-	// ResolvedAdminArea is the ISO 3166-2 admin area of the resolved venue.
-	// Nil when unresolved or indeterminate.
-	ResolvedAdminArea *string
-	// ResolvedLatitude is the WGS 84 latitude of the resolved venue. Nil when
-	// unresolved.
-	ResolvedLatitude *float64
-	// ResolvedLongitude is the WGS 84 longitude of the resolved venue. Nil when
-	// unresolved.
-	ResolvedLongitude *float64
 	// FindTime is the timestamp when the discovery pipeline staged this
 	// concert. Used to order the review queue.
 	FindTime time.Time
@@ -122,45 +115,14 @@ type ConcertCandidateRepository interface {
 	ListPendingDedupKeysByArtist(ctx context.Context, artistID string) ([]ConcertCandidateDedupKey, error)
 }
 
-// VenueAdminArea is the admin area used for both the lookup of the candidate's
-// Venue by (listed venue name, admin area) and its insert: the Places-resolved
-// one, else the one Gemini extracted. The lookup and the insert must use the
-// same derivation, or a miss-then-collide asymmetry appears (a lookup on the
-// raw value and an insert on the resolved one).
-func (c *ConcertCandidate) VenueAdminArea() *string {
-	if c.ResolvedAdminArea != nil {
-		return c.ResolvedAdminArea
+// Validate checks that a time zone comes with an admin area.
+//
+// # Possible errors
+//
+//   - InvalidArgument: a time zone without an admin area.
+func (c *ConcertCandidate) Validate() error {
+	if c.TimeZone != nil && c.AdminArea == nil {
+		return apperr.New(codes.InvalidArgument, "a concert candidate without an admin area has no time zone")
 	}
-	return c.AdminArea
-}
-
-// ShouldBackfillPlaceID reports whether the place id the candidate carries is
-// to be stored on the existing Venue found by its listed name: the candidate
-// has a resolved place id and the Venue has none. A place id already stored is
-// never overwritten.
-func (c *ConcertCandidate) ShouldBackfillPlaceID(existing *Venue) bool {
-	return c.ResolvedPlaceID != nil && existing.GooglePlaceID == nil
-}
-
-// NewVenue returns a new Venue made from the candidate's resolved fields, with
-// a generated id. Its name is the canonical resolved name when there is one,
-// else the listed name; its coordinates are set only when both resolved
-// coordinates are.
-func (c *ConcertCandidate) NewVenue() *Venue {
-	name := c.ListedVenueName
-	if c.ResolvedVenueName != nil {
-		name = *c.ResolvedVenueName
-	}
-	listed := c.ListedVenueName
-	venue := &Venue{
-		ID:              NewID(),
-		Name:            name,
-		AdminArea:       c.VenueAdminArea(),
-		GooglePlaceID:   c.ResolvedPlaceID,
-		ListedVenueName: &listed,
-	}
-	if c.ResolvedLatitude != nil && c.ResolvedLongitude != nil {
-		venue.Coordinates = &Coordinates{Latitude: *c.ResolvedLatitude, Longitude: *c.ResolvedLongitude}
-	}
-	return venue
+	return nil
 }

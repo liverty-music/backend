@@ -159,6 +159,7 @@ configMapGenerator:
   - migrations/20261124100811_add_area_reference_data.sql
   - migrations/20261125010231_add_countries.sql
   - migrations/20261125011819_add_user_home_areas.sql
+  - migrations/20261125015333_complete_venue_areas.sql
 # The reference data directory (see reference-data-migration.yaml). The keys
 # are the bare file names, as Atlas reads the directory from the ConfigMap.
 - name: atlas-reference-data-dir

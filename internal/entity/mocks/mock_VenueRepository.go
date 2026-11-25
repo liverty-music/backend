@@ -245,7 +245,7 @@ func (_c *MockVenueRepository_Get_Call) RunAndReturn(run func(ctx context.Contex
 }
 
 // GetByListedName provides a mock function for the type MockVenueRepository
-func (_mock *MockVenueRepository) GetByListedName(ctx context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error) {
+func (_mock *MockVenueRepository) GetByListedName(ctx context.Context, listedVenueName string, adminArea string) (*entity.Venue, error) {
 	ret := _mock.Called(ctx, listedVenueName, adminArea)
 
 	if len(ret) == 0 {
@@ -254,17 +254,17 @@ func (_mock *MockVenueRepository) GetByListedName(ctx context.Context, listedVen
 
 	var r0 *entity.Venue
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *string) (*entity.Venue, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (*entity.Venue, error)); ok {
 		return returnFunc(ctx, listedVenueName, adminArea)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *string) *entity.Venue); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) *entity.Venue); ok {
 		r0 = returnFunc(ctx, listedVenueName, adminArea)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Venue)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *string) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
 		r1 = returnFunc(ctx, listedVenueName, adminArea)
 	} else {
 		r1 = ret.Error(1)
@@ -280,12 +280,12 @@ type MockVenueRepository_GetByListedName_Call struct {
 // GetByListedName is a helper method to define mock.On call
 //   - ctx context.Context
 //   - listedVenueName string
-//   - adminArea *string
+//   - adminArea string
 func (_e *MockVenueRepository_Expecter) GetByListedName(ctx any, listedVenueName any, adminArea any) *MockVenueRepository_GetByListedName_Call {
 	return &MockVenueRepository_GetByListedName_Call{Call: _e.mock.On("GetByListedName", ctx, listedVenueName, adminArea)}
 }
 
-func (_c *MockVenueRepository_GetByListedName_Call) Run(run func(ctx context.Context, listedVenueName string, adminArea *string)) *MockVenueRepository_GetByListedName_Call {
+func (_c *MockVenueRepository_GetByListedName_Call) Run(run func(ctx context.Context, listedVenueName string, adminArea string)) *MockVenueRepository_GetByListedName_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -295,9 +295,9 @@ func (_c *MockVenueRepository_GetByListedName_Call) Run(run func(ctx context.Con
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 *string
+		var arg2 string
 		if args[2] != nil {
-			arg2 = args[2].(*string)
+			arg2 = args[2].(string)
 		}
 		run(
 			arg0,
@@ -313,7 +313,7 @@ func (_c *MockVenueRepository_GetByListedName_Call) Return(venue *entity.Venue, 
 	return _c
 }
 
-func (_c *MockVenueRepository_GetByListedName_Call) RunAndReturn(run func(ctx context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error)) *MockVenueRepository_GetByListedName_Call {
+func (_c *MockVenueRepository_GetByListedName_Call) RunAndReturn(run func(ctx context.Context, listedVenueName string, adminArea string) (*entity.Venue, error)) *MockVenueRepository_GetByListedName_Call {
 	_c.Call.Return(run)
 	return _c
 }

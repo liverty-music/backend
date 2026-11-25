@@ -350,3 +350,20 @@ func providerCardAuthorizationID(t *testing.T, db *rdb.Database, id string) stri
 		`SELECT provider_card_authorization_id FROM card_authorizations WHERE id = $1`, id).Scan(&providerID))
 	return providerID
 }
+
+// storable completes a test venue so that VenueRepository.Create accepts it:
+// a venue without an area is put in JP-13 with Japan's zone, one in another
+// Japanese prefecture gets Japan's zone, and coordinates get a fetch time.
+// It returns v.
+func storable(v *entity.Venue) *entity.Venue {
+	if v.AdminArea == nil {
+		v.AdminArea = new("JP-13")
+	}
+	if v.TimeZone == nil && strings.HasPrefix(*v.AdminArea, "JP-") {
+		v.TimeZone = new("Asia/Tokyo")
+	}
+	if v.Coordinates != nil && v.CoordinatesFetchTime == nil {
+		v.CoordinatesFetchTime = new(time.Now())
+	}
+	return v
+}

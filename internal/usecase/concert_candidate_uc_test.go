@@ -27,11 +27,46 @@ type approvalTestDeps struct {
 	seriesRepo      *entitymocks.MockSeriesRepository
 	concertRepo     *entitymocks.MockConcertRepository
 	artistRepo      *entitymocks.MockArtistRepository
+	areas           *entitymocks.MockAreaRepository
+	places          *entitymocks.MockVenueMapCatalog
 	uc              usecase.ConcertCandidateUseCase
 
 	createdVenues   []*entity.Venue
 	createdConcerts []*entity.Concert
 	rejections      []*entity.RejectedConcert
+}
+
+// approvalAreas answers Area.Resolve and Area.ListByCountry for the areas the
+// approval tests use: JP-13, US-CA (America/Los_Angeles), US-TX (no zone of
+// its own), FR-NAQ (with FR-33 inside it) and the name California.
+func approvalAreas(m *entitymocks.MockAreaRepository) {
+	area := func(code string, zone *string) *entity.Area {
+		return &entity.Area{Code: code, Kind: entity.AreaKindSubdivision, CountryCode: code[:2], NameEN: code, TimeZone: zone}
+	}
+	m.EXPECT().Resolve(mock.Anything, mock.Anything, (*string)(nil)).RunAndReturn(
+		func(_ context.Context, text string, _ *string) (*entity.Area, error) {
+			switch text {
+			case "JP-13":
+				return area("JP-13", new("Asia/Tokyo")), nil
+			case "US-CA", "California":
+				return area("US-CA", new("America/Los_Angeles")), nil
+			case "US-TX":
+				return area("US-TX", nil), nil
+			case "FR-33", "FR-NAQ":
+				return area("FR-NAQ", new("Europe/Paris")), nil
+			}
+			return nil, apperr.New(codes.NotFound, "no area")
+		}).Maybe()
+	zones := func(names ...string) *entity.CountryAreas {
+		out := &entity.CountryAreas{}
+		for _, n := range names {
+			out.TimeZones = append(out.TimeZones, &entity.AreaTimeZone{Name: n, NameEN: n})
+		}
+		return out
+	}
+	m.EXPECT().ListByCountry(mock.Anything, "JP").Return(zones("Asia/Tokyo"), nil).Maybe()
+	m.EXPECT().ListByCountry(mock.Anything, "US").Return(zones("America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles"), nil).Maybe()
+	m.EXPECT().ListByCountry(mock.Anything, "FR").Return(zones("Europe/Paris"), nil).Maybe()
 }
 
 func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps {
@@ -44,9 +79,12 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		seriesRepo:      entitymocks.NewMockSeriesRepository(t),
 		concertRepo:     entitymocks.NewMockConcertRepository(t),
 		artistRepo:      entitymocks.NewMockArtistRepository(t),
+		areas:           entitymocks.NewMockAreaRepository(t),
+		places:          entitymocks.NewMockVenueMapCatalog(t),
 	}
+	approvalAreas(d.areas)
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
-	// concertSearchRepo, concertSearcher, areas, and metrics.
+	// concertSearchRepo, concertSearcher and metrics.
 	concerts := usecase.NewConcertUseCase(
 		d.artistRepo,
 		d.concertRepo,
@@ -57,7 +95,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		d.candidateRepo,
 		d.rejectedConcert,
 		nil, // concertSearcher — not used by admin methods
-		nil, // areas — not used by admin methods
+		d.areas,
 		ucmocks.NewMockWorkflows(t),
 		anyConcertMetrics(t),
 		nil,         // analytics — not used by admin methods
@@ -65,7 +103,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		0, time.Now, // discoveryWindow — not used by admin methods
 		newTestLogger(t),
 	)
-	d.uc = usecase.NewConcertCandidateUseCase(concerts)
+	d.uc = usecase.NewConcertCandidateUseCase(concerts, d.places)
 	return d
 }
 
@@ -84,10 +122,12 @@ func (d *approvalTestDeps) deletes(id string) {
 	d.candidateRepo.EXPECT().Delete(mock.Anything, id).Return(nil).Once()
 }
 
-// createsVenue expects the venue of placeID, stored under neither that place
-// id nor (listedName, adminArea), to be created, and records it.
-func (d *approvalTestDeps) createsVenue(placeID, listedName string, adminArea *string) {
-	d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(nil, notFound("venue")).Once()
+// createsVenue expects a venue stored under neither placeID (when given) nor
+// (listedName, adminArea) to be created, and records it.
+func (d *approvalTestDeps) createsVenue(placeID *string, listedName, adminArea string) {
+	if placeID != nil {
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, *placeID).Return(nil, notFound("venue")).Once()
+	}
 	d.venueRepo.EXPECT().GetByListedName(mock.Anything, listedName, adminArea).Return(nil, notFound("venue")).Once()
 	d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
@@ -122,75 +162,227 @@ func (d *approvalTestDeps) logsRejection() {
 		}).Once()
 }
 
-// seedCandidate returns a pending concert candidate whose place resolves to
-// no stored venue. The concert candidate always carries a SeriesID referencing
-// a pre-existing series (created at discovery time), matching the model where
-// Approve never mints a series.
-func seedCandidate(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
-	placeID := "place-abc"
-	venueName := "Venue ABC Canonical"
+// candidate returns a pending concert candidate listing "Zepp Haneda(TOKYO)"
+// with the given area, time zone and resolved place, under a series created
+// at discovery time.
+func (d *approvalTestDeps) candidate(area, zone, placeID *string) *entity.ConcertCandidate {
 	sourceURL := "https://example.com/show"
 	sc := &entity.ConcertCandidate{
-		ID:                "candidate-001",
-		ArtistID:          artistID,
-		SeriesID:          "series-candidate-001",
-		Title:             "Approval Test Concert",
-		LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
-		ListedVenueName:   "Venue ABC",
-		SourceURL:         &sourceURL,
-		ResolvedPlaceID:   &placeID,
-		ResolvedVenueName: &venueName,
+		ID:              "candidate-001",
+		ArtistID:        d.artist.ID,
+		SeriesID:        "series-candidate-001",
+		Title:           "Approval Test Concert",
+		LocalDate:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		ListedVenueName: "Zepp Haneda(TOKYO)",
+		SourceURL:       &sourceURL,
+		AdminArea:       area,
+		TimeZone:        zone,
+		ResolvedPlaceID: placeID,
 	}
 	d.pending(sc)
 	return sc
+}
+
+// approve runs Approve with no resolution and the given area and zone.
+func (d *approvalTestDeps) approve(sc *entity.ConcertCandidate, area, zone *string) error {
+	_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, area, zone, "")
+	return err
 }
 
 func TestConcertCandidateUseCase_Approve(t *testing.T) {
 	t.Parallel()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+	haneda := &entity.Coordinates{Latitude: 35.55, Longitude: 139.78}
+	fetched := time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC)
 
-	t.Run("approve inserts concert and deletes concert candidate", func(t *testing.T) {
-		// @spec components/usecase/concert-candidate/approve "New concert"
+	t.Run("New venue at a resolved place", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "New venue at a resolved place"
+		// @spec components/usecase/concert-candidate/approve "New concert"
 		d := newApprovalTestDeps(t, artist)
-		sc := seedCandidate(d, artist.ID)
-		d.createsVenue("place-abc", "Venue ABC", nil)
+		sc := d.candidate(new("JP-13"), nil, new("P"))
+		d.createsVenue(new("P"), "Zepp Haneda(TOKYO)", "JP-13")
+		d.places.EXPECT().GetPlaceCoordinates(mock.Anything, "P").Return(&entity.PlaceCoordinates{Coordinates: haneda, FetchTime: fetched}, nil).Once()
 		d.slotFree()
 		d.inserts()
-		// Approve NEVER mints a series (no Series.Create is expected) — the series
-		// row already exists (created at discovery time, referenced via
-		// ConcertCandidate.SeriesID).
 		d.deletes(sc.ID)
 
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
+		require.NoError(t, d.approve(sc, nil, nil))
 
-		// Concert was created.
 		require.Len(t, d.createdConcerts, 1)
-		assert.Equal(t, artist.ID, d.createdConcerts[0].ArtistIDs()[0])
-		assert.Equal(t, sc.SeriesID, d.createdConcerts[0].SeriesID,
-			"approved concert must be inserted under the concert candidate's existing series ID")
-
-		// Venue was created from resolved fields.
+		assert.Equal(t, sc.SeriesID, d.createdConcerts[0].SeriesID, "inserted under the candidate's series")
 		require.Len(t, d.createdVenues, 1)
-		assert.Equal(t, "Venue ABC Canonical", d.createdVenues[0].Name)
+		v := d.createdVenues[0]
+		assert.Equal(t, "Zepp Haneda(TOKYO)", v.Name, "named by its listed name")
+		assert.Equal(t, "P", *v.GooglePlaceID)
+		assert.Equal(t, haneda, v.Coordinates)
+		assert.Equal(t, fetched, *v.CoordinatesFetchTime)
+		assert.Equal(t, "Asia/Tokyo", *v.TimeZone, "the Area's own zone")
+	})
+
+	t.Run("Unresolved concert candidate", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Unresolved concert candidate"
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, nil)
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "JP-13")
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		v := d.createdVenues[0]
+		assert.Equal(t, "JP-13", *v.AdminArea)
+		assert.Equal(t, "Asia/Tokyo", *v.TimeZone)
+		assert.Nil(t, v.GooglePlaceID)
+		assert.Nil(t, v.Coordinates)
+	})
+
+	t.Run("Different place id for a stored venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Different place id for a stored venue"
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, new("P2"))
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, "P2").Return(nil, notFound("venue")).Once()
+		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Zepp Haneda(TOKYO)", "JP-13").Return(&entity.Venue{ID: "venue-existing"}, nil).Once()
+		d.venueRepo.EXPECT().BackfillPlaceID(mock.Anything, "venue-existing", "P2").Return(nil).Once()
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
+	})
+
+	t.Run("approve reuses an existing venue by place_id", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, new("P"))
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, "P").Return(&entity.Venue{ID: "venue-existing", GooglePlaceID: new("P")}, nil).Once()
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
+	})
+
+	t.Run("Admin gives the area and the time zone", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Admin gives the area and the time zone"
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(nil, nil, nil)
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "US-CA")
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, new("California"), new("America/Los_Angeles")))
+
+		assert.Equal(t, "US-CA", *d.createdVenues[0].AdminArea)
+		assert.Equal(t, "America/Los_Angeles", *d.createdVenues[0].TimeZone)
+	})
+
+	t.Run("Candidate staged with a lower-level code", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Candidate staged with a lower-level code"
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("FR-33"), nil, nil)
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "FR-NAQ")
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Equal(t, "FR-NAQ", *d.createdVenues[0].AdminArea)
+		assert.Equal(t, "Europe/Paris", *d.createdVenues[0].TimeZone)
+	})
+
+	t.Run("the candidate's zone when the Area has none", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("US-TX"), new("America/Chicago"), nil)
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "US-TX")
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Equal(t, "America/Chicago", *d.createdVenues[0].TimeZone)
+	})
+
+	for _, tc := range []struct {
+		name       string
+		area, zone *string // what the candidate carries
+		give, tz   *string // what the admin gives
+	}{
+		// @spec components/usecase/concert-candidate/approve "Area still unknown"
+		{name: "Area still unknown"},
+		// @spec components/usecase/concert-candidate/approve "Area the admin gives does not resolve"
+		{name: "Area the admin gives does not resolve", area: new("JP-13"), give: new("JP-99")},
+		// @spec components/usecase/concert-candidate/approve "Time zone still unknown"
+		{name: "Time zone still unknown", area: new("US-TX")},
+		// @spec components/usecase/concert-candidate/approve "Time zone of another country"
+		{name: "Time zone of another country", area: new("US-TX"), tz: new("Asia/Tokyo")},
+		// @spec components/usecase/concert-candidate/approve "Time zone other than the Area's own"
+		{name: "Time zone other than the Area's own", area: new("US-CA"), tz: new("America/New_York")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newApprovalTestDeps(t, artist)
+			sc := d.candidate(tc.area, tc.zone, nil)
+
+			// Nothing changes: no venue lookup, insert or delete is expected.
+			assert.ErrorIs(t, d.approve(sc, tc.give, tc.tz), apperr.ErrInvalidArgument)
+		})
+	}
+
+	t.Run("Catalog down while creating the venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Catalog down while creating the venue"
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, new("P"))
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, "P").Return(nil, notFound("venue")).Once()
+		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Zepp Haneda(TOKYO)", "JP-13").Return(nil, notFound("venue")).Once()
+		d.places.EXPECT().GetPlaceCoordinates(mock.Anything, "P").Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
+
+		// The candidate is kept: no Create or Delete is expected.
+		assert.ErrorIs(t, d.approve(sc, nil, nil), apperr.ErrUnavailable)
+	})
+
+	t.Run("place without coordinates", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, new("P"))
+		d.createsVenue(new("P"), "Zepp Haneda(TOKYO)", "JP-13")
+		d.places.EXPECT().GetPlaceCoordinates(mock.Anything, "P").Return(nil, notFound("place")).Once()
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Equal(t, "P", *d.createdVenues[0].GooglePlaceID)
+		assert.Nil(t, d.createdVenues[0].Coordinates)
 	})
 
 	t.Run("keep the concert candidate when the concert cannot be added", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert-candidate/approve "Concert cannot be added"
 		d := newApprovalTestDeps(t, artist)
-		sc := seedCandidate(d, artist.ID)
-		d.createsVenue("place-abc", "Venue ABC", nil)
+		sc := d.candidate(new("JP-13"), nil, nil)
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "JP-13")
 		d.slotFree()
 		d.concertRepo.EXPECT().Create(mock.Anything, mock.Anything).
 			Return(nil, apperr.New(codes.Unavailable, "failed to record the announcement")).Once()
 
-		// The concert candidate is kept: no Delete is expected.
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-
-		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.ErrorIs(t, d.approve(sc, nil, nil), apperr.ErrUnavailable)
 	})
 
 	t.Run("approve is idempotent when concert candidate is already gone", func(t *testing.T) {
@@ -198,150 +390,8 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		d.gone("candidate-nonexistent")
 
-		// No concerts or venues are created: no Create is expected.
-		_, err := d.uc.Approve(context.Background(), "candidate-nonexistent", usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(context.Background(), "candidate-nonexistent", usecase.ApproveResolutionUnspecified, nil, nil, "")
 		require.NoError(t, err)
-	})
-
-	t.Run("approve reuses an existing venue by place_id", func(t *testing.T) {
-		t.Parallel()
-		d := newApprovalTestDeps(t, artist)
-		sc := seedCandidate(d, artist.ID)
-		// A venue with the same place_id is stored, so it is reused, not
-		// re-created (no Venue.Create is expected).
-		existingPlaceID := "place-abc"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, existingPlaceID).Return(&entity.Venue{
-			ID:            "venue-existing",
-			Name:          "Venue ABC Canonical",
-			GooglePlaceID: &existingPlaceID,
-		}, nil).Once()
-		d.slotFree()
-		d.inserts()
-		d.deletes(sc.ID)
-
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-
-		require.Len(t, d.createdConcerts, 1)
-		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
-	})
-
-	t.Run("approve resolves an existing venue by listed name when place_id differs", func(t *testing.T) {
-		t.Parallel()
-		d := newApprovalTestDeps(t, artist)
-		// Existing venue already carries a place_id (P1) — Google Places resolved a
-		// DIFFERENT place_id (P2) for the same physical venue on this discovery.
-		existingPlaceID := "place-P1"
-		differentPlaceID := "place-P2"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, differentPlaceID).Return(nil, notFound("venue")).Once()
-		// A non-NULL place_id is never overwritten: no BackfillPlaceID is
-		// expected, and the venue is reused, not re-created.
-		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
-			ID:              "venue-existing",
-			Name:            "Venue ABC Canonical",
-			AdminArea:       new("JP-27"),
-			GooglePlaceID:   &existingPlaceID,
-			ListedVenueName: new("Venue ABC"),
-		}, nil).Once()
-		d.slotFree()
-		d.inserts()
-
-		venueName := "Venue ABC Canonical"
-		sc := &entity.ConcertCandidate{
-			ID:                "candidate-diff-placeid",
-			ArtistID:          artist.ID,
-			Title:             "Approval Test Concert",
-			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
-			ListedVenueName:   "Venue ABC",
-			AdminArea:         new("JP-27"),
-			ResolvedPlaceID:   &differentPlaceID,
-			ResolvedVenueName: &venueName,
-			ResolvedAdminArea: new("JP-27"),
-		}
-		d.pending(sc)
-		d.deletes(sc.ID)
-
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-
-		require.Len(t, d.createdConcerts, 1)
-		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
-	})
-
-	t.Run("approve backfills a NULL place_id on the resolved venue", func(t *testing.T) {
-		t.Parallel()
-		d := newApprovalTestDeps(t, artist)
-		resolvedPlaceID := "place-P2"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, resolvedPlaceID).Return(nil, notFound("venue")).Once()
-		// Existing venue was created before Places resolution — its place_id is NULL.
-		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
-			ID:              "venue-existing",
-			Name:            "Venue ABC Canonical",
-			AdminArea:       new("JP-27"),
-			ListedVenueName: new("Venue ABC"),
-		}, nil).Once()
-		// The venue is reused (no Venue.Create is expected), and its NULL
-		// place_id is backfilled from the concert candidate.
-		d.venueRepo.EXPECT().BackfillPlaceID(mock.Anything, "venue-existing", "place-P2").Return(nil).Once()
-		d.slotFree()
-		d.inserts()
-
-		venueName := "Venue ABC Canonical"
-		sc := &entity.ConcertCandidate{
-			ID:                "candidate-backfill",
-			ArtistID:          artist.ID,
-			Title:             "Approval Test Concert",
-			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
-			ListedVenueName:   "Venue ABC",
-			AdminArea:         new("JP-27"),
-			ResolvedPlaceID:   &resolvedPlaceID,
-			ResolvedVenueName: &venueName,
-			ResolvedAdminArea: new("JP-27"),
-		}
-		d.pending(sc)
-		d.deletes(sc.ID)
-
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-	})
-
-	t.Run("approve uses the resolved admin_area symmetrically for the listed-name lookup", func(t *testing.T) {
-		t.Parallel()
-		d := newApprovalTestDeps(t, artist)
-		// Existing venue lives under the RESOLVED admin_area (JP-27): the lookup
-		// MUST use the resolved value to find it, and the venue is reused, not
-		// re-created under the raw one (no Venue.Create is expected).
-		d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", new("JP-27")).Return(&entity.Venue{
-			ID:              "venue-existing",
-			Name:            "Venue ABC Canonical",
-			AdminArea:       new("JP-27"),
-			ListedVenueName: new("Venue ABC"),
-		}, nil).Once()
-		d.slotFree()
-		d.inserts()
-
-		// Concert candidate's raw admin_area (JP-99) disagrees with the resolved one
-		// (JP-27). No place_id is set so resolution goes straight to the
-		// listed-name lookup.
-		venueName := "Venue ABC Canonical"
-		sc := &entity.ConcertCandidate{
-			ID:                "candidate-admin-symmetry",
-			ArtistID:          artist.ID,
-			Title:             "Approval Test Concert",
-			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
-			ListedVenueName:   "Venue ABC",
-			AdminArea:         new("JP-99"),
-			ResolvedVenueName: &venueName,
-			ResolvedAdminArea: new("JP-27"),
-		}
-		d.pending(sc)
-		d.deletes(sc.ID)
-
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-
-		require.Len(t, d.createdConcerts, 1)
-		assert.Equal(t, "venue-existing", d.createdConcerts[0].VenueID)
 	})
 }
 
@@ -350,7 +400,7 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 // name resolves to the stored venue-1, where a known-start event of series-1
 // is stored.
 func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
-	d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", (*string)(nil)).Return(&entity.Venue{
+	d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", "JP-13").Return(&entity.Venue{
 		ID:              "venue-1",
 		Name:            "Venue One",
 		ListedVenueName: new("Venue ABC"),
@@ -373,6 +423,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 		LocalDate:       day,
 		ListedVenueName: "Venue ABC",
 		StartTime:       &start,
+		AdminArea:       new("JP-13"),
 	}
 	d.pending(sc)
 	return sc
@@ -392,7 +443,7 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 
 		// No mutation: no Delete, Create, Append or UpdateEventListedVenueName is
 		// expected, so the concert candidate is preserved.
-		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "reviewer-1")
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 
 		require.NotNil(t, result.Conflict)
@@ -412,7 +463,7 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		d.deletes(sc.ID)
 
 		// The event is untouched: no Create or UpdateEventListedVenueName is expected.
-		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
 
@@ -434,7 +485,7 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		d.concertRepo.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, mock.Anything, mock.Anything).Return(nil).Once()
 		d.deletes(sc.ID)
 
-		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, "reviewer-1")
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
 	})
@@ -448,12 +499,12 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		// The second read finds the concert candidate already cleared.
 		d.gone(sc.ID)
 
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 
 		// Second call: concert candidate already cleared → non-conflict success,
 		// with no event mutation (no UpdateEventListedVenueName is expected).
-		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, "reviewer-1")
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptCandidate, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
 		// No second log entry.
@@ -469,7 +520,7 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 	t.Run("reject appends log entry and deletes concert candidate", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		sc := seedCandidate(d, artist.ID)
+		sc := d.candidate(new("JP-13"), new("Asia/Tokyo"), new("P"))
 		d.logsRejection()
 		d.deletes(sc.ID)
 		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()
@@ -486,6 +537,8 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 		assert.Equal(t, "wrong artist", logEntry.Reason)
 		require.NotNil(t, logEntry.ReviewedBy)
 		assert.Equal(t, "reviewer@example.com", *logEntry.ReviewedBy)
+		assert.Equal(t, "Asia/Tokyo", *logEntry.TimeZone, "the candidate's time zone is kept")
+		assert.Equal(t, "P", *logEntry.ResolvedPlaceID)
 	})
 
 	t.Run("reject is idempotent when concert candidate is already gone", func(t *testing.T) {
@@ -502,7 +555,7 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 	t.Run("reject with empty reviewed_by sets ReviewedBy to nil in the log", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
-		sc := seedCandidate(d, artist.ID)
+		sc := d.candidate(new("JP-13"), new("Asia/Tokyo"), new("P"))
 		d.logsRejection()
 		d.deletes(sc.ID)
 		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()

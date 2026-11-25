@@ -256,7 +256,7 @@ The fixture's `evaluation_from` is frozen at capture time. To re-curate:
 1. Pick a new `evaluation_from` date.
 2. For each artist, visit the `official_site_url` and walk the schedule pages.
 3. For each upcoming event on/after the new date, capture: `event_name`,
-   `venue`, `admin_area` (都道府県; empty for overseas), `local_date`,
+   `venue`, `admin_area` (the code of the first-level Area, e.g. `JP-27`; empty when the page names none), `local_date`,
    `open_time` / `start_time` (ISO 8601 with timezone, or empty string),
    `source_url`, `confidence` (`confirmed` / `tentative`), `visibility`
    (`public` / `members-only`).

@@ -99,9 +99,14 @@ func (c *Concert) ArtistIDs() []string {
 type DiscoveredEvent struct {
 	// ListedVenueName is the raw venue name as listed in the source data.
 	ListedVenueName string `json:"listed_venue_name"`
-	// AdminArea is the administrative area (prefecture, state, province) where the
-	// venue is located. Nil when it could not be determined with confidence.
+	// AdminArea is the code of the first-level Area of the venue, as the
+	// search resolved it. Nil when it could not be determined with confidence.
 	AdminArea *string `json:"admin_area,omitempty"`
+	// TimeZone is the venue's IANA time zone: the Area's when the whole Area
+	// has one, else the zone the source implies when it is one of the
+	// country's. Nil when neither is known, and always nil without an admin
+	// area.
+	TimeZone *string `json:"time_zone,omitempty"`
 	// LocalDate represents the calendar date of the event.
 	// See entity.Concert.LocalDate for detailed specifications.
 	LocalDate time.Time `json:"local_date"`

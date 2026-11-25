@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,26 +34,21 @@ func newAdminConcertCandidateHandler(
 func TestAdminConcertCandidateHandler_List(t *testing.T) {
 	t.Parallel()
 
-	lat, lon := 35.6762, 139.6503
 	placeID := "ChIJM..."
-	venueName := "武道館"
 	adminArea := "JP-13"
 	sourceURL := "https://example.com/concert"
 
 	candidateWithVenue := &entity.ConcertCandidate{
-		ID:                "candidate-1",
-		ArtistID:          "artist-1",
-		Title:             "Tour 2026",
-		LocalDate:         time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		ListedVenueName:   "Budokan",
-		AdminArea:         &adminArea,
-		TimeZone:          new("Asia/Tokyo"),
-		ResolvedPlaceID:   &placeID,
-		ResolvedVenueName: &venueName,
-		ResolvedLatitude:  &lat,
-		ResolvedLongitude: &lon,
-		SourceURL:         &sourceURL,
-		FindTime:          time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
+		ID:              "candidate-1",
+		ArtistID:        "artist-1",
+		Title:           "Tour 2026",
+		LocalDate:       time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		ListedVenueName: "Budokan",
+		AdminArea:       &adminArea,
+		TimeZone:        new("Asia/Tokyo"),
+		ResolvedPlaceID: &placeID,
+		SourceURL:       &sourceURL,
+		FindTime:        time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
 	}
 
 	candidateNoVenue := &entity.ConcertCandidate{
@@ -182,7 +178,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 			args: args{ctx: adminCtx(), concertCandidateID: "candidate-abc"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
-					m.EXPECT().Approve(mock.Anything, "candidate-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
+					m.EXPECT().Approve(mock.Anything, "candidate-abc", usecase.ApproveResolutionUnspecified, (*string)(nil), (*string)(nil), mock.Anything).
 						Return(&usecase.ApproveResult{}, nil).Once()
 				},
 			},
@@ -299,7 +295,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/concert-candidate "Approve without a resolution"
 		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 		startTime := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
-		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified, "admin-sub-123").
+		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified, (*string)(nil), (*string)(nil), "admin-sub-123").
 			Return(&usecase.ApproveResult{Conflict: &usecase.DuplicateConflict{
 				Existing: &usecase.ExistingEventDisplay{
 					EventID: "event-1", Title: "Tour 2026", ListedVenueName: "Budokan",
@@ -318,6 +314,36 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		require.NotNil(t, resp.GetConflict())
 		assert.Equal(t, "event-1", resp.GetConflict().GetExisting().GetEventId().GetValue())
 		assert.Equal(t, concertCandidateID, resp.GetConflict().GetConcertCandidate().GetId().GetValue())
+	})
+
+	t.Run("approve with an area and a time zone", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert-candidate "Approve with an area and a time zone"
+		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
+		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified,
+			new("California"), new("America/Los_Angeles"), "admin-sub-123").Return(&usecase.ApproveResult{}, nil).Once()
+		h := newAdminConcertCandidateHandler(t, adminUC)
+
+		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.ApproveRequest{
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: concertCandidateID},
+			AdminArea:          &entityv1.AreaQuery{Value: "California"},
+			TimeZone:           &entityv1.TimeZone{Value: "America/Los_Angeles"},
+		}, h.Approve)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("area text too long", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert-candidate "Area text too long"
+		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
+
+		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.ApproveRequest{
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: concertCandidateID},
+			AdminArea:          &entityv1.AreaQuery{Value: strings.Repeat("a", 101)},
+		}, h.Approve)
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
 	t.Run("reject without a reason", func(t *testing.T) {

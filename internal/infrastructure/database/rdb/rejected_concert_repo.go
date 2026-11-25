@@ -17,10 +17,10 @@ const insertRejectedConcertQuery = `
 	INSERT INTO rejected_concerts (
 		id, artist_id, artist_name, title, local_date, start_time, open_time,
 		listed_venue_name, admin_area, source_url,
-		resolved_place_id, resolved_venue_name, resolved_admin_area,
+		resolved_place_id, time_zone,
 		reason, reviewed_by
 	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 `
 
 // NewRejectedConcertRepository creates a new RejectedConcertRepository
@@ -43,8 +43,7 @@ func (r *RejectedConcertRepository) Append(ctx context.Context, log *entity.Reje
 		log.AdminArea,
 		log.SourceURL,
 		log.ResolvedPlaceID,
-		log.ResolvedVenueName,
-		log.ResolvedAdminArea,
+		log.TimeZone,
 		log.Reason,
 		log.ReviewedBy,
 	)

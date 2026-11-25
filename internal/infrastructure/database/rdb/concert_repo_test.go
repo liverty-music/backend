@@ -67,7 +67,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
 		{
-			_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"})
+			_, cErr := venueRepo.Create(ctx, storable(&entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
 			require.NoError(t, cErr)
 		}
 	}
@@ -530,7 +530,7 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	)
 	require.NoError(t, err)
 	{
-		_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Co-Headliner Arena"})
+		_, cErr := venueRepo.Create(ctx, storable(&entity.Venue{ID: venueID, Name: "Co-Headliner Arena"}))
 		require.NoError(t, cErr)
 	}
 	seriesID := seedSeries(t, ctx, seriesRepo, "Triple Bill")
@@ -593,7 +593,7 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	{
-		_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Shared Arena"})
+		_, cErr := venueRepo.Create(ctx, storable(&entity.Venue{ID: venueID, Name: "Shared Arena"}))
 		require.NoError(t, cErr)
 	}
 
@@ -724,7 +724,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 			{
-				_, cErr := venueRepo.Create(ctx, venue)
+				_, cErr := venueRepo.Create(ctx, storable(venue))
 				require.NoError(t, cErr)
 			}
 
@@ -770,7 +770,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	require.NoError(t, err)
 	_, err = artistRepo.Create(ctx, testArtist2)
 	require.NoError(t, err)
-	_, err = venueRepo.Create(ctx, testVenue)
+	_, err = venueRepo.Create(ctx, storable(testVenue))
 	require.NoError(t, err)
 
 	// Relative to now so the "upcoming" filter stays correct over time (a
@@ -955,7 +955,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -988,7 +988,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1040,7 +1040,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 			Coordinates: &entity.Coordinates{Latitude: 33.5904, Longitude: 130.4017},
 		}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1101,7 +1101,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6012", Name: "No Coord Venue"}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1155,7 +1155,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5021", Name: "Follower Test Venue"}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1218,7 +1218,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
 		}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1277,7 +1277,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5024", Name: "Date Venue"}
 		{
-			_, cErr := venueRepo.Create(ctx, venue)
+			_, cErr := venueRepo.Create(ctx, storable(venue))
 			require.NoError(t, cErr)
 		}
 
@@ -1446,7 +1446,7 @@ func TestConcertRepository_List(t *testing.T) {
 		require.NoError(t, err)
 		venueID := newTestID(t)
 		{
-			_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "List Test Arena"})
+			_, cErr := venueRepo.Create(ctx, storable(&entity.Venue{ID: venueID, Name: "List Test Arena"}))
 			require.NoError(t, cErr)
 		}
 
@@ -1499,7 +1499,7 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: newTestID(t), Name: "Adopt Test Arena"}
-		_, err = venueRepo.Create(ctx, venue)
+		_, err = venueRepo.Create(ctx, storable(venue))
 		require.NoError(t, err)
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-11-30")
@@ -1549,7 +1549,7 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: newTestID(t), Name: "List Events Arena"}
-		_, err = venueRepo.Create(ctx, venue)
+		_, err = venueRepo.Create(ctx, storable(venue))
 		require.NoError(t, err)
 
 		seriesID := seedSeries(t, ctx, seriesRepo, "List Events Series")
@@ -1564,10 +1564,10 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 		// (venue, date, start) natural key never collides.
 		matineeID, eveningID, unannouncedID, laterID := newTestID(t), newTestID(t), newTestID(t), newTestID(t)
 		venue2 := &entity.Venue{ID: newTestID(t), Name: "List Events Arena 2"}
-		_, err = venueRepo.Create(ctx, venue2)
+		_, err = venueRepo.Create(ctx, storable(venue2))
 		require.NoError(t, err)
 		venue3 := &entity.Venue{ID: newTestID(t), Name: "List Events Arena 3"}
-		_, err = venueRepo.Create(ctx, venue3)
+		_, err = venueRepo.Create(ctx, storable(venue3))
 		require.NoError(t, err)
 
 		requireCreate(t, ctx, concertRepo,

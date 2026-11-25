@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -18,84 +19,56 @@ func TestVenueRepository_Create(t *testing.T) {
 	db := newTestDB(t)
 	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
+	fetched := time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC)
 
-	type args struct {
+	t.Run("Venue abroad", func(t *testing.T) {
+		// @spec components/entity/venue/create "Venue abroad"
+		// @spec components/entity/venue/create "New venue"
+		v := &entity.Venue{ID: uuid.NewV7().String(), Name: "Gocheok Sky Dome", AdminArea: new("KR-11"), TimeZone: new("Asia/Seoul"), ListedVenueName: new("Gocheok Sky Dome")}
+		id, err := repo.Create(ctx, v)
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "KR-11", *got.AdminArea)
+		assert.Equal(t, "Asia/Seoul", *got.TimeZone)
+	})
+	t.Run("Coordinates with their fetch time", func(t *testing.T) {
+		// @spec components/entity/venue/create "Coordinates with their fetch time"
+		v := &entity.Venue{ID: uuid.NewV7().String(), Name: "Zepp Haneda(TOKYO)", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"),
+			GooglePlaceID: new("ChIJhaneda"), Coordinates: &entity.Coordinates{Latitude: 35.55, Longitude: 139.78}, CoordinatesFetchTime: &fetched}
+		id, err := repo.Create(ctx, v)
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, v.Coordinates, got.Coordinates)
+		assert.True(t, fetched.Equal(*got.CoordinatesFetchTime))
+	})
+
+	for _, tc := range []struct {
+		name  string
 		venue *entity.Venue
-	}
-
-	tests := []struct {
-		name    string
-		args    args
-		wantErr error
 	}{
-		{
-			name: "create valid venue",
-			args: args{
-				venue: &entity.Venue{
-					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
-					Name: "Test Arena",
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "create venue with admin_area",
-			args: args{
-				venue: &entity.Venue{
-					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e5",
-					Name:      "Zepp Nagoya",
-					AdminArea: new("JP-23"),
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "create venue with google_place_id and coordinates",
-			args: args{
-				venue: &entity.Venue{
-					ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49ea",
-					Name:          "Zepp Sapporo",
-					GooglePlaceID: new("ChIJtest123"),
-					Coordinates:   &entity.Coordinates{Latitude: 43.0618, Longitude: 141.3545},
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			// Untargeted ON CONFLICT DO NOTHING also absorbs a primary-key
-			// collision; with no place_id or listed_venue_name to re-SELECT on,
-			// there is no surviving natural-key row to return, so Create surfaces
-			// Internal rather than silently returning an empty id. (A real UUIDv7
-			// never collides, so this only guards the degenerate path.)
-			name: "duplicate venue ID with no natural key",
-			args: args{
-				venue: &entity.Venue{
-					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
-					Name: "Duplicate Arena",
-				},
-			},
-			wantErr: apperr.ErrInternal,
-		},
-		{
-			name: "empty venue name",
-			args: args{
-				venue: &entity.Venue{
-					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e2",
-					Name: "",
-				},
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := repo.Create(ctx, tt.args.venue)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
+		// @spec components/entity/venue/create "No admin area"
+		{name: "No admin area", venue: &entity.Venue{Name: "Hall", TimeZone: new("Asia/Tokyo")}},
+		// @spec components/entity/venue/create "Lower-level code"
+		{name: "Lower-level code", venue: &entity.Venue{Name: "Hall", AdminArea: new("FR-33"), TimeZone: new("Europe/Paris")}},
+		// @spec components/entity/venue/create "No time zone"
+		{name: "No time zone", venue: &entity.Venue{Name: "Hall", AdminArea: new("JP-13")}},
+		// @spec components/entity/venue/create "Time zone of another country"
+		{name: "Time zone of another country", venue: &entity.Venue{Name: "Hall", AdminArea: new("JP-13"), TimeZone: new("Asia/Seoul")}},
+		// @spec components/entity/venue/create "Time zone other than the Area's own"
+		{name: "Time zone other than the Area's own", venue: &entity.Venue{Name: "Hall", AdminArea: new("US-CA"), TimeZone: new("America/New_York")}},
+		// @spec components/entity/venue/create "Coordinates without a fetch time"
+		{name: "Coordinates without a fetch time", venue: &entity.Venue{Name: "Hall", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"),
+			Coordinates: &entity.Coordinates{Latitude: 35, Longitude: 139}}},
+		{name: "empty venue name", venue: &entity.Venue{Name: "", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.venue.ID = uuid.NewV7().String()
+			_, err := repo.Create(ctx, tc.venue)
+			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			_, err = repo.Get(ctx, tc.venue.ID)
+			assert.ErrorIs(t, err, apperr.ErrNotFound, "nothing is stored")
 		})
 	}
 }
@@ -107,8 +80,10 @@ func TestVenueRepository_Get(t *testing.T) {
 	ctx := context.Background()
 
 	testVenue := &entity.Venue{
-		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
-		Name: "Get Test Arena",
+		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
+		AdminArea: new("JP-13"),
+		TimeZone:  new("Asia/Tokyo"),
+		Name:      "Get Test Arena",
 	}
 	{
 		_, cErr := repo.Create(ctx, testVenue)
@@ -119,6 +94,7 @@ func TestVenueRepository_Get(t *testing.T) {
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 		Name:      "Zepp Tokyo",
 		AdminArea: new("JP-13"),
+		TimeZone:  new("Asia/Tokyo"),
 	}
 	{
 		_, cErr := repo.Create(ctx, testVenueWithAdminArea)
@@ -135,8 +111,10 @@ func TestVenueRepository_Get(t *testing.T) {
 			name: "get existing venue",
 			id:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
 			want: &entity.Venue{
-				ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
-				Name: "Get Test Arena",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
+				AdminArea: new("JP-13"),
+				TimeZone:  new("Asia/Tokyo"),
+				Name:      "Get Test Arena",
 			},
 		},
 		{
@@ -146,6 +124,7 @@ func TestVenueRepository_Get(t *testing.T) {
 				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 				Name:      "Zepp Tokyo",
 				AdminArea: new("JP-13"),
+				TimeZone:  new("Asia/Tokyo"),
 			},
 		},
 		{
@@ -188,80 +167,35 @@ func TestVenueRepository_GetByListedName(t *testing.T) {
 	repo := rdb.NewVenueRepository(db)
 	ctx := context.Background()
 
-	adminArea := "JP-13"
-	listedName := "武道館"
-
-	// Seed: venue with listed_venue_name and admin_area.
-	seededWithArea := &entity.Venue{
-		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b50a1",
-		Name:            "Nippon Budokan",
-		AdminArea:       &adminArea,
-		GooglePlaceID:   new("ChIJbudokan001"),
-		ListedVenueName: &listedName,
-	}
-	{
-		_, cErr := repo.Create(ctx, seededWithArea)
-		require.NoError(t, cErr)
+	budokan := &entity.Venue{ID: uuid.NewV7().String(), Name: "日本武道館", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: new("日本武道館")}
+	haneda := &entity.Venue{ID: uuid.NewV7().String(), Name: "Zepp Haneda", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: new("Zepp Haneda")}
+	clubX := &entity.Venue{ID: uuid.NewV7().String(), Name: "Club X", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: new("Club X")}
+	for _, v := range []*entity.Venue{budokan, haneda, clubX} {
+		_, err := repo.Create(ctx, v)
+		require.NoError(t, err)
 	}
 
-	// Seed: venue with listed_venue_name and NULL admin_area.
-	listedNameNoArea := "Zepp DiverCity"
-	seededNoArea := &entity.Venue{
-		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b50a2",
-		Name:            "Zepp DiverCity Tokyo",
-		GooglePlaceID:   new("ChIJzepp001"),
-		ListedVenueName: &listedNameNoArea,
-	}
-	{
-		_, cErr := repo.Create(ctx, seededNoArea)
-		require.NoError(t, cErr)
-	}
-
-	type args struct {
-		listedVenueName string
-		adminArea       *string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantID  string
-		wantErr error
-	}{
-		{
-			name:   "found by listed name and admin area",
-			args:   args{listedVenueName: "武道館", adminArea: &adminArea},
-			wantID: seededWithArea.ID,
-		},
-		{
-			name:   "found by listed name with NULL admin area",
-			args:   args{listedVenueName: "Zepp DiverCity", adminArea: nil},
-			wantID: seededNoArea.ID,
-		},
-		{
-			name:    "not found: unknown listed name",
-			args:    args{listedVenueName: "Unknown Hall", adminArea: nil},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name:    "not found: correct name but wrong admin area",
-			args:    args{listedVenueName: "武道館", adminArea: new("JP-27")},
-			wantErr: apperr.ErrNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := repo.GetByListedName(ctx, tt.args.listedVenueName, tt.args.adminArea)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, tt.wantID, got.ID)
-		})
-	}
+	t.Run("Match", func(t *testing.T) {
+		// @spec components/entity/venue/get-by-listed-name "Match"
+		got, err := repo.GetByListedName(ctx, "日本武道館", "JP-13")
+		require.NoError(t, err)
+		assert.Equal(t, budokan.ID, got.ID)
+	})
+	t.Run("Different case misses", func(t *testing.T) {
+		// @spec components/entity/venue/get-by-listed-name "Different case misses"
+		_, err := repo.GetByListedName(ctx, "zepp haneda", "JP-13")
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+	t.Run("Other admin area misses", func(t *testing.T) {
+		// @spec components/entity/venue/get-by-listed-name "Other admin area misses"
+		_, err := repo.GetByListedName(ctx, "Club X", "JP-27")
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+	t.Run("No admin area given", func(t *testing.T) {
+		// @spec components/entity/venue/get-by-listed-name "No admin area given"
+		_, err := repo.GetByListedName(ctx, "Club X", "")
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
 }
 
 func TestVenueRepository_GetByPlaceID(t *testing.T) {
@@ -273,6 +207,8 @@ func TestVenueRepository_GetByPlaceID(t *testing.T) {
 	// Seed a venue with a known GooglePlaceID so the happy-path test can find it.
 	seededVenue := &entity.Venue{
 		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49eb",
+		AdminArea:     new("JP-13"),
+		TimeZone:      new("Asia/Tokyo"),
 		Name:          "Place ID Test Arena",
 		GooglePlaceID: new("ChIJtest456"),
 	}
@@ -346,6 +282,7 @@ func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
 		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4a01",
 		Name:            "Wakayama Big Whale",
 		AdminArea:       new("JP-30"),
+		TimeZone:        new("Asia/Tokyo"),
 		GooglePlaceID:   new("CID-A"),
 		ListedVenueName: new(listedName),
 	}
@@ -360,6 +297,7 @@ func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
 			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4a02",
 			Name:            "Wakayama Big Whale (dup)",
 			AdminArea:       new("JP-30"),
+			TimeZone:        new("Asia/Tokyo"),
 			GooglePlaceID:   new("CID-B"),
 			ListedVenueName: new(listedName),
 		})
@@ -390,6 +328,7 @@ func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
 				ID:              uuid.NewV7().String(),
 				Name:            "Concurrent Hall Canonical",
 				AdminArea:       new("JP-13"),
+				TimeZone:        new("Asia/Tokyo"),
 				ListedVenueName: new(listedName),
 			})
 			ids[i] = id
@@ -414,6 +353,8 @@ func TestVenueRepository_BackfillPlaceID(t *testing.T) {
 	t.Run("fills a NULL place_id and never overwrites a non-NULL one", func(t *testing.T) {
 		v := &entity.Venue{
 			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b01",
+			AdminArea:       new("JP-13"),
+			TimeZone:        new("Asia/Tokyo"),
 			Name:            "Backfill Hall",
 			ListedVenueName: new("Backfill Hall Listed"),
 		}
@@ -437,6 +378,8 @@ func TestVenueRepository_BackfillPlaceID(t *testing.T) {
 	t.Run("degrades to a no-op when the place_id already belongs to another venue", func(t *testing.T) {
 		owner := &entity.Venue{
 			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b02",
+			AdminArea:       new("JP-13"),
+			TimeZone:        new("Asia/Tokyo"),
 			Name:            "Owner Hall",
 			GooglePlaceID:   new("CID-TAKEN"),
 			ListedVenueName: new("Owner Hall Listed"),
@@ -446,6 +389,8 @@ func TestVenueRepository_BackfillPlaceID(t *testing.T) {
 
 		orphan := &entity.Venue{
 			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b03",
+			AdminArea:       new("JP-13"),
+			TimeZone:        new("Asia/Tokyo"),
 			Name:            "Orphan Hall",
 			ListedVenueName: new("Orphan Hall Listed"),
 		}

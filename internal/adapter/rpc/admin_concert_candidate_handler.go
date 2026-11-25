@@ -78,7 +78,15 @@ func (h *AdminConcertCandidateHandler) Approve(
 	concertCandidateID := req.GetConcertCandidateId().GetValue()
 	resolution := approveResolutionFromProto(req.GetResolution())
 
-	result, err := h.concertCandidateUC.Approve(ctx, concertCandidateID, resolution, reviewerSub)
+	var area, timeZone *string
+	if req.GetAdminArea() != nil {
+		area = new(req.GetAdminArea().GetValue())
+	}
+	if req.GetTimeZone() != nil {
+		timeZone = new(req.GetTimeZone().GetValue())
+	}
+
+	result, err := h.concertCandidateUC.Approve(ctx, concertCandidateID, resolution, area, timeZone, reviewerSub)
 	if err != nil {
 		return nil, err
 	}

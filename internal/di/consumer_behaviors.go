@@ -192,7 +192,7 @@ func (b *consumerBuilder) notificationUseCase() (usecase.NotificationUseCase, er
 // SearchNewConcertsOnFirstFollow when FOLLOW.created fires.
 func (b *consumerBuilder) concertUseCase(extHTTPClient *http.Client) (usecase.ConcertUseCase, error) {
 	cfg, db, logger := b.cfg, b.db, b.logger
-	geminiSearcher, err := provideConcertSearcher(b.ctx, cfg.GCP, posthog.NewGenerationReporter(b.analyticsClient, logger), extHTTPClient, logger)
+	geminiSearcher, err := provideConcertSearcher(b.ctx, cfg.GCP, posthog.NewGenerationReporter(b.analyticsClient, logger), extHTTPClient, b.areaRepo, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create gemini concert searcher: %w", err)
 	}

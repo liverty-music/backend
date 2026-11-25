@@ -228,7 +228,7 @@ func (w *apiWiring) buildCatalogue() error {
 	var err error
 	// Infrastructure - Gemini (optional)
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, nil, geminiHTTPClient, logger)
+	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, nil, geminiHTTPClient, w.areaRepo, logger)
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,13 @@ func (w *apiWiring) buildCatalogue() error {
 
 	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 	w.concertUC = concertUC
-	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC)
+	// Map catalog (Google Maps Places API) that members pick event venues
+	// from, and that gives a Venue made on approval its coordinates.
+	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
+	if err != nil {
+		return err
+	}
+	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC, w.mapCatalog)
 	w.artistUC = usecase.NewArtistUseCase(w.artistRepo, w.organizerRepo, lastfmClient, musicbrainzClient, w.artistCache, time.Now, logger)
 	w.followUC = usecase.NewFollowUseCase(w.followRepo, w.artistRepo, musicbrainzClient, w.businessMetrics, logger)
 	w.externals = append(w.externals, lastfmClient, musicbrainzClient)
@@ -296,12 +302,6 @@ func (w *apiWiring) buildOrganizer() error {
 	// in the provisioning state after a partial failure.
 	if cfg.ProvisionsOrganizers() {
 		startOrganizerReconciler(ctx, w.organizerUC, logger)
-	}
-	// Map catalog (Google Maps Places API) that members pick event
-	// venues from.
-	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
-	if err != nil {
-		return err
 	}
 	w.seriesUC = usecase.NewSeriesUseCase(w.seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), w.venueRepo, w.mapCatalog, w.organizerRepo, w.ticketSaleRepo,
 		w.imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, logger, time.Now)

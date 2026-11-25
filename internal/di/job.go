@@ -67,7 +67,7 @@ func provideJobConcertUseCase(ctx context.Context, cfg *config.JobConfig, db *rd
 		return nil, fmt.Errorf("GCP_GEMINI_SEARCH_API_KEY is required for the discovery job in non-local environments")
 	}
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), geminiHTTPClient, logger)
+	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), geminiHTTPClient, rdb.NewAreaRepository(db), logger)
 	if err != nil {
 		return nil, err
 	}

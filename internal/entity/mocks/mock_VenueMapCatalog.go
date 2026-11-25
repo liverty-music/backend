@@ -115,6 +115,74 @@ func (_c *MockVenueMapCatalog_GetPlace_Call) RunAndReturn(run func(ctx context.C
 	return _c
 }
 
+// GetPlaceCoordinates provides a mock function for the type MockVenueMapCatalog
+func (_mock *MockVenueMapCatalog) GetPlaceCoordinates(ctx context.Context, placeID string) (*entity.PlaceCoordinates, error) {
+	ret := _mock.Called(ctx, placeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPlaceCoordinates")
+	}
+
+	var r0 *entity.PlaceCoordinates
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*entity.PlaceCoordinates, error)); ok {
+		return returnFunc(ctx, placeID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *entity.PlaceCoordinates); ok {
+		r0 = returnFunc(ctx, placeID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.PlaceCoordinates)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, placeID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueMapCatalog_GetPlaceCoordinates_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPlaceCoordinates'
+type MockVenueMapCatalog_GetPlaceCoordinates_Call struct {
+	*mock.Call
+}
+
+// GetPlaceCoordinates is a helper method to define mock.On call
+//   - ctx context.Context
+//   - placeID string
+func (_e *MockVenueMapCatalog_Expecter) GetPlaceCoordinates(ctx any, placeID any) *MockVenueMapCatalog_GetPlaceCoordinates_Call {
+	return &MockVenueMapCatalog_GetPlaceCoordinates_Call{Call: _e.mock.On("GetPlaceCoordinates", ctx, placeID)}
+}
+
+func (_c *MockVenueMapCatalog_GetPlaceCoordinates_Call) Run(run func(ctx context.Context, placeID string)) *MockVenueMapCatalog_GetPlaceCoordinates_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueMapCatalog_GetPlaceCoordinates_Call) Return(placeCoordinates *entity.PlaceCoordinates, err error) *MockVenueMapCatalog_GetPlaceCoordinates_Call {
+	_c.Call.Return(placeCoordinates, err)
+	return _c
+}
+
+func (_c *MockVenueMapCatalog_GetPlaceCoordinates_Call) RunAndReturn(run func(ctx context.Context, placeID string) (*entity.PlaceCoordinates, error)) *MockVenueMapCatalog_GetPlaceCoordinates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SearchPlaces provides a mock function for the type MockVenueMapCatalog
 func (_mock *MockVenueMapCatalog) SearchPlaces(ctx context.Context, text string) ([]*entity.MapPlaceCandidate, error) {
 	ret := _mock.Called(ctx, text)

@@ -147,7 +147,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.time_zone
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -168,7 +168,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.time_zone
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -188,7 +188,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -217,7 +217,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -239,7 +239,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -281,7 +281,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -308,7 +308,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -380,7 +380,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
 		&seriesImageID, &imageOrgID,
-		&venue.ID, &venue.Name, &venue.AdminArea,
+		&venue.ID, &venue.Name, &venue.AdminArea, &venue.TimeZone,
 	}
 	if withCoords {
 		dests = append(dests, &lat, &lng)
