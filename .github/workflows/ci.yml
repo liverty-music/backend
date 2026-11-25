@@ -78,6 +78,7 @@ jobs:
               - '.github/workflows/**'
             atlas:
               - 'k8s/atlas/base/migrations/**'
+              - 'k8s/atlas/base/reference-data/**'
               - 'k8s/atlas/base/kustomization.yaml'
               - 'scripts/check-migration-drift.sh'
               - 'internal/infrastructure/database/rdb/model.go'
@@ -364,7 +365,12 @@ jobs:
       # search_path=app as the Atlas Operator applies them in production, so
       # every table lands in app (#769).
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app" --dir "file://k8s/atlas/base/migrations"
+        run: |
+          atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable&search_path=app" --dir "file://k8s/atlas/base/migrations"
+          # The reference data, as the backend-reference-data AtlasMigration
+          # applies it (k8s/atlas/base/reference-data-migration.yaml).
+          atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/reference-data" \
+            --revisions-schema atlas_reference_data --baseline 20261124120000
 
       # The Makefile and Dockerfile set the same variable; without it
       # `internal/di` panics at init on the zitadel-go / pocketsign

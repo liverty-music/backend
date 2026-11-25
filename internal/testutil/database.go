@@ -2,11 +2,14 @@ package testutil
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +47,9 @@ func (d TestDatabase) URL(searchPath string) string {
 
 // NewDatabase returns a database of the test's own on the integration-test
 // PostgreSQL: a copy of a template that holds every migration of
-// k8s/atlas/base/migrations, applied with search_path=app as in production.
+// k8s/atlas/base/migrations, applied with search_path=app as in production,
+// and then the reference data of k8s/atlas/base/reference-data (the areas and
+// time zones that production's second AtlasMigration applies).
 // No other test reads or writes it, so a test needs no cleanup between runs
 // and may run in parallel with any other.
 //
@@ -52,7 +57,7 @@ func (d TestDatabase) URL(searchPath string) string {
 // (which must be on PATH), and is named after a hash of the migration files,
 // so a changed migration gets a new template. The copy is dropped when the
 // test passes and kept when it fails; `docker compose down -v` removes the
-// kept ones.
+// kept ones. The template name also covers the reference data files.
 func NewDatabase(t testing.TB) TestDatabase {
 	t.Helper()
 	port := DatabasePort()
@@ -66,7 +71,10 @@ func NewDatabase(t testing.TB) TestDatabase {
 		// The copies are owned by the server's superuser, as the shared
 		// test-db was: the tests create roles and grant them privileges.
 		TestRole: &pgtestdb.Role{Username: testDatabaseUser, Capabilities: "SUPERUSER"},
-	}, templateMigrator{atlasmigrator.NewDirMigrator(migrationsDir(t))})
+	}, templateMigrator{
+		DirMigrator:  atlasmigrator.NewDirMigrator(migrationsDir(t)),
+		referenceDir: filepath.Join(migrationsDir(t), "..", "reference-data"),
+	})
 	return TestDatabase{Port: port, Name: conf.Database}
 }
 
@@ -130,6 +138,61 @@ func migrationsDir(t testing.TB) string {
 // lock leave behind, whose privileges would otherwise reach every copy.
 type templateMigrator struct {
 	*atlasmigrator.DirMigrator
+	// referenceDir holds the reference data files, applied after the
+	// migrations in file name order.
+	referenceDir string
+}
+
+// Hash names the template after the migrations and the reference data.
+func (m templateMigrator) Hash() (string, error) {
+	h, err := m.DirMigrator.Hash()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.New()
+	sum.Write([]byte(h))
+	files, err := m.referenceFiles()
+	if err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		sum.Write([]byte(filepath.Base(f)))
+		sum.Write(b)
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+func (m templateMigrator) referenceFiles() ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(m.referenceDir, "*.sql"))
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+// applyReferenceData runs the reference data files in order. Production
+// applies them with their own Atlas history; a test template needs only the
+// rows.
+func (m templateMigrator) applyReferenceData(ctx context.Context, db *sql.DB) error {
+	files, err := m.referenceFiles()
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, string(b)); err != nil {
+			return fmt.Errorf("apply %s: %w", filepath.Base(f), err)
+		}
+	}
+	return nil
 }
 
 // Migrate builds the template; pgtestdb calls it once per migration hash.
@@ -140,6 +203,9 @@ func (m templateMigrator) Migrate(ctx context.Context, db *sql.DB, conf pgtestdb
 	}
 	defer unlock()
 	if err := m.DirMigrator.Migrate(ctx, db, conf); err != nil {
+		return err
+	}
+	if err := m.applyReferenceData(ctx, db); err != nil {
 		return err
 	}
 	rows, err := db.QueryContext(ctx, `SELECT rolname FROM pg_roles WHERE rolname LIKE '%@%.iam'`)
