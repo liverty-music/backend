@@ -244,7 +244,8 @@ func TestVenueRepository_ListWithoutAreaOrZone(t *testing.T) {
 		byID[v.VenueID] = v
 	}
 	assert.Len(t, got, 2, "the venue with an area and a zone is left out")
-	assert.Equal(t, &entity.VenueToBackfill{VenueID: noZone, ListedName: "Stubb's", AdminArea: "US-TX", SourceURL: "https://example.com/new"}, byID[noZone],
+	assert.Equal(t, &entity.VenueToBackfill{VenueID: noZone, ListedName: "Stubb's", AdminArea: "US-TX", SourceURL: "https://example.com/new",
+		Artists: "Backfill Artist", EventCount: 2, FirstEventDate: "2026-01-10"}, byID[noZone],
 		"the listed name and the latest event's source page")
 	assert.Equal(t, &entity.VenueToBackfill{VenueID: noArea, ListedName: "Legacy Hall"}, byID[noArea],
 		"the name when there is no listed name, and no source page")

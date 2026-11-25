@@ -229,6 +229,15 @@ type VenueToBackfill struct {
 	// SourceURL is the page that listed one of the venue's events; empty when
 	// none is known.
 	SourceURL string
+	// Artists names up to three artists that perform at the venue's events,
+	// separated by " / "; empty when it has no event.
+	Artists string
+	// EventCount is how many events the venue has. A venue with none is
+	// unused: no event refers to it.
+	EventCount int
+	// FirstEventDate is the date of the venue's earliest event as YYYY-MM-DD;
+	// empty when it has no event.
+	FirstEventDate string
 }
 
 // VenueAreaAnswer is what an external model answered for a venue: an area
