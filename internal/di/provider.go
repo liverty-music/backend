@@ -118,7 +118,7 @@ func provideOrganizationRepository(cfg *config.ServerConfig, logger *logging.Log
 // Application Default Credentials (Workload Identity in GKE) and bills the
 // given project. Outside local, missing credentials stop the server; local dev
 // without credentials gets a catalog whose every call fails with Unavailable.
-func newVenueMapCatalog(ctx context.Context, projectID string, isLocal bool, logger *logging.Logger) (*googlemaps.Client, error) {
+func newVenueMapCatalog(ctx context.Context, projectID string, isLocal bool, areas entity.AreaRepository, logger *logging.Logger) (*googlemaps.Client, error) {
 	ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		if !isLocal {
@@ -131,7 +131,7 @@ func newVenueMapCatalog(ctx context.Context, projectID string, isLocal bool, log
 		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
 		Timeout:   10 * time.Second,
 	}
-	return googlemaps.NewClient(ts, projectID, httpClient, logger), nil
+	return googlemaps.NewClient(ts, projectID, httpClient, areas, logger), nil
 }
 
 // unavailableTokenSource fails every token request, so a map catalog built on

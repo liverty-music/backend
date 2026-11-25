@@ -31,6 +31,12 @@ type DraftEventInput struct {
 	// PlaceID is the map catalog place id of the place the member picked.
 	// Required: an event without one is rejected.
 	PlaceID *string
+	// AdminArea is the code of the first-level Area the member saved for a
+	// new place; ignored when a Venue already holds the place id.
+	AdminArea *string
+	// TimeZone is the IANA time zone the member saved for a new place;
+	// ignored when a Venue already holds the place id.
+	TimeZone *string
 	// LocalDate is the calendar date of the performance (midnight UTC).
 	LocalDate time.Time
 	StartTime *time.Time
@@ -48,15 +54,18 @@ type DraftEventInput struct {
 type SeriesUseCase interface {
 	// Create authors a new first-party series whose events are all DRAFT. Each
 	// event's venue is the Venue holding the event's picked place id, or a new
-	// Venue created from the map catalog's place, before the series is
+	// Venue with the venue name, admin area and time zone the member saved and
+	// the map catalog place's coordinates, created before the series is
 	// stored. Nothing is announced. Returns the full authored concert.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: A required field is missing (including an event's
-	//    place id), the event list is empty, a time is inconsistent (open >
-	//    start, date in the past), or the map catalog has no place with an
-	//    event's place id.
+	//    place id, and a new place's venue name, admin area or time zone), the
+	//    admin area is not a first-level Area or the time zone is not one a
+	//    Venue in it may have, the event list is empty, a time is inconsistent
+	//    (open > start, date in the past), or the map catalog has no place with
+	//    an event's place id.
 	//  - PermissionDenied: A performer is not among the caller's represented
 	//    artists. Non-revealing.
 	//  - Unavailable: The map catalog cannot be reached for a new place.
@@ -241,9 +250,12 @@ func generateUnlistedToken() (string, error) {
 
 // resolveVenueForInput returns the id of the Venue for one event's picked
 // place: the Venue holding the place id when one is held, otherwise a new Venue
-// created from the map catalog's place (its name, coordinates and admin area).
-// A catalog NotFound becomes InvalidArgument (the member sent a place id the
-// catalog does not know); Unavailable passes through.
+// with the venue name, admin area and time zone the member saved and the map
+// catalog place's coordinates with their fetch time. The catalog's own name,
+// suggested area and zone are not stored. A new place without a saved name,
+// area or zone, or with an area or zone Venue.Create refuses, is
+// InvalidArgument; a catalog NotFound becomes InvalidArgument (the member sent
+// a place id the catalog does not know); Unavailable passes through.
 //
 // The new Venue carries no listed venue name: the member's typed name is
 // kept on the event (Event.ListedVenueName), and a listed name on the
@@ -259,6 +271,9 @@ func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEve
 	if !errors.Is(err, apperr.ErrNotFound) {
 		return "", fmt.Errorf("get venue by place id: %w", err)
 	}
+	if err := newPlaceInputComplete(inp); err != nil {
+		return "", err
+	}
 
 	place, err := uc.mapCatalog.GetPlace(ctx, placeID)
 	if err != nil {
@@ -268,17 +283,38 @@ func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEve
 		return "", fmt.Errorf("get place from map catalog: %w", err)
 	}
 
-	venueID, err := uc.venueRepo.Create(ctx, &entity.Venue{
+	venue := &entity.Venue{
 		ID:            entity.NewID(),
-		Name:          place.Name,
-		AdminArea:     place.AdminArea,
+		Name:          strings.TrimSpace(inp.VenueName),
+		AdminArea:     inp.AdminArea,
+		TimeZone:      inp.TimeZone,
 		GooglePlaceID: &placeID,
-		Coordinates:   place.Coordinates,
-	})
+	}
+	if place.Coordinates != nil {
+		fetch := place.CoordinatesFetchTime
+		venue.Coordinates = place.Coordinates
+		venue.CoordinatesFetchTime = &fetch
+	}
+	venueID, err := uc.venueRepo.Create(ctx, venue)
 	if err != nil {
 		return "", fmt.Errorf("create venue: %w", err)
 	}
 	return venueID, nil
+}
+
+// newPlaceInputComplete checks that an event for a place no Venue holds gives
+// the venue name, admin area and time zone the member saved.
+func newPlaceInputComplete(inp *DraftEventInput) error {
+	if strings.TrimSpace(inp.VenueName) == "" {
+		return apperr.New(codes.InvalidArgument, "an event at a new place must give the venue name")
+	}
+	if inp.AdminArea == nil || *inp.AdminArea == "" {
+		return apperr.New(codes.InvalidArgument, "an event at a new place must give the venue's admin area")
+	}
+	if inp.TimeZone == nil || *inp.TimeZone == "" {
+		return apperr.New(codes.InvalidArgument, "an event at a new place must give the venue's time zone")
+	}
+	return nil
 }
 
 // newDraftEvent resolves the venue of a new or DRAFT event input and returns

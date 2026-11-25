@@ -261,7 +261,7 @@ func (w *apiWiring) buildCatalogue() error {
 	w.concertUC = concertUC
 	// Map catalog (Google Maps Places API) that members pick event venues
 	// from, and that gives a Venue made on approval its coordinates.
-	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
+	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), w.areaRepo, logger)
 	if err != nil {
 		return err
 	}

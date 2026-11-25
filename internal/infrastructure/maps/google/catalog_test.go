@@ -9,11 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,9 +26,12 @@ import (
 //   - autocomplete_zepp_haneda.json: places:autocomplete "Zepp Haneda" (2026-10-13)
 //   - autocomplete_liquidro.json: places:autocomplete "LIQUIDRO" (2026-10-13)
 //   - autocomplete_no_match.json: places:autocomplete for a text with no match (2026-10-13)
-// and on 2026-10-11:
-//   - place_details_zepp_haneda.json: GET places/ChIJeVmAOuphGGARoWY4-GPmhhA
+// on 2026-10-11:
 //   - place_details_invalid_id.json: GET places/ChIJAAAAAAAAAAAAAAAAAAAAAAA (HTTP 400)
+// and on 2026-11-25, with the time zone in the field mask:
+//   - place_details_zepp_haneda.json: GET places/ChIJeVmAOuphGGARoWY4-GPmhhA
+//   - place_details_fillmore.json: GET places/ChIJO2EGsrmAhYARdDfDm-uVTQQ (San Francisco)
+//   - place_details_asiaworld_expo.json: GET places/ChIJh5kkFNIGBDQRR8StxWm9pRs (Hong Kong)
 
 const (
 	zeppHanedaPlaceID = "ChIJeVmAOuphGGARoWY4-GPmhhA"
@@ -43,6 +50,13 @@ func recordedResponse(t *testing.T, name string) []byte {
 // inspect, which runs on the server goroutine.
 func catalogServer(t *testing.T, status int, body []byte, inspect func(r *http.Request, reqBody []byte)) *google.Client {
 	t.Helper()
+	return catalogServerWithAreas(t, nil, status, body, inspect)
+}
+
+// catalogServerWithAreas is catalogServer with the Areas GetPlace resolves
+// the place's region against.
+func catalogServerWithAreas(t *testing.T, areas entity.AreaRepository, status int, body []byte, inspect func(r *http.Request, reqBody []byte)) *google.Client {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqBody, _ := io.ReadAll(r.Body)
 		if inspect != nil {
@@ -53,7 +67,7 @@ func catalogServer(t *testing.T, status int, body []byte, inspect func(r *http.R
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
-	c := google.NewClient(staticTokenSource(), "test-project", srv.Client(), testLogger(t))
+	c := google.NewClient(staticTokenSource(), "test-project", srv.Client(), areas, testLogger(t))
 	c.SetAutocompleteURL(srv.URL + "/v1/places:autocomplete")
 	c.SetDetailsBaseURL(srv.URL + "/v1/places")
 	return c
@@ -65,7 +79,7 @@ func unreachableClient(t *testing.T) *google.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close()
-	c := google.NewClient(staticTokenSource(), "test-project", http.DefaultClient, testLogger(t))
+	c := google.NewClient(staticTokenSource(), "test-project", http.DefaultClient, nil, testLogger(t))
 	c.SetAutocompleteURL(srv.URL + "/v1/places:autocomplete")
 	c.SetDetailsBaseURL(srv.URL + "/v1/places")
 	return c
@@ -182,31 +196,147 @@ func TestClient_SearchPlaces(t *testing.T) {
 	})
 }
 
+// resolvingAreas is an AreaRepository whose Resolve knows only the given
+// region texts of each country (country code -> text -> Area code), plus HK as
+// its own first-level Area; every other text is NotFound.
+func resolvingAreas(t *testing.T, known map[string]map[string]string) *mocks.MockAreaRepository {
+	t.Helper()
+	areas := mocks.NewMockAreaRepository(t)
+	areas.EXPECT().Resolve(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, text string, country *string) (*entity.Area, error) {
+			if country != nil {
+				if code, ok := known[*country][text]; ok {
+					return &entity.Area{Code: code, CountryCode: *country}, nil
+				}
+			}
+			return nil, apperr.New(codes.NotFound, "no area")
+		}).Maybe()
+	return areas
+}
+
 func TestClient_GetPlace(t *testing.T) {
 	t.Parallel()
 
+	japan := map[string]map[string]string{"JP": {"東京都": "JP-13"}}
+
 	// @spec components/entity/venue/get-place "Known place"
-	t.Run("return the name, coordinates and admin area JP-13 of Zepp Haneda", func(t *testing.T) {
+	t.Run("return the name, country JP, coordinates with their read time, JP-13 and Asia/Tokyo of Zepp Haneda", func(t *testing.T) {
 		t.Parallel()
 		var gotPath, gotLang, gotMask string
-		c := catalogServer(t, http.StatusOK, recordedResponse(t, "place_details_zepp_haneda.json"), func(r *http.Request, _ []byte) {
+		c := catalogServerWithAreas(t, resolvingAreas(t, japan), http.StatusOK, recordedResponse(t, "place_details_zepp_haneda.json"), func(r *http.Request, _ []byte) {
 			gotPath = r.URL.Path
 			gotLang = r.URL.Query().Get("languageCode")
 			gotMask = r.Header.Get("X-Goog-FieldMask")
 		})
+		before := time.Now()
 
 		got, err := c.GetPlace(context.Background(), zeppHanedaPlaceID)
 
 		require.NoError(t, err)
+		assert.WithinRange(t, got.CoordinatesFetchTime, before, time.Now())
+		got.CoordinatesFetchTime = time.Time{}
 		assert.Equal(t, &entity.MapPlace{
-			PlaceID:     zeppHanedaPlaceID,
-			Name:        "Zepp Haneda (TOKYO)",
-			Coordinates: &entity.Coordinates{Latitude: 35.5473958, Longitude: 139.7565213},
-			AdminArea:   new("JP-13"),
+			PlaceID:            zeppHanedaPlaceID,
+			Name:               "Zepp Haneda (TOKYO)",
+			CountryCode:        "JP",
+			Coordinates:        &entity.Coordinates{Latitude: 35.5473958, Longitude: 139.7565213},
+			SuggestedAdminArea: new("JP-13"),
+			TimeZone:           new("Asia/Tokyo"),
 		}, got)
 		assert.Equal(t, "/v1/places/"+zeppHanedaPlaceID, gotPath)
 		assert.Equal(t, "ja", gotLang)
-		assert.Equal(t, "id,displayName,location,addressComponents", gotMask)
+		assert.Equal(t, "id,displayName,location,addressComponents,timeZone", gotMask)
+	})
+
+	// @spec components/entity/venue/get-place "Overseas place"
+	t.Run("return the country US and US-CA for a place in California", func(t *testing.T) {
+		t.Parallel()
+		areas := resolvingAreas(t, map[string]map[string]string{"US": {"California": "US-CA"}})
+		c := catalogServerWithAreas(t, areas, http.StatusOK, recordedResponse(t, "place_details_fillmore.json"), nil)
+
+		got, err := c.GetPlace(context.Background(), "ChIJO2EGsrmAhYARdDfDm-uVTQQ")
+
+		require.NoError(t, err)
+		assert.Equal(t, "US", got.CountryCode)
+		assert.Equal(t, new("US-CA"), got.SuggestedAdminArea)
+		assert.Equal(t, new("America/Los_Angeles"), got.TimeZone)
+	})
+
+	t.Run("try the region's short name when its full name does not resolve", func(t *testing.T) {
+		t.Parallel()
+		areas := resolvingAreas(t, map[string]map[string]string{"US": {"CA": "US-CA"}})
+		c := catalogServerWithAreas(t, areas, http.StatusOK, recordedResponse(t, "place_details_fillmore.json"), nil)
+
+		got, err := c.GetPlace(context.Background(), "ChIJO2EGsrmAhYARdDfDm-uVTQQ")
+
+		require.NoError(t, err)
+		assert.Equal(t, new("US-CA"), got.SuggestedAdminArea)
+	})
+
+	// @spec components/entity/venue/get-place "Territory without subdivisions"
+	t.Run("return the country HK and the suggested admin area HK for a place in Hong Kong", func(t *testing.T) {
+		t.Parallel()
+		areas := resolvingAreas(t, map[string]map[string]string{"HK": {"HK": "HK"}})
+		c := catalogServerWithAreas(t, areas, http.StatusOK, recordedResponse(t, "place_details_asiaworld_expo.json"), nil)
+
+		got, err := c.GetPlace(context.Background(), "ChIJh5kkFNIGBDQRR8StxWm9pRs")
+
+		require.NoError(t, err)
+		assert.Equal(t, "HK", got.CountryCode)
+		assert.Equal(t, new("HK"), got.SuggestedAdminArea)
+	})
+
+	// @spec components/entity/venue/get-place "Region that does not resolve"
+	t.Run("return the place without a suggested admin area when the region names no Area of the country", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name string
+			body []byte
+		}{
+			{"region matches no Area", recordedResponse(t, "place_details_fillmore.json")},
+			{"no region in the address", []byte(`{"id":"ChIJx","displayName":{"text":"Somewhere"},
+				"addressComponents":[{"longText":"アメリカ合衆国","shortText":"US","types":["country","political"]}],
+				"timeZone":{"id":"America/Chicago"}}`)},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				c := catalogServerWithAreas(t, resolvingAreas(t, nil), http.StatusOK, tt.body, nil)
+
+				got, err := c.GetPlace(context.Background(), "ChIJx")
+
+				require.NoError(t, err)
+				assert.Equal(t, "US", got.CountryCode)
+				assert.Nil(t, got.SuggestedAdminArea)
+			})
+		}
+	})
+
+	// @spec components/entity/venue/get-place "No time zone from the catalog"
+	t.Run("return the place without a time zone when the catalog gives none", func(t *testing.T) {
+		t.Parallel()
+		body := []byte(`{"id":"ChIJx","displayName":{"text":"Zepp Haneda (TOKYO)"},
+			"addressComponents":[{"longText":"東京都","shortText":"東京都","types":["administrative_area_level_1","political"]},
+				{"longText":"日本","shortText":"JP","types":["country","political"]}]}`)
+		c := catalogServerWithAreas(t, resolvingAreas(t, japan), http.StatusOK, body, nil)
+
+		got, err := c.GetPlace(context.Background(), "ChIJx")
+
+		require.NoError(t, err)
+		assert.Nil(t, got.TimeZone)
+		assert.Equal(t, new("JP-13"), got.SuggestedAdminArea)
+	})
+
+	t.Run("fail when the Areas cannot be read", func(t *testing.T) {
+		t.Parallel()
+		areas := mocks.NewMockAreaRepository(t)
+		areas.EXPECT().Resolve(mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
+		c := catalogServerWithAreas(t, areas, http.StatusOK, recordedResponse(t, "place_details_zepp_haneda.json"), nil)
+
+		_, err := c.GetPlace(context.Background(), zeppHanedaPlaceID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
 	// @spec components/entity/venue/get-place "Unknown place id"

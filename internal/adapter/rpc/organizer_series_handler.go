@@ -91,6 +91,14 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 			v := pid.GetValue()
 			inp.PlaceID = &v
 		}
+		if area := ev.GetAdminArea(); area != nil {
+			v := area.GetValue()
+			inp.AdminArea = &v
+		}
+		if zone := ev.GetTimeZone(); zone != nil {
+			v := zone.GetValue()
+			inp.TimeZone = &v
+		}
 		if eid := ev.GetEventId(); eid != nil {
 			v := eid.GetValue()
 			inp.EventID = &v

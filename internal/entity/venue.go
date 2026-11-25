@@ -78,15 +78,23 @@ type MapPlaceCandidate struct {
 type MapPlace struct {
 	// PlaceID is the map catalog's place id (a Google Maps Place ID).
 	PlaceID string
-	// Name is the place's canonical name, in Japanese when the catalog has one.
+	// Name is the place's name, in Japanese when the catalog has one.
 	Name string
+	// CountryCode is the ISO 3166-1 alpha-2 code of the place's country.
+	CountryCode string
 	// Coordinates is the WGS 84 position of the place. Nil when the catalog
 	// gives none.
 	Coordinates *Coordinates
-	// AdminArea is the ISO 3166-2 code of the subdivision the place lies in
-	// (e.g. "JP-13"). Nil when the catalog names no subdivision that maps to a
-	// code.
-	AdminArea *string
+	// CoordinatesFetchTime is when the place was read.
+	CoordinatesFetchTime time.Time
+	// SuggestedAdminArea is the code of the first-level Area the region of
+	// the place's address stands for within its country, or the country
+	// itself when it is its own first-level Area (HK). Nil when neither
+	// applies.
+	SuggestedAdminArea *string
+	// TimeZone is the place's IANA time zone as the catalog gives it; nil
+	// when it gives none.
+	TimeZone *string
 }
 
 // PlaceCoordinates are the coordinates of a map place and when they were
